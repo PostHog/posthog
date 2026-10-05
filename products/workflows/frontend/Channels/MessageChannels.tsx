@@ -28,13 +28,14 @@ export function MessageChannels(): JSX.Element {
         setupModalType,
         selectedIntegration,
         sandboxEmailSender,
+        currentProjectId,
     } = useValues(integrationsLogic)
     const { openSetupModal, closeSetupModal, markTaskAsCompleted, ensureSandboxEmailSender } =
         useActions(integrationsLogic)
 
     useEffect(() => {
         ensureSandboxEmailSender()
-    }, [ensureSandboxEmailSender])
+    }, [ensureSandboxEmailSender, currentProjectId])
 
     const ownWorkflowIntegrations =
         integrations?.filter(

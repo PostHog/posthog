@@ -91,6 +91,29 @@ describe('emailTemplaterLogic', () => {
             await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
             expect(logic.values.senderIntegrations.map((integration) => integration.id)).toEqual(expectedIds)
         })
+
+        it('offers no Reply-To while the sandbox sender is selected, since the sandbox sender does not support it', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+                [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+            })
+            useMocks({ get: { '/api/projects/:team_id/integrations/': { results: [SANDBOX_SENDER, OWN_SENDER] } } })
+            logic = emailTemplaterLogic(
+                makeProps({
+                    sandboxSenderAllowed: true,
+                    value: { ...DEFAULT_EMAIL_TEMPLATE, from: { integrationId: 7 }, replyTo: 'replies@example.com' },
+                })
+            )
+            logic.mount()
+            await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+
+            await expectLogic(logic).toMatchValues({ isSandboxSenderSelected: true })
+            expect(logic.values.visibleFields.map((field) => field.key)).not.toContain('replyTo')
+            expect(logic.values.hiddenAdvancedFields.map((field) => field.key)).not.toContain('replyTo')
+
+            logic.actions.setEmailTemplateValue('from', { integrationId: 8 })
+            await expectLogic(logic).toMatchValues({ isSandboxSenderSelected: false })
+            expect(logic.values.visibleFields.map((field) => field.key)).toContain('replyTo')
+        })
     })
 
     describe('advanced fields', () => {

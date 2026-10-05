@@ -26,7 +26,7 @@ import {
     templateReferenceForOption,
 } from 'lib/components/CyclotronJob/cyclotronJobTemplateSuggestionsLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { SANDBOX_EMAIL_SENDER_NOTE } from 'lib/integrations/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
@@ -49,9 +49,14 @@ import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from 
 
 export type EmailEditorMode = 'full' | 'preview'
 
-// The sandbox sender is always the only sender of a step: picking it drops the others, and
-// picking an own sender while it is selected drops it.
-export function rotationSenders(
+function selectedSenderIds(value: EmailTemplateFrom | undefined): number[] {
+    if (value?.integrationIds?.length) {
+        return value.integrationIds
+    }
+    return value?.integrationId ? [value.integrationId] : []
+}
+
+function exclusiveSandboxSenders(
     integrationIds: number[],
     sandboxSenderId: number | undefined,
     sandboxSelected: boolean
@@ -60,6 +65,25 @@ export function rotationSenders(
         return integrationIds
     }
     return sandboxSelected ? integrationIds.filter((id) => id !== sandboxSenderId) : [sandboxSenderId]
+}
+
+export function selectSenders(
+    value: EmailTemplateFrom | undefined,
+    integrationIds: number[],
+    sandboxSenderId: number | undefined
+): EmailTemplateFrom | null {
+    const sandboxSelected = sandboxSenderId !== undefined && selectedSenderIds(value).includes(sandboxSenderId)
+    const senders = exclusiveSandboxSenders(integrationIds, sandboxSenderId, sandboxSelected)
+    if (senders.length > MAX_WORKFLOW_EMAIL_SENDERS) {
+        return null
+    }
+    const sandboxChosen = sandboxSenderId !== undefined && senders.includes(sandboxSenderId)
+    return {
+        ...value,
+        integrationId: senders[0],
+        integrationIds: senders.length > 1 ? senders : undefined,
+        ...(sandboxChosen ? { email: undefined, name: undefined } : {}),
+    }
 }
 
 // Maps a templater field key onto its validation message slot. Only the sender, recipient, and
@@ -290,14 +314,11 @@ export function NativeEmailIntegrationChoice({
     onChange: (value: EmailTemplateFrom) => void
     value?: EmailTemplateFrom
 }): JSX.Element {
-    const { integrationsLoading } = useValues(integrationsLogic)
-    const { logicProps, senderIntegrations, sandboxEmailSender } = useValues(emailTemplaterLogic)
+    const { logicProps, senderIntegrations, sandboxEmailSender, emailIntegrationsLoading } =
+        useValues(emailTemplaterLogic)
+    const { setEmailTemplateValue, hideAdvancedField } = useActions(emailTemplaterLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
-    const selectedIntegrationIds = value?.integrationIds?.length
-        ? value.integrationIds
-        : value?.integrationId
-          ? [value.integrationId]
-          : []
+    const selectedIntegrationIds = selectedSenderIds(value)
     const sandboxSenderId =
         sandboxEmailSender && senderIntegrations.includes(sandboxEmailSender) ? sandboxEmailSender.id : undefined
     const sandboxSelected = sandboxSenderId !== undefined && selectedIntegrationIds.includes(sandboxSenderId)
@@ -306,14 +327,16 @@ export function NativeEmailIntegrationChoice({
     // visible again on reopen without any separate reveal state.
     const overridesVisible = !sandboxSelected && (value?.email !== undefined || value?.name !== undefined)
 
-    const withSenders = (integrationIds: number[]): EmailTemplateFrom => {
-        const sandboxChosen = sandboxSenderId !== undefined && integrationIds.includes(sandboxSenderId)
-        return {
-            ...value,
-            integrationId: integrationIds[0],
-            integrationIds: integrationIds.length > 1 ? integrationIds : undefined,
-            ...(sandboxChosen ? { email: undefined, name: undefined } : {}),
+    const changeSenders = (integrationIds: number[]): void => {
+        const next = selectSenders(value, integrationIds, sandboxSenderId)
+        if (!next) {
+            return
         }
+        if (sandboxSenderId !== undefined && next.integrationId === sandboxSenderId) {
+            setEmailTemplateValue('replyTo', '')
+            hideAdvancedField('replyTo')
+        }
+        onChange(next)
     }
 
     const onChangeIntegration = (integrationId: number): void => {
@@ -321,14 +344,7 @@ export function NativeEmailIntegrationChoice({
             window.open(urls.workflows('channels'), '_blank')
             return
         }
-        onChange(withSenders([integrationId]))
-    }
-
-    const onChangeIntegrations = (integrationIds: number[]): void => {
-        if (integrationIds.length > MAX_WORKFLOW_EMAIL_SENDERS) {
-            return
-        }
-        onChange(withSenders(rotationSenders(integrationIds, sandboxSenderId, sandboxSelected)))
+        changeSenders([integrationId])
     }
 
     const senderLabel = (integration: IntegrationType): JSX.Element => (
@@ -342,7 +358,7 @@ export function NativeEmailIntegrationChoice({
         </>
     )
 
-    if (!integrationsLoading && senderIntegrations.length === 0) {
+    if (!emailIntegrationsLoading && senderIntegrations.length === 0) {
         return (
             <div className="flex gap-2 justify-between items-center">
                 {label}
@@ -373,7 +389,7 @@ export function NativeEmailIntegrationChoice({
                             className="m-1 flex-1"
                             mode="multiple"
                             placeholder="Choose email senders"
-                            loading={integrationsLoading}
+                            loading={emailIntegrationsLoading}
                             options={senderIntegrations.map((integration) => ({
                                 key: String(integration.id),
                                 label: integration.display_name,
@@ -384,7 +400,7 @@ export function NativeEmailIntegrationChoice({
                             size="small"
                             fullWidth
                             autoWidth={false}
-                            onChange={onChangeIntegrations}
+                            onChange={changeSenders}
                             data-attr="workflow-email-sender-select"
                             action={{
                                 children: 'Add new email sender',
@@ -394,7 +410,7 @@ export function NativeEmailIntegrationChoice({
                         />
                         <span className="px-2 pb-1 text-xs text-muted">
                             {sandboxSelected
-                                ? 'Delivers only to verified members of your organization.'
+                                ? SANDBOX_EMAIL_SENDER_NOTE
                                 : `Choose up to ${MAX_WORKFLOW_EMAIL_SENDERS} senders. Each workflow run uses one sender from this list.`}
                         </span>
                     </div>
@@ -404,7 +420,7 @@ export function NativeEmailIntegrationChoice({
                             className="m-1 flex-1"
                             type="tertiary"
                             placeholder="Choose email sender"
-                            loading={integrationsLoading}
+                            loading={emailIntegrationsLoading}
                             options={[
                                 {
                                     title: 'Email senders',
@@ -431,9 +447,7 @@ export function NativeEmailIntegrationChoice({
                             data-attr="workflow-email-sender-select"
                         />
                         {sandboxSelected && (
-                            <span className="px-2 pb-1 text-xs text-muted">
-                                Delivers only to verified members of your organization.
-                            </span>
+                            <span className="px-2 pb-1 text-xs text-muted">{SANDBOX_EMAIL_SENDER_NOTE}</span>
                         )}
                     </div>
                 )}

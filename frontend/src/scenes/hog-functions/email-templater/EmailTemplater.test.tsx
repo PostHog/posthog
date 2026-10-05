@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { useValues } from 'kea'
 
-import { NativeEmailIntegrationChoice, rotationSenders } from './EmailTemplater'
+import { NativeEmailIntegrationChoice, selectSenders } from './EmailTemplater'
 
 let mockSenderRotationEnabled = false
 
@@ -14,6 +14,7 @@ jest.mock('lib/hooks/useFeatureFlag', () => ({
 jest.mock('kea', () => ({
     ...jest.requireActual('kea'),
     useValues: jest.fn(),
+    useActions: () => ({ setEmailTemplateValue: jest.fn(), hideAdvancedField: jest.fn() }),
 }))
 
 jest.mock('@posthog/lemon-ui', () => ({
@@ -31,12 +32,16 @@ const SANDBOX_SENDER = { id: 7, kind: 'email', display_name: 'Acme via PostHog <
 describe('NativeEmailIntegrationChoice', () => {
     afterEach(cleanup)
 
-    const mockValues = (sandboxEmailSender: typeof SANDBOX_SENDER | null): void => {
+    const mockValues = (
+        sandboxEmailSender: typeof SANDBOX_SENDER | null,
+        overrides: Record<string, unknown> = {}
+    ): void => {
         jest.mocked(useValues).mockReturnValue({
-            integrationsLoading: false,
+            emailIntegrationsLoading: false,
             logicProps: {},
             senderIntegrations: sandboxEmailSender ? [...OWN_SENDERS, sandboxEmailSender] : OWN_SENDERS,
             sandboxEmailSender,
+            ...overrides,
         })
     }
 
@@ -73,32 +78,61 @@ describe('NativeEmailIntegrationChoice', () => {
         expect(screen.getByText('Delivers only to verified members of your organization.')).toBeInTheDocument()
     })
 
-    describe('rotationSenders', () => {
+    it('shows the picker, not the empty state, while the sandbox sender is still being created', () => {
+        mockSenderRotationEnabled = false
+        mockValues(null, { senderIntegrations: [], emailIntegrationsLoading: true })
+
+        render(<NativeEmailIntegrationChoice label="From" value={{}} onChange={jest.fn()} />)
+
+        expect(screen.queryByText('No email senders configured yet')).not.toBeInTheDocument()
+        expect(screen.getByTestId('single-email-sender-select')).toBeInTheDocument()
+    })
+
+    describe('selectSenders', () => {
+        const current = { integrationId: 1, email: 'custom@example.com', name: 'Custom' }
+
         it.each([
             {
-                case: 'picking the sandbox sender drops the own senders',
+                case: 'picking the sandbox sender keeps only it and drops the custom sender values',
                 ids: [1, 2, 7],
                 sandboxId: 7,
-                selected: false,
-                expected: [7],
+                expected: { integrationId: 7, integrationIds: undefined, email: undefined, name: undefined },
             },
             {
-                case: 'adding an own sender drops the sandbox sender',
+                case: 'adding an own sender while the sandbox sender is selected drops the sandbox sender',
+                value: { integrationId: 7 },
                 ids: [7, 1],
                 sandboxId: 7,
-                selected: true,
-                expected: [1],
+                expected: { integrationId: 1, integrationIds: undefined },
             },
-            { case: 'own senders rotate as before', ids: [1, 2], sandboxId: 7, selected: false, expected: [1, 2] },
             {
-                case: 'no sandbox sender on this surface',
+                case: 'own senders rotate and keep the custom sender values',
+                ids: [1, 2],
+                sandboxId: 7,
+                expected: { integrationId: 1, integrationIds: [1, 2], email: 'custom@example.com', name: 'Custom' },
+            },
+            {
+                case: 'picking the sandbox sender over a full rotation still works',
+                ids: [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 7],
+                sandboxId: 7,
+                expected: { integrationId: 7, integrationIds: undefined },
+            },
+            {
+                case: 'a surface without the sandbox sender treats its id like any other',
                 ids: [1, 7],
                 sandboxId: undefined,
-                selected: false,
-                expected: [1, 7],
+                expected: { integrationId: 1, integrationIds: [1, 7] },
             },
-        ])('$case', ({ ids, sandboxId, selected, expected }) => {
-            expect(rotationSenders(ids, sandboxId, selected)).toEqual(expected)
+            {
+                case: 'more senders than the limit are refused',
+                ids: [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12],
+                sandboxId: 7,
+                expected: null,
+            },
+        ])('$case', ({ value = current, ids, sandboxId, expected }) => {
+            expect(selectSenders(value, ids, sandboxId)).toEqual(
+                expected === null ? null : expect.objectContaining(expected)
+            )
         })
     })
 })

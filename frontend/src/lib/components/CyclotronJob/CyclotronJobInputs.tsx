@@ -129,7 +129,6 @@ export type CyclotronJobInputsProps = {
     // (the workflow builder's auto-save). Only the email input types read these.
     emailLiveChanges?: boolean
     emailSaveIndicator?: ReactNode
-    // Whether the PostHog-managed sandbox sender may be picked. Only workflow email steps set it.
     emailSandboxSenderAllowed?: boolean
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
@@ -594,7 +593,6 @@ type CyclotronJobInputProps = {
     emailFieldErrors?: EmailFieldErrors
     emailLiveChanges?: boolean
     emailSaveIndicator?: ReactNode
-    // Whether the PostHog-managed sandbox sender may be picked. Only workflow email steps set it.
     emailSandboxSenderAllowed?: boolean
 }
 

@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION_MEMBER, MOCK_SECOND_BASIC_USER, MOCK_SECOND_ORGANIZATION_MEMBER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -176,6 +178,7 @@ describe('messageTemplateTestSendLogic', () => {
                 post: {
                     '/api/projects/:team_id/integrations/email_sandbox_sender/': () => {
                         ensureCalls += 1
+                        integrationsPayload = [...integrationsPayload, SANDBOX_SENDER]
                         return [200, SANDBOX_SENDER]
                     },
                 },
@@ -209,36 +212,92 @@ describe('messageTemplateTestSendLogic', () => {
             expect(logic.values.emailIntegrations.map((integration) => integration.id)).toEqual(expectedSenderIds)
         })
 
-        it('lists the sandbox sender only while the flag is on', async () => {
-            await loadIntegrations([SANDBOX_SENDER])
+        it('lists the sandbox sender only while the flag is on, and drops a selection that is no longer listed', async () => {
+            await loadIntegrations([SANDBOX_SENDER, VERIFIED_OWN_SENDER])
+            logic.actions.setSenderIntegrationId(7)
             await expectLogic(logic).toMatchValues({ senderIntegrationId: 7 })
 
             featureFlagLogic.actions.setFeatureFlags([], {})
 
-            await expectLogic(logic).toMatchValues({ senderIntegrationId: null, emailIntegrations: [] })
+            await expectLogic(logic).toMatchValues({
+                senderIntegrationId: 5,
+                emailIntegrations: [expect.objectContaining({ id: 5 })],
+            })
         })
 
-        it.each([
-            { flagState: 'on', flag: true, expectedCalls: 1 },
-            { flagState: 'off', flag: false, expectedCalls: 0 },
-        ])(
-            'opening the modal creates a missing sandbox sender with the flag $flagState',
-            async ({ flag, expectedCalls }) => {
-                if (!flag) {
-                    featureFlagLogic.actions.setFeatureFlags([], {})
-                }
-                await loadIntegrations([UNVERIFIED_OWN_SENDER])
+        it('opening the modal creates a missing sandbox sender once and preselects it', async () => {
+            await loadIntegrations([UNVERIFIED_OWN_SENDER])
 
-                await expectLogic(logic, () => {
-                    logic.actions.setModalOpen(true)
-                }).toFinishAllListeners()
-                await expectLogic(integrationsLogic).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            }).toDispatchActions(integrationsLogic, ['provisionSandboxEmailSender', 'loadIntegrationsSuccess'])
+            await expectLogic(logic).toMatchValues({ senderIntegrationId: 7 })
 
-                expect(ensureCalls).toBe(expectedCalls)
-            }
-        )
+            logic.actions.setModalOpen(false)
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            }).toFinishAllListeners()
+            await expectLogic(integrationsLogic).toFinishAllListeners()
+
+            expect(ensureCalls).toBe(1)
+        })
+
+        it('does not create the sandbox sender while the flag is off, and catches up when the flag lands on an open modal', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+            await loadIntegrations([UNVERIFIED_OWN_SENDER])
+
+            await expectLogic(logic, () => {
+                logic.actions.setModalOpen(true)
+            }).toFinishAllListeners()
+            await expectLogic(integrationsLogic).toFinishAllListeners()
+            expect(ensureCalls).toBe(0)
+
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+                    [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+                })
+            })
+                .toDispatchActions(membersLogic, ['loadAllMembersSuccess'])
+                .toMatchValues({ senderIntegrationId: 7 })
+
+            expect(ensureCalls).toBe(1)
+        })
+
+        it('sends a sandbox test without the template Reply-To, which the sandbox sender does not support', async () => {
+            await loadIntegrations([SANDBOX_SENDER])
+            templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
+            templateLogic.actions.setTemplateValue('content.email.replyTo', 'replies@example.com')
+            logic.actions.setRecipientEmail('rose.dawson@posthog.com')
+
+            await expectLogic(logic, () => {
+                logic.actions.sendTestEmail()
+            }).toDispatchActions(['sendTestEmailSuccess'])
+
+            const emailAction = capturedBody.configuration.actions.find((a: any) => a.type === 'function_email')
+            expect(emailAction.config.inputs.email.value).toMatchObject({ from: { integrationId: 7 }, replyTo: '' })
+        })
 
         it('warns about a recipient outside the organization and blocks the send while the sandbox sender is selected', async () => {
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/members/': {
+                        results: [
+                            MOCK_DEFAULT_ORGANIZATION_MEMBER,
+                            MOCK_SECOND_ORGANIZATION_MEMBER,
+                            {
+                                ...MOCK_SECOND_ORGANIZATION_MEMBER,
+                                id: 'unverified-member',
+                                user: {
+                                    ...MOCK_SECOND_BASIC_USER,
+                                    id: 303,
+                                    email: 'unverified@posthog.com',
+                                    is_email_verified: false,
+                                },
+                            },
+                        ],
+                    },
+                },
+            })
             await loadIntegrations([SANDBOX_SENDER, VERIFIED_OWN_SENDER])
             templateLogic.actions.setTemplateValue('content.email.text', 'Hello!')
 
@@ -259,6 +318,10 @@ describe('messageTemplateTestSendLogic', () => {
                 recipientOutsideOrganization: false,
                 sendDisabledReason: undefined,
             })
+
+            logic.actions.setRecipientEmail('unverified@posthog.com')
+            await expectLogic(logic).toMatchValues({ recipientOutsideOrganization: true })
+            expect(logic.values.recipientSuggestions).not.toContain('unverified@posthog.com')
 
             logic.actions.setRecipientEmail('outsider@example.com')
             logic.actions.setSenderIntegrationId(5)

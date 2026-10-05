@@ -37,7 +37,6 @@ const OWN_SENDER = {
 type StoryArgs = {
     from: EmailTemplateFrom
     sandboxSenderAllowed: boolean
-    rotation: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -81,18 +80,17 @@ const sandboxFlag = (rotation: boolean): string[] =>
         : [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]
 
 export const OwnSenderSelected: StoryFn<StoryArgs> = Template.bind({})
-OwnSenderSelected.args = { from: { integrationId: OWN_SENDER.id }, sandboxSenderAllowed: true, rotation: false }
+OwnSenderSelected.args = { from: { integrationId: OWN_SENDER.id }, sandboxSenderAllowed: true }
 OwnSenderSelected.parameters = { featureFlags: sandboxFlag(false) }
 
 export const SandboxSenderSelected: StoryFn<StoryArgs> = Template.bind({})
-SandboxSenderSelected.args = { from: { integrationId: SANDBOX_SENDER.id }, sandboxSenderAllowed: true, rotation: false }
+SandboxSenderSelected.args = { from: { integrationId: SANDBOX_SENDER.id }, sandboxSenderAllowed: true }
 SandboxSenderSelected.parameters = { featureFlags: sandboxFlag(false) }
 
 export const SandboxSenderSelectedInRotation: StoryFn<StoryArgs> = Template.bind({})
 SandboxSenderSelectedInRotation.args = {
     from: { integrationId: SANDBOX_SENDER.id },
     sandboxSenderAllowed: true,
-    rotation: true,
 }
 SandboxSenderSelectedInRotation.parameters = { featureFlags: sandboxFlag(true) }
 
@@ -100,6 +98,5 @@ export const SandboxSenderHiddenOnBroadcast: StoryFn<StoryArgs> = Template.bind(
 SandboxSenderHiddenOnBroadcast.args = {
     from: { integrationId: OWN_SENDER.id },
     sandboxSenderAllowed: false,
-    rotation: false,
 }
 SandboxSenderHiddenOnBroadcast.parameters = { featureFlags: sandboxFlag(false) }

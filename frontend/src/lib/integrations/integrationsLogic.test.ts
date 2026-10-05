@@ -184,22 +184,70 @@ describe('integrationsLogic', () => {
             expect(ensureCalls).toBe(0)
         })
 
-        it('treats a 404 from the endpoint as unavailable, without a failure or a retry', async () => {
-            enableFlag()
-            ensureStatus = 404
+        it.each([
+            { outcome: 'a 404', status: 404 },
+            { outcome: 'a server error', status: 500 },
+        ])(
+            'stops after $outcome from the endpoint, without a failure toast or a retry on reload',
+            async ({ status }) => {
+                enableFlag()
+                ensureStatus = status
 
-            await expectLogic(logic, () => {
-                logic.actions.ensureSandboxEmailSender()
-            })
-                .toDispatchActions(['provisionSandboxEmailSender', 'provisionSandboxEmailSenderSuccess'])
-                .toNotHaveDispatchedActions(['provisionSandboxEmailSenderFailure'])
+                await expectLogic(logic, () => {
+                    logic.actions.ensureSandboxEmailSender()
+                })
+                    .toDispatchActions(['provisionSandboxEmailSender', 'provisionSandboxEmailSenderSuccess'])
+                    .toNotHaveDispatchedActions(['provisionSandboxEmailSenderFailure'])
 
+                await expectLogic(logic, () => {
+                    logic.actions.ensureSandboxEmailSender()
+                    logic.actions.loadIntegrations()
+                })
+                    .toDispatchActions(['loadIntegrationsSuccess'])
+                    .toFinishAllListeners()
+
+                expect(ensureCalls).toBe(1)
+                expect(logic.values.sandboxEmailSender).toBeNull()
+            }
+        )
+
+        it('provisions once the flag arrives after a surface asked for the sandbox sender', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ensureSandboxEmailSender()
             }).toFinishAllListeners()
+            expect(ensureCalls).toBe(0)
+
+            await expectLogic(logic, () => {
+                enableFlag()
+            }).toDispatchActions(['provisionSandboxEmailSender', 'loadIntegrationsSuccess'])
 
             expect(ensureCalls).toBe(1)
-            expect(logic.values.sandboxEmailSender).toBeNull()
+        })
+
+        it('forgets the request and an in-flight result when the project switches', async () => {
+            enableFlag()
+            let releaseEnsure: () => void = () => {}
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/integrations/email_sandbox_sender/': async () => {
+                        ensureCalls += 1
+                        await new Promise<void>((resolve) => (releaseEnsure = resolve))
+                        return [404, {}]
+                    },
+                },
+            })
+            await expectLogic(logic, () => {
+                logic.actions.ensureSandboxEmailSender()
+            }).toDispatchActions(['provisionSandboxEmailSender'])
+
+            await expectLogic(logic, () => {
+                teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, id: 999, project_id: 999 })
+            }).toDispatchActions(['clearIntegrations', 'loadIntegrationsSuccess'])
+            releaseEnsure()
+            await expectLogic(logic).toDispatchActions(['provisionSandboxEmailSenderSuccess'])
+
+            expect(ensureCalls).toBe(1)
+            expect(logic.values.sandboxEmailSenderProvisionResult).toBeNull()
         })
 
         it.each([
@@ -220,6 +268,7 @@ describe('integrationsLogic', () => {
                     .toMatchValues({
                         sandboxEmailSender: expectedSandbox,
                         ownEmailIntegrations: [expect.objectContaining({ id: ownSender.id })],
+                        userManagedIntegrations: [expect.objectContaining({ id: ownSender.id })],
                         domainGroupedEmailIntegrations: [
                             {
                                 domain: 'acme.example.com',

@@ -11,6 +11,7 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { SANDBOX_EMAIL_SENDER_NOTE } from 'lib/integrations/utils'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { urls } from 'scenes/urls'
 
@@ -91,7 +92,6 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
                         allowCustomValues
                         value={recipientEmail ? [recipientEmail] : []}
                         onChange={(values) => setRecipientEmail(values[0] ?? '')}
-                        onInputChange={(typed) => typed && setRecipientEmail(typed)}
                         options={recipientSuggestions.map((email) => ({ key: email, label: email }))}
                         placeholder="you@example.com"
                         data-attr="send-test-email-recipient"
@@ -126,9 +126,7 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
                                 fullWidth
                             />
                             {isSandboxSenderSelected && (
-                                <span className="text-xs text-secondary">
-                                    Delivers only to verified members of your organization.
-                                </span>
+                                <span className="text-xs text-secondary">{SANDBOX_EMAIL_SENDER_NOTE}</span>
                             )}
                         </>
                     ) : (
