@@ -981,6 +981,15 @@ class DropIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
 class DropForeignKeyIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "DropForeignKeyIndexConcurrently"
 
+    def analyze(self, op) -> OperationRisk:
+        # The op takes a field, and derives the index names from it only when the migration applies.
+        return OperationRisk(
+            type=self.operation_type,
+            score=self.default_score,
+            reason=self.safe_reason,
+            details={"model": op.model_name, "field": op.name},
+        )
+
 
 class SafeAddIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "SafeAddIndexConcurrently"
