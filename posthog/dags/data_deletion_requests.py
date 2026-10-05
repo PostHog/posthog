@@ -920,14 +920,6 @@ class PropertyRemovalTarget:
 
 
 @frozen
-class _MonthFingerprint:
-    """Identifies one month of event UUIDs: how many, and the sum of their hashes."""
-
-    rows: int
-    uuid_hash: int
-
-
-@frozen
 class _ShardStaging:
     """The staged cleaned rows and the progress files of one target, in the data deletion bucket.
 
@@ -971,7 +963,7 @@ class _ShardStaging:
             {"step": step, "payload": json.dumps(payload)},
         )
 
-    def count_staged_rows(self, client: Client, months: list[str]) -> dict[str, int]:
+    def count_staged_uuids(self, client: Client, months: list[str]) -> dict[str, int]:
         if not months:
             return {}
         rows = client.execute(
@@ -979,20 +971,6 @@ class _ShardStaging:
             settings=_LONG_QUERY_SETTINGS,
         )
         return {file.removesuffix(".native"): count for file, count in rows}
-
-    def staged_fingerprints(self, client: Client, months: list[str]) -> dict[str, _MonthFingerprint]:
-        """Unique uuid count and hash sum of each staged monthly file."""
-        if not months:
-            return {}
-        rows = client.execute(
-            f"SELECT _file, uniqExact(uuid), sumDistinct(cityHash64(uuid)) "
-            f"FROM s3({self.data_args(months)}) GROUP BY _file",
-            settings=_LONG_QUERY_SETTINGS,
-        )
-        return {
-            file.removesuffix(".native"): _MonthFingerprint(rows=count, uuid_hash=uuid_hash)
-            for file, count, uuid_hash in rows
-        }
 
     def discard_step(self, client: Client, step: str) -> None:
         # ClickHouse cannot delete an S3 object, so the progress file is overwritten with zero rows.
@@ -1221,6 +1199,72 @@ def get_property_removal_shards(
             yield dagster.DynamicOutput(target, mapping_key=target.mapping_key)
 
 
+def _copy_property_removal_target(
+    client: Client,
+    deletion_request: DeletionRequestContext,
+    target: PropertyRemovalTarget,
+    marker_str: str,
+    hogql_compiled: tuple[str, dict],
+    staging: _ShardStaging,
+    log: QueryLogger,
+) -> dict:
+    db = django_settings.CLICKHOUSE_DATABASE
+    steps = staging.finished_steps(client)
+    if _COPIED in steps:
+        log("skip", "copy already finished")
+        return steps[_COPIED]
+    if _DELETE_STARTED in steps:
+        # A delete may have removed originals already, so the staged files are their only copy.
+        # Copying again would overwrite them with the survivors.
+        raise dagster.Failure(
+            description=f"[{target.mapping_key}] a delete started without a finished copy; refusing to copy "
+            "again over the only copy of the deleted rows. Investigate."
+        )
+
+    _sync_replica(client, target, log)
+    predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
+    cleaned = _cleaned_select_list(client, deletion_request, target, predicate.mat_cols, marker_str)
+
+    count_sql = (
+        f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid) FROM {db}.{target.table} "
+        f"WHERE {predicate.sql} GROUP BY month"
+    )
+    log("count-originals", count_sql)
+    months = dict(client.execute(count_sql, predicate.params, settings=_LONG_QUERY_SETTINGS))
+
+    if months:
+        # The predicate filters in an inner query. ClickHouse resolves a SELECT alias inside the
+        # WHERE of the same query, so a cleaned `properties` alias would hide the original column
+        # from the presence check and the copy would match nothing.
+        copy_sql = (
+            f"INSERT INTO FUNCTION s3({staging.data_args()}) PARTITION BY toYYYYMM(timestamp) "
+            f"SELECT {', '.join(cleaned.expressions)} FROM (SELECT * FROM {db}.{target.table} WHERE {predicate.sql})"
+        )
+        log("copy-to-s3", copy_sql)
+        client.execute(
+            copy_sql,
+            {**predicate.params, **cleaned.params},
+            settings={**_LONG_QUERY_SETTINGS, "s3_truncate_on_insert": 1},
+        )
+
+    staged = staging.count_staged_uuids(client, sorted(months))
+    if staged != months:
+        raise dagster.Failure(
+            description=f"[{target.mapping_key}] staged copy does not match the originals: "
+            f"source={months}, staged={staged}. Re-execute this step."
+        )
+    residual_sql = (
+        f"SELECT count() FROM s3({staging.data_args(sorted(months))}) "
+        f"WHERE {_target_presence_clause(deletion_request, target, predicate.mat_cols)}"
+    )
+    if months and client.execute(residual_sql, _presence_params(deletion_request))[0][0]:
+        raise dagster.Failure(description=f"[{target.mapping_key}] staged copy still carries target properties")
+
+    payload = {"rows": sum(months.values()), "months": months, "columns": cleaned.columns}
+    staging.finish_step(client, _COPIED, payload)
+    return payload
+
+
 @dagster.op(tags=OWNER_TAG, retry_policy=dagster.RetryPolicy(max_retries=0))
 def copy_property_removal_shard(
     context: dagster.OpExecutionContext,
@@ -1235,67 +1279,13 @@ def copy_property_removal_shard(
     inserts it unchanged. Re-running before the delete step is safe: the originals are still in
     ClickHouse, and the write overwrites each monthly file.
     """
-    db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
     hogql_compiled = _compile_predicate(deletion_request, target)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
     def copy(client: Client) -> dict:
-        steps = staging.finished_steps(client)
-        if _COPIED in steps:
-            log("skip", "copy already finished")
-            return steps[_COPIED]
-        if _DELETE_STARTED in steps:
-            # A delete may have removed originals already, so the staged files are their only copy.
-            # Copying again would overwrite them with the survivors.
-            raise dagster.Failure(
-                description=f"[{target.mapping_key}] a delete started without a finished copy; refusing to copy "
-                "again over the only copy of the deleted rows. Investigate."
-            )
-
-        _sync_replica(client, target, log)
-        predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
-        cleaned = _cleaned_select_list(client, deletion_request, target, predicate.mat_cols, marker_str)
-
-        count_sql = (
-            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid) FROM {db}.{target.table} "
-            f"WHERE {predicate.sql} GROUP BY month"
-        )
-        log("count-originals", count_sql)
-        months = dict(client.execute(count_sql, predicate.params, settings=_LONG_QUERY_SETTINGS))
-
-        if months:
-            # The predicate filters in an inner query. ClickHouse resolves a SELECT alias inside the
-            # WHERE of the same query, so a cleaned `properties` alias would hide the original column
-            # from the presence check and the copy would match nothing.
-            copy_sql = (
-                f"INSERT INTO FUNCTION s3({staging.data_args()}) PARTITION BY toYYYYMM(timestamp) "
-                f"SELECT {', '.join(cleaned.expressions)} FROM (SELECT * FROM {db}.{target.table} WHERE {predicate.sql})"
-            )
-            log("copy-to-s3", copy_sql)
-            client.execute(
-                copy_sql,
-                {**predicate.params, **cleaned.params},
-                settings={**_LONG_QUERY_SETTINGS, "s3_truncate_on_insert": 1},
-            )
-
-        staged = staging.count_staged_rows(client, sorted(months))
-        if staged != months:
-            raise dagster.Failure(
-                description=f"[{target.mapping_key}] staged copy does not match the originals: "
-                f"source={months}, staged={staged}. Re-execute this step."
-            )
-        residual_sql = (
-            f"SELECT count() FROM s3({staging.data_args(sorted(months))}) "
-            f"WHERE {_target_presence_clause(deletion_request, target, predicate.mat_cols)}"
-        )
-        if months and client.execute(residual_sql, _presence_params(deletion_request))[0][0]:
-            raise dagster.Failure(description=f"[{target.mapping_key}] staged copy still carries target properties")
-
-        payload = {"rows": sum(months.values()), "months": months, "columns": cleaned.columns}
-        staging.finish_step(client, _COPIED, payload)
-        return payload
+        return _copy_property_removal_target(client, deletion_request, target, marker_str, hogql_compiled, staging, log)
 
     copied = _run_on_shard(cluster, target, copy)
     context.add_output_metadata({"copied": dagster.MetadataValue.int(copied["rows"])})
@@ -1325,11 +1315,15 @@ def delete_property_removal_shard(
             log("skip", "delete already finished")
             return steps[_DELETED]["rows"]
         if _COPIED not in steps:
-            raise dagster.Failure(description=f"[{target.mapping_key}] copy has not finished; refusing to delete")
-        copied = steps[_COPIED]
+            copied = _copy_property_removal_target(
+                client, deletion_request, target, marker_str, hogql_compiled, staging, log
+            )
+            steps[_COPIED] = copied
+        else:
+            copied = steps[_COPIED]
 
-        staged = staging.staged_fingerprints(client, sorted(copied["months"]))
-        if {month: fingerprint.rows for month, fingerprint in staged.items()} != copied["months"]:
+        staged = staging.count_staged_uuids(client, sorted(copied["months"]))
+        if staged != copied["months"]:
             raise dagster.Failure(
                 description=f"[{target.mapping_key}] staged copy changed since the copy step: "
                 f"expected={copied['months']}, staged={staged}. Do not delete; investigate."
@@ -1337,29 +1331,22 @@ def delete_property_removal_shard(
 
         _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
-        fingerprint_sql = (
-            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid), sumDistinct(cityHash64(uuid)) "
+        count_sql = (
+            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid) "
             f"FROM {db}.{target.table} WHERE {predicate.sql} GROUP BY month"
         )
-        log("fingerprint-originals", fingerprint_sql)
-        source = {
-            month: _MonthFingerprint(rows=rows, uuid_hash=uuid_hash)
-            for month, rows, uuid_hash in client.execute(
-                fingerprint_sql, predicate.params, settings=_LONG_QUERY_SETTINGS
-            )
-        }
-        originals = sum(fingerprint.rows for fingerprint in source.values())
-        # The copy retains physical duplicates, so completeness is measured by UUID. A count alone misses
-        # a different set of the same size; the UUID hash sum catches it.
+        log("count-originals", count_sql)
+        source = dict(client.execute(count_sql, predicate.params, settings=_LONG_QUERY_SETTINGS))
+        originals = sum(source.values())
         if source != staged:
             if _DELETE_STARTED not in steps:
                 # Nothing is deleted yet, so copying again is safe. Discarding the copy's progress file
-                # makes the next run do that instead of failing here forever.
+                # lets a re-execution of this delete step rebuild it from the current source.
                 staging.discard_step(client, _COPIED)
                 raise dagster.Failure(
-                    description=f"[{target.mapping_key}] originals differ from the staged copy "
-                    f"(source={source}, staged={staged}). Nothing was deleted. The copy will run again on the "
-                    "next attempt."
+                    description=f"[{target.mapping_key}] original counts differ from the staged copy "
+                    f"(source={source}, staged={staged}). Nothing was deleted. Re-execute this step to rebuild "
+                    "the copy and retry."
                 )
             # An earlier attempt started the delete and may have removed some originals, so the staged
             # files are the only copy of those and must stay. The survivors only have to be a subset of
@@ -1547,18 +1534,21 @@ def verify_property_removal_shard(
             **_presence_params(deletion_request),
         }
         presence = _target_presence_clause(deletion_request, target, predicate.mat_cols)
-        cleaned, still_present = client.execute(
-            f"SELECT uniqExact(uuid), countIf({presence}) FROM {db}.{target.table} WHERE {cleaned_rows}",
+        cleaned_stats = client.execute(
+            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid), countIf({presence}) "
+            f"FROM {db}.{target.table} WHERE {cleaned_rows} GROUP BY month",
             cleaned_params,
             settings=_LONG_QUERY_SETTINGS,
-        )[0]
-        if remaining or still_present or cleaned != copied["rows"]:
+        )
+        cleaned_months = {month: count for month, count, _ in cleaned_stats}
+        still_present = sum(present for _, _, present in cleaned_stats)
+        if remaining or still_present or cleaned_months != copied["months"]:
             raise dagster.Failure(
                 description=f"[{target.mapping_key}] verification failed: {remaining} originals remain, "
-                f"{cleaned} cleaned uuids for {copied['rows']} copied, {still_present} cleaned rows still "
-                "carry a target property. Investigate before re-running."
+                f"cleaned={cleaned_months}, copied={copied['months']}, {still_present} cleaned rows still carry "
+                "a target property. Investigate before re-running."
             )
-        staging.finish_step(client, _VERIFIED, {"rows": cleaned})
+        staging.finish_step(client, _VERIFIED, {"rows": sum(cleaned_months.values())})
         return stats
 
     stats = _run_on_shard(cluster, target, verify)

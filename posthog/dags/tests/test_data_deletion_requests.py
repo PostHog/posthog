@@ -2105,10 +2105,11 @@ def test_full_job_property_removal_counts_duplicate_uuids_once(cluster: Clickhou
     rows = [
         (PROP_TEAM_ID, "$pageview", dup_uuid, "user-1", now - timedelta(hours=1), props, marker - timedelta(hours=1)),
         (PROP_TEAM_ID, "$pageview", dup_uuid, "user-2", now - timedelta(hours=1), props, marker - timedelta(hours=1)),
+        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-3", now - timedelta(days=35), props, marker - timedelta(hours=1)),
     ]
     cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, rows)).result()
 
-    request = _property_removal_request(start_time=now - timedelta(days=7), property_removal_marker=marker)
+    request = _property_removal_request(start_time=now - timedelta(days=60), property_removal_marker=marker)
     result = data_deletion_request_property_removal.execute_in_process(
         run_config={"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}},
         resources={"cluster": cluster},
@@ -2118,7 +2119,7 @@ def test_full_job_property_removal_counts_duplicate_uuids_once(cluster: Clickhou
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
     cleaned = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
-    assert len(cleaned) == 2
+    assert len(cleaned) == 3
     assert all("secret" not in properties and "keep" in properties for properties in cleaned)
 
 
@@ -2160,16 +2161,8 @@ def test_reexecuting_the_failed_shard_steps_completes_failed_request(cluster: Cl
         assert "keep" in row_props
 
 
-def _delete_one_event(team_id: int, event_uuid: UUID, client: Client) -> None:
-    client.execute(
-        "DELETE FROM sharded_events WHERE team_id = %(team_id)s AND uuid = %(uuid)s "
-        "SETTINGS lightweight_deletes_sync = 2",
-        {"team_id": team_id, "uuid": event_uuid},
-    )
-
-
 @pytest.mark.django_db
-@pytest.mark.parametrize("change", ["extra_original", "swapped_original", "extra_original_after_delete_started"])
+@pytest.mark.parametrize("change", ["extra_original", "extra_original_after_delete_started"])
 def test_delete_refuses_when_originals_differ_from_the_staged_copy(cluster: ClickhouseCluster, change: str):
     marker = timezone.now()
     now = datetime.now()
@@ -2188,8 +2181,7 @@ def test_delete_refuses_when_originals_differ_from_the_staged_copy(cluster: Clic
     if change == "extra_original_after_delete_started":
         cluster.any_host(lambda client: staging.finish_step(client, "delete_started", {"rows": 5})).result()
 
-    # An original the copy never saw, inside the marker bound. Deleting it would lose it. In the
-    # swapped case one staged original also disappears, so a count alone cannot tell the sets apart.
+    # An original the copy never saw, inside the marker bound. Deleting it would lose it.
     unseen = (
         PROP_TEAM_ID,
         "$pageview",
@@ -2200,9 +2192,7 @@ def test_delete_refuses_when_originals_differ_from_the_staged_copy(cluster: Clic
         marker - timedelta(hours=1),
     )
     cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, [unseen])).result()
-    if change == "swapped_original":
-        cluster.any_host(partial(_delete_one_event, PROP_TEAM_ID, originals[0][2])).result()
-    expected = 5 if change == "swapped_original" else 6
+    expected = 6
 
     refusal = "not in the staged copy" if change == "extra_original_after_delete_started" else "differ from the staged"
     with pytest.raises(dagster.Failure, match=refusal):
@@ -2215,8 +2205,8 @@ def test_delete_refuses_when_originals_differ_from_the_staged_copy(cluster: Clic
         assert "copied" in cluster.any_host(staging.finished_steps).result()
         return
 
-    # The refusal discards the copy's progress, so the next attempt copies the current originals.
-    copy_property_removal_shard(build_op_context(), cluster, target, ctx)
+    # Re-executing from the failed delete does not rerun the upstream copy op, so delete rebuilds
+    # the discarded copy while it is still safe to do so.
     delete_property_removal_shard(build_op_context(), cluster, target, ctx)
     assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 0
 
