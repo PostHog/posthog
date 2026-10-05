@@ -206,6 +206,9 @@
     display: flex;
     flex: 1;
     flex-direction: column;
+
+    // Shrink below the content height, so the table area gets a real bound to scroll within.
+    min-height: 0;
     width: 100%;
 
     .RetentionContainer__graph {
@@ -220,7 +223,10 @@
     }
 
     .RetentionContainer__table {
-        flex-shrink: 0;
+        // A bounded scrollport, so the sticky header row stays in view while the cohorts scroll under it.
+        min-height: 0;
+        max-height: 60vh;
+        overflow: auto;
     }
 
     .LineGraph {
@@ -239,6 +245,14 @@
 
         .LineGraph {
             position: relative;
+        }
+    }
+
+    // An export has no scrollbar, so a capped or shrunk table would lose its last cohorts.
+    .ExportedInsight & {
+        .RetentionContainer__table {
+            flex-shrink: 0;
+            max-height: none;
         }
     }
 }

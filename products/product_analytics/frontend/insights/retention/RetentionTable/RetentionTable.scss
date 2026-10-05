@@ -15,19 +15,23 @@
         }
     }
 
+    thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background-color: var(--color-bg-surface-primary);
+    }
+
     td {
         padding: 0 0.15rem;
     }
 
-    tr {
+    tbody tr {
+        cursor: pointer;
         border-left: 0.25rem solid transparent;
 
-        &:not(:nth-of-type(-n + 1)) {
-            cursor: pointer;
-
-            &:hover {
-                border-left-color: var(--retention-table-color);
-            }
+        &:hover {
+            border-left-color: var(--retention-table-color);
         }
     }
 
