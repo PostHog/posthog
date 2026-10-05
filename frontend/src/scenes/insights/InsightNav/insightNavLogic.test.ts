@@ -231,6 +231,42 @@ describe('insightNavLogic', () => {
             })
         })
 
+        describe('metrics tab visibility', () => {
+            const enableMetricsBuilder = (): void => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.METRICS]: true,
+                    [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true,
+                })
+            }
+
+            it('hides the metrics tab without both flags', () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]: true })
+                expect(logic.values.tabs.map((tab) => tab.type)).not.toContain(InsightType.METRICS)
+            })
+
+            // Regression: the metrics tab came from the custom-query tab, so it went away after a switch
+            // to another tab, and nothing could open it again.
+            it('keeps the metrics tab after switching to another tab and back', async () => {
+                enableMetricsBuilder()
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.METRICS)
+                }).toFinishAllListeners()
+                expect(logic.values.activeView).toEqual(InsightType.METRICS)
+                expect(builtInsightDataLogic.values.query).toMatchObject({ kind: NodeKind.MetricsQuery, clauses: [] })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.TRENDS)
+                }).toFinishAllListeners()
+                expect(logic.values.tabs.map((tab) => tab.type)).toContain(InsightType.METRICS)
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.METRICS)
+                }).toFinishAllListeners()
+                expect(logic.values.activeView).toEqual(InsightType.METRICS)
+            })
+        })
+
         describe('query cache', () => {
             const trendsQuery: InsightVizNode = {
                 kind: NodeKind.InsightVizNode,

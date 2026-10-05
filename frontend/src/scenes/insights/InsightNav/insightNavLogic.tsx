@@ -61,6 +61,7 @@ import {
     isInsightVizNode,
     isLifecycleDataWarehouseNode,
     isLifecycleQuery,
+    isMetricsQuery,
     isPathsQuery,
     isPathsV2Query,
     isRetentionQuery,
@@ -570,6 +571,8 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     return InsightType.SQL
                 } else if (isHogQuery(query)) {
                     return InsightType.HOG
+                } else if (isMetricsQuery(query)) {
+                    return InsightType.METRICS
                 } else if (isInsightVizNode(query)) {
                     // Check for Web Analytics queries first before using the mapping
                     if (isWebAnalyticsInsightQuery(query.source)) {
@@ -641,6 +644,17 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         label: <>Hog 🦔</>,
                         type: InsightType.HOG,
                         dataAttr: 'insight-hog-tab',
+                    })
+                }
+
+                if (
+                    (featureFlags[FEATURE_FLAGS.METRICS] && featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]) ||
+                    activeView === InsightType.METRICS
+                ) {
+                    tabs.push({
+                        label: 'Metrics',
+                        type: InsightType.METRICS,
+                        dataAttr: 'insight-metrics-tab',
                     })
                 }
 
