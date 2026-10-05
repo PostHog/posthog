@@ -2903,7 +2903,7 @@
         }
     },
     "conversations-tickets-retrieve": {
-        "description": "Get a specific support ticket by ID or ticket number. Returns full ticket details including status, priority, assignee, message count, channel info, person data, and session context.",
+        "description": "Get a specific support ticket by ID or ticket number. Returns ticket details including status, priority, assignee, message count, channel info, the page the customer was on, and a compact person summary (id, name, is_identified). The response does not include person properties or the replay URL. To read the person's properties, call persons-retrieve with person.id. To watch the session, call session-recording-get with session_id.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "Get support ticket",
