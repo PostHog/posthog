@@ -69,8 +69,9 @@ DEFAULT_MAX_CONCURRENT_TEAMS = 20  # Max teams to process in parallel
 SLIDING_WINDOW_PATCH_ID = "llma-summarization-sliding-window-2026-09"
 
 # Continue-as-new waits for the running children to finish, so each continuation leaves slots idle.
-# Temporal suggests continue-as-new at about 4K history events, which is only about 480 children.
-# These limits stay below the Temporal warning levels of 10K events and 10 MiB.
+# These defaults are above the Temporal suggestion, so a run continues as new less often.
+# A run starts to wait at a limit, and the children that still run add their own events.
+# So a run closes above its limit, and the limits leave room below the Temporal warning levels (10,240 events, 10 MiB).
 CONTINUE_AS_NEW_HISTORY_LENGTH = 10_000
 CONTINUE_AS_NEW_HISTORY_SIZE_BYTES = 8 * 1024 * 1024
 FEWER_CONTINUATIONS_PATCH_ID = "llma-summarization-fewer-continuations-2026-10"

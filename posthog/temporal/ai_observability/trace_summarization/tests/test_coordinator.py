@@ -19,7 +19,6 @@ from posthog.temporal.ai_observability.shared_activities import (
     resolve_level_jobs_for_team,
 )
 from posthog.temporal.ai_observability.team_discovery import TeamDiscoveryInput
-from posthog.temporal.ai_observability.trace_summarization import constants
 from posthog.temporal.ai_observability.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
@@ -288,10 +287,22 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         assert None not in next(iter(windows))
 
     @pytest.mark.asyncio
-    async def test_continue_as_new_carries_remaining_teams_results_and_window(self, monkeypatch):
+    @pytest.mark.parametrize(
+        "inputs",
+        [
+            pytest.param(
+                BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2, continue_as_new_history_length=20),
+                id="history_length",
+            ),
+            pytest.param(
+                BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2, continue_as_new_history_size_bytes=1),
+                id="history_size",
+            ),
+        ],
+    )
+    async def test_continue_as_new_carries_remaining_teams_results_and_window(self, inputs):
         child_runs.clear()
-        monkeypatch.setattr(constants, "CONTINUE_AS_NEW_HISTORY_LENGTH", 20)
-        result = await _run_coordinator(BatchTraceSummarizationCoordinatorInputs(max_concurrent_teams=2))
+        result = await _run_coordinator(inputs)
 
         assert len({run["coordinator_run_id"] for run in child_runs}) > 1
         assert sorted(run["team_id"] for run in child_runs) == sorted(DISCOVERED_TEAM_IDS)

@@ -66,7 +66,7 @@ The coordinator fixes one window from the time Temporal started the run, and pas
 So each team covers the same hour however late in the run it starts, and consecutive runs cover consecutive hours.
 Continue-as-new carries the remaining teams and the window into the next run, so it loses nothing.
 Before it continues as new, the coordinator waits for the running teams to finish, and the free slots stay idle during that wait.
-So it continues as new only at its own history limits (`CONTINUE_AS_NEW_HISTORY_LENGTH`, `CONTINUE_AS_NEW_HISTORY_SIZE_BYTES`), not at the lower Temporal suggestion.
+So it continues as new only at its own history limits (the `continue_as_new_history_length` and `continue_as_new_history_size_bytes` inputs), not at the lower Temporal suggestion.
 A run that is skipped, or that reaches its timeout before it reaches a team, still loses that hour for the teams it did not reach.
 
 **Inputs** (`BatchTraceSummarizationCoordinatorInputs`): `max_traces`, `batch_size`, `mode`, `window_minutes`, `model` - all optional with sensible defaults.

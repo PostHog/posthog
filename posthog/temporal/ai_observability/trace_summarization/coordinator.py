@@ -31,6 +31,8 @@ from temporalio.workflow import ChildWorkflowHandle
 from posthog.temporal.ai_observability.trace_summarization import constants
 from posthog.temporal.ai_observability.trace_summarization.constants import (
     CHILD_WORKFLOW_ID_PREFIX,
+    CONTINUE_AS_NEW_HISTORY_LENGTH,
+    CONTINUE_AS_NEW_HISTORY_SIZE_BYTES,
     COORDINATOR_WORKFLOW_NAME,
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_CONCURRENT_TEAMS,
@@ -103,6 +105,10 @@ class BatchTraceSummarizationCoordinatorInputs:
     window_minutes: int = DEFAULT_WINDOW_MINUTES
     model: str = DEFAULT_MODEL
     max_concurrent_teams: int = DEFAULT_MAX_CONCURRENT_TEAMS
+    # The limits are inputs so that Temporal records them when a run starts.
+    # A replay then uses the recorded limits, and a later change to the defaults does not break a running execution.
+    continue_as_new_history_length: int = CONTINUE_AS_NEW_HISTORY_LENGTH
+    continue_as_new_history_size_bytes: int = CONTINUE_AS_NEW_HISTORY_SIZE_BYTES
     # Fields used by continue_as_new to carry state across continuations.
     # When remaining_team_ids is set, team discovery is skipped.
     remaining_team_ids: list[int] | None = None
@@ -300,8 +306,8 @@ class BatchTraceSummarizationCoordinatorWorkflow(PostHogWorkflow):
             if not fewer_continuations:
                 return info.is_continue_as_new_suggested()
             return (
-                info.get_current_history_length() >= constants.CONTINUE_AS_NEW_HISTORY_LENGTH
-                or info.get_current_history_size() >= constants.CONTINUE_AS_NEW_HISTORY_SIZE_BYTES
+                info.get_current_history_length() >= inputs.continue_as_new_history_length
+                or info.get_current_history_size() >= inputs.continue_as_new_history_size_bytes
             )
 
         for index, team_id in enumerate(team_ids):
