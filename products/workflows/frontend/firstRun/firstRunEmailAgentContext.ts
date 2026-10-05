@@ -11,6 +11,7 @@ export function buildFirstRunEmailAgentContext(
     openEmail: OpenEmail,
     position: OpenEmailPosition
 ): AttachedContextItem[] {
+    const dismissGroup = `${DISMISS_GROUP}:${template.id}`
     const { subject, preheader, text, html, design } = openEmail.email
     const state = {
         source: 'workflows_first_run_email',
@@ -19,25 +20,48 @@ export function buildFirstRunEmailAgentContext(
         email_id: openEmail.id,
         position: position.index,
         total: position.total,
-        email: { subject, preheader, text, ...(design ? { design } : { html }) },
+        email: {
+            subject,
+            preheader,
+            text,
+            body_mode: html ? 'visual' : 'plaintext',
+            ...(html ? (design ? { design } : { html }) : {}),
+        },
     }
     let serialized = JSON.stringify(state)
+    if (serialized.length > MAX_CONTEXT_CHARS && html) {
+        serialized = JSON.stringify({
+            ...state,
+            email: { subject, preheader, text, html, body_mode: 'visual' },
+            omitted_content: 'The email design exceeds the context budget. The rendered HTML is attached instead.',
+        })
+    }
     if (serialized.length > MAX_CONTEXT_CHARS) {
         serialized = JSON.stringify({
             ...state,
+            template_name: template.name.slice(0, 256),
             email: {
-                subject: subject?.slice(0, 2000),
-                preheader: preheader?.slice(0, 2000),
+                body_mode: html ? 'visual' : 'plaintext',
+                subject: subject?.slice(0, 1000),
+                preheader: preheader?.slice(0, 1000),
                 text: text?.slice(0, 6000),
             },
             omitted_content: 'The email design or body exceeds the context budget and is not attached.',
+        })
+    }
+    if (serialized.length > MAX_CONTEXT_CHARS) {
+        serialized = JSON.stringify({
+            source: state.source,
+            position: position.index,
+            total: position.total,
+            omitted_content: 'The email content and identifiers exceed the context budget and are not attached.',
         })
     }
     return [
         {
             type: 'instructions',
             hidden: true,
-            dismissGroup: DISMISS_GROUP,
+            dismissGroup,
             value:
                 'The user has Make it yours open in the Workflows first run. The text context item with source ' +
                 'workflows_first_run_email describes the selected email and its position in the sequence. ' +
@@ -51,13 +75,13 @@ export function buildFirstRunEmailAgentContext(
             type: 'skill',
             key: 'designing-email-templates',
             label: 'Designing email templates skill',
-            dismissGroup: DISMISS_GROUP,
+            dismissGroup,
         },
         {
             type: 'text',
             value: serialized,
-            label: `Email ${position.index} of ${position.total}: ${subject || 'Untitled email'}`,
-            dismissGroup: DISMISS_GROUP,
+            label: `Email ${position.index} of ${position.total}: ${subject?.slice(0, 200) || 'Untitled email'}`,
+            dismissGroup,
         },
     ]
 }

@@ -13,13 +13,14 @@ import {
 } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 import { PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { SidePanelTab } from '~/types'
+import { PreflightStatus, SidePanelTab } from '~/types'
 
-import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
+import { attachedContextItemKey, attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { buildFirstRunEmailAgentContext } from './firstRunEmailAgentContext'
@@ -39,8 +40,10 @@ export interface firstRunEmailAgentLogicValues {
     pickedTemplate: GalleryTemplate | null // firstRunMakeItYoursLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
     isMaxAvailable: boolean // maxGlobalLogic
+    preflight: PreflightStatus | null // maxGlobalLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelAvailable: boolean // sidePanelStateLogic
+    sidePanelOpen: boolean // sidePanelStateLogic
     aiDisabledReason: string | null
 }
 
@@ -78,7 +81,11 @@ export interface firstRunEmailAgentLogicActions {
 export interface firstRunEmailAgentLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        aiDisabledReason: (isMaxAvailable: boolean, effectivePhaiView: PhaiViewMode) => string | null
+        aiDisabledReason: (
+            isMaxAvailable: boolean,
+            effectivePhaiView: PhaiViewMode,
+            preflight: PreflightStatus | null
+        ) => string | null
     }
 }
 
@@ -98,9 +105,9 @@ export const firstRunEmailAgentLogic: LogicWrapper<firstRunEmailAgentLogicType> 
             firstRunMakeItYoursLogic(props),
             ['pickedTemplate', 'openEmail', 'openEmailPosition'],
             maxGlobalLogic,
-            ['isMaxAvailable', 'effectivePhaiView'],
+            ['isMaxAvailable', 'effectivePhaiView', 'preflight'],
             sidePanelStateLogic,
-            ['sidePanelAvailable', 'selectedTab'],
+            ['sidePanelAvailable', 'selectedTab', 'sidePanelOpen'],
         ],
         actions: [
             firstRunMakeItYoursLogic(props),
@@ -112,9 +119,20 @@ export const firstRunEmailAgentLogic: LogicWrapper<firstRunEmailAgentLogicType> 
     actions({ syncEmailContext: true, openEmailAgent: true }),
     selectors({
         aiDisabledReason: [
-            (s) => [s.isMaxAvailable, s.effectivePhaiView],
-            (isMaxAvailable: boolean, effectivePhaiView: string): string | null =>
-                !isMaxAvailable || effectivePhaiView !== 'new' ? 'PostHog AI is not available here yet' : null,
+            (s) => [s.isMaxAvailable, s.effectivePhaiView, s.preflight],
+            (
+                isMaxAvailable: boolean,
+                effectivePhaiView: PhaiViewMode,
+                preflight: PreflightStatus | null
+            ): string | null => {
+                if (!preflight) {
+                    return 'PostHog AI is loading'
+                }
+                if (!isMaxAvailable) {
+                    return 'PostHog AI is not available on this instance'
+                }
+                return effectivePhaiView !== 'new' ? 'Email context requires the new PostHog AI' : null
+            },
         ],
     }),
     listeners(({ values, props, actions, cache }) => {
@@ -129,7 +147,10 @@ export const firstRunEmailAgentLogic: LogicWrapper<firstRunEmailAgentLogicType> 
             actions.registerContext(providerId, items)
             if (items.length && values.sidePanelAvailable && !cache.autoOpenDecided) {
                 cache.autoOpenDecided = true
-                if (!sessionStorage.getItem('workflows-first-run-ai-dismissed')) {
+                if (
+                    !sessionStorage.getItem('workflows-first-run-ai-dismissed') &&
+                    (!values.sidePanelOpen || values.selectedTab === SidePanelTab.Max)
+                ) {
                     actions.openEmailAgent()
                 }
             }
@@ -141,15 +162,28 @@ export const firstRunEmailAgentLogic: LogicWrapper<firstRunEmailAgentLogicType> 
             [firstRunGalleryLogic.actionTypes.loadEmailTemplatesSuccess]: syncEmailContext,
             [firstRunGalleryLogic.actionTypes.loadSeenEventsSuccess]: syncEmailContext,
             [featureFlagLogic.actionTypes.setFeatureFlags]: syncEmailContext,
+            [preflightLogic.actionTypes.loadPreflightSuccess]: syncEmailContext,
             [maxGlobalLogic.actionTypes.setPhaiViewMode]: syncEmailContext,
             [sidePanelStateLogic.actionTypes.setSidePanelAvailable]: syncEmailContext,
             openEmailAgent: () => {
                 if (!values.aiDisabledReason) {
+                    for (const item of attachedContextLogic.values.providers[providerId] ?? []) {
+                        attachedContextLogic.actions.undismissContext(attachedContextItemKey(item), item.dismissGroup)
+                    }
                     sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
                 }
             },
-            [sidePanelStateLogic.actionTypes.closeSidePanel]: ({ tab }: { tab?: SidePanelTab }) => {
-                if ((!tab || tab === SidePanelTab.Max) && values.selectedTab === SidePanelTab.Max) {
+            [sidePanelStateLogic.actionTypes.closeSidePanel]: (
+                { tab }: { tab?: SidePanelTab },
+                _breakpoint,
+                _action,
+                previousState
+            ) => {
+                if (
+                    (!tab || tab === SidePanelTab.Max) &&
+                    values.selectedTab === SidePanelTab.Max &&
+                    sidePanelStateLogic.selectors.sidePanelOpen(previousState)
+                ) {
                     sessionStorage.setItem('workflows-first-run-ai-dismissed', 'true')
                 }
             },
