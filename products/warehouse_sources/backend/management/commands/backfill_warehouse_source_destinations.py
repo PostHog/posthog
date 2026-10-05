@@ -106,6 +106,8 @@ class Command(BaseCommand):
                         # as long as the group takes.
                         try:
                             with transaction.atomic():
+                                # Serialize with destination-set edits before checking for links.
+                                ExternalDataSource.objects.select_for_update().get(pk=source.pk)
                                 if scoped_links.filter(source_id=source.pk).exists():
                                     skipped_during_run += 1
                                     continue
