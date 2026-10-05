@@ -1472,19 +1472,45 @@ describe('EmailService', () => {
                 )
 
                 it.each([false, true])(
-                    'skips a send with one recipient at the daily cap and leaves the others their budget (isTest=%s)',
+                    'skips a send with recipients at the daily cap and leaves the others their budget (isTest=%s)',
                     async (isTest) => {
-                        service = createSandboxService(true, { dailyTeamCap: '3', dailyRecipientCap: '1' })
+                        service = createSandboxService(true, { dailyTeamCap: '5', dailyRecipientCap: '1' })
 
-                        expectSent(await send(isTest, { to: { email: memberEmail('cc') } }))
+                        expectSent(await send(isTest, { to: { email: memberEmail('cc') }, cc: memberEmail('bcc') }))
                         expectSkipped(
-                            await send(isTest, { to: { email: memberEmail() }, cc: memberEmail('cc').toUpperCase() }),
+                            await send(isTest, {
+                                to: { email: memberEmail() },
+                                cc: memberEmail('cc').toUpperCase(),
+                                bcc: memberEmail('bcc'),
+                            }),
                             isTest,
-                            recipientCapReached(memberEmail('cc').toUpperCase()),
-                            { reason: 'cap_reached', blocked_recipient_count: 1 }
+                            recipientCapReached(`${memberEmail('cc').toUpperCase()}, ${memberEmail('bcc')}`),
+                            { reason: 'cap_reached', blocked_recipient_count: 2 }
                         )
                         expectSent(await send(isTest, { to: { email: memberEmail() } }))
                         expect(sendEmailSpy).toHaveBeenCalledTimes(2)
+                    }
+                )
+
+                it.each([false, true])(
+                    'charges a repeated address once per address and once per copy for the project (isTest=%s)',
+                    async (isTest) => {
+                        service = createSandboxService(true, { dailyTeamCap: '3', dailyRecipientCap: '1' })
+
+                        expectSent(
+                            await send(isTest, {
+                                to: { email: memberEmail() },
+                                cc: memberEmail().toUpperCase(),
+                                bcc: ` ${memberEmail()} `,
+                            })
+                        )
+                        expectSkipped(
+                            await send(isTest, { to: { email: memberEmail('cc') } }),
+                            isTest,
+                            TEAM_CAP_REACHED,
+                            { reason: 'cap_reached', blocked_recipient_count: 1 }
+                        )
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(1)
                     }
                 )
 
