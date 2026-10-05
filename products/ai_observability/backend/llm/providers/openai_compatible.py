@@ -20,13 +20,24 @@ from urllib.parse import urlparse
 
 import httpx
 import openai
+from temporalio.exceptions import CancelledError
 
 from posthog.security.pinned_requests import SSRFBlockedError
-from posthog.security.url_validation import is_url_allowed, validate_url_and_pin_ips
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON, is_url_allowed, validate_url_and_pin_ips
 
-from products.ai_observability.backend.llm.errors import ProviderConfigurationError, error_field_for_message
+from products.ai_observability.backend.llm.errors import (
+    RESPONSE_LIMIT_MESSAGE,
+    LLMError,
+    ProviderConfigurationError,
+    ProviderHostUnresolvedError,
+    ProviderRequestRejectedError,
+    ProviderTimeoutError,
+    RateLimitError,
+    RetryableRateLimitError,
+    error_field_for_message,
+)
 from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
-from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
+from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
@@ -60,6 +71,8 @@ _ERROR_FIELD_BY_PREFIX: tuple[tuple[str, str], ...] = (
     ("Base URL must be", "base_url"),
     ("The endpoint did not return a model list", "base_url"),
     ("The endpoint redirected", "base_url"),
+    ("The endpoint returned a compressed or oversized response", "base_url"),
+    ("The endpoint did not finish", "base_url"),
     ("Could not connect to the endpoint", "base_url"),
     ("Invalid API key", "api_key"),
 )
@@ -70,18 +83,29 @@ def error_field_for_validation_message(error_message: str | None) -> str | None:
     return error_field_for_message(_ERROR_FIELD_BY_PREFIX, error_message)
 
 
-def is_allowed_custom_base_url(base_url: str) -> bool:
-    """Return True if the base URL is https:// and passes the shared SSRF validator."""
+def _custom_base_url_block_reason(base_url: str) -> str | None:
+    """Return why the base URL fails the https:// and shared SSRF checks, or None when it passes."""
     if not base_url:
-        return False
+        return DISALLOWED_BASE_URL_MESSAGE
     try:
         parsed = urlparse(base_url)
     except ValueError:
-        return False
+        return DISALLOWED_BASE_URL_MESSAGE
     if parsed.scheme != "https" or not parsed.hostname:
-        return False
-    allowed, _reason = is_url_allowed(base_url)
-    return allowed
+        return DISALLOWED_BASE_URL_MESSAGE
+    allowed, reason = is_url_allowed(base_url)
+    return None if allowed else reason or DISALLOWED_BASE_URL_MESSAGE
+
+
+def is_allowed_custom_base_url(base_url: str) -> bool:
+    """Return True if the base URL is https:// and passes the shared SSRF validator."""
+    return _custom_base_url_block_reason(base_url) is None
+
+
+def _blocked_base_url_error(reason: str) -> LLMError:
+    if reason == UNRESOLVED_HOST_REASON:
+        return ProviderHostUnresolvedError()
+    return ProviderConfigurationError(DISALLOWED_BASE_URL_MESSAGE)
 
 
 def _pinned_http_client(base_url: str, timeout: float) -> httpx.Client:
@@ -92,7 +116,12 @@ def _pinned_http_client(base_url: str, timeout: float) -> httpx.Client:
     verdict = validate_url_and_pin_ips(base_url)
     if not verdict.allowed:
         raise SSRFBlockedError(verdict.reason or "URL blocked by SSRF protection")
-    return tagged_http_client(timeout=timeout, pin=(base_url, verdict.pinned_ips), follow_redirects=False)
+    return tagged_http_client(
+        pin=(base_url, verdict.pinned_ips),
+        timeout=timeout,
+        total_timeout=timeout,
+        follow_redirects=False,
+    )
 
 
 class OpenAICompatibleAdapter(OpenAIAdapter):
@@ -107,6 +136,9 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
     """
 
     name = "openai_compatible"
+    request_timeout = 60.0
+    # Temporal owns retries; SDK retries can catch thread cancellation and start another request.
+    max_retries = 0
 
     def __init__(self, base_url: str = ""):
         self.base_url = base_url
@@ -118,13 +150,30 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
         ``settings.OPENAI_BASE_URL`` in ``OpenAIAdapter.complete`` and send the
         user's key to the wrong host.
         """
-        if not is_allowed_custom_base_url(self.base_url):
-            raise ProviderConfigurationError(DISALLOWED_BASE_URL_MESSAGE)
+        reason = _custom_base_url_block_reason(self.base_url)
+        if reason is not None:
+            raise _blocked_base_url_error(reason)
         return self.base_url
 
     def _build_http_client(self) -> httpx.Client:
         """Pin the connection to the configured endpoint's validated address."""
-        return _pinned_http_client(self._require_allowed_base_url(), OpenAIConfig.TIMEOUT)
+        try:
+            return _pinned_http_client(self._require_allowed_base_url(), self.request_timeout)
+        except SSRFBlockedError as error:
+            raise _blocked_base_url_error(str(error)) from error
+
+    def _mapped_error(self, error: Exception, model: str) -> LLMError | None:
+        cause = error.__cause__ if isinstance(error, openai.APIConnectionError) else error
+        if isinstance(cause, CancelledError):
+            raise cause
+        if isinstance(cause, httpx.DecodingError):
+            return ProviderRequestRejectedError(RESPONSE_LIMIT_MESSAGE)
+        if isinstance(cause, httpx.TimeoutException):
+            return ProviderTimeoutError(self.request_timeout)
+        mapped = super()._mapped_error(error, model)
+        if isinstance(error, openai.RateLimitError) and isinstance(mapped, RateLimitError):
+            return RetryableRateLimitError(str(error), error.response.headers.get("Retry-After"))
+        return mapped
 
     def complete(
         self,
@@ -183,7 +232,11 @@ class OpenAICompatibleAdapter(OpenAIAdapter):
                 return (LLMProviderKey.State.INVALID, REDIRECT_MESSAGE)
             logger.exception("%s key validation error", PROVIDER_DISPLAY_NAME)
             return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
-        except openai.APIConnectionError:
+        except openai.APIConnectionError as error:
+            if isinstance(error.__cause__, httpx.DecodingError):
+                return (LLMProviderKey.State.INVALID, RESPONSE_LIMIT_MESSAGE)
+            if isinstance(error.__cause__, httpx.TimeoutException):
+                return (LLMProviderKey.State.ERROR, str(ProviderTimeoutError(VALIDATION_TIMEOUT)))
             return (LLMProviderKey.State.ERROR, "Could not connect to the endpoint")
         except Exception:
             logger.exception("%s key validation error", PROVIDER_DISPLAY_NAME)

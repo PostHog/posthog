@@ -18,6 +18,7 @@ import type {
     AutoresearchListParams,
     AutoresearchModelApi,
     AutoresearchModelsListParams,
+    AutoresearchOnlinePerformanceRetrieveParams,
     AutoresearchPipelineApi,
     AutoresearchPipelineCreateApi,
     AutoresearchRunApi,
@@ -31,6 +32,7 @@ import type {
     CreateSuggestionApi,
     MaterializeFeaturesRequestApi,
     MaterializeFeaturesResponseApi,
+    OnlinePerformanceApi,
     OpenTrainingRunApi,
     PaginatedAutoresearchModelListApi,
     PaginatedAutoresearchPipelineListApi,
@@ -746,6 +748,42 @@ export const autoresearchArchiveCreate = async (
     return apiMutator<AutoresearchPipelineApi>(getAutoresearchArchiveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAutoresearchOnlinePerformanceRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AutoresearchOnlinePerformanceRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/autoresearch/${id}/online_performance/?${stringifiedParams}`
+        : `/api/projects/${projectId}/autoresearch/${id}/online_performance/`
+}
+
+/**
+ * Return the realized metrics online validation recorded for each model on each validated prediction date, newest date first. Each row has realized AUC with a 95% interval, Brier score, calibration error, quantile calibration bins, mean predicted probability against the base rate, lift, and the model's role when it emitted and now. The rows come from the validation runs, so a former champion that a promotion archived keeps its history. Read-only; it runs no queries.
+ * @summary Read realized performance history
+ */
+export const autoresearchOnlinePerformanceRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AutoresearchOnlinePerformanceRetrieveParams,
+    options?: RequestInit
+): Promise<OnlinePerformanceApi> => {
+    return apiMutator<OnlinePerformanceApi>(getAutoresearchOnlinePerformanceRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

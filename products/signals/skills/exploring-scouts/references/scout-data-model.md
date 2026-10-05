@@ -38,7 +38,7 @@ This is the scout's control surface, separate from its instruction body (the `LL
 The `replay_scanner:write` grant permits scanner maintenance across the project.
 Scouts must set a credit limit on scanners they create, copy, or enable.
 Changes to targeting, sampling, or the model of an enabled scanner also require a limit.
-Scouts cannot remove a limit, delete a scanner, or start manual scans, prompt tests, retries, or backfills.
+Scouts cannot remove a limit, delete a scanner, or start manual scans, retries, or backfills.
 They can disable a scanner and keep its observations.
 Shared ratings must record explicit user verdicts. Autonomous assessments belong in scout memory or reports.
 | `updated_at` | When the config last changed, including settings edits and system status changes. Scheduled dispatch updates `last_run_at`, not this field. |

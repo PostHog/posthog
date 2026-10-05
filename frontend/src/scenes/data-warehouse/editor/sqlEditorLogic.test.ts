@@ -32,11 +32,12 @@ import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, InsightModel } from '~/types'
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { biConnectionsLogic } from 'products/data_warehouse/frontend/bi/biConnectionsLogic'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 
 import { BI_EDITOR_EVENTS } from './bi/biEditorAnalytics'
 import { biEditorLogic } from './bi/biEditorLogic'
-import { BIConfig, BIEditorView, BIField } from './bi/biEditorTypes'
+import { BIConfig, BIEditorView, BIField, getBIFieldPillLabel, getBIShelfEditorKey } from './bi/biEditorTypes'
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import { SELECTION_NOT_A_QUERY } from './saveCandidateProblems'
@@ -1053,6 +1054,7 @@ describe('sqlEditorLogic', () => {
             expect(editorRootLogic.values.titleSectionProps).toMatchObject({
                 name: 'New SQL query',
             })
+            expect(editorRootLogic.values.projectTreeRef).toBeNull()
             expect(window.location.hash).not.toContain('insight')
             expect(window.location.search).not.toContain('open_insight')
         })
@@ -1207,37 +1209,113 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('open_insight URL parameter', () => {
-        it('sets editingInsight when opening an insight via open_insight search param', async () => {
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
+        it.each([MOCK_INSIGHT_SHORT_ID, MOCK_DATA_TABLE_INSIGHT_SHORT_ID])(
+            'sets the editing insight and file tree reference when opening %s',
+            async (shortId) => {
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
+                editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+                editorRootLogic.mount()
 
-            router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+                expect(editorRootLogic.values.projectTreeRef).toBeNull()
+                router.actions.push(urls.sqlEditor(), { open_insight: shortId })
+
+                await expectLogic(logic)
+                    .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
+                    .toMatchValues({
+                        editingInsight: partial({
+                            short_id: shortId,
+                        }),
+                    })
+                expect(editorRootLogic.values.projectTreeRef).toEqual({ type: 'insight', ref: shortId })
+            }
+        )
+
+        it.each([
+            ['found', MOCK_INSIGHT],
+            ['not found', null],
+        ] as const)('shows initial loading until the insight resolves: %s', async (_, insight) => {
+            jest.useFakeTimers()
+            let resolveInsight!: (insight: InsightModel | null) => void
+            const getInsight = jest.spyOn(insightsApi, 'getByShortId').mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveInsight = resolve
+                    })
+            )
+            try {
+                logic = sqlEditorLogic({ tabId: TAB_ID })
+                logic.mount()
+                router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+
+                expect(logic.values.insightLoading).toBe(true)
+                expect(logic.values.queryInput).toBe(null)
+                expect(getInsight).not.toHaveBeenCalled()
+
+                sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                await jest.advanceTimersByTimeAsync(300)
+                expect(getInsight).toHaveBeenCalled()
+                expect(logic.values.insightLoading).toBe(true)
+
+                resolveInsight(insight)
+                await jest.advanceTimersByTimeAsync(0)
+                expect(logic.values.insightLoading).toBe(false)
+                expect(logic.values.queryInput).toBe(insight ? MOCK_INSIGHT_QUERY.source.query : null)
+            } finally {
+                getInsight.mockRestore()
+                jest.useRealTimers()
+            }
+        })
+
+        it('opens the insight when Monaco loads after the URL handler stops waiting for it', async () => {
+            jest.useFakeTimers()
+            try {
+                logic = sqlEditorLogic({ tabId: TAB_ID })
+                logic.mount()
+
+                router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+                await jest.advanceTimersByTimeAsync(11_000)
+                await expectLogic(logic).toNotHaveDispatchedActions(['editInsight'])
+                expect(logic.values.insightLoading).toBe(true)
+            } finally {
+                jest.useRealTimers()
+            }
+
+            sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
 
             await expectLogic(logic)
                 .toDispatchActions(['editInsight', 'createTab', 'updateTab'])
                 .toMatchValues({
+                    insightLoading: false,
                     editingInsight: partial({
                         short_id: MOCK_INSIGHT_SHORT_ID,
                     }),
                 })
         })
 
-        it('sets insightLoading to false after insight finishes loading', async () => {
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
+        it('does not open an older URL target over a newer one when Monaco loads between their timeouts', async () => {
+            jest.useFakeTimers()
+            try {
+                logic = sqlEditorLogic({ tabId: TAB_ID })
+                logic.mount()
 
-            router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+                router.actions.push(urls.sqlEditor(), { open_insight: MOCK_INSIGHT_SHORT_ID })
+                await jest.advanceTimersByTimeAsync(5_000)
+                router.actions.push(urls.sqlEditor(), { open_query: 'SELECT 2' })
+                await jest.advanceTimersByTimeAsync(6_000)
 
-            await expectLogic(logic).toDispatchActions(['editInsight', 'createTab', 'updateTab']).toMatchValues({
-                insightLoading: false,
+                sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                await jest.advanceTimersByTimeAsync(1_000)
+            } finally {
+                jest.useRealTimers()
+            }
+
+            await expectLogic(logic).toNotHaveDispatchedActions(['editInsight']).toMatchValues({
+                queryInput: 'SELECT 2',
             })
         })
 
@@ -2284,6 +2362,37 @@ describe('sqlEditorLogic', () => {
             sort_direction: null,
         }
 
+        it('updates the chart breakdown when dimensions move between shelves or are removed', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.setAutoUpdate(false)
+            biLogic.actions.restoreState({
+                editorView: BIEditorView.BI,
+                config: { ...config, rows: [], columns: [timestampField, eventField] },
+            })
+            biLogic.actions.syncGeneratedQuery()
+
+            expect(logic.values.sourceQuery.chartSettings).toMatchObject({
+                xAxis: { column: 'bi_column_timestamp' },
+                seriesBreakdownColumn: 'bi_column_event_2',
+                yAxis: [{ column: 'count' }],
+            })
+
+            biLogic.actions.moveFieldToShelf('columns', 1, 'rows')
+            expect(logic.values.sourceQuery.chartSettings).toMatchObject({
+                xAxis: { column: 'bi_column_timestamp' },
+                seriesBreakdownColumn: 'bi_row_event',
+            })
+
+            biLogic.actions.removeFieldFromShelf('rows', 0)
+            expect(logic.values.sourceQuery.chartSettings?.seriesBreakdownColumn).toBeUndefined()
+            expect(logic.values.sourceQuery.chartSettings?.xAxis).toBeUndefined()
+            expect(logic.values.sourceQuery.chartSettings?.showLegend).toBeUndefined()
+            biLogic.unmount()
+        })
+
         it('captures BI mode selection and query runs without query contents', async () => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
                 [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
@@ -2465,10 +2574,408 @@ describe('sqlEditorLogic', () => {
                 { table: 'system_metrics', connectionId: undefined },
             ])
 
+            biLogic.actions.setDataSource({ table: 'hidden_table' })
+            expect(biLogic.values.selectableDataSources[0]).toEqual({ table: 'hidden_table' })
+            expect(biLogic.values.selectableDataSources).toHaveLength(biLogic.values.availableDataSources.length + 1)
+
+            biLogic.unmount()
+        })
+
+        it('ignores hydration and status from a different connection', async () => {
+            await expectLogic(databaseLogic).toFinishAllListeners()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            databaseLogic.actions.hydrateTableFieldsFailure(['events'])
+            await expectLogic(databaseLogic, () =>
+                biLogic.actions.restoreState({
+                    editorView: BIEditorView.BI,
+                    config: { ...config, source: { table: 'events', connectionId: 'other-connection' } },
+                })
+            ).toNotHaveDispatchedActions(['hydrateTableFields'])
+            expect(biLogic.values.dataPaneFieldsError).toBe(false)
+            databaseLogic.actions.hydrateTableFieldsStart(['events'])
+            expect(biLogic.values.dataPaneFieldsLoading).toBe(false)
+            biLogic.unmount()
+        })
+
+        it('hydrates fields when the schema arrives after restoring a worksheet', async () => {
+            await expectLogic(databaseLogic).toFinishAllListeners()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+            expect(biLogic.values.dataPaneFields.dimensions).toEqual([])
+            databaseLogic.actions.hydrateTableFieldsFailure(['events'])
+            expect(biLogic.values.dataPaneFieldsError).toBe(true)
+
+            queryEndpointMock.mockReturnValue([
+                200,
+                {
+                    tables: {
+                        events: {
+                            id: 'events',
+                            name: 'events',
+                            type: 'posthog',
+                            fields: {
+                                event: { name: 'event', type: 'string', schema_valid: true },
+                            },
+                        },
+                    },
+                    joins: [],
+                },
+            ])
+            useMocks({ post: { '/api/environments/:team_id/query/DatabaseSchemaQuery/': queryEndpointMock } })
+            databaseLogic.actions.setDatabaseFieldsComplete(false)
+
+            await expectLogic(databaseLogic, () =>
+                databaseLogic.actions.loadDatabaseSuccess({
+                    tables: { events: { id: 'events', name: 'events', type: 'posthog', fields: {} } },
+                    joins: [],
+                })
+            ).toDispatchActions(['hydrateTableFieldsSuccess'])
+
+            expect(biLogic.values.dataPaneFields.dimensions).toEqual([
+                expect.objectContaining({ name: 'event', expression: 'event' }),
+            ])
+            expect(biLogic.values.dataPaneFieldsError).toBe(false)
+            biLogic.unmount()
+        })
+
+        it.each([false, true])(
+            'loads connected fields on expansion and keeps their rooted paths (alias=%s)',
+            async (alias) => {
+                await expectLogic(databaseLogic).toFinishAllListeners()
+                const biLogic = biEditorLogic({ tabId: TAB_ID })
+                biLogic.mount()
+                biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+                databaseLogic.actions.loadDatabaseSuccess({
+                    tables: {
+                        events: {
+                            id: 'events',
+                            name: 'events',
+                            type: 'posthog',
+                            fields: {
+                                ...(alias
+                                    ? {
+                                          pdi: {
+                                              name: 'pdi',
+                                              type: 'lazy_table' as const,
+                                              table: 'person_distinct_ids',
+                                              hogql_value: 'pdi',
+                                              schema_valid: true,
+                                          },
+                                      }
+                                    : {}),
+                                person: {
+                                    name: 'person',
+                                    type: alias ? 'field_traverser' : 'lazy_table',
+                                    chain: alias ? ['pdi', 'person'] : undefined,
+                                    table: alias ? undefined : 'persons',
+                                    hogql_value: 'person',
+                                    schema_valid: true,
+                                },
+                            },
+                        },
+                        persons: { id: 'persons', name: 'persons', type: 'posthog', fields: {} },
+                        ...(alias
+                            ? {
+                                  person_distinct_ids: {
+                                      id: 'person_distinct_ids',
+                                      name: 'person_distinct_ids',
+                                      type: 'posthog' as const,
+                                      fields: {},
+                                  },
+                              }
+                            : {}),
+                    },
+                    joins: [],
+                })
+                databaseLogic.actions.setDatabaseFieldsComplete(false)
+                const connections = biConnectionsLogic({ tabId: TAB_ID })
+                connections.mount()
+                expect(connections.values.connections.find((c) => c.name === 'person')).toMatchObject({
+                    expanded: false,
+                    state: 'loading',
+                })
+                expect(databaseLogic.values.tableFieldsStatus.persons).toBeUndefined()
+
+                queryEndpointMock.mockReturnValue([
+                    200,
+                    {
+                        tables: {
+                            persons: {
+                                id: 'persons',
+                                name: 'persons',
+                                type: 'posthog',
+                                fields: {
+                                    email: { name: 'email', type: 'string', hogql_value: 'email', schema_valid: true },
+                                },
+                            },
+                        },
+                        joins: [],
+                    },
+                ])
+                if (alias) {
+                    queryEndpointMock.mockReturnValueOnce([
+                        200,
+                        {
+                            tables: {
+                                person_distinct_ids: {
+                                    id: 'person_distinct_ids',
+                                    name: 'person_distinct_ids',
+                                    type: 'posthog',
+                                    fields: {
+                                        person: {
+                                            name: 'person',
+                                            type: 'lazy_table',
+                                            table: 'persons',
+                                            hogql_value: 'person',
+                                            schema_valid: true,
+                                        },
+                                    },
+                                },
+                            },
+                            joins: [],
+                        },
+                    ])
+                }
+                useMocks({ post: { '/api/environments/:team_id/query/DatabaseSchemaQuery/': queryEndpointMock } })
+                await expectLogic(databaseLogic, () =>
+                    connections.actions.toggleConnection('["person"]', alias ? 'person_distinct_ids' : 'persons')
+                ).toDispatchActions(
+                    alias ? ['hydrateTableFieldsSuccess', 'hydrateTableFieldsSuccess'] : ['hydrateTableFieldsSuccess']
+                )
+                expect(connections.values.connections.find((c) => c.name === 'person')!.fields.dimensions).toEqual([
+                    expect.objectContaining({
+                        name: 'person.email',
+                        expression: 'person.email',
+                        source: config.source,
+                    }),
+                ])
+                biLogic.actions.setDataSource({ table: 'persons' })
+                expect(connections.values.connections).toEqual([])
+                connections.unmount()
+                biLogic.unmount()
+            }
+        )
+
+        it('creates and edits a calculated measure without applying canceled drafts or losing its sort', () => {
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+            biLogic.actions.setAutoUpdate(false)
+            biLogic.actions.editCalculatedMeasure()
+            biLogic.actions.setCalculatedMeasureDraft({
+                index: null,
+                name: 'ARPU',
+                expression: 'sum(revenue) / nullIf(count(DISTINCT user_id), 0)',
+            })
+            biLogic.actions.updateTab({
+                ...biLogic.values.activeTab!,
+                biEditorState: { editorView: BIEditorView.BI, config },
+            })
+            expect(biLogic.values.calculatedMeasureDraft?.name).toBe('ARPU')
+            expect(biLogic.values.config.values).toEqual([])
+            biLogic.actions.saveCalculatedMeasure()
+            expect(biLogic.values.calculatedMeasureDraft).toBeNull()
+            expect(biLogic.values.generatedQuery?.query).toContain(
+                'sum(revenue) / nullIf(count(DISTINCT user_id), 0) AS ARPU'
+            )
+            const value = biLogic.values.config.values[0]
+            biLogic.actions.setSort({ key: `values:${value.field.id}`, direction: 'asc' })
+            biLogic.actions.editCalculatedMeasure(0)
+            biLogic.actions.setCalculatedMeasureDraft({ index: 0, name: 'Canceled name', expression: 'avg(revenue)' })
+            biLogic.actions.setCalculatedMeasureDraft(null)
+            expect(biLogic.values.config.values[0]).toEqual(value)
+            biLogic.actions.editCalculatedMeasure(0)
+            expect(biLogic.values.calculatedMeasureDraft?.name).toBe('ARPU')
+            biLogic.actions.setCalculatedMeasureDraft({ index: 0, name: 'Average revenue', expression: 'avg(revenue)' })
+            biLogic.actions.saveCalculatedMeasure()
+            expect(biLogic.values.config.values).toHaveLength(1)
+            expect(biLogic.values.config.values[0].field.id).toBe(value.field.id)
+            expect(biLogic.values.generatedQuery?.query).toContain('avg(revenue) AS "Average revenue"')
+            expect(biLogic.values.generatedQuery?.query).toContain('ORDER BY\n    "Average revenue" ASC')
+            biLogic.actions.moveFieldToShelf('values', 0, 'filters')
+            expect(biLogic.values.config.values).toHaveLength(1)
+            expect(biLogic.values.config.filters).toEqual(config.filters)
+            biLogic.actions.editCalculatedMeasure(0)
+            biLogic.actions.setDataSource({ table: 'other_table' })
+            expect(biLogic.values.calculatedMeasureDraft).toBeNull()
+            biLogic.actions.saveCalculatedMeasure()
+            expect(biLogic.values.config.values).toEqual([])
+            biLogic.unmount()
+        })
+
+        it('keeps field labels consistent with edited expressions', () => {
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+            biLogic.actions.setAutoUpdate(false)
+            biLogic.actions.setFieldExpression('rows', 0, 'distinct_id')
+            expect(getBIFieldPillLabel(biLogic.values.config.rows[0])).toBe('distinct_id')
+            expect(biLogic.values.generatedQuery?.query).toContain('SELECT\n    distinct_id,')
+            biLogic.unmount()
+        })
+
+        it("does not expose another connection's fields and resets the worksheet when switching connections", () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+            databaseLogic.actions.setConnection('other-connection')
+            databaseLogic.actions.loadDatabaseSuccess({
+                tables: {
+                    events: {
+                        id: 'events',
+                        name: 'events',
+                        type: 'data_warehouse',
+                        fields: {
+                            private_field: {
+                                name: 'private_field',
+                                hogql_value: 'private_field',
+                                type: 'string',
+                                schema_valid: true,
+                            },
+                        },
+                    },
+                },
+                joins: [],
+            })
+            expect(biLogic.values.dataPaneFields).toEqual({ dimensions: [], measures: [] })
+            logic.actions.setSourceQuery({
+                ...logic.values.sourceQuery,
+                source: { ...logic.values.sourceQuery.source, connectionId: 'other-connection' },
+            })
+            expect(biLogic.values.config.source).toBeNull()
+            expect(biLogic.values.config.rows).toEqual([])
+            expect(logic.values.selectedConnectionId).toBe('other-connection')
+            biLogic.unmount()
+        })
+
+        test.each(['ready', 'failed', 'cancelled', 'missing'] as const)(
+            'handles chart-only changes with %s query results and runs changed table SQL',
+            async (resultState) => {
+                logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                logic.mount()
+                const biLogic = biEditorLogic({ tabId: TAB_ID })
+                biLogic.mount()
+                biLogic.actions.restoreState({
+                    editorView: BIEditorView.BI,
+                    config: { ...config, columns: [timestampField] },
+                })
+                biLogic.actions.syncGeneratedQuery()
+                logic.actions.setLastRunQuery(logic.values.sourceQuery)
+                const dataLogic = dataNodeLogic({
+                    key: `data-warehouse-editor-data-node-${TAB_ID}`,
+                    query: logic.values.sourceQuery.source,
+                    autoLoad: false,
+                })
+                dataLogic.mount()
+                if (resultState !== 'missing') {
+                    dataLogic.actions.setResponse({ results: [[1]], columns: ['1'], types: ['Int64'] })
+                }
+                if (resultState === 'failed') {
+                    dataLogic.actions.loadDataFailure('Query failed', { detail: 'Query failed' })
+                } else if (resultState === 'cancelled') {
+                    dataLogic.actions.cancelQuery()
+                }
+                const runQuery = jest.spyOn(logic.actions, 'runQuery')
+                jest.useFakeTimers()
+                try {
+                    biLogic.actions.setAutoUpdate(true)
+                    biLogic.actions.setChartType(ChartDisplayType.ActionsStackedBar)
+                    await jest.advanceTimersByTimeAsync(500)
+                    expect(logic.values.sourceQuery.display).toBe(ChartDisplayType.ActionsStackedBar)
+                    expect(runQuery).toHaveBeenCalledTimes(resultState === 'ready' ? 0 : 1)
+                    biLogic.actions.setChartType(ChartDisplayType.ActionsTable)
+                    await jest.advanceTimersByTimeAsync(500)
+                    expect(runQuery).toHaveBeenCalledTimes(resultState === 'ready' ? 1 : 2)
+                } finally {
+                    jest.useRealTimers()
+                    runQuery.mockRestore()
+                    dataLogic.unmount()
+                    biLogic.unmount()
+                }
+            }
+        )
+
+        test.each(['disable', 'sql', 'clear', 'invalid', 'unchanged'] as const)(
+            'handles a pending automatic query when the worksheet is %s',
+            async (transition) => {
+                logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+                logic.mount()
+                const biLogic = biEditorLogic({ tabId: TAB_ID })
+                biLogic.mount()
+                biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+                const runQuery = jest.spyOn(logic.actions, 'runQuery')
+                jest.useFakeTimers()
+                try {
+                    biLogic.actions.setAutoUpdate(true)
+                    biLogic.actions.setLimit(10000)
+                    if (transition === 'disable') {
+                        biLogic.actions.setAutoUpdate(false)
+                    } else if (transition === 'sql') {
+                        biLogic.actions.setEditorView(BIEditorView.SQL)
+                        logic.actions.setQueryInput('SELECT 42')
+                    } else if (transition === 'clear') {
+                        biLogic.actions.resetConfig()
+                    } else if (transition === 'invalid') {
+                        biLogic.actions.restoreState({
+                            editorView: BIEditorView.BI,
+                            config: {
+                                ...config,
+                                filters: [
+                                    {
+                                        field: { ...eventField, type: 'integer' },
+                                        operator: 'between',
+                                        value: '0',
+                                        valueTo: 'abc',
+                                    },
+                                ],
+                            },
+                        })
+                        biLogic.actions.setLimit(10000)
+                    }
+                    await jest.advanceTimersByTimeAsync(500)
+                    expect(runQuery).toHaveBeenCalledTimes(transition === 'unchanged' ? 1 : 0)
+                } finally {
+                    jest.useRealTimers()
+                    runQuery.mockRestore()
+                    biLogic.unmount()
+                }
+            }
+        )
+
+        it('clears the displayed result when clearing the worksheet', async () => {
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            const biLogic = biEditorLogic({ tabId: TAB_ID })
+            biLogic.mount()
+            biLogic.actions.restoreState({ editorView: BIEditorView.BI, config })
+            const dataLogic = dataNodeLogic({
+                key: `data-warehouse-editor-data-node-${TAB_ID}`,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                autoLoad: false,
+            })
+            dataLogic.mount()
+            dataLogic.actions.setResponse({ results: [[1]], columns: ['1'], types: ['Int64'] })
+            expect(dataLogic.values.response).not.toBeNull()
+            logic.actions.setLastRunQuery(logic.values.sourceQuery)
+
+            await expectLogic(biLogic, () => biLogic.actions.resetConfig()).toFinishAllListeners()
+
+            expect(dataLogic.values.response).toBeNull()
+            expect(dataLogic.values.queryCancelled).toBe(false)
+            expect(logic.values.lastRunQuery).toBeNull()
+            expect(logic.values.queryInput).toBe('')
+            dataLogic.unmount()
             biLogic.unmount()
         })
 
         it('restores BI mode and configuration from the URL and keeps changes in the hash', async () => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
+                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
+            })
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -2498,6 +3005,10 @@ describe('sqlEditorLogic', () => {
                 })
             await expectLogic(biLogic).toMatchValues({ editorView: BIEditorView.BI, config: persistedConfig })
 
+            await expectLogic(logic, () => logic.actions.runQuery()).toFinishAllListeners()
+            expect(logic.values.sourceQuery.display).toBe(ChartDisplayType.TwoDimensionalHeatmap)
+            expect(biLogic.values.config.chartType).toBe(ChartDisplayType.TwoDimensionalHeatmap)
+
             await expectLogic(biLogic, () => biLogic.actions.setFilterValue(0, 'purchase')).toFinishAllListeners()
 
             expect(router.values.hashParams.mode).toEqual(BIEditorView.BI)
@@ -2505,6 +3016,42 @@ describe('sqlEditorLogic', () => {
                 ...persistedConfig,
                 filters: [{ ...persistedConfig.filters[0], value: 'purchase' }],
             })
+
+            await expectLogic(biLogic, () => biLogic.actions.setFilterOperator(0, 'in')).toFinishAllListeners()
+            expect(biLogic.values.config.filters[0].values).toEqual(['purchase'])
+            await expectLogic(biLogic, () =>
+                biLogic.actions.updateFilter(0, { values: ['purchase', 'renewal'] })
+            ).toFinishAllListeners()
+            expect(logic.values.queryInput).toContain("event IN ('purchase', 'renewal')")
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { enabled: false })).toFinishAllListeners()
+            expect(logic.values.queryInput).not.toContain('WHERE')
+            expect(router.values.hashParams.bi.filters[0]).toEqual(
+                expect.objectContaining({ enabled: false, values: ['purchase', 'renewal'] })
+            )
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { enabled: true })).toFinishAllListeners()
+            expect(logic.values.queryInput).toContain("event IN ('purchase', 'renewal')")
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { values: [] })).toFinishAllListeners()
+            expect(logic.values.queryInput).not.toContain('WHERE')
+            await expectLogic(biLogic, () => biLogic.actions.setFilterOperator(0, 'equals')).toFinishAllListeners()
+            expect(biLogic.values.config.filters[0].value).toBe('')
+
+            biLogic.actions.restoreState({
+                editorView: BIEditorView.BI,
+                config: {
+                    ...config,
+                    filters: [{ field: { ...eventField, type: 'integer' }, operator: 'between', value: '0' }],
+                },
+            })
+            await expectLogic(biLogic, () => biLogic.actions.updateFilter(0, { valueTo: 'abc' })).toFinishAllListeners()
+            const lastRunQuery = logic.values.lastRunQuery
+            await expectLogic(logic, () => logic.actions.runQuery()).toFinishAllListeners()
+            expect(logic.values.error).toBe('Fix invalid worksheet filters before running the query.')
+            expect(logic.values.lastRunQuery).toEqual(lastRunQuery)
+            await expectLogic(biLogic, () =>
+                biLogic.actions.updateFilter(0, { valueTo: '9007199254740993' })
+            ).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.runQuery()).toFinishAllListeners()
+            expect(logic.values.lastRunQuery?.source.query).toContain('event <= 9007199254740993')
 
             biLogic.unmount()
         })
@@ -2618,11 +3165,18 @@ describe('sqlEditorLogic', () => {
                     source: { table: 'persons' },
                 }),
             ])
-            expect(biLogic.values.activeExpressionEditorId).toEqual(biLogic.values.config.rows[0].id)
+            const blankField = biLogic.values.config.rows[0]
+            expect(biLogic.values.activeExpressionEditorId).toEqual(getBIShelfEditorKey('rows', blankField.id))
             expect(logic.values.queryInput).toEqual(
                 ['SELECT', '    count(*) AS count', 'FROM persons', 'LIMIT 1000'].join('\n')
             )
             expect(router.values.hashParams.bi).toEqual(biLogic.values.config)
+
+            await expectLogic(biLogic, () =>
+                biLogic.actions.addFieldToShelf(blankField, 'filters')
+            ).toFinishAllListeners()
+
+            expect(biLogic.values.activeExpressionEditorId).toEqual(getBIShelfEditorKey('filters', blankField.id))
 
             biLogic.unmount()
         })
