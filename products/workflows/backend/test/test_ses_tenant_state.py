@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -235,15 +238,16 @@ class TestSandboxTenantStateSync(BaseTest):
 
     def test_an_unchanged_state_refreshes_synced_at_without_announcing(self) -> None:
         self._aws_tenant("DISABLED", "HIGH")
-        self._sync()
-        first_synced_at = SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).synced_at
+        with time_machine.travel("2026-10-05T10:00:00Z", tick=False):
+            self._sync()
         self.announce.reset_mock()
 
-        self._sync()
+        with time_machine.travel("2026-10-05T11:00:00Z", tick=False):
+            self._sync()
 
         state = SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT)
         assert state.sending_status == "DISABLED"
-        assert state.synced_at > first_synced_at
+        assert state.synced_at == datetime(2026, 10, 5, 11, tzinfo=UTC)
         self.announce.assert_not_called()
 
     def test_an_unknown_sandbox_tenant_leaves_no_state(self) -> None:
