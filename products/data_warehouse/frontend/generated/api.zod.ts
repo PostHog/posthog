@@ -455,7 +455,6 @@ export const warehouseSavedQueriesCreateBodyIncrementalOneLookbackSecondsMax = 2
 
 export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
     .object({
-        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesCreateBodyNameMax)
@@ -536,8 +535,15 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+            .describe(
+                'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
+            ),
+        dag_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -557,7 +563,6 @@ export const warehouseSavedQueriesUpdateBodyIncrementalOneLookbackSecondsMax = 2
 
 export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
     .object({
-        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesUpdateBodyNameMax)
@@ -638,8 +643,15 @@ export const WarehouseSavedQueriesUpdateBody = /* @__PURE__ */ zod
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+            .describe(
+                'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
+            ),
+        dag_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -659,7 +671,6 @@ export const warehouseSavedQueriesPartialUpdateBodyIncrementalOneLookbackSeconds
 
 export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesPartialUpdateBodyNameMax)
@@ -742,8 +753,15 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+            .describe(
+                'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
+            ),
+        dag_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -780,7 +798,6 @@ export const warehouseSavedQueriesCancelCreateBodyIncrementalOneLookbackSecondsM
 
 export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
     .object({
-        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesCancelCreateBodyNameMax)
@@ -861,8 +878,15 @@ export const WarehouseSavedQueriesCancelCreateBody = /* @__PURE__ */ zod
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+            .describe(
+                'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
+            ),
+        dag_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -919,7 +943,6 @@ export const warehouseSavedQueriesRevertMaterializationCreateBodyIncrementalOneL
 
 export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__ */ zod
     .object({
-        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesRevertMaterializationCreateBodyNameMax)
@@ -1004,8 +1027,15 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+            .describe(
+                'If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.'
+            ),
+        dag_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.'
+            ),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(

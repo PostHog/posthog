@@ -176,7 +176,10 @@ export function ReplayScannersScene(): JSX.Element {
                     <Link to={urls.replayVision(scanner.id)} className="font-semibold text-primary">
                         {scanner.name || '(untitled)'}
                     </Link>
-                    {scanner.description && <div className="text-muted text-sm">{scanner.description}</div>}
+                    {/* The creator's own description wins; the question fills in for scanners that have none. */}
+                    {(scanner.description || scanner.prompt_question) && (
+                        <div className="text-muted text-sm">{scanner.description || scanner.prompt_question}</div>
+                    )}
                 </div>
             ),
         },
@@ -338,24 +341,28 @@ export function ReplayScannersScene(): JSX.Element {
                                 />
                                 <FilterPill<EnabledFilter>
                                     label="Status"
+                                    dataAttr="vision-scanners-status-filter"
                                     options={ENABLED_OPTIONS}
                                     value={enabledFilter}
                                     onChange={(v) => setScannersFilters({ enabledFilter: v })}
                                 />
                                 <FilterPill<ScannerType>
                                     label="Type"
+                                    dataAttr="vision-scanners-type-filter"
                                     options={TYPE_OPTIONS}
                                     value={scannerTypeFilter}
                                     onChange={(v) => setScannersFilters({ scannerTypeFilter: v })}
                                 />
                                 <FilterPill<string>
                                     label="Created by"
+                                    dataAttr="vision-scanners-created-by-filter"
                                     options={createdByOptions}
                                     value={createdByFilter}
                                     onChange={(v) => setScannersFilters({ createdByFilter: v })}
                                 />
                                 <FilterPill<string>
                                     label="Tags"
+                                    dataAttr="vision-scanners-tags-filter"
                                     searchable
                                     options={tagOptions}
                                     value={tagsFilter}

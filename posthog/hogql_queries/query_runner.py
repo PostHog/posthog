@@ -72,6 +72,7 @@ from posthog.schema import (
     MCPHarnessBreakdownQuery,
     MCPMissingCapabilitiesQuery,
     MCPModelBreakdownQuery,
+    MCPProtocolVersionBreakdownQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
@@ -159,7 +160,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
-from posthog.event_usage import AnalyticsProps, groups, report_team_action, report_user_or_team_action
+from posthog.event_usage import AnalyticsProps, EventSource, groups, report_team_action, report_user_or_team_action
 from posthog.exceptions import APIQueriesBudgetExceeded, QueryRanConcurrently
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
@@ -187,13 +188,16 @@ from posthog.models import Team, User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
 from posthog.models.team.event_retention import events_retention_months_for_team
+from posthog.models.team.team_event_volume import events_last_year_for
 from posthog.query_cache import QueryCache, count_query_cache_hit, retention_ttl
 from posthog.query_cache.failures import (
     BUDGET_EXTENDED,
     QUERY_FAILURE_CACHE_COUNTER,
     QUERY_FAILURE_CACHING_FLAG,
     Budget,
+    QueryFailureCache,
     QueryFailureRecord,
+    WarmingQueryFailureCache,
 )
 from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_COUNTER,
@@ -536,7 +540,7 @@ def get_api_queries_budget_status(team: Team) -> Optional[BudgetStatus]:
     if not budget_enabled():
         return None
     try:
-        spec = budget_spec_for(team.organization)
+        spec = budget_spec_for(team.organization, events_last_year_for(team.pk))
         remaining = refill_and_read(str(team.pk), spec)
         if remaining is None:
             return None
@@ -585,6 +589,7 @@ RunnableQueryNode = Union[
     MetricsQuery,
     MCPHarnessBreakdownQuery,
     MCPModelBreakdownQuery,
+    MCPProtocolVersionBreakdownQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolTopUsersQuery,
@@ -1304,6 +1309,17 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
+    if kind == "MCPProtocolVersionBreakdownQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPProtocolVersionBreakdownQueryRunner
+
+        return MCPProtocolVersionBreakdownQueryRunner(
+            query=cast(MCPProtocolVersionBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
     if kind == "MCPMissingCapabilitiesQuery":
         from products.mcp_analytics.backend.facade.queries import MCPMissingCapabilitiesQueryRunner
 
@@ -1786,6 +1802,14 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
     return None
 
 
+def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
+    # A correlation query has no modifiers field. It uses the modifiers of the funnel it analyzes,
+    # so that the correlation reads the same events table and person data as that funnel.
+    if isinstance(query, FunnelCorrelationQuery):
+        return query.source.source.modifiers
+    return getattr(query, "modifiers", None)
+
+
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
@@ -1816,7 +1840,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         limit_context: Optional[LimitContext] = None,
         query_id: Optional[str] = None,
         workload: Workload = Workload.DEFAULT,
-        extract_modifiers=lambda query: query.modifiers if hasattr(query, "modifiers") else None,
+        extract_modifiers=query_node_modifiers,
         user: Optional[User] = None,
         ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     ):
@@ -2431,6 +2455,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             raise
 
                     cache_manager = QueryCache(
+                        failure_cache=(
+                            WarmingQueryFailureCache(cache_key)
+                            if analytics_props is not None
+                            and analytics_props.get("source") == EventSource.CACHE_WARMING
+                            else QueryFailureCache(cache_key)
+                        ),
                         team_id=self.team.pk,
                         cache_key=cache_key,
                         insight_id=insight_id,

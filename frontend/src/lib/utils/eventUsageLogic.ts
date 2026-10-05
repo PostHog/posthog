@@ -72,6 +72,8 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
+
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
 
@@ -1255,15 +1257,27 @@ export interface eventUsageLogicActions {
         context: ExperimentWatchHighlightContext
         experimentId: ExperimentIdType
     }
-    reportExperimentWizardGuideToggled: (
-        visible: boolean,
+    reportExperimentWizardAskAiClicked: (currentStep: string) => {
         currentStep: string
-    ) => {
-        currentStep: string
-        visible: boolean
     }
-    reportExperimentWizardStarted: (guideVisible: boolean) => {
-        guideVisible: boolean
+    reportExperimentWizardStarted: () => {
+        value: true
+    }
+    reportExperimentsListAiBadgeClicked: () => {
+        value: true
+    }
+    reportExperimentsListViewed: (listView: {
+        archived: boolean
+        experimentsShown: number
+        hasSearch: boolean
+        page: number
+        statusFilter: string
+    }) => {
+        archived: boolean
+        experimentsShown: number
+        hasSearch: boolean
+        page: number
+        statusFilter: string
     }
     reportFeatureFlagBulkCopy: (
         flagCount: number,
@@ -1915,8 +1929,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             draftAgeSeconds,
         }),
         reportInsightDraftDiscarded: (draftAgeSeconds: number) => ({ draftAgeSeconds }),
-        reportExperimentWizardStarted: (guideVisible: boolean) => ({ guideVisible }),
-        reportExperimentWizardGuideToggled: (visible: boolean, currentStep: string) => ({ visible, currentStep }),
+        reportExperimentWizardStarted: true,
+        reportExperimentWizardAskAiClicked: (currentStep: string) => ({ currentStep }),
+        reportExperimentsListAiBadgeClicked: true,
+        reportExperimentsListViewed: (listView: {
+            experimentsShown: number
+            statusFilter: string
+            page: number
+            hasSearch: boolean
+            archived: boolean
+        }) => listView,
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
@@ -2549,20 +2571,29 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 })
             }
         },
-        reportExperimentWizardStarted: ({ guideVisible }) => {
-            posthog.capture('experiment wizard started', {
-                guide_visible: guideVisible,
-            })
+        reportExperimentWizardStarted: () => {
+            posthog.capture('experiment wizard started')
         },
-        reportExperimentWizardGuideToggled: ({ visible, currentStep }) => {
-            posthog.capture('experiment wizard guide toggled', {
-                visible,
-                current_step: currentStep,
+        reportExperimentWizardAskAiClicked: ({ currentStep }) => {
+            posthog.capture('experiment wizard ask ai clicked', { current_step: currentStep })
+        },
+        reportExperimentsListAiBadgeClicked: () => {
+            posthog.capture('experiments list ai badge clicked')
+        },
+        reportExperimentsListViewed: ({ experimentsShown, statusFilter, page, hasSearch, archived }) => {
+            posthog.capture('experiments list viewed', {
+                experiments_shown: experimentsShown,
+                status_filter: statusFilter,
+                page,
+                has_search: hasSearch,
+                archived,
             })
         },
         reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
+                experiment_id: experiment.id,
+                experiment_status: getExperimentStatus(experiment),
                 duration,
             })
         },

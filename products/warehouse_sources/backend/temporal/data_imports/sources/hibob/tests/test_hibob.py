@@ -39,7 +39,7 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
                 "method": request.method,
                 "url": request.url,
                 "params": dict(request.params or {}),
-                "json": request.json,
+                "json": dict(request.json) if request.json is not None else None,
                 "auth": request.auth,
             }
         )
@@ -137,6 +137,108 @@ class TestGetRows:
             _rows(hibob_source("service-id", "token", "tasks", team_id=1, job_id="j"))
 
         assert session.send.call_count == 1
+
+
+class TestEmployeeHistoryTables:
+    @pytest.mark.parametrize(
+        "endpoint, path",
+        [
+            ("employee_lifecycle", "/v1/bulk/people/lifecycle"),
+            ("employee_employment", "/v1/bulk/people/employment"),
+            ("employee_salaries", "/v1/bulk/people/salaries"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "values_page_1, values_page_2",
+        [
+            ([{"id": 1, "status": "hired"}, {"id": 2, "status": "employed"}], [{"id": 1, "status": "hired"}]),
+            (
+                [{"values": [{"id": 1, "status": "hired"}, {"id": 2, "status": "employed"}], "restricted_columns": {}}],
+                [{"values": [{"id": 1, "status": "hired"}]}],
+            ),
+        ],
+        ids=["bare_entries", "wrapped_entries"],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flattens_entries_per_employee_and_follows_query_cursor(
+        self, MockSession, endpoint, path, values_page_1, values_page_2
+    ) -> None:
+        session = MockSession.return_value
+        captured = _wire(
+            session,
+            [
+                _response(
+                    {
+                        "results": [{"employeeId": "e1", "values": values_page_1}],
+                        "response_metadata": {"next_cursor": "c2"},
+                    }
+                ),
+                _response(
+                    {
+                        "results": [{"employeeId": "e2", "values": values_page_2}, {"employeeId": "e3", "values": []}],
+                        "response_metadata": {"next_cursor": None},
+                    }
+                ),
+            ],
+        )
+
+        response = hibob_source("service-id", "token", endpoint, team_id=1, job_id="j")
+        rows = _rows(response)
+
+        assert rows == [
+            {"id": 1, "status": "hired", "employeeId": "e1"},
+            {"id": 2, "status": "employed", "employeeId": "e1"},
+            {"id": 1, "status": "hired", "employeeId": "e2"},
+        ]
+        assert response.primary_keys == ["employeeId", "id"]
+        assert [(c["method"], c["url"]) for c in captured] == [("GET", f"https://api.hibob.com{path}")] * 2
+        assert captured[0]["params"] == {"limit": 200}
+        assert captured[1]["params"] == {"limit": 200, "cursor": "c2"}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_rejects_repeated_cursor(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"results": [], "response_metadata": {"next_cursor": "stalled"}}),
+                _response({"results": [], "response_metadata": {"next_cursor": "stalled"}}),
+            ],
+        )
+
+        with pytest.raises(ValueError, match="repeated cursor"):
+            _rows(hibob_source("service-id", "token", "employee_lifecycle", team_id=1, job_id="j"))
+
+
+class TestCandidates:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_posts_body_cursor_and_normalizes_pointer_keys(self, MockSession) -> None:
+        session = MockSession.return_value
+        captured = _wire(
+            session,
+            [
+                _response(
+                    {
+                        "items": [{"/candidate/id": 7, "/candidate/firstName": "Ada"}],
+                        "response_metadata": {"next_cursor": "c2"},
+                    }
+                ),
+                _response({"items": [{"/candidate/id": 8}], "response_metadata": {"next_cursor": None}}),
+            ],
+        )
+
+        rows = _rows(hibob_source("service-id", "token", "candidates", team_id=1, job_id="j"))
+
+        assert rows == [{"id": 7, "firstName": "Ada"}, {"id": 8}]
+        assert [(c["method"], c["url"]) for c in captured] == [
+            ("POST", "https://api.hibob.com/v1/hiring/candidates/search")
+        ] * 2
+        assert "cursor" not in captured[0]["json"]
+        assert "/candidate/modificationDate" in captured[0]["json"]["fields"]
+        assert captured[1]["json"]["cursor"] == "c2"
+        # The next sync must not start from the previous sync's cursor.
+        body = HIBOB_ENDPOINTS["candidates"].body
+        assert body is not None and "cursor" not in body
 
 
 class TestTimeOffCalendars:
@@ -244,7 +346,7 @@ class TestHiBobSourceResponse:
         response = hibob_source("service-id", "token", endpoint, team_id=1, job_id="j")
 
         assert response.name == endpoint
-        assert response.primary_keys == [config.primary_key]
+        assert response.primary_keys == list(config.primary_keys)
         assert response.sort_mode == "asc"
         assert response.partition_mode is None
         assert response.partition_keys is None
