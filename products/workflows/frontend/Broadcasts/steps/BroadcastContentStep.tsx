@@ -51,7 +51,14 @@ export function BroadcastContentStep(): JSX.Element {
         setSenderSetup(null)
         if (integrationId) {
             loadIntegrations()
-            setEmail({ ...email, from: { ...email.from, integrationId, integrationIds: undefined } })
+            setEmail({
+                ...email,
+                from: {
+                    ...email.from,
+                    integrationId,
+                    ...(senderSetup === 'new' ? { integrationIds: undefined } : {}),
+                },
+            })
         }
     }
 
