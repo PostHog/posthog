@@ -254,6 +254,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             interval=request.interval,
             quantile=clause.quantile if runner_aggregation == "histogram_quantile" else None,
             metric_type=clause.metric_type.value if clause.metric_type is not None else None,
+            min_interval=request.min_interval,
         )
         rows_by_clause[clause.name] = runner.run()
 
