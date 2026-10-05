@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group
+from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
-from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
@@ -157,6 +157,7 @@ class TestProjectAdminTriggerDeletion(BaseTest):
             ) as mock_start,
         ):
             response = self.admin.trigger_deletion_view(http_request, str(self.project.pk))
+        self.last_request = http_request
         return response, mock_start
 
     @parameterized.expand(
@@ -203,12 +204,15 @@ class TestProjectAdminTriggerDeletion(BaseTest):
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
 
-    def test_staff_outside_deletion_group_cannot_dispatch(self):
+    def test_staff_outside_deletion_group_is_told_which_group_is_needed(self):
         self.user.groups.clear()
 
-        with self.assertRaises(PermissionDenied):
-            self._call("POST")
+        response, mock_start = self._call("POST")
 
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, _fake_reverse("admin:posthog_project_change", args=[self.project.pk]))
+        self.assertIn(DELETION_AUTHORIZED_GROUP, " ".join(str(m) for m in get_messages(self.last_request)))
+        mock_start.assert_not_called()
         self.project.refresh_from_db()
         self.assertFalse(self.project.is_pending_deletion)
 
