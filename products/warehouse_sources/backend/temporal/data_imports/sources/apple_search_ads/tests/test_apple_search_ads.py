@@ -1026,6 +1026,7 @@ class TestValidateCredentials:
         [
             ("rejected_credentials", 400, "Apple rejected these API credentials"),
             ("apple_unavailable", 503, "couldn't reach Apple"),
+            ("still_rate_limited", 429, "couldn't reach Apple"),
         ]
     )
     def test_a_token_endpoint_failure_is_reported_without_the_raw_http_error(

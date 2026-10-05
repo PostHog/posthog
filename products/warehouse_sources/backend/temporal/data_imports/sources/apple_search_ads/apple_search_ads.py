@@ -75,7 +75,7 @@ def token_exchange_error_message(error: requests.RequestException) -> str:
     response = error.response
     # Apple answers a client secret it can't verify with `invalid_client`, which only says one of
     # the four values is wrong or they come from different API users.
-    if response is not None and 400 <= response.status_code < 500:
+    if response is not None and 400 <= response.status_code < 500 and response.status_code != 429:
         return (
             "Apple rejected these API credentials. Check that the client ID, team ID, key ID, and "
             "private key all belong to the same Apple Ads API user, then reconnect."
