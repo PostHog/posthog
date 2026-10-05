@@ -498,6 +498,8 @@ export type HogFlowInvocationContext = {
         //     debug line *and clears the flag* so any subsequent actions on the same dequeue
         //     (the email handler's `nextAction: exit`, etc.) log normally.
         routingOnlyReschedule?: boolean
+        // An AI decision step's retry bounds, carried across the reschedules a busy AI service asks for.
+        aiDecisionRetry?: { firstAttemptAt: number; unavailableReschedules: number }
         // A step parked on an external run: cleared when the matcher writes a matching `resumeResult`.
         awaitingResume?: {
             key: string

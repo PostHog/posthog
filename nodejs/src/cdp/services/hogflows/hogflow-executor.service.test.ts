@@ -1,11 +1,14 @@
 // sort-imports-ignore
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { DateTime, Duration } from 'luxon'
 
 import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests/builders/hogflow.builder'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
-import { HogFlow } from '~/cdp/schema/hogflow'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
 import { template as customerTaskTemplate } from '~/cdp/templates/_destinations/posthog_customer_analytics/posthog-create-customer-task.template'
 import { template as setVariableTemplate } from '~/cdp/templates/_destinations/posthog_workflows/posthog-set-variable.template'
@@ -33,6 +36,7 @@ import { EmailService } from '../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
+import { AiDecisionClient } from './actions/ai_decision/client'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
@@ -181,7 +185,15 @@ describe('Hogflow Executor', () => {
             recipientPreferencesService,
             emailValidationService,
             stubCohortMembershipRepository,
-            hub.integrationManager
+            hub.integrationManager,
+            undefined,
+            undefined,
+            {
+                aiDecisionClient: new AiDecisionClient(
+                    new ScopedServiceJwt(PosthogJwtAudience.WORKFLOW_AI_DECISION, hub.WORKFLOW_AI_DECISION_JWT_SECRET),
+                    hub.INTERNAL_API_BASE_URL
+                ),
+            }
         )
     })
 
@@ -2255,6 +2267,446 @@ describe('Hogflow Executor', () => {
                     distinct_id: 'user2',
                     properties: { user: 'User2', value: 'value2' },
                 })
+            })
+        })
+    })
+
+    describe('ai_decision', () => {
+        const decisionJwt = (): ScopedServiceJwt =>
+            new ScopedServiceJwt(PosthogJwtAudience.WORKFLOW_AI_DECISION, hub.WORKFLOW_AI_DECISION_JWT_SECRET)
+        const mockInternalFetch = jest.mocked(internalFetch)
+
+        const yesNo = { question: 'Is this a work email address?', answer_type: 'yes_no', yes_threshold: 50 }
+        const pickOne = {
+            question: 'Which onboarding track fits this signup?',
+            answer_type: 'pick_one',
+            options: [
+                { name: 'Developer', description: 'Writes code against our API' },
+                { name: 'Marketer', description: '' },
+                { name: 'Founder', description: '' },
+            ],
+        }
+
+        const emailContext = async (): Promise<Record<string, unknown>> => ({
+            context: {
+                value: { email: '{person.properties.email}' },
+                bytecode: { email: await compileHog(`return f'{person.properties.email}'`) },
+            },
+        })
+
+        const outputsOf = (config: Record<string, any>): string[] => {
+            const answers =
+                config.answer_type === 'pick_one'
+                    ? (config.options ?? []).map((option: { name: string }) => option.name)
+                    : ['yes', 'no']
+            return config.unsure_enabled ? [...answers, 'unsure'] : answers
+        }
+
+        const decisionFlow = (
+            config: Record<string, any>,
+            action: Partial<Pick<HogFlowAction, 'on_error' | 'output_variable'>> = {}
+        ): HogFlow => {
+            const outputs = outputsOf(config)
+            return new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                        },
+                        decision: { type: 'ai_decision', config: config as any, on_error: 'continue', ...action },
+                        ...Object.fromEntries(
+                            outputs.map((_, index) => [`answer_${index}`, { type: 'exit' as const, config: {} }])
+                        ),
+                        if_fails: { type: 'exit', config: {} },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'decision', type: 'continue' },
+                        ...outputs.map((_, index) => ({
+                            from: 'decision',
+                            to: `answer_${index}`,
+                            type: 'branch' as const,
+                            index,
+                        })),
+                        { from: 'decision', to: 'if_fails', type: 'continue' },
+                    ],
+                })
+                .build()
+        }
+
+        const atDecision = (hogFlow: HogFlow): CyclotronJobInvocationHogFlow => {
+            const invocation = createExampleHogFlowInvocation(hogFlow, {}, { properties: { email: 'max@example.com' } })
+            invocation.state.currentAction = { id: 'decision', startedAtTimestamp: DateTime.now().toMillis() }
+            return invocation
+        }
+
+        const response = (status: number, body?: unknown, headers: Record<string, string> = {}): FetchResponse => ({
+            status,
+            headers,
+            text: () => Promise.resolve(body === undefined ? '' : JSON.stringify(body)),
+            json: () => Promise.resolve(body),
+            dump: () => Promise.resolve(),
+        })
+        const answered = (probabilities: Record<string, number>): FetchResponse =>
+            response(200, { status: 'succeeded', probabilities, model: 'jevk5-fp8-0.2', input_tokens: 42 })
+        const failed = (code: string, message: string): FetchResponse =>
+            response(200, { status: 'failed', error: { code, message } })
+
+        const messages = (result: { logs: { message: string }[] }): string[] => result.logs.map((log) => log.message)
+        const secondsUntil = (scheduledAt: DateTime | undefined): number =>
+            scheduledAt!.diff(DateTime.now(), 'seconds').seconds
+        const mocked = (mockAnswer?: string): { testRun: { mockAsyncFunctions: boolean; mockAnswer?: string } } => ({
+            testRun: { mockAsyncFunctions: true, ...(mockAnswer ? { mockAnswer } : {}) },
+        })
+        const advanceClock = (minutes: number): void => {
+            const now = Date.now()
+            jest.spyOn(Date, 'now').mockReturnValue(now + minutes * 60_000)
+        }
+
+        beforeEach(() => {
+            mockInternalFetch.mockReset()
+        })
+
+        it('asks the route with a scoped token and follows the answer edge', async () => {
+            mockInternalFetch.mockResolvedValue(answered({ yes: 0.62, no: 0.38 }))
+            const hogFlow = decisionFlow(
+                { ...yesNo, inputs: await emailContext() },
+                { output_variable: { key: 'is_work_email', result_path: 'answer' } }
+            )
+
+            const result = await executor.executeCurrentAction(atDecision(hogFlow))
+
+            expect(result.error).toBeUndefined()
+            expect(result.invocation.state.currentAction?.id).toBe('answer_0')
+            expect(result.invocation.state.variables).toEqual({ is_work_email: 'yes' })
+
+            const [url, options] = mockInternalFetch.mock.calls[0]
+            expect(url).toBe(`${hub.INTERNAL_API_BASE_URL}/api/projects/${team.id}/workflow_ai_decisions/`)
+            expect(options?.method).toBe('POST')
+            expect(options?.timeoutMs).toBeGreaterThan(10_000)
+            expect(parseJSON(options!.body as string)).toMatchObject({
+                action_id: 'decision',
+                answer_type: 'yes_no',
+                question: 'Is this a work email address?',
+                state: { email: 'max@example.com' },
+            })
+            const token = (options!.headers as Record<string, string>).Authorization.replace('Bearer ', '')
+            expect(decisionJwt().verify(token)).toMatchObject({ team_id: team.id, hog_flow_id: hogFlow.id })
+
+            const log = messages(result).join('\n')
+            expect(log).toContain('yes')
+            expect(log).toContain('62%')
+            expect(log).toContain('38%')
+            expect(log).toContain('jevk5-fp8-0.2')
+            expect(log).not.toContain('max@example.com')
+        })
+
+        it('stores the answer, the probability it rests on, every probability and the model', async () => {
+            mockInternalFetch.mockResolvedValue(answered({ Developer: 0.2, Marketer: 0.7, Founder: 0.1 }))
+            const hogFlow = decisionFlow(
+                { ...pickOne, inputs: await emailContext() },
+                { output_variable: { key: 'track' } }
+            )
+
+            const result = await executor.executeCurrentAction(atDecision(hogFlow))
+
+            expect(result.invocation.state.currentAction?.id).toBe('answer_1')
+            expect(result.invocation.state.variables).toEqual({
+                track: {
+                    answer: 'Marketer',
+                    probability: 0.7,
+                    probabilities: { Developer: 0.2, Marketer: 0.7, Founder: 0.1 },
+                    model: 'jevk5-fp8-0.2',
+                },
+            })
+        })
+
+        it.each([
+            [
+                'a yes or no answer inside the band',
+                { ...yesNo, unsure_enabled: true, yes_threshold: 80, no_threshold: 20 },
+                { yes: 0.5, no: 0.5 },
+                'answer_2',
+            ],
+            [
+                'a pick one answer under the minimum',
+                { ...pickOne, unsure_enabled: true, min_pick_probability: 60 },
+                { Developer: 0.5, Marketer: 0.3, Founder: 0.2 },
+                'answer_3',
+            ],
+        ])('follows the Unsure edge for %s', async (_name, config, probabilities, expectedAction) => {
+            mockInternalFetch.mockResolvedValue(answered(probabilities))
+            const hogFlow = decisionFlow({ ...config, inputs: await emailContext() })
+
+            const result = await executor.executeCurrentAction(atDecision(hogFlow))
+
+            expect(result.invocation.state.currentAction?.id).toBe(expectedAction)
+        })
+
+        it('follows the continue edge on a failed decision and names the code', async () => {
+            mockInternalFetch.mockResolvedValue(
+                failed(
+                    'quota_exceeded',
+                    'Your organization is out of AI credits. Add credits in billing settings, then try again.'
+                )
+            )
+            const hogFlow = decisionFlow(
+                { ...yesNo, inputs: await emailContext() },
+                { on_error: 'continue', output_variable: { key: 'is_work_email', result_path: 'answer' } }
+            )
+
+            const result = await executor.executeCurrentAction(atDecision(hogFlow))
+
+            expect(result.error).toContain('quota_exceeded')
+            expect(result.invocation.state.currentAction?.id).toBe('if_fails')
+            expect(result.invocation.state.variables ?? {}).toEqual({})
+            expect(messages(result).join('\n')).toContain('out of AI credits')
+        })
+
+        it('ends the run on a failed decision when on_error is abort', async () => {
+            mockInternalFetch.mockResolvedValue(failed('ai_processing_not_approved', 'Not approved.'))
+            const hogFlow = decisionFlow({ ...yesNo, inputs: await emailContext() }, { on_error: 'abort' })
+
+            const result = await executor.execute(atDecision(hogFlow))
+
+            expect(result.finished).toBe(true)
+            expect(result.error).toContain('ai_processing_not_approved')
+            expect(result.invocation.state.currentAction?.id).toBe('decision')
+        })
+
+        it.each([
+            [400, 'invalid_request'],
+            [401, 'invalid_request'],
+        ])('fails a %s from the route as %s', async (status, code) => {
+            mockInternalFetch.mockResolvedValue(response(status, { detail: 'nope' }))
+            const hogFlow = decisionFlow({ ...yesNo, inputs: await emailContext() })
+
+            const result = await executor.executeCurrentAction(atDecision(hogFlow))
+
+            expect(result.error).toContain(code)
+            expect(result.invocation.state.currentAction?.id).toBe('if_fails')
+        })
+
+        it('reschedules a throttled decision at Retry-After, capped, and gives up after 30 minutes', async () => {
+            jest.spyOn(Math, 'random').mockReturnValue(0)
+            mockInternalFetch.mockResolvedValue(response(429, { detail: 'busy' }, { 'retry-after': '20' }))
+            const hogFlow = decisionFlow({ ...yesNo, inputs: await emailContext() })
+
+            const first = await executor.executeCurrentAction(atDecision(hogFlow))
+            expect(first.error).toBeUndefined()
+            expect(first.invocation.state.currentAction?.id).toBe('decision')
+            expect(secondsUntil(first.invocation.queueScheduledAt)).toBeCloseTo(20)
+
+            mockInternalFetch.mockResolvedValue(response(429, { detail: 'busy' }, { 'retry-after': '600' }))
+            const capped = await executor.executeCurrentAction(first.invocation)
+            expect(secondsUntil(capped.invocation.queueScheduledAt)).toBeCloseTo(60)
+
+            advanceClock(31)
+            const late = await executor.executeCurrentAction(capped.invocation)
+            expect(late.error).toContain('throttled')
+            expect(late.invocation.state.currentAction?.id).toBe('if_fails')
+        })
+
+        it('adds up to a quarter of jitter to a throttled wait', async () => {
+            jest.spyOn(Math, 'random').mockReturnValue(0.999)
+            mockInternalFetch.mockResolvedValue(response(429, { detail: 'busy' }, { 'retry-after': '20' }))
+            const hogFlow = decisionFlow({ ...yesNo, inputs: await emailContext() })
+
+            const result = await executor.executeCurrentAction(atDecision(hogFlow))
+
+            const wait = secondsUntil(result.invocation.queueScheduledAt)
+            expect(wait).toBeGreaterThan(24.9)
+            expect(wait).toBeLessThanOrEqual(25)
+        })
+
+        it('backs off an unavailable route 5 times, then fails as gateway_unavailable', async () => {
+            mockInternalFetch
+                .mockResolvedValueOnce(response(503, { detail: 'down' }))
+                .mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
+                .mockRejectedValueOnce(
+                    Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+                )
+                .mockResolvedValueOnce(response(502))
+                .mockResolvedValueOnce(response(503, { detail: 'down' }))
+                .mockResolvedValueOnce(response(503, { detail: 'down' }))
+            const hogFlow = decisionFlow({ ...yesNo, inputs: await emailContext() })
+
+            let invocation = atDecision(hogFlow)
+            const waits: number[] = []
+            for (let attempt = 0; attempt < 5; attempt++) {
+                const result = await executor.executeCurrentAction(invocation)
+                expect(result.error).toBeUndefined()
+                waits.push(Math.round(secondsUntil(result.invocation.queueScheduledAt)))
+                invocation = result.invocation
+                invocation.queueScheduledAt = undefined
+            }
+            const last = await executor.executeCurrentAction(invocation)
+
+            expect(waits).toEqual([2, 4, 8, 16, 32])
+            expect(last.error).toContain('gateway_unavailable')
+            expect(last.invocation.state.currentAction?.id).toBe('if_fails')
+        })
+
+        it('waits for the Retry-After of an unavailable route when it sends one', async () => {
+            mockInternalFetch.mockResolvedValue(response(503, { detail: 'down' }, { 'retry-after': '7' }))
+            const hogFlow = decisionFlow({ ...yesNo, inputs: await emailContext() })
+
+            const result = await executor.executeCurrentAction(atDecision(hogFlow))
+
+            expect(Math.round(secondsUntil(result.invocation.queueScheduledAt))).toBe(7)
+        })
+
+        it('writes no pause and resume log pair across a reschedule', async () => {
+            mockInternalFetch
+                .mockResolvedValueOnce(response(503, { detail: 'down' }))
+                .mockResolvedValueOnce(answered({ yes: 0.9, no: 0.1 }))
+            const hogFlow = decisionFlow({ ...yesNo, inputs: await emailContext() })
+
+            const fromTrigger = createExampleHogFlowInvocation(
+                hogFlow,
+                {},
+                { properties: { email: 'max@example.com' } }
+            )
+
+            const parked = await executor.execute(fromTrigger)
+            parked.invocation.queueScheduledAt = undefined
+            const resumed = await executor.execute(parked.invocation)
+
+            const log = [...messages(parked), ...messages(resumed)]
+            expect(log.filter((message) => message.startsWith('Workflow will pause until'))).toEqual([])
+            expect(log.filter((message) => message.startsWith('Resuming'))).toEqual([])
+            expect(resumed.invocation.state.currentAction?.id).toBe('answer_0')
+        })
+
+        it('fails a context over 8 KB as state_too_large without calling the route', async () => {
+            const hogFlow = decisionFlow({
+                ...yesNo,
+                inputs: { context: { value: { message: 'x'.repeat(8_200) } } },
+            })
+
+            const result = await executor.executeCurrentAction(atDecision(hogFlow))
+
+            expect(result.error).toContain('state_too_large')
+            expect(mockInternalFetch).not.toHaveBeenCalled()
+        })
+
+        describe('test runs', () => {
+            it('follows the mocked answer without calling the route and shows what would be sent', async () => {
+                const hogFlow = decisionFlow({ ...pickOne, inputs: await emailContext() })
+
+                const result = await executor.executeCurrentAction(atDecision(hogFlow), mocked('Marketer'))
+
+                expect(mockInternalFetch).not.toHaveBeenCalled()
+                expect(result.invocation.state.currentAction?.id).toBe('answer_1')
+                expect(messages(result).join('\n')).toContain(
+                    "Mocked answer: Marketer. Turn on 'Make real HTTP requests' to ask the model."
+                )
+                expect(result.execResult).toMatchObject({
+                    answer: 'Marketer',
+                    context: { email: 'max@example.com' },
+                    context_bytes: Buffer.byteLength(JSON.stringify({ email: 'max@example.com' })),
+                })
+            })
+
+            it.each([
+                ['yes or no', yesNo, 'answer_0'],
+                ['pick one', pickOne, 'answer_0'],
+            ])(
+                'takes the first answer of a %s question when no mocked answer is chosen',
+                async (_name, config, expected) => {
+                    const hogFlow = decisionFlow({ ...config, inputs: await emailContext() })
+
+                    const result = await executor.executeCurrentAction(atDecision(hogFlow), mocked())
+
+                    expect(result.invocation.state.currentAction?.id).toBe(expected)
+                }
+            )
+
+            it('follows the Unsure edge when Unsure is the mocked answer', async () => {
+                const hogFlow = decisionFlow({ ...yesNo, unsure_enabled: true, inputs: await emailContext() })
+
+                const result = await executor.executeCurrentAction(atDecision(hogFlow), mocked('unsure'))
+
+                expect(result.invocation.state.currentAction?.id).toBe('answer_2')
+            })
+
+            it('rejects a mocked answer the step does not have', async () => {
+                const hogFlow = decisionFlow({ ...yesNo, inputs: await emailContext() })
+
+                const result = await executor.executeCurrentAction(atDecision(hogFlow), mocked('unsure'))
+
+                expect(result.error).toContain('unsure')
+                expect(mockInternalFetch).not.toHaveBeenCalled()
+            })
+
+            it('ends a real test run on a busy route instead of rescheduling', async () => {
+                mockInternalFetch.mockResolvedValue(response(429, { detail: 'busy' }, { 'retry-after': '20' }))
+                const hogFlow = decisionFlow({ ...yesNo, inputs: await emailContext() })
+
+                const result = await executor.executeCurrentAction(atDecision(hogFlow), {
+                    testRun: { mockAsyncFunctions: false },
+                })
+
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
+                expect(result.error).toContain('The AI service is busy. Try again in a moment.')
+                expect(mockInternalFetch).toHaveBeenCalledTimes(1)
+            })
+        })
+
+        describe('config parity with a strict save', () => {
+            type ConfigCase = { name: string; base: string; valid: boolean; set?: object; unset?: string[] }
+            const cases: { bases: Record<string, Record<string, unknown>>; cases: ConfigCase[] } = parseJSON(
+                readFileSync(
+                    join(
+                        __dirname,
+                        '../../../../../products/workflows/backend/tests/api/ai_decision_config_cases.json'
+                    ),
+                    'utf8'
+                )
+            )
+            const configOf = (testCase: ConfigCase): Record<string, any> => {
+                const config: Record<string, any> = { ...cases.bases[testCase.base], ...testCase.set }
+                for (const key of testCase.unset ?? []) {
+                    delete config[key]
+                }
+                return config
+            }
+            const named = (testCase: ConfigCase): [string, ConfigCase] => [testCase.name, testCase]
+            const rejected = cases.cases.filter((testCase) => !testCase.valid).map(named)
+            const accepted = cases.cases.filter((testCase) => testCase.valid).map(named)
+
+            it.each(rejected)(
+                'rejects %s in both mocked and live runs without calling the route',
+                async (_name, testCase) => {
+                    const hogFlow = decisionFlow(configOf(testCase))
+
+                    const live = await executor.executeCurrentAction(atDecision(hogFlow))
+                    const mock = await executor.executeCurrentAction(atDecision(hogFlow), mocked())
+
+                    expect(live.error).toContain('invalid_request')
+                    expect(mock.error).toContain('invalid_request')
+                    expect(mockInternalFetch).not.toHaveBeenCalled()
+                }
+            )
+
+            it.each(accepted)('accepts %s in both mocked and live runs', async (_name, testCase) => {
+                const config = configOf(testCase)
+                mockInternalFetch.mockResolvedValue(
+                    answered(
+                        Object.fromEntries(
+                            outputsOf({ ...config, unsure_enabled: false }).map((answer) => [answer, 0.5])
+                        )
+                    )
+                )
+                const hogFlow = decisionFlow(config)
+
+                const live = await executor.executeCurrentAction(atDecision(hogFlow))
+                const mock = await executor.executeCurrentAction(atDecision(hogFlow), mocked())
+
+                expect(live.error).toBeUndefined()
+                expect(mock.error).toBeUndefined()
+                expect(mockInternalFetch).toHaveBeenCalledTimes(1)
             })
         })
     })

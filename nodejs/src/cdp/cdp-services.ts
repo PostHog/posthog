@@ -22,6 +22,7 @@ import { ConversionWatchersService } from './services/conversion-watchers/conver
 import { HogExecutorAsyncService } from './services/hog-executor-async.service'
 import { HogExecutorService } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
+import { AiDecisionClient } from './services/hogflows/actions/ai_decision/client'
 import { HogFlowDuplicateObserverService } from './services/hogflows/hogflow-duplicate-observer.service'
 import { HogFlowExecutorService } from './services/hogflows/hogflow-executor.service'
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
@@ -166,6 +167,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
+        | 'WORKFLOW_AI_DECISION_JWT_SECRET'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
@@ -528,7 +530,13 @@ export function createCdpCoreServices(
         deps.integrationManager,
         hogFlowDuplicateObserver,
         cdpUsageReporter,
-        { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
+        {
+            awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED,
+            aiDecisionClient: new AiDecisionClient(
+                new ScopedServiceJwt(PosthogJwtAudience.WORKFLOW_AI_DECISION, config.WORKFLOW_AI_DECISION_JWT_SECRET),
+                config.INTERNAL_API_BASE_URL
+            ),
+        }
     )
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)

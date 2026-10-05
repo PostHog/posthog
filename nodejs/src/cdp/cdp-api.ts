@@ -728,7 +728,14 @@ export class CdpApi {
     private postHogflowInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             const { id, team_id } = req.params
-            const { clickhouse_event, configuration, invocation_id, current_action_id, mock_async_functions } = req.body
+            const {
+                clickhouse_event,
+                configuration,
+                invocation_id,
+                current_action_id,
+                mock_async_functions,
+                mock_answer,
+            } = req.body
 
             // Redact configuration: it carries action inputs (auth headers, API keys) that must not land in logs
             logger.info('⚡️', 'Received hogflow invocation', {
@@ -860,7 +867,10 @@ export class CdpApi {
                 sensitiveValues
             )
             options.isTest = true
-            const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
+            const result = await this.hogFlowExecutor.executeCurrentAction(invocation, {
+                hogExecutorOptions: options,
+                testRun: { mockAsyncFunctions: Boolean(mock_async_functions), mockAnswer: mock_answer },
+            })
 
             res.json({
                 nextActionId: result.skipped ? null : result.invocation.state.currentAction?.id,

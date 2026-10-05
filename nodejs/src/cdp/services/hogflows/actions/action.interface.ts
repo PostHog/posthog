@@ -12,6 +12,7 @@ export interface ActionHandlerResult {
     /** The action deliberately ended the invocation because its input did not match. */
     skipped?: boolean
     result?: unknown
+    testOutput?: unknown
     error?: any
 }
 
@@ -20,6 +21,7 @@ export interface ActionHandlerOptions<T extends HogFlowAction> {
     action: T
     result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
     hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+    testRun?: { mockAsyncFunctions: boolean; mockAnswer?: string }
 }
 
 export interface ActionHandler {

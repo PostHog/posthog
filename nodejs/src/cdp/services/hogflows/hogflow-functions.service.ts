@@ -91,15 +91,13 @@ export class HogFlowFunctionsService {
         return values
     }
 
-    async buildHogFunctionInvocation(
+    private buildGlobals(
         invocation: CyclotronJobInvocationHogFlow,
         hogFunction: HogFunctionType,
         globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>
-    ): Promise<CyclotronJobInvocationHogFunction> {
-        const teamId = invocation.hogFlow.team_id
-        const projectUrl = `${this.siteUrl}/project/${teamId}`
-
-        const globalsWithSource: HogFunctionInvocationGlobals = {
+    ): HogFunctionInvocationGlobals {
+        const projectUrl = `${this.siteUrl}/project/${invocation.hogFlow.team_id}`
+        return {
             ...globals,
             // Include workflow-level variables
             variables: invocation.state.variables,
@@ -107,12 +105,16 @@ export class HogFlowFunctionsService {
                 name: hogFunction.name ?? `Hog flow: ${invocation.hogFlow.id}`,
                 url: `${projectUrl}/workflows/${invocation.hogFlow.id}/workflow?node=${hogFunction.id}`,
             },
-            project: {
-                id: hogFunction.team_id,
-                name: '',
-                url: '',
-            },
+            project: { id: hogFunction.team_id, name: '', url: '' },
         }
+    }
+
+    async buildHogFunctionInvocation(
+        invocation: CyclotronJobInvocationHogFlow,
+        hogFunction: HogFunctionType,
+        globals: Omit<HogFunctionInvocationGlobals, 'source' | 'project'>
+    ): Promise<CyclotronJobInvocationHogFunction> {
+        const globalsWithSource = this.buildGlobals(invocation, hogFunction, globals)
 
         const hogFunctionInvocation: CyclotronJobInvocationHogFunction = {
             ...invocation,
@@ -132,6 +134,33 @@ export class HogFlowFunctionsService {
         }
 
         return hogFunctionInvocation
+    }
+
+    async renderAiDecisionContext(
+        invocation: CyclotronJobInvocationHogFlow,
+        action: Extract<HogFlowAction, { type: 'ai_decision' }>
+    ): Promise<unknown> {
+        const hogFunction: HogFunctionType = {
+            id: action.id,
+            team_id: invocation.teamId,
+            name: action.name,
+            type: 'destination',
+            enabled: true,
+            deleted: false,
+            hog: '',
+            bytecode: [],
+            inputs: action.config.inputs,
+            inputs_schema: [{ key: 'context', type: 'dictionary', templating: 'hog', required: true }],
+            created_at: '',
+            updated_at: '',
+        }
+        const globals = this.buildGlobals(invocation, hogFunction, {
+            event: invocation.state.event,
+            person: invocation.person,
+            groups: invocation.groups,
+        })
+        const rendered = await this.hogFunctionExecutor.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+        return rendered.inputs.context
     }
 
     async execute(

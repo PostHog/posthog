@@ -148,6 +148,22 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             ),
         }),
     }),
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('ai_decision'),
+        config: z.object({
+            question: z.string(),
+            answer_type: z.enum(['yes_no', 'pick_one']),
+            options: z.array(z.object({ name: z.string(), description: z.string().optional() })).optional(),
+            yes_means: z.string().optional(),
+            no_means: z.string().optional(),
+            yes_threshold: z.number().optional(),
+            min_pick_probability: z.number().optional(),
+            no_threshold: z.number().optional(),
+            unsure_enabled: z.boolean().optional(),
+            inputs: z.record(z.string(), CyclotronInputSchema),
+        }),
+    }),
 
     // Time based
     z.object({

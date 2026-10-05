@@ -1,6 +1,7 @@
 import sys
 import json
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 import time_machine
@@ -8,7 +9,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.exceptions import ImproperlyConfigured
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -31,6 +32,10 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
+from products.workflows.backend.presentation.views.ai_decision_validation import (
+    AIDecisionConfigSerializer,
+    ai_decision_context_error,
+)
 
 SECRET = "test-workflow-ai-decision-jwt"
 _DECIDE = "products.ml_inference.backend.facade.api.decide_when_available"
@@ -528,3 +533,25 @@ class TestWorkflowAIDecisionsAPI(APIBaseTest):
             self._post(body)
 
         assert REGISTRY.get_sample_value("workflows_ai_decision_outcomes_total", labels) == before + 1
+
+
+_CONFIG_CASES = json.loads((Path(__file__).parent / "ai_decision_config_cases.json").read_text())
+
+
+def _config_case(case: dict[str, Any]) -> dict[str, Any]:
+    config = {**_CONFIG_CASES["bases"][case["base"]], **case.get("set", {})}
+    for key in case.get("unset", []):
+        config.pop(key)
+    return config
+
+
+class TestAIDecisionConfigCases(SimpleTestCase):
+    @parameterized.expand([(case["name"], case) for case in _CONFIG_CASES["cases"]])
+    def test_a_strict_save_accepts_only_the_valid_cases(self, _name: str, case: dict[str, Any]) -> None:
+        config = _config_case(case)
+
+        accepted = AIDecisionConfigSerializer(data=config).is_valid() and (
+            ai_decision_context_error(config.get("inputs")) is None
+        )
+
+        assert accepted == case["valid"]

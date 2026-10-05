@@ -28,6 +28,8 @@ import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
 import { ActionHandler } from './actions/action.interface'
+import { AiDecisionClient } from './actions/ai_decision/client'
+import { AiDecisionHandler } from './actions/ai_decision/handler'
 import { ConditionalBranchHandler } from './actions/conditional_branch'
 import { DelayHandler } from './actions/delay'
 import { ExitHandler } from './actions/exit.handler'
@@ -121,7 +123,7 @@ export class HogFlowExecutorService {
         integrationManager: SlackAppLookup,
         duplicateObserver?: HogFlowDuplicateObserverService,
         usageReporter?: CdpUsageReporterService,
-        options: { awaitedStepsEnabled?: boolean } = {}
+        options: { awaitedStepsEnabled?: boolean; aiDecisionClient?: AiDecisionClient } = {}
     ) {
         this.hogFlowFunctionsService = hogFlowFunctionsService
         this.duplicateObserver = duplicateObserver ?? null
@@ -157,6 +159,7 @@ export class HogFlowExecutorService {
         )
 
         this.actionHandlers = {
+            ai_decision: new AiDecisionHandler(hogFlowFunctionsService, options.aiDecisionClient),
             trigger: new TriggerHandler(integrationManager),
             conditional_branch: new ConditionalBranchHandler(cohortMembershipRepository),
             wait_until_condition: new ConditionalBranchHandler(cohortMembershipRepository),
@@ -548,6 +551,7 @@ export class HogFlowExecutorService {
         invocation: CyclotronJobInvocationHogFlow,
         options?: {
             hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+            testRun?: { mockAsyncFunctions: boolean; mockAnswer?: string }
         }
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
         // queuePriority is carried over explicitly: createInvocationResult resets it to
@@ -606,12 +610,16 @@ export class HogFlowExecutorService {
                     action: currentAction,
                     result,
                     hogExecutorOptions: options?.hogExecutorOptions,
+                    testRun: options?.testRun,
                 })
 
                 // Stored before the error so `on_error: continue` still sees what the step returned.
                 if (handlerResult.result) {
                     this.trackActionResult(result, currentAction, handlerResult.result)
-                    result.execResult = handlerResult.result
+                }
+                const execResult = handlerResult.testOutput ?? handlerResult.result
+                if (execResult !== undefined) {
+                    result.execResult = execResult
                 }
 
                 if (handlerResult.error) {
