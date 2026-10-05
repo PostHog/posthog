@@ -6991,6 +6991,23 @@ class TestAIDecisionActionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions__1__template_id", response.json()
 
+    def test_a_stored_step_does_not_unlock_a_decision_saved_under_its_id(self) -> None:
+        flow = _ai_decision_flow({})
+        delay = {"id": "decide", "name": "decide", "type": "delay", "config": {"delay_duration": "3d"}}
+        delay_edges = [
+            {"from": "trigger_node", "to": "decide", "type": "continue"},
+            {"from": "decide", "to": "exit_node", "type": "continue"},
+        ]
+        flow_id = self._post(
+            {**flow, "actions": [flow["actions"][0], delay, flow["actions"][2]], "edges": delay_edges},
+            flag_enabled=False,
+        ).json()["id"]
+
+        response = self._patch(flow_id, {"actions": flow["actions"], "edges": flow["edges"]}, flag_enabled=False)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions__1__type", response.json()
+
     def test_a_builder_draft_saves_unwired_without_the_flag_and_keeps_only_the_context_input(self) -> None:
         flow = _ai_decision_flow(
             {

@@ -1398,6 +1398,15 @@ class HogFlowActionSerializer(serializers.Serializer):
                 {"template_id": "Run scout is only available in the project's main environment."}
             )
 
+    def _reject_ai_decision_without_flag(self, action_id: Optional[str]) -> None:
+        # Same grandfathering as a flag-gated template: a step an active flow already holds keeps
+        # saving after the flag turns off, and fails at run time instead.
+        if action_id in (self.context.get("stored_ai_decision_action_ids") or set()):
+            return
+        get_team = self.context.get("get_team")
+        if get_team is not None and not ai_decision_enabled(team_id=get_team().id):
+            raise serializers.ValidationError({"type": "AI decisions aren't available for this organization yet."})
+
     def _validate_ai_decision_action(self, data: dict, strict: bool) -> None:
         config = data["config"] if isinstance(data.get("config"), dict) else {}
         if strict:
@@ -1422,15 +1431,6 @@ class HogFlowActionSerializer(serializers.Serializer):
         if inputs_valid:
             normalized["inputs"] = inputs_serializer.validated_data["inputs"]
         data["config"] = normalized
-
-    def _reject_ai_decision_without_flag(self, action_id: Optional[str]) -> None:
-        # Same grandfathering as a flag-gated template: a step an active flow already holds keeps
-        # saving after the flag turns off, and fails at run time instead.
-        if action_id in (self.context.get("stored_ai_decision_action_ids") or set()):
-            return
-        get_team = self.context.get("get_team")
-        if get_team is not None and not ai_decision_enabled(team_id=get_team().id):
-            raise serializers.ValidationError({"type": "AI decisions aren't available for this organization yet."})
 
     def validate(self, data):
         is_draft = self.context.get("is_draft")

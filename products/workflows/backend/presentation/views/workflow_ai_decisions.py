@@ -93,39 +93,6 @@ class WorkflowAIDecisionRetrySerializer(serializers.Serializer):
     )
 
 
-class WorkflowAIDecisionViewSet(viewsets.GenericViewSet):
-    """Answer a workflow AI decision step with the hosted decision model. Authenticated by a scoped
-    service JWT minted by the CDP worker, never by a user credential. Status codes are retry
-    instructions: 200 is final, 429 and 503 ask the worker to reschedule."""
-
-    authentication_classes = [WorkflowAIDecisionJWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    serializer_class = WorkflowAIDecisionRequestSerializer
-
-    @extend_schema(
-        request=WorkflowAIDecisionRequestSerializer,
-        responses={
-            200: WorkflowAIDecisionResponseSerializer,
-            400: OpenApiResponse(description="The request does not pass the step's config validation."),
-            429: OpenApiResponse(
-                response=WorkflowAIDecisionRetrySerializer,
-                description="Too many decisions right now. Retry after the Retry-After header.",
-            ),
-            503: OpenApiResponse(
-                response=WorkflowAIDecisionRetrySerializer,
-                description="The decision model or the admission store is unavailable. Retry with backoff; no Retry-After is sent.",
-            ),
-        },
-        summary="Answer a workflow AI decision",
-    )
-    def create(self, request: Request, **kwargs: Any) -> Response:
-        team_id = cast(int, cast(InternalAPIUser, request.user).current_team_id)
-        serializer = WorkflowAIDecisionRequestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        outcome = decide_ai_decision(_call(team_id, cast(str | None, request.auth), serializer.validated_data))
-        return _response(team_id, outcome)
-
-
 def _call(team_id: int, hog_flow_id: str | None, data: dict[str, Any]) -> AIDecisionCall:
     return AIDecisionCall(
         team_id=team_id,
@@ -140,6 +107,16 @@ def _call(team_id: int, hog_flow_id: str | None, data: dict[str, Any]) -> AIDeci
             no_means=data["no_means"],
         ),
         state=cast(JsonValue, data["state"]),
+    )
+
+
+def _fails_every_decision(code: AIDecisionErrorCode, reason: AIDecisionFailureReason | None) -> bool:
+    # An answer the facade cannot read, or one that does not fit its question, is a gateway contract break,
+    # not one bad input.
+    return code == AIDecisionErrorCode.GATEWAY_UNAVAILABLE or reason in (
+        "region_without_decisions",
+        "unreadable_answer",
+        "answer_does_not_fit_question",
     )
 
 
@@ -183,11 +160,34 @@ def _response(team_id: int, outcome: AIDecisionOutcome) -> Response:
             )
 
 
-def _fails_every_decision(code: AIDecisionErrorCode, reason: AIDecisionFailureReason | None) -> bool:
-    # An answer the facade cannot read, or one that does not fit its question, is a gateway contract break,
-    # not one bad input.
-    return code == AIDecisionErrorCode.GATEWAY_UNAVAILABLE or reason in (
-        "region_without_decisions",
-        "unreadable_answer",
-        "answer_does_not_fit_question",
+class WorkflowAIDecisionViewSet(viewsets.GenericViewSet):
+    """Answer a workflow AI decision step with the hosted decision model. Authenticated by a scoped
+    service JWT minted by the CDP worker, never by a user credential. Status codes are retry
+    instructions: 200 is final, 429 and 503 ask the worker to reschedule."""
+
+    authentication_classes = [WorkflowAIDecisionJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    serializer_class = WorkflowAIDecisionRequestSerializer
+
+    @extend_schema(
+        request=WorkflowAIDecisionRequestSerializer,
+        responses={
+            200: WorkflowAIDecisionResponseSerializer,
+            400: OpenApiResponse(description="The request does not pass the step's config validation."),
+            429: OpenApiResponse(
+                response=WorkflowAIDecisionRetrySerializer,
+                description="Too many decisions right now. Retry after the Retry-After header.",
+            ),
+            503: OpenApiResponse(
+                response=WorkflowAIDecisionRetrySerializer,
+                description="The decision model or the admission store is unavailable. Retry with backoff; no Retry-After is sent.",
+            ),
+        },
+        summary="Answer a workflow AI decision",
     )
+    def create(self, request: Request, **kwargs: Any) -> Response:
+        team_id = cast(int, cast(InternalAPIUser, request.user).current_team_id)
+        serializer = WorkflowAIDecisionRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        outcome = decide_ai_decision(_call(team_id, cast(str | None, request.auth), serializer.validated_data))
+        return _response(team_id, outcome)

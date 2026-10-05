@@ -48,12 +48,6 @@ _ADMISSION_KEY = "workflows:ai_decision:admission"
 _REDIS_TIMEOUT_SECONDS = 0.1
 
 
-def ai_decision_enabled(team_id: int) -> bool:
-    """For saves: a flag that cannot be evaluated hides the step rather than exposing it."""
-    team = Team.objects.only("id", "uuid", "organization_id").get(id=team_id)
-    return _flag_state(team) is True
-
-
 def _flag_state(team: Team) -> bool | None:
     """None when the flag cannot be evaluated, for example before the flag definitions load."""
     # Evaluated locally because every workflow save and every decision reads it, and a remote
@@ -76,6 +70,12 @@ def _flag_state(team: Team) -> bool | None:
     return None if enabled is None else bool(enabled)
 
 
+def ai_decision_enabled(team_id: int) -> bool:
+    """For saves: a flag that cannot be evaluated hides the step rather than exposing it."""
+    team = Team.objects.only("id", "uuid", "organization_id").get(id=team_id)
+    return _flag_state(team) is True
+
+
 def _without_lone_surrogates(state: JsonValue) -> JsonValue:
     """A template can cut an emoji in half. The gateway client cannot encode the lone surrogate that
     remains, so it becomes U+FFFD."""
@@ -85,33 +85,6 @@ def _without_lone_surrogates(state: JsonValue) -> JsonValue:
 
 def _state_size_bytes(state: JsonValue) -> int:
     return len(json.dumps(state, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
-
-
-def decide(call: AIDecisionCall) -> AIDecisionOutcome:
-    team = Team.objects.select_related("organization").get(id=call.team_id)
-    enabled = _flag_state(team)
-    if enabled is None:
-        # A failed decision is final for the person, so a flag that cannot be evaluated asks for a retry.
-        return AIDecisionUnavailable(reason="flag_undetermined")
-    if not enabled:
-        return AIDecisionFailed(code=AIDecisionErrorCode.FEATURE_UNAVAILABLE)
-    if not team.organization.is_ai_data_processing_approved:
-        return AIDecisionFailed(code=AIDecisionErrorCode.AI_PROCESSING_NOT_APPROVED)
-    if _is_over_ai_credit_budget(team):
-        return AIDecisionFailed(code=AIDecisionErrorCode.QUOTA_EXCEEDED)
-    state = _without_lone_surrogates(call.state)
-    if _state_size_bytes(state) > MAX_AI_DECISION_STATE_BYTES:
-        return AIDecisionFailed(code=AIDecisionErrorCode.STATE_TOO_LARGE)
-    try:
-        request = _decision_request(call, state)
-    except ValueError:
-        # The contract rejects a state it cannot read, such as nesting deeper than its validator follows.
-        # The error text quotes the state, so only the cause is kept.
-        return AIDecisionFailed(code=AIDecisionErrorCode.MODEL_REFUSED, reason="unreadable_state")
-    admission = _admit(team.id)
-    if admission is not None:
-        return admission
-    return _ask_the_model(request, call.question)
 
 
 def _is_over_ai_credit_budget(team: Team) -> bool:
@@ -124,6 +97,13 @@ def _is_over_ai_credit_budget(team: Team) -> bool:
         # A team that is really out of credits still gets a 402 from the gateway, so a failed lookup fails open.
         logger.warning("workflow_ai_decision_credit_lookup_failed", team_id=team.id, exc_info=True)
         return False
+
+
+def _spread_retry(decision: BucketDecision, budget: Budget) -> int:
+    """The bucket names the wait for its next token, which is the same for every waiting caller. A batch
+    run would then retry all at once, so the wait spreads over the time a full burst takes to refill."""
+    earliest = max(1, decision.retry_after)
+    return random.randint(earliest, max(earliest, math.ceil(budget.burst / budget.refill_per_second)))
 
 
 def _admit(team_id: int) -> AIDecisionThrottled | AIDecisionUnavailable | None:
@@ -154,11 +134,15 @@ def _admit(team_id: int) -> AIDecisionThrottled | AIDecisionUnavailable | None:
     return None
 
 
-def _spread_retry(decision: BucketDecision, budget: Budget) -> int:
-    """The bucket names the wait for its next token, which is the same for every waiting caller. A batch
-    run would then retry all at once, so the wait spreads over the time a full burst takes to refill."""
-    earliest = max(1, decision.retry_after)
-    return random.randint(earliest, max(earliest, math.ceil(budget.burst / budget.refill_per_second)))
+def _decision_question(question: AIDecisionQuestion) -> DecisionQuestion:
+    if question.answer_type == AIDecisionAnswerType.YES_NO:
+        criteria = {"true": question.yes_means, "false": question.no_means}
+        return DecisionQuestion(
+            type=DecisionQuestionType.NOUL,
+            instructions=question.question,
+            criteria={key: value for key, value in criteria.items() if value} or None,
+        )
+    return DecisionQuestion(type=DecisionQuestionType.CHOICE, instructions=question.question, criteria=question.options)
 
 
 def _decision_request(call: AIDecisionCall, state: JsonValue) -> DecisionRequest:
@@ -174,34 +158,6 @@ def _decision_request(call: AIDecisionCall, state: JsonValue) -> DecisionRequest
         properties=properties,
         privacy_mode=True,
     )
-
-
-def _ask_the_model(request: DecisionRequest, question: AIDecisionQuestion) -> AIDecisionOutcome:
-    try:
-        result = decision_api.decide_when_available(request, timeout_seconds=GATEWAY_TIMEOUT_SECONDS)
-    except DecisionsDisabledError:
-        return AIDecisionFailed(code=AIDecisionErrorCode.FEATURE_UNAVAILABLE, reason="region_without_decisions")
-    except GatewayNotConfiguredError:
-        return AIDecisionFailed(code=AIDecisionErrorCode.GATEWAY_UNAVAILABLE, reason="gateway_not_configured")
-    except DecisionGatewayUnreachableError:
-        return AIDecisionUnavailable(reason="gateway_unreachable")
-    except DecisionGatewayError as error:
-        return _gateway_error_outcome(error.status_code)
-    probabilities = _probabilities(result, question)
-    if probabilities is None:
-        return AIDecisionFailed(code=AIDecisionErrorCode.MODEL_REFUSED, reason="answer_does_not_fit_question")
-    return AIDecisionAnswered(probabilities=probabilities, model=result.model, input_tokens=result.input_tokens)
-
-
-def _decision_question(question: AIDecisionQuestion) -> DecisionQuestion:
-    if question.answer_type == AIDecisionAnswerType.YES_NO:
-        criteria = {"true": question.yes_means, "false": question.no_means}
-        return DecisionQuestion(
-            type=DecisionQuestionType.NOUL,
-            instructions=question.question,
-            criteria={key: value for key, value in criteria.items() if value} or None,
-        )
-    return DecisionQuestion(type=DecisionQuestionType.CHOICE, instructions=question.question, criteria=question.options)
 
 
 def _gateway_error_outcome(status_code: int) -> AIDecisionOutcome:
@@ -240,3 +196,47 @@ def _probabilities(result: DecisionResult, question: AIDecisionQuestion) -> dict
     else:
         return None
     return probabilities if all(0 <= value <= 1 for value in probabilities.values()) else None
+
+
+def _ask_the_model(request: DecisionRequest, question: AIDecisionQuestion) -> AIDecisionOutcome:
+    try:
+        result = decision_api.decide_when_available(request, timeout_seconds=GATEWAY_TIMEOUT_SECONDS)
+    except DecisionsDisabledError:
+        return AIDecisionFailed(code=AIDecisionErrorCode.FEATURE_UNAVAILABLE, reason="region_without_decisions")
+    except GatewayNotConfiguredError:
+        return AIDecisionFailed(code=AIDecisionErrorCode.GATEWAY_UNAVAILABLE, reason="gateway_not_configured")
+    except DecisionGatewayUnreachableError:
+        return AIDecisionUnavailable(reason="gateway_unreachable")
+    except DecisionGatewayError as error:
+        return _gateway_error_outcome(error.status_code)
+    probabilities = _probabilities(result, question)
+    if probabilities is None:
+        return AIDecisionFailed(code=AIDecisionErrorCode.MODEL_REFUSED, reason="answer_does_not_fit_question")
+    return AIDecisionAnswered(probabilities=probabilities, model=result.model, input_tokens=result.input_tokens)
+
+
+def decide(call: AIDecisionCall) -> AIDecisionOutcome:
+    team = Team.objects.select_related("organization").get(id=call.team_id)
+    enabled = _flag_state(team)
+    if enabled is None:
+        # A failed decision is final for the person, so a flag that cannot be evaluated asks for a retry.
+        return AIDecisionUnavailable(reason="flag_undetermined")
+    if not enabled:
+        return AIDecisionFailed(code=AIDecisionErrorCode.FEATURE_UNAVAILABLE)
+    if not team.organization.is_ai_data_processing_approved:
+        return AIDecisionFailed(code=AIDecisionErrorCode.AI_PROCESSING_NOT_APPROVED)
+    if _is_over_ai_credit_budget(team):
+        return AIDecisionFailed(code=AIDecisionErrorCode.QUOTA_EXCEEDED)
+    state = _without_lone_surrogates(call.state)
+    if _state_size_bytes(state) > MAX_AI_DECISION_STATE_BYTES:
+        return AIDecisionFailed(code=AIDecisionErrorCode.STATE_TOO_LARGE)
+    try:
+        request = _decision_request(call, state)
+    except ValueError:
+        # The contract rejects a state it cannot read, such as nesting deeper than its validator follows.
+        # The error text quotes the state, so only the cause is kept.
+        return AIDecisionFailed(code=AIDecisionErrorCode.MODEL_REFUSED, reason="unreadable_state")
+    admission = _admit(team.id)
+    if admission is not None:
+        return admission
+    return _ask_the_model(request, call.question)
