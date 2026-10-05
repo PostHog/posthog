@@ -26,7 +26,7 @@ def build_config(
     config: TeamupFitnessSourceConfig, endpoint: str, api_version: str, *, validation: bool = False
 ) -> RESTAPIConfig:
     settings = schema_for_resource(ENDPOINTS, endpoint)
-    params: dict[str, str | int] = {"page_size": 1 if validation else 100}
+    params: dict[str, Any] = {"page_size": 1 if validation else 100}
     if settings.sort:
         params["sort"] = settings.sort
 
