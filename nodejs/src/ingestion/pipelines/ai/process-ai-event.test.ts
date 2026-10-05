@@ -49,11 +49,15 @@ const costsByModel: Record<string, MockModelRow> = {
             completion_token: 0.00001,
             cache_read_token: 3.1e-7,
             cache_write_token: 3.75e-7,
+            context_tiers: [
+                {
+                    min_input_tokens: 200000,
+                    prompt_token: 0.0000025,
+                    completion_token: 0.000015,
+                    cache_read_token: 0.000000625,
+                },
+            ],
         },
-    },
-    'gemini-2.5-pro-preview:large': {
-        model: 'gemini-2.5-pro-preview:large',
-        cost: { prompt_token: 0.0000025, completion_token: 0.000015, cache_read_token: 0.000000625 },
     },
     'google/gemini-2.5-flash': {
         model: 'google/gemini-2.5-flash',
@@ -129,7 +133,6 @@ jest.mock('./costs/providers', () => {
         'anthropic/anthropic-primary': 'anthropic',
         'anthropic/claude-sonnet-4': 'anthropic',
         'google/gemini-2.5-pro-preview': 'google-ai-studio',
-        'gemini-2.5-pro-preview:large': 'google-ai-studio',
         'google/gemini-2.5-flash': 'google-ai-studio',
         'google/gemini-2.0-flash-001': 'google-ai-studio',
         'openai/o1-mini': 'openai',
@@ -1704,7 +1707,7 @@ describe('processAiEvent()', () => {
     })
 
     describe('gemini 2.5 pro preview', () => {
-        it('handles missing model property in getNewModelName', () => {
+        it('prices nothing when the model property is missing', () => {
             const eventWithoutModel = {
                 ...event,
                 properties: {
@@ -1718,7 +1721,7 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeUndefined()
         })
 
-        it('handles the separate price for lage prompts', () => {
+        it('handles the separate price for large prompts', () => {
             const event1 = {
                 ...event,
                 properties: {
@@ -1943,17 +1946,16 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.001374, 6)
         })
 
-        it('handles cache read tokens for gemini-2.5-pro-preview:large', () => {
+        it('handles cache read tokens for a long-context gemini-2.5-pro-preview prompt', () => {
             event.properties!.$ai_provider = 'gemini'
             event.properties!.$ai_model = 'gemini-2.5-pro-preview'
-            event.properties!.$ai_input_tokens = 250000 // > 200k triggers large model
+            event.properties!.$ai_input_tokens = 250000 // > 200k moves onto the long-context tier
             event.properties!.$ai_cache_read_input_tokens = 100000
             event.properties!.$ai_output_tokens = 500
 
             const result = processAiEvent(event)
 
-            // Model should be switched to gemini-2.5-pro-preview:large
-            expect(result.properties!.$ai_model_cost_used).toBe('gemini-2.5-pro-preview:large')
+            expect(result.properties!.$ai_model_cost_used).toBe('google/gemini-2.5-pro-preview')
 
             // Regular tokens: 250000 - 100000 = 150000
             // Input cost: (150000 * 0.0000025) + (100000 * 0.000000625) = 0.375 + 0.0625 = 0.4375
