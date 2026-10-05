@@ -72,7 +72,7 @@ def buildium_source(
 
     # Keep offset pagination stable when an object is updated during extraction. Ordering by the
     # mutable update timestamp can move an already-read object to a later page and skip another one.
-    params = {"orderby": "Id asc"}
+    params: dict[str, Any] = {"orderby": "Id asc"}
     if updated_from is not None:
         params["lastupdatedfrom"] = updated_from
 
