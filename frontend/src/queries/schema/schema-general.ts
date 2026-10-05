@@ -521,6 +521,8 @@ export interface HogQLQueryModifiers {
     sessionIdPushdown?: boolean
     /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
     sessionPropertyPreAggregation?: boolean
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    personIdPushdown?: boolean
     dataWarehouseEventsModifiers?: DataWarehouseEventsModifier[]
     debug?: boolean
     timings?: boolean
@@ -806,6 +808,15 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
      * @default "AND"
      * */
     operand?: FilterLogicalOperator
+    /**
+     * Where a filter that is evaluated against events must match. 'session' (default) matches an event
+     * anywhere in the session, including before the recording started or after it ended. 'recording' only
+     * matches events from one minute before the recording starts until one minute after it ends.
+     * This applies to every filter the events table answers: events, actions,
+     * event properties, and, when the project resolves them on events, person, group, and cohort properties.
+     * @default "session"
+     */
+    event_match_scope?: 'recording' | 'session'
     session_ids?: string[]
     /** Exclude recordings already viewed by the current user ('current-user'), by any team member ('any-user'), or none (default). Applied server-side so pagination and the result cursor operate on the filtered set. */
     hide_viewed_recordings?: 'current-user' | 'any-user' | null
@@ -4889,6 +4900,9 @@ export type CachedMetricsQueryResponse = CachedQueryResponse<MetricsQueryRespons
 export interface MetricsHistogramQuery extends DataNode<MetricsHistogramQueryResponse> {
     kind: NodeKind.MetricsHistogramQuery
     metricName: string
+    /** Pins the OTel type, as on a MetricsQuery clause: one name can exist as more than one
+     * type, and the heatmap must grid only the distribution series. */
+    metricType?: MetricsOtelType
     filters?: MetricsQueryFilter[]
     /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
     dateRange?: DateRange
@@ -5411,7 +5425,6 @@ export type FileSystemIconType =
     | 'session_profile'
     | 'survey'
     | 'product_tour'
-    | 'user_interview'
     | 'early_access_feature'
     | 'experiment'
     | 'feature_flag'
@@ -5421,8 +5434,6 @@ export type FileSystemIconType =
     | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
-    | 'link'
-    | 'live_debugger'
     | 'logs'
     | 'tracing'
     | 'metrics'
@@ -9055,8 +9066,6 @@ export enum ProductKey {
     HISTORY = 'history',
     INGESTION_WARNINGS = 'ingestion_warnings',
     INTEGRATIONS = 'integrations',
-    LINKS = 'links',
-    LIVE_DEBUGGER = 'live_debugger',
     LLM_CLUSTERS = 'llm_clusters',
     LLM_DATASETS = 'llm_datasets',
     LLM_EVALUATIONS = 'llm_evaluations',
@@ -9095,7 +9104,6 @@ export enum ProductKey {
     TOOLBAR = 'toolbar',
     TRACING = 'tracing',
     METRICS = 'metrics',
-    USER_INTERVIEWS = 'user_interviews',
     VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',
     WORKFLOWS = 'workflows',

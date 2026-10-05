@@ -147,6 +147,10 @@ REDACTED_AUTH_USER_FIELDS: Final[frozenset[str]] = frozenset({"passwordHash", "s
 # pointing the minted Google access token at an arbitrary server.
 REALTIME_DATABASE_HOST_SUFFIXES: Final[tuple[str, ...]] = (".firebaseio.com", ".firebasedatabase.app")
 
+# A Realtime Database answers 404 only when no database instance lives at the host. A missing path
+# under a real instance answers 200 with `null`, so a 404 always means the configured URL is wrong.
+REALTIME_DATABASE_NOT_FOUND_ERROR: Final[str] = "Firebase has no Realtime Database at the configured URL"
+
 
 def firestore_table_name(collection_id: str) -> str:
     """Table name for one root-level Firestore collection (`rooms`)."""

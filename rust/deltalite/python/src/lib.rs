@@ -365,6 +365,10 @@ impl DeltaLiteTable {
     /// PK set); `0` disables the guard, `None` uses `DELTALITE_MAX_SOURCE_BYTES` or the
     /// built-in 2 GiB default. `multipart_threshold` / `multipart_part_size` control
     /// multipart upload of output files (`0` threshold disables).
+    ///
+    /// `max_fetch_bytes` caps the compressed row-group bytes this call's file readers
+    /// hold between fetching and decoding (`DELTALITE_PROCESS_MAX_FETCH_BYTES` caps it
+    /// per process). A row group larger than the cap still runs, alone.
     #[pyo3(signature = (
         data,
         primary_keys,
@@ -374,6 +378,7 @@ impl DeltaLiteTable {
         max_parallel_partitions = 2,
         max_parallel_files = 4,
         max_buffered_bytes = 67108864,
+        max_fetch_bytes = 134217728,
         skip_unmatched_files = true,
         prune_strategy = None,
         probe_concurrency = 8,
@@ -395,6 +400,7 @@ impl DeltaLiteTable {
         max_parallel_partitions: usize,
         max_parallel_files: usize,
         max_buffered_bytes: usize,
+        max_fetch_bytes: usize,
         skip_unmatched_files: bool,
         prune_strategy: Option<String>,
         probe_concurrency: usize,
@@ -430,6 +436,7 @@ impl DeltaLiteTable {
             probe_concurrency,
             max_parallel_files,
             max_buffered_bytes,
+            max_fetch_bytes,
             commit_max_retries,
             read_batch_size,
             target_file_size,

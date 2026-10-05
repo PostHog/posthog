@@ -18,6 +18,7 @@ import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from itertools import batched
+from typing import Final, cast
 from uuid import UUID
 
 import structlog
@@ -25,9 +26,10 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.alerts.backend.facade.contracts import (
-    AlertDeliveryPreview,
-    GroupTransition,
+from products.alerts_platform.backend.facade.api import due_checks, slot_of
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
+    AlertEventKind,
     MuteReason,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -35,8 +37,7 @@ from products.alerts.backend.facade.contracts import (
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.alerts.backend.facade.destinations import list_active_alert_destinations
-from products.alerts.backend.facade.lifecycle import (
+from products.alerts_platform.backend.facade.lifecycle import (
     PLATFORM_LOGS_ALERT_POLICY,
     AlertCheckOutcome,
     AlertSnapshot,
@@ -49,8 +50,7 @@ from products.alerts.backend.facade.lifecycle import (
     decide_firing_episode,
     evaluate_alert_check,
 )
-from products.alerts.backend.facade.platform_alerts import due_checks
-from products.alerts.backend.facade.platform_metrics import (
+from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
     increment_checks_skipped,
     increment_deliveries_deferred,
@@ -60,7 +60,7 @@ from products.alerts.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
-from products.alerts.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
+from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
     BucketedCount,
@@ -82,7 +82,7 @@ logger = structlog.get_logger(__name__)
 # A fleet-wide burst would otherwise return one activity payload over Temporal's ~2 MiB limit,
 # which fails the whole batch rather than truncating it. The bound drops an outcome along with
 # the preview it belongs to, so a breach this batch cannot announce keeps its due time.
-MAX_PREVIEWS_PER_CYCLE = 500
+MAX_DELIVERIES_PER_CYCLE = 500
 
 # Cohorts run one after another, and the production runner measures about four seconds each. A
 # higher bound spends the query budget below and returns fewer cohorts, not more; a cohort left
@@ -98,12 +98,31 @@ MAX_QUERY_SECONDS = 20
 # Below this there is no point starting another query; the cohort keeps its due time instead.
 MIN_QUERY_SECONDS = 2
 
-_NOTIFICATION_EVENT_KINDS: dict[NotificationAction, EventKind] = {
-    NotificationAction.FIRE: "firing",
-    NotificationAction.RESOLVE: "resolved",
-    NotificationAction.ERROR: "errored",
-    NotificationAction.BROKEN: "broken",
+# A check that announced nothing is a CHECK even when it moved the alert; the row's two states
+# carry the move. `AlertEventKind`'s other four values are the `EventKind` strings the destination
+# config is keyed on, so this is also the only table mapping an action to a destination.
+_NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
+    NotificationAction.NONE: AlertEventKind.CHECK,
+    NotificationAction.FIRE: AlertEventKind.FIRING,
+    NotificationAction.RESOLVE: AlertEventKind.RESOLVED,
+    NotificationAction.ERROR: AlertEventKind.ERRORED,
+    NotificationAction.BROKEN: AlertEventKind.BROKEN,
 }
+
+
+def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str:
+    """Names the scheduled check, and the window it answered for.
+
+    The slot is in the key because `resolve_alert_date_to` clamps the window end to the ingestion
+    checkpoint. Two consecutive scheduled checks reach the same window end whenever the checkpoint
+    has not moved, and a key built from the window alone would make them one evaluation to any
+    reader deduplicating on it.
+
+    Scoped to the alert by the row's own columns rather than by the string, so the key keeps one
+    shape across sources. Both parts are read before anything is written, so a retry recomputes
+    the same key.
+    """
+    return f"slot:{slot_of(check.next_check_at, window_end)}|window:{window_end.isoformat()}"
 
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
@@ -148,7 +167,7 @@ def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) 
     )
 
 
-Decision = tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]
+Decision = tuple[PlatformAlertOutcome, AlertDeliveryRequest | None]
 
 
 @frozen
@@ -222,51 +241,80 @@ def _recorded(
     check: PlatformAlertCheckInput,
     *,
     outcome: Outcome,
+    evaluation_key: str,
+    kind: AlertEventKind,
     notified: bool,
     now: datetime,
+    value: float | None = None,
+    error_message: str | None = None,
+    query_duration_ms: int | None = None,
+    muted_notification: str = "",
     disable: bool = False,
 ) -> PlatformAlertOutcome:
     """The one place a recorded outcome is built, so every path states the firing the same way."""
     return PlatformAlertOutcome(
         configuration_id=check.id,
+        evaluation_key=evaluation_key,
+        kind=kind,
         new_state=outcome.new_state.value,
         notified=notified,
         consecutive_failures=outcome.consecutive_failures,
         firing_episode=decide_firing_episode(_snapshot(check, ()), outcome, now, policy=PLATFORM_LOGS_ALERT_POLICY),
+        value=value,
+        error_message=error_message,
+        query_duration_ms=query_duration_ms,
+        muted_notification=muted_notification,
         disable=disable,
     )
 
 
 def _delivery(
-    check: PlatformAlertCheckInput, outcome: AlertCheckOutcome, *, window_end: datetime, now: datetime
+    check: PlatformAlertCheckInput,
+    outcome: AlertCheckOutcome,
+    *,
+    window_end: datetime,
+    now: datetime,
+    value: float | None = None,
+    query_duration_ms: int | None = None,
 ) -> Decision:
     """What the platform records for a verdict, and what delivery would announce for it."""
     recorded = _recorded(
         check,
         outcome=outcome,
+        evaluation_key=_evaluation_key(check, window_end),
+        kind=_NOTIFICATION_OUTCOME_KINDS[outcome.notification],
         notified=outcome.update_last_notified_at,
         now=now,
+        value=value,
+        error_message=outcome.error_message,
+        query_duration_ms=query_duration_ms,
+        muted_notification=(
+            "" if outcome.muted_notification == NotificationAction.NONE else outcome.muted_notification.value
+        ),
         disable=outcome.disable,
     )
     if outcome.notification == NotificationAction.NONE:
         return recorded, None
 
-    spec = EVENT_KIND_CONFIG[_NOTIFICATION_EVENT_KINDS[outcome.notification]]
-    destinations = list_active_alert_destinations(
-        team_id=check.team_id,
-        alert_id=str(check.legacy_configuration_id or check.id),
-        allowed_event_ids=[spec.event_id],
-    )
-    return recorded, AlertDeliveryPreview(
+    return recorded, AlertDeliveryRequest(
         source=SourceKind.LOGS,
-        alert_id=str(check.id),
-        alert_name=check.name,
-        evaluation_key=f"{check.id}:window:{window_end.isoformat()}",
-        destination_names=tuple(destination.name for destination in destinations),
-        # One transition with an empty grouping key. Logs does not group yet, and delivery
-        # reads a list either way, so fan-out changes this call and nothing downstream.
-        transitions=(GroupTransition(grouping_key="", notification=outcome.notification.value),),
+        team_id=check.team_id,
+        configuration_id=str(check.id),
+        # The recorded key unchanged, so a delivery can address the row the check wrote. The
+        # workflow id that has to be unique across alerts joins this to the configuration itself.
+        evaluation_key=recorded.evaluation_key,
+        destination_alert_id=str(check.legacy_configuration_id or check.id),
+        event_ids_by_kind=_EVENT_IDS_BY_KIND,
     )
+
+
+# Which event id each announced kind's destinations filter on. Resolved here because the
+# platform imports no source and cannot read `EVENT_KIND_CONFIG`.
+_EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
+    kind.value: EVENT_KIND_CONFIG[cast(EventKind, kind.value)].event_id
+    for kind in AlertEventKind
+    if kind.value in EVENT_KIND_CONFIG
+}
 
 
 def _evaluate_one(
@@ -306,9 +354,25 @@ def _failed(check: PlatformAlertCheckInput, error: Exception, *, now: datetime, 
     )
 
 
-def _held(check: PlatformAlertCheckInput, outcome: ControlPlaneOutcome, *, skip: SkipReason, now: datetime) -> Decision:
+def _held(
+    check: PlatformAlertCheckInput,
+    outcome: ControlPlaneOutcome,
+    *,
+    skip: SkipReason,
+    now: datetime,
+    error_message: str,
+) -> Decision:
     """A control-plane transition the check machine cannot express. The outcome advances the schedule."""
-    recorded = _recorded(check, outcome=outcome, notified=False, now=now)
+    recorded = _recorded(
+        check,
+        outcome=outcome,
+        evaluation_key=_evaluation_key(check, now),
+        # The notification is NONE here only because the check machine never ran.
+        kind=AlertEventKind.BROKEN,
+        notified=False,
+        now=now,
+        error_message=error_message,
+    )
     _record_check_metrics(
         check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
     )
@@ -356,14 +420,23 @@ def _evaluate_cohort(
     decided: list[Decision] = []
     for check in checks:
         muted = check.id in muted_ids
+        buckets = result.per_alert.get(str(check.id), [])
+        # ClickHouse emits no bucket for an empty window, so no buckets is a measured zero.
+        value: float | None = float(buckets[-1].count) if buckets else 0.0
+        # One query serves the cohort, so every check in it records the same duration.
+        duration_ms: int | None = result.query_duration_ms
         try:
-            outcome = _evaluate_one(check, result.per_alert.get(str(check.id), []), now=now, muted=muted)
+            outcome = _evaluate_one(check, buckets, now=now, muted=muted)
         except Exception as error:
             logger.exception("Failed to evaluate a logs alert", check_id=str(check.id), error=str(error))
             outcome = _failed(check, error, now=now, muted=muted)
+            # A check that reached no verdict measured nothing.
+            value, duration_ms = None, None
         # Outside the block above on purpose. Resolving a destination reads the database, and a
         # failure there is not this check's failure.
-        decided.append(_delivery(check, outcome, window_end=date_to, now=now))
+        decided.append(
+            _delivery(check, outcome, window_end=date_to, now=now, value=value, query_duration_ms=duration_ms)
+        )
     return decided
 
 
@@ -393,6 +466,7 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
                     apply_broken_config(_snapshot(check, ())),
                     skip=SkipReason.BROKEN_CONFIG,
                     now=now,
+                    error_message=broken_reason,
                 )
             )
             continue
@@ -405,27 +479,27 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
 def _collect(decided: Sequence[Decision], team_id: int, slot: str, started_at: float) -> SourceBatchEvaluation:
     """Applies the payload bound and reports the batch."""
     outcomes: list[PlatformAlertOutcome] = []
-    previews: list[AlertDeliveryPreview] = []
+    deliveries: list[AlertDeliveryRequest] = []
     omitted = 0
-    for outcome, preview in decided:
-        if preview is not None and len(previews) >= MAX_PREVIEWS_PER_CYCLE:
+    for outcome, delivery in decided:
+        if delivery is not None and len(deliveries) >= MAX_DELIVERIES_PER_CYCLE:
             omitted += 1
             continue
         outcomes.append(outcome)
-        if preview is not None:
-            previews.append(preview)
+        if delivery is not None:
+            deliveries.append(delivery)
 
     if omitted:
         logger.warning(
             "Deferred logs alert deliveries over the batch payload bound",
             team_id=team_id,
             slot=slot,
-            delivered=len(previews),
+            delivered=len(deliveries),
             deferred=omitted,
         )
         safe_record(increment_deliveries_deferred, SourceKind.LOGS.value, omitted)
     safe_record(record_batch_duration, SourceKind.LOGS.value, int((time.monotonic() - started_at) * 1000))
-    return SourceBatchEvaluation(outcomes=tuple(outcomes), previews=tuple(previews), omitted=omitted)
+    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=omitted)
 
 
 def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:
@@ -441,11 +515,11 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     started_at = time.monotonic()
     checks = due_checks(team_id, SourceKind.LOGS.value, slot, cutoff)
     if not checks:
-        return SourceBatchEvaluation(outcomes=(), previews=())
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
 
     team = Team.objects.filter(id=team_id).first()
     if team is None:
-        return SourceBatchEvaluation(outcomes=(), previews=())
+        return SourceBatchEvaluation(outcomes=(), deliveries=())
 
     triage = _triage(checks, now=cutoff, tz_name=team.timezone)
     if not triage.evaluable:

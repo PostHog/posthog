@@ -25,6 +25,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { retryImport } from 'lib/utils/retryImport'
+import { isStableChunkBuild, reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import {
@@ -578,7 +579,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 if (
                     sceneAccessControlResource &&
                     effectiveResourceAccessControl &&
-                    effectiveResourceAccessControl[sceneAccessControlResource] === AccessControlLevel.None
+                    (Array.isArray(sceneAccessControlResource)
+                        ? sceneAccessControlResource
+                        : [sceneAccessControlResource]
+                    ).every((resource) => effectiveResourceAccessControl[resource] === AccessControlLevel.None)
                 ) {
                     return Scene.ErrorAccessDenied
                 }
@@ -1014,6 +1018,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error
                         if (
+                            !isStableChunkBuild() &&
                             values.lastReloadAt &&
                             parseInt(String(values.lastReloadAt)) > new Date().valueOf() - 20000
                         ) {
@@ -1060,7 +1065,7 @@ export const sceneLogic = kea<sceneLogicType>([
             actions.setScene(sceneId, sceneKey, params, clickedLink || wasNotLoaded, exportedScene)
         },
         reloadBrowserDueToImportError: () => {
-            window.location.reload()
+            reloadAfterChunkLoadError()
         },
     })),
 

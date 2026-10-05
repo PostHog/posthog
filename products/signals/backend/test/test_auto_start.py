@@ -789,6 +789,11 @@ def test_autostart_description_opens_the_pr_before_the_simplify_pass():
     assert open_pr < simplify
     assert fork_push < simplify
     assert "skip this polish pass" in description
+    # The PR must follow the repository's own checks, and a run must not claim checks it never ran.
+    repo_checks = description.index("Find out how the repository runs its tests, lint and typecheck")
+    assert repo_checks < open_pr
+    assert "name the checks you skipped and why in the PR description" in description
+    assert "stop and say so in your summary rather than reverting it" in description
 
 
 @pytest.mark.parametrize(

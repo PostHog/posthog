@@ -1,15 +1,10 @@
 import { urls } from 'scenes/urls'
 
 import { EvaluationOutputConfig, EvaluationRun, LLMJudgeEvaluation } from '../../../evaluations/types'
-import { TraceTreeNode } from '../types'
+import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { EvalResultsContext, toEvalResults } from './toEvalResults'
 
-const node = (
-    id: string,
-    kind: TraceTreeNode['kind'],
-    name: string,
-    children: TraceTreeNode[] = []
-): TraceTreeNode => ({
+const node = (id: string, kind: TraceNodeApi['kind'], name: string, children: TraceNodeApi[] = []): TraceNodeApi => ({
     id,
     kind,
     name,

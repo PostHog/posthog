@@ -20,6 +20,7 @@ import { Breadcrumb } from '~/types'
 
 import {
     dataWarehouseCompletedActivityRetrieve,
+    dataWarehouseRunningActivityRetrieve,
     dataWarehouseDataHealthIssuesRetrieve,
     dataWarehouseJobStatsRetrieve,
     dataWarehouseTotalRowsStatsRetrieve,
@@ -27,7 +28,6 @@ import {
 import type {
     DataHealthIssueApi,
     DataHealthIssuesResponseApi,
-    PipelineActivityResponseApi,
     PipelineActivityRowApi,
     PipelineJobStatsResponseApi,
     PipelineRowsStatsResponseApi,
@@ -81,19 +81,19 @@ export interface pipelineOverviewSceneLogicValues {
     rowsStatsLoading: boolean
     healthIssues: DataHealthIssuesResponseApi | null
     healthIssuesLoading: boolean
-    recentFailures: PipelineActivityResponseApi | null
-    recentFailuresLoading: boolean
+    recentRuns: { finished: PipelineActivityRowApi[]; running: PipelineActivityRowApi[] } | null
+    recentRunsLoading: boolean
     breadcrumbs: Breadcrumb[]
     issuesBySeverity: DataHealthIssueApi[]
     failingSyncCount: number
-    failedRuns: PipelineActivityRowApi[]
+    recentRunRows: PipelineActivityRowApi[]
     destinations: ExternalDataDestinationApi[] | null
     destinationsLoading: boolean
     sources: ExternalDataSourceSerializersApi[] | null
     sourcesLoading: boolean
     syncingTableCount: number
     lastUpdatedAt: string | null
-    destinationRowSeries: { labels: string[]; series: { id: string; values: number[] }[] } | null
+    destinationRowSeries: { labels: string[]; series: { id: string; values: number[] }[]; total: number[] } | null
     destinationRowSeriesLoading: boolean
     rowsByDestination: { key: string; label: string; data: number[]; type: 'area'; fill: { opacity: number } }[]
     hasIssues: boolean
@@ -105,7 +105,7 @@ export interface pipelineOverviewSceneLogicActions {
     loadJobStats: () => any
     loadRowsStats: () => any
     loadHealthIssues: () => any
-    loadRecentFailures: () => any
+    loadRecentRuns: () => any
     loadDestinations: () => any
     loadSources: () => any
     loadDestinationRowSeries: () => any
@@ -200,12 +200,12 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             },
         ],
         destinationRowSeries: [
-            null as { labels: string[]; series: { id: string; values: number[] }[] } | null,
+            null as { labels: string[]; series: { id: string; values: number[] }[]; total: number[] } | null,
             {
                 loadDestinationRowSeries: async () => {
                     const destinations = values.destinations ?? []
                     if (destinations.length === 0) {
-                        return { labels: [], series: [] }
+                        return { labels: [], series: [], total: [] }
                     }
                     const interval = values.window === 1 ? ('hour' as const) : ('day' as const)
                     // Both bounds are interpolated into `toDateTime(...)`, so they have to be
@@ -216,49 +216,80 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                     // One request per destination, filtered on `instanceId`, rather than one
                     // breakdown over every instance. The breakdown is capped at 100 rows, and a
                     // team with thousands of tables pushes every destination out of that cap.
-                    const answers = await Promise.all(
-                        destinations.map(async (destination: ExternalDataDestinationApi) => ({
-                            id: destination.id,
-                            response: await loadAppMetricsTimeSeries(
-                                {
-                                    appSource: WAREHOUSE_APP_SOURCE,
-                                    metricName: 'rows_synced',
-                                    instanceId: destination.id,
-                                    interval,
-                                    dateFrom,
-                                    dateTo,
-                                },
-                                values.currentTeam?.timezone ?? 'UTC'
-                            ),
-                        }))
+                    const common = {
+                        appSource: WAREHOUSE_APP_SOURCE,
+                        metricName: 'rows_synced',
+                        // The time-series query interpolates `breakdownBy` with no fallback, so
+                        // omitting it emits `undefined AS breakdown` and the query fails to
+                        // resolve. Each request is already pinned to one series by its filter.
+                        breakdownBy: 'instance_id' as const,
+                        interval,
+                        dateFrom,
+                        dateTo,
+                    }
+                    const timezone = values.currentTeam?.timezone ?? 'UTC'
+                    const schemaIds = (values.sources ?? []).flatMap((source: ExternalDataSourceSerializersApi) =>
+                        (source.schemas ?? []).map((schema) => String(schema.id))
                     )
+                    const [answers, total] = await Promise.all([
+                        Promise.all(
+                            destinations.map(async (destination: ExternalDataDestinationApi) => ({
+                                id: destination.id,
+                                response: await loadAppMetricsTimeSeries(
+                                    { ...common, instanceId: destination.id },
+                                    timezone
+                                ),
+                            }))
+                        ),
+                        schemaIds.length > 0
+                            ? loadAppMetricsTimeSeries(
+                                  { ...common, instanceIds: schemaIds, breakdownBy: 'metric_name' },
+                                  timezone
+                              )
+                            : Promise.resolve({ labels: [], interval, timezone, series: [] }),
+                    ])
                     return {
-                        labels: answers.find((a) => a.response.labels.length > 0)?.response.labels ?? [],
+                        labels:
+                            answers.find((a) => a.response.labels.length > 0)?.response.labels ?? total.labels ?? [],
                         series: answers.map((a) => ({
                             id: a.id,
                             // Without a breakdown the response carries a single unnamed series.
                             values: a.response.series[0]?.values ?? [],
                         })),
+                        total: total.series[0]?.values ?? [],
                     }
                 },
             },
         ],
-        recentFailures: [
-            null as PipelineActivityResponseApi | null,
+        recentRuns: [
+            null as { finished: PipelineActivityRowApi[]; running: PipelineActivityRowApi[] } | null,
             {
-                loadRecentFailures: async () =>
-                    await dataWarehouseCompletedActivityRetrieve(String(values.currentTeamId), {
-                        outcome: 'failed',
-                        // Imports only. Without this a team with many failing views fills every
-                        // page with them and this list renders empty.
-                        kind: 'import',
-                        // The window control sits in this section's own header. Without this the
-                        // endpoint falls back to its own 30-day default and ignores the control.
-                        cutoff_days: values.window,
-                        // Over-fetch: the endpoint has no sync-only filter, so view runs are
-                        // dropped client-side and a page of them would otherwise show nothing.
-                        limit: 50,
-                    }),
+                loadRecentRuns: async () => {
+                    const [finished, running] = await Promise.all([
+                        dataWarehouseCompletedActivityRetrieve(String(values.currentTeamId), {
+                            // Everything that finished, not just the failures.
+                            outcome: 'all',
+                            // Imports only. Without this a team with many failing views fills
+                            // every page with them and this list renders empty.
+                            kind: 'import',
+                            // The window control sits in this section's own header. Without this
+                            // the endpoint falls back to its own 30-day default.
+                            cutoff_days: values.window,
+                            limit: 50,
+                        }),
+                        // In-flight runs come from a separate endpoint, so a sync that started
+                        // seconds ago appears at the top rather than waiting until it finishes.
+                        dataWarehouseRunningActivityRetrieve(String(values.currentTeamId), {
+                            kind: 'import',
+                            cutoff_days: values.window,
+                            limit: 50,
+                        }),
+                    ])
+                    return {
+                        finished: (finished.results ?? []) as PipelineActivityRowApi[],
+                        running: (running.results ?? []) as PipelineActivityRowApi[],
+                    }
+                },
             },
         ],
     })),
@@ -282,11 +313,18 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             (healthIssues: DataHealthIssuesResponseApi | null): number =>
                 (healthIssues?.results ?? []).filter((issue) => issue.type === 'external_data_sync').length,
         ],
-        /** One chart series per destination, biggest first so the legend matches the stack. */
+        /**
+         * One chart series per destination, biggest first so the legend matches the stack.
+         *
+         * The PostHog warehouse series is derived rather than read directly. Runs from before
+         * destination attribution landed report no destination at all, and a run that resolves
+         * to the warehouse alone still reports none. Those rows only exist keyed by schema, in
+         * the total, so the warehouse gets whatever the other destinations did not take.
+         */
         rowsByDestination: [
             (s: any) => [s.destinationRowSeries, s.destinations],
             (
-                answer: { labels: string[]; series: { id: string; values: number[] }[] } | null,
+                answer: { labels: string[]; series: { id: string; values: number[] }[]; total: number[] } | null,
                 destinations: ExternalDataDestinationApi[] | null
             ): {
                 key: string
@@ -299,15 +337,25 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                     return []
                 }
                 const byId = new Map(destinations.map((d) => [d.id, d]))
-                return answer.series
+                const warehouse = destinations.find((d) => d.type === 'PostHogWarehouse')
+                const elsewhere = answer.series.filter((s) => s.id !== warehouse?.id)
+
+                const derivedWarehouse = answer.total.map((rows, i) =>
+                    Math.max(0, rows - elsewhere.reduce((sum, s) => sum + (s.values[i] ?? 0), 0))
+                )
+
+                const series = elsewhere.map((s) => ({ id: s.id, values: s.values }))
+                if (warehouse) {
+                    series.push({ id: warehouse.id, values: derivedWarehouse })
+                }
+
+                return series
                     .map((s) => ({
                         key: s.id,
                         label: byId.get(s.id)?.name ?? s.id,
                         data: s.values,
                         type: 'area' as const,
                         // `fill` is what makes an area series fill; `type` alone draws a line.
-                        // The chart stacks area series and offers no way not to, so the section
-                        // copy says the total is row-writes rather than rows.
                         fill: { opacity: 0.25 },
                         total: s.values.reduce((a, b) => a + b, 0),
                     }))
@@ -332,10 +380,20 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         ],
         /** Whether anything is wrong. The health section is hidden when nothing is. */
         hasIssues: [(s: any) => [s.issuesBySeverity], (issues: DataHealthIssueApi[]): boolean => issues.length > 0],
-        failedRuns: [
-            (s: any) => [s.recentFailures],
-            (recentFailures: PipelineActivityResponseApi | null): PipelineActivityRowApi[] =>
-                (recentFailures?.results ?? []).filter((run) => run.type !== MATERIALIZED_VIEW_ACTIVITY_TYPE),
+        /** Running first, then finished newest-first. Model runs are another product's. */
+        recentRunRows: [
+            (s: any) => [s.recentRuns],
+            (
+                answer: { finished: PipelineActivityRowApi[]; running: PipelineActivityRowApi[] } | null
+            ): PipelineActivityRowApi[] => {
+                if (!answer) {
+                    return []
+                }
+                const isImport = (run: PipelineActivityRowApi): boolean => run.type !== MATERIALIZED_VIEW_ACTIVITY_TYPE
+                const finished = answer.finished.filter(isImport)
+                const finishedIds = new Set(finished.map((run) => run.id))
+                return [...answer.running.filter((run) => isImport(run) && !finishedIds.has(run.id)), ...finished]
+            },
         ],
         // A first load shows skeletons; a refresh keeps the numbers on screen and dims them, so
         // polling does not make the page flash.
@@ -349,23 +407,32 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
             ): boolean => (jobStatsLoading && jobStats === null) || (healthIssuesLoading && healthIssues === null),
         ],
     }),
-    listeners(({ actions }: any) => ({
+    listeners(({ actions, values }: any) => ({
         // Health is current state and rows are reported per billing period, so neither is
         // windowed. Everything else is.
         setWindow: () => {
             actions.loadJobStats()
             actions.loadDestinationRowSeries()
-            actions.loadRecentFailures()
+            actions.loadRecentRuns()
         },
         refresh: () => actions.loadEverything(),
-        // The series are fetched one destination at a time, so the destination list has to land
-        // first. Chaining on success is what guarantees that on a reload as well as on mount.
-        loadDestinationsSuccess: () => actions.loadDestinationRowSeries(),
+        // The destination and schema lists identify the two attribution key types in app_metrics.
+        // Wait for both so the overall request can select schema-keyed rows exactly.
+        loadDestinationsSuccess: () => {
+            if (values.sources !== null) {
+                actions.loadDestinationRowSeries()
+            }
+        },
+        loadSourcesSuccess: () => {
+            if (values.destinations !== null) {
+                actions.loadDestinationRowSeries()
+            }
+        },
         loadEverything: () => {
             actions.loadJobStats()
             actions.loadRowsStats()
             actions.loadHealthIssues()
-            actions.loadRecentFailures()
+            actions.loadRecentRuns()
             actions.loadDestinations()
             actions.loadSources()
         },
@@ -374,6 +441,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         pollStats: () => {
             actions.loadJobStats()
             actions.loadHealthIssues()
+            // The runs list is the one table worth moving under the reader: a sync that starts
+            // while the page is open should appear without a refresh.
+            actions.loadRecentRuns()
         },
     })),
     afterMount(({ actions, cache }: any) => {

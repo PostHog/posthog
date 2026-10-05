@@ -1,6 +1,9 @@
 <title>PostHog</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta charset="utf-8">
+{% for token in origin_trial_tokens %}
+    <meta http-equiv="origin-trial" content="{{ token }}">
+{% endfor %}
 <!-- Favicons & OS-theme configurations -->
 <link rel="apple-touch-icon"
       sizes="180x180"

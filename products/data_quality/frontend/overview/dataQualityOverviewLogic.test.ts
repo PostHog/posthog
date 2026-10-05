@@ -550,7 +550,7 @@ describe('dataQualityOverviewLogic', () => {
     })
 
     it.each<[string, Partial<DataQualityOverviewCheckApi>, string | null]>([
-        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1/tests'],
+        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1/data-quality'],
         ['a view on no DAG', { subject_type: 'view', subject_node_id: null }, null],
         [
             'a PostHog table on a DAG node',
@@ -561,7 +561,7 @@ describe('dataQualityOverviewLogic', () => {
         [
             'a metric',
             { subject_type: 'metric', subject_metric_name: 'weekly_signups' },
-            '/data-catalog/metrics/weekly_signups?tab=tests',
+            '/data-catalog/metrics/weekly_signups?tab=data-quality',
         ],
         ['a deleted metric', { subject_type: 'metric', subject_metric_name: null }, null],
         [
@@ -577,7 +577,7 @@ describe('dataQualityOverviewLogic', () => {
         [
             'a metric on its catalog page',
             { subject_type: 'metric', subject_uuid: 'uuid-metric', subject_metric_name: 'signups' },
-            '/data-catalog/metrics/signups?tab=tests',
+            '/data-catalog/metrics/signups?tab=data-quality',
         ],
         [
             'a metric whose name did not come through',

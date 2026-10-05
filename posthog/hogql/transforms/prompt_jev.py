@@ -18,7 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, DatabaseField, TableNode
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
-from posthog.hogql.functions.prompt_jev import PromptJevCall, PromptJevFinder
+from posthog.hogql.functions.prompt_jev import PromptJevCall, PromptJevFinder, is_decision_call
 from posthog.hogql.type_system import constant_type_from_runtime_type, parse_clickhouse_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -41,8 +41,6 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-MAX_ROWS = 1000
-MAX_DECISIONS = 1000
 MAX_INPUT_BYTES = 8192
 MAX_TOTAL_BYTES = 2 * 1024 * 1024
 MAX_BATCH_BYTES = 32768
@@ -117,10 +115,23 @@ class PromptJevTable:
         )
 
 
+OUT_OF_AI_CREDITS_MESSAGE = (
+    "jev can't run because your organization has used all its AI credits. "
+    "Add credits in billing settings, then try again."
+)
+
+
 @frozen
 class _DecisionKey:
+    model: str
     question: str
     text: str
+
+
+def _model_id(model: str) -> str:
+    if model == "jevk5":
+        return "posthog/hogference/jevk5-fp8-0.2"
+    return settings.HOGQL_PROMPT_JEV_MODEL
 
 
 class PromptJevRunner:
@@ -130,14 +141,14 @@ class PromptJevRunner:
         self.cache: dict[_DecisionKey, object] = {}
         self.input_bytes = 0
         self.deadline = time.monotonic() + 60
-        self.client: GatewaySystemOneClient | None = None
+        self.clients: dict[str, GatewaySystemOneClient] = {}
 
     def source_timeout(self) -> int:
         # Source scans share the inference deadline. ClickHouse takes max_execution_time in whole seconds, and 0 disables it.
         return max(1, math.ceil(self.deadline - time.monotonic()))
 
     async def _batch(self, spec: PromptJevCall, texts: list[str]) -> dict[str, object]:
-        assert self.client is not None
+        client = self.clients[spec.model]
         remaining = self.deadline - time.monotonic()
         if remaining <= 0:
             raise QueryError("jev exceeded its time limit. Select fewer rows and try again.")
@@ -154,15 +165,18 @@ class PromptJevRunner:
                 },
             )
         try:
-            result = await replace(self.client, timeout=min(remaining, 30)).adecide(state=state, questions=questions)
+            result = await replace(client, timeout=min(remaining, 30)).adecide(state=state, questions=questions)
         except SystemOneRequestFailed as error:
             # Log only the status, because the inputs and the gateway response body can hold customer data.
             logger.warning(
                 "prompt_jev_gateway_failed",
                 team_id=self.team_id,
                 status_code=error.status_code,
+                model=spec.model,
                 reason=type(error).__name__,
             )
+            if error.status_code == 402:
+                raise QueryError(OUT_OF_AI_CREDITS_MESSAGE) from error
             raise QueryError("Jev could not evaluate this query. Try again or select fewer rows.") from error
         decisions: dict[str, object] = {}
         for key, text in state.items():
@@ -203,11 +217,11 @@ class PromptJevRunner:
                     raise QueryError("jev input must be text. Use toString(input) to convert it.")
                 if len(value.encode()) > MAX_INPUT_BYTES:
                     raise QueryError("jev input exceeds 8 KiB. Shorten each input before classifying it.")
-                key = _DecisionKey(question=question_key, text=value)
+                key = _DecisionKey(model=spec.model, question=question_key, text=value)
                 if key not in self.cache:
                     missing[key] = None
         input_bytes = self.input_bytes + sum(len(key.text.encode()) for key in missing)
-        if len(self.cache) + len(missing) > MAX_DECISIONS or input_bytes > MAX_TOTAL_BYTES:
+        if len(self.cache) + len(missing) > settings.HOGQL_JEV_MAX_DECISIONS or input_bytes > MAX_TOTAL_BYTES:
             raise QueryError("jev exceeds the query budget. Select fewer or shorter inputs.")
         return missing
 
@@ -215,16 +229,16 @@ class PromptJevRunner:
         question_key = json.dumps(spec.question.to_json(), sort_keys=True)
         missing = [key.text for key in self.check_budget([(spec, values)])]
         self.input_bytes += sum(len(text.encode()) for text in missing)
-        if missing and self.client is None:
+        if missing and spec.model not in self.clients:
             try:
                 client = build_system_one_client(
-                    model=settings.HOGQL_PROMPT_JEV_MODEL,
-                    ai_product="hogql_prompt_jev",
+                    model=_model_id(spec.model),
+                    ai_product="hogql_decide",
                     distinct_id=self.distinct_id,
                     properties={"team_id": str(self.team_id)},
                 )
                 assert isinstance(client, GatewaySystemOneClient)
-                self.client = client
+                self.clients[spec.model] = client
             except SystemOneNotConfigured as error:
                 raise QueryError(
                     "Jev is not configured. Set AI_GATEWAY_URL and AI_GATEWAY_API_KEY on the server."
@@ -241,10 +255,12 @@ class PromptJevRunner:
         if batches:
             for decisions in async_to_sync(self._batches)(spec, batches):
                 for text, decision in decisions.items():
-                    self.cache[_DecisionKey(question=question_key, text=text)] = decision
+                    self.cache[_DecisionKey(model=spec.model, question=question_key, text=text)] = decision
         null: object = (None, [], None) if isinstance(spec.question, ChoiceQuestion) else None
         return [
-            null if value is None else self.cache[_DecisionKey(question=question_key, text=cast(str, value))]
+            null
+            if value is None
+            else self.cache[_DecisionKey(model=spec.model, question=question_key, text=cast(str, value))]
             for value in values
         ]
 
@@ -282,22 +298,24 @@ class PromptJevBudget(TraversingVisitor):
         for column in node.select:
             finder.visit(column)
         if finder.calls:
-            rows = MAX_ROWS
+            max_rows = settings.HOGQL_JEV_MAX_ROWS
+            max_decisions = settings.HOGQL_JEV_MAX_DECISIONS
+            rows = max_rows
             if node.limit is not None:
                 if (
                     not isinstance(node.limit, ast.Constant)
                     or type(node.limit.value) is not int
-                    or not 0 <= node.limit.value <= MAX_ROWS
+                    or not 0 <= node.limit.value <= max_rows
                 ):
-                    raise QueryError(f"jev LIMIT must be an integer literal between 0 and {MAX_ROWS}.")
+                    raise QueryError(f"jev LIMIT must be an integer literal between 0 and {max_rows}.")
                 rows = node.limit.value
             # Reserve the worst case before any stage runs, including stages that depend on earlier decisions.
             self.decisions += rows * len(finder.calls)
-            if self.decisions > MAX_DECISIONS:
+            if self.decisions > max_decisions:
                 raise QueryError(
-                    f"jev exceeds the query budget of {MAX_DECISIONS} row evaluations across all columns and SELECTs. "
+                    f"jev exceeds the query budget of {max_decisions} row evaluations across all columns and SELECTs. "
                     f"This query reserves {self.decisions}. Add smaller LIMITs to the SELECTs containing Jev calls, "
-                    "or use fewer Jev columns. A SELECT without LIMIT reserves 1000 rows per Jev column."
+                    f"or use fewer Jev columns. A SELECT without LIMIT reserves {max_rows} rows per Jev column."
                 )
         super().visit_select_query(node)
 
@@ -403,7 +421,7 @@ class PromptJevPlanner(CloningVisitor):
                 if (
                     isinstance(column, ast.Alias)
                     and isinstance(column.expr, ast.Call)
-                    and column.expr.name.lower() == "jev"
+                    and is_decision_call(column.expr.name)
                 ):
                     specs[i] = PromptJevCall.parse(column.expr)
                     aliases.add(column.alias)
@@ -417,21 +435,22 @@ class PromptJevPlanner(CloningVisitor):
             if PromptJevFinder.contains(source):
                 raise QueryError("Use jev only in SELECT columns. Filter its results in an outer query.")
             _AliasReferences(aliases).visit(source)
+            max_rows = settings.HOGQL_JEV_MAX_ROWS
             if source.limit is None:
-                source.limit = ast.Constant(value=MAX_ROWS + 1)
+                source.limit = ast.Constant(value=max_rows + 1)
             elif (
                 not isinstance(source.limit, ast.Constant)
                 or type(source.limit.value) is not int
-                or not 0 <= source.limit.value <= MAX_ROWS
+                or not 0 <= source.limit.value <= max_rows
             ):
-                raise QueryError(f"jev LIMIT must be an integer literal between 0 and {MAX_ROWS}.")
+                raise QueryError(f"jev LIMIT must be an integer literal between 0 and {max_rows}.")
             result = self.execute(source)
             response = result.response
             if response.error:
                 raise QueryError(response.error)
             rows: list[list[object]] = [list(row) for row in response.results or []]
-            if len(rows) > MAX_ROWS:
-                raise QueryError(f"jev reads at most {MAX_ROWS} rows. Add a LIMIT to its SELECT.")
+            if len(rows) > max_rows:
+                raise QueryError(f"jev reads at most {max_rows} rows. Add a LIMIT to its SELECT.")
             names = response.columns or []
             if len(names) != len(query.select) or len(set(names)) != len(names):
                 raise QueryError("Give each column in the jev SELECT a unique name.")
@@ -465,7 +484,7 @@ class PromptJevPlanner(CloningVisitor):
 
     def visit_call(self, node: ast.Call) -> ast.Call:
         # Binding validates every call, including ones whose SELECT has no rows.
-        if node.name.lower() == "jev":
+        if is_decision_call(node.name):
             PromptJevCall.parse(node)
         return cast(ast.Call, super().visit_call(node))
 
@@ -485,3 +504,19 @@ def validate_prompt_jev_access(team: "Team") -> None:
         send_feature_flag_events=False,
     ):
         raise QueryError("jev is not enabled for this project. Contact support to request access.")
+    if _is_over_ai_credit_budget(team):
+        raise QueryError(OUT_OF_AI_CREDITS_MESSAGE)
+
+
+def _is_over_ai_credit_budget(team: "Team") -> bool:
+    from ee.billing.quota_limiting import (  # noqa: PLC0415 — keeps the billing query stack off the HogQL import path
+        is_team_over_ai_credit_budget,
+    )
+
+    try:
+        return is_team_over_ai_credit_budget(team.api_token)
+    except Exception:
+        # The quota cache reads Redis. An outage must not stop a team that has credits, and a team
+        # that is really out of them still gets the same message from the gateway's 402.
+        logger.warning("prompt_jev_ai_credit_lookup_failed", team_id=team.pk, exc_info=True)
+        return False

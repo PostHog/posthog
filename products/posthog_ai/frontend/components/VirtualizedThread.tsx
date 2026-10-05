@@ -15,6 +15,9 @@ import {
 
 import { cn } from 'lib/utils/css-classes'
 
+import { FlowRows } from './FlowRows'
+import { VirtualizedThreadRowContext, type VirtualizedThreadRowContextValue } from './VirtualizedThreadRowContext'
+
 /**
  * Slack the virtualizer core is allowed to treat as "at the end" while the thread is pinned, so its own
  * growth compensation still smooths streaming that lands between our follow writes. Deliberately *not*
@@ -103,17 +106,14 @@ interface RootContextValue {
     measureElement: (node: Element | null) => void
     /** Inter-row spacing (px), applied as bottom padding on the measured row so heights include it. */
     gap: number
+    /** The last row takes no gap: nothing follows it, and an empty footer would otherwise leave a blank strip. */
+    lastIndex: number
     maxWidthClassName: string
     /** When false, rows render in document flow (no virtualization) and an ancestor owns scroll. */
     virtualized: boolean
 }
 
-interface RowContextValue {
-    index: number
-}
-
 const RootContext = createContext<RootContextValue | null>(null)
-const RowContext = createContext<RowContextValue | null>(null)
 
 /**
  * Virtualized row shell: publishes the row index via context and defers content to `renderRow`. Row
@@ -127,8 +127,8 @@ const InternalRow = memo(function InternalRow({
     index: number
     renderRow: (index: number) => ReactNode
 }): JSX.Element {
-    const value = useMemo<RowContextValue>(() => ({ index }), [index])
-    return <RowContext.Provider value={value}>{renderRow(index)}</RowContext.Provider>
+    const value = useMemo<VirtualizedThreadRowContextValue>(() => ({ index }), [index])
+    return <VirtualizedThreadRowContext.Provider value={value}>{renderRow(index)}</VirtualizedThreadRowContext.Provider>
 })
 
 export interface VirtualizedThreadRootProps<T> {
@@ -190,6 +190,7 @@ export interface VirtualizedThreadRootProps<T> {
      */
     virtualized?: boolean
     listClassName?: string
+    endInset?: number
     children: (item: T, index: number) => ReactNode
 }
 
@@ -216,6 +217,7 @@ function Root<T>({
     maxWidthClassName = 'max-w-180',
     className,
     listClassName,
+    endInset = 0,
     virtualized = true,
     children,
 }: VirtualizedThreadRootProps<T>): JSX.Element {
@@ -350,6 +352,7 @@ function Root<T>({
         estimateSize: estimateVirtualRow,
         overscan: overscanCount,
         getItemKey: getVirtualItemKey,
+        paddingEnd: endInset,
         // The virtualizer writes container height + row offsets to the DOM itself, in the same tick as each
         // measurement — no stale-offset overlap while rows measure, and React re-renders only on range change.
         directDomUpdates: true,
@@ -891,16 +894,18 @@ function Root<T>({
         }
     }, [virtualized, stickToBottom, noteProgrammaticScroll])
 
+    const lastIndex = virtualized ? rowCount - 1 : -1
     const rootValue = useMemo<RootContextValue>(
         () => ({
             measureElement: virtualizer.measureElement,
             gap,
+            lastIndex,
             maxWidthClassName,
             virtualized,
             isFollowing: stickToBottom && (!virtualized || pinned),
             pauseFollowing: () => setPinned(false),
         }),
-        [virtualizer, gap, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
+        [virtualizer, gap, lastIndex, maxWidthClassName, virtualized, stickToBottom, pinned, setPinned]
     )
 
     // Flow mode: render rows directly so an ancestor scroll container (and its auto-scroller) keeps working.
@@ -909,21 +914,14 @@ function Root<T>({
     if (!virtualized) {
         return (
             <RootContext.Provider value={rootValue}>
-                {hasHeader && (
-                    <RowContext.Provider key="header" value={{ index: 0 }}>
-                        {header}
-                    </RowContext.Provider>
-                )}
-                {items.map((item, index) => (
-                    <RowContext.Provider key={getItemKey(item, index)} value={{ index }}>
-                        {children(item, index)}
-                    </RowContext.Provider>
-                ))}
-                {hasFooter && (
-                    <RowContext.Provider key="footer" value={{ index: rowCount - 1 }}>
-                        {footer}
-                    </RowContext.Provider>
-                )}
+                <FlowRows
+                    items={items}
+                    getItemKey={getItemKey}
+                    header={hasHeader ? header : null}
+                    footer={hasFooter ? footer : null}
+                    footerIndex={rowCount - 1}
+                    render={children}
+                />
             </RootContext.Provider>
         )
     }
@@ -964,11 +962,11 @@ function Root<T>({
  */
 function Row({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
     const root = useContext(RootContext)
-    const row = useContext(RowContext)
+    const row = useContext(VirtualizedThreadRowContext)
     if (!root || !row) {
         throw new Error('VirtualizedThread.Row must be rendered inside VirtualizedThread.Root')
     }
-    const { measureElement, gap, maxWidthClassName, virtualized } = root
+    const { measureElement, gap, lastIndex, maxWidthClassName, virtualized } = root
     const { index } = row
 
     // Re-registers the node whenever `index` changes: the virtualizer's element cache (which both direct
@@ -998,9 +996,10 @@ function Row({ children, className }: { children: ReactNode; className?: string 
     // child. Border-box measurement is transform-safe, so the imperative positioning does not distort it.
     return (
         <div ref={measureRef} style={ROW_BASE_STYLE}>
+            {/* A row whose content renders nothing (such as the trailing row between turns) takes no space, so the thread does not jump. */}
             <div
-                className={cn('w-full mx-auto @container/thread', maxWidthClassName, className)}
-                style={{ paddingBottom: gap }}
+                className={cn('w-full mx-auto @container/thread empty:hidden', maxWidthClassName, className)}
+                style={{ paddingBottom: index === lastIndex ? 0 : gap }}
             >
                 {children}
             </div>
