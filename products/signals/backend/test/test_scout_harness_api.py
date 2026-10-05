@@ -73,6 +73,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutSlackDestinationSerializer,
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
+from products.signals.backend.scout_harness.structured_output_signature import is_signed_structured_output
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
@@ -958,6 +959,12 @@ class TestScoutHarnessStructuredOutputAPI(APIBaseTest):
         assert events[0]["properties"]["output_verdict"] == "good"
         assert events[0]["properties"]["subject"] == "report-1"
         assert events[0]["properties"]["run_id"] == str(run.id)
+        assert all(
+            is_signed_structured_output(
+                str(run.id), event["properties"]["output"], event["properties"]["record_signature"]
+            )
+            for event in events
+        )
         assert len({event["event_uuid"] for event in events}) == 3
         assert body["record_ids"] == [event["event_uuid"] for event in events]
         # A stable timestamp (the run's created_at) keeps the dedupe sorting key — which

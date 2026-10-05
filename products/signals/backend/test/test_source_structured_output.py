@@ -4,9 +4,16 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from django.apps import apps
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
 
 from products.signals.backend.facade.api import latest_structured_output_for_source
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.structured_output_signature import (
+    is_signed_structured_output,
+    sign_structured_output,
+)
 
 _SOURCE_PRODUCT = "replay_vision"
 _TAG = "variant-analysis"
@@ -25,13 +32,15 @@ class TestLatestStructuredOutputForSource(ClickhouseTestMixin, APIBaseTest):
             team=self.team, task_run=task_run, scout_config=config, skill_name=config.skill_name, skill_version=1
         )
 
-    def _record(self, skill_name: str, run_id: str, payload: dict | str, *, at) -> None:
+    def _record(self, skill_name: str, run_id: str, payload: dict | str, *, at, signature: str | None = None) -> None:
+        if signature is None and isinstance(payload, dict):
+            signature = sign_structured_output(run_id, payload)
         _create_event(
             team=self.team,
             event="$scout_structured_output",
             distinct_id=f"signals_scout:{skill_name}",
             timestamp=at,
-            properties={"skill_name": skill_name, "run_id": run_id, "output": payload},
+            properties={"skill_name": skill_name, "run_id": run_id, "output": payload, "record_signature": signature},
         )
 
     def test_returns_the_newest_record_of_a_real_run_of_the_sources_tagged_scouts(self) -> None:
@@ -51,6 +60,17 @@ class TestLatestStructuredOutputForSource(ClickhouseTestMixin, APIBaseTest):
         self._record(
             analysis.skill_name, str(second.id), {"scanner_version": 9}, at=second.created_at + timedelta(hours=12)
         )
+        # A real run id and run start from the scout-runs API, with no signature or a signature
+        # copied from another record. Within the start tolerance, and later, so they sort first.
+        forged_at = second.created_at + timedelta(milliseconds=500)
+        self._record(analysis.skill_name, str(second.id), {"scanner_version": 9}, at=forged_at, signature="")
+        self._record(
+            analysis.skill_name,
+            str(second.id),
+            {"scanner_version": 9},
+            at=forged_at,
+            signature=sign_structured_output(str(second.id), {"scanner_version": 2}),
+        )
         flush_persons_and_events()
 
         record = latest_structured_output_for_source(self.team.id, _SOURCE_PRODUCT, "scanner-a", tag=_TAG)
@@ -60,11 +80,17 @@ class TestLatestStructuredOutputForSource(ClickhouseTestMixin, APIBaseTest):
         assert (record.run_id, record.skill_name) == (str(second.id), analysis.skill_name)
         assert latest_structured_output_for_source(self.team.id, _SOURCE_PRODUCT, "scanner-c", tag=_TAG) is None
 
-    def test_skips_a_malformed_record_and_returns_an_older_valid_one(self) -> None:
+    @parameterized.expand(
+        [
+            ("not_json", "{not json"),
+            ("nested_past_the_recursion_limit", '{"a":' + "[" * 1200 + "]" * 1200 + "}"),
+        ]
+    )
+    def test_skips_a_malformed_record_and_returns_an_older_valid_one(self, _name: str, output: str) -> None:
         analysis = self._scout("signals-scout-analysis", source_id="scanner-a", tags=[_TAG])
         first, second = self._run(analysis), self._run(analysis)
         self._record(analysis.skill_name, str(first.id), {"scanner_version": 1}, at=first.created_at)
-        self._record(analysis.skill_name, str(second.id), "{not json", at=second.created_at)
+        self._record(analysis.skill_name, str(second.id), output, at=second.created_at, signature="forged")
         flush_persons_and_events()
 
         record = latest_structured_output_for_source(self.team.id, _SOURCE_PRODUCT, "scanner-a", tag=_TAG)
@@ -72,3 +98,12 @@ class TestLatestStructuredOutputForSource(ClickhouseTestMixin, APIBaseTest):
         assert record is not None
         assert record.payload == {"scanner_version": 1}
         assert record.run_id == str(first.id)
+
+
+class TestStructuredOutputSignature(SimpleTestCase):
+    def test_signature_survives_ingestion_reencoding_numbers(self) -> None:
+        signature = sign_structured_output("run-1", {"score": 2.0, "items": [{"weight": 1.0}]})
+
+        assert is_signed_structured_output("run-1", {"score": 2, "items": [{"weight": 1}]}, signature)
+        assert not is_signed_structured_output("run-1", {"score": 3, "items": [{"weight": 1}]}, signature)
+        assert not is_signed_structured_output("run-2", {"score": 2, "items": [{"weight": 1}]}, signature)
