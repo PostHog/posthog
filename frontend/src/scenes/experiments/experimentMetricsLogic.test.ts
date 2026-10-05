@@ -830,6 +830,65 @@ describe('experimentMetricsLogic', () => {
             releasePost()
             await expectLogic(logic).toDispatchActions(['setRecalculationLoading', 'setRecalculatingMetricUuids'])
             expect(logic.values.recalculatingMetricUuids).toEqual([])
+        describe('manual refresh window', () => {
+            const latestWithQueryTo = (minutesAgo: number): typeof completedRecalculation => ({
+                ...completedRecalculation,
+                query_to: new Date(Date.now() - minutesAgo * 60 * 1000).toISOString(),
+            })
+
+            it.each([
+                { name: 'blocks a manual reload inside the window', trigger: 'manual', minutesAgo: 2, posts: false },
+                { name: 'allows a manual reload after the window', trigger: 'manual', minutesAgo: 6, posts: true },
+                {
+                    name: 'lets a heal through inside the window',
+                    trigger: 'heal_latest_run',
+                    minutesAgo: 2,
+                    posts: true,
+                },
+            ] as const)('$name', async ({ trigger, minutesAgo, posts }) => {
+                const createMock = jest.fn(() => [201, pendingRecalculation])
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                            200,
+                            latestWithQueryTo(minutesAgo),
+                        ],
+                    },
+                    post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+                })
+                mountLogic()
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+                expect(logic.values.isManualRefreshBlocked).toBe(minutesAgo < 5)
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation(trigger)
+                }).toFinishAllListeners()
+                expect(createMock.mock.calls.length > 0).toBe(posts)
+            })
+
+            it('unblocks the reload button when the window closes, without a new load', async () => {
+                jest.useFakeTimers()
+                try {
+                    useMocks({
+                        get: {
+                            '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                                200,
+                                latestWithQueryTo(4),
+                            ],
+                        },
+                    })
+                    mountLogic()
+                    await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+                    expect(logic.values.isManualRefreshBlocked).toBe(true)
+
+                    await expectLogic(logic, () => {
+                        jest.advanceTimersByTime(60 * 1000 + 200)
+                    }).toDispatchActions(['recheckRefreshEligibility'])
+                    expect(logic.values.isManualRefreshBlocked).toBe(false)
+                } finally {
+                    jest.useRealTimers()
+                }
+            })
         })
 
         describe('queuing', () => {

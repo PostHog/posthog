@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -60,6 +61,9 @@ export interface ExperimentMetricsLogicProps {
     experiment: Experiment
 }
 
+// A manual reload inside this window of the latest run's query_to is blocked, the same five minutes a
+// dashboard waits between bulk refreshes. The backend applies the same window and returns the latest run.
+const MIN_MANUAL_REFRESH_INTERVAL_MINUTES = 5
 const RECALCULATION_POLL_INTERVAL_MS = 2000
 const MAX_POLL_RETRIES = 5
 /**
@@ -216,6 +220,7 @@ export interface experimentMetricsLogicValues {
     receivedFeatureFlags: boolean // featureFlagLogic
     currentProjectId: number | null // projectLogic
     currentRecalculation: RecalculationPayload | null
+    isManualRefreshBlocked: boolean
     isMetricRecalculating: (metricUuid: string | undefined) => boolean
     isRecalculating: boolean
     lastRefresh: string | null
@@ -225,6 +230,7 @@ export interface experimentMetricsLogicValues {
         rowsRead: number
     } | null
     metricRetries: Record<string, MetricRetryInfo>
+    nextAllowedManualRefresh: string | null
     nextRetryAt: string | null
     primaryMetricsResults: CachedNewExperimentQueryResponse[]
     primaryMetricsResultsErrors: (unknown | null)[]
@@ -236,6 +242,7 @@ export interface experimentMetricsLogicValues {
         completed: number
         total: number
     }
+    refreshEligibilityTick: number
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: (unknown | null)[]
     totalMetricsCount: number
@@ -255,6 +262,9 @@ export interface experimentMetricsLogicActions {
     }
     pollRecalculation: (recalculationId: string) => {
         recalculationId: string
+    }
+    recheckRefreshEligibility: () => {
+        value: true
     }
     setCurrentRecalculation: (recalculation: RecalculationPayload | null) => {
         recalculation: RecalculationPayload | null
@@ -296,6 +306,8 @@ export interface experimentMetricsLogicMeta {
         }
         totalMetricsCount: (arg: any) => number
         lastRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
+        nextAllowedManualRefresh: (lastRefresh: string | null) => string | null
+        isManualRefreshBlocked: (nextAllowedManualRefresh: string | null, refreshEligibilityTick: number) => boolean
         metricRetries: (currentRecalculation: RecalculationPayload | null) => Record<string, MetricRetryInfo>
         nextRetryAt: (metricRetries: Record<string, MetricRetryInfo>) => string | null
         recalculationDisplayState: (
@@ -328,6 +340,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             trigger,
         }),
         pollRecalculation: (recalculationId: string) => ({ recalculationId }),
+        recheckRefreshEligibility: true,
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setPrimaryMetricsResultsErrors: (errors: (unknown | null)[]) => ({ errors }),
@@ -352,6 +365,8 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 setCurrentRecalculation: () => false,
             },
         ],
+        // Bumped when the manual refresh window closes, so isManualRefreshBlocked recomputes without new data.
+        refreshEligibilityTick: [0, { recheckRefreshEligibility: (state: number) => state + 1 }],
         queuedRerun: [
             null as ExperimentMetricsRecalculationRequestTriggerEnumApi | null,
             {
@@ -440,6 +455,18 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         lastRefresh: [
             (s) => [s.currentRecalculation],
             (recalc: RecalculationPayload | null): string | null => recalc?.query_to ?? null,
+        ],
+        nextAllowedManualRefresh: [
+            (s) => [s.lastRefresh],
+            (lastRefresh: string | null): string | null =>
+                lastRefresh
+                    ? dayjs(lastRefresh).add(MIN_MANUAL_REFRESH_INTERVAL_MINUTES, 'minutes').toISOString()
+                    : null,
+        ],
+        isManualRefreshBlocked: [
+            (s) => [s.nextAllowedManualRefresh, s.refreshEligibilityTick],
+            (nextAllowedManualRefresh: string | null, _tick: number): boolean =>
+                !!nextAllowedManualRefresh && dayjs(nextAllowedManualRefresh).isAfter(dayjs()),
         ],
         metricRetries: [
             (s) => [s.currentRecalculation],
@@ -732,11 +759,29 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.loadLatestRecalculation()
                 }
             },
+            setCurrentRecalculation: () => {
+                // Re-enable the reload button the moment the window closes, not on the next data load.
+                cache.disposables.dispose('manualRefreshEligibility')
+                const nextAllowed = values.nextAllowedManualRefresh
+                if (!nextAllowed || !dayjs(nextAllowed).isAfter(dayjs())) {
+                    return
+                }
+                cache.disposables.add(() => {
+                    const timerId = setTimeout(
+                        actions.recheckRefreshEligibility,
+                        Math.max(0, dayjs(nextAllowed).diff(dayjs())) + 100
+                    )
+                    return () => clearTimeout(timerId)
+                }, 'manualRefreshEligibility')
+            },
             triggerRecalculation: async ({ trigger }) => {
                 /**
                  * bail if feature not enabled
                  */
                 if (!flagEnabled()) {
+                    return
+                }
+                if (trigger === 'manual' && values.isManualRefreshBlocked) {
                     return
                 }
                 /**
