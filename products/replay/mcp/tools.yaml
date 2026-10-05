@@ -46,7 +46,6 @@ tools:
     session-recording-get:
         operation: session_recordings_retrieve
         enabled: true
-        hooks: replay/sessionRecordingGetHooks
         scopes:
             - session_recording:read
         annotations:
@@ -75,6 +74,7 @@ tools:
             `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific
             session, or sample recent events for project-wide issues).
         ui_app: session-recording
+        hooks: replay/sessionRecordingGetHooks
         response:
             exclude:
                 - person.properties
