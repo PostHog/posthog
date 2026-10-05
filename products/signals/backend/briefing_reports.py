@@ -463,22 +463,25 @@ def _trimmed(text: str | None, limit: int) -> str:
 
 
 _MARKDOWN_HEADING_LINE = re.compile(r"^ {0,3}#{1,6}(?:[ \t].*)?$", re.MULTILINE)
-# A `chart:` link places a chart in the report body. Plain text has no chart to place, so the link goes.
+# A paragraph of only `chart:` links places charts in the report body. Plain text has no chart to
+# place, so that paragraph goes. Inside a sentence the label is part of the prose, so the label stays.
 # Load-bearing: the label and destination classes exclude `[`. Without that, a summary of unclosed
 # brackets makes each start position rescan the rest of the text, which costs seconds per summary.
 _MARKDOWN_CHART_LINK = re.compile(r"\[[^\[\]]*\]\(chart:[^)\[]*\)")
 _MARKDOWN_CHART_ID = re.compile(r"\]\(chart:([^)\s\[]+)\)")
 _MARKDOWN_LINK = re.compile(r"\[([^\[\]]*)\]\([^)\[]*\)")
+_MARKDOWN_PARAGRAPH_BREAK = re.compile(r"\n[ \t]*\n")
 # Only `**` and backticks: `__` also appears inside identifiers such as `__init__` or `team__id`.
 _MARKDOWN_EMPHASIS = re.compile(r"\*\*|`")
 
 
 def summary_lead(summary: str | None, limit: int) -> str:
     """The opening of a report's markdown summary as plain text on one line: the text before its first
-    section heading, with chart links removed and other links reduced to their text."""
+    section heading, with chart-only paragraphs removed and links reduced to their text."""
     sections = _MARKDOWN_HEADING_LINE.split(summary or "")
     lead = next((section for section in sections if section.strip()), "")
-    lead = _MARKDOWN_CHART_LINK.sub("", lead)
+    paragraphs = _MARKDOWN_PARAGRAPH_BREAK.split(lead)
+    lead = "\n\n".join(p for p in paragraphs if _MARKDOWN_CHART_LINK.sub("", p).strip())
     lead = _MARKDOWN_LINK.sub(r"\1", lead)
     return _trimmed(_MARKDOWN_EMPHASIS.sub("", lead), limit)
 
