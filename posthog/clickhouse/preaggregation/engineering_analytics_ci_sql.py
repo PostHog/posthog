@@ -114,21 +114,21 @@ def _distributed_table_sql(base_sql: str, table_base_name: str) -> str:
     )
 
 
-def SHARDED_ENGINEERING_ANALYTICS_CI_RUNS_TABLE_SQL():
+def SHARDED_ENGINEERING_ANALYTICS_CI_RUNS_TABLE_SQL() -> str:
     return _sharded_table_sql(
         CI_RUNS_TABLE_BASE_SQL, CI_RUNS_TABLE_BASE_NAME, "team_id, job_id, source_id, ci_engine, id"
     )
 
 
-def DISTRIBUTED_ENGINEERING_ANALYTICS_CI_RUNS_TABLE_SQL():
+def DISTRIBUTED_ENGINEERING_ANALYTICS_CI_RUNS_TABLE_SQL() -> str:
     return _distributed_table_sql(CI_RUNS_TABLE_BASE_SQL, CI_RUNS_TABLE_BASE_NAME)
 
 
-def SHARDED_ENGINEERING_ANALYTICS_CI_JOBS_TABLE_SQL():
+def SHARDED_ENGINEERING_ANALYTICS_CI_JOBS_TABLE_SQL() -> str:
     return _sharded_table_sql(
         CI_JOBS_TABLE_BASE_SQL, CI_JOBS_TABLE_BASE_NAME, "team_id, job_id, source_id, ci_engine, id, run_attempt"
     )
 
 
-def DISTRIBUTED_ENGINEERING_ANALYTICS_CI_JOBS_TABLE_SQL():
+def DISTRIBUTED_ENGINEERING_ANALYTICS_CI_JOBS_TABLE_SQL() -> str:
     return _distributed_table_sql(CI_JOBS_TABLE_BASE_SQL, CI_JOBS_TABLE_BASE_NAME)
