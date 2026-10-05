@@ -224,6 +224,7 @@ from products.workflows.backend.facade.secrets import (
     secret_keys_for_action,
     strip_content_secrets,
 )
+from products.workflows.backend.facade.suggestions_scout import PROPOSAL_WRITE_SCOPE, sync_suggestions_scout
 from products.workflows.backend.facade.templates import get_function_template_schema
 from products.workflows.backend.facade.validation import (
     DURATION_PATTERN,
@@ -279,7 +280,6 @@ from products.workflows.backend.presentation.views.message_assets import (
     MessageAssetSerializer,
     MessageAssetsRequestSerializer,
 )
-from products.workflows.backend.services.suggestions_scout import PROPOSAL_WRITE_SCOPE, sync_suggestions_scout
 
 logger = structlog.get_logger(__name__)
 
