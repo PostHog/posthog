@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
     EndpointResource,
     PaginatorConfig,
 )
@@ -93,9 +94,10 @@ def donorbox_source(
     if date_from is not None:
         params["date_from"] = date_from
 
+    endpoint_config: Endpoint = {"path": path, "params": params, "data_selector_required": True}
     resource_config: EndpointResource = {
         "name": endpoint,
-        "endpoint": {"path": path, "params": params, "data_selector_required": True},
+        "endpoint": endpoint_config,
         "columns": {
             field["field"]: {
                 "data_type": "date" if field["field"] == "started_at" else "timestamp",
