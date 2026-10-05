@@ -22,6 +22,8 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
     FieldTraverser,
+    LazyJoin,
+    LazyTable,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
@@ -38,6 +40,8 @@ from posthog.hogql.resolver import ResolutionError, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_by_name
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
+
+from posthog.errors import QueryErrorCategory, classify_query_error
 
 
 class TestResolver(BaseTest):
@@ -2172,3 +2176,92 @@ class TestResolver(BaseTest):
         # so the canonical-form guard must not reject their queries
         expr = self._select("SELECT event FROM events WHERE person_id = 'not-a-uuid'")
         resolve_types(expr, self.context, dialect="postgres")
+
+
+class TestFieldNotFoundSeams(BaseTest):
+    """A field that disappears between resolution and a later pass (constant-type or nullability
+    checks) must surface as a user-facing QueryError naming its source. Table.get_field's bare
+    Exception is a deliberate tripwire for paths with no context; these seams have the context, and
+    letting the tripwire escape classifies as a platform error and reaches the API as a 500."""
+
+    def setUp(self):
+        super().setUp()
+        self.context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        self.events = Table(name="events", fields={"uuid": StringDatabaseField(name="uuid")})
+
+    def test_field_type_names_the_table(self):
+        field_type = ast.FieldType(name="nope", table_type=ast.TableType(table=self.events))
+        with self.assertRaises(QueryError) as ctx:
+            field_type.resolve_database_field(self.context)
+        assert 'Field "nope" not found on table "events"' in str(ctx.exception)
+        with self.assertRaises(QueryError) as ctx:
+            field_type.resolve_constant_type(self.context)
+        assert 'Field "nope" not found on table "events"' in str(ctx.exception)
+
+    def test_field_type_names_table_alias(self):
+        field_type = ast.FieldType(
+            name="nope", table_type=ast.TableAliasType(alias="e", table_type=ast.TableType(table=self.events))
+        )
+        with self.assertRaises(QueryError) as ctx:
+            field_type.resolve_database_field(self.context)
+        assert 'Field "nope" not found on table alias "e"' in str(ctx.exception)
+
+    def test_view_constant_type_names_the_view(self):
+        view = ast.SelectViewType(
+            view_name="my_view",
+            alias="v",
+            select_query_type=ast.SelectQueryType(),
+            table=Table(name="my_view", fields={"a": StringDatabaseField(name="a")}),
+        )
+        with self.assertRaises(QueryError) as ctx:
+            view.resolve_column_constant_type("nope", self.context)
+        assert 'Field "nope" not found on view "my_view"' in str(ctx.exception)
+
+    def test_cte_constant_type_names_the_cte(self):
+        cte = ast.CTETableType(name="stats", select_query_type=ast.SelectQueryType(columns={"a": ast.UnknownType()}))
+        with self.assertRaises(QueryError) as ctx:
+            cte.resolve_column_constant_type("nope", self.context)
+        assert 'Field "nope" not found on CTE "stats"' in str(ctx.exception)
+        # The alias type delegates, so it reports the underlying CTE, not the alias.
+        alias = ast.CTETableAliasType(alias="s", cte_table_type=cte)
+        with self.assertRaises(QueryError) as ctx:
+            alias.resolve_column_constant_type("nope", self.context)
+        assert 'Field "nope" not found on CTE "stats"' in str(ctx.exception)
+
+    def test_field_source_labels(self):
+        table_type = ast.TableType(table=self.events)
+        join_str = ast.LazyJoinType(
+            table_type=table_type,
+            field="person",
+            lazy_join=LazyJoin(resolver="x", join_table="persons", from_field=["person_id"]),
+        )
+        assert join_str.field_source_label() == 'join table "persons"'
+        join_table = ast.LazyJoinType(
+            table_type=table_type,
+            field="person",
+            lazy_join=LazyJoin(resolver="x", join_table=Table(name="persons", fields={}), from_field=["person_id"]),
+        )
+        assert join_table.field_source_label() == 'join table "persons"'
+        assert ast.LazyTableType(table=LazyTable(name="persons", fields={})).field_source_label() == 'table "persons"'
+        # A source with no usable name falls back to naming the type rather than echoing nothing.
+        assert ast.TableType(table=Table(fields={})).field_source_label() == "table TableType"
+        assert ast.LazyTableType(table=LazyTable(fields={})).field_source_label() == "table LazyTableType"
+        join_empty = ast.LazyJoinType(
+            table_type=table_type,
+            field="person",
+            lazy_join=LazyJoin(resolver="x", join_table="", from_field=["person_id"]),
+        )
+        assert join_empty.field_source_label() == "table LazyJoinType"
+
+    def test_existing_field_still_resolves(self):
+        field_type = ast.FieldType(name="uuid", table_type=ast.TableType(table=self.events))
+        constant_type = field_type.resolve_constant_type(self.context)
+        assert isinstance(constant_type, ast.StringType)
+        database_field = field_type.resolve_database_field(self.context)
+        assert isinstance(database_field, StringDatabaseField)
+
+    def test_query_error_classifies_as_user_error(self):
+        # The status-code consequence the issue is about: exposed HogQL errors classify as user
+        # errors (the API serves them as 4xx), a bare Exception classifies as a platform error (500).
+        assert classify_query_error(QueryError("x")) is QueryErrorCategory.USER_ERROR
+        assert classify_query_error(Exception("x")) is QueryErrorCategory.ERROR
