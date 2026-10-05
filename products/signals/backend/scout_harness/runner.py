@@ -37,7 +37,7 @@ from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
-    canonical_source_product_for,
+    source_product_gating,
     sync_canonical_skills,
 )
 from products.signals.backend.scout_harness.limits import (
@@ -325,7 +325,9 @@ async def _arun_signals_scout(
     # Creates rows for newly-shipped specialists, updates harness-seeded rows the team
     # hasn't edited, and leaves forked / tombstoned rows alone. Failures here should not
     # crash the run — we log and continue with whatever skills the team already has.
-    source_product = canonical_source_product_for(skill_name)
+    source_product = await database_sync_to_async(source_product_gating, thread_sensitive=False)(
+        team.parent_team_id or team.id, skill_name
+    )
     if trial is None and source_product:
         if not await database_sync_to_async(_enrolled_by_source, thread_sensitive=False)(
             team.parent_team_id or team.id, skill_name, source_product
@@ -1151,6 +1153,9 @@ def _get_team(team_id: int) -> Team:
 
 
 def _enrolled_by_source(team_id: int, skill_name: str, source_product: str) -> bool:
+    # Consent is checked again here because an organization can withdraw it after enrollment.
+    if not Team.objects.filter(id=team_id, organization__is_ai_data_processing_approved=True).exists():
+        return False
     return (
         SignalScoutConfig.objects.for_team(team_id)
         .filter(skill_name=skill_name, source_product=source_product)

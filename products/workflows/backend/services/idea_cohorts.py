@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import connection, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -31,8 +32,10 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.ph_client import ph_scoped_capture
 
+from products.cdp.backend.facade.api import enabled_destination_templates
 from products.signals.backend.facade.api import enroll_scout_for_source, withdraw_scout_for_source
 from products.workflows.backend.models import HogFlow, WorkflowIdeaTrial
 
@@ -40,6 +43,8 @@ logger = structlog.get_logger(__name__)
 
 SCOUT_SKILL_NAME = "signals-scout-workflow-ideas"
 SOURCE_PRODUCT = "workflows"
+# Arbitrary, fixed key for the Postgres advisory lock that keeps two rotations from running at once.
+_ROTATION_LOCK_KEY = 7_203_118_442
 COHORTS_FLAG = "workflow-ideas-cohorts"
 COHORTS_FLAG_DISTINCT_ID = "workflow-ideas-cohorts-discovery"
 
@@ -99,7 +104,12 @@ class RotationResult:
 
 
 def read_cohort_settings() -> CohortSettings:
-    """The `workflow-ideas-cohorts` flag payload over the defaults. Off unless the payload turns it on."""
+    """The `workflow-ideas-cohorts` flag payload over the defaults.
+
+    The payload's `enabled` is the switch, not the flag's rollout: the payload is read with
+    `match_value=True`, so it is served even when the flag evaluates off. Off unless the payload says
+    `"enabled": true`, and setting it to false ends every running trial on the next rotation.
+    """
     try:
         payload = posthoganalytics.get_feature_flag_payload(COHORTS_FLAG, COHORTS_FLAG_DISTINCT_ID, match_value=True)
         if isinstance(payload, str):
@@ -134,18 +144,36 @@ def read_cohort_settings() -> CohortSettings:
 def rotate_idea_cohort(*, settings: CohortSettings | None = None, now: datetime | None = None) -> RotationResult:
     """End the trials that are due, and start the next cohort once none is running.
 
-    With the flag off, every running trial ends now, so turning the flag off is the kill switch.
+    With the payload's `enabled` off, every running trial ends now. A rotation already in progress
+    elsewhere makes this one a no-op, so two never pick the same cohort.
     """
     settings = settings or read_cohort_settings()
     now = now or timezone.now()
 
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", [_ROTATION_LOCK_KEY])
+        if not cursor.fetchone()[0]:
+            return RotationResult(ended=0, started=0, cohort=None)
+    try:
+        return _rotate(settings, now)
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_unlock(%s)", [_ROTATION_LOCK_KEY])
+
+
+def _rotate(settings: CohortSettings, now: datetime) -> RotationResult:
     running = WorkflowIdeaTrial.objects.unscoped().filter(outcome=WorkflowIdeaTrial.Outcome.RUNNING)
-    due = list(running if not settings.enabled else running.filter(ends_at__lte=now))
-    for trial in due:
-        end_trial(trial, now=now)
+    ended = 0
+    for trial in list(running if not settings.enabled else running.filter(ends_at__lte=now)):
+        # One failing trial must not hold the rest back. It stays running with its scout, and the next rotation retries it.
+        try:
+            end_trial(trial, now=now)
+            ended += 1
+        except Exception as error:
+            capture_exception(error)
 
     if not settings.enabled or running.exists():
-        return RotationResult(ended=len(due), started=0, cohort=None)
+        return RotationResult(ended=ended, started=0, cohort=None)
 
     cohort = (
         WorkflowIdeaTrial.objects.unscoped().order_by("-cohort").values_list("cohort", flat=True).first() or 0
@@ -154,53 +182,66 @@ def rotate_idea_cohort(*, settings: CohortSettings | None = None, now: datetime 
     for candidate in select_candidates(settings, exclude_team_ids=_teams_in_cooldown(settings, now)):
         if start_trial(candidate, cohort=cohort, settings=settings, now=now):
             started += 1
-    logger.info("workflow_idea_cohort_started", cohort=cohort, teams=started, ended=len(due))
-    return RotationResult(ended=len(due), started=started, cohort=cohort)
+    logger.info("workflow_idea_cohort_started", cohort=cohort, teams=started, ended=ended)
+    return RotationResult(ended=ended, started=started, cohort=cohort)
 
 
 def start_trial(candidate: Candidate, *, cohort: int, settings: CohortSettings, now: datetime) -> bool:
     team = Team.objects.select_related("organization").get(id=candidate.team_id)
-    enrolled = enroll_scout_for_source(
-        team=team,
-        skill_name=SCOUT_SKILL_NAME,
-        source_product=SOURCE_PRODUCT,
-        source_id=f"cohort:{cohort}",
-        run_interval_minutes=settings.run_interval_minutes,
-        model=settings.model,
-    )
-    trial = WorkflowIdeaTrial.objects.unscoped().create(
-        team_id=team.id,
-        cohort=cohort,
-        segment=candidate.segment,
-        score=candidate.score,
-        selection=candidate.selection,
-        started_at=now,
-        ends_at=now + timedelta(days=settings.trial_days),
-        ended_at=None if enrolled else now,
-        outcome=WorkflowIdeaTrial.Outcome.RUNNING if enrolled else WorkflowIdeaTrial.Outcome.NOT_ENROLLED,
-    )
+    # One transaction, so a scout is never left enabled without the trial that ends it.
+    with transaction.atomic():
+        enrolled = enroll_scout_for_source(
+            team=team,
+            skill_name=SCOUT_SKILL_NAME,
+            source_product=SOURCE_PRODUCT,
+            source_id=f"cohort:{cohort}",
+            run_interval_minutes=settings.run_interval_minutes,
+            model=settings.model,
+        )
+        trial = WorkflowIdeaTrial.objects.unscoped().create(
+            team_id=team.id,
+            cohort=cohort,
+            segment=candidate.segment,
+            score=candidate.score,
+            selection=candidate.selection,
+            started_at=now,
+            ends_at=now + timedelta(days=settings.trial_days),
+            ended_at=None if enrolled else now,
+            outcome=WorkflowIdeaTrial.Outcome.RUNNING if enrolled else WorkflowIdeaTrial.Outcome.NOT_ENROLLED,
+        )
     _capture(TRIAL_STARTED_EVENT, team, trial)
     return enrolled
 
 
 def end_trial(trial: WorkflowIdeaTrial, *, now: datetime) -> None:
-    """Stop the scout on this project and record what the project did with Workflows during the trial."""
-    withdraw_scout_for_source(team_id=trial.team_id, skill_name=SCOUT_SKILL_NAME, source_product=SOURCE_PRODUCT)
-    flows = HogFlow.objects.filter(team_id=trial.team_id, created_at__gte=trial.started_at, created_at__lte=now)
-    created = flows.count()
-    launched = flows.filter(status=HogFlow.State.ACTIVE).count()
-    billable = _billable_invocations(trial.team_id, after=trial.started_at, before=now)
-    if launched:
+    """Stop the scout on this project and record what the project did with Workflows during the trial.
+
+    Every read happens before any write, and the writes share one transaction, so a failed read leaves
+    the trial running with its scout and the next rotation retries it.
+    """
+    environments = list(
+        Team.objects.filter(Q(id=trial.team_id) | Q(parent_team_id=trial.team_id)).values_list("id", flat=True)
+    )
+    window = {"after": trial.started_at, "before": now}
+    created_ids = set(
+        HogFlow.objects.filter(
+            team_id__in=environments, created_at__gte=window["after"], created_at__lte=window["before"]
+        ).values_list("id", flat=True)
+    )
+    launched_ids = _workflows_launched(environments, **window)
+    billable = sum(_billable_invocations_by_team(environments, **window).values())
+    if launched_ids:
         outcome = WorkflowIdeaTrial.Outcome.ADOPTED
-    elif created:
+    elif created_ids:
         outcome = WorkflowIdeaTrial.Outcome.DRAFTED
     else:
         outcome = WorkflowIdeaTrial.Outcome.NO_CHANGE
     with transaction.atomic():
+        withdraw_scout_for_source(team_id=trial.team_id, skill_name=SCOUT_SKILL_NAME, source_product=SOURCE_PRODUCT)
         trial.ended_at = now
         trial.outcome = outcome
-        trial.workflows_created = created
-        trial.workflows_launched = launched
+        trial.workflows_created = len(created_ids)
+        trial.workflows_launched = len(launched_ids)
         trial.billable_invocations = billable
         trial.save(
             update_fields=["ended_at", "outcome", "workflows_created", "workflows_launched", "billable_invocations"]
@@ -210,11 +251,23 @@ def end_trial(trial: WorkflowIdeaTrial, *, now: datetime) -> None:
 
 def select_candidates(settings: CohortSettings, *, exclude_team_ids: set[int]) -> list[Candidate]:
     """Score every project that clears the hard filters, then take a cohort balanced across segments."""
-    emailable = _emailable_daily_people(settings.min_emailable_daily_people)
+    # Scouts belong to a project's main environment, so environments count toward their project.
+    by_environment = _emailable_daily_people(settings.min_emailable_daily_people)
+    project_of = dict(Team.objects.filter(id__in=list(by_environment)).values_list("id", "parent_team_id"))
+    emailable: dict[int, int] = defaultdict(int)
+    for environment_id, people in by_environment.items():
+        emailable[project_of.get(environment_id) or environment_id] += people
     team_ids = [team_id for team_id in emailable if team_id not in exclude_team_ids]
     if not team_ids:
         return []
-    billable = _billable_invocations_by_team(team_ids, after=timezone.now() - timedelta(days=30))
+    environments = dict(
+        Team.objects.filter(Q(id__in=team_ids) | Q(parent_team_id__in=team_ids)).values_list("id", "parent_team_id")
+    )
+    billable: dict[int, int] = defaultdict(int)
+    for environment_id, count in _billable_invocations_by_team(
+        list(environments), after=timezone.now() - timedelta(days=30)
+    ).items():
+        billable[environments.get(environment_id) or environment_id] += count
     team_ids = [team_id for team_id in team_ids if billable.get(team_id, 0) < settings.max_billable_invocations_30d]
     features = _postgres_features(team_ids)
 
@@ -326,18 +379,35 @@ def _billable_invocations_by_team(
     }
 
 
-def _billable_invocations(team_id: int, *, after: datetime, before: datetime) -> int:
-    return _billable_invocations_by_team([team_id], after=after, before=before).get(team_id, 0)
+def _workflows_launched(environments: list[int], *, after: datetime, before: datetime) -> set[str]:
+    """Workflows switched live during the window, whenever they were created.
+
+    A status change is not a new version, so the activity log is the only record of when a draft went
+    live. A workflow created already live in the window counts too.
+    """
+    switched_live = ActivityLog.objects.filter(
+        team_id__in=environments,
+        scope="HogFlow",
+        created_at__gte=after,
+        created_at__lte=before,
+        detail__changes__contains=[{"field": "status", "after": HogFlow.State.ACTIVE}],
+    ).values_list("item_id", flat=True)
+    created_live = HogFlow.objects.filter(
+        team_id__in=environments, created_at__gte=after, created_at__lte=before, status=HogFlow.State.ACTIVE
+    ).values_list("id", flat=True)
+    return {str(item_id) for item_id in switched_live if item_id} | {str(flow_id) for flow_id in created_live}
 
 
 def _postgres_features(team_ids: list[int]) -> dict[int, dict[str, Any]]:
     """Adoption signals per project, read in one round trip.
 
-    Raw SQL because the signals live in tables owned by several products (CDP destinations, event
-    definitions, integrations) and are only ever aggregated here, across projects.
+    Raw SQL because the signals live in tables owned by several products (event definitions,
+    integrations) and are only ever aggregated here, across projects. Each count covers the project
+    and its environments.
     """
     query = f"""
-        WITH ids AS (SELECT unnest(%(team_ids)s::int[]) AS team_id)
+        WITH ids AS (SELECT unnest(%(team_ids)s::int[]) AS team_id),
+        envs AS (SELECT ids.team_id AS project_id, e.id AS env_id FROM ids JOIN posthog_team e ON e.id = ids.team_id OR e.parent_team_id = ids.team_id)
         SELECT
             t.id,
             t.name,
@@ -345,23 +415,26 @@ def _postgres_features(team_ids: list[int]) -> dict[int, dict[str, Any]]:
             o.is_ai_data_processing_approved IS TRUE,
             (SELECT count(*) FROM posthog_organizationmembership m JOIN posthog_user u ON u.id = m.user_id
                WHERE m.organization_id = o.id AND u.last_login > now() - interval '14 days'),
-            (SELECT count(*) FROM posthog_hogflow h WHERE h.team_id = t.id),
-            (SELECT count(*) FROM posthog_hogflow h WHERE h.team_id = t.id AND h.status = 'active'),
-            (SELECT coalesce(array_agg(DISTINCT f.template_id), '{{}}') FROM posthog_hogfunction f
-               WHERE f.team_id = t.id AND f.enabled AND NOT f.deleted AND f.template_id ~* %(messaging_re)s),
-            (SELECT count(*) FROM posthog_integration i WHERE i.team_id = t.id AND i.kind = 'email'),
-            (SELECT count(*) FROM posthog_eventdefinition d WHERE d.team_id = t.id
+            (SELECT count(*) FROM posthog_hogflow h WHERE h.team_id IN (SELECT env_id FROM envs WHERE project_id = t.id)),
+            (SELECT count(*) FROM posthog_hogflow h WHERE h.team_id IN (SELECT env_id FROM envs WHERE project_id = t.id) AND h.status = 'active'),
+            (SELECT count(*) FROM posthog_integration i WHERE i.team_id IN (SELECT env_id FROM envs WHERE project_id = t.id) AND i.kind = 'email'),
+            (SELECT count(*) FROM posthog_eventdefinition d WHERE d.team_id IN (SELECT env_id FROM envs WHERE project_id = t.id)
                AND d.last_seen_at > now() - interval '14 days' AND d.name ~* %(revenue_re)s),
-            (SELECT count(*) FROM posthog_eventdefinition d WHERE d.team_id = t.id
+            (SELECT count(*) FROM posthog_eventdefinition d WHERE d.team_id IN (SELECT env_id FROM envs WHERE project_id = t.id)
                AND d.last_seen_at > now() - interval '14 days' AND d.name ~* %(activation_re)s)
         FROM ids JOIN posthog_team t ON t.id = ids.team_id JOIN posthog_organization o ON o.id = t.organization_id
     """
     params: dict[str, Any] = {
         "team_ids": team_ids,
-        "messaging_re": _MESSAGING_TEMPLATE_RE,
         "revenue_re": _REVENUE_EVENT_RE,
         "activation_re": _ACTIVATION_EVENT_RE,
     }
+    environments = dict(
+        Team.objects.filter(Q(id__in=team_ids) | Q(parent_team_id__in=team_ids)).values_list("id", "parent_team_id")
+    )
+    tools: dict[int, set[str]] = defaultdict(set)
+    for environment_id, templates in enabled_destination_templates(list(environments), _MESSAGING_TEMPLATE_RE).items():
+        tools[environments.get(environment_id) or environment_id].update(templates)
     features: dict[int, dict[str, Any]] = {}
     with connection.cursor() as cursor:
         cursor.execute(query, params)
@@ -374,7 +447,6 @@ def _postgres_features(team_ids: list[int]) -> dict[int, dict[str, Any]]:
                 active,
                 flows_ever,
                 flows_active,
-                tools,
                 emails,
                 revenue,
                 activation,
@@ -386,7 +458,7 @@ def _postgres_features(team_ids: list[int]) -> dict[int, dict[str, Any]]:
                 "active_members_14d": int(active),
                 "flows_ever": int(flows_ever),
                 "flows_active": int(flows_active),
-                "messaging_tools": sorted(tools or []),
+                "messaging_tools": sorted(tools.get(int(team_id), set())),
                 "email_integrations": int(emails),
                 "revenue_events": int(revenue),
                 "activation_events": int(activation),
@@ -404,6 +476,7 @@ def _capture(event: str, team: Team, trial: WorkflowIdeaTrial) -> None:
         "workflows_created": trial.workflows_created,
         "workflows_launched": trial.workflows_launched,
         "billable_invocations": trial.billable_invocations,
+        **{f"selection_{key}": value for key, value in (trial.selection or {}).items()},
     }
     with ph_scoped_capture() as capture:
         capture(

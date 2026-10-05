@@ -21,7 +21,12 @@ _B = "products.cdp.backend."
 
 _LAZY = {"HogFunctionSerializer": "api.hog_function"}
 
-__all__ = [*sorted(_LAZY), "create_hog_functions", "is_hog_function_template_available"]
+__all__ = [
+    *sorted(_LAZY),
+    "create_hog_functions",
+    "enabled_destination_templates",
+    "is_hog_function_template_available",
+]
 
 
 def is_hog_function_template_available(template_id: str, team: Team) -> bool:
@@ -29,6 +34,25 @@ def is_hog_function_template_available(template_id: str, team: Team) -> bool:
         return False
     flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
     return flag is None or gated_template_enabled(flag, team)
+
+
+def enabled_destination_templates(team_ids: Sequence[int], template_id_pattern: str) -> dict[int, list[str]]:
+    """The templates of each project's enabled, live hog functions whose template id matches the pattern.
+
+    For reading across many projects at once, such as which ones already send through another tool.
+    """
+    from products.cdp.backend.models.hog_functions.hog_function import (
+        HogFunction,  # noqa: PLC0415 — keeps the model off the facade's import path
+    )
+
+    found: dict[int, set[str]] = {}
+    rows = HogFunction.objects.filter(
+        team_id__in=list(team_ids), enabled=True, deleted=False, template_id__iregex=template_id_pattern
+    ).values_list("team_id", "template_id")
+    for team_id, template_id in rows:
+        if template_id:
+            found.setdefault(team_id, set()).add(template_id)
+    return {team_id: sorted(templates) for team_id, templates in found.items()}
 
 
 def create_hog_functions(

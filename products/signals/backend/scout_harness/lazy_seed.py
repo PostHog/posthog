@@ -730,6 +730,27 @@ def canonical_source_product_for(skill_name: str) -> str:
     return _canonical_source_products().get(skill_name, "")
 
 
+def source_product_gating(team_id: int, skill_name: str) -> str:
+    """The product a run of this skill on this project must be enrolled by, or `""` when none.
+
+    Only the harness-seeded row of a source-only canonical scout is gated. A team's own scout that
+    shares the name is the team's, and runs like any custom scout.
+    """
+    source_product = canonical_source_product_for(skill_name)
+    if not source_product:
+        return ""
+    from products.skills.backend.models.skills import (
+        LLMSkill,  # noqa: PLC0415 — matches the module's lazy model imports
+    )
+
+    metadata = (
+        LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False)
+        .values_list("metadata", flat=True)
+        .first()
+    )
+    return source_product if (metadata or {}).get("seeded_by") == HARNESS_SEEDED_BY else ""
+
+
 def canonical_source_only_scout_names() -> frozenset[str]:
     """Names of every canonical scout that runs only where its source product enrolled it."""
     return frozenset(_canonical_source_products())

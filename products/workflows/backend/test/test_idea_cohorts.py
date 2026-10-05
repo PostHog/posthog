@@ -10,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models import EventDefinition, Organization, OrganizationMembership, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.signals.backend.models import SignalScoutConfig
@@ -75,6 +76,9 @@ class TestIdeaCohorts(BaseTest):
         stalled = self._project("Booking app")
         HogFlow.objects.create(team=stalled, name="Welcome", status=HogFlow.State.DRAFT)
         greenfield = self._project("Big consumer app")
+        greenfield_env = Team.objects.create(
+            organization=greenfield.organization, parent_team=greenfield, name="Big consumer app web"
+        )
         heavy = self._project("Heavy sender")
         no_consent = self._project("No consent", ai_approved=False)
         nobody_home = self._project("Abandoned", active_members=0)
@@ -83,6 +87,7 @@ class TestIdeaCohorts(BaseTest):
         emailable = {
             t.id: 20_000 for t in (competitor, stalled, greenfield, heavy, no_consent, nobody_home, staging, cooled)
         }
+        emailable[greenfield_env.id] = 5_000
 
         picked = self._select(emailable, billable={heavy.id: 50_000}, exclude={cooled.id})
 
@@ -94,12 +99,16 @@ class TestIdeaCohorts(BaseTest):
         assert next(c for c in picked if c.team_id == competitor.id).selection["messaging_tools"] == [
             "template-customerio"
         ]
+        assert next(c for c in picked if c.team_id == greenfield.id).selection["emailable_daily_people"] == 25_000
 
     def test_rotation_runs_a_cohort_for_its_trial_then_records_outcomes_and_moves_on(self) -> None:
         adopter = self._project("Adopter")
         idle = self._project("Idle")
+        launcher = self._project("Launcher")
+        old_draft = HogFlow.objects.create(team=launcher, name="Old draft", status=HogFlow.State.DRAFT)
+        HogFlow.objects.filter(pk=old_draft.pk).update(created_at=NOW - timedelta(days=30))
         newcomer = self._project("Newcomer")
-        emailable = {adopter.id: 9_000, idle.id: 8_000}
+        emailable = {adopter.id: 9_000, idle.id: 8_000, launcher.id: 7_500}
 
         with (
             patch.object(idea_cohorts, "_emailable_daily_people", return_value=emailable),
@@ -107,19 +116,41 @@ class TestIdeaCohorts(BaseTest):
             patch.object(idea_cohorts, "_capture"),
         ):
             first = rotate_idea_cohort(settings=ON, now=NOW)
-            assert (first.cohort, first.started) == (1, 2)
-            assert _source_configs() == {adopter.id, idle.id}
+            assert (first.cohort, first.started) == (1, 3)
+            assert _source_configs() == {adopter.id, idle.id, launcher.id}
 
             assert rotate_idea_cohort(settings=ON, now=NOW + timedelta(days=13)).started == 0
 
             flow = HogFlow.objects.create(team=adopter, name="Cart recovery", status=HogFlow.State.ACTIVE)
             HogFlow.objects.filter(pk=flow.pk).update(created_at=NOW + timedelta(days=3))
+            launch = ActivityLog.objects.create(
+                team_id=launcher.id,
+                scope="HogFlow",
+                item_id=str(old_draft.id),
+                activity="updated",
+                detail={
+                    "changes": [
+                        {
+                            "type": "HogFlow",
+                            "field": "status",
+                            "action": "changed",
+                            "before": "draft",
+                            "after": "active",
+                        }
+                    ]
+                },
+            )
+            ActivityLog.objects.filter(pk=launch.pk).update(created_at=NOW + timedelta(days=5))
             emailable[newcomer.id] = 7_000
             second = rotate_idea_cohort(settings=ON, now=NOW + timedelta(days=14))
 
-        assert (second.ended, second.cohort, second.started) == (2, 2, 1)
+        assert (second.ended, second.cohort, second.started) == (3, 2, 1)
         outcomes = dict(WorkflowIdeaTrial.objects.unscoped().filter(cohort=1).values_list("team_id", "outcome"))
-        assert outcomes == {adopter.id: WorkflowIdeaTrial.Outcome.ADOPTED, idle.id: WorkflowIdeaTrial.Outcome.NO_CHANGE}
+        assert outcomes == {
+            adopter.id: WorkflowIdeaTrial.Outcome.ADOPTED,
+            idle.id: WorkflowIdeaTrial.Outcome.NO_CHANGE,
+            launcher.id: WorkflowIdeaTrial.Outcome.ADOPTED,
+        }
         assert _source_configs() == {newcomer.id}
 
     @parameterized.expand([("flag turned off", False), ("trial still running", True)])

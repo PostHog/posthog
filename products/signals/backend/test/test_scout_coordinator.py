@@ -2733,12 +2733,26 @@ async def test_source_only_scout_is_never_seeded_a_config(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("source_product,planned", [(None, False), ("workflows", True)])
-async def test_source_only_scout_runs_only_on_a_config_its_source_created(ateam, source_product, planned):
-    await database_sync_to_async(_create_skill)(ateam, "signals-scout-workflow-ideas")
+@pytest.mark.parametrize(
+    "source_product,consent,seeded,planned",
+    [
+        (None, True, True, False),
+        ("workflows", True, True, True),
+        ("workflows", False, True, False),
+        (None, True, False, True),
+    ],
+)
+async def test_source_only_scout_runs_only_on_a_config_its_source_created(
+    ateam, source_product, consent, seeded, planned
+):
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-workflow-ideas", seeded=seeded)
     await database_sync_to_async(_create_config)(
         ateam, "signals-scout-workflow-ideas", enabled=True, source_product=source_product
     )
+    if not consent:
+        await database_sync_to_async(
+            lambda: Organization.objects.filter(id=ateam.organization_id).update(is_ai_data_processing_approved=False)
+        )()
 
     runs = await _run_activity()
 

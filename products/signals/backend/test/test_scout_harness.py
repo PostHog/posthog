@@ -2961,6 +2961,13 @@ async def test_withheld_scout_is_not_run(ateam, aerrors_skill):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_source_only_scout_is_not_run_where_its_source_did_not_enroll_it(ateam):
+    await database_sync_to_async(LLMSkill.objects.create)(
+        team=ateam,
+        name="signals-scout-workflow-ideas",
+        description="d",
+        body="b",
+        metadata={"seeded_by": HARNESS_SEEDED_BY},
+    )
     with patch(
         "products.signals.backend.scout_harness.runner.MultiTurnSession.start",
         new_callable=AsyncMock,

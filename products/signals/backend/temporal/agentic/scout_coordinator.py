@@ -37,8 +37,8 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_config_tags_for,
     canonical_display_name_for,
     canonical_skill_names,
-    canonical_source_product_for,
     discover_canonical_skills,
+    source_product_gating,
     sync_canonical_skills,
 )
 from products.signals.backend.scout_harness.limits import (
@@ -667,12 +667,15 @@ def _breaker_paused_configs_by_team() -> dict[int, list[SignalScoutConfig]]:
 
 
 def _enrolled_by_its_source(config: SignalScoutConfig) -> bool:
-    """False for a scout that declares a source product, on a config that product did not create.
+    """False for a source-only canonical scout on a config its product did not create, or on a project
+    whose organization has since withdrawn AI data processing approval.
 
     A person can still create or enable such a config by hand, and this keeps it from running.
     """
-    source_product = canonical_source_product_for(config.skill_name)
-    return not source_product or config.source_product == source_product
+    source_product = source_product_gating(config.team_id, config.skill_name)
+    if not source_product:
+        return True
+    return config.source_product == source_product and _ai_data_processing_approved(config.team)
 
 
 def _collect_probe_runs(paused_configs: list[SignalScoutConfig], live_skills: set[str], now: datetime) -> list[_DueRun]:
