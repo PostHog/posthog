@@ -70,8 +70,8 @@ def describe(diagnosis: EmptyResultDiagnosis) -> str:
         return (
             f"\n\nDiagnosis: no {names} events matched this filter in the date range, so there was nothing to "
             "match recordings against. Tell the user the search could not run rather than that no users did this. "
-            "Suggest checking the event name and its property filters, widening the date range, or instrumenting "
-            "the event. Do not offer a Replay Vision scanner."
+            "Suggest to the user checking the event name and its property filters, widening the date range, or "
+            "instrumenting the event. Do not offer a Replay Vision scanner."
         )
 
     if diagnosis.cause == EmptyResultCause.EVENTS_NOT_LINKED:
@@ -97,6 +97,6 @@ def describe(diagnosis: EmptyResultDiagnosis) -> str:
 
     return (
         f"\n\nDiagnosis: {names} events exist and are linked to recordings, so the cause is elsewhere: another "
-        "filter, the replay sample rate or minimum duration, or retention. Suggest widening the date range or "
-        "dropping a filter. Do not offer a Replay Vision scanner."
+        "filter, the replay sample rate or minimum duration, or retention. Offer the user to widen the date range "
+        "or drop a filter. Do not offer a Replay Vision scanner."
     )

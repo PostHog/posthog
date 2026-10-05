@@ -36,6 +36,12 @@ logger = structlog.get_logger(__name__)
 
 DIAGNOSIS_MAX_EXECUTION_TIME = 30
 
+EMPTY_RESULT_SCOPE_GUIDANCE = (
+    "\n\nKeep the user's scope: do not search again with a filter removed, such as a person or group, "
+    "or with a wider date range, unless the user asks for it. Tell the user that no recordings matched, "
+    "and offer the broader search instead."
+)
+
 
 class FilterSessionRecordingsToolArgs(BaseModel):
     recordings_filters: MaxRecordingUniversalFilters = Field(
@@ -168,6 +174,8 @@ class FilterSessionRecordingsTool(MaxTool):
         - The user asks to summarize session recordings
 
         When on the replay page, the tool will update the filters in the page.
+
+        If no recordings match, report that to the user. Do not drop the user's filters or widen the date range on your own.
         """).strip()
     context_prompt_template: str = "Current recordings filters are: {{{current_filters}}}.\nCurrent session ID being viewed: {{{current_session_id}}}."
 
@@ -192,6 +200,7 @@ class FilterSessionRecordingsTool(MaxTool):
             if total_count == 0:
                 content = "✅ Filtered session recordings. No recordings found matching these criteria."
                 content += await self._diagnose_empty_result(recordings_query)
+                content += EMPTY_RESULT_SCOPE_GUIDANCE
             elif total_count == 1:
                 content = "✅ Filtered session recordings. Found 1 recording matching these criteria:\n\n"
                 content += self._format_recording_metadata(query_results.results[0])
