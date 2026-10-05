@@ -20,11 +20,11 @@ import { ProductPushWelcomeModal } from './ProductPushWelcomeModal'
  * nothing at all until a click has something to follow up on.
  */
 export function MaybeProductPushWelcome(): JSX.Element | null {
-    const { pending, openFor } = useValues(navPanelProductPushWelcomeLogic)
+    const { unseenPending, openFor } = useValues(navPanelProductPushWelcomeLogic)
 
     // The setup status below is keyed by product, so the card being introduced has to be known
     // before any of it can be mounted.
-    const welcome = openFor ?? pending
+    const welcome = openFor ?? unseenPending
     if (!welcome) {
         return null
     }
