@@ -16,11 +16,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.instana.settings import (
+    APPLICATION_METRICS,
     EVENTS_DEFAULT_LOOKBACK_DAYS,
     EVENTS_WINDOW_CHUNK_MS,
     INSTANA_ENDPOINTS,
     MAX_CATALOG_PAGES,
     MAX_CATALOG_WALK_SECONDS,
+    METRICS_DEFAULT_LOOKBACK_DAYS,
+    METRICS_MAX_LOOKBACK_DAYS,
+    METRICS_WINDOW_MS,
     PAGE_SIZE,
     SNAPSHOTS_MAX_SIZE,
     InstanaEndpointConfig,
@@ -105,6 +109,8 @@ class InstanaResumeConfig:
     next_offset: int | None = None
     # Epoch-ms start of the next `/api/events` window chunk.
     events_window_from: int | None = None
+    # Epoch-ms start of the metrics window being walked; `next_page` is the page within it.
+    metrics_window_from: int | None = None
 
 
 def normalize_base_url(url: str) -> str:
@@ -197,6 +203,7 @@ def _fetch(
     session: requests.Session,
     url: str,
     logger: FilteringBoundLogger,
+    json_body: Any = None,
 ) -> Any:
     @retry(
         retry=retry_if_exception_type((InstanaRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -206,7 +213,10 @@ def _fetch(
     )
     def fetch_once() -> Any:
         # stream=True so the body isn't buffered until we cap it — see _read_capped_body.
-        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
+        if json_body is None:
+            response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
+        else:
+            response = session.post(url, json=json_body, timeout=REQUEST_TIMEOUT_SECONDS, stream=True)
 
         # Instana rate-limits to 5000 calls/hour and answers excess with 429; transient 5xx are
         # retryable too. Back off and retry rather than failing the sync.
@@ -386,6 +396,108 @@ def _get_offset_rows(
         resumable_source_manager.save_state(InstanaResumeConfig(next_offset=offset))
 
 
+def _metric_rows(item: dict[str, Any], entity_key: str) -> list[dict[str, Any]]:
+    """Pivot one metrics item into a row per timestamp, one column per metric.
+
+    Instana returns each metric as ``{"latency.mean": [[timestamp, value], ...]}``; the dot in the
+    key becomes an underscore so every metric is a plain column.
+    """
+    entity = item.get(entity_key)
+    metrics = item.get("metrics")
+    if not isinstance(entity, dict) or not isinstance(metrics, dict):
+        return []
+    entity_id = entity.get("id")
+    if not isinstance(entity_id, str) or not entity_id:
+        return []
+
+    rows: dict[int, dict[str, Any]] = {}
+    for metric_name, points in metrics.items():
+        if not isinstance(points, list):
+            continue
+        for point in points:
+            if not isinstance(point, list) or len(point) != 2 or not isinstance(point[0], int | float):
+                continue
+            timestamp = int(point[0])
+            row = rows.setdefault(timestamp, {f"{entity_key}Id": entity_id, entity_key: entity, "timestamp": timestamp})
+            row[metric_name.replace(".", "_")] = point[1]
+    return list(rows.values())
+
+
+def _floor_to_window(epoch_ms: int) -> int:
+    return epoch_ms - epoch_ms % METRICS_WINDOW_MS
+
+
+def _get_metric_rows(
+    session: requests.Session,
+    root: str,
+    config: InstanaEndpointConfig,
+    entity_key: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[InstanaResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the daily golden-signal metrics for every application, service or endpoint.
+
+    Each one-day window is one POST query, paginated by entity. A window holds a single bucket,
+    so the incremental watermark is the bucket timestamp. The spec does not say whether that
+    timestamp marks the start or the end of the bucket, so an incremental run restarts one window
+    before the watermark's window. That re-fetches at most one extra day, and merge dedupes it.
+    """
+    end = _floor_to_window(int(datetime.now(UTC).timestamp() * 1000))
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    watermark = _to_epoch_ms(db_incremental_field_last_value) if should_use_incremental_field else None
+    page = 1
+    if resume is not None and resume.metrics_window_from is not None:
+        window_from = resume.metrics_window_from
+        page = resume.next_page or 1
+        logger.debug(f"Instana: resuming {config.name} from window_from={window_from}, page={page}")
+    elif watermark is not None:
+        window_from = max(
+            _floor_to_window(min(watermark, end) - METRICS_WINDOW_MS),
+            end - METRICS_MAX_LOOKBACK_DAYS * METRICS_WINDOW_MS,
+        )
+    else:
+        window_from = end - METRICS_DEFAULT_LOOKBACK_DAYS * METRICS_WINDOW_MS
+
+    url = _build_url(root, config.path, {})
+    granularity_seconds = METRICS_WINDOW_MS // 1000
+    while window_from < end:
+        window_to = window_from + METRICS_WINDOW_MS
+        fetched = 0
+        pages_walked = 0
+        walk_deadline = time.monotonic() + MAX_CATALOG_WALK_SECONDS
+        while True:
+            _check_walk_bounds(config, walk_deadline, pages_walked)
+            body = {
+                "metrics": [{**metric, "granularity": granularity_seconds} for metric in APPLICATION_METRICS],
+                "timeFrame": {"to": window_to, "windowSize": METRICS_WINDOW_MS},
+                "pagination": {"page": page, "pageSize": PAGE_SIZE},
+            }
+            data = _fetch(session, url, logger, json_body=body)
+            pages_walked += 1
+
+            items = _extract_items(data, config)
+            rows = [row for item in items if isinstance(item, dict) for row in _metric_rows(item, entity_key)]
+            if rows:
+                yield rows
+            fetched += len(items)
+
+            total_hits = data.get("totalHits") if isinstance(data, dict) else None
+            if len(items) < PAGE_SIZE or (isinstance(total_hits, int) and fetched >= total_hits):
+                break
+            page += 1
+            resumable_source_manager.save_state(InstanaResumeConfig(metrics_window_from=window_from, next_page=page))
+            if not rows:
+                resumable_source_manager.safe_point()
+
+        page = 1
+        window_from = window_to
+        if window_from < end:
+            resumable_source_manager.save_state(InstanaResumeConfig(metrics_window_from=window_from, next_page=1))
+
+
 def _get_fan_out_rows(
     session: requests.Session,
     root: str,
@@ -409,6 +521,11 @@ def _get_fan_out_rows(
 
     # The parent walk checks its bounds only between parent pages, so the child requests of one
     # page need their own: one page holds up to PAGE_SIZE slow or retried child requests.
+    window_params: dict[str, Any] = {}
+    if config.report_window_ms is not None:
+        now_ms = int(datetime.now(UTC).timestamp() * 1000)
+        window_params = {"from": now_ms - config.report_window_ms, "to": now_ms}
+
     children_fetched = 0
     walk_deadline = time.monotonic() + MAX_CATALOG_WALK_SECONDS
     for parent_rows in parent_pages:
@@ -419,7 +536,8 @@ def _get_fan_out_rows(
                 continue
             _check_walk_bounds(config, walk_deadline, children_fetched)
             children_fetched += 1
-            url = _build_url(root, config.path.format(**{fan_out.child_field: quote(parent_id, safe="")}), {})
+            path = config.path.format(**{fan_out.child_field: quote(parent_id, safe="")})
+            url = _build_url(root, path, window_params)
             try:
                 data = _fetch(session, url, logger)
             except requests.HTTPError as e:
@@ -483,6 +601,17 @@ def get_rows(
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
+    elif config.metrics_entity is not None:
+        yield from _get_metric_rows(
+            session,
+            root,
+            config,
+            config.metrics_entity,
+            logger,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
     elif config.fan_out is not None:
         yield from _get_fan_out_rows(session, root, config, config.fan_out, logger, resumable_source_manager)
     elif config.pagination == "page":
@@ -518,7 +647,7 @@ def instana_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=config.primary_keys,
-        # Event windows ascend, so batches arrive in (chunk-level) ascending `start` order; the
+        # Event and metrics windows ascend, so batches arrive in (window-level) ascending order; the
         # catalog endpoints are full refresh where the watermark is unused.
         sort_mode="asc",
         partition_count=1,

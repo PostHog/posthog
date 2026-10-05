@@ -431,6 +431,7 @@ func TestCompletesDottedTablePaths(t *testing.T) {
 			"postgres.demo.order items":  {Type: "data_warehouse", Fields: map[string]catalog.Field{}},
 			"events.properties.archive":  {Type: "data_warehouse", Fields: map[string]catalog.Field{}},
 			"persons.properties.archive": {Type: "data_warehouse", Fields: map[string]catalog.Field{}},
+			"models.marts.revenue":       {Type: "view", Fields: map[string]catalog.Field{}},
 		},
 		TableAliases: map[string]string{"POSTGRES.demo.orders": "postgres.demo.orders"},
 		Properties: map[string][]catalog.Property{
@@ -455,6 +456,7 @@ func TestCompletesDottedTablePaths(t *testing.T) {
 		{name: "person property spelling remains table context", source: "SELECT * FROM persons.properties.|", expected: &Suggestion{Label: "persons.properties.archive", Detail: "data_warehouse", InsertText: "archive"}},
 		{name: "unicode utf16", source: "SELECT '😀'; SELECT * FROM postgres.demo.or|", encoding: PositionEncodingUTF16, expected: &Suggestion{Label: "postgres.demo.orders", Detail: "data_warehouse", InsertText: "orders"}},
 		{name: "midword server cursor", source: "SELECT * FROM postgres.demo.or|suffix", expected: &Suggestion{Label: "postgres.demo.orders", Detail: "data_warehouse", InsertText: "orders"}},
+		{name: "model partial namespace", source: "SELECT * FROM models.mar|", expected: &Suggestion{Label: "models.marts.revenue", Detail: "view", InsertText: "marts.revenue"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			bytePosition := strings.IndexByte(test.source, '|')
