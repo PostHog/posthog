@@ -46,6 +46,7 @@ const meta: Meta<StoryProps> = {
                     has_secret: false,
                     cookie_delivery_enabled: true,
                 },
+                '/api/projects/:id/error_tracking/alerts/': { count: 0, next: null, previous: null, results: [] },
                 '/api/projects/:id/heatmap_capture/settings/': {
                     capture_mode: 'url_allowlist',
                     url_allowlist: ['https://example.com/pricing'],
