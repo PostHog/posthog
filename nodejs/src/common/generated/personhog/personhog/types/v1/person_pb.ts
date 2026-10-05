@@ -822,7 +822,7 @@ export type DeletePersonsResponse = Message<'personhog.types.v1.DeletePersonsRes
     deletedCount: bigint
 
     /**
-     * True when the rows were tombstoned rather than removed.
+     * True when the rows were tombstoned rather than removed, which is every successful call.
      *
      * @generated from field: bool tombstoned = 2;
      */
@@ -833,8 +833,7 @@ export type DeletePersonsResponse = Message<'personhog.types.v1.DeletePersonsRes
      * versions its rows hold, so the caller can publish its ClickHouse tombstones
      * at exactly those versions. Persons tombstoned before the call are included
      * too, so a retry after a lost response gets the same versions again;
-     * deleted_count counts only the rows this call tombstoned. Empty on a hard
-     * delete.
+     * deleted_count counts only the rows this call tombstoned.
      *
      * @generated from field: repeated personhog.types.v1.TombstonedPerson tombstones = 3;
      */
@@ -1873,15 +1872,15 @@ export const FoldPersonDocumentResponseSchema: GenMessage<FoldPersonDocumentResp
  */
 export enum DeletePersonsMode {
     /**
-     * Same as HARD.
+     * Same as TOMBSTONE.
      *
      * @generated from enum value: DELETE_PERSONS_MODE_UNSPECIFIED = 0;
      */
     UNSPECIFIED = 0,
 
     /**
-     * Remove the rows, tombstoned ones included. For callers that publish no
-     * ClickHouse tombstones and want nothing left behind, such as a purge.
+     * Rejected with INVALID_ARGUMENT, because a hard delete leaves the live ClickHouse rows above a
+     * re-created person's version 0. A deleted team's persons go through DeletePersonsBatchForTeam.
      *
      * @generated from enum value: DELETE_PERSONS_MODE_HARD = 1;
      */

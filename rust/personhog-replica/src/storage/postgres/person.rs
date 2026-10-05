@@ -13,8 +13,8 @@ use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
-    DeletePersonsMode, DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult,
-    TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
+    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, SplitResult, TombstonedDeleteOutcome,
+    TombstonedDistinctId, TombstonedPerson,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -421,7 +421,6 @@ impl PersonLookup for PostgresStorage {
         &self,
         team_id: i64,
         uuids: &[Uuid],
-        mode: DeletePersonsMode,
     ) -> StorageResult<DeletePersonsOutcome> {
         if uuids.is_empty() {
             return Ok(DeletePersonsOutcome::default());
@@ -437,61 +436,7 @@ impl PersonLookup for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        if mode == DeletePersonsMode::Tombstone {
-            return tombstone_persons_by_uuids(self, team_id, uuids, &client).await;
-        }
-
-        // Resolve UUIDs to integer IDs in one query, then chunk and delete
-        // by ID. This avoids scanning the UUID index per-chunk.
-        let mut person_ids: Vec<i64> = sqlx::query_scalar!(
-            r#"
-            SELECT id::bigint as "id!" FROM posthog_person
-            WHERE team_id = $1 AND uuid = ANY($2)
-            "#,
-            team_id as i32,
-            uuids
-        )
-        .fetch_all(&self.bulk_primary_pool)
-        .await?;
-
-        if person_ids.is_empty() {
-            return Ok(DeletePersonsOutcome::default());
-        }
-        person_ids.sort_unstable();
-
-        // Split into fixed-size chunks and delete concurrently. On the first
-        // error, stop starting new chunks and return the error. Chunks that
-        // already committed are durable; the caller retries the full UUID
-        // list and already-deleted UUIDs are idempotent no-ops.
-        let pool = self.bulk_primary_pool.clone();
-        let chunks: Vec<Vec<i64>> = person_ids
-            .chunks(self.bulk_chunk_size)
-            .map(|c| c.to_vec())
-            .collect();
-        common_metrics::histogram(
-            DB_BULK_CHUNKS,
-            &[("operation".to_string(), "delete_persons".to_string())],
-            chunks.len() as f64,
-        );
-        let results: Vec<i64> =
-            stream::iter(
-                chunks.into_iter().map(|chunk| {
-                    let pool = pool.clone();
-                    let client = client.clone();
-                    // Per-person delete: also clear cohort memberships (no DB cascade).
-                    async move {
-                        delete_persons_by_ids_chunk(&pool, team_id, &chunk, &client, true).await
-                    }
-                }),
-            )
-            .buffer_unordered(self.bulk_max_concurrent_chunks)
-            .try_collect()
-            .await?;
-
-        Ok(DeletePersonsOutcome {
-            deleted: results.iter().sum(),
-            tombstones: None,
-        })
+        tombstone_persons_by_uuids(self, team_id, uuids, &client).await
     }
 
     async fn delete_persons_batch_for_team(

@@ -16,14 +16,6 @@ pub struct DistinctIdWithVersion {
     pub id: i64,
 }
 
-/// How DeletePersons removes rows. A caller that publishes ClickHouse tombstones
-/// asks for `Tombstone` and reads the versions back; everything else hard-deletes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeletePersonsMode {
-    Hard,
-    Tombstone,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TombstonedDistinctId {
     pub distinct_id: String,
