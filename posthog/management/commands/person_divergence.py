@@ -10,6 +10,7 @@ Scans only read.
 
 import csv
 import time
+import argparse
 import dataclasses
 from collections.abc import Callable
 from pathlib import Path
@@ -62,7 +63,10 @@ class Command(BaseCommand):
             self._add_output(divergent)
             self._add_team_range(divergent)
             divergent.add_argument(
-                "--team-step", type=int, default=team_step, help="Team ids per ClickHouse query (default: %(default)s)."
+                "--team-step",
+                type=_positive_int,
+                default=team_step,
+                help="Team ids per ClickHouse query (default: %(default)s).",
             )
             if name == "stale":
                 divergent.add_argument(
@@ -112,6 +116,13 @@ class Command(BaseCommand):
                     f"{name} scan: {summary.candidates} ClickHouse candidates, {summary.divergent} divergent, "
                     f"skipped teams {summary.skipped_team_ids}"
                 )
+
+
+def _positive_int(value: str) -> int:
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"{value} must be 1 or more")
+    return number
 
 
 def _open_output(path: Path) -> TextIO:
