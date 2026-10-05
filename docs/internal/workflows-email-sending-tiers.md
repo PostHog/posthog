@@ -60,6 +60,9 @@ Decay, suspension drops, admin recomputes, and the backfill stay silent.
 - Sandbox sender sends bypass the team buckets without spending their tokens. Sandbox limits run independently.
   The worker holds every sandbox send, test sends included, to a daily cap per project (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`, one token per recipient copy) and a daily cap per recipient address (`WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP`).
   A reached cap skips the send instead of delaying it. A limiter error or an empty or invalid cap value skips every sandbox send.
+  The SES tenant-state webhook and daily reconciliation mirror `SES_SANDBOX_TENANT_NAME` into `SandboxSenderTenantState` without emailing project admins.
+  Every sandbox send, including test sends, skips when that tenant's mirrored sending status is `DISABLED` or the pause lookup fails. A missing row allows sending, with SES enforcing its own state.
+  A committed state change reaches the workers through the `reload-sandbox-sender-state` message. Own-sender sends do not read this state.
   Test sends run inline in the CDP API, so the API reads the same `SES_RATE_LIMITER_VALKEY_*` settings as the email worker. Without them, every sandbox test send is skipped.
   Keep `WORKFLOWS_SANDBOX_SENDER_ENABLED` off until the recipient membership checks, sandbox caps and sandbox pause gate are deployed.
 - The buckets are token buckets: a full idle bucket plus refill allows up to roughly twice the stated cap in the very first period. The bucket TTLs exceed the refill periods so this does not recur from idling.

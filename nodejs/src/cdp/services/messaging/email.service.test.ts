@@ -36,6 +36,7 @@ import {
 import { Hub, Team } from '../../../types'
 import { OrganizationMembersService } from '../managers/organization-members.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { SandboxSenderStateService } from '../managers/sandbox-sender-state.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
@@ -270,6 +271,8 @@ describe('EmailService', () => {
                     capLimiter = dailyCapLimiter,
                     dailyTeamCap = '100',
                     dailyRecipientCap = '100',
+                    tenantName = 'sandbox-tenant',
+                    senderState = new SandboxSenderStateService(hub.postgres, hub.pubSub),
                 }: {
                     tierLimiter?: RateLimiterService | null
                     messageAssetsService?: MessageAssetsService
@@ -277,6 +280,8 @@ describe('EmailService', () => {
                     capLimiter?: RateLimiterService | null
                     dailyTeamCap?: string
                     dailyRecipientCap?: string
+                    tenantName?: string
+                    senderState?: SandboxSenderStateService
                 } = {}
             ): EmailService => {
                 const sandboxService = new EmailService(
@@ -304,14 +309,15 @@ describe('EmailService', () => {
                     new SandboxEmailSender(
                         {
                             enabled,
-                            tenantName: 'sandbox-tenant',
+                            tenantName,
                             configurationSetName: 'sandbox-email',
                             fromAddress: 'fixed-sandbox@example.com',
                             dailyTeamCap,
                             dailyRecipientCap,
                         },
                         hub.teamManager,
-                        capLimiter
+                        capLimiter,
+                        senderState
                     ),
                     new OrganizationMembersService(membersPostgres)
                 )
@@ -1403,6 +1409,121 @@ describe('EmailService', () => {
                 expect(afterExhaustion).toMatchObject({ finished: true })
                 expect(afterExhaustion.error).toBeUndefined()
                 expect(sendEmailSpy).toHaveBeenCalledTimes(3)
+            })
+
+            describe('pause gate', () => {
+                const pausedMessage =
+                    'Skipping send: the sandbox sender is paused right now. Verify your own domain to keep sending.'
+                const tenantName = (): string => `sandbox-tenant-${team.id}`
+                const setTenantStatus = async (status: string): Promise<void> => {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO workflows_sandboxsendertenantstate (tenant_name, sending_status, reputation_impact, synced_at)
+                         VALUES ($1, $2, '', now())
+                         ON CONFLICT (tenant_name) DO UPDATE SET sending_status = $2`,
+                        [tenantName(), status],
+                        'test:set-sandbox-tenant-status'
+                    )
+                }
+
+                afterEach(async () => {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        'DELETE FROM workflows_sandboxsendertenantstate WHERE tenant_name = $1',
+                        [tenantName()],
+                        'test:delete-sandbox-tenant-status'
+                    )
+                })
+
+                it.each([false, true])('skips while the sandbox tenant is paused (isTest=%s)', async (isTest) => {
+                    await setTenantStatus('DISABLED')
+                    service = createSandboxService(true, { tenantName: tenantName() })
+
+                    const result = await service.executeSendEmail(invocation, isTest)
+
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [] })
+                    expect(result.error).toBeUndefined()
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
+                    expect(result.logs).toEqual(
+                        expect.arrayContaining([expect.objectContaining({ level: 'info', message: pausedMessage })])
+                    )
+                    expect(capture).toHaveBeenCalledWith(
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email blocked',
+                        { reason: 'paused', is_test: isTest, blocked_recipient_count: 0 }
+                    )
+                })
+
+                it.each(['ENABLED', 'REINSTATED'])('sends while the sandbox tenant is %s', async (status) => {
+                    await setTenantStatus(status)
+                    service = createSandboxService(true, { tenantName: tenantName() })
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect(result.error).toBeUndefined()
+                    expect(result.skipped).toBeFalsy()
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                })
+
+                it('skips when the pause state cannot be read', async () => {
+                    const brokenPostgres = new PostgresRouter(hub)
+                    await brokenPostgres.end()
+                    service = createSandboxService(true, {
+                        tenantName: tenantName(),
+                        senderState: new SandboxSenderStateService(brokenPostgres, hub.pubSub),
+                    })
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(result).toMatchObject({ finished: true, skipped: true, metrics: [] })
+                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
+                    expect(result.logs).toEqual(
+                        expect.arrayContaining([
+                            expect.objectContaining({
+                                level: 'info',
+                                message:
+                                    'Skipping send: could not check whether the sandbox sender is paused. Try again later, or verify your own domain to keep sending.',
+                            }),
+                        ])
+                    )
+                    expect(capture).toHaveBeenCalledWith(
+                        expect.objectContaining({ id: team.id }),
+                        'workflows sandbox email blocked',
+                        { reason: 'check_failed', is_test: false, blocked_recipient_count: 0 }
+                    )
+                })
+
+                it('leaves own-sender sends alone while the sandbox tenant is paused', async () => {
+                    await setTenantStatus('DISABLED')
+                    service = createSandboxService(true, { tenantName: tenantName() })
+                    invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect(result.error).toBeUndefined()
+                    expect(sendEmailSpy).toHaveBeenCalledTimes(1)
+                })
+
+                it('picks up a pause announced while the state is cached', async () => {
+                    await setTenantStatus('ENABLED')
+                    service = createSandboxService(true, { tenantName: tenantName() })
+                    expect((await service.executeSendEmail(invocation)).skipped).toBeFalsy()
+
+                    await setTenantStatus('DISABLED')
+
+                    await waitForExpect(async () => {
+                        await hub.pubSub.publish(
+                            'reload-sandbox-sender-state',
+                            JSON.stringify({ tenantName: tenantName() })
+                        )
+                        const result = await service.executeSendEmail(invocation)
+                        expect(result.logs).toEqual(
+                            expect.arrayContaining([expect.objectContaining({ message: pausedMessage })])
+                        )
+                    }, 3000)
+                })
             })
 
             describe('daily caps', () => {
