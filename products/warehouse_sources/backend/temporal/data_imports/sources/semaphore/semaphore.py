@@ -1,6 +1,6 @@
 import re
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from requests.exceptions import HTTPError
@@ -124,7 +124,7 @@ def semaphore_source(
         # The API uses exclusive whole seconds; overlap one second to preserve records at the boundary.
         params["created_after"] = int(watermark.timestamp()) - 1
 
-    endpoint_config: Endpoint = {"path": endpoint.path, "params": params, "data_selector_required": True}
+    endpoint_config = cast(Endpoint, {"path": endpoint.path, "params": params, "data_selector_required": True})
     resource_config: EndpointResource = {
         "name": inputs.schema_name,
         "endpoint": endpoint_config,
