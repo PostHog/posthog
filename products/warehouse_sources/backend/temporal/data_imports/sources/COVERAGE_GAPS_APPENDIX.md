@@ -4318,10 +4318,10 @@ Diffed against: <https://api.insightly.com/v3.1/swagger/docs/v3.1>
 - [x] `/OpportunityLineItem` — line-item revenue detail behind each opportunity; the deal header alone cannot break revenue down by product (high)
 - [x] `/Opportunities/{id}/StateHistory` — won/lost/abandoned state transition history - the only source for sales-cycle and stage-velocity analysis (pair with /OpportunityStateReasons) (high)
 - [x] `/LeadSources` — lookup resolving LEAD_SOURCE_ID on Leads - the core attribution dimension (high)
-- [ ] `/LeadStatuses` — lookup resolving LEAD_STATUS_ID on Leads, needed for any lead funnel (high)
-- [ ] `/Ticket` — Insightly Service tickets, an entire product area with no table today (high)
-- [ ] `/Quotation and /QuotationLineItem` — quotes and their line items, the pre-close revenue pipeline (medium)
-- [ ] `/Product, /Pricebook, /PricebookEntry` — lookups resolving PRODUCT_ID and PRICEBOOK_ENTRY_ID on opportunity and quotation line items (medium)
+- [x] `/LeadStatuses` — lookup resolving LEAD_STATUS_ID on Leads, needed for any lead funnel (high). Added as `LeadStatuses`, including the converted status.
+- [x] `/Ticket` — Insightly Service tickets, an entire product area with no table today (high). Added as `Ticket`.
+- [x] `/Quotation and /QuotationLineItem` — quotes and their line items, the pre-close revenue pipeline (medium). Added as `Quotation` and `QuotationLineItem`.
+- [x] `/Product, /Pricebook, /PricebookEntry` — lookups resolving PRODUCT_ID and PRICEBOOK_ENTRY_ID on opportunity and quotation line items (medium). Added as `Product`, `Pricebook`, and `PricebookEntry`.
 - [ ] `/Milestones` — project milestones and their completion dates, the delivery-tracking grain under Projects (medium)
 - [ ] `/OpportunityCategories, /ProjectCategories, /TaskCategories` — lookups resolving the CATEGORY_ID already present on the synced opportunities, projects and tasks (medium)
 - [ ] `/Teams and /TeamMembers` — team membership for rolling per-rep opportunity and task metrics up to teams (medium)
