@@ -1,7 +1,7 @@
 import { Box, type DOMElement, Text } from "ink";
 import type { ReactElement, RefObject } from "react";
 import type { Indicator, SidebarRow } from "../sidebar";
-import { posthogBlue } from "../theme";
+import { posthogBlue, selectionBackground } from "../theme";
 import { Spinner } from "./Spinner";
 
 // The chat area draws the sidebar's right edge, so its lines can join it.
@@ -66,7 +66,10 @@ function Row({
     case "workspace":
       return (
         <Text wrap="truncate-end">
-          <Text bold inverse={selected}>
+          <Text
+            bold
+            backgroundColor={selected ? selectionBackground() : undefined}
+          >
             {row.label}
           </Text>
           {!row.expanded && <Text dimColor> ({row.size})</Text>}
@@ -89,7 +92,9 @@ function Row({
               </>
             )
           )}
-          <Text inverse={selected}>{row.title}</Text>
+          <Text backgroundColor={selected ? selectionBackground() : undefined}>
+            {row.title}
+          </Text>
         </Text>
       );
     case "loading":
@@ -100,7 +105,10 @@ function Row({
       return <Text dimColor>No work yet</Text>;
     case "viewMore":
       return (
-        <Text dimColor={!selected} inverse={selected}>
+        <Text
+          dimColor={!selected}
+          backgroundColor={selected ? selectionBackground() : undefined}
+        >
           View more
         </Text>
       );
@@ -138,7 +146,10 @@ function NarrowRow({
       return <Text> </Text>;
     case "workspace":
       return (
-        <Text bold inverse={selected}>
+        <Text
+          bold
+          backgroundColor={selected ? selectionBackground() : undefined}
+        >
           ▦
         </Text>
       );
@@ -146,7 +157,7 @@ function NarrowRow({
       return (
         <Text>
           {row.nested && <Text dimColor>{row.last ? "└ " : "├ "}</Text>}
-          <Text inverse={selected}>
+          <Text backgroundColor={selected ? selectionBackground() : undefined}>
             {row.taskId === null ? (
               <Text dimColor>•</Text>
             ) : (
@@ -159,7 +170,10 @@ function NarrowRow({
       return <Spinner />;
     case "viewMore":
       return (
-        <Text dimColor={!selected} inverse={selected}>
+        <Text
+          dimColor={!selected}
+          backgroundColor={selected ? selectionBackground() : undefined}
+        >
           …
         </Text>
       );

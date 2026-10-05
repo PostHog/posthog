@@ -33,6 +33,7 @@ import type { MouseEvents } from "../mouse";
 import { loadPrefs, savePrefs } from "../prefs";
 import type { CloudRuns } from "../runs";
 import { statusChips } from "../status";
+import { applyBackground, backgroundFromReply } from "../theme";
 import type { WorkList } from "../work";
 import { Pane } from "./Pane";
 import { DividerColumn, PaneTree } from "./PaneTree";
@@ -79,6 +80,8 @@ export function App({
   const [narrowSidebar, setNarrowSidebar] = useState(
     () => loadPrefs().narrowSidebar,
   );
+  // Bumped when the terminal turns light or dark, so everything draws again in its colours.
+  const [, setThemeVersion] = useState(0);
   // Names given with /rename, shown at once and kept until the work list shows them too.
   const [titles, setTitles] = useState<Map<string, string>>(new Map());
   const {
@@ -108,6 +111,16 @@ export function App({
           : cloudControl(taskId, runId)
     : undefined;
   const { placeFor, setPlace } = useChatPlace();
+  // Repaints are not needed elsewhere: setting state draws the new colours, and chats drop their cached lines.
+  const onBackground = useRef((_reply: string): void => {});
+  useEffect(() => {
+    if (!mouse) return;
+    const listener = (reply: string): void => onBackground.current(reply);
+    mouse.on("background", listener);
+    return () => {
+      mouse.off("background", listener);
+    };
+  }, [mouse]);
   const newChatRepository = useMemo(() => currentRepository(), []);
   const chatArea = useRef<DOMElement | null>(null);
   const area = useBoxMetrics(chatArea);
@@ -292,6 +305,14 @@ export function App({
   });
   useTerminalInput(mouse, { ...pointer, onKey });
   latestSubmit.current = onSubmit;
+
+  onBackground.current = (reply) => {
+    const background = backgroundFromReply(reply);
+    if (!background) return;
+    applyBackground(background);
+    for (const chat of allChats()) chat.invalidate();
+    setThemeVersion((version) => version + 1);
+  };
 
   const titleOf = (pane: PaneNode): string => {
     if (pane.taskId === null) return "New chat";

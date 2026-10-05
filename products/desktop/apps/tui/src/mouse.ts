@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
+import { BACKGROUND_QUERY } from "./theme";
 
 export interface Click {
   column: number;
@@ -32,9 +33,38 @@ const MOTION = 32;
 // The button bits of a motion report when no button is held.
 const NO_BUTTON = 3;
 // Reports presses, releases and pointer motion, in SGR form so columns past 223 still parse.
-// Plus bracketed paste, so a pasted block reaches a composer as one paste.
-const ENABLE = "\x1b[?1003h\x1b[?1006h\x1b[?2004h";
-const DISABLE = "\x1b[?1003l\x1b[?1006l\x1b[?2004l";
+// Plus bracketed paste, so a pasted block reaches a composer as one paste,
+// and colour-scheme reports (mode 2031), so the app hears when the terminal turns light or dark.
+const ENABLE = "\x1b[?1003h\x1b[?1006h\x1b[?2004h\x1b[?2031h";
+const DISABLE = "\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?2031l";
+
+// CSI ? 997 ; 1 n (dark) or 2 n (light), sent when the scheme changes.
+const SCHEME_REPORT = new RegExp(`${"\u001b"}\\[\\?997;[12]n`, "g");
+// The answer to a background query: OSC 11 ; rgb:… then BEL or ST.
+const BACKGROUND_REPLY = new RegExp(
+  `${"\u001b"}\\]11;rgb:[0-9a-fA-F/]+(?:${"\u0007"}|${"\u001b"}\\\\)`,
+  "g",
+);
+
+// The terminal's own reports, taken out of the input before it is read as keys.
+export function extractTerminalReports(text: string): {
+  rest: string;
+  schemeChanged: boolean;
+  backgrounds: string[];
+} {
+  let schemeChanged = false;
+  const backgrounds: string[] = [];
+  const rest = text
+    .replace(SCHEME_REPORT, () => {
+      schemeChanged = true;
+      return "";
+    })
+    .replace(BACKGROUND_REPLY, (reply) => {
+      backgrounds.push(reply);
+      return "";
+    });
+  return { rest, schemeChanged, backgrounds };
+}
 
 export interface MouseReports {
   keys: string;
@@ -96,6 +126,8 @@ export type MouseEvents = EventEmitter<{
   wheel: [Wheel];
   move: [Click];
   keys: [string];
+  // The terminal's reply to a background query, sent after it turns light or dark.
+  background: [string];
 }>;
 
 // Sits between the terminal and Ink, so mouse reports never reach Ink as keystrokes.
@@ -125,8 +157,13 @@ export class MouseInput {
       return stream;
     };
     this.onData = (data) => {
+      const reports = extractTerminalReports(data.toString("utf8"));
+      // A new scheme means a new background; the reply arrives as more input.
+      if (reports.schemeChanged) stdout.write(BACKGROUND_QUERY);
+      for (const reply of reports.backgrounds)
+        this.events.emit("background", reply);
       const { keys, presses, drags, releases, wheels, moves } = extractMouse(
-        data.toString("utf8"),
+        reports.rest,
       );
       for (const at of presses) this.events.emit("press", at);
       for (const at of drags) this.events.emit("drag", at);

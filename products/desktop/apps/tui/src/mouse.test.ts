@@ -76,6 +76,34 @@ describe("MouseInput", () => {
     mouse.dispose();
   });
 
+  it("asks for the new background when the terminal turns light or dark, and hands on its reply instead of typing it", () => {
+    const source = Object.assign(new PassThrough(), {
+      isTTY: true,
+      setRawMode: () => source,
+    });
+    let written = "";
+    const stdout = Object.assign(new PassThrough(), { isTTY: true });
+    stdout.on("data", (chunk) => {
+      written += String(chunk);
+    });
+    const mouse = new MouseInput(
+      source as unknown as NodeJS.ReadStream,
+      stdout as unknown as NodeJS.WriteStream,
+    );
+    const keys: string[] = [];
+    const backgrounds: string[] = [];
+    mouse.events.on("keys", (text) => keys.push(text));
+    mouse.events.on("background", (reply) => backgrounds.push(reply));
+
+    source.write("a\x1b[?997;1n");
+    source.write("\x1b]11;rgb:1e1e/1e1e/2020\x07b");
+
+    expect(written).toContain("\x1b]11;?\x07");
+    expect(backgrounds).toEqual(["\x1b]11;rgb:1e1e/1e1e/2020\x07"]);
+    expect(keys).toEqual(["a", "b"]);
+    mouse.dispose();
+  });
+
   it("stops switching the real terminal's raw mode once disposed, so a reloaded copy keeps it", () => {
     const modes: boolean[] = [];
     const source = Object.assign(new PassThrough(), {
