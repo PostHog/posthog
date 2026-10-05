@@ -167,8 +167,6 @@ function isVersionPropertyKey(propertyKey: string | null | undefined): boolean {
 }
 
 /**
- * The operators to offer for a property.
- *
  * Semver operators resolve only against version strings, so a semver filter on any other text
  * property matches no rows. They are offered on a version property, and on a filter that already
  * holds a semver operator, so an existing filter keeps the operator it was saved with.

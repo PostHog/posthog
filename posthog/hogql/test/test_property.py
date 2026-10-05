@@ -1900,7 +1900,6 @@ class TestProperty(BaseTest):
             ),
         )
 
-        # A range value that is not a version matches nothing, and does not abort the query
         for operator, value in [
             ("semver_caret", "abc.def"),
             ("semver_tilde", "Ashburn"),
