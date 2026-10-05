@@ -96,6 +96,7 @@ the row lists both.
 | ashby                            | HTTP                        | requests                                                        | ✅                          |
 | asknicely                        | HTTP                        | requests                                                        | ✅                          |
 | assemblyai                       | HTTP                        | requests                                                        | ✅                          |
+| astronomer                       | HTTP                        | requests                                                        | ✅                          |
 | attentive                        | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | automox                          | HTTP                        | requests                                                        | ✅                          |
@@ -948,7 +949,6 @@ doesn't conflict with concurrent PRs.
 - appwrite
 - arxiv
 - asknicely
-- astronomer
 - athenahealth
 - atlan
 - audiogo
