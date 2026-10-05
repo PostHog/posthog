@@ -37,9 +37,9 @@ class ApprovalHandlingMixin:
             # 500 and cannot tell a refusal from a crash.
             return Response(
                 {
+                    "detail": str(exc),
                     "code": "approval_detection_failed",
                     "status": "approval_detection_failed",
-                    "detail": str(exc),
                     "message": str(exc),
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
