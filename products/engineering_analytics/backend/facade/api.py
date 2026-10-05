@@ -20,6 +20,8 @@ not in the query builders below it.
 
 from typing import TYPE_CHECKING
 
+import structlog
+
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend import logic
@@ -65,12 +67,15 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
+from products.engineering_analytics.backend.tasks.tasks import rebuild_stored_views
 
 if TYPE_CHECKING:
     from datetime import datetime
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+
+logger = structlog.get_logger(__name__)
 
 
 def _authorized_source(
@@ -91,6 +96,16 @@ def _authorized_source(
     return logic.CuratedGitHubSource.for_team(
         team, source_id=source_id, repo=repo, user_access_control=user_access_control, query_limit=query_limit
     )
+
+
+def mark_in_use(*, team_id: int) -> None:
+    """Record a request by a person or an agent, which keeps the stored CI views rebuilding."""
+    if not logic.mark_in_use(team_id):
+        return
+    try:
+        rebuild_stored_views.delay(team_id=team_id)
+    except Exception:
+        logger.warning("engineering_analytics_rebuild_dispatch_failed", team_id=team_id, exc_info=True)
 
 
 def get_ci_signals_config(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> CISignalsConfig:

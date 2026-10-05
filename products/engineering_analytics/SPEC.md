@@ -39,7 +39,7 @@ graph TB
 
     subgraph "Surface (thin)"
         Endpoints["named typed DRF endpoints<br/>@extend_schema → OpenAPI → MCP tools + UI client"]
-        WV["managed warehouse views<br/>job_costs / ci_job_history / ci_failures / pr_friction"]
+        WV["managed warehouse views<br/>job_costs / ci_job_history / ci_failures<br/>ci_runs / ci_jobs / pr_friction"]
     end
 
     subgraph "Curated read layer (domain rules defined ONCE)"
@@ -102,7 +102,10 @@ The endpoint catalog is `presentation/views.py`; the agent-facing descriptions l
 Per-team managed views (`DataWarehouseSavedQuery`, kind `engineering_analytics`) expose the curated CI substrate to insights, subscriptions, other products, and `execute-sql`: the only surface where the read layer is reachable as data rather than through the named endpoints.
 One gate for the three per-job views: a team gets them only when a GitHub source has **both** `workflow_runs` and `workflow_jobs` synced, so they appear together or not at all.
 They are non-materialized: the rendered SQL is persisted per team and re-synced on every runs/jobs load and every Depot job-attempts load, so a builder change reaches active teams within one sync cycle.
-The per-PR friction view is the exception, below: it also needs the `pull_requests` snapshot, and it is materialized.
+Three more views are materialized: the two stored CI views and the per-PR friction view.
+A materialized view spends the team's warehouse compute, so it exists only for organizations the `engineering-analytics-friction` flag targets.
+The flag is evaluated per organization, because the view sync runs with no user.
+When the flag service gives no answer, the sync keeps the views the team already has.
 
 #### `engineering_analytics_job_costs`
 
@@ -129,13 +132,25 @@ The per-PR friction view is the exception, below: it also needs the `pull_reques
 - `fingerprint` = test id plus normalized error signature (volatile hex/digits collapsed): the group key across runs.
 - The recipe lives in code, not a stored materialization, on purpose: it is pytest-only and must evolve by PR as more runners (jest, playwright, cargo) get covered.
 
+#### `engineering_analytics_ci_runs` and `engineering_analytics_ci_jobs`
+
+- The stored CI views: one row per workflow run, and one row per job attempt with its cost. Their rows are the output of the same builders every product read uses, so attribution, the merge-queue rule, the hand-off shell filter and the cost model apply once per rebuild.
+- They are materialized, so each has a table of parsed rows. A query on the raw tables parses every payload and repeats the shell filter each time.
+- A runs load rebuilds the runs view, a jobs load rebuilds the jobs view, and a Depot job-attempts load rebuilds both. Each view also joins the other raw tables, and takes those rows as of their last load. A load that lands while a rebuild runs waits for the rebuild that the next load starts.
+- A load starts a rebuild only while the product is in use: a person or an agent sent it an API request in the last hour. A rebuild costs the same whether or not anyone reads its table, so an idle product starts no rebuild. A system read, such as the signals sweep, sends no request and does not count. The first request after an idle hour starts a rebuild itself, because no load rebuilt the views in the meantime.
+- A view starts at most one rebuild in ten minutes, and a view that data_modeling suspended after repeated failures starts none. The managed-view schedule of data_modeling still rebuilds both views, in use or not.
+- They keep a rolling window, defined once in `logic/views/stored_view.py`: what a page range of 30 days needs, including the earlier CI a timeline reads and the previous period of a comparison. A rebuild reads only the rows inside the window, so its cost stays flat as the history grows.
+- `engineering_analytics_ci_runs` leaves out `stopped_reporting`. That column depends on the clock, and a stored row would keep the answer of its last rebuild. A reader derives it from `status` and `updated_at`.
+- `engineering_analytics_ci_jobs` holds every column of the cost builder: the columns of `engineering_analytics_job_costs`, the run's start time and branch, and the remaining columns of the jobs builder. One table then answers a read of job rows and a read of job costs. The public `engineering_analytics_job_costs` view does not read this table.
+- Each row carries its `source_id`, for the same reason as the friction view below, and its `repository` (`owner/name` in lower case). A job whose run row is missing has no repository columns of its own, so `repository` is how a read keeps it in the right repository.
+- A repository that two GitHub sources sync carries its Depot CI rows under each source. A read filters on one source, so they never count twice. Sum over the whole view only per `source_id`.
+
 #### `engineering_analytics_pr_friction`
 
 - One row per pull request merged in the last 30 days: what its author went through. Red stretches counted by what turned them green, re-runs that failed again, CI running time per push, the wait for the first approval, pushes after approval, merge-queue time and kickouts.
 - The red and running time is the PR timeline replay (§6) written as set-based HogQL, so one query covers every pull request in the window. `tests/test_pr_friction.py` replays seeded pull requests through both and asserts they agree, the way the cost view is held to the Python cost model.
 - It counts friction and does not score it. Curves and weights are applied when the view is read, so a weight change needs no rematerialization.
 - Materialized on the managed-view schedule, because the replay is too heavy to run on every read. Each run replaces the table, so it only holds the pull requests inside the window.
-- A materialized view spends the team's warehouse compute, so it exists only for organizations the `engineering-analytics-friction` flag targets. The flag is evaluated per organization, because the view sync runs with no user. When the flag service gives no answer, the sync keeps the view the team already has.
 - The view unions every GitHub source of the team, and each row carries its `source_id`. A product read filters on the one source the caller may use. A query on the materialized view itself checks access to the view, not to each source in it, like any materialized managed view.
 
 ## 6. Locked decisions

@@ -59,7 +59,7 @@ class GitHubSourceNotConnectedError(Exception):
 ENGINEERING_ANALYTICS_FEATURE_FLAG = "engineering-analytics"
 # Evaluated per organization, not per person: the view sync runs with no user, and a materialized view
 # spends the team's warehouse compute, so no team gets one without opting in.
-FRICTION_VIEW_FEATURE_FLAG = "engineering-analytics-friction"
+MATERIALIZED_VIEWS_FEATURE_FLAG = "engineering-analytics-friction"
 
 
 class CISignalsSyncStatus(StrEnum):

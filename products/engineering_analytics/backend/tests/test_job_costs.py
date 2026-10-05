@@ -1,13 +1,17 @@
 import json
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 import pandas as pd
+from parameterized import parameterized
 
+from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.query import execute_hogql_query
 
 from products.engineering_analytics.backend.logic.cost import (
@@ -18,7 +22,8 @@ from products.engineering_analytics.backend.logic.cost import (
     classify_runner,
     estimate_job_cost_usd,
 )
-from products.engineering_analytics.backend.logic.views import depot_ci, job_costs
+from products.engineering_analytics.backend.logic.sources import JobSourceTables
+from products.engineering_analytics.backend.logic.views import ci_jobs, ci_runs, depot_ci, job_costs
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
@@ -28,6 +33,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     repo_id,
     seeding_object_storage,
 )
+from products.engineering_analytics.backend.tests._logic_helpers import _ago
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.job_costs"
@@ -139,6 +145,12 @@ def _cost_query(jobs_table: str, runs_table: str) -> str:
     )
 
 
+class _JobOfRun(NamedTuple):
+    run_id: int
+    created: str
+    run_started: str
+
+
 class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
     # The drift guard for the single-source-of-truth contract: the view is rendered from the same
     # constants as logic.cost, so any change to one side that isn't matched on the other shows up
@@ -162,19 +174,81 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         self.addCleanup(cleanup)
         return table.name
 
-    def test_exposed_view_columns_match_the_field_contract(self) -> None:
+    def _source_with_runs_and_jobs(self, jobs: list[_JobOfRun]) -> JobSourceTables:
+        jobs_table = self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(index, ["depot-ubuntu-22.04-16"], job.created, job.created, "completed", run_id=job.run_id)
+                for index, job in enumerate(jobs)
+            ],
+        )
+        runs_table = self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(job.run_id, run_attempt=1, pr_number=1)
+                | {"created_at": job.run_started, "run_started_at": job.run_started, "updated_at": job.run_started}
+                for job in jobs
+            ],
+        )
+        return JobSourceTables(
+            github_workflow_jobs=jobs_table,
+            github_workflow_runs=runs_table,
+            source_id=str(uuid4()),
+            repository="posthog/posthog",
+        )
+
+    @parameterized.expand(
+        [
+            ("job_costs", job_costs.build_source_query, job_costs.FIELDS),
+            ("ci_jobs", ci_jobs.build_source_query, ci_jobs.FIELDS),
+            ("ci_runs", ci_runs.build_source_query, ci_runs.FIELDS),
+        ]
+    )
+    def test_exposed_view_columns_match_the_field_contract(
+        self, _name: str, build: Callable[[JobSourceTables], str], fields: dict[str, FieldOrTable]
+    ) -> None:
         # The view body projects its column list through four nested SELECTs. Appending to FIELDS but
         # missing a layer yields a query that still runs and silently drops the column from the
         # exposed view, so assert the two agree — the same guard ci_job_history has.
-        jobs_table = self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(0, *_MATRIX[0][1:])])
-        runs_table = self._create_table(
-            "github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [dict.fromkeys(WORKFLOW_RUNS_COLUMNS)]
+        source = self._source_with_runs_and_jobs([_JobOfRun(9000, created=_ago(1), run_started=_ago(1))])
+
+        response = execute_hogql_query(
+            query=f"SELECT * FROM ({build(source)})", team=self.team, query_type="engineering_analytics.test"
         )
-        query = _cost_query(jobs_table, runs_table)
-        columns = execute_hogql_query(
-            query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
-        ).columns
-        assert columns == list(job_costs.FIELDS)
+
+        assert response.columns == list(fields)
+
+    @parameterized.expand(
+        [
+            ("ci_jobs", ci_jobs.build_source_query, "run_id", [9000, 9002]),
+            ("ci_runs", ci_runs.build_source_query, "id", [9000]),
+        ]
+    )
+    def test_stored_view_keeps_its_window_and_names_the_source(
+        self, _name: str, build: Callable[[JobSourceTables], str], run_id_column: str, expected_run_ids: list[int]
+    ) -> None:
+        source = self._source_with_runs_and_jobs(
+            [
+                _JobOfRun(9000, created=_ago(1), run_started=_ago(1)),
+                _JobOfRun(9001, created=_ago(200), run_started=_ago(200)),
+                _JobOfRun(9002, created=_ago(60), run_started=_ago(90)),
+            ]
+        )
+
+        response = execute_hogql_query(
+            query=(
+                f"SELECT {run_id_column}, source_id, repository, pr_number FROM ({build(source)}) "
+                f"ORDER BY {run_id_column}"
+            ),
+            team=self.team,
+            query_type="engineering_analytics.test",
+        )
+
+        assert [tuple(row) for row in response.results] == [
+            (run_id, source.source_id, source.repository, 1) for run_id in expected_run_ids
+        ]
 
     def test_view_matches_python_cost_model(self) -> None:
         jobs_table = self._create_table(

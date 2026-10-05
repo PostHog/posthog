@@ -416,9 +416,9 @@ class CuratedGitHubSource:
         """
 
     def job_cost_source(self, *, created_floor: bool = False) -> str | None:
-        """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``
-        exposes, but with the endpoint-only run pass-through columns (``run_started_at`` /
-        ``run_head_branch``). None when the jobs table isn't synced, exactly like ``jobs_source``.
+        """Per-job cost ``SELECT`` subquery: the rows ``engineering_analytics_job_costs`` exposes, with
+        the pass-through columns the public view leaves out (``run_started_at`` and ``run_head_branch``
+        among them). None when the jobs table isn't synced, exactly like ``jobs_source``.
 
         This is the single cost-computation path: ``provider`` / ``os`` / ``vcpu`` / ``billable_seconds``
         / ``estimated_cost_usd`` are rendered from ``logic.cost`` in ClickHouse, so every endpoint cost
@@ -436,7 +436,6 @@ class CuratedGitHubSource:
         query = job_costs.build_query(
             jobs_table=self._jobs_table(self._tables.workflow_jobs),
             runs_table=self._runs_table(),
-            include_run_columns=True,
             created_floor=created_floor,
         )
         return f"({query})"

@@ -11,6 +11,7 @@ from posthog.scoping_audit import skip_team_scope_audit
 
 from products.engineering_analytics.backend.logic.census import collect_repo_census, emit_census_events
 from products.engineering_analytics.backend.logic.sources import list_github_sources
+from products.engineering_analytics.backend.logic.stored_views import rebuild_all
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
@@ -51,3 +52,9 @@ def emit_team_test_census(team_id: int) -> None:
             continue
         rows = collect_repo_census(source.repo, token)
         emit_census_events(team, source.repo, rows)
+
+
+@shared_task(ignore_result=True)
+@with_team_scope()
+def rebuild_stored_views(team_id: int) -> None:
+    rebuild_all(team_id)

@@ -14,6 +14,7 @@ from products.engineering_analytics.backend.logic.ci_signals_config import (
     CI_SIGNAL_SOURCE_TYPES,
 )
 from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT
+from products.engineering_analytics.backend.logic.stored_views import is_in_use
 from products.engineering_analytics.backend.presentation.views import EngineeringAnalyticsViewSet
 from products.engineering_analytics.backend.tests._github_fixtures import (
     connect_github_source_without_data,
@@ -261,6 +262,17 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert body[0] == {"id": sources[0].id, "repo": "PostHog/posthog", "prefix": "older", "synced": True}
         # synced defaults to False when the repo isn't fully synced yet.
         assert body[1]["synced"] is False
+
+    def test_only_the_first_request_after_an_idle_period_asks_for_a_rebuild(self) -> None:
+        with (
+            mock.patch(f"{_VIEWS}.list_github_sources", return_value=[]),
+            mock.patch(f"{_VIEWS}.rebuild_stored_views") as rebuild,
+        ):
+            self.client.get(self._url("sources"))
+            self.client.get(self._url("sources"))
+
+        assert is_in_use(self.team.pk)
+        rebuild.delay.assert_called_once_with(team_id=self.team.pk)
 
     def test_ci_signals_config_updates_the_detector_bundle(self) -> None:
         source = create_github_source(self.team)
