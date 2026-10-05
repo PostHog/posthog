@@ -728,6 +728,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.name, "dashboard new name")
 
+    def test_update_dashboard_last_refresh(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
+        last_refresh = now().replace(microsecond=0)
+
+        self.dashboard_api.update_dashboard(dashboard.pk, {"last_refresh": last_refresh.isoformat()})
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.last_refresh, last_refresh)
+
     def test_dashboard_tile_spacing_is_saved_and_duplicated(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 

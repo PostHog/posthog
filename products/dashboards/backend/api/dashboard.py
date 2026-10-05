@@ -1390,7 +1390,6 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
             "is_shared",
             "user_access_level",
             "last_accessed_at",
-            "last_refresh",
         ]
 
     def validate_restriction_level(self, value: int) -> int:
@@ -1653,7 +1652,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
             "is_shared",
             "user_access_level",
             "last_accessed_at",
-            "last_refresh",
         ]
 
     def validate_variables(self, value) -> dict:

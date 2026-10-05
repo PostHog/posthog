@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Literal
 
 from django.db import transaction
 
@@ -7,10 +7,7 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
 
-from products.access_control.backend.facade.user_access_control import (
-    AccessControlLevel,
-    access_level_satisfied_for_resource,
-)
+from products.access_control.backend.facade.user_access_control import ordered_access_levels
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 
@@ -20,7 +17,7 @@ logger = structlog.get_logger(__name__)
 def _ensure_dashboard_access_control(
     dashboard: Dashboard,
     organization_member: OrganizationMembership | None,
-    access_level: AccessControlLevel,
+    access_level: Literal["viewer", "editor"],
 ) -> None:
     access_control = AccessControl.objects.filter(
         team_id=dashboard.team_id,
@@ -39,22 +36,17 @@ def _ensure_dashboard_access_control(
         )
         return
 
-    try:
-        has_required_access = access_level_satisfied_for_resource(
-            "dashboard", cast(AccessControlLevel, access_control.access_level), access_level
-        )
-    except ValueError:
-        logger.warning(
-            "Replacing invalid dashboard access level during migration",
-            access_control_id=access_control.id,
-            invalid_access_level=access_control.access_level,
-            replacement_access_level=access_level,
-        )
-        has_required_access = False
+    if access_control.access_level in ordered_access_levels("dashboard"):
+        return
 
-    if not has_required_access:
-        access_control.access_level = access_level
-        access_control.save(update_fields=["access_level"])
+    logger.warning(
+        "Replacing invalid dashboard access level during migration",
+        access_control_id=access_control.id,
+        invalid_access_level=access_control.access_level,
+        replacement_access_level=access_level,
+    )
+    access_control.access_level = access_level
+    access_control.save(update_fields=["access_level"])
 
 
 def rbac_dashboard_access_control_migration(organization_id: int) -> None:

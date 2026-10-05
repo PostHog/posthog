@@ -473,7 +473,7 @@ export interface DashboardWriteOpenApiApi {
     readonly user_access_level: string | null
     readonly access_control_version: string
     /** @nullable */
-    readonly last_refresh: string | null
+    last_refresh?: string | null
     /** @nullable */
     readonly persisted_filters: DashboardWriteOpenApiApiPersistedFilters
     /** @nullable */
@@ -597,7 +597,7 @@ export interface DashboardApi {
     readonly user_access_level: string | null
     readonly access_control_version: string
     /** @nullable */
-    readonly last_refresh: string | null
+    last_refresh?: string | null
     /** @nullable */
     readonly persisted_filters: DashboardApiPersistedFilters
     /** @nullable */

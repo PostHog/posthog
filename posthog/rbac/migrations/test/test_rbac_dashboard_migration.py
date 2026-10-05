@@ -238,6 +238,41 @@ class TestRBACDashboardMigration(BaseTest):
 
         self.assertEqual(AccessControl.objects.filter(resource="dashboard", resource_id=str(dashboard.id)).count(), 3)
 
+    def test_migration_preserves_existing_access_control_denials_and_viewers(self):
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Dashboard with existing restrictions",
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+        default_access = AccessControl.objects.create(
+            team_id=self.team.id,
+            access_level="none",
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+        )
+        member_access = AccessControl.objects.create(
+            team_id=self.team.id,
+            access_level="viewer",
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            organization_member=self.user2_membership,
+        )
+        DashboardPrivilege.objects.create(
+            dashboard=dashboard,
+            user=self.user2,
+            level=Dashboard.PrivilegeLevel.CAN_EDIT,
+        )
+
+        rbac_dashboard_access_control_migration(self.organization.id)
+
+        dashboard.refresh_from_db()
+        default_access.refresh_from_db()
+        member_access.refresh_from_db()
+        self.assertEqual(dashboard.restriction_level, Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertEqual(default_access.access_level, "none")
+        self.assertEqual(member_access.access_level, "viewer")
+        self.assertFalse(DashboardPrivilege.objects.filter(dashboard=dashboard).exists())
+
     def test_migration_handles_multiple_teams_in_organization(self):
         """Test that migration works correctly with multiple teams in the organization"""
         # Create another team in the same organization
