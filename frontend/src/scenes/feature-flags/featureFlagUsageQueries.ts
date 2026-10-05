@@ -196,7 +196,10 @@ const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
 // editor rejects that key, but the API accepts it.
 const FLAG_EVALUATIONS_VARIANT = `if(response IN ('', 'null'), ${escapeHogQLString(BREAKDOWN_NULL_DISPLAY)}, response)`
 
-/** How long a row stays in flag_evaluations. The events table keeps $feature_flag_called forever. */
+/**
+ * How long a row stays in flag_evaluations. The events table keeps $feature_flag_called forever.
+ * Keep it equal to FLAG_EVALUATIONS_TTL_DAYS in posthog/models/flag_evaluations/sql.py.
+ */
 export const FLAG_EVALUATIONS_RETENTION_DAYS = 90
 
 const EVENTS_MODE = FlagEvaluationsModeEnumApi.Number0
