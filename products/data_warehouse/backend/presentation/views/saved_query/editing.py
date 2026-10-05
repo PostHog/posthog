@@ -13,7 +13,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import exceptions, serializers
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, is_reserved_models_name
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
@@ -714,6 +714,14 @@ class DataWarehouseSavedQuerySerializer(
         if self.instance is not None and isinstance(self.instance, DataWarehouseSavedQuery):
             if self.instance.name == name:
                 return name
+            # The model's save() also rejects this name, but a Django ValidationError from save() becomes a 500.
+            if is_reserved_models_name(name) and self.instance.origin in {
+                DataWarehouseSavedQuery.Origin.ENDPOINT,
+                DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET,
+            }:
+                raise serializers.ValidationError(
+                    "The models namespace is reserved for data models. Choose a different name."
+                )
 
         # has_table covers system/posthog tables and warehouse objects the requesting user can see; it's
         # user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
