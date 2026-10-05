@@ -2942,6 +2942,146 @@ class TestWebStatsTableNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
         runner = self._make_runner()
         assert not runner.query_strategy().startswith("stats_table_no_join")
 
+    def _create_channel_sessions(self):
+        with time_machine.travel("2025-01-01T09:00:00Z", tick=False):
+            _create_person(team_id=self.team.pk, distinct_ids=["organic"])
+            _create_person(team_id=self.team.pk, distinct_ids=["paid"])
+            _create_person(team_id=self.team.pk, distinct_ids=["direct"])
+        for distinct_id, session_day, entry_props, timestamps in [
+            ("organic", "2025-01-03", {"$referring_domain": "www.google.com"}, ["2025-01-03T10:00:00Z"]),
+            (
+                "organic",
+                "2025-01-10",
+                {"$referring_domain": "www.google.com"},
+                ["2025-01-10T10:00:00Z", "2025-01-10T10:05:00Z"],
+            ),
+            ("paid", "2025-01-11", {"utm_source": "google", "utm_medium": "cpc"}, ["2025-01-11T09:00:00Z"]),
+            (
+                "direct",
+                "2025-01-12",
+                {"$referring_domain": "$direct"},
+                ["2025-01-12T12:00:00Z", "2025-01-12T12:01:00Z"],
+            ),
+            # Starts before the queried range, with a pageview inside it.
+            (
+                "paid",
+                "2025-01-07T23:50:00Z",
+                {"utm_source": "google", "utm_medium": "cpc"},
+                ["2025-01-07T23:50:00Z", "2025-01-08T00:10:00Z"],
+            ),
+        ]:
+            session_id = str(uuid7(session_day))
+            for index, ts in enumerate(timestamps):
+                pathname = "/" if index == 0 else "/pricing"
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id=distinct_id,
+                    timestamp=ts,
+                    properties={
+                        "$session_id": session_id,
+                        "$pathname": pathname,
+                        "$current_url": f"https://example.com{pathname}",
+                        **(entry_props if index == 0 else {}),
+                    },
+                )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="direct",
+            timestamp="2025-01-12T13:00:00Z",
+            properties={"$pathname": "/"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="paid",
+            timestamp="2025-01-11T09:30:00Z",
+            properties={"$session_id": "legacy-session", "$pathname": "/"},
+        )
+        flush_persons_and_events()
+
+    @parameterized.expand(
+        [
+            ("no_filters", [], False),
+            ("compare", [], True),
+            ("event_filter", [EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/")], True),
+        ]
+    )
+    def test_channel_type_two_phase_matches_join_path(self, _name, properties, compare):
+        self._create_channel_sessions()
+
+        def results(allowlisted: bool, expected_strategy: str) -> list:
+            with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk] if allowlisted else []):
+                runner = self._make_runner(
+                    breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                    includeBounceRate=False,
+                    properties=properties,
+                    compareFilter=CompareFilter(compare=compare),
+                )
+                assert runner.query_strategy() == expected_strategy
+                return sorted(runner.calculate().results, key=str)
+
+        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
+            two_phase = results(True, "stats_table_channel_type_two_phase")
+            join = results(False, "stats_table_channel_type")
+
+        assert two_phase == join
+        assert len(join) >= 2
+
+    @parameterized.expand(
+        [
+            ("visitors_and_views", {}, True, "stats_table_channel_type_two_phase"),
+            ("bounce_rate", {"includeBounceRate": True}, True, "stats_table_channel_type"),
+            ("traffic_metrics", {"includeTrafficMetrics": True}, True, "stats_table_channel_type"),
+            (
+                "conversion_goal",
+                {"conversionGoal": CustomEventConversionGoal(customEventName="purchase")},
+                True,
+                "stats_table_channel_type",
+            ),
+            (
+                "session_property_filter",
+                {
+                    "properties": [
+                        SessionPropertyFilter(key="$channel_type", value="Direct", operator=PropertyOperator.EXACT)
+                    ]
+                },
+                True,
+                "stats_table_channel_type",
+            ),
+            ("team_not_in_rollout", {}, False, "stats_table_channel_type"),
+            (
+                "thirty_days_with_compare",
+                {
+                    "dateRange": DateRange(date_from="2024-12-30", date_to="2025-01-29"),
+                    "compareFilter": CompareFilter(compare=True),
+                },
+                True,
+                "stats_table_channel_type_two_phase",
+            ),
+            (
+                "ninety_days",
+                {"dateRange": DateRange(date_from="2024-10-31", date_to="2025-01-29")},
+                True,
+                "stats_table_channel_type",
+            ),
+        ]
+    )
+    def test_channel_type_two_phase_selection(self, _name, query_kwargs, allowlisted, expected_strategy):
+        with override_settings(WEB_ANALYTICS_NO_JOIN_TEAM_IDS=[self.team.pk] if allowlisted else []):
+            runner = WebStatsTableQueryRunner(
+                team=self.team,
+                query=WebStatsTableQuery(
+                    dateRange=query_kwargs.pop("dateRange", DateRange(date_from="2025-01-08", date_to="2025-01-15")),
+                    breakdownBy=WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
+                    includeBounceRate=query_kwargs.pop("includeBounceRate", False),
+                    properties=query_kwargs.pop("properties", []),
+                    **query_kwargs,
+                ),
+            )
+            assert runner.query_strategy() == expected_strategy
+
     @parameterized.expand(
         [
             ("device_type", WebStatsBreakdown.DEVICE_TYPE, [], True),
