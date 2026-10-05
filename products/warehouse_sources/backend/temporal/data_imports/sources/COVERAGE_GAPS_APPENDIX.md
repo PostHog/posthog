@@ -4202,16 +4202,16 @@ Note: docs.huntr.co is a single-page Slate reference; parsed every https://api.h
 
 ## Hyperspell — gaps
 
-Today (7): `connections`, `context_documents`, `entities`, `integrations`, `memories`, `queries`, `vaults`
+Today (9): `connections`, `context_documents`, `entities`, `integration_channels`, `integrations`, `memories`, `queries`, `users`, `vaults`
 
 Diffed against: <https://docs.hyperspell.com/llms.txt>
 
-- [ ] `GET /users` — user roster - lookup resolving the user IDs on memories, connections and queries we already sync (high)
+- [x] `GET /users` — user roster - lookup resolving the user IDs on memories, connections and queries we already sync (high). Added as `users`.
 - [ ] `GET /entities/{entity_id}/sources` — join table linking entities we sync back to the source documents they were extracted from (medium)
 - [ ] `GET /connections/{connection_id}/folders` — the folder inventory per connection, needed to see what scope each connection actually indexes (medium)
-- [ ] `GET /context-documents/conflicts` — detected conflicts across context documents - the quality signal for the docs we already sync (medium)
-- [ ] `GET /context-documents/reviews` — document review records and their suggestions, the human-in-the-loop audit trail (medium)
-- [ ] `GET /integrations/{integration_id}/channels` — lookup of available channels per integration, resolving channel IDs on memories (medium)
+- [ ] `GET /context-documents/conflicts` — detected conflicts across context documents - the quality signal for the docs we already sync (medium). Skipped: not in the public OpenAPI spec (v0.32.1) or the API reference.
+- [ ] `GET /context-documents/reviews` — document review records and their suggestions, the human-in-the-loop audit trail (medium). Skipped: not in the public OpenAPI spec (v0.32.1) or the API reference.
+- [x] `GET /integrations/{integration_id}/channels` — lookup of available channels per integration, resolving channel IDs on memories (medium). Added as `integration_channels` (fan-out over each user's connections whose integration supports channel selection).
 - [ ] `GET /context-documents/tree/{tree_id}/edits` — persisted user edits per document tree - edit history over synced context documents (low)
 - [ ] `GET /emotional-state/recent` — time series of stored emotional-state observations (low)
 - [ ] `GET /memories/status` — indexing progress per memory, useful for freshness/completeness checks (low)
@@ -4334,10 +4334,10 @@ Today (9): `alert_configs`, `alerting_channels`, `applications`, `endpoints`, `e
 
 Diffed against: <https://instana.github.io/openapi/openapi.json>
 
-- [ ] `/api/events/settings/event-specifications/built-in and /custom` — lookup resolving the eventSpecificationId carried on every row of the already-synced `events` table - without it events cannot be named or grouped (high)
-- [ ] `/api/releases (+ /api/releases/{releaseId})` — release markers used to correlate deploys with events and metric regressions; the standard overlay on every Instana chart (high)
-- [ ] `/api/settings/slo and /api/slo/report/{sloId}` — SLO definitions plus attainment/error-budget reports - the headline reliability metric, entirely absent today (high)
-- [ ] `/api/synthetics/settings/tests/ci-cd and /api/synthetics/results/{testid}/{testresultid}` — actual synthetic test results; `synthetic\_tests` today is only the test configuration, so there is no pass/fail or latency data (high)
+- [x] `/api/events/settings/event-specifications/built-in and /custom` — lookup resolving the eventSpecificationId carried on every row of the already-synced `events` table - without it events cannot be named or grouped (high). Added as `built_in_event_specifications` and `custom_event_specifications`.
+- [x] `/api/releases (+ /api/releases/{releaseId})` — release markers used to correlate deploys with events and metric regressions; the standard overlay on every Instana chart (high). Added as `releases`. `/api/releases/{releaseId}` skipped: it returns the same object as the list row.
+- [x] `/api/settings/slo and /api/slo/report/{sloId}` — SLO definitions plus attainment/error-budget reports - the headline reliability metric, entirely absent today (high). Added as `slo_configs` and `slo_reports` (fan-out over `slo_configs`).
+- [x] `/api/synthetics/settings/tests/ci-cd and /api/synthetics/results/{testid}/{testresultid}` — actual synthetic test results; `synthetic\_tests` today is only the test configuration, so there is no pass/fail or latency data (high). Added as `synthetic_test_ci_cds` (on-demand and CI/CD runs with their completion state). `/api/synthetics/results/{testid}/{testresultid}` skipped: it returns only playback file names, not results. Pass/fail and latency live behind the POST `/api/synthetics/results/list` query API.
 - [ ] `/api/synthetics/settings/locations and /api/synthetics/settings/datacenters` — lookup resolving the location IDs on synthetic tests and results - required to break results down by PoP (high)
 - [ ] `POST /api/application-monitoring/metrics/{applications,services,endpoints}` — the golden-signal time series (calls, errors, latency percentiles) for the applications/services/endpoints already synced as catalogs only (high)
 - [ ] `/api/settings/apdex and /api/apdex/report/{apdexId}` — Apdex configs and scores, the per-service user-satisfaction metric (medium)
