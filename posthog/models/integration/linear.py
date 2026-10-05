@@ -7,6 +7,7 @@ import structlog
 from rest_framework.exceptions import ValidationError
 
 from . import common, model
+from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed
 
 logger = structlog.get_logger(__name__)
 
@@ -28,20 +29,27 @@ class LinearIntegration:
         teams = common.dot_get(body, "data.teams.nodes")
         return teams
 
-    def list_team_members(self, team_id: str) -> list[dict]:
+    def list_assignees(self, team_id: str, search: str = "") -> list[Assignee]:
+        """Active members of the team, filtered by name when ``search`` is set."""
+        search = search.strip()
+        user_filter = (
+            {"or": [{"name": {"containsIgnoreCase": search}}, {"displayName": {"containsIgnoreCase": search}}]}
+            if search
+            else None
+        )
         body = self.query(
             """
-            query TeamMembers($teamId: String!) {
-                team(id: $teamId) { members(first: 100) { nodes { id name displayName active } } }
+            query TeamMembers($teamId: String!, $first: Int!, $filter: UserFilter) {
+                team(id: $teamId) { members(first: $first, filter: $filter) { nodes { id name displayName active } } }
             }
             """,
-            variables={"teamId": team_id},
+            variables={"teamId": team_id, "first": MAX_ASSIGNEES, "filter": user_filter},
         )
         if body.get("errors"):
-            raise ValidationError("Failed to list the Linear team members")
+            raise AssigneeLookupFailed("Failed to list the Linear team members")
         members = common.dot_get(body, "data.team.members.nodes") or []
         return [
-            {"id": member["id"], "name": member.get("displayName") or member["name"]}
+            Assignee(id=member["id"], name=member.get("displayName") or member["name"])
             for member in members
             if member.get("active", True)
         ]

@@ -15,6 +15,7 @@ from .anthropic import (
     AnthropicIntegration,
     AnthropicIntegrationError,
 )
+from .assignees import Assignee, AssigneeLookupFailed, ReconnectRequired
 from .aws import (
     AWSCredentialsIntegration,
     AWSRedshiftIntegration,
@@ -55,7 +56,7 @@ from .google_cloud import (
     GoogleCloudServiceAccountIntegration,
     is_unique_service_account_by_organization_id,
 )
-from .jira import JiraIntegration, JiraReconnectRequired
+from .jira import JiraIntegration
 from .linear import LinearIntegration
 from .linkedin_ads import LinkedInAdsIntegration
 from .meta import InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
@@ -209,7 +210,6 @@ __all__ = [
     "external_issue_url",
     "is_supported_external_issue_provider",
     "JiraIntegration",
-    "JiraReconnectRequired",
     "GITHUB_DEFAULT_BRANCH_CACHE_TTL_SECONDS",
     "GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS",
     "GitHubUserAuthorization",
@@ -220,6 +220,9 @@ __all__ = [
     "GitHubIntegration",
     "GitHubIntegrationError",
     "GitLabIntegrationError",
+    "Assignee",
+    "AssigneeLookupFailed",
+    "ReconnectRequired",
     "GitLabIntegration",
     "MetaGraphIntegration",
     "MetaAdsIntegration",

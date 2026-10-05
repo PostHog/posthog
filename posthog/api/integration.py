@@ -2,7 +2,7 @@ import os
 import re
 import json
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, NoReturn, Protocol, cast
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -70,6 +70,8 @@ from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
+    Assignee,
+    AssigneeLookupFailed,
     AWSRedshiftIntegration,
     AWSRedshiftRoleBasedIntegration,
     AWSS3Integration,
@@ -84,18 +86,17 @@ from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
     GitLabIntegration,
-    GitLabIntegrationError,
     GoogleAdsIntegration,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
     IntegrationError,
     JiraIntegration,
-    JiraReconnectRequired,
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
+    ReconnectRequired,
     RedshiftIntegration,
     S3CompatibleIntegration,
     SlackIntegration,
@@ -423,26 +424,46 @@ class IntegrationAssigneeSerializer(serializers.Serializer):
 class IntegrationAssigneesResponseSerializer(serializers.Serializer):
     users = IntegrationAssigneeSerializer(many=True, help_text="Users who can be assigned an issue, up to 100.")
     reconnect_required = serializers.BooleanField(
-        required=False,
         help_text=(
-            "True when the connection lacks the permission to list users. "
-            "Reconnecting the integration grants it. Only Jira sets this."
+            "True when the connection lacks the permission to list users. Reconnecting the integration grants it."
         ),
     )
 
 
-class LinearTeamMembersQuerySerializer(serializers.Serializer):
+class IntegrationAssigneesQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive name search. Leave blank to list the first users.",
+    )
+
+
+class LinearTeamMembersQuerySerializer(IntegrationAssigneesQuerySerializer):
     team_id = serializers.CharField(help_text="Linear team ID whose members to list.")
 
 
-class GitHubAssigneesQuerySerializer(serializers.Serializer):
+class GitHubAssigneesQuerySerializer(IntegrationAssigneesQuerySerializer):
     repository = serializers.CharField(
         help_text="Repository name, or owner/name, whose assignable users to list.",
     )
 
 
-class JiraAssignableUsersQuerySerializer(serializers.Serializer):
+class JiraAssignableUsersQuerySerializer(IntegrationAssigneesQuerySerializer):
     project_key = serializers.CharField(help_text="Jira project key whose assignable users to list.")
+
+
+def assignees_response(lookup: Callable[[], list[Assignee]]) -> Response:
+    """Shape an assignee lookup as an `IntegrationAssigneesResponseSerializer` body."""
+    try:
+        assignees = lookup()
+    except ReconnectRequired:
+        return Response({"users": [], "reconnect_required": True})
+    except AssigneeLookupFailed as error:
+        raise ValidationError(str(error))
+    return Response(
+        {"users": [{"id": assignee.id, "name": assignee.name} for assignee in assignees], "reconnect_required": False}
+    )
 
 
 class GitHubTeamSerializer(serializers.Serializer):
@@ -2107,8 +2128,8 @@ class IntegrationViewSet(
         if instance.kind != "linear":
             raise ValidationError("linear_team_members endpoint is only supported for Linear integrations")
         _ensure_oauth_token_valid(instance)
-        linear = LinearIntegration(instance)
-        return Response({"users": linear.list_team_members(query_serializer.validated_data["team_id"])})
+        query = query_serializer.validated_data
+        return assignees_response(lambda: LinearIntegration(instance).list_assignees(query["team_id"], query["search"]))
 
     @extend_schema(operation_id="integrations_anthropic_managed_agents_retrieve")
     @action(methods=["GET"], detail=True, url_path="anthropic_managed_agents")
@@ -2245,11 +2266,10 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "github":
             raise ValidationError("github_assignees endpoint is only supported for GitHub integrations")
-        try:
-            users = GitHubIntegration(instance).list_assignees(query_serializer.validated_data["repository"])
-        except GitHubIntegrationError:
-            raise ValidationError("Could not list the repository's assignable users.")
-        return Response({"users": users})
+        query = query_serializer.validated_data
+        return assignees_response(
+            lambda: GitHubIntegration(instance).list_assignees(query["repository"], query["search"])
+        )
 
     @extend_schema(request=GitHubPrepareCallbackRequestSerializer, responses={204: None})
     @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
@@ -2513,24 +2533,24 @@ class IntegrationViewSet(
         if instance.kind != "jira":
             raise ValidationError("jira_assignable_users endpoint is only supported for Jira integrations")
         _ensure_oauth_token_valid(instance)
-        jira = JiraIntegration(instance)
-        try:
-            users = jira.list_assignable_users(query_serializer.validated_data["project_key"])
-        except JiraReconnectRequired:
-            return Response({"users": [], "reconnect_required": True})
-        return Response({"users": users, "reconnect_required": False})
+        query = query_serializer.validated_data
+        return assignees_response(
+            lambda: JiraIntegration(instance).list_assignees(query["project_key"], query["search"])
+        )
 
-    @extend_schema(responses={200: IntegrationAssigneesResponseSerializer})
+    @extend_schema(
+        parameters=[IntegrationAssigneesQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer}
+    )
     @action(methods=["GET"], detail=True, url_path="gitlab_members")
     def gitlab_members(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = IntegrationAssigneesQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
         instance = self.get_object()
         if instance.kind != "gitlab":
             raise ValidationError("gitlab_members endpoint is only supported for GitLab integrations")
-        try:
-            users = GitLabIntegration(instance).list_members()
-        except GitLabIntegrationError:
-            raise ValidationError("Could not list the GitLab project's members.")
-        return Response({"users": users})
+        search = query_serializer.validated_data["search"]
+        return assignees_response(lambda: GitLabIntegration(instance).list_assignees(search))
 
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):

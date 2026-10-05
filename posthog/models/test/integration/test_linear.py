@@ -6,7 +6,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.integration import Integration, LinearIntegration
+from posthog.models.integration import Assignee, AssigneeLookupFailed, Integration, LinearIntegration
 
 
 class TestLinearIntegrationModel(BaseTest):
@@ -136,7 +136,17 @@ class TestLinearIntegrationModel(BaseTest):
 
         assert mock_query.call_args_list[0].kwargs["variables"]["assigneeId"] == "user-id"
 
-    def test_list_team_members_skips_deactivated_users(self):
+    @parameterized.expand(
+        [
+            ("blank_search_lists_members", "  ", None),
+            (
+                "search_filters_by_name",
+                "ada",
+                {"or": [{"name": {"containsIgnoreCase": "ada"}}, {"displayName": {"containsIgnoreCase": "ada"}}]},
+            ),
+        ]
+    )
+    def test_list_assignees_skips_deactivated_users(self, _name, search, expected_filter):
         linear = LinearIntegration(self.create_integration())
         body = {
             "data": {
@@ -151,13 +161,17 @@ class TestLinearIntegrationModel(BaseTest):
             }
         }
         with patch.object(linear, "query", return_value=body) as mock_query:
-            members = linear.list_team_members("team-id")
+            members = linear.list_assignees("team-id", search)
 
-        assert members == [{"id": "u1", "name": "ada"}]
-        assert mock_query.call_args.kwargs["variables"] == {"teamId": "team-id"}
+        assert members == [Assignee(id="u1", name="ada")]
+        assert mock_query.call_args.kwargs["variables"] == {
+            "teamId": "team-id",
+            "first": 100,
+            "filter": expected_filter,
+        }
 
-    def test_list_team_members_raises_on_graphql_errors(self):
+    def test_list_assignees_raises_on_graphql_errors(self):
         linear = LinearIntegration(self.create_integration())
         with patch.object(linear, "query", return_value={"errors": [{"message": "forbidden"}]}):
-            with self.assertRaises(ValidationError):
-                linear.list_team_members("team-id")
+            with self.assertRaises(AssigneeLookupFailed):
+                linear.list_assignees("team-id")

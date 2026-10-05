@@ -32,7 +32,9 @@ export function ExternalIssueAssigneeField({
     const scopeField = SCOPE_FIELDS[kind]
     const scope: string | null = scopeField ? (formValues[scopeField.field]?.[0] ?? null) : null
 
-    const { assignees, assigneesLoading } = useValues(externalIssueAssigneesLogic({ integrationId, kind, scope }))
+    const assigneesLogic = externalIssueAssigneesLogic({ integrationId, kind, scope })
+    const { assignees, assigneesLoading, knownUserNames } = useValues(assigneesLogic)
+    const { setSearch } = useActions(assigneesLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const restrictedReason = useIntegrationManagementRestriction()
 
@@ -42,6 +44,11 @@ export function ExternalIssueAssigneeField({
     }, [formLogic, scope])
 
     const reconnectRequired = !!assignees?.reconnect_required
+    const selectedId: string | undefined = formValues.assignees?.[0]
+    const options = (assignees?.users ?? []).map((user) => ({ key: user.id, label: user.name }))
+    if (selectedId && !options.some((option) => option.key === selectedId) && knownUserNames[selectedId]) {
+        options.unshift({ key: selectedId, label: knownUserNames[selectedId] })
+    }
     const placeholder =
         scopeField && !scope
             ? scopeField.placeholder
@@ -80,7 +87,9 @@ export function ExternalIssueAssigneeField({
                 mode="single"
                 data-attr="external-issue-assignee"
                 placeholder={placeholder}
-                options={(assignees?.users ?? []).map((user) => ({ key: user.id, label: user.name }))}
+                options={options}
+                onInputChange={setSearch}
+                disableFiltering
                 loading={assigneesLoading}
                 disabled={(!!scopeField && !scope) || reconnectRequired}
             />

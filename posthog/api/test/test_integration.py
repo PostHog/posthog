@@ -54,13 +54,15 @@ from posthog.models.integration import (
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     SLACK_INTEGRATION_KINDS,
     STRIPE_POSTHOG_SECRET_NAMES,
+    Assignee,
+    AssigneeLookupFailed,
     EmailIntegration,
     GitHubInstallationAccess,
     GitHubIntegration,
     GitHubIntegrationError,
     GitHubUserAuthorization,
     Integration,
-    JiraReconnectRequired,
+    ReconnectRequired,
     SlackIntegration,
     StripeIntegration,
     github_account_type,
@@ -2064,10 +2066,25 @@ class TestIntegrationAPIKeyAccess:
     @pytest.mark.parametrize(
         "kind,url_suffix,list_method,expected_call",
         [
-            ("linear", "linear_team_members/?team_id=team-id", "LinearIntegration.list_team_members", ("team-id",)),
-            ("github", "github_assignees/?repository=repo", "GitHubIntegration.list_assignees", ("repo",)),
-            ("gitlab", "gitlab_members/", "GitLabIntegration.list_members", ()),
-            ("jira", "jira_assignable_users/?project_key=ENG", "JiraIntegration.list_assignable_users", ("ENG",)),
+            (
+                "linear",
+                "linear_team_members/?team_id=team-id&search=ad",
+                "LinearIntegration.list_assignees",
+                ("team-id", "ad"),
+            ),
+            (
+                "github",
+                "github_assignees/?repository=repo&search=ad",
+                "GitHubIntegration.list_assignees",
+                ("repo", "ad"),
+            ),
+            ("gitlab", "gitlab_members/?search=ad", "GitLabIntegration.list_assignees", ("ad",)),
+            (
+                "jira",
+                "jira_assignable_users/?project_key=ENG&search=ad",
+                "JiraIntegration.list_assignees",
+                ("ENG", "ad"),
+            ),
         ],
     )
     @patch("posthog.api.integration._ensure_oauth_token_valid")
@@ -2083,20 +2100,26 @@ class TestIntegrationAPIKeyAccess:
             scopes=["integration:read"],
         )
 
-        with patch(f"posthog.api.integration.{list_method}", return_value=[{"id": "u1", "name": "Ada"}]) as mock_list:
+        with patch(f"posthog.api.integration.{list_method}", return_value=[Assignee(id="u1", name="Ada")]) as mock_list:
             response = client.get(
                 f"/api/environments/{self.team.pk}/integrations/{integration.id}/{url_suffix}",
                 HTTP_AUTHORIZATION=f"Bearer {key_value}",
             )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["users"] == [{"id": "u1", "name": "Ada"}]
+        assert response.json() == {"users": [{"id": "u1", "name": "Ada"}], "reconnect_required": False}
         mock_list.assert_called_once_with(*expected_call)
 
+    @pytest.mark.parametrize(
+        "side_effect,expected_status,expected_body",
+        [
+            (ReconnectRequired(), status.HTTP_200_OK, {"users": [], "reconnect_required": True}),
+            (AssigneeLookupFailed("Could not list users"), status.HTTP_400_BAD_REQUEST, None),
+        ],
+    )
     @patch("posthog.api.integration._ensure_oauth_token_valid")
-    @patch("posthog.api.integration.JiraIntegration.list_assignable_users", side_effect=JiraReconnectRequired)
-    def test_jira_assignable_users_reports_reconnect_required(
-        self, _mock_list, _mock_ensure_token_valid, client: HttpClient
+    def test_assignee_lookup_failures(
+        self, _mock_ensure_token_valid, side_effect, expected_status, expected_body, client: HttpClient
     ):
         integration = Integration.objects.create(team=self.team, kind="jira", config={}, sensitive_config={})
         key_value = "test_key_jira_reconnect"
@@ -2107,13 +2130,15 @@ class TestIntegrationAPIKeyAccess:
             scopes=["integration:read"],
         )
 
-        response = client.get(
-            f"/api/environments/{self.team.pk}/integrations/{integration.id}/jira_assignable_users/?project_key=ENG",
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
-        )
+        with patch("posthog.api.integration.JiraIntegration.list_assignees", side_effect=side_effect):
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{integration.id}/jira_assignable_users/?project_key=ENG",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"users": [], "reconnect_required": True}
+        assert response.status_code == expected_status
+        if expected_body is not None:
+            assert response.json() == expected_body
 
     @patch("posthog.models.integration.github.GitHubIntegration.sync_repository_cache")
     def test_refresh_github_repos_with_write_scope_succeeds(self, mock_sync_repository_cache, client: HttpClient):

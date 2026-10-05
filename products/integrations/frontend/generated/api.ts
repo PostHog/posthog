@@ -27,6 +27,7 @@ import type {
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
+    IntegrationsGitlabMembersRetrieveParams,
     IntegrationsJiraAssignableUsersRetrieveParams,
     IntegrationsLinearTeamMembersRetrieveParams,
     IntegrationsListParams,
@@ -560,16 +561,33 @@ export const integrationsGithubTeamsRetrieve = async (
     })
 }
 
-export const getIntegrationsGitlabMembersRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/gitlab_members/`
+export const getIntegrationsGitlabMembersRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGitlabMembersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/gitlab_members/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/gitlab_members/`
 }
 
 export const integrationsGitlabMembersRetrieve = async (
     projectId: string,
     id: number,
+    params?: IntegrationsGitlabMembersRetrieveParams,
     options?: RequestInit
 ): Promise<IntegrationAssigneesResponseApi> => {
-    return apiMutator<IntegrationAssigneesResponseApi>(getIntegrationsGitlabMembersRetrieveUrl(projectId, id), {
+    return apiMutator<IntegrationAssigneesResponseApi>(getIntegrationsGitlabMembersRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

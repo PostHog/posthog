@@ -1201,6 +1201,23 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         assert result["status_code"] == 403
 
+    def test_list_assignees_searches_every_page_and_caches_the_list(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        first = MagicMock(status_code=200)
+        first.json.return_value = [{"login": "alice"}, {"login": "bob"}]
+        second = MagicMock(status_code=200)
+        second.json.return_value = [{"login": "Alicia"}]
+        with patch.object(
+            github, "_installation_authenticated_get_pages", return_value=([first, second], True)
+        ) as mock_pages:
+            first_search = github.list_assignees("PostHog/posthog", "ali")
+            second_search = github.list_assignees("PostHog/posthog", "bob")
+
+        assert [assignee.id for assignee in first_search] == ["alice", "Alicia"]
+        assert [assignee.id for assignee in second_search] == ["bob"]
+        mock_pages.assert_called_once()
+
     @parameterized.expand(
         [
             ("every_page_read", True, {"success": True, "logins": ["alice", "bob"]}),

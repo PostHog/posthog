@@ -12,6 +12,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.exceptions_capture import capture_exception
 
 from . import common, model, oauth
+from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed, ReconnectRequired
 
 logger = structlog.get_logger(__name__)
 
@@ -68,10 +69,6 @@ def description_to_adf(description: str) -> dict[str, Any]:
 
 
 JIRA_USER_SCOPE = "read:jira-user"
-
-
-class JiraReconnectRequired(Exception):
-    """The connection's grant predates a scope that the call needs, so only a reconnect fixes it."""
 
 
 class JiraIntegration:
@@ -164,24 +161,28 @@ class JiraIntegration:
         projects = body.get("values", [])
         return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
 
-    def list_assignable_users(self, project_key: str) -> list[dict[str, str]]:
-        """Users who can be assigned issues in the project, up to the first 100.
+    def list_assignees(self, project_key: str, search: str = "") -> list[Assignee]:
+        """Active users who can be assigned issues in the project, matching ``search``.
 
-        Raises JiraReconnectRequired for a connection made before PostHog requested read:jira-user.
+        Raises ReconnectRequired for a connection made before PostHog requested read:jira-user.
         """
         granted_scope = self.integration.config.get("scope")
         if isinstance(granted_scope, str) and JIRA_USER_SCOPE not in granted_scope.split():
-            raise JiraReconnectRequired()
+            raise ReconnectRequired()
 
         cloud_id = self.cloud_id()
         if not cloud_id:
-            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+            raise AssigneeLookupFailed("Jira integration missing cloud_id")
 
         self._ensure_token_valid()
 
         response = requests.get(
             f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/user/assignable/search",
-            params={"project": project_key, "maxResults": "100"},
+            params={
+                "project": project_key,
+                "maxResults": str(MAX_ASSIGNEES),
+                **({"query": search.strip()} if search.strip() else {}),
+            },
             headers={
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "Accept": "application/json",
@@ -190,11 +191,11 @@ class JiraIntegration:
         )
         # A connection without a recorded scope can still lack the grant, which Jira reports as 401 or 403.
         if response.status_code in (401, 403):
-            raise JiraReconnectRequired()
+            raise ReconnectRequired()
         if response.status_code != 200:
-            raise ValidationError("Could not list the Jira project's assignable users.")
+            raise AssigneeLookupFailed("Could not list the Jira project's assignable users")
         return [
-            {"id": user["accountId"], "name": user.get("displayName") or user["accountId"]}
+            Assignee(id=user["accountId"], name=user.get("displayName") or user["accountId"])
             for user in response.json()
             if user.get("active", True)
         ]

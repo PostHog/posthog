@@ -38,9 +38,9 @@ describe('externalIssueAssigneesLogic', () => {
     afterEach(() => logic?.unmount())
 
     test.each([
-        ['linear', 'team-id', { team_id: 'team-id' }],
-        ['github', 'posthog', { repository: 'posthog' }],
-        ['jira', 'ENG', { project_key: 'ENG' }],
+        ['linear', 'team-id', { team_id: 'team-id', search: '' }],
+        ['github', 'posthog', { repository: 'posthog', search: '' }],
+        ['jira', 'ENG', { project_key: 'ENG', search: '' }],
     ] as const)('%s sends the chosen scope as its lookup parameter', async (kind, scope, params) => {
         logic = externalIssueAssigneesLogic({ integrationId: 1, kind, scope })
         logic.mount()
@@ -60,7 +60,7 @@ describe('externalIssueAssigneesLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadAssigneesSuccess'])
             .toMatchValues({
-                assignees: { users: [] },
+                assignees: { users: [], reconnect_required: false },
             })
         expect(PROVIDER_CALLS[kind]).not.toHaveBeenCalled()
     })
@@ -75,6 +75,26 @@ describe('externalIssueAssigneesLogic', () => {
             .toMatchValues({
                 assignees: { users: [], reconnect_required: true },
             })
+    })
+
+    it('searches once the user stops typing, with the latest input', async () => {
+        jest.useFakeTimers()
+        try {
+            logic = externalIssueAssigneesLogic({ integrationId: 1, kind: 'gitlab', scope: null })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAssigneesSuccess'])
+            PROVIDER_CALLS.gitlab.mockClear()
+
+            logic.actions.setSearch('a')
+            logic.actions.setSearch('ad')
+            jest.advanceTimersByTime(300)
+
+            await expectLogic(logic).toDispatchActions(['loadAssigneesSuccess'])
+            expect(PROVIDER_CALLS.gitlab).toHaveBeenCalledTimes(1)
+            expect(PROVIDER_CALLS.gitlab).toHaveBeenCalledWith(expect.any(String), 1, { search: 'ad' })
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('leaves assignees unresolved when the lookup fails', async () => {

@@ -356,8 +356,8 @@ export interface IntegrationAssigneeApi {
 export interface IntegrationAssigneesResponseApi {
     /** Users who can be assigned an issue, up to 100. */
     users: IntegrationAssigneeApi[]
-    /** True when the connection lacks the permission to list users. Reconnecting the integration grants it. Only Jira sets this. */
-    reconnect_required?: boolean
+    /** True when the connection lacks the permission to list users. Reconnecting the integration grants it. */
+    reconnect_required: boolean
 }
 
 export interface GitHubBranchesResponseApi {
@@ -897,6 +897,10 @@ export type IntegrationsGithubAssigneesRetrieveParams = {
      * @minLength 1
      */
     repository: string
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string
 }
 
 export type IntegrationsGithubBranchesRetrieveParams = {
@@ -962,15 +966,30 @@ export type IntegrationsGithubTeamsRetrieveParams = {
     search?: string
 }
 
+export type IntegrationsGitlabMembersRetrieveParams = {
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string
+}
+
 export type IntegrationsJiraAssignableUsersRetrieveParams = {
     /**
      * Jira project key whose assignable users to list.
      * @minLength 1
      */
     project_key: string
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string
 }
 
 export type IntegrationsLinearTeamMembersRetrieveParams = {
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string
     /**
      * Linear team ID whose members to list.
      * @minLength 1
