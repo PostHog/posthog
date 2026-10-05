@@ -200,25 +200,27 @@ def test_webhook_enabled_deployment_statuses_reconciliation_caps_the_parent_fan_
 
 
 @pytest.mark.parametrize(
-    "reconcile_since_offset, expected_windows",
+    "reconcile_since_offset, expected_window_count, expected_first_window, expected_last_window",
     [
         (
             None,
-            [f"2026-10-04T{h:02d}%3A00%3A00Z..2026-10-04T{h + 1:02d}%3A00%3A00Z" for h in range(12, 23)]
-            + ["2026-10-04T23%3A00%3A00Z..2026-10-05T00%3A00%3A00Z"]
-            + [f"2026-10-05T{h:02d}%3A00%3A00Z..2026-10-05T{h + 1:02d}%3A00%3A00Z" for h in range(0, 12)],
+            144,
+            "2026-10-04T12%3A00%3A00Z..2026-10-04T12%3A10%3A00Z",
+            "2026-10-05T11%3A50%3A00Z..2026-10-05T12%3A00%3A00Z",
         ),
         (
             timedelta(hours=1),
-            [
-                "2026-10-05T10%3A55%3A00Z..2026-10-05T11%3A55%3A00Z",
-                "2026-10-05T11%3A55%3A00Z..2026-10-05T12%3A00%3A00Z",
-            ],
+            7,
+            "2026-10-05T10%3A55%3A00Z..2026-10-05T11%3A05%3A00Z",
+            "2026-10-05T11%3A55%3A00Z..2026-10-05T12%3A00%3A00Z",
         ),
     ],
 )
 def test_webhook_enabled_workflow_runs_polls_startup_failures_after_the_drain(
-    reconcile_since_offset: timedelta | None, expected_windows: list[str]
+    reconcile_since_offset: timedelta | None,
+    expected_window_count: int,
+    expected_first_window: str,
+    expected_last_window: str,
 ) -> None:
     now = datetime(2026, 10, 5, 12, 0, 0, tzinfo=UTC)
     webhook_table = pa.table({"id": [1], "status": ["queued"]})
@@ -253,10 +255,15 @@ def test_webhook_enabled_workflow_runs_polls_startup_failures_after_the_drain(
 
     assert tables[0] is webhook_table
     polled = pa.concat_tables(tables[1:])
-    assert polled.column("conclusion").to_pylist() == ["startup_failure"] * len(expected_windows)
+    assert polled.column("conclusion").to_pylist() == ["startup_failure"] * expected_window_count
     fetched_urls = [call.args[0] for call in fetch_mock.call_args_list]
     assert all("status=startup_failure" in url for url in fetched_urls)
-    assert [url.split("created=")[1].split("&")[0] for url in fetched_urls] == expected_windows
+    windows = [url.split("created=")[1].split("&")[0] for url in fetched_urls]
+    assert (len(windows), windows[0], windows[-1]) == (
+        expected_window_count,
+        expected_first_window,
+        expected_last_window,
+    )
 
 
 def test_poll_mode_workflow_runs_still_polls() -> None:

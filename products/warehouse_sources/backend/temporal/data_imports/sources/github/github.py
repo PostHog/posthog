@@ -63,7 +63,8 @@ FAN_OUT_PARENT_CAP_HITS = Counter(
 _RECONCILE_SKEW_ALLOWANCE = timedelta(minutes=5)
 
 _STARTUP_FAILURE_FIRST_SYNC_LOOKBACK = timedelta(days=1)
-_STARTUP_FAILURE_WINDOW = timedelta(hours=1)
+_STARTUP_FAILURE_WINDOW = timedelta(minutes=10)
+_GITHUB_FILTERED_RESULT_CAP = 1000
 
 # GitHub's date-based REST API versions are sent in the X-GitHub-Api-Version header. Every caller —
 # sync, credential validation, webhook management — passes the source's resolved pin; this constant
@@ -1823,7 +1824,7 @@ def _get_startup_failure_runs(
     """Poll the runs that ended in startup_failure since ``created_since``. GitHub sends only the
     `requested` workflow_run webhook (status queued) for such a run and never a `completed` one, so
     without this poll the webhook-fed table keeps the run queued forever. The `status` filter makes
-    GitHub cap each query at 1,000 runs, so the poll walks the range in one-hour windows."""
+    GitHub cap each query at 1,000 runs, so the poll walks the range in 10-minute windows."""
     headers = _get_headers(personal_access_token, "workflow_runs", api_version)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     window_start = created_since
@@ -1844,11 +1845,18 @@ def _get_startup_failure_runs(
             repository=repository,
             required_permission=ENDPOINT_REQUIRED_PERMISSION.get("workflow_runs"),
         )
+        window_count = 0
         for runs, _page_url in pages:
             for run in runs:
+                window_count += 1
                 batcher.batch(run)
                 if batcher.should_yield():
                     yield batcher.get_table()
+        if window_count >= _GITHUB_FILTERED_RESULT_CAP:
+            logger.warning(
+                "Github: startup_failure poll hit the 1,000-run cap, so some runs in this window stay queued: "
+                f"repository={repository}, window_start={window_start}, window_end={window_end}"
+            )
         window_start = window_end
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()
