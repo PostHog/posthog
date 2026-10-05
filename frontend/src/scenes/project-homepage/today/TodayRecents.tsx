@@ -20,7 +20,6 @@ function typeNameInProse(entry: FileSystemEntry): string | null {
     return /^[A-Z]{2}/.test(name) ? name : name.charAt(0).toLowerCase() + name.slice(1)
 }
 
-/** "the Growth overview dashboard", or only the linked name when the type is unknown. */
 function RecentObject({ entry }: { entry: FileSystemEntry }): JSX.Element {
     const typeName = typeNameInProse(entry)
     const link = (
@@ -39,7 +38,6 @@ function RecentObject({ entry }: { entry: FileSystemEntry }): JSX.Element {
     )
 }
 
-/** Joins objects into prose: "A", "A and B", "A, B and C". */
 function RecentObjectList({ entries }: { entries: FileSystemEntry[] }): JSX.Element {
     return (
         <>
@@ -53,7 +51,6 @@ function RecentObjectList({ entries }: { entries: FileSystemEntry[] }): JSX.Elem
     )
 }
 
-/** The dashboards, insights and other objects the user viewed last, written as sentences under the daily brief. */
 export function TodayRecents(): JSX.Element {
     const { recentObjects, recentsHasLoaded } = useValues(todayLogic)
     const { pickPane } = useActions(todayShellLogic)
