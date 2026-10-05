@@ -3032,7 +3032,6 @@ class TestUpdateExternalDataSchema:
                 {
                     "cdc_mode": "streaming",
                     "cdc_last_log_position": "0/16B3748",
-                    "cdc_deferred_runs": [{"run": 1}],
                     "cdc_snapshot_lane": "buffer",
                 },
                 "posthog",
@@ -3068,7 +3067,6 @@ class TestUpdateExternalDataSchema:
         assert schema.sync_type == ExternalDataSchema.SyncType.CDC
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
         assert "cdc_last_log_position" not in schema.sync_type_config
-        assert "cdc_deferred_runs" not in schema.sync_type_config
         assert "cdc_snapshot_lane" not in schema.sync_type_config
         assert schema.initial_sync_complete is False
 
