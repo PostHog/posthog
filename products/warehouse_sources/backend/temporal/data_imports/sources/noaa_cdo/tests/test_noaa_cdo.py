@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -10,6 +10,7 @@ import requests_mock
 from requests import Session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.noaacdo import (
     NoaaCdoSourceConfig,
 )
@@ -19,6 +20,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.noaa_cdo.n
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.noaa_cdo.settings import AUTH_ERROR, REQUEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.noaa_cdo.source import NoaaCdoSource
+
+
+def sync_items(response: SourceResponse) -> Iterable[Any]:
+    items = response.items()
+    assert isinstance(items, Iterable)
+    return items
 
 
 @pytest.fixture(autouse=True)
@@ -68,7 +75,7 @@ def test_offset_pagination_and_terminal_page(
 
     http.get("https://www.ncei.noaa.gov/cdo-web/api/v2/stations", json=page)
     result = noaa_cdo_source(config, "stations", 1, "test", manager, "v2")
-    actual = [row for batch in result.items() for row in batch]
+    actual = [row for batch in sync_items(result) for row in batch]
 
     assert actual == rows
     assert [r.qs["offset"] for r in http.request_history] == [[str(i)] for i in range(1, count + 2, 1000)]
@@ -96,7 +103,7 @@ def test_reference_table_filters(
     expected: dict[str, list[str]],
 ) -> None:
     http.get(f"https://www.ncei.noaa.gov/cdo-web/api/v2/{endpoint}", json={"results": [{"id": "test"}]})
-    list(noaa_cdo_source(config, endpoint, 1, "test", manager, "v2", True, "2024-01-02").items())
+    list(sync_items(noaa_cdo_source(config, endpoint, 1, "test", manager, "v2", True, "2024-01-02")))
     assert http.last_request is not None
     assert http.last_request.qs == {
         **expected,
@@ -130,7 +137,7 @@ def test_observation_date_filters(
     row = {"date": "2024-01-02T00:00:00", "station": "GHCND:TEST0001", "datatype": "TMAX", "value": 10}
     http.get("https://www.ncei.noaa.gov/cdo-web/api/v2/data", json={"results": [row]})
     result = noaa_cdo_source(config, "data", 1, "test", manager, "v2", incremental, watermark)
-    assert list(result.items()) == [[row]]
+    assert list(sync_items(result)) == [[row]]
     assert result.sort_mode == "desc"
     assert http.last_request is not None
     assert http.last_request.qs == {
@@ -150,7 +157,7 @@ def test_date_windows_continue_after_empty_results(
 ) -> None:
     config.start_date = "2020-01-01"
     http.get("https://www.ncei.noaa.gov/cdo-web/api/v2/data", json=empty_body)
-    assert list(noaa_cdo_source(config, "data", 1, "test", manager, "v2").items()) == []
+    assert list(sync_items(noaa_cdo_source(config, "data", 1, "test", manager, "v2"))) == []
     assert [(r.qs["startdate"][0], r.qs["enddate"][0]) for r in http.request_history] == [
         ("2020-01-01", "2020-12-30"),
         ("2020-12-31", "2021-12-30"),
@@ -169,7 +176,7 @@ def test_resume_starts_at_saved_offset_and_preserves_window(
     manager.can_resume.return_value = True
     manager.load_state.return_value = NoaaCdoResumeConfig(offset=1001, window_start="2024-01-02", end_date="2024-01-02")
     http.get(f"https://www.ncei.noaa.gov/cdo-web/api/v2/{endpoint}", json={"results": [{"id": "last"}]})
-    assert list(noaa_cdo_source(config, endpoint, 1, "test", manager, "v2").items()) == [[{"id": "last"}]]
+    assert list(sync_items(noaa_cdo_source(config, endpoint, 1, "test", manager, "v2"))) == [[{"id": "last"}]]
     assert http.last_request is not None
     assert http.last_request.qs["offset"] == ["1001"]
     if endpoint == "data":
@@ -183,7 +190,7 @@ def test_completed_resume_makes_no_requests(
 ) -> None:
     manager.can_resume.return_value = True
     manager.load_state.return_value = NoaaCdoResumeConfig(complete=True)
-    assert list(noaa_cdo_source(config, "data", 1, "test", manager, "v2").items()) == []
+    assert list(sync_items(noaa_cdo_source(config, "data", 1, "test", manager, "v2"))) == []
     assert not http.called
 
 
@@ -203,7 +210,7 @@ def test_resume_after_page_failure_then_advance_to_next_window(
             {"status_code": 400, "json": {"message": "The token parameter provided is not valid."}},
         ],
     )
-    pages = iter(noaa_cdo_source(config, "data", 1, "test", manager, "v2").items())
+    pages = iter(sync_items(noaa_cdo_source(config, "data", 1, "test", manager, "v2")))
     assert next(pages) == rows
     with pytest.raises(ValueError, match=AUTH_ERROR):
         next(pages)
@@ -220,7 +227,7 @@ def test_resume_after_page_failure_then_advance_to_next_window(
             "results": [{"station": "GHCND:TEST0001", "datatype": "PRCP", "date": "2023-12-31T00:00:00", "value": 1}]
         },
     )
-    batches = list(noaa_cdo_source(config, "data", 1, "test", manager, "v2").items())
+    batches = list(sync_items(noaa_cdo_source(config, "data", 1, "test", manager, "v2")))
     assert len(batches) == 2
     assert [(r.qs["startdate"], r.qs["offset"]) for r in http.request_history[2:]] == [
         (["2023-01-01"], ["1001"]),
@@ -252,7 +259,7 @@ def test_authentication_and_request_errors(
     assert source.validate_credentials(config, 1) == (False, expected)
     assert http.call_count == 1
     with pytest.raises(ValueError, match=expected):
-        list(noaa_cdo_source(config, "data", 1, "test", manager, "v2").items())
+        list(sync_items(noaa_cdo_source(config, "data", 1, "test", manager, "v2")))
     assert http.call_count == 2
     assert source.get_non_retryable_errors()[expected] == expected
 
@@ -281,7 +288,7 @@ def test_unexpected_response_fails_without_saving_completion(
 ) -> None:
     http.get(requests_mock.ANY, json=body)
     with pytest.raises(ValueError, match="Required data_selector"):
-        list(noaa_cdo_source(config, "data", 1, "test", manager, "v2").items())
+        list(sync_items(noaa_cdo_source(config, "data", 1, "test", manager, "v2")))
     manager.save_state.assert_not_called()
     with pytest.raises(ValueError, match="Required data_selector"):
         NoaaCdoSource().validate_credentials(config, 1)
