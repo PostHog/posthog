@@ -36,7 +36,7 @@ from posthog.personhog_client.proto import (
 )
 
 PersonDivergenceKind = Literal["hidden", "swept", "stale", "behind", "absent"]
-MappingDivergenceKind = Literal["hidden", "other_person", "absent"]
+MappingDivergenceKind = Literal["hidden", "other_person", "stale", "absent"]
 RepairOutcome = Literal[
     "would_repair",
     "repaired",
@@ -46,6 +46,7 @@ RepairOutcome = Literal[
     "skipped_owner_changed",
     "skipped_mapping_gone",
     "skipped_reread_lagging",
+    "skipped_too_many_distinct_ids",
 ]
 
 # The legacy delete path wrote ClickHouse tombstones at version + 100, so those rows sit at 100 or above.
@@ -70,6 +71,9 @@ _VERSION_ONLY_READ_OPTIONS = ReadOptions(field_mask=["id", "uuid", "team_id", "v
 
 _REPAIR_CHUNK_SIZE = 100
 _MAPPING_QUERY_CHUNK_SIZE = 1_000
+# A person with more distinct ids keeps its person repair, and its mappings are reported for a separate plan:
+# one read of every mapping can exceed the gRPC message limit, and their paced writes would run for hours.
+_MAX_REPAIR_DISTINCT_IDS_PER_PERSON = 1_000
 _FLUSH_TIMEOUT_SECONDS = 5 * 60
 
 _T = TypeVar("_T")
@@ -104,7 +108,11 @@ class PersonRef:
 
 @frozen
 class RepairAction:
-    """One person row (``distinct_id`` is None) or one of its mappings, with what the repair did to it."""
+    """One person row (``distinct_id`` is None) or one of its mappings, with what the repair did to it.
+
+    A person with too many distinct ids to repair gets one extra row with no ``distinct_id`` and the
+    outcome ``skipped_too_many_distinct_ids``, which stands for all of its mappings.
+    """
 
     team_id: int
     person_uuid: str
@@ -410,6 +418,7 @@ class _PersonPlan:
     ch_max_version: int | None
     target_version: int | None
     mappings: list[_MappingPlan]
+    too_many_distinct_ids: bool = False
 
 
 _PERSON_STATE_SQL = """
@@ -448,13 +457,16 @@ def _person_kind(pg_version: int, state: _ChPersonState | None) -> PersonDiverge
     return None
 
 
-def _mapping_kind(person_uuid: str, state: _ChMappingState | None) -> MappingDivergenceKind | None:
+def _mapping_kind(person_uuid: str, pg_version: int, state: _ChMappingState | None) -> MappingDivergenceKind | None:
     if state is None:
         return "absent"
     if state.winner_deleted:
         return "hidden"
     if state.winner_person_uuid != person_uuid:
         return "other_person"
+    # The right owner today, but a later move of this mapping is written below the ClickHouse winner and lost.
+    if state.max_version > pg_version:
+        return "stale"
     return None
 
 
@@ -495,12 +507,19 @@ def _plan_chunk(team_id: int, person_uuids: Sequence[str]) -> list[_PersonPlan]:
     distinct_ids_by_person = (
         personhog_call(
             "person_divergence_repair_distinct_ids",
-            lambda: _batched_get_distinct_ids_for_persons(team_id, [p.pk for p in live.values()]),
+            lambda: _batched_get_distinct_ids_for_persons(
+                team_id, [p.pk for p in live.values()], limit_per_person=_MAX_REPAIR_DISTINCT_IDS_PER_PERSON + 1
+            ),
         )
         if live
         else {}
     )
-    all_distinct_ids = [d.id for dids in distinct_ids_by_person.values() for d in dids]
+    all_distinct_ids = [
+        d.id
+        for dids in distinct_ids_by_person.values()
+        if len(dids) <= _MAX_REPAIR_DISTINCT_IDS_PER_PERSON
+        for d in dids
+    ]
     mapping_states = _ch_mapping_states(team_id, all_distinct_ids) if all_distinct_ids else {}
 
     plans: list[_PersonPlan] = []
@@ -522,14 +541,16 @@ def _plan_chunk(team_id: int, person_uuids: Sequence[str]) -> list[_PersonPlan]:
         pg_version = int(person.version or 0)
         state = person_states.get(person_uuid)
         ch_max_version = state.max_version if state is not None else None
+        person_distinct_ids = distinct_ids_by_person.get(person.pk, [])
+        too_many_distinct_ids = len(person_distinct_ids) > _MAX_REPAIR_DISTINCT_IDS_PER_PERSON
         mappings = []
-        for mapping in distinct_ids_by_person.get(person.pk, []):
+        for mapping in [] if too_many_distinct_ids else person_distinct_ids:
             mapping_state = mapping_states.get(mapping.id)
             mapping_ch_max = mapping_state.max_version if mapping_state is not None else None
             mappings.append(
                 _MappingPlan(
                     distinct_id=mapping.id,
-                    kind=_mapping_kind(person_uuid, mapping_state),
+                    kind=_mapping_kind(person_uuid, mapping.version, mapping_state),
                     pg_version=mapping.version,
                     ch_max_version=mapping_ch_max,
                     target_version=_target_version(mapping.version, mapping_ch_max),
@@ -544,6 +565,7 @@ def _plan_chunk(team_id: int, person_uuids: Sequence[str]) -> list[_PersonPlan]:
                 ch_max_version=ch_max_version,
                 target_version=_target_version(pg_version, ch_max_version),
                 mappings=mappings,
+                too_many_distinct_ids=too_many_distinct_ids,
             )
         )
     return plans
@@ -584,6 +606,19 @@ def _person_action(plan: _PersonPlan, outcome: RepairOutcome) -> RepairAction:
     )
 
 
+def _too_many_distinct_ids_action(plan: _PersonPlan) -> RepairAction:
+    return RepairAction(
+        team_id=plan.team_id,
+        person_uuid=plan.person_uuid,
+        distinct_id=None,
+        kind=None,
+        pg_version=None,
+        ch_max_version=None,
+        target_version=None,
+        outcome="skipped_too_many_distinct_ids",
+    )
+
+
 def _mapping_action(plan: _PersonPlan, mapping: _MappingPlan, outcome: RepairOutcome) -> RepairAction:
     return RepairAction(
         team_id=plan.team_id,
@@ -604,6 +639,8 @@ def _execute_plan(plan: _PersonPlan, *, apply: bool, before_write: Callable[[], 
 
     divergent_mappings = [m for m in plan.mappings if m.kind is not None]
     mapping_actions = [_mapping_action(plan, m, "skipped_not_divergent") for m in plan.mappings if m.kind is None]
+    if plan.too_many_distinct_ids:
+        mapping_actions.append(_too_many_distinct_ids_action(plan))
     if not apply:
         person_outcome: RepairOutcome = "would_repair" if plan.kind is not None else "skipped_not_divergent"
         return [
@@ -721,7 +758,8 @@ def repair_persons(
             for chunk in _chunks(person_uuids, _REPAIR_CHUNK_SIZE):
                 for plan in _plan_chunk(team_id, chunk):
                     for action in _execute_plan(plan, apply=apply, before_write=pacer.before_write):
-                        (person_outcomes if action.distinct_id is None else mapping_outcomes)[action.outcome] += 1
+                        is_person_row = action.distinct_id is None and action.outcome != "skipped_too_many_distinct_ids"
+                        (person_outcomes if is_person_row else mapping_outcomes)[action.outcome] += 1
                         on_action(action)
                     processed += 1
             log(f"team {team_id}: {len(person_uuids)} persons, {processed} processed in total")

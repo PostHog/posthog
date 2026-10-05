@@ -475,6 +475,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             ("winner_deleted", "self", True, 100, "hidden", 101),
             ("winner_is_another_person", "other", False, 7, "other_person", 8),
             ("winner_is_another_person_below_postgres", "other", False, 1, "other_person", 2),
+            ("winner_above_postgres", "self", False, 7, "stale", 8),
             ("absent_from_clickhouse", None, False, None, "absent", 2),
         ]
     )
@@ -514,6 +515,28 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         get_active_fake().assert_not_called("set_person_version_floor")
         assert self._pg_mapping_versions(person)["divergent"] == target_version
         assert self._ch_mapping("divergent") == (str(person.uuid), 0, target_version)
+
+    def test_repairs_the_person_but_reports_its_mappings_when_it_has_too_many_distinct_ids(self) -> None:
+        person = self._pg_person(version=3, distinct_ids={"a": 0, "b": 0, "c": 0})
+        self._ch_person_row(person.uuid, 103, deleted=True)
+        self._ch_mapping_row("a", person.uuid, 100, deleted=True)
+
+        with patch("posthog.models.person.divergence._MAX_REPAIR_DISTINCT_IDS_PER_PERSON", 2):
+            summary, actions = self._repair(person.uuid)
+
+        assert actions == [
+            self._action(person.uuid, "repaired", kind="hidden", pg_version=3, ch_max_version=103, target_version=104),
+            self._action(person.uuid, "skipped_too_many_distinct_ids"),
+        ]
+        assert (summary.person_outcomes, summary.mapping_outcomes) == (
+            {"repaired": 1},
+            {"skipped_too_many_distinct_ids": 1},
+        )
+        reads = get_active_fake().assert_called("get_distinct_ids_for_persons", times=1)
+        assert reads[0].request.limit_per_person == 3
+        get_active_fake().assert_not_called("set_person_distinct_id_version_floor")
+        assert self._ch_person(person.uuid) == (0, 104, PG_PROPERTIES)
+        assert self._ch_mapping("a") == (str(person.uuid), 1, 100)
 
     def test_leaves_a_mapping_unpublished_once_the_primary_moved_it_to_another_person(self) -> None:
         person = self._pg_person(version=3, distinct_ids={"moved": 0})
