@@ -42,7 +42,9 @@ def _webhook_action(action_id: str = "action_1", url: str = "https://example.com
     }
 
 
-@patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
+@patch(
+    "products.workflows.backend.presentation.views.feature_gates.posthoganalytics.feature_enabled", return_value=True
+)
 class TestWorkflowProposals(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -1348,7 +1350,9 @@ class TestWorkflowProposals(APIBaseTest):
         assert [row["id"] for row in listed.json()["results"]] == [str(written_first.id)]
 
 
-@patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=False)
+@patch(
+    "products.workflows.backend.presentation.views.feature_gates.posthoganalytics.feature_enabled", return_value=False
+)
 class TestWorkflowProposalsFlagOff(APIBaseTest):
     def setUp(self):
         super().setUp()

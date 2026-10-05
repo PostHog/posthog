@@ -342,6 +342,38 @@ describe('emailTemplaterLogic', () => {
             expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED })
         })
 
+        // A preloaded starter design must not save an empty body, and a plain-text email keeps its retained design.
+        it.each([
+            { description: 'fills in html for a host that preloads designs', fill: true, tab: 'visual', filled: true },
+            { description: 'leaves the email alone for other hosts', fill: undefined, tab: 'visual', filled: false },
+            { description: 'leaves a plain-text email alone', fill: true, tab: 'plaintext', filled: false },
+        ] as const)('$description when a loaded design has no html', async ({ fill, tab, filled }) => {
+            logic.unmount()
+            logic = emailTemplaterLogic(
+                makeProps({
+                    value: { ...DEFAULT_EMAIL_TEMPLATE, design: DESIGN_STORED, html: '', text: '' },
+                    onChange,
+                    type: 'native_email_template',
+                    layout: 'inline',
+                    fillMissingHtmlOnLoad: fill,
+                })
+            )
+            logic.mount()
+            logic.actions.setActiveContentTab(tab)
+            logic.actions.setEmailEditorRef(fakeEditorRef())
+            logic.actions.onEmailEditorReady()
+
+            editorListeners['design:loaded']()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const pushed = onChange.mock.calls.map(([value]) => ({
+                html: value.html,
+                text: value.text,
+                design: value.design,
+            }))
+            expect(pushed).toEqual(filled ? [{ html: '<p>edited</p>', text: 'edited', design: DESIGN_NORMALIZED }] : [])
+        })
+
         it('rebaselines on design:loaded so the normalized export does not count as an edit', async () => {
             expect(editorListeners['design:loaded']).toBeTruthy()
             editorListeners['design:loaded']()

@@ -9,6 +9,226 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Only the provided fields change. The first call creates the Email brand with defaults for every field it leaves out.
+ * @summary Create or update the project's Email brand
+ */
+export const emailBrandCurrentPartialUpdateBodyNameMax = 255
+
+export const emailBrandCurrentPartialUpdateBodyFontFamilyMax = 100
+
+export const emailBrandCurrentPartialUpdateBodyFontStackMax = 500
+
+export const emailBrandCurrentPartialUpdateBodySourceRepositoryMax = 255
+
+export const emailBrandCurrentPartialUpdateBodyAppRootMax = 255
+
+export const emailBrandCurrentPartialUpdateBodySourcesPathMax = 1000
+
+export const emailBrandCurrentPartialUpdateBodySourcesDetectedValueMax = 1000
+
+export const EmailBrandCurrentPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(emailBrandCurrentPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Brand name. Shown in the email header when there is no logo.'),
+    logo: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Id of an image in this project's email media library to show in the email header. Null shows the name instead."
+        ),
+    primary_color: zod.string().optional().describe('Main brand color as #rrggbb, used for buttons.'),
+    accent_color: zod.string().optional().describe('Secondary brand color as #rrggbb, used for highlights.'),
+    text_color: zod.string().optional().describe('Body text color as #rrggbb.'),
+    background_color: zod.string().optional().describe('Email background color as #rrggbb.'),
+    font_family: zod
+        .string()
+        .max(emailBrandCurrentPartialUpdateBodyFontFamilyMax)
+        .optional()
+        .describe('Font family name, for example Inter.'),
+    font_stack: zod
+        .string()
+        .max(emailBrandCurrentPartialUpdateBodyFontStackMax)
+        .optional()
+        .describe(
+            "CSS font-family stack used in emails. It ends in fonts every email client has, for example 'Inter, Arial, Helvetica, sans-serif'."
+        ),
+    source_repository: zod
+        .string()
+        .max(emailBrandCurrentPartialUpdateBodySourceRepositoryMax)
+        .optional()
+        .describe(
+            'Full name (owner\/repo) of the GitHub repository the brand was detected from. Empty when entered by hand.'
+        ),
+    app_root: zod
+        .string()
+        .max(emailBrandCurrentPartialUpdateBodyAppRootMax)
+        .optional()
+        .describe('Directory inside the repository that holds the app detection read.'),
+    sources: zod
+        .record(
+            zod.string(),
+            zod.object({
+                path: zod
+                    .string()
+                    .max(emailBrandCurrentPartialUpdateBodySourcesPathMax)
+                    .describe('Repository path of the file the value was read from.'),
+                line: zod.number().min(1).nullish().describe('1-based line in that file, when known.'),
+                detected_value: zod
+                    .string()
+                    .max(emailBrandCurrentPartialUpdateBodySourcesDetectedValueMax)
+                    .describe(
+                        'The value detection proposed. The field reports edited while its value differs from this. For the logo it is the id of the imported media.'
+                    ),
+            })
+        )
+        .optional()
+        .describe(
+            'Where each detected value came from, keyed by field name. A field without an entry was entered by hand. Keys: name, logo, primary_color, accent_color, text_color, background_color, font_family.'
+        ),
+})
+
+/**
+ * Reads the repository's brand files and proposes an Email brand with the source of each value. Does not save the Email brand. A detection is reused for 10 minutes unless refresh is set.
+ * @summary Detect an Email brand from a GitHub repository
+ */
+export const emailBrandDetectCreateBodyRepositoryMax = 255
+
+export const emailBrandDetectCreateBodyRepositoryRegExp = new RegExp('^(?!\\.+\/)[\\w.-]+\/(?!\\.+$)[\\w.-]+$')
+export const emailBrandDetectCreateBodyAppRootMax = 255
+
+export const emailBrandDetectCreateBodyRefreshDefault = false
+
+export const EmailBrandDetectCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe("Id of the project's GitHub integration to read with."),
+    repository: zod
+        .string()
+        .max(emailBrandDetectCreateBodyRepositoryMax)
+        .regex(emailBrandDetectCreateBodyRepositoryRegExp)
+        .describe('Full name of the repository to read, as owner\/repo.'),
+    app_root: zod
+        .string()
+        .max(emailBrandDetectCreateBodyAppRootMax)
+        .optional()
+        .describe(
+            'Directory of the app to read inside a monorepo, for example apps\/web. Leave it out to use the likeliest app.'
+        ),
+    refresh: zod
+        .boolean()
+        .default(emailBrandDetectCreateBodyRefreshDefault)
+        .describe('Read the repository again instead of reusing a detection from the last 10 minutes.'),
+})
+
+/**
+ * Stores a PNG, JPEG, GIF or WebP file as it is, and an ICO file as a PNG of its largest frame. For an SVG file it stores nothing and returns the markup, so the browser can draw it as a PNG and upload that through the media upload.
+ * @summary Import a logo from a GitHub repository into the email media library
+ */
+export const emailBrandImportLogoCreateBodyRepositoryMax = 255
+
+export const emailBrandImportLogoCreateBodyRepositoryRegExp = new RegExp('^(?!\\.+\/)[\\w.-]+\/(?!\\.+$)[\\w.-]+$')
+export const emailBrandImportLogoCreateBodyPathMax = 1000
+
+export const emailBrandImportLogoCreateBodyPathRegExp = new RegExp(
+    '^(?!\/)(?!.\*\/\/)(?!.\*(?:^|\/)\\.{1,2}(?:\/|$))[^\\u0000-\\u001f\\\\]+(?<!\/)$'
+)
+
+export const EmailBrandImportLogoCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe("Id of the project's GitHub integration to read with."),
+    repository: zod
+        .string()
+        .max(emailBrandImportLogoCreateBodyRepositoryMax)
+        .regex(emailBrandImportLogoCreateBodyRepositoryRegExp)
+        .describe('Full name of the repository to read, as owner\/repo.'),
+    path: zod
+        .string()
+        .max(emailBrandImportLogoCreateBodyPathMax)
+        .regex(emailBrandImportLogoCreateBodyPathRegExp)
+        .describe('Repository path of the image file, usually one of the logo_candidates from detect.'),
+})
+
+/**
+ * Validates draft values and builds the starter design without saving a brand or template.
+ * @summary Preview a starter email design from unsaved brand values
+ */
+export const emailBrandPreviewStarterDesignCreateBodyNameMax = 255
+
+export const emailBrandPreviewStarterDesignCreateBodyFontFamilyMax = 100
+
+export const emailBrandPreviewStarterDesignCreateBodyFontStackMax = 500
+
+export const emailBrandPreviewStarterDesignCreateBodySourceRepositoryMax = 255
+
+export const emailBrandPreviewStarterDesignCreateBodyAppRootMax = 255
+
+export const emailBrandPreviewStarterDesignCreateBodySourcesPathMax = 1000
+
+export const emailBrandPreviewStarterDesignCreateBodySourcesDetectedValueMax = 1000
+
+export const EmailBrandPreviewStarterDesignCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(emailBrandPreviewStarterDesignCreateBodyNameMax)
+        .optional()
+        .describe('Brand name. Shown in the email header when there is no logo.'),
+    logo: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Id of an image in this project's email media library to show in the email header. Null shows the name instead."
+        ),
+    primary_color: zod.string().optional().describe('Main brand color as #rrggbb, used for buttons.'),
+    accent_color: zod.string().optional().describe('Secondary brand color as #rrggbb, used for highlights.'),
+    text_color: zod.string().optional().describe('Body text color as #rrggbb.'),
+    background_color: zod.string().optional().describe('Email background color as #rrggbb.'),
+    font_family: zod
+        .string()
+        .max(emailBrandPreviewStarterDesignCreateBodyFontFamilyMax)
+        .optional()
+        .describe('Font family name, for example Inter.'),
+    font_stack: zod
+        .string()
+        .max(emailBrandPreviewStarterDesignCreateBodyFontStackMax)
+        .optional()
+        .describe(
+            "CSS font-family stack used in emails. It ends in fonts every email client has, for example 'Inter, Arial, Helvetica, sans-serif'."
+        ),
+    source_repository: zod
+        .string()
+        .max(emailBrandPreviewStarterDesignCreateBodySourceRepositoryMax)
+        .optional()
+        .describe(
+            'Full name (owner\/repo) of the GitHub repository the brand was detected from. Empty when entered by hand.'
+        ),
+    app_root: zod
+        .string()
+        .max(emailBrandPreviewStarterDesignCreateBodyAppRootMax)
+        .optional()
+        .describe('Directory inside the repository that holds the app detection read.'),
+    sources: zod
+        .record(
+            zod.string(),
+            zod.object({
+                path: zod
+                    .string()
+                    .max(emailBrandPreviewStarterDesignCreateBodySourcesPathMax)
+                    .describe('Repository path of the file the value was read from.'),
+                line: zod.number().min(1).nullish().describe('1-based line in that file, when known.'),
+                detected_value: zod
+                    .string()
+                    .max(emailBrandPreviewStarterDesignCreateBodySourcesDetectedValueMax)
+                    .describe(
+                        'The value detection proposed. The field reports edited while its value differs from this. For the logo it is the id of the imported media.'
+                    ),
+            })
+        )
+        .optional()
+        .describe(
+            'Where each detected value came from, keyed by field name. A field without an entry was entered by hand. Keys: name, logo, primary_color, accent_color, text_color, background_color, font_family.'
+        ),
+})
+
 export const hogFlowTemplatesCreateBodyNameMax = 400
 
 export const hogFlowTemplatesCreateBodyImageUrlMax = 8201

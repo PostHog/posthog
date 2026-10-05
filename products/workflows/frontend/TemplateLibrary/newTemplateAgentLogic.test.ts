@@ -84,11 +84,17 @@ describe('newTemplateAgentLogic', () => {
         recordExposure.mockRestore()
     })
 
-    // A template started from a sent message has its starting point, and the escape hatch must land in the editor.
+    // A template started from a sent message or the Email brand has its starting point, and the escape hatch must land in the editor.
     it.each([
         { name: 'an AI entry', path: NEW_PATH, search: { mode: 'ai' }, available: true },
         { name: 'a plain new URL', path: NEW_PATH, search: {}, available: false },
         { name: 'a sent message', path: NEW_PATH, search: { mode: 'ai', messageId: 'msg-1' }, available: false },
+        {
+            name: 'the Email brand starter',
+            path: NEW_PATH,
+            search: { mode: 'ai', from: 'email_brand' },
+            available: false,
+        },
         { name: 'the editor mode param', path: NEW_PATH, search: { mode: 'editor' }, available: false },
         {
             name: 'an existing template',

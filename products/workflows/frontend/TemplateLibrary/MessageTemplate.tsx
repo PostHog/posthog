@@ -15,6 +15,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { isEmailBrandStarter } from './constants'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
@@ -26,9 +27,10 @@ import { NEW_TEMPLATE_AGENT_HEADLINES } from './templateAgentContext'
 export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
     component: MessageTemplate,
     logic: messageTemplateSceneLogic,
-    paramsToProps: ({ params: { id }, searchParams: { messageId } }) => ({
+    paramsToProps: ({ params: { id }, searchParams }) => ({
         id: id || 'new',
-        messageId,
+        messageId: searchParams.messageId,
+        fromEmailBrand: isEmailBrandStarter(searchParams),
     }),
     productKey: ProductKey.WORKFLOWS,
 }
@@ -53,6 +55,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         templateChanged,
         messageLoading,
         templateLoading,
+        starterDesignLoading,
+        awaitingStarterExport,
         templatePickerOpen,
         externallyEdited,
         isSyncingExternalEdit,
@@ -102,7 +106,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     resourceType={{ type: 'template' }}
                     canEdit
                     descriptionAlwaysVisible
-                    isLoading={messageLoading || templateLoading}
+                    isLoading={messageLoading || templateLoading || starterDesignLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
                     actions={
@@ -138,7 +142,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                         ? 'No changes to save'
                                         : !template.name
                                           ? 'Name is required'
-                                          : undefined
+                                          : awaitingStarterExport
+                                            ? 'The email design is still loading'
+                                            : undefined
                                 }
                                 size="small"
                             >
@@ -218,7 +224,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
                     {/* The editor stays mounted through a sync: the templater pushes the new design into the open canvas. */}
                     {isSyncingExternalEdit && <SpinnerOverlay />}
-                    {(messageLoading || templateLoading) && !isSyncingExternalEdit ? (
+                    {(messageLoading || templateLoading || starterDesignLoading) && !isSyncingExternalEdit ? (
                         <Spinner className="text-lg" />
                     ) : (
                         <EmailTemplater
@@ -229,6 +235,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             }
                             type="native_email_template"
                             layout="inline"
+                            fillMissingHtmlOnLoad={props.fromEmailBrand}
                         />
                     )}
                 </div>

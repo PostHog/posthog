@@ -54,6 +54,10 @@ def _bounded_diff_response(diff_text: str) -> dict[str, Any]:
 _MAX_FILE_CONTENTS_BYTES = 10 * 1024 * 1024
 
 
+class GitHubFileTooLarge(GitHubIntegrationError):
+    pass
+
+
 def _is_safe_github_ref(ref: str) -> bool:
     """A git ref safe to interpolate into a GitHub API URL path (no traversal / URL-control chars)."""
     return (
@@ -943,6 +947,47 @@ class GitHubIntegration(GitHubIntegrationBase):
         SHA can skip that read.
         Raises ``GitHubIntegrationError`` rather than return a partial or oversized file.
         """
+        entry = self._get_file_entry_bytes(repository, file_path, ref=ref)
+        if entry is None or entry["content"] is None:
+            return entry
+        return {**entry, "content": entry["content"].decode("utf-8")}
+
+    def get_file_bytes(
+        self,
+        repository: str,
+        file_path: str,
+        *,
+        ref: str | None = None,
+        max_size: int = _MAX_FILE_CONTENTS_BYTES,
+        timeout: int = 10,
+        retry_transient: bool | None = None,
+    ) -> bytes | None:
+        """Read a file's raw bytes at ``ref`` (default branch when omitted), or ``None`` when it does not exist.
+
+        Raises ``GitHubFileTooLarge`` before downloading a file over ``max_size`` bytes, and
+        ``GitHubIntegrationError`` rather than return a partial file.
+        """
+        entry = self._get_file_entry_bytes(
+            repository, file_path, ref=ref, max_size=max_size, timeout=timeout, retry_transient=retry_transient
+        )
+        if entry is None:
+            return None
+        if entry["content"] is not None:
+            return entry["content"]
+        return self.get_blob_bytes(
+            repository, entry["sha"], entry["size"], timeout=timeout, retry_transient=retry_transient
+        )
+
+    def _get_file_entry_bytes(
+        self,
+        repository: str,
+        file_path: str,
+        *,
+        ref: str | None = None,
+        max_size: int = _MAX_FILE_CONTENTS_BYTES,
+        timeout: int = 10,
+        retry_transient: bool | None = None,
+    ) -> dict[str, Any] | None:
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         response = self.api_request(
@@ -950,6 +995,8 @@ class GitHubIntegration(GitHubIntegrationBase):
             f"/repos/{repo_path}/contents/{file_path}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             params={"ref": ref} if ref else None,
+            timeout=timeout,
+            retry_transient=retry_transient,
         )
         if response.status_code == 404:
             return None
@@ -959,21 +1006,28 @@ class GitHubIntegration(GitHubIntegrationBase):
                 status_code=response.status_code,
             )
         payload = response.json()
+        if not isinstance(payload, dict) or payload.get("type", "file") != "file":
+            # A directory, symlink or submodule has no bytes of its own to read.
+            return None
         size = payload["size"]
-        if size > _MAX_FILE_CONTENTS_BYTES:
-            raise GitHubIntegrationError(
-                f"{file_path} in {repository} is {size} bytes, over the {_MAX_FILE_CONTENTS_BYTES} byte limit"
-            )
+        if size > max_size:
+            raise GitHubFileTooLarge(f"{file_path} in {repository} is {size} bytes, over the {max_size} byte limit")
         if payload["encoding"] == "none":
             # The contents API omits content above 1 MB.
             return {"sha": payload["sha"], "size": size, "content": None}
         content = base64.b64decode(payload["content"])
         if len(content) != size:
             raise GitHubIntegrationError(f"Read {len(content)} of {size} bytes of {file_path} from {repository}")
-        return {"sha": payload["sha"], "size": size, "content": content.decode("utf-8")}
+        return {"sha": payload["sha"], "size": size, "content": content}
 
     def get_blob_text(self, repository: str, blob_sha: str, size: int) -> str:
         """Stream one blob's text by its SHA, refusing anything that is not exactly ``size`` bytes."""
+        return self.get_blob_bytes(repository, blob_sha, size).decode("utf-8")
+
+    def get_blob_bytes(
+        self, repository: str, blob_sha: str, size: int, *, timeout: int = 10, retry_transient: bool | None = None
+    ) -> bytes:
+        """Stream one blob's bytes by its SHA, refusing anything that is not exactly ``size`` bytes."""
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
 
         blob_response = self.api_request(
@@ -982,6 +1036,8 @@ class GitHubIntegration(GitHubIntegrationBase):
             endpoint="/repos/{owner}/{repo}/git/blobs/{file_sha}",
             headers={"Accept": "application/vnd.github.raw+json"},
             stream=True,
+            timeout=timeout,
+            retry_transient=retry_transient,
         )
         try:
             if blob_response.status_code != 200:
@@ -998,7 +1054,7 @@ class GitHubIntegration(GitHubIntegrationBase):
             blob_response.close()
         if len(content) != size:
             raise GitHubIntegrationError(f"Read {len(content)} of {size} bytes of blob {blob_sha} from {repository}")
-        return content.decode("utf-8")
+        return bytes(content)
 
     def get_file_contents(self, repository: str, file_path: str, ref: str | None = None) -> dict[str, Any] | None:
         """Read a file's decoded text and blob SHA at ``ref`` (default branch when omitted).

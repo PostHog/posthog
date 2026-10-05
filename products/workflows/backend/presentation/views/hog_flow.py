@@ -25,7 +25,6 @@ from django.utils.dateparse import parse_datetime
 
 import requests
 import structlog
-import posthoganalytics
 from django_filters import BaseInFilter, BooleanFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
@@ -185,6 +184,7 @@ from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGE
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.action_redirects import compute_action_redirects
+from products.workflows.backend.presentation.views.feature_gates import require_team_feature_flag
 from products.workflows.backend.presentation.views.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.presentation.views.graph_validation import validate_graph
 from products.workflows.backend.presentation.views.hog_flow_batch_job import (
@@ -5998,20 +5998,7 @@ class HogFlowViewSet(
         return Response(self.get_serializer(locked).data)
 
     def _require_self_optimising_enabled(self) -> None:
-        # Invisible while the flag is off, rather than 403: an endpoint that admits it exists gets built against.
-        if not posthoganalytics.feature_enabled(
-            SELF_OPTIMISING_FEATURE_FLAG,
-            str(self.team.uuid),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={
-                "organization": {
-                    "id": str(self.team.organization_id),
-                    "created_at": self.team.organization.created_at,
-                }
-            },
-            send_feature_flag_events=False,
-        ):
-            raise exceptions.NotFound()
+        require_team_feature_flag(SELF_OPTIMISING_FEATURE_FLAG, self.team)
 
     @extend_schema(
         methods=["GET"],

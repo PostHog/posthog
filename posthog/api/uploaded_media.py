@@ -24,16 +24,17 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import (
+    MAX_IMAGE_BYTES,
     MEDIA_PURPOSES,
     PRIVATE_MEDIA_PURPOSES,
     ObjectStorageUnavailable,
+    RejectedImage,
+    check_image_size,
     is_inline_safe_content_type,
-    sniff_image_content_type,
+    verified_image_content_type,
 )
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
-
-FOUR_MEGABYTES = 4 * 1024 * 1024
 
 logger = structlog.getLogger(__name__)
 
@@ -322,7 +323,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         staging_location = UploadedMedia.build_staging_location(self.team_id, uploaded_media.pk)
         presigned_post = object_storage.get_presigned_post(
             staging_location,
-            conditions=[["content-length-range", 1, FOUR_MEGABYTES]],
+            conditions=[["content-length-range", 1, MAX_IMAGE_BYTES]],
             expiration=UPLOAD_URL_EXPIRATION_SECONDS,
         )
         if not presigned_post:
@@ -369,14 +370,10 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if content is None:
             raise ValidationError(code="upload_not_found", detail="No file was uploaded to the upload URL.")
 
-        if len(content) > FOUR_MEGABYTES:
-            _discard_pending_upload(
-                uploaded_media, code="file_too_large", detail="Uploaded media must be less than 4MB"
-            )
-
-        sniffed_content_type = sniff_image_content_type(content)
-        if sniffed_content_type is None:
-            _discard_pending_upload(uploaded_media, code="invalid_image", detail="Uploaded media must be a valid image")
+        try:
+            sniffed_content_type = verified_image_content_type(content)
+        except RejectedImage as rejected:
+            _discard_pending_upload(uploaded_media, code=rejected.code, detail=rejected.detail)
 
         # Move the verified bytes off the key the presigned form signed (see
         # UploadedMedia.build_staging_location). The row lock serializes activation with the
@@ -446,8 +443,10 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         file = serializer.validated_data["image"]
         purpose = serializer.validated_data.get("purpose") or None
 
-        if file.size > FOUR_MEGABYTES:
-            raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 4MB")
+        try:
+            check_image_size(file.size)
+        except RejectedImage as rejected:
+            raise ValidationError(code=rejected.code, detail=rejected.detail)
 
         # Cheap reject on the claimed type before anything is written. The sniff below is what
         # actually decides, since a caller can claim whatever it likes.
@@ -475,15 +474,16 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if uploaded_media.media_location is None:
             raise APIException("Could not read uploaded media")
         bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
-        sniffed_content_type = sniff_image_content_type(bytes_to_verify)
-        if sniffed_content_type is None:
+        try:
+            sniffed_content_type = verified_image_content_type(bytes_to_verify)
+        except RejectedImage as rejected:
             statsd.incr(
                 "uploaded_media.image_failed_validation",
                 tags={"file_name": file.name, "team": self.team_id},
             )
             # TODO a batch process can delete media with no records in the DB or for deleted teams
             uploaded_media.delete()
-            raise ValidationError(code="invalid_image", detail="Uploaded media must be a valid image")
+            raise ValidationError(code=rejected.code, detail=rejected.detail)
 
         uploaded_media.content_type = sniffed_content_type
         uploaded_media.size_bytes = len(bytes_to_verify) if bytes_to_verify else None

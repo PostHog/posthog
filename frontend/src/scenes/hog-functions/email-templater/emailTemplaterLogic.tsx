@@ -116,6 +116,10 @@ function exportEditorHtml(editor: Editor): Promise<{ html: string; design: JSONT
     )
 }
 
+function templateHtml(type: EmailTemplaterType, html: string): string {
+    return ['native_email', 'native_email_template'].includes(type) ? html : escapeHTMLStringCurlies(html)
+}
+
 /**
  * Wrap raw html in an Unlayer design holding a single custom HTML block. Emails authored
  * programmatically (API/MCP) often have html but no design; loading a wrapped design shows the
@@ -200,6 +204,12 @@ export interface EmailTemplaterLogicProps {
      * the open Unlayer canvas.
      */
     liveChanges?: boolean
+    /**
+     * Export html from the canvas when a design loads without html, for hosts that preload a design built
+     * without a server renderer (the Email brand starter). Off by default, because a plain-text email keeps
+     * its design next to an empty html on purpose.
+     */
+    fillMissingHtmlOnLoad?: boolean
     // Validation messages owned by the parent form, shown next to each field. The templater does
     // not compute these itself; a caller that validates the email step (e.g. the workflow builder)
     // decides what and when to show.
@@ -598,9 +608,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
                 const finalValues: EmailTemplate = {
                     ...formValues,
-                    html: ['native_email', 'native_email_template'].includes(props.type)
-                        ? htmlData.html
-                        : escapeHTMLStringCurlies(htmlData.html),
+                    html: templateHtml(props.type, htmlData.html),
                     text: textData.text,
                     design: htmlData.design,
                 }
@@ -640,9 +648,25 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             if (!editor) {
                 return
             }
-            const htmlData: { design: JSONTemplate } = await exportEditorHtml(editor)
+            const htmlData = await exportEditorHtml(editor)
             breakpoint()
             cache.lastEditorDesign = htmlData.design
+            // The load echo never propagates, so without this a preloaded design would save an empty email body.
+            if (
+                props.fillMissingHtmlOnLoad &&
+                values.activeContentTab === 'visual' &&
+                props.value?.design &&
+                !props.value.html
+            ) {
+                const textData: { text: string } = await new Promise((res) => editor.exportPlainText(res))
+                breakpoint()
+                props.onChange({
+                    ...values.emailTemplate,
+                    html: templateHtml(props.type, htmlData.html),
+                    text: textData.text,
+                    design: htmlData.design,
+                })
+            }
         },
 
         designUpdated: async (_, breakpoint) => {
@@ -678,9 +702,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             cache.lastLoadedExternalDesign = null
             props.onChange({
                 ...values.emailTemplate,
-                html: ['native_email', 'native_email_template'].includes(props.type)
-                    ? htmlData.html
-                    : escapeHTMLStringCurlies(htmlData.html),
+                html: templateHtml(props.type, htmlData.html),
                 text: textData.text,
                 design: htmlData.design,
             })
@@ -770,9 +792,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         cache.lastLoadedExternalDesign = null
                         props.onChange({
                             ...values.emailTemplate,
-                            html: ['native_email', 'native_email_template'].includes(props.type)
-                                ? htmlData.html
-                                : escapeHTMLStringCurlies(htmlData.html),
+                            html: templateHtml(props.type, htmlData.html),
                             text: textData.text,
                             design: htmlData.design,
                         })
@@ -808,9 +828,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
                     emailContent = {
                         ...currentValues,
-                        html: ['native_email', 'native_email_template'].includes(props.type)
-                            ? htmlData.html
-                            : escapeHTMLStringCurlies(htmlData.html),
+                        html: templateHtml(props.type, htmlData.html),
                         text: textData.text,
                         design: htmlData.design,
                     }

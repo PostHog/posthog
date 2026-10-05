@@ -13,6 +13,14 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    EmailBrandApi,
+    EmailBrandDetectRequestApi,
+    EmailBrandDetectionApi,
+    EmailBrandImportLogoRequestApi,
+    EmailBrandLogoImportApi,
+    EmailBrandStarterDesignApi,
+    EmailBrandStarterTemplateApi,
+    EmailBrandSuggestRepositoryRetrieveParams,
     EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
@@ -55,11 +63,13 @@ import type {
     PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
     PaginatedWorkflowProposalListApi,
+    PatchedEmailBrandApi,
     PatchedHogFlowActionEmailUpdateApi,
     PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     PatchedHogFlowUpdateApi,
+    RepositorySuggestionsApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
     WorkflowProposalApi,
@@ -98,6 +108,174 @@ export const internalHogFlowsProcessDueSchedulesCreate = async (options?: Reques
     return apiMutator<void>(getInternalHogFlowsProcessDueSchedulesCreateUrl(), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getEmailBrandCreateStarterTemplateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/create_starter_template/`
+}
+
+/**
+ * Creates an ordinary email template. Later Email brand changes do not change it. Returns 422 with the code design_rendering_unavailable when the design can't be rendered on the server; open the starter design in the email editor instead.
+ * @summary Create a starter email template from the Email brand
+ */
+export const emailBrandCreateStarterTemplateCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EmailBrandStarterTemplateApi> => {
+    return apiMutator<EmailBrandStarterTemplateApi>(getEmailBrandCreateStarterTemplateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getEmailBrandCurrentRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/current/`
+}
+
+/**
+ * @summary Get the project's Email brand
+ */
+export const emailBrandCurrentRetrieve = async (projectId: string, options?: RequestInit): Promise<EmailBrandApi> => {
+    return apiMutator<EmailBrandApi>(getEmailBrandCurrentRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEmailBrandCurrentPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/current/`
+}
+
+/**
+ * Only the provided fields change. The first call creates the Email brand with defaults for every field it leaves out.
+ * @summary Create or update the project's Email brand
+ */
+export const emailBrandCurrentPartialUpdate = async (
+    projectId: string,
+    patchedEmailBrandApi?: NonReadonly<PatchedEmailBrandApi>,
+    options?: RequestInit
+): Promise<EmailBrandApi> => {
+    return apiMutator<EmailBrandApi>(getEmailBrandCurrentPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedEmailBrandApi),
+    })
+}
+
+export const getEmailBrandDetectCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/detect/`
+}
+
+/**
+ * Reads the repository's brand files and proposes an Email brand with the source of each value. Does not save the Email brand. A detection is reused for 10 minutes unless refresh is set.
+ * @summary Detect an Email brand from a GitHub repository
+ */
+export const emailBrandDetectCreate = async (
+    projectId: string,
+    emailBrandDetectRequestApi: EmailBrandDetectRequestApi,
+    options?: RequestInit
+): Promise<EmailBrandDetectionApi> => {
+    return apiMutator<EmailBrandDetectionApi>(getEmailBrandDetectCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emailBrandDetectRequestApi),
+    })
+}
+
+export const getEmailBrandImportLogoCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/import_logo/`
+}
+
+/**
+ * Stores a PNG, JPEG, GIF or WebP file as it is, and an ICO file as a PNG of its largest frame. For an SVG file it stores nothing and returns the markup, so the browser can draw it as a PNG and upload that through the media upload.
+ * @summary Import a logo from a GitHub repository into the email media library
+ */
+export const emailBrandImportLogoCreate = async (
+    projectId: string,
+    emailBrandImportLogoRequestApi: EmailBrandImportLogoRequestApi,
+    options?: RequestInit
+): Promise<EmailBrandLogoImportApi> => {
+    return apiMutator<EmailBrandLogoImportApi>(getEmailBrandImportLogoCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emailBrandImportLogoRequestApi),
+    })
+}
+
+export const getEmailBrandPreviewStarterDesignCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/preview_starter_design/`
+}
+
+/**
+ * Validates draft values and builds the starter design without saving a brand or template.
+ * @summary Preview a starter email design from unsaved brand values
+ */
+export const emailBrandPreviewStarterDesignCreate = async (
+    projectId: string,
+    emailBrandApi?: NonReadonly<EmailBrandApi>,
+    options?: RequestInit
+): Promise<EmailBrandStarterDesignApi> => {
+    return apiMutator<EmailBrandStarterDesignApi>(getEmailBrandPreviewStarterDesignCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emailBrandApi),
+    })
+}
+
+export const getEmailBrandStarterDesignRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/email_brand/starter_design/`
+}
+
+/**
+ * Returns the design without saving anything, so the email editor can open it preloaded.
+ * @summary Build a starter email design from the Email brand
+ */
+export const emailBrandStarterDesignRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EmailBrandStarterDesignApi> => {
+    return apiMutator<EmailBrandStarterDesignApi>(getEmailBrandStarterDesignRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEmailBrandSuggestRepositoryRetrieveUrl = (
+    projectId: string,
+    params?: EmailBrandSuggestRepositoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/email_brand/suggest_repository/?${stringifiedParams}`
+        : `/api/projects/${projectId}/email_brand/suggest_repository/`
+}
+
+/**
+ * Ranks the GitHub integration's cached repositories by how well their names match the project's app URLs, project name and organization name, then by most recent push. Makes no GitHub call beyond refreshing that cached list.
+ * @summary Suggest the likeliest GitHub repository for the Email brand
+ */
+export const emailBrandSuggestRepositoryRetrieve = async (
+    projectId: string,
+    params?: EmailBrandSuggestRepositoryRetrieveParams,
+    options?: RequestInit
+): Promise<RepositorySuggestionsApi> => {
+    return apiMutator<RepositorySuggestionsApi>(getEmailBrandSuggestRepositoryRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
