@@ -19,23 +19,23 @@ from posthog.llm.system_one import (
     SystemOneResult,
 )
 
-SECRET = "test-workflow-classify-jwt"
-_BUILD = "products.workflows.backend.api.workflow_classifications.build_system_one_client"
-CATEGORIES = {"spam": "Cold outreach or marketing", "support": "A customer asking for help"}
+SECRET = "test-workflow-ai-decision-jwt"
+_BUILD = "products.workflows.backend.presentation.views.workflow_ai_decisions.build_system_one_client"
+OPTIONS = {"spam": "Cold outreach or marketing", "support": "A customer asking for help"}
 
 
-def _token(team_id: int, audience: PosthogJwtAudience = PosthogJwtAudience.WORKFLOW_CLASSIFY) -> str:
+def _token(team_id: int, audience: PosthogJwtAudience = PosthogJwtAudience.WORKFLOW_AI_DECISION) -> str:
     return encode_jwt(
         {"team_id": team_id, "hog_flow_id": str(uuid4())}, timedelta(minutes=5), audience, signing_key=SECRET
     )
 
 
-@override_settings(WORKFLOW_CLASSIFY_JWT_SECRETS=[SECRET], TASKS_CREATE_JWT_SECRETS=[SECRET])
-class TestWorkflowClassificationsAPI(APIBaseTest):
+@override_settings(WORKFLOW_AI_DECISION_JWT_SECRETS=[SECRET], TASKS_CREATE_JWT_SECRETS=[SECRET])
+class TestWorkflowAiDecisionsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.client.logout()
-        self.url = f"/api/projects/{self.team.id}/workflow_classifications/"
+        self.url = f"/api/projects/{self.team.id}/workflow_ai_decisions/"
 
     def _post(self, body: dict | None = None, token: str | None = None) -> Any:
         return self.client.post(
@@ -43,19 +43,19 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
             {
                 "question": "Is this ticket spam?",
                 "context": {"subject": "Buy SEO"},
-                "categories": CATEGORIES,
+                "options": OPTIONS,
                 **(body or {}),
             },
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {token or _token(self.team.id)}",
         )
 
-    def test_returns_the_chosen_category(self) -> None:
+    def test_returns_the_chosen_option(self) -> None:
         client = MagicMock()
         client.decide.return_value = SystemOneResult(
             model="jevk5",
             answers={
-                "category": ChoiceAnswer(choice="spam", confidence=0.9, probabilities={"spam": 0.9, "support": 0.1})
+                "decision": ChoiceAnswer(choice="spam", confidence=0.9, probabilities={"spam": 0.9, "support": 0.1})
             },
             input_tokens=20,
         )
@@ -63,18 +63,15 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
             response = self._post()
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json() == {
-            "category": "spam",
-            "confidence": 0.9,
-            "probabilities": {"spam": 0.9, "support": 0.1},
-        }
+        assert response.json() == {"decision": "spam", "confidence": 0.9}
         # No TypeSafe fallback, so the data never leaves PostHog.
         assert "typesafe_fallback" not in build.call_args.kwargs
+        assert build.call_args.kwargs["ai_product"] == "workflows"
         assert build.call_args.kwargs["properties"]["team_id"] == str(self.team.id)
         # User text stays in the state, never in the instructions.
         client.decide.assert_called_once_with(
             state={"subject": "Buy SEO"},
-            questions={"category": ChoiceQuestion(instructions="Is this ticket spam?", criteria=CATEGORIES)},
+            questions={"decision": ChoiceQuestion(instructions="Is this ticket spam?", criteria=OPTIONS)},
         )
 
     @parameterized.expand(
@@ -112,8 +109,8 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("one_category", {"categories": {"spam": "Spam"}}),
-            ("too_many_categories", {"categories": {f"c{i}": "x" for i in range(17)}}),
+            ("one_option", {"options": {"spam": "Spam"}}),
+            ("too_many_options", {"options": {f"c{i}": "x" for i in range(17)}}),
             ("oversized_context", {"context": {"message": "x" * 65_536}}),
         ]
     )

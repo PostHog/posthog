@@ -93,14 +93,14 @@ const RUN_SCOUT_ACTION_NODE: CreateActionType = {
     output_variable: { key: 'scout_run', result_path: null, label: 'Scout run' },
 }
 
-const JEV_CLASSIFY_ACTION_NODE: CreateActionType = {
+const AI_DECISION_ACTION_NODE: CreateActionType = {
     type: 'function',
-    name: 'Classify with Jev',
-    description: 'Ask Jev to pick one category for the context. Branch on the result with a condition step.',
-    config: { template_id: 'template-posthog-jev-classify', inputs: {} },
+    name: 'AI decision (Jeeeeeeeeev)',
+    description: 'Ask Jev to pick one of your options. Branch on the decision with a conditional branch.',
+    config: { template_id: 'template-posthog-ai-decision', inputs: {} },
     output_variable: [
-        { key: 'jev_category', result_path: 'category', label: 'Jev category' },
-        { key: 'jev_confidence', result_path: 'confidence', label: 'Jev confidence' },
+        { key: 'ai_decision', result_path: 'decision', label: 'AI decision' },
+        { key: 'ai_decision_confidence', result_path: 'confidence', label: 'AI decision confidence' },
     ],
 }
 
@@ -422,14 +422,14 @@ export function HogFlowEditorPanelBuild({
                             </span>
                         </HogFlowEditorToolbarNode>
                     )}
-                {featureFlags[FEATURE_FLAGS.WORKFLOW_JEV_CLASSIFY_ACTION] && (
+                {featureFlags[FEATURE_FLAGS.WORKFLOW_AI_DECISION_ACTION] && (
                     <HogFlowEditorToolbarNode
-                        key="jev-classify"
-                        action={JEV_CLASSIFY_ACTION_NODE}
+                        key="ai-decision"
+                        action={AI_DECISION_ACTION_NODE}
                         onActionSelect={onActionSelect}
                     >
                         <span className="inline-flex items-center gap-1.5">
-                            {JEV_CLASSIFY_ACTION_NODE.name}
+                            {AI_DECISION_ACTION_NODE.name}
                             <LemonTag type="completion">Beta</LemonTag>
                         </span>
                     </HogFlowEditorToolbarNode>
