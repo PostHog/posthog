@@ -11,6 +11,8 @@ export interface LemonSnackProps extends React.HTMLAttributes<HTMLSpanElement> {
     children?: React.ReactNode
     onClick?: React.MouseEventHandler
     onClose?: React.MouseEventHandler
+    /** Accessible name of the close button, for example "Remove filter Status: Active". */
+    closeLabel?: string
     title?: string
     wrap?: boolean
     className?: string
@@ -19,7 +21,7 @@ export interface LemonSnackProps extends React.HTMLAttributes<HTMLSpanElement> {
 
 export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttributes<HTMLSpanElement>> = forwardRef(
     function LemonSnack(
-        { type = 'regular', children, wrap, onClick, onClose, title, className, ...rest },
+        { type = 'regular', children, wrap, onClick, onClose, closeLabel, title, className, ...rest },
         ref
     ): JSX.Element {
         const isRegular = type === 'regular'
@@ -54,6 +56,7 @@ export const LemonSnack: React.FunctionComponent<LemonSnackProps & React.RefAttr
                             size="small"
                             noPadding
                             icon={<IconX />}
+                            aria-label={closeLabel}
                             onClick={(e) => {
                                 e.stopPropagation()
                                 onClose(e)

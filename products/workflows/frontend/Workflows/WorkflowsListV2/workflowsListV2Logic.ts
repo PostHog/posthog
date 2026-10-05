@@ -1,0 +1,625 @@
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import {
+    hogFlowsCreate,
+    hogFlowsMetricsGlobalRetrieve,
+    hogFlowsRetrieve,
+    hogFlowsSummariesList,
+} from 'products/workflows/frontend/generated/api'
+import type {
+    HogFlowListSummaryApi,
+    PaginatedHogFlowListSummaryListApi,
+    WorkflowStatsRowApi,
+} from 'products/workflows/frontend/generated/api.schemas'
+
+import { prepareWorkflowDuplicate } from '../workflowDuplication'
+import {
+    confirmArchiveWorkflow,
+    confirmDeleteWorkflow,
+    restoreWorkflowToDraft,
+    setWorkflowStatus,
+    WorkflowRowAction,
+    workflowActionErrorDetail,
+} from '../workflowRowActions'
+import {
+    FacetDefinition,
+    FacetFilter,
+    FacetSearchValue,
+    MatchesText,
+    createFacetMatcher,
+    parseFacetQuery,
+    serializeFacetQuery,
+} from './FacetSearchBar/facetQuery'
+import { buildWorkflowListFacets, matchesWorkflowListText } from './workflowListFacets'
+import {
+    LIST_TYPES,
+    DEFAULT_COLUMNS,
+    OPTIONAL_COLUMNS,
+    OptionalColumn,
+    STATUS_LABELS,
+    TRIGGER_LABELS,
+    TYPE_LABELS,
+} from './workflowListLabels'
+import { WorkflowListRow, buildWorkflowListRows } from './workflowListRows'
+
+const WORKFLOWS_PAGE_TYPES = LIST_TYPES.join(',')
+const PAGE_LIMIT = 500
+// A `next` link that never ends shows the load error instead of looping.
+const MAX_PAGES = 40
+const MIN_SERVER_SEARCH_LENGTH = 3
+const SERVER_SEARCH_DEBOUNCE_MS = 300
+
+export interface ServerSearchResult {
+    text: string
+    ids: string[]
+    failed: boolean
+}
+
+/** `pending` while a server search for the current text is debouncing or in flight. */
+export type ServerSearchStatus = 'off' | 'pending' | 'done' | 'failed'
+
+const EMPTY_VALUE: FacetSearchValue = { filters: [], text: '' }
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const LEGACY_PARAMS = ['status', 'type', 'trigger_type', 'created_by', 'search', 'page'] as const
+const LEGACY_VALUES: Record<string, (value: string) => boolean> = {
+    status: (value) => value in STATUS_LABELS,
+    type: (value) => value in TYPE_LABELS,
+    trigger: (value) => value in TRIGGER_LABELS,
+    'created-by': (value) => UUID_PATTERN.test(value),
+}
+
+// Parsing only needs facet keys and aliases, which don't depend on the loaded rows.
+const QUERY_FACETS = buildWorkflowListFacets([])
+
+/** Follows `next` to the end. Rows are keyed by id, because a row created mid-load shifts later offsets. */
+async function loadAllPages(
+    fetchPage: (offset: number | undefined) => Promise<PaginatedHogFlowListSummaryListApi>
+): Promise<HogFlowListSummaryApi[]> {
+    const byId = new Map<string, HogFlowListSummaryApi>()
+    let offset: number | undefined = undefined
+    for (let pages = 0; pages < MAX_PAGES; pages++) {
+        const page: PaginatedHogFlowListSummaryListApi = await fetchPage(offset)
+        for (const row of page.results) {
+            byId.set(row.id, byId.get(row.id) ?? row)
+        }
+        const nextOffset = page.next ? new URL(page.next, window.location.origin).searchParams.get('offset') : null
+        if (!nextOffset || !page.results.length) {
+            return [...byId.values()]
+        }
+        offset = Number(nextOffset)
+    }
+    throw new Error(`Stopped loading after ${MAX_PAGES} pages`)
+}
+
+/** Reads a param as written. kea-router turns number-like values such as `007` into numbers. */
+function rawSearchParam(name: string): string {
+    return new URLSearchParams(router.values.location.search).get(name) ?? ''
+}
+
+function withFacetParams(searchParams: Record<string, unknown>, value: FacetSearchValue): Record<string, unknown> {
+    const next: Record<string, unknown> = { ...searchParams }
+    delete next.q
+    delete next.text
+    const q = serializeFacetQuery(value.filters)
+    const text = value.text.trim()
+    if (q) {
+        next.q = q
+    }
+    if (text) {
+        next.text = text
+    }
+    return next
+}
+
+/** Reads the filter params the flag-off list writes, so bookmarked links keep working. */
+function legacyParamsToValue(searchParams: Record<string, unknown>): FacetSearchValue {
+    const filters: FacetFilter[] = []
+    const pairs: [string, string][] = [
+        ['status', 'status'],
+        ['type', 'type'],
+        ['trigger_type', 'trigger'],
+        ['created_by', 'created-by'],
+    ]
+    for (const [param, facet] of pairs) {
+        const raw = searchParams[param]
+        const value = raw === undefined || raw === null ? '' : String(raw)
+        if (value && LEGACY_VALUES[facet](value)) {
+            filters.push({ facet, value, negated: false })
+        }
+    }
+    return { filters, text: rawSearchParam('search') }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface workflowsListV2LogicValues {
+    currentTeamId: number | null // teamLogic
+    facets: FacetDefinition<WorkflowListRow>[]
+    filteredRows: WorkflowListRow[]
+    listLoaded: boolean
+    loadFailed: boolean
+    matchesText: MatchesText<WorkflowListRow>
+    metrics: WorkflowStatsRowApi[] | null
+    metricsLoading: boolean
+    pendingRowActions: Record<string, WorkflowRowAction>
+    requestedSearchText: string | null
+    rows: WorkflowListRow[]
+    serverSearch: ServerSearchResult | null
+    serverSearchLoading: boolean
+    serverSearchStatus: ServerSearchStatus
+    shownColumns: OptionalColumn[]
+    value: FacetSearchValue
+    visibleColumns: OptionalColumn[]
+    workflows: HogFlowListSummaryApi[] | null
+    workflowsLoading: boolean
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface workflowsListV2LogicActions {
+    archiveWorkflow: (row: WorkflowListRow) => {
+        row: WorkflowListRow
+    }
+    clearFilters: () => {
+        value: true
+    }
+    deleteWorkflow: (row: WorkflowListRow) => {
+        row: WorkflowListRow
+    }
+    duplicateWorkflow: (row: WorkflowListRow) => {
+        row: WorkflowListRow
+    }
+    loadMetrics: () => {
+        value: true
+    }
+    loadMetricsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadMetricsSuccess: (
+        metrics: WorkflowStatsRowApi[] | null,
+        payload?: {
+            value: true
+        }
+    ) => {
+        metrics: WorkflowStatsRowApi[] | null
+        payload?: {
+            value: true
+        }
+    }
+    loadWorkflows: () => {
+        value: true
+    }
+    loadWorkflowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadWorkflowsSuccess: (
+        workflows: HogFlowListSummaryApi[],
+        payload?: {
+            value: true
+        }
+    ) => {
+        workflows: HogFlowListSummaryApi[]
+        payload?: {
+            value: true
+        }
+    }
+    patchWorkflow: (
+        id: string,
+        patch: Partial<HogFlowListSummaryApi>
+    ) => {
+        id: string
+        patch: Partial<HogFlowListSummaryApi>
+    }
+    removeWorkflow: (id: string) => {
+        id: string
+    }
+    resetColumns: () => {
+        value: true
+    }
+    restoreWorkflow: (row: WorkflowListRow) => {
+        row: WorkflowListRow
+    }
+    searchWorkflows: (text: string) => string
+    searchWorkflowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    searchWorkflowsSuccess: (
+        serverSearch: ServerSearchResult,
+        payload?: string
+    ) => {
+        serverSearch: ServerSearchResult
+        payload?: string
+    }
+    setRowActionPending: (
+        id: string,
+        action: WorkflowRowAction | null
+    ) => {
+        action: WorkflowRowAction | null
+        id: string
+    }
+    setValue: (value: FacetSearchValue) => {
+        value: FacetSearchValue
+    }
+    toggleColumn: (column: OptionalColumn) => {
+        column: 'created_by' | 'health' | 'last_7_days' | 'owner' | 'trigger' | 'type'
+    }
+    toggleWorkflowStatus: (row: WorkflowListRow) => {
+        row: WorkflowListRow
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface workflowsListV2LogicMeta {
+    __keaTypeGenInternalSelectorTypes: {
+        rows: (workflows: HogFlowListSummaryApi[] | null, metrics: WorkflowStatsRowApi[] | null) => WorkflowListRow[]
+        listLoaded: (workflows: HogFlowListSummaryApi[] | null) => boolean
+        facets: (rows: WorkflowListRow[]) => FacetDefinition<WorkflowListRow>[]
+        matchesText: (serverSearch: ServerSearchResult | null) => MatchesText<WorkflowListRow>
+        serverSearchStatus: (value: FacetSearchValue, serverSearch: ServerSearchResult | null) => ServerSearchStatus
+        filteredRows: (
+            rows: WorkflowListRow[],
+            value: FacetSearchValue,
+            facets: FacetDefinition<WorkflowListRow>[],
+            matchesText: MatchesText<WorkflowListRow>
+        ) => WorkflowListRow[]
+        shownColumns: (
+            visibleColumns: ('created_by' | 'health' | 'last_7_days' | 'owner' | 'trigger' | 'type')[]
+        ) => OptionalColumn[]
+    }
+}
+
+export type workflowsListV2LogicType = MakeLogicType<
+    workflowsListV2LogicValues,
+    workflowsListV2LogicActions,
+    Record<string, any>,
+    workflowsListV2LogicMeta
+>
+
+export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
+    path(['products', 'workflows', 'frontend', 'workflowsListV2Logic']),
+    // `hog_flows` is looked up by team, and a child environment's team id differs from its project id.
+    connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
+    actions({
+        loadWorkflows: true,
+        loadMetrics: true,
+        setValue: (value: FacetSearchValue) => ({ value }),
+        clearFilters: true,
+        toggleColumn: (column: OptionalColumn) => ({ column }),
+        resetColumns: true,
+        patchWorkflow: (id: string, patch: Partial<HogFlowListSummaryApi>) => ({ id, patch }),
+        removeWorkflow: (id: string) => ({ id }),
+        setRowActionPending: (id: string, action: WorkflowRowAction | null) => ({ id, action }),
+        toggleWorkflowStatus: (row: WorkflowListRow) => ({ row }),
+        duplicateWorkflow: (row: WorkflowListRow) => ({ row }),
+        archiveWorkflow: (row: WorkflowListRow) => ({ row }),
+        restoreWorkflow: (row: WorkflowListRow) => ({ row }),
+        deleteWorkflow: (row: WorkflowListRow) => ({ row }),
+    }),
+    loaders(({ values, cache }) => ({
+        workflows: [
+            null as HogFlowListSummaryApi[] | null,
+            {
+                loadWorkflows: async (_, breakpoint) => {
+                    const teamId = String(values.currentTeamId)
+                    const workflows = await loadAllPages((offset) =>
+                        hogFlowsSummariesList(teamId, { type: WORKFLOWS_PAGE_TYPES, limit: PAGE_LIMIT, offset })
+                    )
+                    breakpoint()
+                    return workflows
+                },
+            },
+        ],
+        metrics: [
+            null as WorkflowStatsRowApi[] | null,
+            {
+                loadMetrics: async (_, breakpoint) => {
+                    try {
+                        const metrics = await hogFlowsMetricsGlobalRetrieve(String(values.currentTeamId), {
+                            after: '-7d',
+                        })
+                        breakpoint()
+                        return metrics
+                    } catch {
+                        breakpoint()
+                        // The list works without metrics, so a failure shows "Unavailable" in the
+                        // metrics columns instead of an error toast.
+                        return null
+                    }
+                },
+            },
+        ],
+        serverSearch: [
+            null as ServerSearchResult | null,
+            {
+                searchWorkflows: async (text: string, breakpoint): Promise<ServerSearchResult> => {
+                    await breakpoint(SERVER_SEARCH_DEBOUNCE_MS)
+                    cache.searchAbort?.abort()
+                    const controller = new AbortController()
+                    cache.searchAbort = controller
+                    const teamId = String(values.currentTeamId)
+                    try {
+                        const workflows = await loadAllPages((offset) =>
+                            hogFlowsSummariesList(
+                                teamId,
+                                { type: WORKFLOWS_PAGE_TYPES, search: text, limit: PAGE_LIMIT, offset },
+                                { signal: controller.signal }
+                            )
+                        )
+                        breakpoint()
+                        return { text, ids: workflows.map((workflow) => workflow.id), failed: false }
+                    } catch {
+                        // `breakpoint()` drops a search that a newer one aborted. Other failures keep the client
+                        // matches and show a notice instead of an error toast.
+                        breakpoint()
+                        return { text, ids: [], failed: true }
+                    }
+                },
+            },
+        ],
+    })),
+    reducers({
+        value: [
+            EMPTY_VALUE,
+            {
+                setValue: (_, { value }) => value,
+                clearFilters: () => EMPTY_VALUE,
+            },
+        ],
+        requestedSearchText: [
+            null as string | null,
+            {
+                searchWorkflows: (_, text) => text,
+                setValue: (state, { value }) => (value.text.trim().length < MIN_SERVER_SEARCH_LENGTH ? null : state),
+                clearFilters: () => null,
+            },
+        ],
+        loadFailed: [
+            false,
+            {
+                loadWorkflows: () => false,
+                loadWorkflowsSuccess: () => false,
+                loadWorkflowsFailure: () => true,
+            },
+        ],
+        visibleColumns: [
+            DEFAULT_COLUMNS as OptionalColumn[],
+            { persist: true },
+            {
+                toggleColumn: (state, { column }) =>
+                    state.includes(column)
+                        ? state.filter((c) => c !== column)
+                        : OPTIONAL_COLUMNS.filter((c) => c === column || state.includes(c)),
+                resetColumns: () => DEFAULT_COLUMNS,
+            },
+        ],
+        pendingRowActions: [
+            {} as Record<string, WorkflowRowAction>,
+            {
+                setRowActionPending: (state, { id, action }) => {
+                    const next = { ...state }
+                    if (action) {
+                        next[id] = action
+                    } else {
+                        delete next[id]
+                    }
+                    return next
+                },
+            },
+        ],
+        workflows: {
+            patchWorkflow: (state, { id, patch }) =>
+                state && state.map((workflow) => (workflow.id === id ? { ...workflow, ...patch } : workflow)),
+            removeWorkflow: (state, { id }) => state && state.filter((workflow) => workflow.id !== id),
+        },
+    }),
+    selectors({
+        rows: [
+            (s) => [s.workflows, s.metrics],
+            (workflows: HogFlowListSummaryApi[] | null, metrics: WorkflowStatsRowApi[] | null): WorkflowListRow[] =>
+                workflows ? buildWorkflowListRows(workflows, metrics) : [],
+        ],
+        listLoaded: [(s) => [s.workflows], (workflows: HogFlowListSummaryApi[] | null): boolean => workflows !== null],
+        facets: [
+            (s) => [s.rows],
+            (rows: WorkflowListRow[]): FacetDefinition<WorkflowListRow>[] => buildWorkflowListFacets(rows),
+        ],
+        matchesText: [
+            (s) => [s.serverSearch],
+            (serverSearch: ServerSearchResult | null): MatchesText<WorkflowListRow> => {
+                const serverIds = new Set(serverSearch?.ids ?? [])
+                // The server also searches step names and email subjects and bodies, which the rows don't carry.
+                return (row, text) =>
+                    matchesWorkflowListText(row, text) || (serverSearch?.text === text.trim() && serverIds.has(row.id))
+            },
+        ],
+        serverSearchStatus: [
+            (s) => [s.value, s.serverSearch],
+            (value: FacetSearchValue, serverSearch: ServerSearchResult | null): ServerSearchStatus => {
+                const text = value.text.trim()
+                if (text.length < MIN_SERVER_SEARCH_LENGTH) {
+                    return 'off'
+                }
+                if (serverSearch?.text !== text) {
+                    return 'pending'
+                }
+                return serverSearch.failed ? 'failed' : 'done'
+            },
+        ],
+        filteredRows: [
+            (s) => [s.rows, s.value, s.facets, s.matchesText],
+            (
+                rows: WorkflowListRow[],
+                value: FacetSearchValue,
+                facets: FacetDefinition<WorkflowListRow>[],
+                matchesText: MatchesText<WorkflowListRow>
+            ): WorkflowListRow[] => rows.filter(createFacetMatcher(value, facets, matchesText)),
+        ],
+        shownColumns: [
+            (s) => [s.visibleColumns],
+            // A saved choice can name a column this version doesn't have.
+            (visibleColumns: OptionalColumn[]): OptionalColumn[] =>
+                OPTIONAL_COLUMNS.filter((column) => visibleColumns.includes(column)),
+        ],
+    }),
+    listeners(({ actions, values }) => {
+        /** Runs one network action per row at a time, so a second press can't send a second request. */
+        const runRowAction = async (
+            row: WorkflowListRow,
+            action: WorkflowRowAction,
+            run: () => Promise<void>
+        ): Promise<void> => {
+            if (values.pendingRowActions[row.id]) {
+                return
+            }
+            actions.setRowActionPending(row.id, action)
+            try {
+                await run()
+            } finally {
+                actions.setRowActionPending(row.id, null)
+            }
+        }
+        // Not `actionToUrl`: it hands kea-router a URL string, which parses `007` to 7 before writing it back.
+        const writeUrl = (): void => {
+            if (
+                rawSearchParam('q') === serializeFacetQuery(values.value.filters) &&
+                rawSearchParam('text') === values.value.text.trim()
+            ) {
+                return
+            }
+            router.actions.replace(
+                router.values.location.pathname,
+                withFacetParams(router.values.searchParams, values.value),
+                router.values.hashParams
+            )
+        }
+        return {
+            clearFilters: writeUrl,
+            setValue: ({ value }) => {
+                writeUrl()
+                const text = value.text.trim()
+                if (text.length >= MIN_SERVER_SEARCH_LENGTH && values.requestedSearchText !== text) {
+                    actions.searchWorkflows(text)
+                }
+            },
+            loadWorkflowsSuccess: () => {
+                if (values.metrics === null && !values.metricsLoading) {
+                    actions.loadMetrics()
+                }
+            },
+            toggleWorkflowStatus: async ({ row }) => {
+                await runRowAction(row, 'toggle', async () => {
+                    const status = row.workflow.status === 'active' ? 'draft' : 'active'
+                    const updated = await setWorkflowStatus(String(values.currentTeamId), row.workflow, status)
+                    if (updated) {
+                        actions.patchWorkflow(row.id, {
+                            status: updated.status ?? status,
+                            updated_at: updated.updated_at,
+                        })
+                    }
+                })
+            },
+            duplicateWorkflow: async ({ row }) => {
+                await runRowAction(row, 'duplicate', async () => {
+                    const teamId = String(values.currentTeamId)
+                    try {
+                        // The summary row has no step graph, so the copy starts from the full workflow.
+                        const full = await hogFlowsRetrieve(teamId, row.id)
+                        await hogFlowsCreate(teamId, prepareWorkflowDuplicate(full))
+                        lemonToast.success(`Workflow "${row.name}" duplicated`)
+                        actions.loadWorkflows()
+                    } catch (error) {
+                        lemonToast.error(`Failed to duplicate workflow: ${workflowActionErrorDetail(error)}`)
+                    }
+                })
+            },
+            archiveWorkflow: ({ row }) => {
+                if (values.pendingRowActions[row.id]) {
+                    return
+                }
+                confirmArchiveWorkflow(
+                    String(values.currentTeamId),
+                    row.workflow,
+                    (updated) =>
+                        actions.patchWorkflow(row.id, {
+                            status: updated.status ?? 'archived',
+                            updated_at: updated.updated_at,
+                        }),
+                    (pending) => actions.setRowActionPending(row.id, pending ? 'archive' : null)
+                )
+            },
+            restoreWorkflow: async ({ row }) => {
+                await runRowAction(row, 'restore', async () => {
+                    const updated = await restoreWorkflowToDraft(String(values.currentTeamId), row.workflow)
+                    if (updated) {
+                        actions.patchWorkflow(row.id, {
+                            status: updated.status ?? 'draft',
+                            updated_at: updated.updated_at,
+                        })
+                    }
+                })
+            },
+            deleteWorkflow: ({ row }) => {
+                if (values.pendingRowActions[row.id]) {
+                    return
+                }
+                confirmDeleteWorkflow(
+                    String(values.currentTeamId),
+                    row.workflow,
+                    () => actions.removeWorkflow(row.id),
+                    (pending) => actions.setRowActionPending(row.id, pending ? 'delete' : null)
+                )
+            },
+        }
+    }),
+    urlToAction(({ actions, values, cache }) => ({
+        [urls.workflows()]: (_, searchParams, hashParams) => {
+            const current: FacetSearchValue = {
+                filters: parseFacetQuery(rawSearchParam('q'), QUERY_FACETS),
+                text: rawSearchParam('text'),
+            }
+            // Old filter links are read once, when the list opens. Later URLs are the list's own.
+            if (!cache.legacyChecked) {
+                cache.legacyChecked = true
+                if (LEGACY_PARAMS.some((param) => param in searchParams)) {
+                    const legacy = legacyParamsToValue(searchParams)
+                    const next = { ...searchParams }
+                    for (const param of LEGACY_PARAMS) {
+                        delete next[param]
+                    }
+                    const merged = {
+                        filters: [...current.filters, ...legacy.filters],
+                        text: current.text || legacy.text,
+                    }
+                    router.actions.replace(urls.workflows(), withFacetParams(next, merged), hashParams)
+                    return
+                }
+            }
+            if (
+                serializeFacetQuery(current.filters) !== serializeFacetQuery(values.value.filters) ||
+                current.text !== values.value.text
+            ) {
+                actions.setValue(current)
+            }
+        },
+    })),
+    afterMount(({ actions }) => {
+        actions.loadWorkflows()
+    }),
+])

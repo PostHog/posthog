@@ -4,7 +4,9 @@ import { urlToAction } from 'kea-router'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -23,6 +25,8 @@ import { MessagingTabActions } from './MessagingTabActions'
 import { messagingNavTabs } from './messagingTabs'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
+import { WorkflowsListV2 } from './Workflows/WorkflowsListV2/WorkflowsListV2'
+import { WorkflowsListV2ColumnsMenu } from './Workflows/WorkflowsListV2/WorkflowsListV2ColumnsMenu'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 
 const WORKFLOW_SCENE_TABS = ['workflows', 'library', 'channels', 'opt-outs', 'suppression', 'reputation'] as const
@@ -125,11 +129,13 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
     const { startNewWorkflow } = useActions(newWorkflowLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const listV2 = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_LIST_V2]
     const tabs: LemonTab<WorkflowsSceneTab>[] = [
         {
             label: 'Workflows',
             key: 'workflows',
-            content: <WorkflowsTable />,
+            content: listV2 ? <WorkflowsListV2 /> : <WorkflowsTable />,
             link: urls.workflows(),
         },
         ...messagingNavTabs((tab) => urls.workflows(tab)),
@@ -166,6 +172,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 </LemonButton>
                             </AccessControlAction>
                         )}
+                        {currentTab === 'workflows' && listV2 && <WorkflowsListV2ColumnsMenu />}
                         {currentTab !== 'workflows' && (
                             <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />
                         )}

@@ -43,6 +43,7 @@ import type {
     HogFlowsProposalsListParams,
     HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
+    HogFlowsSummariesListParams,
     HogInvocationCancelRequestApi,
     HogInvocationCancelResponseApi,
     HogInvocationRerunRequestApi,
@@ -51,6 +52,7 @@ import type {
     HogInvocationResultDetailApi,
     HogInvocationResultsCountApi,
     MessageAssetApi,
+    PaginatedHogFlowListSummaryListApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
@@ -1287,6 +1289,37 @@ export const hogFlowsReputationRetrieve = async (
     options?: RequestInit
 ): Promise<TeamEmailReputationResponseApi> => {
     return apiMutator<TeamEmailReputationResponseApi>(getHogFlowsReputationRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsSummariesListUrl = (projectId: string, params?: HogFlowsSummariesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/summaries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/summaries/`
+}
+
+/**
+ * Workflow rows without the step graph, for loading a whole project's list page by page. Sorted newest created first. Takes the same filters as the list.
+ * @summary List workflow summaries
+ */
+export const hogFlowsSummariesList = async (
+    projectId: string,
+    params?: HogFlowsSummariesListParams,
+    options?: RequestInit
+): Promise<PaginatedHogFlowListSummaryListApi> => {
+    return apiMutator<PaginatedHogFlowListSummaryListApi>(getHogFlowsSummariesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
