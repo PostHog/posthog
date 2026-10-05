@@ -104,3 +104,59 @@ class TestEffortInstrumentation:
         )
 
         assert captured["effort"] == expected
+
+
+class TestCallerMetadataInstrumentation:
+    @pytest.mark.asyncio
+    async def test_caller_metadata_snapshot_preserves_analytics_keys_and_sanitizes_provider_payload(
+        self,
+        authenticated_user: AuthenticatedUser,
+    ) -> None:
+        from llm_gateway.callbacks.posthog import PostHogCallback
+        from llm_gateway.request_context import get_caller_metadata
+
+        request_data = {
+            "metadata": {
+                "organization": "my_org",
+                "api_version": "2024-01-01",
+                "base_url": "https://api.example.com",
+                "custom_experiment": "exp_42",
+            },
+            "organization": "forbidden_top_level",
+            "messages": [{"role": "user", "content": "hello"}],
+        }
+
+        captured_kwargs: dict[str, Any] = {}
+        captured_context_metadata: dict[str, Any] | None = None
+
+        async def mock_llm_call(**kwargs: Any) -> dict[str, Any]:
+            captured_kwargs.update(kwargs)
+            nonlocal captured_context_metadata
+            captured_context_metadata = get_caller_metadata()
+            return {"ok": True}
+
+        await handle_llm_request(
+            request_data=request_data,
+            user=authenticated_user,
+            model="test-model",
+            is_streaming=False,
+            provider_config=OPENAI_CONFIG,
+            llm_call=mock_llm_call,
+        )
+
+        # 1. Verify context snapshot preserves valid analytics keys despite forbidden params
+        assert captured_context_metadata is not None
+        assert captured_context_metadata["organization"] == "my_org"
+        assert captured_context_metadata["api_version"] == "2024-01-01"
+        assert captured_context_metadata["base_url"] == "https://api.example.com"
+        assert captured_context_metadata["custom_experiment"] == "exp_42"
+
+        # 2. Verify provider-forwarded request data had forbidden routing params stripped
+        assert "organization" not in captured_kwargs
+        assert "api_version" not in captured_kwargs.get("metadata", {})
+        assert "base_url" not in captured_kwargs.get("metadata", {})
+
+        # 3. Verify callback extracts the snapshot containing preserved analytics properties
+        callback = PostHogCallback(api_key="test-key", host="https://test.posthog.com")
+        extracted = callback._extract_metadata({})
+        assert extracted == captured_context_metadata
