@@ -347,7 +347,9 @@ export interface biEditorLogicActions {
     setChartType: (chartType: ChartDisplayType) => {
         chartType: ChartDisplayType
     }
-    setCompareFilter: (compareFilter: CompareFilter) => { compareFilter: CompareFilter }
+    setCompareFilter: (compareFilter: CompareFilter) => {
+        compareFilter: CompareFilter
+    }
     setDataPaneSearch: (search: string) => {
         search: string
     }
