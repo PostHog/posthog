@@ -21,7 +21,8 @@ interface InboxFilterState {
   sortDirection: SortDirection;
   statusFilter: SignalReportStatus[];
   sourceProductFilter: SourceProduct[];
-  suggestedReviewerFilter: string[];
+  /** `null` means the user hasn't chosen: the inbox shows reports suggested for them. */
+  suggestedReviewerFilter: string[] | null;
   priorityFilter: SignalReportPriority[];
 }
 
@@ -31,7 +32,10 @@ interface InboxFilterActions {
   toggleStatus: (status: SignalReportStatus) => void;
   toggleSourceProduct: (source: SourceProduct) => void;
   clearSourceProductFilter: () => void;
-  toggleSuggestedReviewer: (reviewerUuid: string) => void;
+  toggleSuggestedReviewer: (
+    reviewerUuid: string,
+    currentUserUuid: string | undefined,
+  ) => void;
   setSuggestedReviewerFilter: (reviewerUuids: string[]) => void;
   togglePriority: (priority: SignalReportPriority) => void;
   setPriorityFilter: (priorities: SignalReportPriority[]) => void;
@@ -40,6 +44,45 @@ interface InboxFilterActions {
 
 type InboxFilterStore = InboxFilterState & InboxFilterActions;
 
+type PersistedInboxFilterState = Pick<
+  InboxFilterState,
+  | "sortField"
+  | "sortDirection"
+  | "statusFilter"
+  | "sourceProductFilter"
+  | "suggestedReviewerFilter"
+  | "priorityFilter"
+>;
+
+/**
+ * The reviewer UUIDs to filter on. Returns `null` while the default scope
+ * still waits for the current user, so callers can hold the query instead of
+ * fetching the whole project first.
+ */
+export function resolveSuggestedReviewerFilter(
+  filter: string[] | null,
+  currentUserUuid: string | undefined,
+): string[] | null {
+  if (filter !== null) return filter;
+  return currentUserUuid ? [currentUserUuid] : null;
+}
+
+/**
+ * Version 0 saved `[]` for every user who never touched the reviewer filter,
+ * so it can't tell "never chose" from "chose everyone". Move those devices to
+ * the default scope and keep explicit selections.
+ */
+export function migrateInboxFilterState(
+  persistedState: unknown,
+  version: number,
+): PersistedInboxFilterState {
+  const state = persistedState as PersistedInboxFilterState;
+  if (version < 1 && state.suggestedReviewerFilter?.length === 0) {
+    return { ...state, suggestedReviewerFilter: null };
+  }
+  return state;
+}
+
 export const useInboxFilterStore = create<InboxFilterStore>()(
   persist(
     (set) => ({
@@ -47,7 +90,7 @@ export const useInboxFilterStore = create<InboxFilterStore>()(
       sortDirection: "asc",
       statusFilter: [...INBOX_PIPELINE_STATUSES],
       sourceProductFilter: [],
-      suggestedReviewerFilter: [],
+      suggestedReviewerFilter: null,
       priorityFilter: [],
 
       setSort: (sortField, sortDirection) => set({ sortField, sortDirection }),
@@ -70,9 +113,13 @@ export const useInboxFilterStore = create<InboxFilterStore>()(
           return { sourceProductFilter: next };
         }),
       clearSourceProductFilter: () => set({ sourceProductFilter: [] }),
-      toggleSuggestedReviewer: (reviewerUuid) =>
+      toggleSuggestedReviewer: (reviewerUuid, currentUserUuid) =>
         set((state) => {
-          const current = state.suggestedReviewerFilter;
+          const current =
+            resolveSuggestedReviewerFilter(
+              state.suggestedReviewerFilter,
+              currentUserUuid,
+            ) ?? [];
           const next = current.includes(reviewerUuid)
             ? current.filter((uuid) => uuid !== reviewerUuid)
             : [...current, reviewerUuid];
@@ -96,14 +143,16 @@ export const useInboxFilterStore = create<InboxFilterStore>()(
         set({
           statusFilter: [...INBOX_PIPELINE_STATUSES],
           sourceProductFilter: [],
-          suggestedReviewerFilter: [],
+          suggestedReviewerFilter: null,
           priorityFilter: [],
         }),
     }),
     {
       name: "inbox-filter-storage",
+      version: 1,
+      migrate: migrateInboxFilterState,
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({
+      partialize: (state): PersistedInboxFilterState => ({
         sortField: state.sortField,
         sortDirection: state.sortDirection,
         statusFilter: state.statusFilter,

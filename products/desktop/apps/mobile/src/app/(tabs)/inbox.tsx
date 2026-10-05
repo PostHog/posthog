@@ -6,6 +6,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useUserQuery } from "@/features/auth";
 import { ArchivedReportList } from "@/features/inbox/components/ArchivedReportList";
 import { FilterSheet } from "@/features/inbox/components/FilterSheet";
 import { FloatingInboxHeader } from "@/features/inbox/components/FloatingInboxHeader";
@@ -24,7 +25,10 @@ import {
   decidedIds,
   useDismissedReportsStore,
 } from "@/features/inbox/stores/dismissedReportsStore";
-import { useInboxFilterStore } from "@/features/inbox/stores/inboxFilterStore";
+import {
+  resolveSuggestedReviewerFilter,
+  useInboxFilterStore,
+} from "@/features/inbox/stores/inboxFilterStore";
 import { useInboxStore } from "@/features/inbox/stores/inboxStore";
 import { ANALYTICS_EVENTS, useAnalytics } from "@/lib/analytics";
 
@@ -37,15 +41,19 @@ export default function InboxScreen() {
   const [reviewerOpen, setReviewerOpen] = useState(false);
   const [viewMode, setViewMode] = useState<InboxViewMode>("list");
   const archived = useArchivedReports({ enabled: viewMode === "archive" });
-  const reviewerFilterCount = useInboxFilterStore(
-    (s) => s.suggestedReviewerFilter.length,
-  );
   const sourceProductFilter = useInboxFilterStore((s) => s.sourceProductFilter);
   const statusFilter = useInboxFilterStore((s) => s.statusFilter);
   const priorityFilter = useInboxFilterStore((s) => s.priorityFilter);
-  const suggestedReviewerFilter = useInboxFilterStore(
+  const storedReviewerFilter = useInboxFilterStore(
     (s) => s.suggestedReviewerFilter,
   );
+  const { data: currentUser } = useUserQuery();
+  const suggestedReviewerFilter =
+    resolveSuggestedReviewerFilter(storedReviewerFilter, currentUser?.uuid) ??
+    [];
+  // The default "for you" scope is not a filter the user chose.
+  const isDefaultReviewerScope = storedReviewerFilter === null;
+  const reviewerFilterCount = suggestedReviewerFilter.length;
 
   const analytics = useAnalytics();
   // Fire INBOX_VIEWED once per focus when the report list has settled. We
@@ -74,7 +82,9 @@ export default function InboxScreen() {
           surface: "mobile",
           sourceProductFilter,
           statusFilter,
-          suggestedReviewerFilter,
+          suggestedReviewerFilter: isDefaultReviewerScope
+            ? []
+            : suggestedReviewerFilter,
           priorityFilter,
           defaultStatusFilter: INBOX_PIPELINE_STATUSES,
         },
@@ -89,6 +99,7 @@ export default function InboxScreen() {
     sourceProductFilter,
     statusFilter,
     suggestedReviewerFilter,
+    isDefaultReviewerScope,
     priorityFilter,
   ]);
 
@@ -127,12 +138,17 @@ export default function InboxScreen() {
     sourceProductFilter.length > 0 ||
     priorityFilter.length > 0 ||
     statusFilter.length < INBOX_PIPELINE_STATUSES.length ||
-    suggestedReviewerFilter.length > 0;
+    (!isDefaultReviewerScope && suggestedReviewerFilter.length > 0);
 
-  // Coarse reviewer scope. Mobile has no scope control yet, so a non-empty
-  // reviewer filter reads as "teammate" without leaking a specific UUID.
-  const triageScope: InboxReviewerScope =
-    suggestedReviewerFilter.length > 0 ? "teammate" : "entire-project";
+  // Coarse reviewer scope, so no specific UUID leaks into analytics.
+  const isOnlyMe =
+    suggestedReviewerFilter.length === 1 &&
+    suggestedReviewerFilter[0] === currentUser?.uuid;
+  const triageScope: InboxReviewerScope = isOnlyMe
+    ? "for-you"
+    : suggestedReviewerFilter.length > 0
+      ? "teammate"
+      : "entire-project";
 
   // Bracket tinder mode with triage_started / triage_ended so we can measure
   // how many cards users clear before exiting. The live ref lets the cleanup
