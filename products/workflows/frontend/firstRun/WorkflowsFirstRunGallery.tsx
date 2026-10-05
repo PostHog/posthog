@@ -93,7 +93,7 @@ export function WorkflowsFirstRunGallery(): JSX.Element {
 
 function gallerySubtitle(readyCount: number, activeFilter: GalleryFilter): string {
     if (readyCount === 0) {
-        return 'Your app does not send the events these templates start on yet. Each card says what it needs.'
+        return 'Your app does not send the events these templates need yet. Each card says what is missing.'
     }
     return activeFilter === 'picked'
         ? 'These templates work with the events your app sends today. Pick one to make it yours.'
