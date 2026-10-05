@@ -1,6 +1,6 @@
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -63,7 +63,7 @@ def test_requests_and_row_identity(
         False,
         "2026-01-01T00:00:00Z",
     )
-    rows = [item for page in response.items() for item in page]
+    rows = [item for page in cast(Iterable[Any], response.items()) for item in page]
     expected = {**row, "id": row["invoice"]["id"]} if endpoint == "invoices" else row
     assert rows == [expected]
     assert len(http.request_history) == 1
@@ -98,7 +98,7 @@ def test_cursor_pages_and_checkpoints(
         True,
         "2026-01-01T00:00:00Z",
     )
-    iterator = iter(response.items())
+    iterator = iter(cast(Iterable[Any], response.items()))
     assert next(iterator) == [{"id": "first"}]
     assert list(iterator) == [[{"id": "last"}]]
     assert [call.args[0].cursor for call in manager.save_state.call_args_list] == ["next-cursor", "last-cursor"]
@@ -133,7 +133,7 @@ def test_transaction_time_filter(
     response = slash_source(
         SlashSourceConfig(api_key="fake-key"), "transactions", 1, "job-example", manager, incremental, watermark
     )
-    assert list(response.items()) == []
+    assert list(cast(Iterable[Any], response.items())) == []
     assert http.request_history[0].qs == expected
 
 
@@ -141,7 +141,7 @@ def test_repeated_cursor_fails(http: requests_mock.Mocker, manager: MagicMock) -
     http.get("https://api.slash.com/card", json={"items": [{"id": "example"}], "metadata": {"nextCursor": "same"}})
     response = slash_source(SlashSourceConfig(api_key="fake-key"), "cards", 1, "job-example", manager, False, None)
     with pytest.raises(ValueError, match="not advancing"):
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
     assert len(http.request_history) == 2
 
 
@@ -182,7 +182,7 @@ def test_sync_error_mapping(http: requests_mock.Mocker, manager: MagicMock, stat
     http.get("https://api.slash.com/card", status_code=status, json={"success": False, "rawStatus": status})
     response = slash_source(SlashSourceConfig(api_key="fake-key"), "cards", 1, "job-example", manager, False, None)
     with pytest.raises(HTTPError) as error:
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
     matches = [
         message for pattern, message in SlashSource().get_non_retryable_errors().items() if pattern in str(error.value)
     ]
@@ -201,7 +201,7 @@ def test_transient_error_retries(http: requests_mock.Mocker, manager: MagicMock,
     )
     response = slash_source(SlashSourceConfig(api_key="fake-key"), "cards", 1, "job-example", manager, False, None)
     with patch("tenacity.nap.time.sleep"):
-        assert list(response.items()) == [[{"id": "example"}]]
+        assert list(cast(Iterable[Any], response.items())) == [[{"id": "example"}]]
     assert len(http.request_history) == 2
 
 

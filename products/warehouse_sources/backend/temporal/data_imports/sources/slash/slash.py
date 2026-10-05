@@ -14,7 +14,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -44,6 +47,7 @@ def validate_credentials(config: SlashSourceConfig, schema_name: str | None) -> 
         auth=APIKeyAuth(api_key=config.api_key, name="X-API-Key"),
         headers={"x-legal-entity": config.legal_entity_id} if config.legal_entity_id else {},
         paginator=SinglePagePaginator(),
+        request_timeout=(10, 60),
     )
     try:
         next(client.paginate(path, data_selector="items"), None)
@@ -78,23 +82,21 @@ def slash_source(
             watermark = watermark.replace(tzinfo=UTC)
         params["filter:from_date"] = int(watermark.timestamp() * 1000)
 
-    resource_config: EndpointResource = {
-        "name": endpoint,
-        "endpoint": {
-            "path": path,
-            "params": params,
-            "data_selector": "items",
-            "data_selector_required": True,
-            "paginator": "single_page"
-            if endpoint == "accounts"
-            else {
-                "type": "cursor",
-                "cursor_path": "metadata.nextCursor",
-                "cursor_param": "cursor",
-                "raise_on_repeated_cursor": True,
-            },
+    endpoint_config: Endpoint = {
+        "path": path,
+        "params": params,
+        "data_selector": "items",
+        "data_selector_required": True,
+        "paginator": "single_page"
+        if endpoint == "accounts"
+        else {
+            "type": "cursor",
+            "cursor_path": "metadata.nextCursor",
+            "cursor_param": "cursor",
+            "raise_on_repeated_cursor": True,
         },
     }
+    resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
     if endpoint == "invoices":
         resource_config["data_map"] = invoice_with_id
 
@@ -103,6 +105,7 @@ def slash_source(
             "base_url": BASE_URL,
             "auth": {"type": "api_key", "api_key": config.api_key, "name": "X-API-Key", "location": "header"},
             "headers": {"x-legal-entity": config.legal_entity_id} if config.legal_entity_id else {},
+            "request_timeout": (10, 60),
         },
         "resources": [resource_config],
     }
