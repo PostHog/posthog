@@ -430,6 +430,30 @@ class ClayWebhookResource(dagster.ConfigurableResource):
         """Get the serialized size of a batch in bytes."""
         return len(json.dumps(batch, default=str).encode("utf-8"))
 
+    def _fit_oversized_record(
+        self,
+        record: dict,
+        original_size: int,
+        truncatable_fields: list[str],
+        logger: Any | None,
+    ) -> dict | None:
+        """Truncate an oversized record. Return None when it still exceeds max_batch_bytes."""
+        record = self._truncate_record_to_fit(record, truncatable_fields)
+        record_size = self._get_batch_size([record])
+        domain = record.get("domain", "unknown")
+        if logger:
+            logger.info("Truncated record for domain %s: %d -> %d bytes", domain, original_size, record_size)
+        if record_size <= self.max_batch_bytes:
+            return record
+        if logger:
+            logger.warning(
+                "Skipped oversized record for domain %s: %d bytes exceeds max %d bytes",
+                domain,
+                record_size,
+                self.max_batch_bytes,
+            )
+        return None
+
     def create_batches(
         self,
         data: list[dict],
@@ -444,9 +468,6 @@ class ClayWebhookResource(dagster.ConfigurableResource):
         - truncated_count: number of records that were truncated to fit
         - skipped_count: number of records that were skipped entirely
         """
-        if not data:
-            return ClayBatchResult(batches=[], truncated_count=0, skipped_count=0)
-
         fields = truncatable_fields or []
         batches: list[list[dict]] = []
         current_batch: list[dict] = []
@@ -454,29 +475,14 @@ class ClayWebhookResource(dagster.ConfigurableResource):
         skipped_count = 0
 
         for record in data:
-            record_size = self._get_batch_size([record])
-            if record_size > self.max_batch_bytes:
-                original_size = record_size
-                record = self._truncate_record_to_fit(record, fields)
-                record_size = self._get_batch_size([record])
+            original_size = self._get_batch_size([record])
+            if original_size > self.max_batch_bytes:
                 truncated_count += 1
-                if logger:
-                    logger.info(
-                        "Truncated record for domain %s: %d -> %d bytes",
-                        record.get("domain", "unknown"),
-                        original_size,
-                        record_size,
-                    )
-                if record_size > self.max_batch_bytes:
+                fitted = self._fit_oversized_record(record, original_size, fields, logger)
+                if fitted is None:
                     skipped_count += 1
-                    if logger:
-                        logger.warning(
-                            "Skipped oversized record for domain %s: %d bytes exceeds max %d bytes",
-                            record.get("domain", "unknown"),
-                            record_size,
-                            self.max_batch_bytes,
-                        )
                     continue
+                record = fitted
 
             # Check if adding this record would exceed limits
             candidate = [*current_batch, record]
