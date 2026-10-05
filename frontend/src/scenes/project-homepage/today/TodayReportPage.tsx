@@ -22,8 +22,16 @@ import { reportIcon, reportMeta, reportSource, reportTitle } from './todaySignal
 
 export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element {
     const logic = todayReportLogic({ reportId })
-    const { currentReport, reportFailed, fullReportLoading, chartPlacements, chartsById, trailingCharts, reportState } =
-        useValues(logic)
+    const {
+        currentReport,
+        reportFailed,
+        fullReportLoading,
+        chartPlacements,
+        chartsById,
+        trailingCharts,
+        reportState,
+        resolvedByName,
+    } = useValues(logic)
     const { loadFullReport } = useActions(logic)
     const { requestReportVerdict } = useActions(todayLogic)
     const sampleDisabledReason = isSampleReportId(reportId) ? 'This is a sample report.' : undefined
@@ -86,7 +94,9 @@ export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element
                     <span>{reportMeta(currentReport)}</span>
                     {currentReport.priority && <LemonTag type="muted">{currentReport.priority}</LemonTag>}
                     {stateLabel && (
-                        <LemonTag type={reportState === 'done' ? 'success' : 'muted'}>{stateLabel}</LemonTag>
+                        <LemonTag type={reportState === 'done' ? 'success' : 'muted'}>
+                            {resolvedByName ? `${stateLabel} by ${resolvedByName}` : stateLabel}
+                        </LemonTag>
                     )}
                 </div>
                 <h1 className="TodayReport__heading">{reportTitle(currentReport)}</h1>

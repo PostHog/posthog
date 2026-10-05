@@ -12,6 +12,7 @@ import {
     type SignalScoutEmissionApi,
     type SignalScoutRunSummaryApi,
     type SignalUserAutonomyConfigApi,
+    type _UserApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -134,6 +135,7 @@ export interface SignalReport {
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */
     dismissal_note?: string | null
+    resolved_by?: _UserApi | null
     /** The report's PR refund, when one exists (one refund per report, ever). */
     refund?: SignalReportRefundApi | null
     /** Non-null when the report is system-marked never-billable (PostHog-system origin) — its PR is free. */

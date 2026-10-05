@@ -418,6 +418,17 @@ class SignalReport(UUIDModel):
     latest_actionability = models.CharField(max_length=30, null=True, blank=True)
     latest_already_addressed = models.BooleanField(null=True, blank=True)
 
+    # No DB constraint: adding one would lock the hot posthog_user table.
+    resolved_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+
     class Meta:
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
@@ -464,10 +475,14 @@ class SignalReport(UUIDModel):
         title: str | None = None,
         summary: str | None = None,
         error: str | None = None,
+        resolved_by_id: int | None = None,
     ) -> list[str]:
         """
         Validate and apply a status transition with side effects.
         Returns the list of fields that were modified.
+
+        `resolved_by_id` names the person behind a transition into RESOLVED. It is ignored for
+        every other target.
 
         Raises InvalidStatusTransition if the transition is not allowed.
         Does NOT call .save().
@@ -601,6 +616,14 @@ class SignalReport(UUIDModel):
         if new_status in (S.READY, S.PENDING_INPUT, S.FAILED) and self.first_visible_at is None:
             self.first_visible_at = timezone.now()
             updated_fields.add("first_visible_at")
+
+        # A restore out of the archive keeps the original resolver.
+        if new_status == S.RESOLVED and (resolved_by_id is not None or self.status != S.SUPPRESSED):
+            self.resolved_by_id = resolved_by_id
+            updated_fields.add("resolved_by")
+        elif new_status in (S.POTENTIAL, S.READY, S.FAILED) and self.resolved_by_id is not None:
+            self.resolved_by_id = None
+            updated_fields.add("resolved_by")
 
         self.status = new_status
         updated_fields.update(["status", "updated_at"])

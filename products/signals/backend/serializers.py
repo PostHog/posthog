@@ -1280,6 +1280,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
+    resolved_by = _UserSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The person who resolved the report. Null when the report is not resolved, when a merged "
+            "pull request resolved it, or when the resolver was not recorded."
+        ),
+    )
     channel_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
@@ -1338,6 +1346,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "tracker_issue_error",
             "work_state",
             "assignee",
+            "resolved_by",
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",

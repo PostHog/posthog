@@ -3004,6 +3004,11 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert response.status_code == expected_code, response.json()
         report.refresh_from_db()
         assert report.status == expected_status
+        if expected_code == status.HTTP_200_OK:
+            assert report.resolved_by_id == self.user.id
+            assert response.json()["resolved_by"]["email"] == self.user.email
+        else:
+            assert report.resolved_by_id is None
 
     @parameterized.expand(
         [

@@ -1232,7 +1232,7 @@ class SignalReportViewSet(
 
     def _scope_signal_report_queryset(self, queryset):
         # The serializer renders the reverse OneToOne rows inline.
-        return queryset.filter(team=self.team).select_related("refund", "tracker_issue")
+        return queryset.filter(team=self.team).select_related("refund", "tracker_issue", "resolved_by")
 
     def _annotate_artefact_count(self, queryset):
         # Count via a correlated subquery instead of `Count("artefacts")`,
@@ -3226,7 +3226,11 @@ class SignalReportViewSet(
 
             if not already_holds_verdict:
                 try:
-                    updated_fields = report.transition_to(effective_target, snooze_for=effective_snooze_for)
+                    updated_fields = report.transition_to(
+                        effective_target,
+                        snooze_for=effective_snooze_for,
+                        resolved_by_id=self._request_attribution().user_id,
+                    )
                 except InvalidStatusTransition as e:
                     logger.warning("Invalid status transition for SignalReport %s: %s", report.id, e, exc_info=True)
                     return SignalReportBulkStateOutcome.SKIPPED, None

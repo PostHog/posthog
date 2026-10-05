@@ -2,7 +2,13 @@ import { MakeLogicType, afterMount, connect, kea, key, path, props, reducers, se
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { UserType } from '~/types'
 
 import { signalsReportsSignalsRetrieve } from 'products/signals/frontend/generated/api'
 import { ReportChartApi, SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
@@ -22,6 +28,8 @@ export interface TodayReportLogicProps {
 export interface todayReportLogicValues {
     reportStateOverrides: Record<string, BriefingItemStateEnumApi> // todayLogic
     reports: SignalReport[] // todayLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    user: UserType | null // userLogic
     chartPlacements: ChartPlacements
     chartsById: Map<string, ReportChartApi>
     currentReport: SignalReport | null
@@ -31,6 +39,7 @@ export interface todayReportLogicValues {
     reportSignals: SignalNodeApi[] | null
     reportSignalsLoading: boolean
     reportState: BriefingItemStateEnumApi
+    resolvedByName: string | null
     signals: SignalNodeApi[]
     trailingCharts: ReportChartApi[]
 }
@@ -86,6 +95,13 @@ export interface todayReportLogicMeta {
             currentReport: SignalReport | null,
             reportStateOverrides: Record<string, BriefingItemStateEnumApi>
         ) => BriefingItemStateEnumApi
+        resolvedByName: (
+            featureFlags: FeatureFlagsSet,
+            reportState: BriefingItemStateEnumApi,
+            reportStateOverrides: Record<string, BriefingItemStateEnumApi>,
+            currentReport: SignalReport | null,
+            user: UserType | null
+        ) => string | null
     }
 }
 
@@ -100,7 +116,16 @@ export const todayReportLogic = kea<todayReportLogicType>([
     props({} as TodayReportLogicProps),
     key((props) => props.reportId),
     path((reportId) => ['scenes', 'project-homepage', 'today', 'todayReportLogic', reportId]),
-    connect(() => ({ values: [todayLogic, ['reports', 'reportStateOverrides']] })),
+    connect(() => ({
+        values: [
+            todayLogic,
+            ['reports', 'reportStateOverrides'],
+            featureFlagLogic,
+            ['featureFlags'],
+            userLogic,
+            ['user'],
+        ],
+    })),
     loaders(({ props }) => ({
         fullReport: [
             null as SignalReport | null,
@@ -180,6 +205,22 @@ export const todayReportLogic = kea<todayReportLogicType>([
             ): BriefingItemStateEnumApi =>
                 reportStateOverrides[props.reportId] ??
                 (currentReport ? reportItemState(currentReport.status) : 'open'),
+        ],
+        resolvedByName: [
+            (s) => [s.featureFlags, s.reportState, s.reportStateOverrides, s.currentReport, s.user],
+            (
+                featureFlags: FeatureFlagsSet,
+                reportState: BriefingItemStateEnumApi,
+                reportStateOverrides: Record<string, BriefingItemStateEnumApi>,
+                currentReport: SignalReport | null,
+                user: UserType | null
+            ): string | null => {
+                if (!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] || reportState !== 'done') {
+                    return null
+                }
+                const resolver = reportStateOverrides[props.reportId] === 'done' ? user : currentReport?.resolved_by
+                return resolver ? fullNameOrEmail(resolver) : null
+            },
         ],
     })),
     afterMount(({ actions }) => {

@@ -698,6 +698,8 @@ export interface SignalReportListApi {
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
     readonly assignee: SignalReportAssigneeApi | null
+    /** The person who resolved the report. Null when the report is not resolved, when a merged pull request resolved it, or when the resolver was not recorded. */
+    readonly resolved_by: _UserApi | null
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
@@ -917,6 +919,8 @@ export interface SignalReportApi {
     readonly work_state: SignalReportWorkStateEnumApi
     /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
     readonly assignee: SignalReportAssigneeApi | null
+    /** The person who resolved the report. Null when the report is not resolved, when a merged pull request resolved it, or when the resolver was not recorded. */
+    readonly resolved_by: _UserApi | null
     /** The report's PR refund, when one exists. One refund per report, ever. */
     readonly refund: SignalReportRefundApi | null
     /** Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values). */
