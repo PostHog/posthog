@@ -83,7 +83,7 @@ def sevenshifts_source(
     last_value: datetime | str | None,
 ) -> SourceResponse:
     schema_for_resource(dict.fromkeys(ENDPOINTS), endpoint)
-    params: dict[str, str | int] = {"limit": 100}
+    params: dict[str, Any] = {"limit": 100}
     if endpoint == "shifts":
         params["include_deleted"] = "true"
     if should_use_incremental_field and last_value is not None:
