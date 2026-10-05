@@ -23,6 +23,14 @@ describe('alertUtils', () => {
                 getAlertNotificationAddDisabledReason('webhook', false, null, 'https://example.com/webhook')
             ).toBeUndefined()
         })
+
+        it.each([
+            ['', 'Enter a PagerDuty integration key'],
+            ['   ', 'Enter a PagerDuty integration key'],
+            ['abcdef0123456789abcdef0123456789', undefined],
+        ])('checks the PagerDuty integration key %p', (routingKey, expectedReason) => {
+            expect(getAlertNotificationAddDisabledReason('pagerduty', false, null, '', routingKey)).toBe(expectedReason)
+        })
     })
 
     describe('buildAlertFilterConfig', () => {
@@ -187,6 +195,30 @@ describe('alertUtils', () => {
         })
     })
 
+    describe('buildHogFunctionPayload for PagerDuty', () => {
+        it('triggers one incident per alert with the chosen key, severity and region', () => {
+            const notification: PendingAlertNotification = {
+                type: 'pagerduty',
+                routingKey: ' abcdef0123456789abcdef0123456789 ',
+                severity: 'warning',
+                region: 'eu',
+            }
+
+            const result = buildHogFunctionPayload('alert-789', 'My alert', notification)
+
+            expect(result.name).toBe('My alert: PagerDuty')
+            expect(result.template_id).toBe('template-pagerduty')
+            expect(result.inputs).toMatchObject({
+                routing_key: { value: 'abcdef0123456789abcdef0123456789' },
+                severity: { value: 'warning' },
+                region: { value: 'eu' },
+                event_action: { value: 'trigger' },
+                dedup_key: { value: 'posthog-insight-alert-{event.properties.alert_id}' },
+                summary: { value: expect.stringContaining('{event.properties.alert_name}') },
+            })
+        })
+    })
+
     describe('notificationTypeFromTemplateId', () => {
         // Guards the create/delete analytics events: buildAlertDestination writes these template_ids,
         // and this maps them back to the type we report — a drift between the two would mislabel adoption.
@@ -195,6 +227,7 @@ describe('alertUtils', () => {
             ['template-discord', 'discord'],
             ['template-microsoft-teams', 'microsoft_teams'],
             ['template-webhook', 'webhook'],
+            ['template-pagerduty', 'pagerduty'],
         ])('maps %s to %s', (templateId, expected) => {
             expect(notificationTypeFromTemplateId(templateId)).toEqual(expected)
         })

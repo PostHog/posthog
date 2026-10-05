@@ -7,6 +7,8 @@ import { urls } from 'scenes/urls'
 import { HogFunctionType, IntegrationType } from '~/types'
 
 import {
+    ALERT_PAGERDUTY_REGION_OPTIONS,
+    ALERT_PAGERDUTY_SEVERITY_OPTIONS,
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
     AlertNotificationUrlInput,
@@ -15,6 +17,7 @@ import {
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
+    ALERT_NOTIFICATION_TYPE_PAGERDUTY,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     AlertNotificationType,
@@ -84,11 +87,24 @@ function getHogFunctionDestination(
         const webhookUrl = hogFunction.inputs?.webhookUrl?.value
         return { type: 'Microsoft Teams', detail: typeof webhookUrl === 'string' ? webhookUrl : null }
     }
+    if (hogFunction.template_id === 'template-pagerduty') {
+        return {
+            type: 'PagerDuty',
+            detail: pagerDutyDetail(hogFunction.inputs?.severity?.value, hogFunction.inputs?.region?.value),
+        }
+    }
     const urlValue = hogFunction.inputs?.url?.value
     if (urlValue && typeof urlValue === 'string') {
         return { type: 'Webhook', detail: urlValue }
     }
     return { type: hogFunction.name, detail: null }
+}
+
+function pagerDutyDetail(severity: unknown, region: unknown): string | null {
+    const severityLabel = ALERT_PAGERDUTY_SEVERITY_OPTIONS.find((option) => option.value === severity)?.label
+    const regionLabel = ALERT_PAGERDUTY_REGION_OPTIONS.find((option) => option.value === region)?.label
+    const parts = [severityLabel, regionLabel ? `${regionLabel} region` : undefined].filter(Boolean)
+    return parts.length > 0 ? parts.join(' · ') : null
 }
 
 function getPendingNotificationDestination(
@@ -111,6 +127,8 @@ function getPendingNotificationDestination(
             return { title: 'Microsoft Teams', detail: notification.webhookUrl }
         case ALERT_NOTIFICATION_TYPE_WEBHOOK:
             return { title: 'Webhook', detail: notification.webhookUrl }
+        case ALERT_NOTIFICATION_TYPE_PAGERDUTY:
+            return { title: 'PagerDuty', detail: pagerDutyDetail(notification.severity, notification.region) }
         default: {
             const exhaustiveCheck: never = notification
             return exhaustiveCheck
@@ -127,6 +145,7 @@ function getUrlInput(type: AlertNotificationType): AlertNotificationUrlInput | u
         case ALERT_NOTIFICATION_TYPE_WEBHOOK:
             return { placeholder: 'https://example.com/webhook' }
         case ALERT_NOTIFICATION_TYPE_SLACK:
+        case ALERT_NOTIFICATION_TYPE_PAGERDUTY:
             return undefined
         default: {
             const exhaustiveCheck: never = type
@@ -152,6 +171,9 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         selectedType,
         slackChannelValue,
         webhookUrl,
+        pagerDutyRoutingKey,
+        pagerDutySeverity,
+        pagerDutyRegion,
     } = useValues(logic)
     const {
         addPendingNotification,
@@ -161,6 +183,9 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         setSelectedSlackIntegrationId,
         setSlackChannelValue,
         setWebhookUrl,
+        setPagerDutyRoutingKey,
+        setPagerDutySeverity,
+        setPagerDutyRegion,
         loadIntegrations,
     } = useActions(logic)
 
@@ -175,6 +200,17 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                 slackWorkspaceId: selectedSlackIntegration.id,
                 slackChannelId: channelId,
                 slackChannelName: channelLabel?.replace('#', '') ?? channelId,
+            }
+        }
+        if (selectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
+            if (!pagerDutyRoutingKey.trim()) {
+                return null
+            }
+            return {
+                type: ALERT_NOTIFICATION_TYPE_PAGERDUTY,
+                routingKey: pagerDutyRoutingKey,
+                severity: pagerDutySeverity,
+                region: pagerDutyRegion,
             }
         }
         if (!webhookUrl) {
@@ -197,6 +233,10 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
         addPendingNotification(notification)
         if (notification.type === ALERT_NOTIFICATION_TYPE_SLACK) {
             setSlackChannelValue(null)
+            return
+        }
+        if (notification.type === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
+            setPagerDutyRoutingKey('')
             return
         }
         setWebhookUrl('')
@@ -257,13 +297,28 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                     onChannelValueChange: setSlackChannelValue,
                 }}
                 url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
+                pagerduty={
+                    selectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                        ? {
+                              routingKey: pagerDutyRoutingKey,
+                              onRoutingKeyChange: setPagerDutyRoutingKey,
+                              severity: pagerDutySeverity,
+                              onSeverityChange: setPagerDutySeverity,
+                              region: pagerDutyRegion,
+                              onRegionChange: setPagerDutyRegion,
+                              incidentHelpText:
+                                  'An incident opens when the alert fires. Resolve it in PagerDuty when the problem is fixed.',
+                          }
+                        : undefined
+                }
                 add={{
                     onClick: handleAdd,
                     disabledReason: getAlertNotificationAddDisabledReason(
                         selectedType,
                         Boolean(selectedSlackIntegration),
                         slackChannelValue,
-                        webhookUrl
+                        webhookUrl,
+                        pagerDutyRoutingKey
                     ),
                 }}
             />
