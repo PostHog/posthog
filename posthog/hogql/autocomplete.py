@@ -59,6 +59,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.taxonomy.definition_search import search_plan
 from posthog.taxonomy.taxonomy import QUERY_DEPRECATED_EVENT_PROPERTIES
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -70,6 +71,8 @@ from common.hogvm.python.stl.bytecode import BYTECODE_STL
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
+# pg_trgm extracts no trigram from a shorter LIKE term, so its index cannot narrow the search.
+TRIGRAM_MIN_TERM_LENGTH = 3
 # The one path through a Hog function's globals that holds an event's own property bag. Other
 # `properties` bags (person, groups, a user-defined input) never carry person property setters.
 EVENT_PROPERTIES_GLOBALS_CHAIN = ["event", "properties"]
@@ -773,11 +776,21 @@ def _suggest_property_names(
     # an empty match_term makes the filter `LIKE '%%'`, so that count walked the
     # project's whole taxonomy. `posthog_propdef_proj_uniq` is keyed on (project,
     # name, ...), so ordering by name reads it in index order and stops at the limit.
+    # In a huge project a rare term makes that walk read the whole project, so drop the
+    # order and let the trigram index find the matches.
+    use_trigram_index = (
+        len(match_term) >= TRIGRAM_MIN_TERM_LENGTH
+        and search_plan("posthog_propertydefinition", context.team.project_id, PropertyDefinition.objects.db)
+        == "trigram"
+    )
+    if not use_trigram_index:
+        property_query = property_query.order_by("name")
+
     with timings.measure("property_get_values"):
-        properties = list(
-            property_query.order_by("name")[: PROPERTY_DEFINITION_LIMIT + 1].values("name", "property_type")
-        )
+        properties = list(property_query[: PROPERTY_DEFINITION_LIMIT + 1].values("name", "property_type"))
     response.incomplete_list = len(properties) > PROPERTY_DEFINITION_LIMIT
+    if use_trigram_index:
+        properties.sort(key=lambda prop: prop["name"])
     properties = properties[:PROPERTY_DEFINITION_LIMIT]
 
     extend_responses(
