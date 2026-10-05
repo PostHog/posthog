@@ -27245,6 +27245,13 @@
                     },
                     "type": "array"
                 },
+                "searchKeywords": {
+                    "description": "Other terms that find this item in search, for example the names of its tabs or common synonyms",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "shortcut": {
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
