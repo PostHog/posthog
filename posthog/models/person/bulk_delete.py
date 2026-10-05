@@ -254,10 +254,18 @@ def tombstone_and_publish_persons_by_uuids(team_id: int, person_uuids: builtins.
         batch.append(person)
         batch_distinct_id_count += len(distinct_ids)
         if batch_distinct_id_count >= QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
-            tombstoned += tombstone_and_publish_persons(team_id, batch)
+            tombstoned += _tombstone_batch_and_release(team_id, batch)
             batch, batch_distinct_id_count = [], 0
     if batch:
-        tombstoned += tombstone_and_publish_persons(team_id, batch)
+        tombstoned += _tombstone_batch_and_release(team_id, batch)
+    return tombstoned
+
+
+def _tombstone_batch_and_release(team_id: int, persons: builtins.list[Person]) -> int:
+    tombstoned = tombstone_and_publish_persons(team_id, persons)
+    # The resolved persons outlive their batch, so drop their ID strings to hold one batch of them at a time.
+    for person in persons:
+        person._distinct_ids = None
     return tombstoned
 
 

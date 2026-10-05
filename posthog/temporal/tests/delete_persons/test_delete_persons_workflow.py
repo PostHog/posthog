@@ -7,6 +7,7 @@ from asgiref.sync import sync_to_async
 from temporalio.exceptions import ApplicationError
 
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.person import Person, bulk_delete
 from posthog.models.person.bulk_delete import PersonTombstoneFailed
 from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.personhog_client.proto import DeletePersonsMode
@@ -50,11 +51,19 @@ class TestDeletePersonsActivity:
         assert fake.tombstone_queue == {}
 
     async def test_by_ids_pages_distinct_ids_and_bounds_each_tombstone_rpc(self, activity_environment):
+        tombstoned_persons: list[Person] = []
+
+        def record_batch(team_id: int, persons: list[Person]) -> int:
+            tombstoned_persons.extend(persons)
+            return real_tombstone(team_id, persons)
+
+        real_tombstone = bulk_delete.tombstone_and_publish_persons
         with (
             fake_personhog_client() as fake,
             _no_publish(),
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE", 2),
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", 3),
+            patch.object(bulk_delete, "tombstone_and_publish_persons", side_effect=record_batch),
         ):
             for pid in (10, 11):
                 fake.add_person(
@@ -75,6 +84,8 @@ class TestDeletePersonsActivity:
         assert page_limits == [2, 2, 2, 2]
         tombstone_batches = [len(call.request.person_uuids) for call in fake.calls if call.method == "delete_persons"]
         assert tombstone_batches == [1, 1]
+        assert len(tombstoned_persons) == 2
+        assert all(person._distinct_ids is None for person in tombstoned_persons)
 
     async def test_by_ids_raises_and_leaves_persons_live_when_the_postgres_tombstone_fails(self, activity_environment):
         person_uuid = str(uuid_lib.uuid4())
