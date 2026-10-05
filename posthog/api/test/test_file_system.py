@@ -783,10 +783,12 @@ class TestFileSystemDeletion(APIBaseTest):
         )
 
         assert undo_response.status_code == status.HTTP_200_OK
-        flag.refresh_from_db()
         assert FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.id)).exists()
-        assert flag.active is True
-        assert flag.deleted is False  # type: ignore
+        # Re-fetch instead of refresh_from_db: mypy narrows the earlier truthy assert on deleted,
+        # which makes asserting False on the same instance unreachable.
+        restored = FeatureFlag.objects.get(pk=flag.pk)
+        assert restored.active is True
+        assert restored.deleted is False
         assert not ChangeRequest.objects.filter(team=self.team).exists()
 
     def test_undo_delete_restores_original_path(self) -> None:
