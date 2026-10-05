@@ -135,6 +135,15 @@ The activity log API, the advanced activity logs API and its exports, the notifi
 The `system.activity_logs` SQL table and the search filter read the stored `detail`, so old rows need rewriting to stay masked there.
 These protections do not revoke exposed credentials.
 
+Destination mappings do not support secret inputs.
+Set secrets in the destination's top-level inputs so encryption and masking also apply to drafts and revisions.
+The API rejects mapping schemas that declare secret inputs before it validates their values.
+Input schema keys must be unique, including in mappings and workflow function inputs.
+Changing an input from secret to non-secret does not copy its stored value into plaintext storage.
+An explicit replacement value can be stored as a non-secret input.
+Existing duplicate input keys do not block disabling or deleting a destination, but requests cannot add a duplicate key.
+Destination, draft, and revision responses mask secret mapping values from old records, including defaults.
+
 ## Writes the signal cannot see
 
 The mixin hooks `save()` and `delete()`.
