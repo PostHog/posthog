@@ -629,6 +629,7 @@ the row lists both.
 | pylon                            | HTTP                        | requests                                                        | ✅                          |
 | pypi                             | HTTP                        | requests                                                        | ✅                          |
 | qdrant                           | HTTP                        | requests                                                        | ✅                          |
+| qonto                            | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                         | HTTP                        | requests                                                        | ✅                          |
 | qualtrics                        | HTTP                        | requests                                                        | ✅                          |
 | qualys_vmdr                      | HTTP (XML responses)        | requests                                                        | ✅                          |
@@ -680,6 +681,7 @@ the row lists both.
 | segment                          | HTTP                        | requests                                                        | ✅                          |
 | select_star                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | semantic_scholar                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| semaphore                        | HTTP                        | requests                                                        | ✅                          |
 | semgrep                          | HTTP                        | requests                                                        | ✅                          |
 | semrush                          | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                         | HTTP                        | requests                                                        | ✅                          |
@@ -1336,7 +1338,6 @@ doesn't conflict with concurrent PRs.
 - prompting_company
 - proofpoint_tap
 - pubnub
-- qonto
 - quay
 - quickbooks
 - railz
@@ -1381,7 +1382,7 @@ doesn't conflict with concurrent PRs.
 - search_ads_360
 - sec_edgar
 - secureframe
-- semaphore
+- semrush
 - sendpulse
 - senseforce
 - service_fusion
