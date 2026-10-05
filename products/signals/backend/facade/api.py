@@ -1423,7 +1423,10 @@ def latest_structured_output_for_source(
         if not isinstance(timestamp, datetime) or abs(_as_utc(timestamp) - _as_utc(run_start)) > _RUN_START_TOLERANCE:
             # A real run id with a timestamp the channel never writes was sent by something else.
             continue
-        payload = json.loads(output) if isinstance(output, str) else output
+        try:
+            payload = json.loads(output) if isinstance(output, str) else output
+        except json.JSONDecodeError:
+            continue
         if isinstance(payload, dict):
             return ScoutStructuredRecord(
                 payload=payload, recorded_at=run_start, skill_name=skill_name, run_id=str(run_id)

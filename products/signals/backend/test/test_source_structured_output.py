@@ -25,7 +25,7 @@ class TestLatestStructuredOutputForSource(ClickhouseTestMixin, APIBaseTest):
             team=self.team, task_run=task_run, scout_config=config, skill_name=config.skill_name, skill_version=1
         )
 
-    def _record(self, skill_name: str, run_id: str, payload: dict, *, at) -> None:
+    def _record(self, skill_name: str, run_id: str, payload: dict | str, *, at) -> None:
         _create_event(
             team=self.team,
             event="$scout_structured_output",
@@ -59,3 +59,16 @@ class TestLatestStructuredOutputForSource(ClickhouseTestMixin, APIBaseTest):
         assert record.payload == {"scanner_version": 2}
         assert (record.run_id, record.skill_name) == (str(second.id), analysis.skill_name)
         assert latest_structured_output_for_source(self.team.id, _SOURCE_PRODUCT, "scanner-c", tag=_TAG) is None
+
+    def test_skips_a_malformed_record_and_returns_an_older_valid_one(self) -> None:
+        analysis = self._scout("signals-scout-analysis", source_id="scanner-a", tags=[_TAG])
+        first, second = self._run(analysis), self._run(analysis)
+        self._record(analysis.skill_name, str(first.id), {"scanner_version": 1}, at=first.created_at)
+        self._record(analysis.skill_name, str(second.id), "{not json", at=second.created_at)
+        flush_persons_and_events()
+
+        record = latest_structured_output_for_source(self.team.id, _SOURCE_PRODUCT, "scanner-a", tag=_TAG)
+
+        assert record is not None
+        assert record.payload == {"scanner_version": 1}
+        assert record.run_id == str(first.id)

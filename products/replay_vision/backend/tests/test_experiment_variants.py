@@ -166,6 +166,40 @@ class TestExperimentVariants(_VisionAPITestCase):
         assert by_key["beta"]["digest"] == [] and by_key["beta"]["analysis_observations"] == 0
         assert body["differences"] == payload["differences"]
 
+    def test_a_child_scoped_api_key_cannot_read_the_parent_teams_analysis(self) -> None:
+        # The variant analysis is read from the scout's records on the parent team, so a key
+        # scoped only to a child environment must not read it through the child's scanner.
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.team import Team
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        experiment = create_experiment(env, "env-flag", launched=True, variants=["control", "test"])
+        scanner = self._create_scanner(
+            name="child-experiment-scanner",
+            team=env,
+            scanner_type=ScannerType.EXPERIMENT,
+            scanner_config={"prompt": "p", "experiment_id": experiment.id},
+        )
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["replay_scanner:read", "session_recording:read"],
+            scoped_teams=[env.id],
+        )
+        self.client.logout()
+
+        with patch(f"{_SIGNALS}.latest_structured_output_for_source") as read_analysis:
+            response = self.client.get(
+                f"/api/projects/{env.id}/vision/scanners/{scanner.id}/variants/",
+                HTTP_AUTHORIZATION=f"Bearer {raw}",
+            )
+
+        assert response.status_code == 403, response.content
+        assert not read_analysis.called
+
     def test_a_non_experiment_scanner_has_no_variants(self) -> None:
         monitor = self._create_scanner(name="monitor")
         resp = self.client.get(f"{self.scanners_url}{monitor.id}/variants/")

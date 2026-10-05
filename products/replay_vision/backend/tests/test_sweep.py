@@ -234,6 +234,35 @@ class TestFindScannerCandidatesActivity:
             assert abs(result.swept_through - settled_now) < dt.timedelta(minutes=1)
             assert result.deep_swept_through == result.swept_through
 
+    def test_a_deleted_experiment_keeps_its_scanner_on_until_the_scout_is_paused(self) -> None:
+        # A disabled scanner has no schedule left to retry the pause, and the scout would keep
+        # running on the customer's bill. So the scanner stays on until a later tick pauses it.
+        scanner = _make_scanner(scanner_type=ScannerType.EXPERIMENT)
+        experiment = create_experiment(scanner.team, "deleted-flag", launched=True, variants=["control", "test"])
+        scanner.scanner_config = {"prompt": "p", "experiment_id": experiment.id}
+        scanner.save()
+        experiment.deleted = True
+        experiment.save()
+        inputs = FindScannerCandidatesInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+
+        with (
+            _patched_queries() as (fast_query, deep_query),
+            patch(f"{_ACTIVITY}.pause_variant_analysis_scouts", side_effect=RuntimeError("signals down")),
+        ):
+            result = find_scanner_candidates_activity(inputs)
+
+        assert result.candidates == []
+        assert not fast_query.called and not deep_query.called
+        scanner.refresh_from_db()
+        assert scanner.enabled is True
+
+        with _patched_queries(), patch(f"{_ACTIVITY}.pause_variant_analysis_scouts") as pause_scouts:
+            find_scanner_candidates_activity(inputs)
+
+        assert pause_scouts.called
+        scanner.refresh_from_db()
+        assert scanner.enabled is False
+
     @parameterized.expand([("fast_walk_behind_the_end", False), ("only_the_deep_pass_behind", True)])
     def test_an_ended_experiment_is_swept_up_to_its_end_before_it_stops(self, _name: str, fast_at_end: bool) -> None:
         # Jumping to now on the first tick after the end would drop the run's last sessions and the
