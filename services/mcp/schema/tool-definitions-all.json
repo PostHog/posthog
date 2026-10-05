@@ -14549,6 +14549,20 @@
         },
         "requires_ai_consent": true
     },
+    "vision-scanners-variants-list": {
+        "description": "Read an experiment scanner's results side by side per variant: how many observations each variant has, how many distinct people they cover, the median session length, the rate each variant was sampled at, and its latest observations. When the scanner has a variant analysis scout, it also returns that scout's per-variant digests and the differences between variants. Experiment scanners only.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Compare an experiment scanner's variants",
+        "title": "Compare an experiment scanner's variants",
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "vision-scanners-watch-feed": {
         "description": "Rank succeeded replay vision observations in a window by how worth watching their recordings are, across every scanner you can read. Each item pairs the `observation` (with its `session_id`) and the `reason` it made the feed. `date_from` defaults to `-7d` (ISO 8601 or relative); the window spans at most 90 days. Narrow with `scanner_ids`, `scanner_type`, scanner `tags`, or a `search` over the scan's own words. `limit` is at most 50. Use it to answer \"which recordings should I watch this week?\".",
         "category": "Replay vision",
