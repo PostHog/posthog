@@ -229,10 +229,16 @@ describe("Composer", () => {
 
   it.each([
     ["sends an attached image with its marker", [], ["look [Image #1]", 1]],
+    ["drops an image whose marker Backspace deleted", ["\x7f"], ["look", 0]],
     [
-      "drops an image whose marker was deleted",
-      ["\x7f"],
-      ["look [Image #1", 0],
+      "drops an image whose marker Delete deleted",
+      [...Array(10).fill("\x1b[D"), "\x1b[3~"],
+      ["look", 0],
+    ],
+    [
+      "deletes text typed after a marker one character at a time",
+      ["!", "\x7f"],
+      ["look [Image #1]", 1],
     ],
   ])("%s", (_, extraKeys, [text, count]) => {
     const sent: [string, number][] = [];

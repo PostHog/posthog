@@ -157,8 +157,26 @@ export class Composer {
     if (empty && !this.shellMode && bang) this.shellMode = true;
     else if (empty && this.shellMode && matchesKey(sequence, "backspace"))
       this.shellMode = false;
-    else this.editor.handleInput(sequence);
+    else if (!this.deleteMarker(sequence)) this.editor.handleInput(sequence);
     this.repaint();
+  }
+
+  // pi's editor deletes one character per key, so Backspace or Delete beside an image marker removes the whole marker.
+  // The image stays known, so a marker that undo puts back still sends it.
+  private deleteMarker(sequence: string): boolean {
+    const backward = matchesKey(sequence, "backspace");
+    if (!backward && !matchesKey(sequence, "delete")) return false;
+    const { line, col } = this.editor.getCursor();
+    const text = this.editor.getLines()[line] ?? "";
+    const marker = [...this.images.keys()].find((candidate) =>
+      backward
+        ? text.slice(0, col).endsWith(candidate)
+        : text.startsWith(candidate, col),
+    );
+    if (!marker) return false;
+    for (let step = 0; step < marker.length; step++)
+      this.editor.handleInput(sequence);
+    return true;
   }
 
   // The input and its rule, and apart from them any suggestion list, which the pane floats over the chat.
