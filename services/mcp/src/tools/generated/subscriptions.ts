@@ -182,7 +182,12 @@ const subscriptionsDeliveriesRetrieve = (): ToolBase<
 
 const SubscriptionsListSchema = () => {
     const SubscriptionsListQueryParams = orvalSchemas.SubscriptionsListQueryParams()
-    return SubscriptionsListQueryParams
+    return SubscriptionsListQueryParams.extend({
+        limit: SubscriptionsListQueryParams.shape['limit']
+            .default(20)
+            .optional()
+            .describe('Number of subscriptions to return per page (default 20).'),
+    })
 }
 
 const subscriptionsList = (): ToolBase<
@@ -212,7 +217,18 @@ const subscriptionsList = (): ToolBase<
         })
         const filtered = {
             ...result,
-            results: (result.results ?? []).map((item: any) => omitResponseFields(item, ['invite_message'])),
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, [
+                    'invite_message',
+                    'created_by.uuid',
+                    'created_by.distinct_id',
+                    'created_by.first_name',
+                    'created_by.last_name',
+                    'created_by.is_email_verified',
+                    'created_by.hedgehog_config',
+                    'created_by.role_at_organization',
+                ])
+            ),
         } as typeof result
         return await withPostHogUrl(
             context,
