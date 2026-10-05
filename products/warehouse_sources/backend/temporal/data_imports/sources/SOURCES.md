@@ -161,6 +161,7 @@ the row lists both.
 | bugherd                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bugsnag                          | HTTP                        | requests                                                        | ✅                          |
 | buildbetter                      | HTTP                        | requests                                                        | ✅                          |
+| buildium                         | HTTP                        | requests                                                        | ✅                          |
 | buildkite                        | HTTP                        | requests                                                        | ✅                          |
 | bunny                            | HTTP                        | requests                                                        | ✅                          |
 | buttondown                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -359,6 +360,7 @@ the row lists both.
 | gnews                            | HTTP                        | requests                                                        | ✅                          |
 | gocardless                       | HTTP                        | requests                                                        | ✅                          |
 | goldcast                         | HTTP                        | requests                                                        | ✅                          |
+| gologin                          | HTTP                        | requests                                                        | ✅                          |
 | gong                             | HTTP                        | requests                                                        | ✅                          |
 | google_ads                       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_analytics                 | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
@@ -620,6 +622,7 @@ the row lists both.
 | productboard                     | HTTP                        | requests                                                        | ✅                          |
 | productive                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | profound                         | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
+| promptwatch                      | HTTP                        | requests                                                        | ✅                          |
 | propertyware                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pulumi_cloud                     | HTTP                        | requests                                                        | ✅                          |
 | pylon                            | HTTP                        | requests                                                        | ✅                          |
@@ -677,6 +680,7 @@ the row lists both.
 | select_star                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | semantic_scholar                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | semgrep                          | HTTP                        | requests                                                        | ✅                          |
+| semrush                          | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                         | HTTP                        | requests                                                        | ✅                          |
 | sendowl                          | HTTP                        | requests                                                        | ✅                          |
 | sentinelone                      | HTTP                        | requests                                                        | ✅                          |
@@ -748,6 +752,7 @@ the row lists both.
 | survicate                        | HTTP                        | requests                                                        | ✅                          |
 | svix                             | HTTP                        | requests                                                        | ✅                          |
 | swarmia                          | HTTP                        | requests                                                        | ✅                          |
+| systeme                          | HTTP                        | requests                                                        | ✅                          |
 | taboola                          | HTTP                        | requests                                                        | ✅                          |
 | tailscale                        | HTTP                        | requests                                                        | ✅                          |
 | tally                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -985,7 +990,6 @@ doesn't conflict with concurrent PRs.
 - branch
 - breezy_hr
 - buffer
-- buildium
 - cal_com
 - calendarific
 - calibre
@@ -1133,7 +1137,6 @@ doesn't conflict with concurrent PRs.
 - gnews
 - gojiberry
 - goldcast
-- gologin
 - google_ad_manager
 - google_adsense
 - google_analytics
@@ -1329,7 +1332,6 @@ doesn't conflict with concurrent PRs.
 - procore
 - productiv
 - prompting_company
-- promptwatch
 - proofpoint_tap
 - pubnub
 - qonto
@@ -1378,7 +1380,6 @@ doesn't conflict with concurrent PRs.
 - sec_edgar
 - secureframe
 - semaphore
-- semrush
 - sendpulse
 - senseforce
 - service_fusion
@@ -1433,7 +1434,6 @@ doesn't conflict with concurrent PRs.
 - swan
 - swonkie
 - synthesia
-- systeme
 - tackle_io
 - talkdesk
 - tana
