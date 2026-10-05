@@ -51,3 +51,19 @@ export function exampleSurveyClient(surveys: Survey[] = [exampleApiSurvey]): Api
         get_session_replay_url: () => 'https://example.com/replay',
     }
 }
+
+export const exampleFeedbackRating = {
+    id: 'helpfulness',
+    type: SurveyQuestionType.Rating,
+    question: 'Was this helpful?',
+    display: 'emoji',
+    scale: 2,
+    lowerBoundLabel: 'Helpful',
+    upperBoundLabel: 'Not helpful',
+} as const
+
+export const exampleRatingSurvey: Survey = {
+    ...exampleApiSurvey,
+    enable_partial_responses: true,
+    questions: [exampleFeedbackRating, ...exampleApiSurvey.questions],
+}
