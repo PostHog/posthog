@@ -828,7 +828,12 @@ describe('annotationsOverlayLogic', () => {
     })
 
     describe('annotationBadgeDataIndices', () => {
-        it.each<{ interval: IntervalType; dates: string[]; expected: Record<string, number> }>([
+        it.each<{
+            interval: IntervalType
+            intervalOverride?: IntervalType
+            dates: string[]
+            expected: Record<string, number>
+        }>([
             {
                 interval: 'month',
                 dates: ['2022-08-01', '2022-09-01', '2022-10-01'],
@@ -840,7 +845,14 @@ describe('annotationsOverlayLogic', () => {
                 dates: ['2022-08-08', '2022-08-15', '2022-08-22', '2022-08-29', '2022-09-05', '2022-09-12'],
                 expected: { '2022-08-10 00:00:00+0000': 2 / 7, '2022-09-10 00:00:00+0000': 4 + 5 / 7 },
             },
-        ])('$interval chart → fractional indices', async ({ interval, dates, expected }) => {
+            {
+                // Charts outside an insight can use buckets that span several units of their interval.
+                interval: 'day',
+                intervalOverride: 'second',
+                dates: ['2022-08-10T03:59:50Z', '2022-08-10T04:00:00Z', '2022-08-10T04:00:10Z'],
+                expected: { '2022-08-10 04:00:00+0000': 1, '2022-08-10 04:00:01+0000': 1.1 },
+            },
+        ])('$interval chart → fractional indices', async ({ interval, intervalOverride, dates, expected }) => {
             useInsightMocks(interval)
             logic = annotationsOverlayLogic({
                 dashboardItemId: MOCK_INSIGHT_SHORT_ID,
@@ -848,6 +860,7 @@ describe('annotationsOverlayLogic', () => {
                 dates,
                 ticks: dates.map((_, i) => ({ value: i })),
                 dashboardId: MOCK_DASHBOARD_ID,
+                interval: intervalOverride,
             })
             logic.mount()
             await expectLogic(annotationsModel).toDispatchActions(['loadAnnotationsSuccess'])
@@ -855,10 +868,9 @@ describe('annotationsOverlayLogic', () => {
                 insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
             ).toDispatchActions(['loadInsightSuccess'])
 
-            for (const b of logic.values.annotationBadgeDataIndices as { dateKey: string; dataIndex: number }[]) {
-                if (expected[b.dateKey] !== undefined) {
-                    expect(b.dataIndex).toBeCloseTo(expected[b.dateKey], 5)
-                }
+            const badges = logic.values.annotationBadgeDataIndices as { dateKey: string; dataIndex: number }[]
+            for (const [dateKey, dataIndex] of Object.entries(expected)) {
+                expect(badges.find((b) => b.dateKey === dateKey)?.dataIndex).toBeCloseTo(dataIndex, 5)
             }
         })
     })

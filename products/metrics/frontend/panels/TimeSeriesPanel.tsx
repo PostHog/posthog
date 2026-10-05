@@ -11,6 +11,7 @@ import {
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
+import { ProjectAnnotationsLayer } from 'lib/components/AnnotationsOverlay/ProjectAnnotationsLayer'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -64,7 +65,12 @@ export function TimeSeriesPanel({
         [timezone, chartSeries.length, display]
     )
 
-    const markers = exemplars?.length ? <MetricsExemplarMarkers exemplars={exemplars} /> : null
+    const overlays = (
+        <>
+            {exemplars?.length ? <MetricsExemplarMarkers exemplars={exemplars} /> : null}
+            <ProjectAnnotationsLayer dates={labels} />
+        </>
+    )
 
     return (
         <div className="relative flex h-full w-full min-h-0 flex-col">
@@ -75,11 +81,11 @@ export function TimeSeriesPanel({
                     theme={theme}
                     config={sharedConfig as TimeSeriesBarChartConfig}
                 >
-                    {markers}
+                    {overlays}
                 </TimeSeriesBarChart>
             ) : (
                 <TimeSeriesLineChart series={chartSeries} labels={labels} theme={theme} config={sharedConfig}>
-                    {markers}
+                    {overlays}
                 </TimeSeriesLineChart>
             )}
         </div>

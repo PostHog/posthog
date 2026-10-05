@@ -18,6 +18,7 @@ import {
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
+import { ProjectAnnotationsLayer } from 'lib/components/AnnotationsOverlay/ProjectAnnotationsLayer'
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -287,6 +288,7 @@ export function TracingSparkline({
                                 {activityHighlight && (
                                     <HighlightedRange start={activityHighlight.start} end={activityHighlight.end} />
                                 )}
+                                <ProjectAnnotationsLayer dates={sparklineData.dates} />
                             </TimeSeriesBarChart>
                         )
                     ) : !sparklineLoading ? (
