@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from http import HTTPStatus
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -49,7 +50,7 @@ def test_full_refresh_selects_rows_and_stops_after_one_request(
     body = {"products": rows} if endpoint == "product_scores" else rows
     with patch("requests.adapters.HTTPAdapter.send", return_value=response(body)) as send:
         result = trustradius_source("example-secret", endpoint, 1, "test-job")
-        assert [item for page in result.items() for item in page] == rows
+        assert [item for page in cast(Iterable[Any], result.items()) for item in page] == rows
 
     send.assert_called_once()
     request = send.call_args.args[0]
@@ -111,7 +112,7 @@ def test_validation_does_not_mislabel_other_errors(status: int) -> None:
 def test_sync_auth_errors_match_terminal_messages(status: int) -> None:
     with patch("requests.adapters.HTTPAdapter.send", return_value=response({}, status)) as send:
         with pytest.raises(HTTPError) as error:
-            list(trustradius_source("example-secret", "products", 1, "test-job").items())
+            list(cast(Iterable[Any], trustradius_source("example-secret", "products", 1, "test-job").items()))
     send.assert_called_once()
     messages = TrustradiusSource().get_non_retryable_errors()
     assert len([message for pattern, message in messages.items() if pattern in str(error.value)]) == 1
@@ -120,7 +121,7 @@ def test_sync_auth_errors_match_terminal_messages(status: int) -> None:
 @pytest.mark.parametrize("status", [429, 500, 503])
 def test_transient_failures_retry_and_keep_auth(status: int) -> None:
     with patch("requests.adapters.HTTPAdapter.send", side_effect=[response({}, status), response([])]) as send:
-        assert list(trustradius_source("example-secret", "products", 1, "test-job").items()) == []
+        assert list(cast(Iterable[Any], trustradius_source("example-secret", "products", 1, "test-job").items())) == []
     assert send.call_count == 2
     assert all(call.args[0].headers["x-api-key"] == "example-secret" for call in send.call_args_list)
 
@@ -129,7 +130,7 @@ def test_transient_failures_retry_and_keep_auth(status: int) -> None:
 def test_unexpected_response_shape_fails_instead_of_erasing_table(endpoint: str) -> None:
     with patch("requests.adapters.HTTPAdapter.send", return_value=response({"unexpected": []})) as send:
         with pytest.raises(ValueError, match="Required"):
-            list(trustradius_source("example-secret", endpoint, 1, "test-job").items())
+            list(cast(Iterable[Any], trustradius_source("example-secret", endpoint, 1, "test-job").items()))
     send.assert_called_once()
 
 

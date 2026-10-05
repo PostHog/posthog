@@ -8,12 +8,12 @@ Official references:
 - [API reference](https://apidocs.trustradius.com/docs/public-api/YXBpOjUxMzgzNjA-trust-radius-api)
 - [Vendor OpenAPI export](https://stoplight.io/api/v1/projects/trustradius/public-api/nodes/reference/api.oas3.yml?fromExportButton=true&snapshotType=http_service)
 
-| Table | GET path | Response | Key | Sync |
-| --- | --- | --- | --- | --- |
-| products | `/product-ids` | Array | `_id` | Full refresh |
-| product_scores | `/product-scores` | `products` array | `id` | Full refresh |
-| trustquotes | `/trustquotes` | Array | `id` | Full refresh |
-| tags | `/tags` | Array | `id` | Full refresh |
+| Table          | GET path          | Response         | Key   | Sync         |
+| -------------- | ----------------- | ---------------- | ----- | ------------ |
+| products       | `/product-ids`    | Array            | `_id` | Full refresh |
+| product_scores | `/product-scores` | `products` array | `id`  | Full refresh |
+| trustquotes    | `/trustquotes`    | Array            | `id`  | Full refresh |
+| tags           | `/tags`           | Array            | `id`  | Full refresh |
 
 These endpoints have no documented pagination parameters.
 The source makes one request per table and does not send a record limit.
