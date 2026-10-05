@@ -2209,7 +2209,8 @@ export interface ErrorTrackingSymbolSetApi {
 }
 
 export interface PaginatedErrorTrackingSymbolSetListApi {
-    count: number
+    /** @nullable */
+    count: number | null
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -2569,6 +2570,10 @@ export type ErrorTrackingSuppressionRulesListParams = {
 }
 
 export type ErrorTrackingSymbolSetsListParams = {
+    /**
+     * Set to `false` to skip the total count. The response `count` is then `null`, and `next` still shows if more results exist. Use it when you only need the first rows.
+     */
+    include_count?: boolean
     /**
      * Number of results to return per page.
      */

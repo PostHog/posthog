@@ -1089,6 +1089,38 @@ class TestErrorTracking(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("more_rows_than_limit", 2, ["source_2", "source_1"], True),
+            ("all_rows_fit", 3, ["source_2", "source_1", "source_0"], False),
+        ]
+    )
+    def test_fetching_symbol_sets_without_count(
+        self, _name: str, limit: int, expected_refs: list[str], expect_next: bool
+    ) -> None:
+        for index in range(3):
+            symbol_set = ErrorTrackingSymbolSet.objects.create(
+                ref=f"source_{index}", team=self.team, storage_ptr=f"symbolsets/source_{index}"
+            )
+            ErrorTrackingSymbolSet.objects.filter(pk=symbol_set.pk).update(
+                created_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=index)
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/error_tracking/symbol_sets",
+                data={"include_count": "false", "limit": limit},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertIsNone(body["count"])
+        self.assertEqual([symbol_set["ref"] for symbol_set in body["results"]], expected_refs)
+        self.assertEqual(body["next"] is not None, expect_next)
+        self.assertFalse(
+            any("COUNT(" in query["sql"] and "posthog_errortrackingsymbolset" in query["sql"] for query in queries)
+        )
+
+    @parameterized.expand(
+        [
             ("ref_substring", "chunk-abc123", ["frontend-chunk-abc123"]),
             ("release_version", "special", ["set_b"]),
             ("release_project", "checkout", ["set_c"]),

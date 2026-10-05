@@ -93,12 +93,7 @@ export const sourceMapsStepLogic = kea<sourceMapsStepLogicType>([
             null as ErrorTrackingSymbolSet | null,
             {
                 loadLastSymbolSet: async () => {
-                    const res = await api.errorTracking.symbolSets.list({
-                        status: 'valid',
-                        offset: 0,
-                        limit: 1,
-                    })
-                    return res.results?.[0] ?? null
+                    return await api.errorTracking.symbolSets.latestValid()
                 },
             },
         ],

@@ -15001,9 +15001,17 @@ export const ErrorTrackingSymbolSetsListParams = () => zod.object({
         ),
 })
 
+export const errorTrackingSymbolSetsListQueryIncludeCountDefault = true
+
 export const errorTrackingSymbolSetsListQueryStatusDefault = `all`
 
 export const ErrorTrackingSymbolSetsListQueryParams = () => zod.object({
+    include_count: zod
+        .boolean()
+        .default(errorTrackingSymbolSetsListQueryIncludeCountDefault)
+        .describe(
+            'Set to `false` to skip the total count. The response `count` is then `null`, and `next` still shows if more results exist. Use it when you only need the first rows.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
