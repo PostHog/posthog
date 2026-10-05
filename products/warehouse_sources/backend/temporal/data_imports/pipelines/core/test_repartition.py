@@ -13,6 +13,8 @@ import django.db
 import pyarrow as pa
 import deltalake as deltalake
 import structlog
+import pyarrow.parquet as pq
+from deltalake.transaction import AddAction
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core import repartition as repartition_module
@@ -24,7 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
     append_partition_key_to_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
-    REWRITE_BATCH_READAHEAD,
     RepartitionBudgetExceededError,
     RepartitionSupersededError,
     RepartitionTarget,
@@ -34,6 +35,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     repartition_table_in_place,
     select_coarsen_target,
     select_repartition_target,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_stream import (
+    SOURCE_FILES_METADATA_KEY,
+    SourceReader,
+    StreamBudget,
+    copied_source_files,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import PartitionFormat
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import (
@@ -111,6 +118,25 @@ def _write_datetime_partitioned(
 
 def _write_month_partitioned(path: str, rows: list[tuple[int, datetime.datetime]]) -> deltalake.DeltaTable:
     return _write_datetime_partitioned(path, rows, "month")
+
+
+def _budget(**overrides) -> StreamBudget:
+    # A one-byte batch budget reads one row per batch, so every test sees many batches per file.
+    values = {
+        "batch_bytes": 1,
+        "buffer_bytes": 64 * 1024 * 1024,
+        "row_group_bytes": 8 * 1024 * 1024,
+        "max_open_files": 8,
+        "target_file_bytes": 128 * 1024 * 1024,
+        "commit_bytes": 1 << 40,
+        "max_source_files_per_commit": 10_000,
+    }
+    values.update(overrides)
+    return StreamBudget(**values)
+
+
+def _patch_copied(files: frozenset[str] | None = frozenset({"part-0.parquet"})):
+    return patch.object(repartition_module, "_copied_source_files", new=AsyncMock(return_value=files))
 
 
 class TestSelectRepartitionTarget:
@@ -603,7 +629,7 @@ class TestRewriteIntoTemp:
                     partition_mode="datetime",
                     partition_format="day",
                 ),
-                batch_size=2,  # force multiple streamed batches
+                budget=_budget(),
                 logger=logger,
             )
         )
@@ -644,7 +670,7 @@ class TestRewriteIntoTemp:
                     partition_mode="datetime",
                     partition_format="day",
                 ),
-                batch_size=1,
+                budget=_budget(),
                 logger=logger,
             )
         )
@@ -671,7 +697,7 @@ class TestRewriteIntoTemp:
                         partition_mode="datetime",
                         partition_format="day",
                     ),
-                    batch_size=1,
+                    budget=_budget(),
                     logger=logger,
                 )
             )
@@ -681,20 +707,14 @@ class TestRewriteIntoTemp:
         sample = json.loads(redis.get(run_key("repartition:rw-test")))
         assert sample["peak_buffer_bytes"] > 0
 
-    def test_scanner_bounds_readahead_so_the_scan_cannot_outrun_the_buffer(self, tmp_path):
-        # The default 16-batch prefetch is invisible to the coalescing buffer.
-        rows = [(i, datetime.datetime(2024, 1, 1 + (i % 28))) for i in range(40)]
+    def test_reads_source_files_without_a_whole_table_dataset(self, tmp_path):
+        # A dataset over the live table keeps every scanned fragment's parquet footer until the scan
+        # ends, so its memory grows with each file read and OOM-killed workers on many-file tables.
+        rows = [(i, datetime.datetime(2024, 1 + (i % 12), 1 + (i % 28))) for i in range(40)]
         old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
-        captured: dict = {}
-        real_scanner = old_delta.to_pyarrow_dataset().scanner
 
-        def spy(**kwargs):
-            captured.update(kwargs)
-            return real_scanner(**kwargs)
-
-        with patch.object(deltalake.DeltaTable, "to_pyarrow_dataset") as dataset:
-            dataset.return_value = SimpleNamespace(scanner=spy)
-            asyncio.run(
+        with patch.object(deltalake.DeltaTable, "to_pyarrow_dataset", side_effect=AssertionError("dataset scan")):
+            rows_written, _ = asyncio.run(
                 _rewrite_into_temp(
                     old_delta=old_delta,
                     temp_uri=str(tmp_path / "tmp"),
@@ -705,13 +725,12 @@ class TestRewriteIntoTemp:
                         partition_mode="datetime",
                         partition_format="day",
                     ),
-                    batch_size=10,
+                    budget=_budget(),
                     logger=logger,
                 )
             )
 
-        assert captured["batch_readahead"] == REWRITE_BATCH_READAHEAD
-        assert "fragment_readahead" not in captured
+        assert rows_written == len(rows)
 
     def test_progress_is_checkpointed_before_any_deadline(self, tmp_path):
         # The deadline handler is the only other place a checkpoint is written, and an OOM-killed
@@ -734,7 +753,7 @@ class TestRewriteIntoTemp:
                     partition_mode="datetime",
                     partition_format="day",
                 ),
-                batch_size=1,
+                budget=_budget(),
                 logger=logger,
                 save_checkpoint=save_checkpoint,
                 checkpoint_interval_seconds=0,
@@ -747,18 +766,18 @@ class TestRewriteIntoTemp:
         assert saved[-1][1] == "day"
 
     def test_a_slow_scan_checkpoints_before_the_buffer_is_full(self, tmp_path):
-        # An over-fragmented table yields one small batch per source file, so the buffer can take
+        # An over-fragmented table yields one small batch per source file, so the buffers can take
         # longer to fill than the worker survives. With no commit there is no checkpoint either, and
-        # every attempt then resumes from the same row until the attempt cap abandons the table.
-        rows = [(i, datetime.datetime(2024, 1, 1 + i)) for i in range(4)]
+        # every attempt then resumes from the same file until the attempt cap abandons the table.
+        rows = [(i, datetime.datetime(2024, 1 + i, 1)) for i in range(4)]
         old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
         saved: list[int] = []
 
         async def save_checkpoint(rows_so_far, _resolved_target):
             saved.append(rows_so_far)
 
-        # Every clock read lands a minute later, so the buffer is always older than the checkpoint
-        # interval while holding far less than REWRITE_BUFFER_MAX_ROWS/BYTES.
+        # Every clock read lands a minute later, so each source file boundary is past the checkpoint
+        # interval while the buffers hold far less than their byte bounds.
         clock = Mock(side_effect=itertools.count(0.0, 60.0))
 
         with patch.object(repartition_module, "time", Mock(monotonic=clock)):
@@ -773,7 +792,7 @@ class TestRewriteIntoTemp:
                         partition_mode="datetime",
                         partition_format="day",
                     ),
-                    batch_size=1,
+                    budget=_budget(),
                     logger=logger,
                     save_checkpoint=save_checkpoint,
                 )
@@ -803,7 +822,7 @@ class TestRewriteIntoTemp:
                     partition_mode="datetime",
                     partition_format="day",
                 ),
-                batch_size=1,
+                budget=_budget(),
                 logger=logger,
                 save_checkpoint=exploding_checkpoint,
                 checkpoint_interval_seconds=0,
@@ -813,25 +832,16 @@ class TestRewriteIntoTemp:
         assert rows_written == len(rows)
 
     def test_stops_mid_stream_once_the_deadline_passes(self, tmp_path):
-        rows = [
-            (1, datetime.datetime(2024, 1, 5)),
-            (2, datetime.datetime(2024, 1, 20)),
-            (3, datetime.datetime(2024, 1, 25)),
-            (4, datetime.datetime(2024, 2, 2)),
-        ]
+        # One row per month, so one source file per row and a commit after each file.
+        rows = [(i, datetime.datetime(2024, 1 + i, 5)) for i in range(4)]
         old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
         temp_uri = str(tmp_path / "tmp")
 
-        # Batches coalesce into a commit rather than writing one each, so the deadline has to fall
-        # after the buffer has flushed at least once for any row to be observable in temp at all.
-        # The rewrite also samples this clock for its own progress timing, so the prefix stays under
-        # the deadline for the early reads and every later read is over it.
+        # The rewrite also samples this clock for its own progress and commit timing, so the prefix
+        # stays under the deadline until the first file has committed and every later read is over it.
         clock = Mock(side_effect=itertools.chain([0.0] * 4, itertools.repeat(100.0)))
 
-        with (
-            patch.object(repartition_module, "time", Mock(monotonic=clock)),
-            patch.object(repartition_module, "REWRITE_BUFFER_MAX_ROWS", 2),
-        ):
+        with patch.object(repartition_module, "time", Mock(monotonic=clock)):
             with pytest.raises(RepartitionBudgetExceededError):
                 asyncio.run(
                     _rewrite_into_temp(
@@ -844,7 +854,7 @@ class TestRewriteIntoTemp:
                             partition_mode="datetime",
                             partition_format="day",
                         ),
-                        batch_size=2,
+                        budget=_budget(max_source_files_per_commit=1),
                         logger=logger,
                         deadline=50.0,
                     )
@@ -852,30 +862,37 @@ class TestRewriteIntoTemp:
 
         # Some rows landed but not all: the deadline is checked per batch inside the streaming loop,
         # so the rewrite gives up partway instead of either draining the reader (no bound at all) or
-        # bailing before it starts. The exact count is not asserted because the reader yields at
-        # least one batch per source file, so batch boundaries follow the source layout.
+        # bailing before it starts.
         written = deltalake.DeltaTable(temp_uri).to_pyarrow_table().num_rows
         assert 0 < written < len(rows)
 
-    def test_resume_from_a_prefix_completes_the_table_exactly_once(self, tmp_path):
-        # A budget-exceeded rewrite leaves temp holding a scan-ordered prefix. Resuming with
-        # skip_rows=<prefix length> must append exactly the remaining rows: every source row present
-        # once, none duplicated, none dropped. This is the fix's core guarantee, and it also guards the
-        # assumption the skip relies on — that the scan order is stable across the two passes. A
-        # reordering would re-write rows already in temp and skip others, which this catches.
-        rows = [(i, datetime.datetime(2024, 1, 1) + datetime.timedelta(days=3 * i)) for i in range(8)]
+    @pytest.mark.parametrize(
+        "files_per_commit,rows_per_month",
+        [
+            pytest.param(1, 1, id="one_file_per_commit"),
+            pytest.param(2, 1, id="two_files_per_commit"),
+            pytest.param(1, 3, id="rows_spread_over_several_target_days"),
+        ],
+    )
+    def test_resume_after_an_interruption_completes_the_table_exactly_once(
+        self, files_per_commit, rows_per_month, tmp_path
+    ):
+        # A rewrite stopped mid-way leaves temp holding whole source files, which its commits record.
+        # Resuming from that record must append exactly the other files: every source row present
+        # once, none duplicated, none dropped.
+        rows = [
+            (month * rows_per_month + day, datetime.datetime(2024, 1 + month, 1 + day))
+            for month in range(6)
+            for day in range(rows_per_month)
+        ]
         live = _write_month_partitioned(str(tmp_path / "live"), rows)
         temp_uri = str(tmp_path / "tmp")
         target = RepartitionTarget(
             partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
         )
 
-        # Stop the first pass after the buffer has flushed once, so temp holds a partial prefix.
-        clock = Mock(side_effect=itertools.chain([0.0] * 4, itertools.repeat(100.0)))
-        with (
-            patch.object(repartition_module, "time", Mock(monotonic=clock)),
-            patch.object(repartition_module, "REWRITE_BUFFER_MAX_ROWS", 2),
-        ):
+        clock = Mock(side_effect=itertools.chain([0.0] * (4 + 3 * rows_per_month), itertools.repeat(100.0)))
+        with patch.object(repartition_module, "time", Mock(monotonic=clock)):
             with pytest.raises(RepartitionBudgetExceededError):
                 asyncio.run(
                     _rewrite_into_temp(
@@ -883,103 +900,64 @@ class TestRewriteIntoTemp:
                         temp_uri=temp_uri,
                         storage_options={},
                         target=target,
-                        batch_size=2,
+                        budget=_budget(max_source_files_per_commit=files_per_commit),
                         logger=logger,
                         deadline=50.0,
                     )
                 )
         partial = deltalake.DeltaTable(temp_uri).to_pyarrow_table().num_rows
         assert 0 < partial < len(rows)
+        copied = copied_source_files(temp_uri, {})
+        assert copied is not None
+        assert len(copied) * rows_per_month == partial
 
-        asyncio.run(
-            _rewrite_into_temp(
-                old_delta=live,
-                temp_uri=temp_uri,
-                storage_options={},
-                target=target,
-                batch_size=2,
-                logger=logger,
-                skip_rows=partial,
-            )
-        )
+        opened: list[str] = []
+        iter_sources = SourceReader.iter_sources
 
-        final = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
-        # Count plus set: every source id present exactly once (equal count rules out duplicates).
-        assert final.num_rows == len(rows)
-        assert set(final.column("id").to_pylist()) == set(range(len(rows)))
+        def recording_iter_sources(reader, sources):
+            opened.extend(source.path for source in sources)
+            return iter_sources(reader, sources)
 
-    def test_resume_does_not_re_read_the_source_files_it_already_copied(self, tmp_path):
-        # The prefix temp already holds is charged to the resumed attempt's own budget when it is
-        # skipped row by row, so on a table that needs several budgets the re-read grows until it fills
-        # a budget on its own and the attempt appends nothing — which is what the controller counts
-        # against its give-up cap before abandoning the table. One row per month means one source file
-        # per row, so a copied prefix is a whole number of files and the scan must never open them.
-        rows = [(i, datetime.datetime(2024, 1, 1) + datetime.timedelta(days=40 * i)) for i in range(6)]
-        live = _write_month_partitioned(str(tmp_path / "live"), rows)
-        temp_uri = str(tmp_path / "tmp")
-        target = RepartitionTarget(
-            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
-        )
-
-        clock = Mock(side_effect=itertools.chain([0.0] * 8, itertools.repeat(100.0)))
-        with (
-            patch.object(repartition_module, "time", Mock(monotonic=clock)),
-            patch.object(repartition_module, "REWRITE_BUFFER_MAX_ROWS", 1),
-        ):
-            with pytest.raises(RepartitionBudgetExceededError):
-                asyncio.run(
-                    _rewrite_into_temp(
-                        old_delta=live,
-                        temp_uri=temp_uri,
-                        storage_options={},
-                        target=target,
-                        batch_size=1,
-                        logger=logger,
-                        deadline=50.0,
-                    )
-                )
-        copied = deltalake.DeltaTable(temp_uri).to_pyarrow_table().num_rows
-        assert 0 < copied < len(rows)
-
-        reads = 0
-        read_batch = repartition_module._read_next_batch
-
-        def counting_read(reader):
-            nonlocal reads
-            reads += 1
-            return read_batch(reader)
-
-        with patch.object(repartition_module, "_read_next_batch", counting_read):
+        with patch.object(SourceReader, "iter_sources", recording_iter_sources):
             rows_written, _ = asyncio.run(
                 _rewrite_into_temp(
                     old_delta=live,
                     temp_uri=temp_uri,
                     storage_options={},
                     target=target,
-                    batch_size=1,
+                    budget=_budget(),
                     logger=logger,
-                    skip_rows=copied,
+                    copied_files=copied,
                 )
             )
 
-        # One read per uncopied file, plus the read that exhausts the scan.
-        assert reads == (len(rows) - copied) + 1
-        assert rows_written == len(rows) - copied
+        # The copied files are never read again, so a resume does not re-read its prefix.
+        assert opened and not copied & set(opened)
+        assert rows_written == len(rows) - partial
         final = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
         assert final.num_rows == len(rows)
-        assert set(final.column("id").to_pylist()) == set(range(len(rows)))
+        assert sorted(final.column("id").to_pylist()) == [row[0] for row in rows]
+        assert copied_source_files(temp_uri, {}) == {f.path for f in repartition_module.plan_source_files(live)}
+
+    def test_a_temp_without_source_file_records_cannot_be_resumed(self, tmp_path):
+        # An older rewrite appended rows with plain writes. Its temp says how many rows it holds but
+        # not which files, so treating it as resumable would skip the wrong rows.
+        rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
+        _write_month_partitioned(str(tmp_path / "legacy"), rows)
+
+        assert copied_source_files(str(tmp_path / "legacy"), {}) is None
 
     def test_a_finished_rewrite_beats_the_deadline(self, tmp_path):
-        # One source file, one batch, so the reader is exhausted on the second loop iteration. The
-        # clock is over the deadline by then: a rewrite that has already copied every row must still
-        # reach the swap rather than be thrown away and charged a failed attempt.
+        # One source file, one batch, so the reader is exhausted on the second read. The clock is
+        # over the deadline by then: a rewrite that has already copied every row must still reach the
+        # swap rather than be thrown away and charged a failed attempt.
         rows = [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 1, 20))]
         old_delta = _write_month_partitioned(str(tmp_path / "src"), rows)
         temp_uri = str(tmp_path / "tmp")
 
         # Every deadline check must land under the deadline for the rewrite to reach the swap; the
         # later readings only feed progress timing, so they are free to be past it.
-        clock = Mock(side_effect=itertools.chain([0.0] * 2, itertools.repeat(100.0)))
+        clock = Mock(side_effect=itertools.chain([0.0] * 3, itertools.repeat(100.0)))
 
         with patch.object(repartition_module, "time", Mock(monotonic=clock)):
             rows_written, _ = asyncio.run(
@@ -993,7 +971,7 @@ class TestRewriteIntoTemp:
                         partition_mode="datetime",
                         partition_format="day",
                     ),
-                    batch_size=2,
+                    budget=_budget(batch_bytes=64 * 1024 * 1024),
                     logger=logger,
                     deadline=50.0,
                 )
@@ -1014,7 +992,7 @@ class TestRewriteIntoTemp:
                 temp_uri=temp_uri,
                 storage_options={},
                 target=RepartitionTarget(partition_keys=["created_at"], trigger_reason="test", partition_mode=None),
-                batch_size=3,
+                budget=_budget(),
                 logger=logger,
             )
         )
@@ -1044,7 +1022,7 @@ class TestRewriteIntoTemp:
                 temp_uri=str(tmp_path / "tmp"),
                 storage_options={},
                 target=RepartitionTarget(partition_keys=["id"], trigger_reason="test", partition_mode=None),
-                batch_size=3,  # force batches after the resolving first one
+                budget=_budget(),
                 logger=logger,
             )
         )
@@ -1077,7 +1055,7 @@ class TestRewriteIntoTemp:
                 target=RepartitionTarget(
                     partition_keys=["id"], trigger_reason="test", partition_mode=None, partition_count=4
                 ),
-                batch_size=3,
+                budget=_budget(),
                 logger=logger,
             )
         )
@@ -1111,7 +1089,7 @@ class TestRewriteIntoTemp:
                 target=RepartitionTarget(
                     partition_keys=["id"], trigger_reason="test", partition_mode=None, partition_count=4
                 ),
-                batch_size=3,
+                budget=_budget(),
                 logger=logger,
             )
         )
@@ -1131,40 +1109,41 @@ class TestRewriteIntoTemp:
                 pa.field("real_model", pa.string(), nullable=False),
             ]
         )
-        # Bypasses delta-rs's own write-time validation (which would reject this) to stand in for
-        # a batch scanned off a live table whose data no longer matches its declared schema. The
-        # scanned batch's own field still says non-nullable too, matching the live table's.
-        batch_table = pa.Table.from_arrays(
-            [pa.array([1, 2], type=pa.int64()), pa.array(["gpt-4", None], type=pa.string())],
-            schema=live_pa_schema,
+        # Bypasses delta-rs's own write-time validation (which would reject this): the parquet file
+        # is written directly and committed as an Add action, so the live table really holds a null
+        # its declared schema forbids.
+        live_uri = str(tmp_path / "live")
+        live = deltalake.DeltaTable.create(live_uri, schema=live_pa_schema)
+        file_schema = pa.schema([field.with_nullable(True) for field in live_pa_schema])
+        pq.write_table(
+            pa.table({"id": [1, 2], "real_model": ["gpt-4", None]}, schema=file_schema),
+            os.path.join(live_uri, "part-0.parquet"),
         )
-
-        class _FakeReader:
-            def __init__(self, table):
-                self._batches = table.to_batches()
-
-            def read_next_batch(self):
-                if not self._batches:
-                    raise StopIteration
-                return self._batches.pop(0)
-
-        old_delta = SimpleNamespace(
-            metadata=lambda: SimpleNamespace(configuration={}),
-            to_pyarrow_dataset=lambda: SimpleNamespace(
-                scanner=lambda **kwargs: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
-            ),
-            schema=lambda: deltalake.Schema.from_arrow(live_pa_schema),
+        live.create_write_transaction(
+            [
+                AddAction(
+                    "part-0.parquet",
+                    os.path.getsize(os.path.join(live_uri, "part-0.parquet")),
+                    {},
+                    0,
+                    True,
+                    json.dumps({"numRecords": 2}),
+                )
+            ],
+            mode="append",
+            schema=live.schema(),
         )
+        old_delta = deltalake.DeltaTable(live_uri)
 
         rows_written, _ = asyncio.run(
             _rewrite_into_temp(
-                old_delta=old_delta,  # type: ignore[arg-type]
+                old_delta=old_delta,
                 temp_uri=str(tmp_path / "tmp"),
                 storage_options={},
                 target=RepartitionTarget(
                     partition_keys=["id"], trigger_reason="test", partition_mode="md5", partition_count=1
                 ),
-                batch_size=10,
+                budget=_budget(),
                 logger=logger,
             )
         )
@@ -1173,6 +1152,198 @@ class TestRewriteIntoTemp:
         new_table = deltalake.DeltaTable(str(tmp_path / "tmp")).to_pyarrow_table().sort_by("id")
         # The real null is backfilled to the column's default rather than reaching the Delta write.
         assert new_table.column("real_model").to_pylist() == ["gpt-4", ""]
+
+
+class TestStreamingRewrite:
+    """The rewrite reads source files one at a time and writes through a capped set of open files,
+    so its memory follows the byte budget, not the table. These cases pin the limits and the data
+    the limits must not change."""
+
+    @staticmethod
+    def _day_target() -> RepartitionTarget:
+        return RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+
+    @pytest.mark.parametrize(
+        "max_open_files,buffer_bytes,target_file_bytes",
+        [
+            pytest.param(1, 64 * 1024 * 1024, 128 * 1024 * 1024, id="one_open_file"),
+            pytest.param(4, 64 * 1024 * 1024, 128 * 1024 * 1024, id="fewer_open_files_than_partitions"),
+            pytest.param(64, 64 * 1024 * 1024, 128 * 1024 * 1024, id="more_open_files_than_partitions"),
+            pytest.param(64, 2048, 128 * 1024 * 1024, id="tiny_shared_buffer"),
+            pytest.param(4, 2048, 1, id="every_row_group_closes_its_file"),
+        ],
+    )
+    def test_many_target_partitions_keep_every_row_inside_the_writer_limits(
+        self, max_open_files, buffer_bytes, target_file_bytes, tmp_path
+    ):
+        # Rows for 30 target days arrive interleaved, so every batch moves to another partition.
+        # Without the open-file cap, a table spread over many target partitions keeps one open file
+        # (and its upload buffer) per partition.
+        rows = [(i, datetime.datetime(2024, 1 + i % 3, 1 + i % 28, i % 24)) for i in range(240)]
+        live = _write_month_partitioned(str(tmp_path / "live"), rows)
+        temp_uri = str(tmp_path / "temp")
+        writers: list = []
+        buffered: list[int] = []
+
+        class SpyWriter(repartition_module.PartitionedFileWriter):
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                writers.append(self)
+
+            def write(self, table):
+                super().write(table)
+                buffered.append(self.buffered_bytes)
+
+        budget = _budget(
+            max_open_files=max_open_files,
+            buffer_bytes=buffer_bytes,
+            row_group_bytes=min(buffer_bytes, 8 * 1024 * 1024),
+            target_file_bytes=target_file_bytes,
+        )
+        with patch.object(repartition_module, "PartitionedFileWriter", SpyWriter):
+            rows_written, _ = asyncio.run(
+                _rewrite_into_temp(
+                    old_delta=live,
+                    temp_uri=temp_uri,
+                    storage_options={},
+                    target=self._day_target(),
+                    budget=budget,
+                    logger=logger,
+                )
+            )
+
+        assert writers[0].max_open_seen <= max_open_files
+        assert max(buffered) <= buffer_bytes
+        temp = deltalake.DeltaTable(temp_uri)
+        table = temp.to_pyarrow_table()
+        assert rows_written == table.num_rows == len(rows)
+        assert sorted(table.column("id").to_pylist()) == [row[0] for row in rows]
+        expected_keys = {created.strftime("%Y-%m-%d") for _, created in rows}
+        assert set(table.column(PARTITION_KEY).to_pylist()) == expected_keys
+        # Every row sits in the partition its own timestamp maps to.
+        for created, key in zip(table.column("created_at").to_pylist(), table.column(PARTITION_KEY).to_pylist()):
+            assert created.strftime("%Y-%m-%d") == key
+
+    @pytest.mark.parametrize(
+        "values",
+        [
+            pytest.param(["a", "b", None], id="short_ascii"),
+            pytest.param(["x" * 100, "y" * 100], id="long_ascii"),
+            pytest.param(["é" * 40, "z"], id="long_multibyte"),
+            pytest.param(["\U0010ffff" * 20, "a"], id="no_character_can_be_raised"),
+        ],
+    )
+    def test_file_stats_bound_the_rows_in_each_file(self, values, tmp_path):
+        # Merges skip files on these stats. A max below a real value hides rows from the merge, which
+        # then inserts a duplicate instead of updating the row.
+        source = pa.table(
+            {
+                "id": pa.array(range(len(values)), type=pa.int64()),
+                "label": pa.array(values, type=pa.string()),
+                "created_at": pa.array([datetime.datetime(2024, 1, 5)] * len(values), type=pa.timestamp("us")),
+            }
+        )
+        result = append_partition_key_to_table(source, None, None, ["created_at"], "datetime", "month", logger)
+        assert result is not None
+        deltalake.write_deltalake(str(tmp_path / "live"), result.table, partition_by=PARTITION_KEY)
+        temp_uri = str(tmp_path / "temp")
+
+        asyncio.run(
+            _rewrite_into_temp(
+                old_delta=deltalake.DeltaTable(str(tmp_path / "live")),
+                temp_uri=temp_uri,
+                storage_options={},
+                target=self._day_target(),
+                budget=_budget(),
+                logger=logger,
+            )
+        )
+
+        present = [v for v in values if v is not None]
+        (add,) = pa.table(deltalake.DeltaTable(temp_uri).get_add_actions(flatten=False)).to_pylist()
+        assert add["num_records"] == len(values)
+        assert add["null_count"]["label"] == len(values) - len(present)
+        assert (add["min"]["id"], add["max"]["id"]) == (0, len(values) - 1)
+        assert add["min"]["label"] <= min(present)
+        if add["max"]["label"] is not None:
+            assert add["max"]["label"] >= max(present)
+            assert len(add["max"]["label"].encode("utf-8")) <= 64
+
+    def test_files_written_before_a_column_was_added_read_as_nulls(self, tmp_path):
+        # A file-by-file read sees each file's own schema. The rewrite must fill a column an older
+        # file lacks, the way a scan of the whole table does, instead of failing the write.
+        live_uri = str(tmp_path / "live")
+        first = pa.table(
+            {
+                "id": pa.array([1], pa.int64()),
+                "created_at": pa.array([datetime.datetime(2024, 1, 5)], pa.timestamp("us")),
+            }
+        )
+        second = pa.table(
+            {
+                "id": pa.array([2], pa.int64()),
+                "created_at": pa.array([datetime.datetime(2024, 2, 5)], pa.timestamp("us")),
+                "added_later": pa.array(["v"], pa.string()),
+            }
+        )
+        for chunk in (first, second):
+            result = append_partition_key_to_table(chunk, None, None, ["created_at"], "datetime", "month", logger)
+            assert result is not None
+            deltalake.write_deltalake(
+                live_uri, result.table, partition_by=PARTITION_KEY, mode="append", schema_mode="merge"
+            )
+        temp_uri = str(tmp_path / "temp")
+
+        rows_written, _ = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=deltalake.DeltaTable(live_uri),
+                temp_uri=temp_uri,
+                storage_options={},
+                target=self._day_target(),
+                budget=_budget(),
+                logger=logger,
+            )
+        )
+
+        table = deltalake.DeltaTable(temp_uri).to_pyarrow_table().sort_by("id")
+        assert rows_written == 2
+        assert table.column("added_later").to_pylist() == [None, "v"]
+
+    @pytest.mark.parametrize(
+        "partition_count",
+        [pytest.param(1, id="one_bucket"), pytest.param(7, id="several_buckets")],
+    )
+    def test_hashed_buckets_keep_every_row_and_key(self, partition_count, tmp_path):
+        rows = 50
+        table = pa.table(
+            {
+                "id": pa.array([f"key-{i}" for i in range(rows)], type=pa.string()),
+                "payload": pa.array(["p" * 200] * rows, type=pa.string()),
+            }
+        )
+        deltalake.write_deltalake(str(tmp_path / "live"), table)
+        temp_uri = str(tmp_path / "temp")
+
+        rows_written, resolved = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=deltalake.DeltaTable(str(tmp_path / "live")),
+                temp_uri=temp_uri,
+                storage_options={},
+                target=RepartitionTarget(
+                    partition_keys=["id"], trigger_reason="t", partition_mode="md5", partition_count=partition_count
+                ),
+                budget=_budget(max_open_files=2),
+                logger=logger,
+            )
+        )
+
+        rebuilt = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
+        assert resolved.partition_mode == "md5"
+        assert rows_written == rebuilt.num_rows == rows
+        assert sorted(rebuilt.column("id").to_pylist()) == sorted(f"key-{i}" for i in range(rows))
+        assert len(set(rebuilt.column(PARTITION_KEY).to_pylist())) <= partition_count
 
 
 class _FakeS3CM:
@@ -1909,6 +2080,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_copied(),
             _patch_finalize(),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
             patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True) as saved,
@@ -1939,8 +2111,8 @@ class TestRewriteCheckpointResume:
         assert checkpoint["temp_uri"].endswith("__repartitioned_tok")
 
     def test_resumes_when_the_live_version_still_matches(self, tmp_path):
-        # Version matches → resume: append from the recorded offset into the checkpoint's own temp,
-        # without sweeping temps (a fresh rebuild would discard the prefix).
+        # Version matches → resume: skip the source files temp records into the checkpoint's own
+        # temp, without sweeping temps (a fresh rebuild would discard them).
         live = _write_month_partitioned(
             str(tmp_path / "live"),
             [
@@ -1965,6 +2137,7 @@ class TestRewriteCheckpointResume:
         with (
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()) as purge,
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_copied(),
             _patch_finalize(),
             # First read validates the checkpoint temp (1 row); second validates the completed rewrite.
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(side_effect=[1, 3])),
@@ -1979,7 +2152,7 @@ class TestRewriteCheckpointResume:
 
         purge.assert_not_awaited()  # the prefix must not be swept
         assert rewrite.await_args_list[0].kwargs["temp_uri"] == "s3://bucket/live__repartitioned_old"
-        assert rewrite.await_args_list[0].kwargs["skip_rows"] == 1
+        assert rewrite.await_args_list[0].kwargs["copied_files"] == {"part-0.parquet"}
         schema.clear_repartition_rewrite.assert_called_once()  # obsolete once temp is complete
         assert result["outcome"] == "completed"
 
@@ -2017,6 +2190,7 @@ class TestRewriteCheckpointResume:
         with (
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_copied(),
             _patch_finalize(),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(side_effect=[1, 3])),
             patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True) as saved,
@@ -2055,6 +2229,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()) as purge,
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_copied(),
             _patch_finalize(),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(side_effect=[1, 2])),
             patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock(return_value=(2, target))) as rewrite,
@@ -2069,7 +2244,7 @@ class TestRewriteCheckpointResume:
         schema.clear_repartition_rewrite.assert_called()  # stale checkpoint dropped
         purge.assert_awaited_once()  # fresh rebuild sweeps orphans
         assert rewrite.await_args_list[0].kwargs["temp_uri"].endswith("__repartitioned_tok")
-        assert rewrite.await_args_list[0].kwargs["skip_rows"] == 0
+        assert rewrite.await_args_list[0].kwargs["copied_files"] == frozenset()
 
     @pytest.mark.parametrize(
         "version_offset,expected_restart",
@@ -2106,6 +2281,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_copied(),
             _patch_finalize(),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
             patch.object(repartition_module, "save_repartition_checkpoint_if_claimed", return_value=True),
@@ -2151,6 +2327,7 @@ class TestRewriteCheckpointResume:
             patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(_fake_s3())),
             patch.object(repartition_module, "_purge_stale_temp_tables", new=AsyncMock()),
             patch.object(repartition_module, "_current_claim_token", return_value="tok"),
+            _patch_copied(),
             _patch_finalize(),
             patch.object(repartition_module, "_valid_delta_row_count", new=AsyncMock(return_value=1)),
             patch.object(repartition_module, "_rewrite_into_temp", new=AsyncMock()) as rewrite,
@@ -2223,7 +2400,7 @@ class TestClaimFencing:
                     temp_uri=str(tmp_path / "temp"),
                     storage_options={},
                     target=target,
-                    batch_size=1,
+                    budget=_budget(),
                     logger=logger,
                     ensure_claim=ensure,
                     claim_recheck_interval_seconds=0,
@@ -2247,7 +2424,7 @@ class TestClaimFencing:
                 temp_uri=str(tmp_path / "temp"),
                 storage_options={},
                 target=target,
-                batch_size=1,
+                budget=_budget(),
                 logger=logger,
                 ensure_claim=ensure,
                 claim_recheck_interval_seconds=3600,
@@ -2256,12 +2433,20 @@ class TestClaimFencing:
         assert rows_written == 24
         assert ensure.await_count == 1
 
-    @pytest.mark.parametrize("batch_size", [50_000, 2])
-    def test_rewrite_coalesces_batches_into_one_commit(self, batch_size, tmp_path):
-        # Commits must scale with data size, not source file count or scan batch count: under one
-        # buffer's worth of rows the whole rewrite lands as a single commit, losing no rows. A scan
-        # batch size the buffer bound is derived from would cap the buffer at one batch and commit
-        # per batch instead, which is a throughput floor, not just extra versions.
+    @pytest.mark.parametrize(
+        "batch_bytes,files_per_commit,expected_commits",
+        [
+            pytest.param(64 * 1024 * 1024, 10_000, 1, id="whole_files_per_batch"),
+            pytest.param(1, 10_000, 1, id="one_row_per_batch"),
+            pytest.param(1, 4, 3, id="four_source_files_per_commit"),
+            pytest.param(1, 1, 12, id="one_source_file_per_commit"),
+        ],
+    )
+    def test_commits_follow_the_commit_budget_not_the_batch_count(
+        self, batch_bytes, files_per_commit, expected_commits, tmp_path
+    ):
+        # Each commit is a transaction-log write, so one per scan batch or per source file puts a
+        # floor under throughput that no table large enough to need repartitioning finishes above.
         rows = [(i, datetime.datetime(2024, 1 + (i % 12), 5)) for i in range(1, 37)]
         live = _write_month_partitioned(str(tmp_path / "live"), rows)
         assert len(measure_partition_bytes(live)) == 12
@@ -2276,22 +2461,19 @@ class TestClaimFencing:
                 temp_uri=temp_uri,
                 storage_options={},
                 target=target,
-                batch_size=batch_size,
+                budget=_budget(batch_bytes=batch_bytes, max_source_files_per_commit=files_per_commit),
                 logger=logger,
             )
         )
 
         temp = deltalake.DeltaTable(temp_uri)
         assert rows_written == 36
-        assert temp.to_pyarrow_dataset().count_rows() == 36
-        # Version 0 is the sole commit; one-per-source-file would leave version 11, and
-        # one-per-scan-batch would leave version 17 at batch_size=2.
-        assert temp.version() == 0
+        assert temp.to_pyarrow_table().num_rows == 36
+        # Version 0 creates the table; every later version is one data commit.
+        assert temp.version() == expected_commits
+        assert all(SOURCE_FILES_METADATA_KEY in entry for entry in temp.history() if entry["version"] > 0)
 
     def test_rewrite_of_empty_source_writes_nothing(self, tmp_path):
-        # The post-loop drain always runs, so flush() has to tolerate an empty buffer — an empty
-        # source, or a loop that flushed exactly on the bound. Without the guard it indexes an empty
-        # list and raises instead of completing with nothing written.
         live_uri = str(tmp_path / "live")
         empty = pa.table(
             {
@@ -2311,73 +2493,12 @@ class TestClaimFencing:
                 temp_uri=str(tmp_path / "temp"),
                 storage_options={},
                 target=target,
-                batch_size=50_000,
+                budget=_budget(),
                 logger=logger,
             )
         )
         assert rows_written == 0
         assert resolved == target
-
-    def test_rewrite_flushes_on_byte_bound_before_row_bound(self, tmp_path):
-        # A row count says nothing about width once struct/list columns are flattened into JSON
-        # strings, so a row-only bound lets wide rows buffer arbitrarily many bytes and OOM the
-        # worker — the failure this module exists to prevent. Rows stay far under batch_size here,
-        # so only the byte bound can force the extra commits.
-        rows = [(i, datetime.datetime(2024, 1 + (i % 4), 5)) for i in range(1, 25)]
-        live = _write_month_partitioned(str(tmp_path / "live"), rows)
-
-        target = RepartitionTarget(
-            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
-        )
-        temp_uri = str(tmp_path / "temp")
-        with patch.object(repartition_module, "REWRITE_BUFFER_MAX_BYTES", 100):
-            rows_written, _ = asyncio.run(
-                _rewrite_into_temp(
-                    old_delta=live,
-                    temp_uri=temp_uri,
-                    storage_options={},
-                    target=target,
-                    batch_size=50_000,
-                    logger=logger,
-                )
-            )
-
-        temp = deltalake.DeltaTable(temp_uri)
-        assert rows_written == 24
-        assert temp.to_pyarrow_dataset().count_rows() == 24
-        assert temp.version() > 0
-
-    def test_rewrite_never_buffers_beyond_its_row_bound(self, tmp_path):
-        # Appending before the size check lets a nearly-full buffer take another full-sized batch, so
-        # peak memory reaches ~2x the bound, in the module that exists because oversized in-memory
-        # data OOMs the worker. Four 6-row source files against a 10-row bound catch it: flushing
-        # after the append writes commits of 12 rows, flushing before it keeps every commit within
-        # the bound.
-        rows = [(i, datetime.datetime(2024, 1 + (i % 4), 5)) for i in range(1, 25)]
-        live = _write_month_partitioned(str(tmp_path / "live"), rows)
-        assert len(measure_partition_bytes(live)) == 4
-
-        target = RepartitionTarget(
-            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
-        )
-        temp_uri = str(tmp_path / "temp")
-        with patch.object(repartition_module, "REWRITE_BUFFER_MAX_ROWS", 10):
-            rows_written, _ = asyncio.run(
-                _rewrite_into_temp(
-                    old_delta=live,
-                    temp_uri=temp_uri,
-                    storage_options={},
-                    target=target,
-                    batch_size=2,
-                    logger=logger,
-                )
-            )
-
-        temp = deltalake.DeltaTable(temp_uri)
-        assert rows_written == 24
-        assert temp.to_pyarrow_dataset().count_rows() == 24
-        per_commit = [e["operationMetrics"]["num_added_rows"] for e in temp.history()]
-        assert max(per_commit) <= 10
 
     def test_claim_token_read_retries_dropped_connection(self):
         # pgbouncer recycling a pooled connection surfaces as OperationalError on first use. Treating
