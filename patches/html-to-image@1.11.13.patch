@@ -1,8 +1,29 @@
 diff --git a/es/clone-node.js b/es/clone-node.js
-index 114cbf214f65cda237dbba67458c2b68fadf421e..a43d0d637fef601b8de1c989b38a1aa927d5dff0 100644
+index 114cbf214f65cda237dbba67458c2b68fadf421e..6436f0377161d77ea048e8d451d68f34ccc8d634 100644
 --- a/es/clone-node.js
 +++ b/es/clone-node.js
-@@ -41,7 +41,12 @@ async function cloneSingleNode(node, options) {
+@@ -2,8 +2,19 @@ import { clonePseudoElements } from './clone-pseudos';
+ import { createImage, toArray, isInstanceOfElement, getStyleProperties, } from './util';
+ import { getMimeType } from './mimes';
+ import { resourceToDataURL } from './dataurl';
++function readCanvasDataURL(canvas) {
++    try {
++        return canvas.toDataURL();
++    }
++    catch (error) {
++        const blank = canvas.ownerDocument.createElement('canvas');
++        blank.width = canvas.width;
++        blank.height = canvas.height;
++        return blank.toDataURL();
++    }
++}
+ async function cloneCanvasElement(canvas) {
+-    const dataURL = canvas.toDataURL();
++    const dataURL = readCanvasDataURL(canvas);
+     if (dataURL === 'data:,') {
+         return canvas.cloneNode(false);
+     }
+@@ -41,7 +52,12 @@ async function cloneSingleNode(node, options) {
          return cloneCanvasElement(node);
      }
      if (isInstanceOfElement(node, HTMLVideoElement)) {
@@ -97,10 +118,34 @@ index 90a3cd19a6bcc763d98cbd476fde17f4bc0428fa..6da1cba180eba492be9eb849b05a1996
  export const uuid = (() => {
      // generate uuid for className of pseudo elements.
 diff --git a/lib/clone-node.js b/lib/clone-node.js
-index 214f4d30a50baae7f007d2399eeac298366538c7..16d3f49dcaa89efa00e0e28cdb8f358a0980104e 100644
+index 214f4d30a50baae7f007d2399eeac298366538c7..a881e63325fbd9d77682164e4919d66d9ec2e79b 100644
 --- a/lib/clone-node.js
 +++ b/lib/clone-node.js
-@@ -105,7 +105,12 @@ function cloneSingleNode(node, options) {
+@@ -41,11 +41,22 @@ var clone_pseudos_1 = require("./clone-pseudos");
+ var util_1 = require("./util");
+ var mimes_1 = require("./mimes");
+ var dataurl_1 = require("./dataurl");
++function readCanvasDataURL(canvas) {
++    try {
++        return canvas.toDataURL();
++    }
++    catch (error) {
++        var blank = canvas.ownerDocument.createElement('canvas');
++        blank.width = canvas.width;
++        blank.height = canvas.height;
++        return blank.toDataURL();
++    }
++}
+ function cloneCanvasElement(canvas) {
+     return __awaiter(this, void 0, void 0, function () {
+         var dataURL;
+         return __generator(this, function (_a) {
+-            dataURL = canvas.toDataURL();
++            dataURL = readCanvasDataURL(canvas);
+             if (dataURL === 'data:,') {
+                 return [2 /*return*/, canvas.cloneNode(false)];
+             }
+@@ -105,7 +116,12 @@ function cloneSingleNode(node, options) {
                  return [2 /*return*/, cloneCanvasElement(node)];
              }
              if ((0, util_1.isInstanceOfElement)(node, HTMLVideoElement)) {
