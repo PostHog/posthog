@@ -1131,11 +1131,11 @@ def _cleaned_select_list(
     # let the cast below turn the cleaned string back into the JSON column type.
     if deletion_request.properties:
         source = "toJSONString(properties)" if target.json_schema else "properties"
-        replacements["properties"] = f"JSONDropKeys(%(keys)s)({source})"
+        replacements["properties"] = f"JSONDropKeysPool({source}, %(keys)s)"
         params["keys"] = deletion_request.properties
     if deletion_request.person_properties:
         source = "toJSONString(person_properties)" if target.json_schema else "person_properties"
-        replacements["person_properties"] = f"JSONDropKeys(%(person_keys)s)({source})"
+        replacements["person_properties"] = f"JSONDropKeysPool({source}, %(person_keys)s)"
         params["person_keys"] = deletion_request.person_properties
     for name, is_nullable in mat_cols:
         replacements[name] = "NULL" if is_nullable else "''"
