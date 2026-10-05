@@ -187,6 +187,12 @@ class SharingConfiguration(models.Model):
             interviewee_context=self.interviewee_context,
         )
 
+    def revoke_grace_period_tokens(self) -> None:
+        now = timezone.now()
+        SharingConfiguration.objects.filter(**self._resource_lookup_for_instance(), expires_at__gt=now).update(
+            expires_at=now
+        )
+
     def rotate_access_token(self) -> "SharingConfiguration":
         """Create a new sharing configuration and expire the current one"""
         resource_lookup = self._resource_lookup_for_instance()

@@ -581,6 +581,10 @@ class SharingConfigurationViewSet(
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
+            # A refresh keeps the previous token working for a grace period, so turning sharing off ends that too.
+            if not instance.enabled:
+                instance.revoke_grace_period_tokens()
+
         if context.get("insight"):
             name = instance.insight.name or instance.insight.derived_name
             log_activity(

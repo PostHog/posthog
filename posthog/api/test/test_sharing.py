@@ -214,7 +214,14 @@ class TestSharing(APIBaseTest):
         assert mock_render_template.call_args.kwargs["context"]["add_og_tags"] is False
 
     @parameterized.expand(
-        ["dashboard", "legacy_token_dashboard", "insight", "insight_disabled_before_rotation_existed", "recording"]
+        [
+            "dashboard",
+            "legacy_token_dashboard",
+            "insight",
+            "insight_disabled_before_rotation_existed",
+            "recording",
+            "notebook",
+        ]
     )
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_reenabling_sharing_issues_a_new_link(self, resource: str, patched_exporter_task: Mock):
@@ -223,6 +230,7 @@ class TestSharing(APIBaseTest):
         SharingConfiguration.objects.create(
             team=self.team, insight=disabled_insight, enabled=False, access_token="disabled_token"
         )
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user)
         sharing_url = {
             "dashboard": f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
             "legacy_token_dashboard": f"/api/projects/{self.team.id}/dashboards/{legacy_dashboard.id}/sharing",
@@ -231,6 +239,7 @@ class TestSharing(APIBaseTest):
                 f"/api/projects/{self.team.id}/insights/{disabled_insight.id}/sharing"
             ),
             "recording": f"/api/projects/{self.team.id}/session_recordings/re-enabled-session/sharing",
+            "notebook": f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sharing",
         }[resource]
         revoked_tokens = {"legacy_token", "disabled_token"}
 
@@ -248,8 +257,9 @@ class TestSharing(APIBaseTest):
             self.client.get(sharing_url)
             assert_only_live_link(first_token)
 
+            refreshed_token = self.client.post(f"{sharing_url}/refresh/").json()["access_token"]
             self.client.patch(sharing_url, {"enabled": False})
-            revoked_tokens.add(first_token)
+            revoked_tokens.update({first_token, refreshed_token})
 
         with time_machine.travel("2025-01-01 01:00:30", tick=False):
             new_token = self.client.patch(sharing_url, {"enabled": True}).json()["access_token"]
