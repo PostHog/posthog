@@ -32,6 +32,7 @@ RESOLVED_EVENT = "$logs_alert_resolved"
 SLACK = cast(AlertDestinationData, {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-1"})
 WEBHOOK = cast(AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"})
 TEAMS = cast(AlertDestinationData, {"type": DestinationType.TEAMS, "webhook_url": "https://example.com/teams"})
+UNSUPPORTED = cast(AlertDestinationData, {"type": "pagerduty"})
 
 
 class RecordingTransport:
@@ -85,11 +86,14 @@ def _transition(kind: AlertEventKind, grouping_key: str = "") -> AnnouncedTransi
         condition={},
         source_config={},
         error_message=None,
+        occurred_at=FIRING,
     )
 
 
 def _announcement(*transitions: AnnouncedTransition) -> EvaluationAnnouncement:
-    return EvaluationAnnouncement(alert_name="API errors", consecutive_failures=0, transitions=transitions)
+    return EvaluationAnnouncement(
+        configuration_id="cfg-1", alert_name="API errors", consecutive_failures=0, transitions=transitions
+    )
 
 
 def _group(data: AlertDestinationData, fully_enabled: bool = True) -> AlertDestinationGroup:
@@ -153,7 +157,7 @@ class TestDeliverEvaluation(APIBaseTest):
     def test_a_destination_with_no_transport_is_skipped_rather_than_failing_the_send(self) -> None:
         outcome = self._run(
             _announcement(_transition(AlertEventKind.FIRING)),
-            {FIRING_EVENT: [_group(SLACK), _group(WEBHOOK)]},
+            {FIRING_EVENT: [_group(SLACK), _group(UNSUPPORTED)]},
         )
 
         assert [channel for channel, _ in RecordingTransport.sends] == ["C-1"]
