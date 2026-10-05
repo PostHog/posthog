@@ -154,6 +154,7 @@ describe('alertWizardLogic', () => {
                 },
                 post: {
                     '/api/projects/:team_id/hog_functions/new/invocations/': result,
+                    '/api/environments/:team_id/hog_functions/new/invocations/': result,
                 },
             })
             initKeaTests()

@@ -1,7 +1,6 @@
-import { applyKindFilter } from 'lib/components/Alerting/AlertWizard/alertWizardLogic'
 import { SAMPLE_GLOBALS_CONTEXTS } from 'scenes/hog-functions/configuration/sampleGlobalsContexts'
 
-import { CyclotronJobInvocationGlobals } from '~/types'
+import { CyclotronJobInvocationGlobals, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { HOG_FUNCTION_SUB_TEMPLATES, eventToHogFunctionContextId } from './sub-templates'
 
@@ -46,12 +45,25 @@ describe('sub-templates', () => {
 
     // An alert scoped to some kinds skips a sample event of any other kind, so its test sends nothing.
     it.each([
-        ['the first kind of a kind filter', ['external_data_failure', 'sdk_outdated'], 'external_data_failure'],
+        ['the first kind of an exact kind filter', PropertyOperator.Exact, 'external_data_failure'],
+        ['a placeholder kind for a filter that excludes kinds', PropertyOperator.IsNot, 'test'],
         ['a placeholder kind with no kind filter', null, 'test'],
-    ])('gives the health sample event %s', async (_, kinds, expected) => {
+    ])('gives the health sample event %s', async (_, operator, expected) => {
         const sample = await SAMPLE_GLOBALS_CONTEXTS['health-alerts']!(
             { event: { properties: {} } } as CyclotronJobInvocationGlobals,
-            applyKindFilter({ events: [{ id: '$health_check_issue_firing', type: 'events' }] }, kinds)
+            {
+                events: [{ id: '$health_check_issue_firing', type: 'events' }],
+                properties: operator
+                    ? [
+                          {
+                              key: 'kind',
+                              value: ['external_data_failure', 'sdk_outdated'],
+                              operator,
+                              type: PropertyFilterType.Event,
+                          },
+                      ]
+                    : [],
+            }
         )
         expect(sample.event.properties.kind).toBe(expected)
     })

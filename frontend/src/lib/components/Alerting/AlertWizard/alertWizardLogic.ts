@@ -765,7 +765,7 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             }
 
             try {
-                const result = await hogFunctionsInvocationsCreate(String(ApiConfig.getCurrentProjectId()), 'new', {
+                const result = await hogFunctionsInvocationsCreate(String(ApiConfig.getCurrentTeamId()), 'new', {
                     configuration: configuration as HogFunctionApi,
                     globals,
                     mock_async_functions: false,
