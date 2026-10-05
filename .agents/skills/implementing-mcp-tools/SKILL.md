@@ -29,6 +29,7 @@ hogli build:openapi
 
 # 5. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
 pnpm --filter=@posthog/mcp exec vitest run tests/unit/tool-schema-snapshots.test.ts -u
+# A tool behind a new `feature_flag` needs that flag added to the `featureFlags` map in the test first.
 
 # 6. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
 pnpm --filter=@posthog/mcp run generate:ui-apps

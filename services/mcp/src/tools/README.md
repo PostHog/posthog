@@ -30,7 +30,7 @@ Each entry in `schema/tool-definitions.json` needs a clear description, a featur
     "title": "My tool",
     "description": "What the tool does and what the agent should do next.",
     "category": "Feature flags",
-    "feature": "feature_flags",
+    "feature": "flags",
     "summary": "One-line summary for the docs.",
     "required_scopes": ["feature_flag:read"],
     "annotations": {
