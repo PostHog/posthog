@@ -1758,10 +1758,10 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
                     id: 11,
                     name: 'AI-based scanner creation',
                     description: 'Does the goal flow beat the template gallery?',
-                    feature_flag_key: 'vision-goal-based-creation-flow',
+                    feature_flag_key: 'ai-scanner-creation-flow',
                     feature_flag: {
                         id: 11,
-                        key: 'vision-goal-based-creation-flow',
+                        key: 'ai-scanner-creation-flow',
                         filters: {
                             multivariate: {
                                 variants: [

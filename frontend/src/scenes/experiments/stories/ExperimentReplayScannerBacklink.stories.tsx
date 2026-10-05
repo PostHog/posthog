@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { makeDelay } from 'lib/utils/async'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -18,7 +17,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-06-01',
         pageUrl: urls.experiment(EXPERIMENT_WITH_FUNNEL_METRIC.id) + '?tab=recordings',
-        featureFlags: [FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS],
         testOptions: { waitForSelector: '[data-attr="experiment-recordings-tab"]' },
     },
     decorators: [
