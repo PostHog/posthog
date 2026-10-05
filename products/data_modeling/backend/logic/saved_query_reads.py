@@ -8,7 +8,6 @@ from django.conf import settings
 from django.db.models import Q
 
 from ..facade.contracts import SavedQueryDefinition, SavedQuerySummary, UpstreamTableRef
-from ..models.data_modeling_job import DataModelingJob
 from ..models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from ..models.edge import Edge
 from ..models.node import Node, NodeType
@@ -120,17 +119,6 @@ def saved_query_definitions(team_id: int) -> list[SavedQueryDefinition]:
         )
         for saved_query in saved_queries
     ]
-
-
-def saved_query_ids_by_workflow_id(team_id: int, workflow_ids: Collection[str]) -> dict[str, str]:
-    if not workflow_ids:
-        return {}
-    rows = (
-        DataModelingJob.objects.filter(team_id=team_id, workflow_id__in=list(workflow_ids), saved_query__isnull=False)
-        .exclude(saved_query__deleted=True)
-        .values_list("workflow_id", "saved_query_id")
-    )
-    return {workflow_id: str(saved_query_id) for workflow_id, saved_query_id in rows if workflow_id}
 
 
 def allowed_saved_query_ids(

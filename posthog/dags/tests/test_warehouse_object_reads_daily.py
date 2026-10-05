@@ -20,7 +20,7 @@ from posthog.dags.warehouse_object_reads_daily import (
 )
 from posthog.models import Team
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
@@ -72,12 +72,13 @@ def read_tags(
     }
 
 
-def refresh_comment(workflow_id: str) -> dict[str, Any]:
+def refresh_comment(workflow_id: str, materialized_saved_query_id: str) -> dict[str, Any]:
     return {
         "kind": "temporal",
         "product": "warehouse",
         "feature": "data_modeling",
         "temporal": {"workflow_id": workflow_id},
+        "materialized_saved_query_id": materialized_saved_query_id,
     }
 
 
@@ -134,13 +135,7 @@ def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_parti
     hubspot_contacts = DataWarehouseTable.objects.create(
         team=team, name="hubspot_contacts", format="Parquet", url_pattern="https://example.com/hubspot_contacts"
     )
-    retired = DataWarehouseSavedQuery.objects.create(
-        team=team, name="retired", query={"kind": "HogQLQuery", "query": "SELECT 1"}, deleted=True
-    )
     refresh_workflow_id = f"materialize-view-{uuid.uuid4()}"
-    retired_workflow_id = f"materialize-view-{uuid.uuid4()}"
-    DataModelingJob.objects.create(team=team, saved_query=customers, workflow_id=refresh_workflow_id)
-    DataModelingJob.objects.create(team=team, saved_query=retired, workflow_id=retired_workflow_id)
 
     view_id, nested_view_id = str(orders.id), str(customers.id)
     table_id, joined_table_id = str(stripe_charges.id), str(hubspot_contacts.id)
@@ -162,8 +157,13 @@ def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_parti
         archive_row(team, day, log_comment=read_comment("untagged", 7, **untagged_view_read), duration_ms=10),
         archive_row(team, day, log_comment=read_comment("staff", 9, is_impersonated=True, **from_view)),
         archive_row(team, day, log_comment=read_comment("leaf", 7, **from_view), is_initial_query=False),
-        archive_row(team, day, log_comment=refresh_comment(refresh_workflow_id), duration_ms=2000, read_bytes=50000),
-        archive_row(team, day, log_comment=refresh_comment(retired_workflow_id)),
+        archive_row(
+            team,
+            day,
+            log_comment=refresh_comment(refresh_workflow_id, nested_view_id),
+            duration_ms=2000,
+            read_bytes=50000,
+        ),
     ]
     cluster.any_host(partial(insert_archive_rows, rows)).result()
 
@@ -178,7 +178,7 @@ def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_parti
             ("refresh", "saved_query", nested_view_id, refresh_workflow_id, False, 1, 1, 1, 2000, 50000),
         ]
     )
-    subject_ids = [view_id, nested_view_id, table_id, joined_table_id, str(retired.id)]
+    subject_ids = [view_id, nested_view_id, table_id, joined_table_id]
     for _ in range(2):
         run_rollup(cluster, day)
         assert cluster.any_host(partial(read_rollup, team.pk, day, subject_ids)).result() == expected

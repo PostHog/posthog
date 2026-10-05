@@ -1,11 +1,8 @@
-from dataclasses import asdict
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import dagster
-from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole
-from posthog.clickhouse.client.execute import ClickHouseExternalTable
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import Feature
 from posthog.clickhouse.warehouse_object_reads import (
@@ -18,9 +15,7 @@ from posthog.clickhouse.warehouse_object_reads import (
 )
 from posthog.dags.common import JobOwners, settings_with_log_comment
 from posthog.dags.common.common import EXECUTING_RUN_STATUSES, describe_runs
-from posthog.dataclasses import frozen
 
-from products.data_modeling.backend.facade.api import saved_query_ids_by_workflow_id
 from products.web_analytics.dags.web_preaggregated_utils import (
     get_partitions,
     recreate_staging_table,
@@ -32,14 +27,16 @@ QUERY_LOG_ARCHIVE_TABLE = "query_log_archive"
 TEMPORAL_QUERY_KIND = "temporal"
 QUERY_FINISH_TYPE = "QueryFinish"
 MAX_EXECUTION_TIME_SECONDS = 600
-ROLLUP_START_DATE = "2026-08-01"
+ROLLUP_START_DATE = "2026-09-17"
 SCHEDULE_HOUR_UTC = 7
 CONCURRENCY_TAG = {"warehouse_object_reads_backfill_concurrency": "warehouse_object_reads_v1"}
+MAX_RUNTIME_SECONDS = 60 * 60
+STUCK_RUN_AGE = timedelta(hours=3)
 
-REFRESH_SUBJECTS_TABLE = "refresh_subjects"
 PARTITION_ID_FORMAT = "%Y%m%d"
 READ_SUBJECT_ID = "read_subject_id"
 DIRECTLY_READ_IDS = "log_comment.directly_read_ids::Array(String)"
+MATERIALIZED_SAVED_QUERY_ID = "log_comment.materialized_saved_query_id::String"
 SUBJECT_ID_TAGS = {
     SubjectKind.SAVED_QUERY: "saved_query_ids",
     SubjectKind.TABLE: "warehouse_table_ids",
@@ -64,30 +61,9 @@ ARCHIVE_ROW_FILTER = f"""event_date = %(day)s
 
 REFRESH_ROW_FILTER = f"""lc_feature = '{Feature.DATA_MODELING.value}'
         AND lc_kind = '{TEMPORAL_QUERY_KIND}'
-        AND lc_temporal__workflow_id != ''"""
-
-TEAM_REFRESHES_SQL = f"""
-SELECT team_id, groupUniqArray(lc_temporal__workflow_id) AS refresh_workflow_ids
-FROM {QUERY_LOG_ARCHIVE_TABLE}
-WHERE {ARCHIVE_ROW_FILTER}
-    AND {REFRESH_ROW_FILTER}
-GROUP BY team_id
-"""
+        AND {MATERIALIZED_SAVED_QUERY_ID} != ''"""
 
 daily_partitions = dagster.DailyPartitionsDefinition(start_date=ROLLUP_START_DATE, timezone="UTC")
-
-
-@frozen
-class TeamRefreshesOnDay:
-    team_id: int
-    refresh_workflow_ids: tuple[str, ...]
-
-
-@frozen
-class RefreshSubjectRow:
-    team_id: int
-    workflow_id: str
-    subject_id: str
 
 
 def _archive_branch_sql(
@@ -103,6 +79,7 @@ def _archive_branch_sql(
     return f"""
     SELECT
         team_id,
+        toDate(%(day)s) AS day,
         '{read_kind.value}' AS read_kind,
         '{subject_kind.value}' AS subject_kind,
         {subject_id} AS subject_id,
@@ -140,7 +117,7 @@ def _subject_reads_sql(subject_kind: SubjectKind) -> str:
 REFRESH_READS_SQL = _archive_branch_sql(
     read_kind=ReadKind.REFRESH,
     subject_kind=SubjectKind.SAVED_QUERY,
-    subject_id="''",
+    subject_id=MATERIALIZED_SAVED_QUERY_ID,
     workflow_id="lc_temporal__workflow_id",
     read_alone="false",
     array_join="",
@@ -152,35 +129,10 @@ INSERT INTO {WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE}
 SELECT
     {", ".join(SORT_KEY_COLUMNS)},
     {", ".join(AGGREGATE_COLUMNS)}
-FROM (
-    SELECT
-        reads.team_id AS team_id,
-        toDate(%(day)s) AS day,
-        reads.read_kind AS read_kind,
-        reads.subject_kind AS subject_kind,
-        if(reads.read_kind = '{ReadKind.REFRESH.value}', {REFRESH_SUBJECTS_TABLE}.subject_id, reads.subject_id) AS subject_id,
-        reads.workflow_id AS workflow_id,
-        reads.lc_kind AS lc_kind,
-        reads.lc_product AS lc_product,
-        reads.lc_feature AS lc_feature,
-        reads.lc_access_method AS lc_access_method,
-        reads.source AS source,
-        reads.scene AS scene,
-        reads.has_user_id AS has_user_id,
-        reads.read_alone AS read_alone,
-        reads.request_id AS request_id,
-        reads.user_id AS user_id,
-        reads.query_duration_ms AS query_duration_ms,
-        reads.read_bytes AS read_bytes,
-        reads.event_time AS event_time
-    FROM ({_subject_reads_sql(SubjectKind.SAVED_QUERY)}
-    UNION ALL{_subject_reads_sql(SubjectKind.TABLE)}
-    UNION ALL{REFRESH_READS_SQL}
-    ) AS reads
-    LEFT JOIN {REFRESH_SUBJECTS_TABLE}
-        ON reads.team_id = {REFRESH_SUBJECTS_TABLE}.team_id AND reads.workflow_id = {REFRESH_SUBJECTS_TABLE}.workflow_id
+FROM ({_subject_reads_sql(SubjectKind.SAVED_QUERY)}
+UNION ALL{_subject_reads_sql(SubjectKind.TABLE)}
+UNION ALL{REFRESH_READS_SQL}
 )
-WHERE subject_id != ''
 GROUP BY {", ".join(SORT_KEY_COLUMNS)}
 """
 
@@ -194,53 +146,25 @@ def _day_query_parameters(day: date) -> dict[str, date | datetime | str]:
     }
 
 
-def find_team_refreshes(client: Client, day: date) -> list[TeamRefreshesOnDay]:
-    rows = client.execute(TEAM_REFRESHES_SQL, _day_query_parameters(day))
-    return [
-        TeamRefreshesOnDay(team_id=team_id, refresh_workflow_ids=tuple(refresh_workflow_ids))
-        for team_id, refresh_workflow_ids in rows
-    ]
-
-
-def _refresh_subject_rows(team: TeamRefreshesOnDay) -> list[RefreshSubjectRow]:
-    return [
-        RefreshSubjectRow(team_id=team.team_id, workflow_id=workflow_id, subject_id=saved_query_id)
-        for workflow_id, saved_query_id in saved_query_ids_by_workflow_id(
-            team.team_id, team.refresh_workflow_ids
-        ).items()
-    ]
-
-
-def load_refresh_subjects(teams: list[TeamRefreshesOnDay]) -> list[RefreshSubjectRow]:
-    return [row for team in teams for row in _refresh_subject_rows(team)]
-
-
-def as_external_table(refresh_subjects: list[RefreshSubjectRow]) -> ClickHouseExternalTable:
-    return ClickHouseExternalTable(
-        name=REFRESH_SUBJECTS_TABLE,
-        structure=[("team_id", "Int64"), ("workflow_id", "String"), ("subject_id", "String")],
-        data=[asdict(row) for row in refresh_subjects],
-    )
-
-
 def insert_rollup_into_staging(
     context: dagster.OpExecutionContext,
     cluster: ClickhouseCluster,
     day: date,
-    external_tables: list[ClickHouseExternalTable],
 ) -> None:
     query_settings = {**settings_with_log_comment(context), "max_execution_time": MAX_EXECUTION_TIME_SECONDS}
     cluster.any_host_by_roles(
-        lambda client: client.execute(
-            INSERT_ROLLUP_SQL, _day_query_parameters(day), settings=query_settings, external_tables=external_tables
-        ),
+        lambda client: client.execute(INSERT_ROLLUP_SQL, _day_query_parameters(day), settings=query_settings),
         [NodeRole.DATA],
     ).result()
 
 
 def refuse_to_run_beside_another_rollup(context: dagster.OpExecutionContext) -> None:
     others = describe_runs(
-        context.instance, (context.job_name,), statuses=EXECUTING_RUN_STATUSES, exclude_run_id=context.run_id
+        context.instance,
+        (context.job_name,),
+        statuses=EXECUTING_RUN_STATUSES,
+        created_after=datetime.now(UTC) - STUCK_RUN_AGE,
+        exclude_run_id=context.run_id,
     )
     if others:
         raise dagster.Failure(
@@ -276,8 +200,6 @@ def rollup_warehouse_object_reads_for_day(
 ) -> None:
     refuse_to_run_beside_another_rollup(context)
     day = date.fromisoformat(context.partition_key)
-    teams = cluster.any_host_by_roles(lambda client: find_team_refreshes(client, day), [NodeRole.DATA]).result()
-    refresh_subjects = load_refresh_subjects(teams)
     context.log.info(f"Rolling up warehouse object reads for {day}")
 
     recreate_staging_table(
@@ -286,21 +208,13 @@ def rollup_warehouse_object_reads_for_day(
         WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
         REPLACE_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL,
     )
-    insert_rollup_into_staging(context, cluster, day, [as_external_table(refresh_subjects)])
+    insert_rollup_into_staging(context, cluster, day)
     publish_day(context, cluster, day)
-
-    context.add_output_metadata(
-        {
-            "refresh_teams": dagster.MetadataValue.int(len(teams)),
-            "refresh_workflows": dagster.MetadataValue.int(sum(len(team.refresh_workflow_ids) for team in teams)),
-            "resolved_refresh_workflows": dagster.MetadataValue.int(len(refresh_subjects)),
-        }
-    )
 
 
 @dagster.job(
     partitions_def=daily_partitions,
-    tags={"owner": JobOwners.TEAM_DATA_MODELING.value, **CONCURRENCY_TAG},
+    tags={"owner": JobOwners.TEAM_DATA_MODELING.value, "dagster/max_runtime": MAX_RUNTIME_SECONDS, **CONCURRENCY_TAG},
 )
 def warehouse_object_reads_daily_job() -> None:
     rollup_warehouse_object_reads_for_day()
