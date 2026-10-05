@@ -17,10 +17,23 @@ func channelName(token string) string {
 	return fmt.Sprintf("livestream:events:%s", token)
 }
 
+// PublishGate decides whether an event for a token must be published. A nil gate means
+// publish everything (the default, subscriber-aware publishing off).
+type PublishGate interface {
+	ShouldPublish(token string) bool
+}
+
 type RedisEventBroker struct {
 	client     rueidis.Client
 	publishCh  chan PostHogEvent
 	numWorkers int
+	gate       PublishGate
+}
+
+// SetPublishGate enables subscriber-aware publishing: events whose token has no registered
+// subscriber are skipped before they reach the publish buffer.
+func (b *RedisEventBroker) SetPublishGate(gate PublishGate) {
+	b.gate = gate
 }
 
 func NewRedisEventBroker(cfg configs.RedisConfig) (*RedisEventBroker, error) {
@@ -46,6 +59,13 @@ func NewRedisEventBrokerFromClient(client rueidis.Client, bufferSize, numWorkers
 // Publish enqueues an event for async publishing to Redis. Non-blocking, drops and emits a metric if buffer is full.
 func (b *RedisEventBroker) Publish(ctx context.Context, event PostHogEvent) {
 	if event.Token == "" {
+		return
+	}
+	// Skip tokens nobody is watching. Gating here (before the buffer) also keeps
+	// unsubscribed events from saturating the publish buffer. The gate fails open, so
+	// uncertainty never drops a watched event.
+	if b.gate != nil && !b.gate.ShouldPublish(event.Token) {
+		metrics.RedisPublishSkippedTotal.Inc()
 		return
 	}
 	select {
@@ -120,6 +140,14 @@ type TokenRouter struct {
 	allSubs        map[uint64]Subscription
 	msgCh          chan rueidis.PubSubMessage
 	channelCancels map[string]context.CancelFunc
+	registry       *SubscriberRegistry
+}
+
+// SetRegistry enables subscriber-aware publishing on the subscribe side: the router
+// registers a token the moment its first subscriber connects and re-registers all active
+// tokens on a heartbeat. A nil registry (the default) leaves behavior unchanged.
+func (tr *TokenRouter) SetRegistry(registry *SubscriberRegistry) {
+	tr.registry = registry
 }
 
 func NewTokenRouter(client rueidis.Client, subChan, unSubChan chan Subscription) *TokenRouter {
@@ -141,10 +169,22 @@ func (tr *TokenRouter) Run(ctx context.Context) {
 		}
 	}()
 
+	// Heartbeat active tokens into the shared registry while subscriber-aware publishing is
+	// on. A nil channel never fires, so the registry-off path is unchanged.
+	var heartbeatC <-chan time.Time
+	if tr.registry != nil {
+		ht := time.NewTicker(tr.registry.HeartbeatInterval())
+		defer ht.Stop()
+		heartbeatC = ht.C
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+
+		case <-heartbeatC:
+			tr.heartbeatRegistry(ctx)
 
 		case newSub := <-tr.SubChan:
 			token := newSub.Token
@@ -154,6 +194,9 @@ func (tr *TokenRouter) Run(ctx context.Context) {
 
 			if len(tr.tokenSubs[token]) == 1 {
 				tr.subscribeChannel(ctx, token)
+				// Register synchronously with the first subscriber so publishers can pick
+				// the token up on their next snapshot refresh.
+				tr.registerToken(ctx, token)
 			}
 
 		case unSub := <-tr.UnSubChan:
@@ -252,4 +295,40 @@ func (tr *TokenRouter) unsubscribeChannel(token string) {
 		delete(tr.channelCancels, token)
 		metrics.RedisSubscribeTotal.Dec()
 	}
+}
+
+// registerToken writes a single token into the subscriber registry. It runs off the Run
+// loop so a slow Redis write never stalls message delivery. A lost write is harmless: the
+// next heartbeat re-registers the token, and publishers fail open until then.
+func (tr *TokenRouter) registerToken(ctx context.Context, token string) {
+	if tr.registry == nil {
+		return
+	}
+	go func() {
+		writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := tr.registry.Heartbeat(writeCtx, []string{token}); err != nil {
+			log.Printf("subscriber registry register %s: %v", token, err)
+		}
+	}()
+}
+
+// heartbeatRegistry re-registers every token that currently has subscribers. The token set
+// is snapshotted on the Run goroutine (safe read of tokenSubs) before the write goroutine
+// starts, so tokenSubs is never touched concurrently.
+func (tr *TokenRouter) heartbeatRegistry(ctx context.Context) {
+	if tr.registry == nil || len(tr.tokenSubs) == 0 {
+		return
+	}
+	tokens := make([]string, 0, len(tr.tokenSubs))
+	for token := range tr.tokenSubs {
+		tokens = append(tokens, token)
+	}
+	go func() {
+		writeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if err := tr.registry.Heartbeat(writeCtx, tokens); err != nil {
+			log.Printf("subscriber registry heartbeat: %v", err)
+		}
+	}()
 }

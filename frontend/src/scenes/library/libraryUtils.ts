@@ -4,10 +4,12 @@ import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/p
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 // These file system types are working pages rather than saved objects, so they belong to Tools.
-export const TOOL_FILE_SYSTEM_TYPES = new Set(['endpoints', 'live_debugger', 'notebook', 'task'])
+export const TOOL_FILE_SYSTEM_TYPES = new Set(['endpoints', 'task'])
+// These file system types are views people open and read, so they belong to Views, next to canvases.
+export const VIEW_FILE_SYSTEM_TYPES = new Set(['dashboard', 'notebook'])
 
 // The objects people reach for most come first. Any other type follows in name order.
-const LIBRARY_TYPE_ORDER = ['insight', 'dashboard', 'feature_flag', 'experiment', 'survey', 'cohort', 'action']
+const LIBRARY_TYPE_ORDER = ['insight', 'feature_flag', 'experiment', 'survey', 'cohort', 'action']
 
 export interface LibraryObjectType {
     value: string
@@ -21,8 +23,13 @@ export function baseObjectType(type: string | undefined): string {
     return type?.split('/')[0] ?? ''
 }
 
-export function isToolEntry(entry: Pick<FileSystemEntry, 'type'>): boolean {
-    return TOOL_FILE_SYSTEM_TYPES.has(baseObjectType(entry.type))
+/** Whether a file system type shows in Library, rather than in Tools or Views. */
+export function isLibraryType(type: string): boolean {
+    return !TOOL_FILE_SYSTEM_TYPES.has(type) && !VIEW_FILE_SYSTEM_TYPES.has(type)
+}
+
+export function isLibraryEntry(entry: Pick<FileSystemEntry, 'type'>): boolean {
+    return isLibraryType(baseObjectType(entry.type))
 }
 
 /** The page a saved object opens, from the entry itself or from its type's registered URL. */
@@ -72,7 +79,7 @@ export function libraryTypeForPath(path: string): string | null {
     if (!objectTypeByScene) {
         const scenes = new Map<string, string>()
         const addPage = (type: string, href: string | undefined): void => {
-            const scene = href && !TOOL_FILE_SYSTEM_TYPES.has(type) ? sceneForPath(href) : null
+            const scene = href && isLibraryType(type) ? sceneForPath(href) : null
             if (scene && !scenes.has(scene)) {
                 scenes.set(scene, type)
             }

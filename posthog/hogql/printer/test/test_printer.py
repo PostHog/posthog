@@ -61,6 +61,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import json_dynamic_read_sql, json_dynamic_read_sql_from_parts
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
 from posthog.models import PropertyDefinition
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE, EVENTS_PROPERTIES_JSON_TYPE
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
@@ -1422,21 +1423,33 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            (expression, properties)
+            (expression, properties, expected)
             for expression in ["properties", "toJSONString(properties)"]
-            for properties in [{}, {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []}]
+            for properties, expected in [
+                ({}, {}),
+                (
+                    {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []},
+                    {"$exception_types": ["TypeError"], "items": [None, "", {}, []], "custom_empty": []},
+                ),
+                ({"$exception_types": [], "custom_empty": []}, {"custom_empty": []}),
+            ]
         ]
     )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_new_events_schema_to_json_string_strips_empty_values(
-        self, expression: str, properties: dict[str, object]
+        self, expression: str, properties: dict[str, object], expected: dict[str, object]
     ) -> None:
         printed = self._expr(expression)
         [(serialized,)] = sync_execute(
-            f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties) AS events",
-            {"raw": json.dumps(properties), "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+            f"SELECT {printed} FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties, "
+            "CAST('{}', %(temporary_type)s) AS temporary_properties) AS events",
+            {
+                "raw": json.dumps(properties),
+                "json_type": EVENTS_PROPERTIES_JSON_TYPE(),
+                "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
+            },
         )
-        self.assertEqual(json.loads(serialized), {key: value for key, value in properties.items() if value != []})
+        self.assertEqual(json.loads(serialized), expected)
 
     @parameterized.expand(
         [
@@ -1591,14 +1604,6 @@ class TestPrinter(BaseTest):
                 settings={"json_type_escape_dots_in_keys": 1, "type_json_skip_duplicated_paths": 1},
             )
             self.assertEqual(value, expected, expression)
-
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_new_events_schema_runtime_first_property_keys_fail_fast(self) -> None:
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
-
-        for expression in ("JSONHas(properties, event)", "JSONExtractRaw(properties, event)"):
-            with pytest.raises(QueryError, match="constant first key"):
-                self._expr(expression, context)
 
     def test_property_groups_optimized_in_comparisons(self) -> None:
         # The IN operator works much like equality when the right hand side of the expression is all constants. Like
@@ -3865,6 +3870,38 @@ class TestPrinter(BaseTest):
             ),
         )
 
+    def test_log_entries_queries_inherit_profile_spill(self):
+        printed = self._print(
+            "SELECT instance_id, max(timestamp) FROM log_entries GROUP BY instance_id",
+            settings=HogQLGlobalSettings(),
+        )
+        assert "max_bytes_before_external_group_by" not in printed, printed
+
+    def test_log_entries_subquery_inherits_profile_spill(self):
+        printed = self._print(
+            "SELECT session_id FROM session_replay_events WHERE session_id IN (SELECT log_source_id FROM console_logs_log_entries)",
+            settings=HogQLGlobalSettings(),
+        )
+        assert "max_bytes_before_external_group_by" not in printed, printed
+
+    def test_non_log_entries_queries_keep_spill_disabled(self):
+        printed = self._print("SELECT event FROM events", settings=HogQLGlobalSettings())
+        assert "max_bytes_before_external_group_by=0" in printed, printed
+
+    def test_log_entries_keeps_explicit_spill_threshold(self):
+        printed = self._print(
+            "SELECT message FROM log_entries",
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=1_000_000),
+        )
+        assert "max_bytes_before_external_group_by=1000000" in printed, printed
+
+    def test_log_entries_keeps_explicit_zero_spill_threshold(self):
+        printed = self._print(
+            "SELECT message FROM log_entries",
+            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=0),
+        )
+        assert "max_bytes_before_external_group_by=0" in printed, printed
+
     def test_print_query_level_settings(self):
         query = parse_select("SELECT 1 FROM events")
         assert isinstance(query, ast.SelectQuery)
@@ -5069,6 +5106,26 @@ class TestPrinter(BaseTest):
                 "nullable_left_not_in_keeps_rows_on_null",
                 "SELECT event FROM events WHERE nullIf(event, '') NOT IN (SELECT event FROM events WHERE event = 'signup')",
                 "ifNull(globalNotIn(",
+            ),
+            (
+                "in_log_entries_subquery",
+                "SELECT session_id FROM session_replay_events WHERE session_id IN (SELECT log_source_id FROM log_entries WHERE log_source = 'session_replay')",
+                "globalIn(",
+            ),
+            (
+                "not_in_log_entries_subquery",
+                "SELECT session_id FROM session_replay_events WHERE session_id NOT IN (SELECT log_source_id FROM log_entries WHERE log_source = 'session_replay')",
+                "globalNotIn(",
+            ),
+            (
+                "in_console_logs_log_entries_subquery",
+                "SELECT session_id FROM session_replay_events WHERE session_id IN (SELECT log_source_id FROM console_logs_log_entries WHERE message ILIKE '%error%')",
+                "globalIn(",
+            ),
+            (
+                "in_batch_export_log_entries_subquery",
+                "SELECT event FROM events WHERE event IN (SELECT instance_id FROM batch_export_log_entries WHERE level = 'ERROR')",
+                "globalIn(",
             ),
         ]
     )

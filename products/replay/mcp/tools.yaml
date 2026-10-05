@@ -99,6 +99,7 @@ tools:
             - recordings_counts
             - is_synthetic
             - _create_in_folder
+            - creation_method
     session-recording-playlist-get:
         operation: session_recording_playlists_retrieve
         enabled: true
@@ -135,6 +136,7 @@ tools:
             - recordings_counts
             - is_synthetic
             - _create_in_folder
+            - creation_method
             - type
     session-recording-playlists-destroy:
         operation: session_recording_playlists_destroy

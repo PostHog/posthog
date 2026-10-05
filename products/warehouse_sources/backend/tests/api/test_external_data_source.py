@@ -132,6 +132,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsAPIError
+from products.warehouse_sources.backend.temporal.data_imports.sources.trino.source import TrinoSource
 
 
 def _configure_source_mock_versioning(mock_get_source) -> None:
@@ -723,16 +724,71 @@ class TestExternalDataSource(APIBaseTest):
             "direct_trino_table": "events",
         }
 
-    def test_create_trino_rejects_warehouse_mode(self):
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.TrinoSource.get_schemas",
+        return_value=[
+            SourceSchema(
+                name="analytics.events",
+                supports_incremental=True,
+                supports_append=True,
+                columns=[("id", "bigint", False), ("updated_at", "timestamp(3)", True)],
+                source_catalog="hive",
+                source_schema="analytics",
+                source_table_name="events",
+                detected_primary_keys=["id"],
+            )
+        ],
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.TrinoSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_warehouse_trino_source_syncs_incrementally(self, _mock_validate, _mock_get_schemas):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Trino",
                 "created_via": "web",
                 "access_method": "warehouse",
-                "payload": {},
+                "payload": {
+                    "host": "trino.example.com",
+                    "port": 443,
+                    "catalog": "hive",
+                    "schema": "",
+                    "auth_type": {"selection": "password", "user": "posthog", "password": "secret"},
+                    "use_ssl": True,
+                    "verify_ssl": True,
+                    "schemas": [
+                        {
+                            "name": "analytics.events",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "updated_at",
+                            "incremental_field_type": "timestamp",
+                        }
+                    ],
+                },
             },
         )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        schema = ExternalDataSchema.objects.get(source=source, name="analytics.events")
+        assert source.access_method == ExternalDataSource.AccessMethod.WAREHOUSE
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert schema.incremental_field == "updated_at"
+
+    def test_create_rejects_warehouse_mode_for_a_direct_only_source(self):
+        with patch.object(TrinoSource, "supports_scheduled_sync", False):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Trino",
+                    "created_via": "web",
+                    "access_method": "warehouse",
+                    "payload": {},
+                },
+            )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {"message": "Trino is available only as a direct connection."}
@@ -779,11 +835,17 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get()
         assert source.schemas.filter(should_sync=True).exists()
 
+    @parameterized.expand(
+        [
+            ("unknown_name", {"name": "SomeOtherSchema", "should_sync": True, "sync_type": "full_refresh"}),
+            ("unknown_sync_type", {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full"}),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_create_external_data_source_delete_on_bad_schema(self, _mock_validate):
+    def test_create_external_data_source_delete_on_bad_schema(self, _name, schema, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -791,15 +853,14 @@ class TestExternalDataSource(APIBaseTest):
                 "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
-                    "schemas": [
-                        {"name": "SomeOtherSchema", "should_sync": True, "sync_type": "full_refresh"},
-                    ],
+                    "schemas": [schema],
                 },
             },
         )
 
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
+        assert ExternalDataSchema.objects.count() == 0
 
     @parameterized.expand(
         [
@@ -1144,7 +1205,6 @@ class TestExternalDataSource(APIBaseTest):
                 "cdc_lag_warning_threshold_mb": 512,
                 "cdc_lag_critical_threshold_mb": 1024,
                 "cdc_consistent_point": "0/AA",
-                "cdc_ingest_mode": "buffered",
             },
         )
 
@@ -1165,7 +1225,6 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_lag_warning_threshold_mb": 1,
                     "cdc_lag_critical_threshold_mb": 2,
                     "cdc_consistent_point": "0/BAD",
-                    "cdc_ingest_mode": "legacy",
                 }
             },
             format="json",
@@ -1182,7 +1241,6 @@ class TestExternalDataSource(APIBaseTest):
         assert str(source.job_inputs["cdc_lag_warning_threshold_mb"]) == "512"
         assert str(source.job_inputs["cdc_lag_critical_threshold_mb"]) == "1024"
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
-        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -1278,7 +1336,11 @@ class TestExternalDataSource(APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
-            data={"schemas": [{"id": str(schema.id), "full_refresh_interval_days": 7}]},
+            data={
+                "schemas": [
+                    {"id": str(schema.id), "full_refresh_interval_days": 7, "full_refresh_time_of_day": "03:00:00"}
+                ]
+            },
             format="json",
         )
 
@@ -1286,7 +1348,9 @@ class TestExternalDataSource(APIBaseTest):
         assert response.json()[0]["full_refresh_interval_days"] == 7
         schema.refresh_from_db()
         assert schema.full_refresh_interval_days == 7
+        assert str(schema.full_refresh_time_of_day) == "03:00:00"
         assert schema.next_full_refresh_at is not None
+        assert schema.next_full_refresh_at.strftime("%H:%M:%S") == "03:00:00"
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -1671,6 +1735,53 @@ class TestExternalDataSource(APIBaseTest):
         # The newly enabled schema gets its Temporal schedule created.
         assert mock_sync_workflow.call_count == 1
         assert mock_sync_workflow.call_args.kwargs == {"create": True, "should_sync": True}
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_finds_renamed_google_sheet_by_resource_id(self, _mock_workflow_exists):
+        from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_RESOURCE_ID_METADATA_KEY
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+
+        source = self._create_external_data_source()
+        source.source_type = "GoogleSheets"
+        source.job_inputs = {"spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake"}
+        source.save(update_fields=["source_type", "job_inputs"])
+        schema = ExternalDataSchema.objects.create(
+            name="budget",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=None,
+            sync_type_config={"schema_metadata": {SCHEMA_RESOURCE_ID_METADATA_KEY: "7"}},
+        )
+        discovered = SourceSchema(
+            name="budget_2025",
+            supports_incremental=False,
+            supports_append=False,
+            schema_metadata={SCHEMA_RESOURCE_ID_METADATA_KEY: "7"},
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.GoogleSheetsSource.get_schemas",
+                return_value=[discovered],
+            ) as mock_get_schemas,
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "should_sync": True, "apply_sync_defaults": True}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()[0]["should_sync"] is True
+        assert response.json()[0]["sync_type"] == "full_refresh"
+        assert mock_get_schemas.call_args.kwargs["names"] is None
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -3176,6 +3287,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
                     "full_refresh_interval_days": None,
+                    "full_refresh_time_of_day": None,
                     "next_full_refresh_at": None,
                     "description": schema.description,
                     "primary_key_columns": None,
@@ -9577,7 +9689,6 @@ class TestCreateWebhook(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs_partial_update_preserves_other_required_fields(self, mock_create_webhook):
-
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result(extra_inputs={"signing_secret": "whsec_initial"})
@@ -11908,7 +12019,6 @@ class TestRepairCDC(APIBaseTest):
             sync_type_config={
                 "cdc_mode": "streaming",
                 "cdc_last_log_position": "0/123",
-                "cdc_deferred_runs": [{"run": "stale"}],
                 "cdc_broken": BROKEN_MARKER,
             },
         )
@@ -11955,7 +12065,6 @@ class TestRepairCDC(APIBaseTest):
             assert config["reset_pipeline"] is True
             assert "cdc_broken" not in config
             assert "cdc_last_log_position" not in config
-            assert "cdc_deferred_runs" not in config
             assert schema.initial_sync_complete is False
             assert schema.latest_error is None
 
@@ -12193,7 +12302,6 @@ class TestRepairCDC(APIBaseTest):
         # `awaiting_slot`: the slot this table would snapshot against is gone until repair
         # recreates it, so a capture run firing meanwhile must hold the reset instead of starting.
         assert cdc_schema.sync_type_config["cdc_reset_pending"] == {
-            "clear_deferred_runs": True,
             "trigger": True,
             "awaiting_slot": True,
             "generation": 1,

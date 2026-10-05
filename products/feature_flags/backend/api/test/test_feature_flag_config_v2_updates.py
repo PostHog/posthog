@@ -40,6 +40,9 @@ SEED_B = "7c9e6f82-1a2b-4c3d-9e8f-5a6b7c8d9e0f"
 UNKNOWN_RULE = "00000000-0000-4000-8000-000000000000"
 
 
+type JsonValue = bool | int | float | str | None | list["JsonValue"] | dict[str, "JsonValue"]
+
+
 def admit_v2(team_id: int, *, creation: bool = False):
     """Turn the writer flags on for one project the way the local flag client would answer."""
     enabled = {config_writes.V2_WRITES_FLAG} | ({config_writes.V2_CREATION_FLAG} if creation else set())
@@ -315,6 +318,43 @@ class TestAdmittedV2Updates(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert flag.filters == document
 
+    @parameterized.expand(
+        [
+            ("string", "compact", "compact"),
+            ("number", 2, 2.0),
+            ("object", {"a": 1, "b": [True]}, {"b": [True], "a": 1}),
+        ]
+    )
+    def test_typed_documents_replace_and_report_warnings(
+        self, return_type: str, upper: JsonValue, lower: JsonValue
+    ) -> None:
+        flag = self.flag(
+            config(targeted(value=upper), rollout(value=upper), return_type=return_type, default_value=None)
+        )
+        # The same JSON value, spelled differently, below a partial rollout that continues on a miss.
+        document = config(rollout(value=upper), targeted(value=lower), return_type=return_type, default_value=None)
+        with patch("products.feature_flags.backend.api.feature_flag.logger.info") as info:
+            response = self.patch_flag(flag, {"version": 3, "filters": document})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert flag.filters == document
+        assert info.call_args.kwargs["extra"]["codes"] == ["ROLLOUT_MISS_CAN_ENTER_LOWER_RULE"]
+
+    @parameterized.expand(
+        [
+            ("values_of_the_new_type", config(targeted(value="compact"), return_type="string", default_value=None)),
+            ("only_the_type", config(targeted(), return_type="string")),
+        ]
+    )
+    def test_return_type_cannot_change(self, _name: str, document: dict) -> None:
+        flag = self.flag()
+        stored = copy.deepcopy(flag.filters)
+        response = self.patch_flag(flag, {"version": 3, "filters": document})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "filters.return_type: Cannot be changed after the flag is created."
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (stored, 3)
+
     @parameterized.expand([("zero", 0), ("hundred", 100), ("two_decimals", 33.33)])
     def test_percentages_round_trip(self, _name: str, percentage: Any) -> None:
         flag = self.flag()
@@ -549,7 +589,7 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         [
             ("malformed", {"version": 2, "rules": "broken"}),
             ("deferred_experiment", config({"id": RULE_A, "rule_type": "experiment", "targeting": {}})),
-            ("deferred_string", config(return_type="string")),
+            ("string_with_boolean_default", config(return_type="string")),
         ]
     )
     def test_unsupported_stored_configs_are_not_replaced(self, _name: str, stored: dict) -> None:
@@ -683,6 +723,131 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         )
         response = self.patch_flag(other, {"version": 1, "filters": config()})
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+def string_config(value: str, default: str | None, rule_id: str | None = RULE_A) -> dict:
+    return config(targeted(rule_id=rule_id, value=value), return_type="string", default_value=default)
+
+
+RESERVED_STRING_VALUES = [
+    ("rule_value", "$false", None, "filters.rules[0].value: Must be a non-empty string other than $false or $true."),
+    (
+        "default_value",
+        "compact",
+        "$true",
+        "filters.default_value: Must be a non-empty string other than $false or $true, or null.",
+    ),
+]
+
+
+class TestWriterOnlyRules(AdmittedV2TestCase):
+    """The writer reserves `$false` and `$true` as string values; the caches accept them, so a stored one stays replaceable."""
+
+    @parameterized.expand(RESERVED_STRING_VALUES)
+    def test_create_rejects_a_reserved_value(self, _name: str, value: str, default: str | None, detail: str) -> None:
+        with admit_v2(self.team.id, creation=True):
+            response = self.post_flag({"key": "new-v2", "filters": string_config(value, default, rule_id=None)})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["code"], response.json()["detail"]) == ("invalid_input", detail)
+        assert not FeatureFlag.objects.filter(team=self.team, key="new-v2").exists()
+
+    @parameterized.expand(RESERVED_STRING_VALUES)
+    def test_update_rejects_a_reserved_value(self, _name: str, value: str, default: str | None, detail: str) -> None:
+        flag = self.flag(string_config("compact", None))
+        response = self.patch_flag(flag, {"version": 3, "filters": string_config(value, default)})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["code"], response.json()["detail"]) == ("invalid_input", detail)
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (string_config("compact", None), 3)
+
+    def test_a_stored_reserved_value_is_not_enabled_but_can_be_replaced(self) -> None:
+        stored = string_config("$false", "$false")
+        flag = self.flag(stored, active=False)
+        response = self.patch_flag(flag, {"version": 3, "active": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "filters: This flag's stored configuration cannot be enabled through this API."
+        )
+        flag.refresh_from_db()
+        assert (flag.active, flag.filters, flag.version) == (False, stored, 3)
+
+        response = self.patch_flag(flag, {"version": 3, "filters": string_config("compact", None)})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (string_config("compact", None), 4)
+
+    def test_a_stored_reserved_value_can_be_disabled(self) -> None:
+        flag = self.flag(string_config("$false", None), active=True)
+        response = self.patch_flag(flag, {"version": 3, "active": False})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.active, flag.version) == (False, 4)
+
+
+def regex_config(*patterns: tuple[str, str], rule_id: str | None = RULE_A, **extra: Any) -> dict:
+    properties = [{"key": "email", "type": "person", "operator": op, "value": value} for op, value in patterns]
+    return config(targeted(rule_id=rule_id, targeting={"properties": properties}, **extra))
+
+
+COMPILABLE = ("regex", r"@example\.com$")
+UNCOMPILABLE_PATTERNS = [
+    ("regex", "regex", "["),
+    ("not_regex", "not_regex", "(?P<"),
+    ("repetition_overflow", "regex", "a{4294967296}"),
+    ("repetition_past_the_int_digit_limit", "regex", "a{" + "9" * 5000 + "}"),
+    ("nesting_past_the_recursion_limit", "not_regex", "(" * 5000 + ")" * 5000),
+]
+
+
+class TestWriterRegexPatterns(AdmittedV2TestCase):
+    """New patterns must compile with Python's `re`, as in v1; readers accept any, and a pattern the row holds is kept."""
+
+    @parameterized.expand(UNCOMPILABLE_PATTERNS)
+    def test_create_rejects_an_uncompilable_pattern(self, _name: str, operator: str, pattern: str) -> None:
+        with admit_v2(self.team.id, creation=True):
+            filters = regex_config(COMPILABLE, (operator, pattern), rule_id=None)
+            response = self.post_flag({"key": "new-v2", "filters": filters})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert (response.json()["code"], response.json()["detail"]) == (
+            "invalid_input",
+            "filters.rules[0].targeting.properties[1].value: Must be a valid regular expression.",
+        )
+        assert not FeatureFlag.objects.filter(team=self.team, key="new-v2").exists()
+
+    @parameterized.expand(UNCOMPILABLE_PATTERNS)
+    def test_update_rejects_a_new_uncompilable_pattern(self, _name: str, operator: str, pattern: str) -> None:
+        flag = self.flag(regex_config(COMPILABLE))
+        response = self.patch_flag(flag, {"version": 3, "filters": regex_config(COMPILABLE, (operator, pattern))})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "filters.rules[0].targeting.properties[1].value: Must be a valid regular expression."
+        )
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (regex_config(COMPILABLE), 3)
+
+    def test_an_update_keeps_patterns_the_row_already_holds(self) -> None:
+        # The flags service compiles `\p{Lu}`, Python's `re` does not; `[` compiles in neither.
+        held = [("regex", "["), ("not_regex", r"^\p{Lu}")]
+        flag = self.flag(regex_config(*held))
+        response = self.patch_flag(flag, {"version": 3, "filters": regex_config(*held, ("regex", "("))})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == (
+            "filters.rules[0].targeting.properties[2].value: Must be a valid regular expression."
+        )
+
+        replacement = regex_config(*held, description="Reviewed")
+        response = self.patch_flag(flag, {"version": 3, "filters": replacement})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.filters, flag.version) == (replacement, 4)
+
+    def test_a_stored_uncompilable_pattern_can_be_enabled(self) -> None:
+        stored = regex_config(("regex", "["))
+        flag = self.flag(stored, active=False)
+        response = self.patch_flag(flag, {"version": 3, "active": True})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        flag.refresh_from_db()
+        assert (flag.active, flag.filters, flag.version) == (True, stored, 4)
 
 
 class TestV2RequestBytes(AdmittedV2TestCase):

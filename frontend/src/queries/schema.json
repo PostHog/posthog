@@ -5047,8 +5047,6 @@
                 "search_session_recordings",
                 "create_ai_trace_parser",
                 "fix_hogql_query",
-                "analyze_user_interviews",
-                "create_user_interview_topic",
                 "create_hog_transformation_function",
                 "create_hog_function_filters",
                 "create_hog_function_inputs",
@@ -5561,7 +5559,7 @@
                 },
                 "display": {
                     "default": "ActionsLineGraph",
-                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison (\"how many X in the last 30 days\", \"what's our conversion rate this month\", \"how does this month compare to last\"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
+                    "description": "Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart with one bar per interval and breakdown values stacked in each bar. Do not use it to compare breakdown values or series as totals. Use `ActionsBarValue` for that. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `Metric` - single large number with a change pill and a sparkline. Use for a period summary or an explicit current-versus-previous-period comparison (\"how many X in the last 30 days\", \"what's our conversion rate this month\", \"how does this month compare to last\"). Do not use for a question about change over time, a cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect each interval. Set `compareFilter.compare` to `true` to compare the current period with the previous period. Without it, the pill compares the first interval with the last interval. Configure the display with the `metric*` fields below. Single series, no breakdown. `BoldNumber` - single large number with no change or sparkline. Use instead of `Metric` only when a trend is meaningless, such as an all-time total or a fixed ratio. You CANNOT use this with breakdown or if the insight has more than one series. `ActionsBarValue` - total value (NOT time-series) bar chart with one bar per breakdown value or series; good for categorical data such as \"top pages\" or \"failures by reason\". `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then.",
                     "enum": [
                         "Auto",
                         "ActionsLineGraph",
@@ -18117,6 +18115,12 @@
                         }
                     ]
                 },
+                "default_pinned_properties": {
+                    "items": {
+                        "$ref": "#/definitions/CustomerAnalyticsPinnedProperty"
+                    },
+                    "type": "array"
+                },
                 "payment_event": {
                     "anyOf": [
                         {
@@ -18165,6 +18169,20 @@
                 "subscription_event",
                 "payment_event"
             ],
+            "type": "object"
+        },
+        "CustomerAnalyticsPinnedProperty": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "enum": ["custom_property", "relationship"],
+                    "type": "string"
+                }
+            },
+            "required": ["kind", "id"],
             "type": "object"
         },
         "DangerousOperationResponse": {
@@ -27072,7 +27090,6 @@
                 "session_profile",
                 "survey",
                 "product_tour",
-                "user_interview",
                 "early_access_feature",
                 "experiment",
                 "feature_flag",
@@ -27082,8 +27099,6 @@
                 "data_pipeline_metadata",
                 "data_warehouse",
                 "task",
-                "link",
-                "live_debugger",
                 "logs",
                 "tracing",
                 "metrics",
@@ -27225,6 +27240,13 @@
                 },
                 "sceneKeys": {
                     "description": "List of all scenes exported by the app",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "searchKeywords": {
+                    "description": "Other terms that find this item in search, for example the names of its tabs or common synonyms",
                     "items": {
                         "type": "string"
                     },
@@ -29034,6 +29056,10 @@
                     "description": "Extra globals for the query",
                     "type": "object"
                 },
+                "includeOutputTypes": {
+                    "description": "Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in.",
+                    "type": "boolean"
+                },
                 "indexUsage": {
                     "description": "Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it.",
                     "type": "boolean"
@@ -29079,6 +29105,21 @@
             "required": ["kind", "language", "query"],
             "type": "object"
         },
+        "HogQLMetadataColumn": {
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "description": "Output column name, in the same order as the SELECT list.",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative.",
+                    "type": "string"
+                }
+            },
+            "required": ["name", "type"],
+            "type": "object"
+        },
         "HogQLMetadataResponse": {
             "additionalProperties": false,
             "properties": {
@@ -29110,6 +29151,13 @@
                 "notices": {
                     "items": {
                         "$ref": "#/definitions/HogQLNotice"
+                    },
+                    "type": "array"
+                },
+                "output_columns": {
+                    "description": "Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLMetadataColumn"
                     },
                     "type": "array"
                 },
@@ -29317,6 +29365,10 @@
                         "rust_py_with_cpp_shadow"
                     ],
                     "type": "string"
+                },
+                "personIdPushdown": {
+                    "description": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+                    "type": "boolean"
                 },
                 "personsArgMaxVersion": {
                     "enum": ["auto", "v1", "v2"],
@@ -30553,7 +30605,8 @@
                 "aws-redshift",
                 "s3-compatible",
                 "snowflake",
-                "youtube-analytics"
+                "youtube-analytics",
+                "twitter-ads"
             ],
             "type": "string"
         },
@@ -38242,6 +38295,10 @@
                 "metricName": {
                     "type": "string"
                 },
+                "metricType": {
+                    "$ref": "#/definitions/MetricsOtelType",
+                    "description": "Pins the OTel type, as on a MetricsQuery clause: one name can exist as more than one type, and the heatmap must grid only the distribution series."
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -40540,8 +40597,6 @@
                 "history",
                 "ingestion_warnings",
                 "integrations",
-                "links",
-                "live_debugger",
                 "llm_clusters",
                 "llm_datasets",
                 "llm_evaluations",
@@ -40580,7 +40635,6 @@
                 "toolbar",
                 "tracing",
                 "metrics",
-                "user_interviews",
                 "visual_review",
                 "web_analytics",
                 "workflows"
@@ -41676,6 +41730,13 @@
                         "notices": {
                             "items": {
                                 "$ref": "#/definitions/HogQLNotice"
+                            },
+                            "type": "array"
+                        },
+                        "output_columns": {
+                            "description": "Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds.",
+                            "items": {
+                                "$ref": "#/definitions/HogQLMetadataColumn"
                             },
                             "type": "array"
                         },
@@ -50216,6 +50277,12 @@
                         "type": "string"
                     },
                     "type": "array"
+                },
+                "event_match_scope": {
+                    "default": "session",
+                    "description": "Where a filter that is evaluated against events must match. 'session' (default) matches an event anywhere in the session, including before the recording started or after it ended. 'recording' only matches events from one minute before the recording starts until one minute after it ends. This applies to every filter the events table answers: events, actions, event properties, and, when the project resolves them on events, person, group, and cohort properties.",
+                    "enum": ["recording", "session"],
+                    "type": "string"
                 },
                 "events": {
                     "items": {

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 76 enabled ops
+ * PostHog API - MCP 81 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -654,8 +654,18 @@ export const EvaluationsCreateBody = () => zod
                     .describe(
                         'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
-                min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-                max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+                min: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                    ),
+                max: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                    ),
                 step: zod
                     .number()
                     .gt(evaluationsCreateBodyOutputConfigStepExclusiveMin)
@@ -835,6 +845,165 @@ export const EvaluationsCreateBody = () => zod
     })
     .describe('An evaluation that scores LLM generations, traces, or sessions.')
 
+/**
+ * Historical runs of one evaluation over a closed time window (nested under an evaluation).
+ */
+export const EvaluationsBackfillsListParams = () => zod.object({
+    evaluation_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EvaluationsBackfillsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Create a backfill: freeze the conditions, count the units, start the walk.
+ */
+export const EvaluationsBackfillsCreateParams = () => zod.object({
+    evaluation_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const evaluationsBackfillsCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMax = 100
+
+export const evaluationsBackfillsCreateBodyRerunExistingDefault = false
+
+export const EvaluationsBackfillsCreateBody = () => zod.object({
+    window_start: zod.iso.datetime({ offset: true }).describe('Inclusive start of the window, by unit timestamp.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe('Exclusive end of the window. Values in the future are clamped to now.'),
+    conditions: zod
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsBackfillsCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
+        .optional()
+        .describe("Condition sets to match. Defaults to the evaluation's own condition sets."),
+    rerun_existing: zod
+        .boolean()
+        .default(evaluationsBackfillsCreateBodyRerunExistingDefault)
+        .describe('Evaluate units again even when this evaluation already has a result for them.'),
+})
+
+/**
+ * Historical runs of one evaluation over a closed time window (nested under an evaluation).
+ */
+export const EvaluationsBackfillsRetrieveParams = () => zod.object({
+    evaluation_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this evaluation backfill.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Stop a running backfill. Evaluations already dispatched still finish.
+ */
+export const EvaluationsBackfillsCancelCreateParams = () => zod.object({
+    evaluation_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this evaluation backfill.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Count what a backfill over the given window would evaluate, without creating one.
+ */
+export const EvaluationsBackfillsEstimateCreateParams = () => zod.object({
+    evaluation_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMax = 100
+
+export const evaluationsBackfillsEstimateCreateBodyRerunExistingDefault = false
+
+export const EvaluationsBackfillsEstimateCreateBody = () => zod.object({
+    window_start: zod.iso.datetime({ offset: true }).describe('Inclusive start of the window, by unit timestamp.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe('Exclusive end of the window. Values in the future are clamped to now.'),
+    conditions: zod
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsBackfillsEstimateCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
+        .optional()
+        .describe("Condition sets to match. Defaults to the evaluation's own condition sets."),
+    rerun_existing: zod
+        .boolean()
+        .default(evaluationsBackfillsEstimateCreateBodyRerunExistingDefault)
+        .describe('Evaluate units again even when this evaluation already has a result for them.'),
+})
+
 export const EvaluationsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation.'),
     project_id: zod
@@ -951,8 +1120,18 @@ export const EvaluationsPartialUpdateBody = () => zod
                     .describe(
                         'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
-                min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-                max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+                min: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                    ),
+                max: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                    ),
                 step: zod
                     .number()
                     .gt(evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin)
@@ -1198,8 +1377,18 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
                 .describe(
                     'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                 ),
-            min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
-            max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
+            min: zod
+                .number()
+                .nullish()
+                .describe(
+                    'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                ),
+            max: zod
+                .number()
+                .nullish()
+                .describe(
+                    'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                ),
             step: zod
                 .number()
                 .gt(evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin)
@@ -1905,6 +2094,8 @@ export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemKeyMax
 
 export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
+export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
 export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
     description: zod.string().nullish().describe('Optional human-readable description.'),
@@ -1958,6 +2149,27 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
                     .describe(
                         'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
                     ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
                 min: zod.number().nullish().describe('Optional inclusive minimum score.'),
@@ -1966,8 +2178,33 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
                     .number()
                     .nullish()
                     .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
                 true_label: zod.string().optional().describe('Optional label for a true value.'),
                 false_label: zod.string().optional().describe('Optional label for a false value.'),
             }),
@@ -2014,11 +2251,21 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = () => zod.obje
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax = 255
+
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemKeyMax = 128
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
 export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax)
+        .optional()
+        .describe('Updated scorer name, saved with this version.'),
+    description: zod.string().nullish().describe('Updated scorer description, saved with this version.'),
     config: zod
         .union([
             zod.object({
@@ -2059,6 +2306,27 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object
                     .describe(
                         'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
                     ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
                 min: zod.number().nullish().describe('Optional inclusive minimum score.'),
@@ -2067,8 +2335,33 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object
                     .number()
                     .nullish()
                     .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
                 true_label: zod.string().optional().describe('Optional label for a true value.'),
                 false_label: zod.string().optional().describe('Optional label for a false value.'),
             }),
@@ -2117,6 +2410,7 @@ export const LlmAnalyticsSummarizationCreateParams = () => zod.object({
 
 export const llmAnalyticsSummarizationCreateBodyModeDefault = `minimal`
 export const llmAnalyticsSummarizationCreateBodyForceRefreshDefault = false
+export const llmAnalyticsSummarizationCreateBodyCompactContextDefault = false
 
 export const LlmAnalyticsSummarizationCreateBody = () => zod.object({
     summarize_type: zod
@@ -2143,6 +2437,12 @@ export const LlmAnalyticsSummarizationCreateBody = () => zod.object({
         .boolean()
         .default(llmAnalyticsSummarizationCreateBodyForceRefreshDefault)
         .describe('Force regenerate summary, bypassing cache'),
+    compact_context: zod
+        .boolean()
+        .default(llmAnalyticsSummarizationCreateBodyCompactContextDefault)
+        .describe(
+            'Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title.'
+        ),
     model: zod.string().nullish().describe('LLM model to use (defaults based on provider)'),
     trace_id: zod
         .string()

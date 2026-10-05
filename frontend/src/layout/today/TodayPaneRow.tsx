@@ -1,60 +1,62 @@
-import { Link } from 'lib/lemon-ui/Link'
-import { cn } from 'lib/utils/css-classes'
+import { cn } from '@posthog/quill'
+
+import { TodayPaneOption } from './TodayPaneOption'
 
 interface TodayPaneRowProps {
+    value: string
     label: string
     meta?: string
     icon?: JSX.Element | null
-    to?: string
+    to: string
     active?: boolean
-    onClick?: () => void
-    trailing?: JSX.Element | null
-    /** A control that sits on the row's right edge and shows on hover, outside the row's own link or button. */
+    /** A control that sits on the row's right edge and shows on hover, outside the row's own link. */
     action?: JSX.Element | null
     dataAttr?: string
 }
 
-/** One row in the Spaces, Library and Tools sidebars. It is a link when it has `to`, otherwise a button. */
 export function TodayPaneRow({
+    value,
     label,
     meta,
     icon,
     to,
     active = false,
-    onClick,
-    trailing,
     action,
     dataAttr,
 }: TodayPaneRowProps): JSX.Element {
-    const content = (
-        <>
-            {icon && (
-                <span className="TodayPaneRow__icon" aria-hidden>
-                    {icon}
+    return (
+        <div className="group/row relative flex min-w-0 items-center">
+            <TodayPaneOption
+                value={value}
+                to={to}
+                active={active}
+                title={label}
+                data-attr={dataAttr}
+                className={cn('font-medium', action && 'pr-8')}
+            >
+                {icon && (
+                    <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4" aria-hidden>
+                        {icon}
+                    </span>
+                )}
+                <span className="min-w-0 flex-1 truncate">{label}</span>
+                {meta && (
+                    <span
+                        className={cn(
+                            'shrink-0 text-xs font-normal text-muted-foreground',
+                            // The hover action takes the meta's place at the end of the row.
+                            action && 'group-hover/row:invisible group-focus-within/row:invisible'
+                        )}
+                    >
+                        {meta}
+                    </span>
+                )}
+            </TodayPaneOption>
+            {action && (
+                <span className="absolute right-1 flex items-center opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100">
+                    {action}
                 </span>
             )}
-            <span className="TodayPaneRow__label">{label}</span>
-            {meta && <span className="TodayPaneRow__meta">{meta}</span>}
-            {trailing}
-        </>
-    )
-    const className = cn('TodayPaneRow', action && 'TodayPaneRow--withAction')
-    const row = to ? (
-        <Link to={to} className={className} data-active={active} data-attr={dataAttr} subtle onClick={onClick}>
-            {content}
-        </Link>
-    ) : (
-        <button type="button" className={className} data-active={active} data-attr={dataAttr} onClick={onClick}>
-            {content}
-        </button>
-    )
-    if (!action) {
-        return row
-    }
-    return (
-        <div className="TodayPaneRow__wrap">
-            {row}
-            <span className="TodayPaneRow__action">{action}</span>
         </div>
     )
 }
