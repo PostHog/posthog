@@ -15,6 +15,8 @@ export interface WorkflowTemplateCardProps {
     badge?: JSX.Element | null
     /** Short line under the description, such as how the workflow starts. */
     footer?: JSX.Element | null
+    /** Draws the card in the accent color, for the one template a person should look at first. */
+    highlighted?: boolean
     onClick: () => void
     onEdit?: (e: React.MouseEvent) => void
     onDelete?: (e: React.MouseEvent) => void
@@ -27,6 +29,7 @@ export function WorkflowTemplateCard({
     preview,
     badge,
     footer,
+    highlighted,
     onClick,
     onEdit,
     onDelete,
@@ -41,7 +44,10 @@ export function WorkflowTemplateCard({
                 type="button"
                 onClick={onClick}
                 data-attr={dataAttr}
-                className="flex flex-col gap-2 w-full h-full p-4 text-left border rounded bg-surface-primary hover:border-primary hover:bg-surface-secondary transition-colors"
+                className={clsx(
+                    'flex flex-col gap-2 w-full h-full p-4 text-left border rounded bg-surface-primary hover:bg-surface-secondary transition-colors',
+                    highlighted ? 'border-accent ring-1 ring-accent' : 'hover:border-primary'
+                )}
             >
                 {preview}
                 <div className="flex flex-col gap-1 grow">

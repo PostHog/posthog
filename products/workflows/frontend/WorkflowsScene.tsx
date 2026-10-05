@@ -4,7 +4,9 @@ import { urlToAction } from 'kea-router'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -19,6 +21,7 @@ import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/typ
 
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
 import { workflowsEmptyState } from './emptyState/workflowsEmptyState'
+import { WorkflowsFirstRunTab } from './firstRun/WorkflowsFirstRunTab'
 import { MessagingTabActions } from './MessagingTabActions'
 import { messagingNavTabs } from './messagingTabs'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
@@ -125,11 +128,12 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
     const { startNewWorkflow } = useActions(newWorkflowLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const tabs: LemonTab<WorkflowsSceneTab>[] = [
         {
             label: 'Workflows',
             key: 'workflows',
-            content: <WorkflowsTable />,
+            content: featureFlags[FEATURE_FLAGS.WORKFLOWS_FIRST_RUN] ? <WorkflowsFirstRunTab /> : <WorkflowsTable />,
             link: urls.workflows(),
         },
         ...messagingNavTabs((tab) => urls.workflows(tab)),
