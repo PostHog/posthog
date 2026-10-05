@@ -375,9 +375,10 @@ describe('query', () => {
         })
     })
 
-    describe('a gateway that could not reach the backend', () => {
+    describe('transient query submission failures', () => {
         const query = { kind: NodeKind.EventsQuery, select: ['*'] } as EventsQuery
         const refused = (): ApiError => new ApiError('', 503, undefined, {})
+        const badGateway = (): ApiError => new ApiError('', 502, undefined, {})
         const shortCapacityWait = (): ApiError => new ApiError('', 503, new Headers({ 'Retry-After': '5' }), {})
 
         afterEach(() => {
@@ -386,7 +387,8 @@ describe('query', () => {
         })
 
         it.each([
-            ['the gateway refused the submit', refused, 600],
+            ['a 503 without Retry-After', refused, 600],
+            ['a 502 bad gateway', badGateway, 600],
             ['a capacity 503 asked for a short wait', shortCapacityWait, 5000],
         ])(
             'submits the same run again once the wait ends after %s, and returns what the retry gets',
@@ -410,6 +412,29 @@ describe('query', () => {
             }
         )
 
+        it('does not resubmit when the query is aborted during the capacity wait', async () => {
+            jest.useFakeTimers()
+            const controller = new AbortController()
+            const querySpy = jest
+                .spyOn(api, 'query')
+                .mockRejectedValueOnce(shortCapacityWait())
+                .mockResolvedValueOnce({ results: ['ok'] } as any)
+
+            const rejected = await expect(
+                performQuery(query, { signal: controller.signal }, 'blocking')
+            ).rejects.toMatchObject({
+                name: 'AbortError',
+            })
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(querySpy).toHaveBeenCalledTimes(1)
+
+            controller.abort()
+            await jest.advanceTimersByTimeAsync(5000)
+
+            await rejected
+            expect(querySpy).toHaveBeenCalledTimes(1)
+        })
+
         it.each([
             ['the gateway refuses every attempt', refused, 1800],
             ['every attempt gets a short capacity wait', shortCapacityWait, 10000],
@@ -417,10 +442,12 @@ describe('query', () => {
             jest.useFakeTimers()
             const querySpy = jest.spyOn(api, 'query').mockRejectedValue(makeError())
 
-            const settled = performQuery(query, undefined, 'blocking').catch((e) => e)
+            const rejected = await expect(performQuery(query, undefined, 'blocking')).rejects.toMatchObject({
+                status: 503,
+            })
             await jest.advanceTimersByTimeAsync(elapsedMs)
 
-            await expect(settled).resolves.toMatchObject({ status: 503 })
+            await rejected
             expect(querySpy).toHaveBeenCalledTimes(3)
         })
 
@@ -431,10 +458,10 @@ describe('query', () => {
             jest.useFakeTimers()
             const querySpy = jest.spyOn(api, 'query').mockRejectedValue(error)
 
-            const settled = performQuery(query, undefined, 'blocking').catch((e) => e)
+            const rejected = await expect(performQuery(query, undefined, 'blocking')).rejects.toBe(error)
             await jest.advanceTimersByTimeAsync(1800)
 
-            await expect(settled).resolves.toBe(error)
+            await rejected
             expect(querySpy).toHaveBeenCalledTimes(1)
         })
     })
