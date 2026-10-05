@@ -2,12 +2,38 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, 
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
+
 
 class TestEmailReach(ClickhouseTestMixin, APIBaseTest):
+    def test_reach_is_unavailable_when_email_is_restricted_for_the_caller(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        email = PropertyDefinition.objects.create(team=self.team, name="email", type=PropertyDefinition.Type.PERSON)
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=email,
+            organization_member=membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        _create_person(team=self.team, distinct_ids=["restricted-person"], properties={"email": "hidden@example.com"})
+        flush_persons_and_events()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/email_reach/")
+
+        assert response.status_code == 403, response.content
+        assert "project_email_count" not in response.json()
+
     def test_identifies_senders_without_exposing_config_or_other_teams(self) -> None:
         senders = [
             Integration.objects.create(

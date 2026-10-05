@@ -28,7 +28,7 @@ Full tool catalog, grouped by job: [references/lifecycle-and-debugging.md](refer
 
 After creating the minimal draft, resolve its links before filling in email content. Use the user's explicit URL when they provide one. Otherwise call `project-get` and read `app_urls` for the active project. Prefer a configured HTTP(S) URL that fits the signup or onboarding site. Use that exact URL for the CTA; do not invent a `/setup`, `/onboarding`, or other path. Skip localhost, loopback addresses, wildcard patterns, and URLs with credentials.
 
-If no usable configured URL exists, use `query-run` with a `HogQLQuery` to find the most-used site in recent pageviews:
+If no usable configured URL exists, pass this HogQL as the `query` string to `execute-sql` to find the most-used site in recent pageviews:
 
 ```sql
 SELECT properties.$current_url, count()

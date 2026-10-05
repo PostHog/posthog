@@ -3,7 +3,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
-from posthog.models import Integration, OrganizationMembership, Team
+from posthog.models import Integration, OrganizationMembership, Team, User
 
 
 @frozen
@@ -22,7 +22,7 @@ class EmailReach:
 
 class EmailReachService:
     @staticmethod
-    def counts(team: Team) -> EmailReach:
+    def counts(team: Team, user: User) -> EmailReach:
         verified_member_count = OrganizationMembership.objects.filter(
             organization_id=team.organization_id, user__is_active=True, user__is_email_verified=True
         ).count()
@@ -30,6 +30,7 @@ class EmailReachService:
         response = execute_hogql_query(
             query="SELECT count() FROM persons WHERE properties.email IS NOT NULL AND trim(toString(properties.email)) != ''",
             team=team,
+            user=user,
             query_type="workflow_email_reach",
             settings=HogQLGlobalSettings(max_execution_time=10, timeout_overflow_mode="throw"),
         )

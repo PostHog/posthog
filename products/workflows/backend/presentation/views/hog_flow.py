@@ -103,6 +103,10 @@ from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -4906,12 +4910,12 @@ class HogFlowViewSet(
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
             return ["hog_flow:write", "person:read"]
+        if self.action == "email_reach":
+            return ["hog_flow:read", "person:read", "integration:read"]
         # Sizing an audience runs a person/group count over caller-supplied filters — that's person-data
         # access, so require person:read on top of workflow read. Without it a hog_flow:read-only token
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
         # session auth, so live sizing while editing is unaffected.
-        if self.action == "email_reach":
-            return ["hog_flow:read", "person:read", "integration:read"]
         if self.action == "user_blast_radius":
             return ["hog_flow:read", "person:read"]
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
@@ -6660,7 +6664,13 @@ class HogFlowViewSet(
     def email_reach(self, request: Request, **kwargs: object) -> Response:
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
             raise exceptions.PermissionDenied("You do not have access to workflows.")
-        return Response(EmailReachSerializer(EmailReachService.counts(self.team)).data)
+        user = cast(User, request.user)
+        restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=self.team.id)
+        if "email" in split_restricted_property_names(restrictions).person:
+            raise exceptions.PermissionDenied(
+                "Email reach is unavailable because you cannot read person email properties."
+            )
+        return Response(EmailReachSerializer(EmailReachService.counts(self.team, user)).data)
 
     @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)
