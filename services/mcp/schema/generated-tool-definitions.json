@@ -13193,7 +13193,7 @@
         "feature": "replay_vision",
         "summary": "Save a scanner's affected users as a cohort",
         "title": "Save a scanner's affected users as a cohort",
-        "required_scopes": ["replay_scanner:read", "cohort:write"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read", "cohort:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -13408,7 +13408,7 @@
         "feature": "replay_vision",
         "summary": "Get a scanner's impact counts",
         "title": "Get a scanner's impact counts",
-        "required_scopes": ["replay_scanner:read"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -13422,7 +13422,7 @@
         "feature": "replay_vision",
         "summary": "Get a scanner's impact counts (deprecated)",
         "title": "Get a scanner's impact counts (deprecated)",
-        "required_scopes": ["replay_scanner:read"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
