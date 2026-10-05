@@ -26,6 +26,12 @@ pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
 
 # 4. Generate handlers and schemas
 hogli build:openapi
+
+# 5. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
+pnpm --filter=@posthog/mcp exec vitest run tests/unit/tool-schema-snapshots.test.ts -u
+
+# 6. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
+pnpm --filter=@posthog/mcp run generate:ui-apps
 ```
 
 ## Before you scaffold: fix the backend first
@@ -87,7 +93,7 @@ Without action trimming, `experiment-freeze-exposure` can advertise the
 redundant domain `experiment-freeze` instead of `experiment`.
 
 Whenever you add or rename an action tool, check the
-[`TRAILING_ACTIONS`](services/mcp/src/lib/instructions.ts) set in the
+[`TRAILING_ACTIONS`](../../../services/mcp/src/lib/instructions.ts) set in the
 same change. If a rendered domain can end in an operation verb that is not
 already present, add the verb. Cover it in
 `services/mcp/tests/unit/instructions.test.ts`. This applies even when the verb
@@ -149,7 +155,6 @@ tools:
       destructive: false
       idempotent: true
     # Optional:
-    mcp_version: 1 # 2 for create/update/delete ops, 1 for read/list if available via HogQL
     title: List things
     description: >
       Human-friendly description for the LLM.
@@ -252,20 +257,10 @@ These descriptions are what agents read to understand tool parameters.
 
 Every list/get endpoint should have a corresponding HogQL system table
 in [`posthog/hogql/database/schema/system.py`](../../../posthog/hogql/database/schema/system.py).
-This lets agents query data via SQL in v2 of the MCP.
+This lets agents query data via SQL.
 
 Each system table **must include a `team_id` column** for data isolation.
-
-Use `mcp_version: 1` on read/list YAML tools when a system table covers the same data —
-v2 agents use SQL instead.
 
 When adding a system table, also add a model reference file
 (`models-<domain>.md`) in [`products/posthog_ai/skills/querying-posthog-data/references/`](../../../products/posthog_ai/skills/querying-posthog-data/references/)
 and register it in [`products/posthog_ai/skills/querying-posthog-data/SKILL.md`](../../../products/posthog_ai/skills/querying-posthog-data/SKILL.md) under **Data Schema**.
-
-## Two MCP versions
-
-- **v1 (legacy)**: all CRUD tools exposed, for clients without skill support.
-- **v2 (SQL-first)**: read/list tools replaced by HogQL, create/update/delete tools kept. For coding agents.
-
-Control per-tool availability with `mcp_version: 1/2` in the YAML definition.
