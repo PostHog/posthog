@@ -1,5 +1,5 @@
 use crate::avro_schema::AVRO_SCHEMA;
-use crate::log_record::{sum_kafka_log_row_bytes, KafkaLogRow};
+use crate::log_record::{min_kafka_log_row_timestamp_micros, sum_kafka_log_row_bytes, KafkaLogRow};
 use crate::metric_record::KafkaMetricRow;
 use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
 use crate::trace_record::KafkaTraceRow;
@@ -400,6 +400,7 @@ impl KafkaSink {
         uncompressed_bytes: u64,
         records_uncompressed_bytes: Option<u64>,
         timestamps_overridden: u64,
+        min_timestamp_micros: Option<i64>,
     ) -> Result<(), anyhow::Error> {
         let mut writer = Writer::with_codec(
             schema,
@@ -436,6 +437,12 @@ impl KafkaSink {
                     headers = headers.insert(Header {
                         key: "bytes_uncompressed_records",
                         value: Some(&records_bytes.to_string()),
+                    });
+                }
+                if let Some(micros) = min_timestamp_micros {
+                    headers = headers.insert(Header {
+                        key: "min_timestamp",
+                        value: Some(&micros.to_string()),
                     });
                 }
                 headers
@@ -504,6 +511,7 @@ impl KafkaSink {
             uncompressed_bytes,
             Some(records_uncompressed_bytes),
             timestamps_overridden,
+            min_kafka_log_row_timestamp_micros(&rows),
         )
         .await?;
 
@@ -534,6 +542,7 @@ impl KafkaSink {
             uncompressed_bytes,
             None,
             timestamps_overridden,
+            None,
         )
         .await?;
 
@@ -564,6 +573,7 @@ impl KafkaSink {
             uncompressed_bytes,
             None,
             timestamps_overridden,
+            None,
         )
         .await?;
 
