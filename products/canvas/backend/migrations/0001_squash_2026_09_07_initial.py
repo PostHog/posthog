@@ -9,29 +9,13 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("canvas", "0001_initial"),
-        ("canvas", "0002_source_version_required"),
-        ("canvas", "0003_migrate_desktop_tree"),
-        ("canvas", "0004_build_enqueued_at"),
-        ("canvas", "0005_backfill_build_enqueued_at"),
-        ("canvas", "0006_require_build_enqueued_at"),
-        ("canvas", "0007_soft_delete_home_canvases"),
-        ("canvas", "0008_remove_home_canvas"),
-        ("canvas", "0009_canvassourceversion_capabilities"),
-        ("canvas", "0010_canvassourceversion_draft"),
-        ("canvas", "0011_canvasstate"),
-        ("canvas", "0012_grid_canvas_foundation"),
-        ("canvas", "0013_canvas_kind_store_index"),
-        ("canvas", "0014_canvas_discussion_task_id"),
-        ("canvas", "0015_remove_canvas_discussion_task_id"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("tasks", "0117_task_set_null_cascade_indexes"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("tasks", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

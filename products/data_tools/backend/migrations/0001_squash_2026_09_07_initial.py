@@ -8,17 +8,13 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("data_tools", "0001_migrate_data_tools_models"),
-        ("data_tools", "0002_migrate_data_modeling_models"),
-        ("data_tools", "0003_datawarehouseexpression"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("data_modeling", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

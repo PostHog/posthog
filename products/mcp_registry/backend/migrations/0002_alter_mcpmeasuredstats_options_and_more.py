@@ -6,7 +6,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("mcp_registry", "0001_initial"),
+        ("mcp_registry", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

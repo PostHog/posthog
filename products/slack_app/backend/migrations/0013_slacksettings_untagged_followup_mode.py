@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("slack_app", "0012_slackthreadtaskmapping_workspace_created_idx"),
+        ("slack_app", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

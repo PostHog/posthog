@@ -8,14 +8,14 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [("access_control", "0001_initial")]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("ee", "0059_scimprovisioneduser_unique_config"),
-        ("event_definitions", "0009_drop_eventproperty_proj_event_coalesce_idx"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("ee", "0001_squash_2026_09_07_initial"),
+        ("event_definitions", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

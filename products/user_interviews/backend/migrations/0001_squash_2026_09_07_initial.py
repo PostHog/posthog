@@ -12,21 +12,12 @@ import products.user_interviews.backend.models
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("user_interviews", "0001_initial"),
-        ("user_interviews", "0002_userinterviewtopic"),
-        ("user_interviews", "0003_intervieweecontext"),
-        ("user_interviews", "0004_userinterview_vapi_fields"),
-        ("user_interviews", "0005_remove_userinterviewtopic_interviewee_cohort_state"),
-        ("user_interviews", "0006_userinterviewtopic_invite_fields"),
-        ("user_interviews", "0007_userinterview_classifications"),
-        ("user_interviews", "0008_userinterview_user_interview_classif_gin"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("visual_review", "0011_alter_artifact_managers_and_more"),
+        ("visual_review", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

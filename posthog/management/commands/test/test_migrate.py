@@ -4,7 +4,13 @@ from django.core.management.base import CommandError
 from django.db import NotSupportedError, OperationalError
 from django.test import SimpleTestCase
 
-from posthog.management.commands.migrate import UNSUPPORTED_DATABASE_EXIT_CODE, check_database_version
+from parameterized import parameterized
+
+from posthog.management.commands.migrate import (
+    UNSUPPORTED_DATABASE_EXIT_CODE,
+    check_database_version,
+    find_apps_without_a_baseline,
+)
 
 
 def fake_connection(error: Exception) -> MagicMock:
@@ -29,3 +35,30 @@ class TestCheckDatabaseVersion(SimpleTestCase):
 
         with self.assertRaises(OperationalError):
             check_database_version(fake_connection(error))
+
+
+ROOTS = [("posthog", "0000_squash_stub"), ("ee", "0001_squash_initial"), ("auth", "0001_initial")]
+
+
+class TestFindAppsWithoutABaseline(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("fresh_database", [], []),
+            (
+                "migrated_past_the_squash",
+                [("posthog", "0000_squash_stub"), ("posthog", "1391_x"), ("ee", "0001_squash_initial")],
+                [],
+            ),
+            (
+                "stopped_before_the_squash",
+                [("posthog", "0001_initial"), ("posthog", "0800_x"), ("auth", "0001_initial")],
+                ["posthog"],
+            ),
+            ("every_app_stopped_before_the_squash", [("posthog", "0800_x"), ("ee", "0010_x")], ["ee", "posthog"]),
+            ("rows_of_an_app_the_code_no_longer_has", [("retired_app", "0001_initial"), ("auth", "0001_initial")], []),
+        ]
+    )
+    def test_finds_apps_whose_history_the_code_no_longer_has(
+        self, _name: str, applied: list[tuple[str, str]], expected: list[str]
+    ) -> None:
+        assert find_apps_without_a_baseline(set(applied), ROOTS) == expected

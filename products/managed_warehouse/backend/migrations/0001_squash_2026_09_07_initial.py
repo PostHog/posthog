@@ -10,16 +10,12 @@ import posthog.helpers.encrypted_fields
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("managed_warehouse", "0001_migrate_managed_warehouse_models"),
-        ("managed_warehouse", "0002_managedwarehousesourcejob"),
-        ("managed_warehouse", "0003_remove_duckgres_batch_sink_state"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

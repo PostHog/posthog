@@ -9,40 +9,12 @@ import posthog.helpers.encrypted_fields
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("mcp_store", "0001_initial"),
-        ("mcp_store", "0002_mcpserverinstallation_is_enabled_mcpoauthstate"),
-        ("mcp_store", "0003_alter_mcpoauthstate_install_source"),
-        ("mcp_store", "0004_rename_twig_callback_url_to_posthog_code_callback_url"),
-        ("mcp_store", "0005_remove_oauth_provider_kind"),
-        ("mcp_store", "0006_mcpservertemplate_installation_fields_and_tools"),
-        ("mcp_store", "0007_migrate_mcp_creds_to_per_installation"),
-        ("mcp_store", "0008_drop_legacy_mcpserver"),
-        ("mcp_store", "0009_drop_mcpserver_created_by_fk"),
-        ("mcp_store", "0010_mcpservertemplate_category_and_docs_url"),
-        ("mcp_store", "0011_normalize_mcp_template_icon_keys"),
-        ("mcp_store", "0012_alter_mcpserverinstallation_unique_together_and_more"),
-        ("mcp_store", "0013_alter_mcpservertemplate_category_db_default"),
-        ("mcp_store", "0014_mcpservertemplate_icon_domain"),
-        ("mcp_store", "0015_backfill_mcp_template_icon_domains"),
-        ("mcp_store", "0016_mcp_gateway_models"),
-        ("mcp_store", "0017_backfill_gateway_servers"),
-        ("mcp_store", "0018_bind_agent_access_credential"),
-        ("mcp_store", "0019_allow_member_agent_access"),
-        ("mcp_store", "0020_default_servers_enabled"),
-        ("mcp_store", "0021_mcpserverinstallationtool_annotations"),
-        ("mcp_store", "0022_mcpserviceaccountserveraccess_user"),
-        ("mcp_store", "0023_backfill_agent_access_user"),
-        ("mcp_store", "0024_personal_agent_server_access"),
-        ("mcp_store", "0025_drop_old_agent_server_access"),
-        ("mcp_store", "0026_agent_grant_scope"),
-        ("mcp_store", "0027_gateway_server_auth_type"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

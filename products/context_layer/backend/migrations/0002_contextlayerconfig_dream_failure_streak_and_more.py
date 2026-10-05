@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("context_layer", "0001_initial"),
+        ("context_layer", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

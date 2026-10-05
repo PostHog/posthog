@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("web_analytics", "0007_savedheatmap_is_prewarm"),
+        ("web_analytics", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

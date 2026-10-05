@@ -10,13 +10,13 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [("approvals", "0001_migrate_approvals_models")]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("ee", "0059_scimprovisioneduser_unique_config"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("ee", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

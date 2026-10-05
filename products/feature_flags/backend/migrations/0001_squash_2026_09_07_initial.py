@@ -12,29 +12,14 @@ import products.feature_flags.backend.models.feature_flag
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("feature_flags", "0001_team_feature_flag_defaults_config"),
-        ("feature_flags", "0002_migrate_feature_flags_models"),
-        ("feature_flags", "0003_evaluationcontext_hidden_from_suggestions"),
-        ("feature_flags", "0004_featureflag_archived"),
-        ("feature_flags", "0005_featureflag_archived_disabled_constraint"),
-        ("feature_flags", "0006_validate_archived_flag_must_be_disabled"),
-        ("feature_flags", "0007_clean_invalid_multivariate_filters"),
-        ("feature_flags", "0008_team_feature_flags_config"),
-        ("feature_flags", "0009_scheduledchange_change_request"),
-        ("feature_flags", "0010_remove_featureflag_performed_rollback_and_more"),
-        ("feature_flags", "0011_clean_flag_filters_recoverable_violations"),
-        ("feature_flags", "0012_teamfeatureflagsconfig_max_feature_flags_override_and_more"),
-        ("feature_flags", "0013_narrow_whole_rollout_percentages"),
-        ("feature_flags", "0014_clean_flag_filters_inert_violations"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("approvals", "0001_migrate_approvals_models"),
-        ("dashboards", "0015_dashboard_customization"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("approvals", "0001_squash_2026_09_07_initial"),
+        ("dashboards", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

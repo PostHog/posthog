@@ -4,8 +4,8 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("managed_warehouse", "0003_remove_duckgres_batch_sink_state"),
-        ("posthog", "1304_organization_has_active_subscription"),
+        ("managed_warehouse", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

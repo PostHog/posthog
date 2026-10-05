@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("exports", "0008_exportedasset_source_authentication"),
+        ("exports", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

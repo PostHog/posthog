@@ -8,7 +8,7 @@ import products.ai_observability.backend.models.provider_keys
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_observability", "0040_validate_dataset_item_version_ownership"),
+        ("ai_observability", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

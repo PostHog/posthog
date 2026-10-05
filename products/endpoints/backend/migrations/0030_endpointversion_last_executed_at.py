@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("endpoints", "0029_remove_data_modeling_models"),
+        ("endpoints", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

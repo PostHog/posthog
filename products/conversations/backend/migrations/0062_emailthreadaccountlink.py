@@ -8,8 +8,8 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("conversations", "0061_emailchannelsetup_emailchannel_connection_status_and_more"),
-        ("posthog", "1297_add_instagram_integration_kind"),
+        ("conversations", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    replaces = [("posthog", "0001_initial_squashed_0284_improved_caching_state_idx")]
+    replaces = []
 
     initial = True
 

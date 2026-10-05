@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
     """
 
     dependencies = [
-        ("mcp_store", "0027_gateway_server_auth_type"),
+        ("mcp_store", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -10,12 +10,7 @@ import products.stamphog.backend.facade.enums
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("stamphog", "0001_initial"),
-        ("stamphog", "0002_digest_audiences_and_summaries"),
-        ("stamphog", "0003_digest_runs_record_their_destination"),
-        ("stamphog", "0004_backfill_digest_run_destinations"),
-    ]
+    replaces = []
 
     initial = True
 

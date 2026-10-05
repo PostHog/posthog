@@ -7,7 +7,7 @@ import posthog.helpers.encrypted_fields
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("managed_migrations", "0001_migrate_managed_migrations_models"),
+        ("managed_migrations", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

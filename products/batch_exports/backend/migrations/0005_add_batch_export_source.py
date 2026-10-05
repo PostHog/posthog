@@ -8,8 +8,8 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("batch_exports", "0004_migrate_managed_migrations_models"),
-        ("posthog", "1257_datadeletionrequest_approved_automatically_and_more"),
+        ("batch_exports", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

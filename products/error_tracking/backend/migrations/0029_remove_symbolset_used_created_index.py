@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("error_tracking", "0028_add_symbol_set_cleanup_bucket_index"),
+        ("error_tracking", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

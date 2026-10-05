@@ -20,7 +20,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("replay", "0002_remove_session_summary_models"),
+        ("replay", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -6,10 +6,10 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
-        ("data_quality", "0004_backfill_last_succeeded_at"),
-        ("posthog", "1310_provisioning_rate_limit_overrides"),
-        ("warehouse_sources", "0150_repin_bloomerang_api_version"),
+        ("data_modeling", "0001_squash_2026_09_07_initial"),
+        ("data_quality", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("warehouse_sources", "0001_squash_2026_09_07_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

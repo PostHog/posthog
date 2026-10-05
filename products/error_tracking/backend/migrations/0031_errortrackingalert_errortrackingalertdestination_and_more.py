@@ -12,7 +12,7 @@ import products.error_tracking.backend.models
 class Migration(migrations.Migration):
     dependencies = [
         ("error_tracking", "0030_add_stackframe_team_created_at_index"),
-        ("posthog", "1323_proxyrecord_root_redirect_url"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

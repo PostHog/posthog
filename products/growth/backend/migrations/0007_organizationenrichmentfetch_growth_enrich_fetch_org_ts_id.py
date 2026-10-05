@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("growth", "0006_seed_ai_pilled_prompt_config"),
-        ("posthog", "1280_alter_integration_kind"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -20,7 +20,7 @@ def backfill_created_by(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("early_access_features", "0007_earlyaccessfeature_created_by"),
-        ("feature_flags", "0002_migrate_feature_flags_models"),
+        ("feature_flags", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

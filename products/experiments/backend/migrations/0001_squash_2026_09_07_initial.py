@@ -11,48 +11,14 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("experiments", "0001_migrate_experiments_models"),
-        ("experiments", "0002_experiment_only_count_matured_users"),
-        ("experiments", "0003_migrate_only_count_matured_users_to_experiment"),
-        ("experiments", "0004_team_experiments_config"),
-        ("experiments", "0005_copy_team_experiment_fields"),
-        ("experiments", "0006_add_experiment_precomputation_enabled"),
-        ("experiments", "0007_drop_exposure_preaggregation_enabled"),
-        ("experiments", "0008_drop_exposure_preaggregation_column"),
-        ("experiments", "0009_increase_experiment_description_max_length"),
-        ("experiments", "0010_teamexperimentsconfig_default_only_count_matured_users"),
-        ("experiments", "0011_teamexperimentsconfig_funnel_steps_data_disabled"),
-        ("experiments", "0012_teamexperimentsconfig_default_cuped_enabled"),
-        ("experiments", "0013_teamexperimentsconfig_default_minimum_detectable_effect"),
-        ("experiments", "0014_teamexperimentsconfig_default_cuped_lookback_days"),
-        ("experiments", "0015_migrate_feature_flags_models"),
-        ("experiments", "0016_teamexperimentsconfig_default_sequential_testing_enabled_and_more"),
-        ("experiments", "0017_experimentmetricsrecalculation"),
-        ("experiments", "0018_migrate_cohorts_models"),
-        ("experiments", "0019_experiment_running_time_calculation"),
-        ("experiments", "0020_backfill_running_time_calculation"),
-        ("experiments", "0021_alter_experimentmetricsrecalculation_trigger"),
-        ("experiments", "0022_experiment_feature_flag_auto_archived"),
-        ("experiments", "0023_experiment_excluded_variants"),
-        ("experiments", "0024_backfill_excluded_variants"),
-        ("experiments", "0025_remove_teamexperimentsconfig_funnel_steps_data_disabled"),
-        ("experiments", "0026_strip_feature_flag_config_from_parameters"),
-        ("experiments", "0027_experiment_flag_cleanup_task_id"),
-        ("experiments", "0028_experimentmetricsrecalculation_metric_retries"),
-        ("experiments", "0029_experiment_repository"),
-        ("experiments", "0030_alter_experimentmetricsrecalculation_trigger"),
-        ("experiments", "0031_add_experiment_version"),
-        ("experiments", "0032_teamexperimentsconfig_flag_cleanup_repository"),
-        ("experiments", "0033_teamexperimentsconfig_precomputation_enabled_set_by"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("cohorts", "0009_cohort_backfill_per_kind_uniqueness"),
-        ("feature_flags", "0014_clean_flag_filters_inert_violations"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("cohorts", "0001_squash_2026_09_07_initial"),
+        ("feature_flags", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -6,8 +6,8 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("business_knowledge", "0013_bk_source_always_include_index"),
-        ("posthog", "1245_duckgres_sink_schema_state"),
+        ("business_knowledge", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

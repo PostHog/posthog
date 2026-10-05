@@ -11,8 +11,8 @@ import products.tracing.backend.models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1329_drop_cimd_metadata_url"),
-        ("tracing", "0001_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("tracing", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -8,20 +8,12 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("mcp_analytics", "0001_initial"),
-        ("mcp_analytics", "0002_mcpsession"),
-        ("mcp_analytics", "0003_mcpsession_tool_call_count"),
-        ("mcp_analytics", "0004_mcpintentclustersnapshot"),
-        ("mcp_analytics", "0005_alter_mcpsession_duration_seconds_and_more"),
-        ("mcp_analytics", "0006_alter_mcpsession_distinct_id_and_more"),
-        ("mcp_analytics", "0007_alter_mcpsession_options_and_more"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

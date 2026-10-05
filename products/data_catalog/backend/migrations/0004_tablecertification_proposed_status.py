@@ -7,7 +7,7 @@ import products.data_catalog.backend.facade.enums
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("data_catalog", "0003_relationshipproposal"),
+        ("data_catalog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

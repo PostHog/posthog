@@ -9,12 +9,12 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [("tracing", "0001_initial")]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

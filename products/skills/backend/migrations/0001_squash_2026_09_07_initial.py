@@ -9,17 +9,12 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("skills", "0001_adopt_skills_models"),
-        ("skills", "0002_llmskill_category"),
-        ("skills", "0003_backfill_scout_category"),
-        ("skills", "0004_llmskillowner"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

@@ -10,28 +10,13 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("notebooks", "0001_migrate_notebooks_models"),
-        ("notebooks", "0002_add_kernel_runtime"),
-        ("notebooks", "0003_add_kernel_timeouts"),
-        ("notebooks", "0004_resourcenotebook_account"),
-        ("notebooks", "0005_resourcenotebook_account_indexes"),
-        ("notebooks", "0006_resourcenotebook_account_unique_constraint"),
-        ("notebooks", "0007_notebooknoderun"),
-        ("notebooks", "0008_kernelruntime_server_connect_token_and_more"),
-        ("notebooks", "0009_notebooknoderun_code"),
-        ("notebooks", "0010_notebooknoderun_node_type"),
-        ("notebooks", "0011_alter_notebooknoderun_status"),
-        ("notebooks", "0012_kernelruntime_frames_and_more"),
-        ("notebooks", "0013_notebooknoderun_connection_id_and_more"),
-        ("notebooks", "0014_notebook_variables"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("customer_analytics", "0046_usercustomeranalyticsconfig"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("customer_analytics", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

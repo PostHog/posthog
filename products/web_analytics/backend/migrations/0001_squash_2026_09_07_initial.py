@@ -10,20 +10,12 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("web_analytics", "0001_initial"),
-        ("web_analytics", "0002_add_achievements_models"),
-        ("web_analytics", "0003_webanalyticsinteraction"),
-        ("web_analytics", "0004_rename_achievement_track_keys"),
-        ("web_analytics", "0005_savedheatmap_block_consent_modals"),
-        ("web_analytics", "0006_webanalyticsuserconfig"),
-        ("web_analytics", "0007_savedheatmap_is_prewarm"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

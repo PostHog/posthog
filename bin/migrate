@@ -128,7 +128,7 @@ if [ "$RUN_POSTGRES" = "1" ]; then
         echo "[migrate] Django migration failed"
         
         if [ "$MIGRATE_STATUS" = "$MIGRATE_UNSUPPORTED_DATABASE" ]; then
-            echo "[migrate] the database version is not supported, so retrying cannot help"
+            echo "[migrate] this release cannot migrate the database, so retrying cannot help"
             break
         fi
         

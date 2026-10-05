@@ -12,22 +12,12 @@ import posthog.models.utils
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("event_definitions", "0001_initial"),
-        ("event_definitions", "0002_schemapropertygroupproperty_is_optional_in_types"),
-        ("event_definitions", "0003_eventdefinition_promoted_property"),
-        ("event_definitions", "0004_eventdefinition_team_name_idx"),
-        ("event_definitions", "0005_eventdefinition_rename_promoted_to_primary"),
-        ("event_definitions", "0006_drop_eventproperty_team_property_bloated_idx"),
-        ("event_definitions", "0007_drop_eventproperty_team_id_fk_idx"),
-        ("event_definitions", "0008_drop_eventproperty_proj_property_coalesce_idx"),
-        ("event_definitions", "0009_drop_eventproperty_proj_event_coalesce_idx"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

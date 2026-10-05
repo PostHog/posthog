@@ -9,7 +9,7 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     dependencies = [
         ("mcp_analytics", "0008_drop_mcpsession_backfill_columns"),
-        ("posthog", "1171_backfill_credentials_reviewed_at"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

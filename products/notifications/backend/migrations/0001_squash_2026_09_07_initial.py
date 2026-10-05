@@ -10,36 +10,12 @@ import products.notifications.backend.facade.enums
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("notifications", "0001_initial"),
-        ("notifications", "0002_rename_urgent_to_critical"),
-        ("notifications", "0003_notificationevent_source_id_and_more"),
-        ("notifications", "0004_alter_notificationevent_notification_type"),
-        ("notifications", "0005_alter_notificationevent_notification_type"),
-        ("notifications", "0006_alter_notificationevent_notification_type"),
-        ("notifications", "0007_alter_notificationevent_notification_type"),
-        ("notifications", "0008_alter_notificationevent_notification_type"),
-        ("notifications", "0009_alter_notificationevent_notification_type"),
-        ("notifications", "0010_alter_notificationevent_notification_type"),
-        ("notifications", "0011_alter_notificationevent_notification_type"),
-        ("notifications", "0012_alter_notificationevent_notification_type"),
-        ("notifications", "0013_notificationevent_metadata"),
-        ("notifications", "0014_alter_notificationevent_notification_type"),
-        ("notifications", "0015_alter_notificationevent_notification_type"),
-        ("notifications", "0016_alter_notificationevent_notification_type"),
-        ("notifications", "0017_notificationevent_archivable_notificationarchivestate"),
-        ("notifications", "0018_alter_notificationevent_notification_type"),
-        ("notifications", "0019_remove_notificationevent_archivable"),
-        ("notifications", "0020_alter_notificationevent_notification_type"),
-        ("notifications", "0021_alter_notificationevent_notification_type"),
-        ("notifications", "0022_add_notification_idempotency_key"),
-        ("notifications", "0023_add_notification_idempotency_key_index"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

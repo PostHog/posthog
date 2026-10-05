@@ -10,7 +10,7 @@ import products.web_analytics.backend.models.content_autopilot
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1245_duckgres_sink_schema_state"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
         ("web_analytics", "0008_savedheatmap_source"),
     ]
 

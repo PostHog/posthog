@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("notifications", "0023_add_notification_idempotency_key_index"),
+        ("notifications", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

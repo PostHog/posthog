@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("feature_flags", "0015_clamp_rollout_percentages_over_100"),
-        ("posthog", "1321_add_user_facet_settings"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

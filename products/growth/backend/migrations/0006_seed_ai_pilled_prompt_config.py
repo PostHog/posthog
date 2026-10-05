@@ -66,7 +66,7 @@ def unseed_config(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("growth", "0005_enrichmentlabelresult_enrichmentpromptconfig"),
+        ("growth", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

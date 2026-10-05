@@ -17,6 +17,7 @@ import time
 import shutil
 import warnings
 import subprocess
+from collections.abc import Collection, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -25,6 +26,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.core.management.commands.migrate import Command as DjangoMigrateCommand
 from django.db import DEFAULT_DB_ALIAS, NotSupportedError
+from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 
 from posthog.cloud_utils import is_ci
@@ -227,6 +229,46 @@ def check_database_version(connection: BaseDatabaseWrapper) -> None:
         ) from exc
 
 
+# The last commit that still has the migration files the 2026-09-07 squash replaced.
+LAST_COMMIT_WITH_PRE_SQUASH_HISTORY = "907acc0180bd56793fada3975e9eb5ae42302ff6"
+
+
+def find_apps_without_a_baseline(
+    applied: Collection[tuple[str, str]], root_nodes: Iterable[tuple[str, str]]
+) -> list[str]:
+    """Return the apps that have applied migrations but none of their current root migrations.
+
+    Such a database stopped before a squash whose replaced files are now deleted, so Django
+    would try to create its tables again.
+    """
+    roots_by_app: dict[str, set[str]] = {}
+    for app_label, name in root_nodes:
+        roots_by_app.setdefault(app_label, set()).add(name)
+    applied_apps = {app_label for app_label, _ in applied}
+    return sorted(
+        app_label
+        for app_label in applied_apps & roots_by_app.keys()
+        if not any((app_label, root) in applied for root in roots_by_app[app_label])
+    )
+
+
+def check_migration_history_is_supported(connection: BaseDatabaseWrapper) -> None:
+    """Stop with upgrade steps when the database is older than the oldest migration in the code."""
+    loader = MigrationLoader(connection, ignore_no_migrations=True)
+    stranded = find_apps_without_a_baseline(loader.applied_migrations or {}, loader.graph.root_nodes())
+    if not stranded:
+        return
+    raise CommandError(
+        "This database stopped at a migration that this release no longer contains, "
+        f"for these apps: {', '.join(stranded)}.\n\n"
+        "No migration ran, so the database is unchanged. Upgrade in two steps:\n"
+        f"  1. Deploy PostHog at commit {LAST_COMMIT_WITH_PRE_SQUASH_HISTORY} and let it run its migrations.\n"
+        f"     On a Docker Compose deployment, set POSTHOG_APP_TAG={LAST_COMMIT_WITH_PRE_SQUASH_HISTORY}.\n"
+        "  2. Deploy this release again.",
+        returncode=UNSUPPORTED_DATABASE_EXIT_CODE,
+    )
+
+
 class Command(DjangoMigrateCommand):
     """Extended migrate command with caching and orphan detection."""
 
@@ -277,6 +319,7 @@ class Command(DjangoMigrateCommand):
         connection = connections[database]
 
         check_database_version(connection)
+        check_migration_history_is_supported(connection)
 
         # Check for orphaned migrations before proceeding
         if not skip_orphan_check and not options.get("check_unapplied"):

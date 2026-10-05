@@ -10,34 +10,12 @@ import posthog.helpers.encrypted_fields
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("workflows", "0001_hogflowbatchjob"),
-        ("workflows", "0002_hogflowbatchjob_scheduled_at"),
-        ("workflows", "0003_hogflowschedule"),
-        ("workflows", "0004_normalize_legacy_schedule_triggers"),
-        ("workflows", "0005_remove_hogflowbatchjob_scheduled_at"),
-        ("workflows", "0006_drop_hogflowbatchjob_scheduled_at_column"),
-        ("workflows", "0007_migrate_hog_flow_models"),
-        ("workflows", "0008_teamworkflowsconfig"),
-        ("workflows", "0009_hogflow_action_redirects"),
-        ("workflows", "0010_email_reputation_snapshot"),
-        ("workflows", "0011_hogflowrevision"),
-        ("workflows", "0012_hogflow_encrypted_inputs"),
-        ("workflows", "0013_teamworkflowsconfig_email_tracking_consent_mode"),
-        ("workflows", "0014_teamworkflowsconfig_email_sending_suspended_at_and_more"),
-        ("workflows", "0015_delete_emailreputationsnapshot"),
-        ("workflows", "0016_drop_emailreputationsnapshot_fk"),
-        ("workflows", "0017_drop_emailreputationsnapshot_table"),
-        ("workflows", "0018_teamworkflowsconfig_ses_tenant_state"),
-        ("workflows", "0019_hogflow_email_sending_rate_limit"),
-        ("workflows", "0020_teamworkflowsconfig_email_sending_tier_and_more"),
-        ("workflows", "0021_backfill_internal_event_triggers"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

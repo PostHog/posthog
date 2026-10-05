@@ -27,7 +27,7 @@ def backfill_session_id_attribute_keys(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("logs", "0021_logsalertconfiguration_schedule_restriction"),
+        ("logs", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

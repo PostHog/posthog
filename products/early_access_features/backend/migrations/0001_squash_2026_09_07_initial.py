@@ -7,20 +7,13 @@ import posthog.uuidt
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("early_access_features", "0001_initial_migration"),
-        ("early_access_features", "0002_alter_earlyaccessfeature_options_and_more"),
-        ("early_access_features", "0003_fix_contenttype_duplicates"),
-        ("early_access_features", "0004_add_payload_field"),
-        ("early_access_features", "0005_clear_concept_super_groups"),
-        ("early_access_features", "0006_migrate_feature_flags_models"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("feature_flags", "0014_clean_flag_filters_inert_violations"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("feature_flags", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

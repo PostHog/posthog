@@ -16,62 +16,15 @@ import products.customer_analytics.backend.models.team_customer_analytics_config
 
 
 class Migration(migrations.Migration):
-    replaces = [
-        ("customer_analytics", "0001_team_customer_analytics_config"),
-        ("customer_analytics", "0002_customer_profile_config"),
-        ("customer_analytics", "0003_customer_journey"),
-        ("customer_analytics", "0004_teamcustomeranalyticsconfig_account_group_type_index"),
-        ("customer_analytics", "0005_account"),
-        ("customer_analytics", "0006_migrate_product_analytics_models"),
-        ("customer_analytics", "0007_custom_property_definition"),
-        ("customer_analytics", "0008_custom_property_value"),
-        ("customer_analytics", "0009_custompropertyvalue_validate_fks"),
-        ("customer_analytics", "0010_custompropertysource"),
-        ("customer_analytics", "0011_custompropertysource_validate_fks"),
-        ("customer_analytics", "0012_custompropertydefinition_options_and_more"),
-        ("customer_analytics", "0013_relationships"),
-        ("customer_analytics", "0014_relationships_validate_fks"),
-        ("customer_analytics", "0015_person_target_custom_properties"),
-        ("customer_analytics", "0016_announcement"),
-        ("customer_analytics", "0017_announcement_validate_fks"),
-        ("customer_analytics", "0018_custompropertysyncrun"),
-        ("customer_analytics", "0019_custompropertysyncrun_validate_fks"),
-        ("customer_analytics", "0020_custompropertydefinition_group_type_index_and_more"),
-        ("customer_analytics", "0021_custompropertysource_column_descriptions"),
-        ("customer_analytics", "0022_eventstream_eventstreammember"),
-        ("customer_analytics", "0023_eventstream_validate_fks"),
-        ("customer_analytics", "0024_alter_eventstream_team_and_more"),
-        ("customer_analytics", "0025_alter_eventstream_created_by"),
-        ("customer_analytics", "0026_account_slack_summary_cadence_accountchannelsummary"),
-        ("customer_analytics", "0027_accountchannelsummary_validate_fks"),
-        ("customer_analytics", "0028_accountchannelsummary_messages"),
-        ("customer_analytics", "0029_alter_custompropertysyncrun_trigger"),
-        ("customer_analytics", "0030_meeting_models"),
-        ("customer_analytics", "0031_featurerequest_featurerequestproductarea_and_more"),
-        ("customer_analytics", "0032_account_churned_at"),
-        ("customer_analytics", "0033_feature_request_lifecycle"),
-        ("customer_analytics", "0034_backfill_feature_request_history"),
-        ("customer_analytics", "0035_alter_feature_request_description"),
-        ("customer_analytics", "0036_custompropertysyncrun_saved_query_id"),
-        ("customer_analytics", "0037_account_ignored_at"),
-        ("customer_analytics", "0038_feature_request_multi_account_evidence"),
-        ("customer_analytics", "0039_feature_request_evidence_images"),
-        ("customer_analytics", "0040_account_track_rules"),
-        ("customer_analytics", "0041_account_track_rules_enabled_at"),
-        ("customer_analytics", "0042_backfill_account_track_rules_enabled_at"),
-        ("customer_analytics", "0043_custom_property_sync_run_observability"),
-        ("customer_analytics", "0044_custom_property_sync_run_temporal_run_id"),
-        ("customer_analytics", "0045_custom_property_definition_link_display_type"),
-        ("customer_analytics", "0046_usercustomeranalyticsconfig"),
-    ]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("data_modeling", "0031_datamodelingjob_run_mode"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
-        ("product_analytics", "0005_insightvariable_is_multi_and_more"),
-        ("warehouse_sources", "0159_externaldatajob_destination_ids_and_more"),
+        ("data_modeling", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
+        ("product_analytics", "0001_squash_2026_09_07_initial"),
+        ("warehouse_sources", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [

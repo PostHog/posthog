@@ -10,14 +10,14 @@ import posthog.helpers.encrypted_fields
 
 
 class Migration(migrations.Migration):
-    replaces = [("cdp", "0001_migrate_cdp_models"), ("cdp", "0002_alter_hogfunction_batch_export")]
+    replaces = []
 
     initial = True
 
     dependencies = [
-        ("actions", "0001_migrate_actions_models"),
-        ("batch_exports", "0004_migrate_managed_migrations_models"),
-        ("posthog", "1340_drop_userproductlist_reason_columns"),
+        ("actions", "0001_squash_2026_09_07_initial"),
+        ("batch_exports", "0001_squash_2026_09_07_initial"),
+        ("posthog", "0001_squash_2026_09_07_initial"),
     ]
 
     operations = [
