@@ -568,9 +568,16 @@ class SharingConfigurationViewSet(
                     "which the shared queries use. Ask an admin for access, or remove those queries first."
                 )
 
+        was_enabled = instance.enabled
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+
+        # Rotate after the save, so the old row is already disabled and the rotation grace period
+        # does not keep the revoked link working.
+        if was_enabled and not instance.enabled:
+            instance = instance.rotate_access_token()
+            serializer = self.get_serializer(instance)
 
         if context.get("insight"):
             name = instance.insight.name or instance.insight.derived_name

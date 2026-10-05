@@ -217,6 +217,15 @@ class SharingConfiguration(models.Model):
                         team_id=self.team_id,
                     )
 
+            if source.dashboard_id:
+                # The sharing API adopts a dashboard's legacy share token when no config owns it. Clear
+                # the token here, or a revoked link comes back after cleanup deletes the expired configs.
+                dashboard_field = cast("models.ForeignKey", self._meta.get_field("dashboard"))
+                dashboard_model = cast("type[models.Model]", dashboard_field.related_model)
+                dashboard_model._default_manager.filter(pk=source.dashboard_id, team_id=self.team_id).exclude(
+                    share_token=None
+                ).update(share_token=None)
+
             new_config = SharingConfiguration.objects.create(
                 team=source.team,
                 dashboard=source.dashboard,

@@ -8,6 +8,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, Mock, patch
 
 from django.core.exceptions import ImproperlyConfigured
+from django.core.management import call_command
 from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.timezone import now
@@ -212,40 +213,33 @@ class TestSharing(APIBaseTest):
         assert mock_render_template.call_args.kwargs["context"]["add_safe_og_tags"] == self.dashboard
         assert mock_render_template.call_args.kwargs["context"]["add_og_tags"] is False
 
-    @time_machine.travel("2022-01-01", tick=False)
+    @parameterized.expand(["dashboard", "legacy_token_dashboard", "insight", "recording"])
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
-    def test_does_not_change_token_when_toggling_enabled_state(self, patched_exporter_task: Mock):
-        assert SharingConfiguration.objects.count() == 0
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": True},
-        )
-        initial_data = response.json()
-        assert SharingConfiguration.objects.count() == 1
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing")
-        assert response.json() == {
-            "access_token": initial_data["access_token"],
-            "created_at": "2022-01-01T00:00:00Z",
-            "enabled": True,
-            "password_required": False,
-            "settings": None,
-            "share_passwords": [],
-            "user_access_level": "editor",
-        }
+    def test_reenabling_sharing_issues_a_new_link(self, resource: str, patched_exporter_task: Mock):
+        legacy_dashboard = Dashboard.objects.create(team=self.team, name="legacy", share_token="legacy_token")
+        sharing_url = {
+            "dashboard": f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            "legacy_token_dashboard": f"/api/projects/{self.team.id}/dashboards/{legacy_dashboard.id}/sharing",
+            "insight": f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing",
+            "recording": f"/api/projects/{self.team.id}/session_recordings/re-enabled-session/sharing",
+        }[resource]
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
-            {"enabled": False},
-        )
-        assert response.json() == {
-            "access_token": initial_data["access_token"],
-            "created_at": "2022-01-01T00:00:00Z",
-            "enabled": False,
-            "password_required": False,
-            "settings": None,
-            "share_passwords": [],
-            "user_access_level": "editor",
-        }
+        with time_machine.travel("2025-01-01 00:00:00", tick=False):
+            old_token = self.client.patch(sharing_url, {"enabled": True}).json()["access_token"]
+            assert self.client.get(f"/shared/{old_token}").status_code == 200
+
+            self.client.patch(sharing_url, {"enabled": False})
+            assert self.client.get(f"/shared/{old_token}").status_code == 404
+
+        with time_machine.travel("2025-01-01 01:00:00", tick=False):
+            call_command("cleanup_expired_sharing_configs")
+            self.client.get(sharing_url)
+
+            reenabled = self.client.patch(sharing_url, {"enabled": True}).json()
+            assert reenabled["enabled"] is True
+            assert reenabled["access_token"] != old_token
+            assert self.client.get(f"/shared/{old_token}").status_code == 404
+            assert self.client.get(f"/shared/{reenabled['access_token']}").status_code == 200
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_edit_enabled_state(self, patched_exporter_task: Mock):
@@ -266,6 +260,15 @@ class TestSharing(APIBaseTest):
             f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
             {"enabled": False},
         )
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}")
+        assert not response.json()["is_shared"]
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
+            {"enabled": True},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}")
+        assert response.json()["is_shared"]
 
         dashboard_sharing_logs = ActivityLog.objects.filter(
             scope="Dashboard", activity__in=["sharing enabled", "sharing disabled"]
@@ -273,6 +276,7 @@ class TestSharing(APIBaseTest):
         assert [(x.activity, x.user_id) for x in dashboard_sharing_logs] == [
             ("sharing enabled", self.user.id),
             ("sharing disabled", self.user.id),
+            ("sharing enabled", self.user.id),
         ]
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
@@ -2266,6 +2270,7 @@ class TestSharingPublishGate(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["access_token"] == config.access_token
         config.refresh_from_db()
         assert config.enabled is True
 
