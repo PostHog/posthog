@@ -14,11 +14,13 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     _ANALYTICS_SNAPSHOT_DECISION_NAMESPACE,
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
     APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
+    APP_STORE_CONNECT_SNAPSHOT_PENDING_MESSAGE,
     BASE_URL,
     JWT_AUDIENCE,
     JWT_LIFETIME_SECONDS,
@@ -50,7 +52,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_
     ENDPOINTS,
     SALES_REPORT_LOOKBACK_DAYS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.source import (
+    AppStoreConnectSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect"
 
@@ -1218,11 +1225,24 @@ class TestAnalyticsSnapshotBackfill:
 
     def test_readiness_probe_reuses_segments_during_snapshot_emission(self) -> None:
         api = self._ready_api()
+        recorded_owed: list[bool] = []
 
-        _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
+        rows = _collect_analytics(
+            api,
+            _FakeManager(),
+            should_use_incremental_field=True,
+            record_snapshot_owed=lambda owed, _: recorded_owed.append(owed),
+        )
 
         for instance_id in ("I1", "I2", "IS1"):
             assert [url for url, _ in api.calls].count(_segments_url(instance_id)) == 1
+        assert [(row["processing_date"], row["_line"]) for row in rows] == [
+            (date(2026, 8, 1), 1),
+            (date(2026, 8, 2), 1),
+            (date(2026, 8, 2), -1),
+            (date(2026, 8, 2), -2),
+        ]
+        assert recorded_owed == []
 
     def test_running_the_backfill_twice_emits_identical_keys(self) -> None:
         first = _collect_analytics(self._ready_api(), _FakeManager())
@@ -1291,11 +1311,14 @@ class TestAnalyticsSnapshotBackfill:
         )
         manager = _FakeManager()
 
-        rows = _collect_analytics(api, manager, should_use_incremental_field=True)
+        with pytest.raises(NonRetryableException) as raised:
+            _collect_analytics(api, manager, should_use_incremental_field=True)
 
-        # Emitting the ongoing rows now would ratchet the watermark past the snapshot's report
-        # dates and lock the history out for good, so a fresh incremental table waits.
-        assert rows == []
+        waiting_message = str(raised.value.__cause__)
+        assert waiting_message == APP_STORE_CONNECT_SNAPSHOT_PENDING_MESSAGE
+        source = AppStoreConnectSource()
+        for patterns in (source.get_non_retryable_errors(), source.get_retryable_errors(), Any_Source_Errors):
+            assert not error_message_matches(waiting_message, patterns)
         assert manager.saved == []
         assert _segments_url("I1") not in [url for url, _ in api.calls]
 
@@ -1313,6 +1336,23 @@ class TestAnalyticsSnapshotBackfill:
         rows = _collect_analytics(api, _FakeManager())
 
         assert [(row["processing_date"], row["_line"]) for row in rows] == [(date(2026, 8, 1), 1)]
+
+    def test_owed_snapshot_without_an_ongoing_report_is_fulfilled(self) -> None:
+        # A snapshot that is still pending for an app with no ongoing report must not preserve
+        # debt forever: the app has no in-module evidence of access to either report.
+        api = _analytics_api(reports=[], snapshot_reports=[])
+        fulfilled = [False]
+
+        rows = _collect_analytics(
+            api,
+            _FakeManager(),
+            should_use_incremental_field=True,
+            snapshot_owed=True,
+            snapshot_owed_fulfilled=fulfilled,
+        )
+
+        assert rows == []
+        assert fulfilled == [True]
 
     def test_fresh_incremental_sync_holds_while_an_ongoing_instance_below_the_snapshot_is_unready(self) -> None:
         # An ongoing instance without files below the snapshot would stop the walk mid-emission,
@@ -1335,10 +1375,11 @@ class TestAnalyticsSnapshotBackfill:
         )
         manager = _FakeManager()
 
-        rows = _collect_analytics(api, manager, should_use_incremental_field=True)
+        with pytest.raises(NonRetryableException):
+            _collect_analytics(api, manager, should_use_incremental_field=True)
 
-        assert rows == []
         assert manager.saved == []
+        assert manager.cleared == 0
 
     def test_per_run_instance_cap_yields_to_a_fresh_snapshot_backfill(self) -> None:
         # Truncating a fresh incremental run below the snapshot would ratchet the watermark and
@@ -1367,9 +1408,9 @@ class TestAnalyticsSnapshotBackfill:
             segment_payloads={"https://r.s3.amazonaws.com/o1": payload},
         )
 
-        rows = _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
+        with pytest.raises(NonRetryableException):
+            _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
 
-        assert rows == []
         assert [payload["data"]["attributes"]["accessType"] for _, payload in api.posts] == ["ONE_TIME_SNAPSHOT"]
 
     @parameterized.expand(
@@ -1416,10 +1457,53 @@ class TestAnalyticsSnapshotBackfill:
         )
         api.bodies[f"{BASE_URL}/v1/analyticsReportRequests/REQS2/reports"] = _page([])
 
-        rows = _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
+        with pytest.raises(NonRetryableException):
+            _collect_analytics(api, _FakeManager(), should_use_incremental_field=True)
 
-        assert rows == []
         assert api.posts == []
+
+    def test_full_refresh_before_the_snapshot_is_ready_leaves_it_owed_to_a_later_incremental_run(self) -> None:
+        payload = _gzip_csv("Date,Sessions\n2026-07-30,5\n")
+        pending_api = _analytics_api(
+            instances=[_instance("I1", "2026-08-01")],
+            snapshot_reports=[],
+            segments_by_instance={"I1": [_segment("S1", "https://r.s3.amazonaws.com/o1", payload)]},
+            segment_payloads={"https://r.s3.amazonaws.com/o1": payload},
+        )
+        recorded_owed: list[bool] = []
+        recorded_coverage: list[dict[str, date] | None] = []
+
+        def record_snapshot_owed(owed: bool, coverage: dict[str, date] | None) -> None:
+            recorded_owed.append(owed)
+            recorded_coverage.append(coverage)
+
+        full_refresh_rows = _collect_analytics(
+            pending_api,
+            _FakeManager(),
+            record_snapshot_owed=record_snapshot_owed,
+        )
+
+        assert [(row["processing_date"], row["_line"]) for row in full_refresh_rows] == [(date(2026, 8, 1), 1)]
+        assert recorded_owed == [True]
+        assert recorded_coverage == [{"A1": date(2026, 8, 1)}]
+
+        incremental_rows = _collect_analytics(
+            self._ready_api(),
+            _FakeManager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 8, 1),
+            snapshot_owed=True,
+            record_snapshot_owed=lambda owed, _: recorded_owed.append(owed),
+        )
+
+        assert [(row["processing_date"], row["_line"], row["date"]) for row in incremental_rows] == [
+            (date(2026, 8, 1), 1, date(2026, 7, 30)),
+            (date(2026, 8, 2), 1, date(2026, 7, 31)),
+            (date(2026, 8, 2), -1, date(2024, 6, 1)),
+            (date(2026, 8, 2), -2, date(2026, 7, 15)),
+        ]
+        # Clearing is deferred until the pipeline has written the final batch and checkpoint.
+        assert recorded_owed == [True]
 
     def test_steady_state_incremental_sync_leaves_the_snapshot_alone(self) -> None:
         # A table with a watermark holds ongoing history the source can't see, so no safe

@@ -336,6 +336,12 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             await commit_source_cursor(self._source_cursor_manager, self._schema, self._logger, staging_run_uuid=None)
 
+            if self._resource.on_success is not None:
+                try:
+                    await database_sync_to_async_pool(self._resource.on_success)()
+                except Exception:
+                    await self._logger.aexception("V2 Pipeline: source success hook failed")
+
             result = PipelineResult(should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run())
             if isinstance(prepared_queryable_folder, str):
                 result["prepared_queryable_folder"] = prepared_queryable_folder
