@@ -8,7 +8,7 @@ import type { LogRecord } from '~/logs/log-record-avro'
  * weight it would skew the pro-rate toward record-count weighting instead of
  * "share of what the customer sent".
  */
-export function recordContentBytes(r: LogRecord): number {
+function recordContentBytes(r: LogRecord): number {
     let total = Buffer.byteLength(r.body ?? '') + Buffer.byteLength(r.event_name ?? '')
     for (const [k, v] of Object.entries(r.attributes ?? {})) {
         total += Buffer.byteLength(k) + Buffer.byteLength(v ?? '')
@@ -53,7 +53,15 @@ export const EMPTY_DROP_STATS = (): DropStats => ({
 /** Result of a `filter` stage: the surviving records plus what it dropped. */
 export type FilterResult = { kept: LogRecord[]; stats: StageDropStats }
 
-export type BatchContext = { contentBytesTotal: number }
+/**
+ * Content weights fixed before any stage runs. A drop credit must use them, never the row's current
+ * size: a hog transformation can grow a row before a later stage drops it, and crediting the grown
+ * size would let a team buy back more of the batch than it sent.
+ */
+export type BatchContext = {
+    contentBytesTotal: number
+    contentBytesOf: (record: LogRecord) => number
+}
 
 /**
  * A stage in the decode → transform → encode pipeline. Stages run in list order over one decode:
@@ -90,10 +98,18 @@ export async function runPipelineStages(
     stages: PipelineStage[]
 ): Promise<{ kept: LogRecord[]; stats: DropStats }> {
     const stats = EMPTY_DROP_STATS()
+    const weights = new Map<LogRecord, number>()
     if (stages.some((stage) => stage.kind === 'filter')) {
-        stats.contentBytesTotal = records.reduce((sum, record) => sum + recordContentBytes(record), 0)
+        for (const record of records) {
+            const weight = recordContentBytes(record)
+            weights.set(record, weight)
+            stats.contentBytesTotal += weight
+        }
     }
-    const batch: BatchContext = { contentBytesTotal: stats.contentBytesTotal }
+    const batch: BatchContext = {
+        contentBytesTotal: stats.contentBytesTotal,
+        contentBytesOf: (record) => weights.get(record) ?? 0,
+    }
     let working = records
     for (const stage of stages) {
         if (stage.kind === 'mutate') {

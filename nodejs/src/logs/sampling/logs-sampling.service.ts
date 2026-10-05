@@ -6,7 +6,7 @@ import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/service
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { type LogRecord } from '~/logs/log-record-avro'
-import { type FilterResult, type PipelineStage, recordContentBytes } from '~/logs/pipeline/log-processing-pipeline'
+import { type BatchContext, type FilterResult, type PipelineStage } from '~/logs/pipeline/log-processing-pipeline'
 
 import type { CompiledRuleSet, EvaluateResult, RateLimitPendingByRule, SamplingClassifyResult } from './evaluate'
 import {
@@ -80,7 +80,7 @@ export class LogsSamplingService {
     public async sampleRecords(
         records: LogRecord[],
         ruleSet: CompiledRuleSet,
-        contentBytesTotal: number,
+        batch: BatchContext,
         teamId?: number,
         headerBytesUncompressed: number = 0
     ): Promise<FilterResult> {
@@ -110,7 +110,7 @@ export class LogsSamplingService {
                 pendingByRule,
                 records,
                 headerBytesUncompressed,
-                contentBytesTotal
+                batch
             )
 
             for (let i = 0; i < records.length; i++) {
@@ -121,7 +121,7 @@ export class LogsSamplingService {
                         const rb = recordBytes(record)
                         recordsDropped++
                         bytesDropped += rb
-                        contentBytesDropped += recordContentBytes(record)
+                        contentBytesDropped += batch.contentBytesOf(record)
                         recordsDroppedByRuleId.set(c.ruleId, (recordsDroppedByRuleId.get(c.ruleId) ?? 0) + 1)
                         bytesDroppedByRuleId.set(c.ruleId, (bytesDroppedByRuleId.get(c.ruleId) ?? 0) + rb)
                         continue
@@ -133,7 +133,7 @@ export class LogsSamplingService {
                     const rb = recordBytes(record)
                     recordsDropped++
                     bytesDropped += rb
-                    contentBytesDropped += recordContentBytes(record)
+                    contentBytesDropped += batch.contentBytesOf(record)
                     if (c.ruleId != null) {
                         recordsDroppedByRuleId.set(c.ruleId, (recordsDroppedByRuleId.get(c.ruleId) ?? 0) + 1)
                         bytesDroppedByRuleId.set(c.ruleId, (bytesDroppedByRuleId.get(c.ruleId) ?? 0) + rb)
@@ -149,7 +149,7 @@ export class LogsSamplingService {
                     const rb = recordBytes(record)
                     recordsDropped++
                     bytesDropped += rb
-                    contentBytesDropped += recordContentBytes(record)
+                    contentBytesDropped += batch.contentBytesOf(record)
                     if (ruleId != null) {
                         recordsDroppedByRuleId.set(ruleId, (recordsDroppedByRuleId.get(ruleId) ?? 0) + 1)
                         bytesDroppedByRuleId.set(ruleId, (bytesDroppedByRuleId.get(ruleId) ?? 0) + rb)
@@ -188,8 +188,7 @@ export class LogsSamplingService {
         return {
             kind: 'filter',
             name: SAMPLING_STAGE_NAME,
-            run: (records, batch) =>
-                this.sampleRecords(records, ruleSet, batch.contentBytesTotal, teamId, headerBytesUncompressed),
+            run: (records, batch) => this.sampleRecords(records, ruleSet, batch, teamId, headerBytesUncompressed),
         }
     }
 
@@ -199,7 +198,7 @@ export class LogsSamplingService {
      * accumulated cost stays within the pre-batch token budget. Cost is one token
      * per record (`costUnit: 'records'`) or, for `costUnit: 'bytes'`, each row's
      * pro-rata share of the batch header `bytesUncompressed`
-     * (`headerBytesUncompressed × recordContentBytes(row) / contentBytesTotal`) — the same
+     * (`headerBytesUncompressed × contentBytesOf(row) / contentBytesTotal`) — the same
      * unit billing meters, so the limiter admits at the configured byte rate instead
      * of over-counting the per-row `bytes_uncompressed` (which re-includes shared
      * batch data on every row). Falls back to per-row `bytes_uncompressed` when the
@@ -211,7 +210,7 @@ export class LogsSamplingService {
         pendingByRule: RateLimitPendingByRule,
         records: LogRecord[],
         headerBytesUncompressed: number,
-        contentBytesTotal: number
+        batch: BatchContext
     ): Promise<Map<number, boolean>> {
         const keepByIndex = new Map<number, boolean>()
         if (pendingByRule.size === 0) {
@@ -219,9 +218,11 @@ export class LogsSamplingService {
         }
 
         const proRataScale =
-            headerBytesUncompressed > 0 && contentBytesTotal > 0 ? headerBytesUncompressed / contentBytesTotal : 0
+            headerBytesUncompressed > 0 && batch.contentBytesTotal > 0
+                ? headerBytesUncompressed / batch.contentBytesTotal
+                : 0
         const byteCost = (idx: number): number =>
-            proRataScale > 0 ? recordContentBytes(records[idx]!) * proRataScale : recordBytes(records[idx]!)
+            proRataScale > 0 ? batch.contentBytesOf(records[idx]!) * proRataScale : recordBytes(records[idx]!)
 
         const ruleById = new Map(ruleSet.rules.map((r) => [r.id, r]))
         type Entry = { indices: number[]; costs: number[]; req: KeyedRateLimitRequest }

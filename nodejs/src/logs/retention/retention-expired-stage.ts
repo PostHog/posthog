@@ -1,7 +1,7 @@
 import { Counter } from 'prom-client'
 
 import type { LogRecord } from '~/logs/log-record-avro'
-import { EMPTY_STAGE_DROP_STATS, type PipelineStage, recordContentBytes } from '~/logs/pipeline/log-processing-pipeline'
+import { EMPTY_STAGE_DROP_STATS, type PipelineStage } from '~/logs/pipeline/log-processing-pipeline'
 
 const MICROS_PER_DAY = 86_400_000_000
 
@@ -57,13 +57,13 @@ export function makeRetentionExpiredStage(
     return {
         kind: 'filter',
         name: RETENTION_EXPIRED_STAGE_NAME,
-        run: (records) => {
+        run: (records, batch) => {
             const stats = EMPTY_STAGE_DROP_STATS()
             const kept: LogRecord[] = []
             for (const record of records) {
                 if (isExpired(record, defaultRetentionDays, nowMicros)) {
                     stats.recordsDropped++
-                    stats.contentBytesDropped += recordContentBytes(record)
+                    stats.contentBytesDropped += batch.contentBytesOf(record)
                 } else {
                     kept.push(record)
                 }
