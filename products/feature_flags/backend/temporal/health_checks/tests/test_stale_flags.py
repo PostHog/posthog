@@ -871,16 +871,16 @@ class TestStaleFlagsContract(SimpleTestCase):
             unique_hash="h",
         )
 
-    def test_registered_dry_until_the_gate_reaches_every_worker(self) -> None:
+    def test_registered_with_the_live_flag_as_the_only_gate(self) -> None:
         ensure_registry_loaded()
         registration = HEALTH_CHECKS["stale_feature_flags"]
         assert registration.owner == JobOwners.TEAM_FEATURE_FLAGS
         assert registration.product == Product.FEATURE_FLAGS
-        # Web writes these into the schedule before the worker redeploys, so a worker without
-        # `eligible_team_ids` must still find a dry registration. The follow-up drops both and
-        # leaves the flag as the only gate.
-        assert registration.dry_run is True
-        assert registration.rollout_percentage == 0.01
+        # These are the framework defaults. `rollout_percentage` samples teams before
+        # `eligible_team_ids` runs and `dry_run` drops the writes after detection, so either one
+        # would mean enabling a team in the flag produces nothing.
+        assert registration.dry_run is False
+        assert registration.rollout_percentage == 1.0
         assert registration.schedule == "0 6 * * 1"
         assert registration.remediation is not None
         # Payloads carry flag keys and names, so the Health API must gate them on flag access.
