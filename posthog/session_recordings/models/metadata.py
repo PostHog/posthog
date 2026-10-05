@@ -9,6 +9,26 @@ WindowId = Optional[str]
 ONGOING_SESSION_WINDOW_MINUTES = 5
 
 
+def activity_score_expression(table_alias: str) -> str:
+    """
+    Activity score expression, shared so the listing query and the single-recording
+    metadata query report the same score for a recording.
+
+    Aggregates the replay-event rows of one session, so it must run under `GROUP BY session_id`
+    with `start_time` and `end_time` already selected.
+
+    Clamped to the 0-100 the schema documents. The expression adds seconds to event counts on
+    both sides, so it is not a bounded ratio, and a session with no mouse activity and no
+    duration divides zero by zero, which reaches here as NaN.
+    """
+    return f"""round(least(greatest((
+        ((sum({table_alias}.active_milliseconds) / 1000 + sum({table_alias}.click_count) + sum({table_alias}.keypress_count) + sum({table_alias}.console_error_count))) -- intent
+        /
+        ((sum({table_alias}.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum({table_alias}.console_error_count) + sum({table_alias}.console_log_count) + sum({table_alias}.console_warn_count)))
+        * 100
+        ), 0), 100), 2)"""
+
+
 class RecordingSegment(TypedDict):
     start_time: datetime
     end_time: datetime
@@ -66,6 +86,7 @@ class RecordingMetadata(TypedDict):
     ongoing: bool
     total_size: int
     event_count: int
+    activity_score: Optional[float]
 
 
 class RecordingMatchingEvents(TypedDict):
