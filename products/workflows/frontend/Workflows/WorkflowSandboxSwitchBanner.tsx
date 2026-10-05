@@ -47,7 +47,7 @@ function SwitchSenderButton({
     onSwitch,
 }: {
     senders: IntegrationType[]
-    disabledReason: string | undefined
+    disabledReason: string | null
     onSwitch: (integrationId: number) => void
 }): JSX.Element {
     const buttonProps = {

@@ -96,8 +96,10 @@ const makeWorkflow = (steps: HogFlowAction[]): HogFlow => ({
     updated_at: '2026-05-01T00:00:00.000Z',
 })
 
-const senderOf = (workflow: HogFlow, stepId: string): unknown =>
-    workflow.actions.find((action) => action.id === stepId)?.config.inputs?.email?.value?.from
+const senderOf = (workflow: HogFlow, stepId: string): unknown => {
+    const action = workflow.actions.find((candidate) => candidate.id === stepId)
+    return action?.type === 'function_email' ? action.config.inputs.email.value.from : undefined
+}
 
 describe('workflowSandboxSwitchBannerLogic', () => {
     let logic: ReturnType<typeof workflowSandboxSwitchBannerLogic.build>
@@ -124,8 +126,9 @@ describe('workflowSandboxSwitchBannerLogic', () => {
         )
         logic = workflowSandboxSwitchBannerLogic({ id: WORKFLOW_ID })
         logic.mount()
+        const workflowLoaded = workflowLogic({ id: WORKFLOW_ID }).actionTypes.loadWorkflowSuccess
         await expectLogic(logic).toDispatchActions([
-            workflowLogic({ id: WORKFLOW_ID }).actionCreators.loadWorkflowSuccess,
+            (action) => action.type === workflowLoaded,
             'loadIntegrationsSuccess',
         ])
     }
