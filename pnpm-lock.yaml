@@ -1738,6 +1738,9 @@ importers:
       p-limit:
         specifier: 3.1.0
         version: 3.1.0
+      parse5:
+        specifier: 7.1.2
+        version: 7.1.2
       pg:
         specifier: ^8.6.0
         version: 8.10.0

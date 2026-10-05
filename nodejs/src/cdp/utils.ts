@@ -15,6 +15,7 @@ import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerial
 export const CDP_TEST_ID = '[CDP-TEST-HIDDEN]'
 export const MAX_LOG_LENGTH = 10000
 const TRUNCATION_SUFFIX = '... (truncated)'
+export const MAX_UNTRUNCATED_LOG_LENGTH = MAX_LOG_LENGTH - TRUNCATION_SUFFIX.length
 const REDACTED = '***REDACTED***'
 
 // Sync with person.py and constants.tsx
