@@ -336,7 +336,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             (props: MessageTemplateLogicProps): MessageTemplateLogicProps => props,
         ],
     }),
-    forms(({ actions }) => ({
+    forms(({ asyncActions }) => ({
         template: {
             defaults: {
                 ...NEW_TEMPLATE,
@@ -350,7 +350,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             }),
             submit: async (template) => {
-                actions.saveTemplate(template)
+                await asyncActions.saveTemplate(template)
             },
         },
     })),

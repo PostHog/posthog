@@ -102,6 +102,47 @@ describe('messageTemplateLogic', () => {
         })
     })
 
+    it.each([
+        { description: 'creating a template', id: 'new', method: 'post', status: 201, outcome: 'saveTemplateSuccess' },
+        {
+            description: 'saving an existing template',
+            id: 'existing-id',
+            method: 'patch',
+            status: 200,
+            outcome: 'saveTemplateSuccess',
+        },
+        { description: 'a failed save', id: 'new', method: 'post', status: 500, outcome: 'saveTemplateFailure' },
+    ])('keeps the form submitting until $description finishes', async ({ id, method, status, outcome }) => {
+        let finishSave!: () => void
+        const saveHeld = new Promise<void>((resolve) => {
+            finishSave = resolve
+        })
+        const save = jest.fn(async () => {
+            await saveHeld
+            return [status, { id: 'saved-id', name: 'Welcome email', content: { email: { subject: 'Hello' } } }]
+        })
+        useMocks({
+            [method]: {
+                '/api/environments/:team_id/messaging_templates/': save,
+                '/api/environments/:team_id/messaging_templates/:id/': save,
+            },
+        })
+        logic = messageTemplateLogic({ id })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setTemplateValues({ id, name: 'Welcome email', content: { email: { subject: 'Hello' } } })
+
+        logic.actions.submitTemplate()
+        await expectLogic(logic).toDispatchActions(['saveTemplate'])
+        expect(logic.values.isTemplateSubmitting).toBe(true)
+
+        finishSave()
+        await expectLogic(logic).toDispatchActions([outcome])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.isTemplateSubmitting).toBe(false)
+        expect(save).toHaveBeenCalledTimes(1)
+    })
+
     describe('save failure feedback', () => {
         beforeEach(() => {
             jest.clearAllMocks()
