@@ -210,6 +210,25 @@ def test_sov_date_filter(
     manager.save_state.assert_not_called()
 
 
+def test_validation_rejects_redirects(config: PromptingCompanySourceConfig) -> None:
+    with patch(TRANSPORT + ".make_tracked_session") as make_session:
+        response = make_session.return_value.__enter__.return_value.get.return_value
+        response.status_code = 200
+
+        assert validate_credentials(config, None) == (True, None)
+
+    assert make_session.call_args.kwargs["allow_redirects"] is False
+    assert make_session.return_value.__enter__.return_value.get.call_args.kwargs["allow_redirects"] is False
+
+
+def test_sync_rejects_redirects(config: PromptingCompanySourceConfig, manager: MagicMock) -> None:
+    with patch(TRANSPORT + ".rest_api_resource", return_value=[]) as make_resource:
+        prompting_company_source(config, inputs("published_content"), manager)
+
+    rest_config = make_resource.call_args.args[0]
+    assert rest_config["client"]["allow_redirects"] is False
+
+
 @pytest.mark.parametrize(
     "status, schema, valid, error",
     [

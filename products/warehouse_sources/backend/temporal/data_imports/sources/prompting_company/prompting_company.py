@@ -68,8 +68,8 @@ def validate_credentials(config: PromptingCompanySourceConfig, schema_name: str 
     if name == "share_of_voice":
         params["start"] = params["end"]
     auth = APIKeyAuth(api_key=config.api_key, name="x-api-key", location="header")
-    with make_tracked_session(redact_values=auth.secret_values()) as session:
-        response = session.get(BASE_URL + endpoint.path, params=params, auth=auth, timeout=30)
+    with make_tracked_session(redact_values=auth.secret_values(), allow_redirects=False) as session:
+        response = session.get(BASE_URL + endpoint.path, params=params, auth=auth, timeout=30, allow_redirects=False)
     if response.status_code == 401:
         return False, AUTH_ERROR
     if response.status_code == 403:
@@ -120,6 +120,7 @@ def prompting_company_source(
             "base_url": BASE_URL,
             "auth": {"type": "api_key", "name": "x-api-key", "api_key": config.api_key, "location": "header"},
             "request_timeout": 30,
+            "allow_redirects": False,
         },
         "resources": [resource_config],
     }
