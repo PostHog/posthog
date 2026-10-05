@@ -10,12 +10,12 @@ import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
-    name: 'ETL',
+    name: 'ELT',
     scenes: {
         PipelineOverview: {
             import: () => import('./frontend/scenes/PipelineOverviewScene/PipelineOverviewScene'),
             projectBased: true,
-            name: 'ETL',
+            name: 'ELT',
             description: 'Every source you import from and every destination you write to, with the health of each.',
             iconType: 'data_pipeline',
             docsHref: 'https://posthog.com/docs/data-warehouse',
@@ -32,7 +32,9 @@ export const manifest: ProductManifest = {
     treeItemsNew: [],
     treeItemsProducts: [
         {
+            // Keep the persisted product identifier stable while showing the corrected label.
             path: 'ETL',
+            displayLabel: 'ELT',
             // Reuses the warehouse product key rather than minting a new one: this is a surface
             // over the same sources and destinations, so setup state and Quick Start tracking
             // should read as the same product.
