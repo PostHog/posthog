@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from parameterized import parameterized
 
@@ -190,3 +192,14 @@ class TestBackfillWarehouseSourceDestinations(BaseTest):
         call_command("backfill_warehouse_source_destinations", "--live-run")
 
         assert not ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source_id=source.pk).exists()
+
+    def test_a_failed_link_makes_the_command_fail(self) -> None:
+        source = self._source("src")
+
+        with (
+            patch.object(ExternalDataSourceDestination, "save", side_effect=RuntimeError("write failed")),
+            self.assertRaisesMessage(CommandError, "1 source(s) could not be linked"),
+        ):
+            call_command("backfill_warehouse_source_destinations", "--live-run")
+
+        assert not ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=source).exists()

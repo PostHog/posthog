@@ -157,3 +157,5 @@ class Command(BaseCommand):
         )
         if not live_run:
             self.stdout.write("preview only, nothing written. Re-run with --live-run to persist.")
+        if failures:
+            raise CommandError(f"{failures} source(s) could not be linked; see the errors above and re-run")

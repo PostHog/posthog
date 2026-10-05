@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     PendingSourceCredential,
+    get_or_create_warehouse_destination,
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_management import (
@@ -73,7 +74,6 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_destination import get_or_create_warehouse_destination
 from products.warehouse_sources.backend.presentation.views.destination_links import set_source_destinations
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
     ExternalDataSchemaListSerializer,
