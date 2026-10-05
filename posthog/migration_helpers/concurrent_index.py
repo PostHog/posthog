@@ -452,7 +452,7 @@ class DropFieldIndexesConcurrently(NotInTransactionMixin, FieldOperation):
       its index, and state does not change, so a fresh database still gets the companion.
 
     The op raises instead of guessing when another single-column index on the column exists
-    that no Meta index names. On a foreign key, it also raises when a parent delete still reads
+    that no Meta index or constraint names. On a foreign key, it also raises when a parent delete still reads
     the column and no other btree index leads with it: the foreign key check at COMMIT and
     every `on_delete` but `DO_NOTHING` would then scan the whole table.
     """
@@ -510,14 +510,16 @@ class DropFieldIndexesConcurrently(NotInTransactionMixin, FieldOperation):
                 [field.column],
                 index=True,
                 type_=Index.suffix,
-                exclude={index.name for index in model._meta.indexes},
+                # A conditional UniqueConstraint is a partial unique index, not a pg_constraint row.
+                exclude={rule.name for rule in [*model._meta.indexes, *model._meta.constraints]},
             )
         )
         unexpected = sorted(candidates - automatic)
         if unexpected:
             raise ValueError(
-                f"{table} holds {', '.join(unexpected)} on only {field.column}. Django did not create it for "
-                f"the field ({', '.join(sorted(automatic))}), and no Meta index names it. Find out what created it first."
+                f"{table} holds {', '.join(unexpected)} on only {field.column}. Django did not create it for the "
+                f"field ({', '.join(sorted(automatic))}), and no Meta index or constraint names it. "
+                "Find out what created it first."
             )
         # Also checked when the indexes are already gone, so db_index=False never hides a missing cover.
         if field.is_relation and (field.db_constraint or field.remote_field.on_delete is not DO_NOTHING):

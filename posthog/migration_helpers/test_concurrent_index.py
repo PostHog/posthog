@@ -482,6 +482,7 @@ def _create_key_tables(
     db_constraint: bool = True,
     to_field: str | None = None,
     indexes: list[models.Index] | None = None,
+    constraints: list[models.UniqueConstraint] | None = None,
 ) -> ProjectState:
     state = ProjectState()
     state.add_model(
@@ -509,7 +510,7 @@ def _create_key_tables(
                 ),
                 ("seq", models.IntegerField(default=0)),
             ],
-            options={"db_table": child, "indexes": indexes or []},
+            options={"db_table": child, "indexes": indexes or [], "constraints": constraints or []},
         )
     )
     with connection.schema_editor() as schema_editor:
@@ -526,23 +527,37 @@ def _indexes_on_only(table: str, column: str) -> set[str]:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    "on_delete,db_constraint,to_field,index_fields",
+    "on_delete,db_constraint,to_field,index_fields,conditional_unique",
     [
-        pytest.param(models.CASCADE, True, None, ["owner", "seq"], id="another_index_leads_with_the_column"),
-        pytest.param(models.CASCADE, True, None, ["owner"], id="a_meta_index_on_the_same_column"),
-        pytest.param(models.DO_NOTHING, False, None, None, id="no_parent_delete_reads_the_column"),
-        pytest.param(models.CASCADE, True, "code", ["owner", "seq"], id="a_key_to_a_text_column"),
+        pytest.param(models.CASCADE, True, None, ["owner", "seq"], False, id="another_index_leads_with_the_column"),
+        pytest.param(models.CASCADE, True, None, ["owner"], False, id="a_meta_index_on_the_same_column"),
+        pytest.param(models.DO_NOTHING, False, None, None, False, id="no_parent_delete_reads_the_column"),
+        pytest.param(models.CASCADE, True, "code", ["owner", "seq"], False, id="a_key_to_a_text_column"),
+        pytest.param(models.CASCADE, True, None, ["owner", "seq"], True, id="a_conditional_unique_on_the_column"),
     ],
 )
 def test_drop_foreign_key_index_drops_only_the_automatic_indexes(
-    key_tables, on_delete, db_constraint, to_field, index_fields
+    key_tables, on_delete, db_constraint, to_field, index_fields, conditional_unique
 ):
     parent, child = key_tables
     indexes = [models.Index(fields=index_fields, name=f"{child}_meta")] if index_fields else []
-    state = _create_key_tables(
-        parent, child, on_delete=on_delete, db_constraint=db_constraint, to_field=to_field, indexes=indexes
+    constraints = (
+        [models.UniqueConstraint(fields=["owner"], condition=models.Q(seq__gt=0), name=f"{child}_uniq")]
+        if conditional_unique
+        else []
     )
-    single_column_meta = {index.name for index in indexes if index.fields == ["owner"]}
+    state = _create_key_tables(
+        parent,
+        child,
+        on_delete=on_delete,
+        db_constraint=db_constraint,
+        to_field=to_field,
+        indexes=indexes,
+        constraints=constraints,
+    )
+    single_column_meta = {index.name for index in indexes if index.fields == ["owner"]} | {
+        constraint.name for constraint in constraints
+    }
     automatic = _indexes_on_only(child, "owner_id") - single_column_meta
     op = DropFieldIndexesConcurrently(model_name="TempFkChild", name="owner")
 
