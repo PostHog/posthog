@@ -670,7 +670,6 @@ class DeltaMaintenance:
 
     async def compact_if_fragmented(
         self,
-        partition_count: int | None,
         threshold: int = DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD,
         total_threshold: int = DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD,
         compact_small_files: bool = False,
@@ -695,10 +694,11 @@ class DeltaMaintenance:
         every few ticks. `table_wide_small_files` also enables the table-wide removable-file
         trigger, which `run_scheduled` sets only when a vacuum is due or ran earlier in the same sync.
 
-        When `partition_count` is None it is derived from the table's actual layout (the
-        distinct file directories in the delta log, no extra I/O) — only md5 partitioning
-        persists a count on the schema, so datetime/numerical-partitioned tables always
-        arrive here with None.
+        The partition count comes from the table's layout: the distinct file directories in the
+        delta log, with no extra I/O. Repartition detection counts partitions the same way. The
+        schema's persisted `partition_count` is the md5 bucket count, but every partition mode
+        stores the source's value there, so a datetime-partitioned table can store 1 while it holds
+        thousands of partition directories.
 
         Returns True if compaction ran, False if it was skipped. The decision reads only the
         Delta log. Runs pre-write, so a sync that arrived at a fragmented state (e.g. an earlier
@@ -714,13 +714,9 @@ class DeltaMaintenance:
         file_uris = await asyncio.to_thread(table.file_uris)
         total_files = len(file_uris)
         note_post_load_phase(total_files=total_files)
-        if partition_count is None:
-            # One directory per partition value; unpartitioned tables collapse to the single
-            # table root. Without this, a partitioned table with no persisted count reads as
-            # one giant partition and trips the per-partition threshold on every run.
-            partition_count = len({uri.rsplit("/", 1)[0] for uri in file_uris})
-        # Treat unpartitioned tables as one "partition" for the threshold math.
-        effective_partitions = max(partition_count or 1, 1)
+        # One directory per partition value. An unpartitioned table collapses to the table root, and
+        # an empty table counts as one partition for the threshold math.
+        effective_partitions = max(len({uri.rsplit("/", 1)[0] for uri in file_uris}), 1)
         files_per_partition = total_files / effective_partitions
 
         count_fragmented = files_per_partition > threshold or total_files > total_threshold
@@ -792,7 +788,6 @@ class DeltaMaintenance:
         schema: "ExternalDataSchema",
         *,
         is_cdc_companion: bool = False,
-        partition_count_fallback: int | None = None,
         compact_small_files: bool = False,
     ) -> None:
         """Best-effort threshold maintenance owning the vacuum-watermark lifecycle for `schema`.
@@ -808,9 +803,7 @@ class DeltaMaintenance:
 
         One schema can back two delta tables (snapshot + `_cdc` companion) whose delta versions are
         unrelated numbers, so each table's vacuum cadence gets its own watermark keys — sharing them
-        would corrupt both cadences. The companion also ignores `schema.partition_count` (it
-        describes the snapshot table); `compact_if_fragmented` derives the companion's count from
-        its actual layout instead.
+        would corrupt both cadences.
 
         Never raises: a maintenance failure must not block the sync, and the next scheduled pass
         retries the same idempotent cleanup. A transient infra error (see
@@ -826,7 +819,6 @@ class DeltaMaintenance:
         pass instead of waiting for a cleanup that never ran.
         """
         try:
-            partition_count = None if is_cdc_companion else (schema.partition_count or partition_count_fallback)
             watermarks = VacuumWatermarks.from_config(schema.sync_type_config, is_cdc_companion)
 
             decision = await self.vacuum_if_due(watermarks, VacuumCadence.from_settings())
@@ -840,7 +832,6 @@ class DeltaMaintenance:
                 schema.sync_type_config = {**(schema.sync_type_config or {}), **updates}
 
             await self.compact_if_fragmented(
-                partition_count=partition_count,
                 compact_small_files=compact_small_files,
                 table_wide_small_files=compact_small_files
                 and (decision.reason is not None or self._vacuumed_during_job(watermarks)),
