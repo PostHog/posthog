@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 
@@ -8,7 +9,10 @@ from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval
 
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
-from products.alerts.backend.platform_alert_backfill import backfill_platform_insight_alert_configurations
+from products.alerts.backend.platform_alert_backfill import (
+    backfill_platform_insight_alert_configurations,
+    disable_platform_insight_alert_configurations,
+)
 from products.alerts_platform.backend.facade.api import list_configurations
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.product_analytics.backend.facade.models import Insight
@@ -68,3 +72,24 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
             "threshold": THRESHOLD,
             "comparison": {"type": "absolute_value"},
         }
+
+    def test_a_sample_copies_the_same_alerts_on_every_run_and_widening_it_only_adds(self) -> None:
+        inside = self._alert(id=UUID(int=5))
+        outside = self._alert(id=UUID(int=50))
+
+        backfill_platform_insight_alert_configurations(team_id=self.team.id, sample_percent=10)
+        assert set(self._copies()) == {inside.id}
+
+        backfill_platform_insight_alert_configurations(team_id=self.team.id, sample_percent=60)
+        assert set(self._copies()) == {inside.id, outside.id}
+
+    def test_disabling_stops_every_copy_and_a_rerun_turns_them_back_on(self) -> None:
+        self._alert()
+        self._alert()
+        backfill_platform_insight_alert_configurations(team_id=self.team.id)
+
+        assert disable_platform_insight_alert_configurations(team_id=self.team.id) == 2
+        assert {view.enabled for view in self._copies().values()} == {False}
+
+        backfill_platform_insight_alert_configurations(team_id=self.team.id)
+        assert {view.enabled for view in self._copies().values()} == {True}

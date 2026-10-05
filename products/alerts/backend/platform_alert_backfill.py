@@ -7,6 +7,8 @@ copy in sync afterwards. Run it again to pick up changes.
 than duplicates, and the platform's evaluation reads the insight and its bound through it.
 """
 
+from uuid import UUID
+
 import structlog
 
 from posthog.dataclasses import frozen
@@ -14,7 +16,7 @@ from posthog.schema_enums import AlertCalculationInterval
 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.platform_source_cycle import is_evaluated_on_the_platform
-from products.alerts_platform.backend.facade.api import upsert_configuration
+from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, PlatformAlertUpsert, SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationRecurrenceUnit as RecurrenceUnit
 
@@ -71,8 +73,22 @@ def _upsert(alert: AlertConfiguration) -> PlatformAlertUpsert | None:
     )
 
 
-def backfill_platform_insight_alert_configurations(*, team_id: int | None = None) -> BackfillCounts:
-    """Copies every insight alert the platform evaluates in parallel, or one team's."""
+def is_sampled(alert_id: UUID, sample_percent: int) -> bool:
+    """Whether an alert falls inside a sample. Decided by its id, so a rerun picks the same alerts
+    and widening the sample only adds alerts."""
+    return alert_id.int % 100 < sample_percent
+
+
+def backfill_platform_insight_alert_configurations(
+    *, team_id: int | None = None, sample_percent: int = 100
+) -> BackfillCounts:
+    """Copies every insight alert the platform evaluates in parallel, or one team's, or a sample.
+
+    Every copy adds ClickHouse load beside production's, so a rollout copies a sample first and
+    widens it while the parallel run's query load stays inside its budget.
+    """
+    if not 1 <= sample_percent <= 100:
+        raise ValueError("sample_percent must be between 1 and 100")
     source = AlertConfiguration.objects.select_related("threshold").filter(insight__deleted=False)
     if team_id is not None:
         source = source.filter(team_id=team_id)
@@ -82,7 +98,7 @@ def backfill_platform_insight_alert_configurations(*, team_id: int | None = None
     skipped = 0
     failed = 0
     for alert in source.iterator():
-        upsert = _upsert(alert)
+        upsert = _upsert(alert) if is_sampled(alert.id, sample_percent) else None
         if upsert is None:
             skipped += 1
             continue
@@ -107,3 +123,13 @@ def backfill_platform_insight_alert_configurations(*, team_id: int | None = None
         team_id=team_id,
     )
     return BackfillCounts(created=created, updated=updated, skipped=skipped, failed=failed)
+
+
+def disable_platform_insight_alert_configurations(*, team_id: int | None = None) -> int:
+    """Stops the parallel run for every insight copy, or one team's. Returns how many it stopped.
+
+    The copies stay, with their state and history. Running the backfill again turns them back on.
+    """
+    disabled = disable_configurations(SourceKind.INSIGHT, team_id=team_id)
+    logger.info("platform_insight_alert_backfill.disabled", disabled=disabled, team_id=team_id)
+    return disabled

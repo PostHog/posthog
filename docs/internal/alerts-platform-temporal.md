@@ -445,6 +445,18 @@ python manage.py backfill_platform_insight_alert_configurations
 
 It copies threshold alerts on an hourly or slower cadence only, and skips detector alerts and the real-time and 15-minute cadences.
 Run it only after a worker polls `alerts-platform-insight-evaluation-task-queue`, because the first copied row makes discovery dispatch insight evaluations to that queue.
+
+Every copy adds ClickHouse load beside production's, so roll it out in steps.
+A full logs backfill hit ClickHouse's per-user concurrent query limit and had to be removed.
+
+1. Copy one internal team with `--team-id`, then a small sample with `--sample-percent`, for example 5. The sample is chosen by alert id, so a rerun copies the same alerts and a larger percentage only adds alerts.
+2. Watch the parallel run's ClickHouse cost in `query_log`: its `client_query_id` starts with `alerts-platform-insight:`.
+3. Watch scheduler lag for `source=insight`, and the `capacity` skip reason on the platform's skipped-check counter. Capacity skips mean ClickHouse refused the query for load.
+4. Widen the sample only while both stay flat. `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the concurrent checks whatever the sample size.
+
+To stop the parallel run, pass `--disable`, with `--team-id` to stop one team.
+It switches the copies off and keeps their rows, state and history. Checks already running finish.
+Running the backfill again turns them back on at the production alert's next due time.
 An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
 
 ## Postgres connectivity probe
