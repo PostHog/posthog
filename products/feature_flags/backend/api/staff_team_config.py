@@ -111,13 +111,12 @@ class StaffTeamConfigSerializer(serializers.Serializer):
         choices=FlagEvaluationsMode.choices,
         help_text=(
             "Which table the $feature_flag_called data of this team's organization is read from. Every team of "
-            "an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab "
-            "charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's "
-            "Projects tab and for events lists filtered to only $feature_flag_called, such as the Activity page and "
-            "the Usage tab log. On 2, ingestion stops writing $feature_flag_called to events for the teams it "
-            "writes to flag_evaluations. This is the stored mode: while the "
-            "FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS instance setting is on, an organization on 1 has its Usage tab "
-            "read events anyway."
+            "an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the "
+            "per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, "
+            "such as the Activity page, and the table is available in SQL. 2 reads the same way as 1, and "
+            "ingestion stops writing $feature_flag_called to events for the teams it writes to flag_evaluations. "
+            "This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an "
+            "organization on 1 reads events anyway."
         ),
     )
     feature_flag_count = serializers.IntegerField(
@@ -174,9 +173,9 @@ class StaffFlagEvaluationsModeMutationSerializer(serializers.Serializer):
     flag_evaluations_mode = serializers.ChoiceField(
         choices=FlagEvaluationsMode.choices,
         help_text=(
-            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab "
-            "charts, and the table is available in SQL. 2 also reads it for the per-project counts on a flag's "
-            "Projects tab and for events lists filtered to only $feature_flag_called, and stops ingestion writing "
+            "Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the "
+            "per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, "
+            "and the table is available in SQL. 2 reads the same way as 1, and stops ingestion writing "
             "$feature_flag_called to events for the teams it writes to flag_evaluations."
         ),
     )
