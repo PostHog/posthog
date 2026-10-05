@@ -86,7 +86,6 @@ from products.ai_observability.backend.prompt_references import (
     PromptReferenceResolutionError,
     assemble_prompt_payload,
     get_active_references_to,
-    prompt_partials_enabled,
 )
 
 logger = structlog.get_logger(__name__)
@@ -281,14 +280,12 @@ class LLMPromptViewSet(
             return isinstance(item.get("prompt"), str) and bool(PROMPT_REFERENCE_REGEX.search(item["prompt"]))
 
         # A tag-free row is trivially resolved: its raw and assembled content are
-        # identical, so it gets [] without consulting the flag. Null stays the
-        # marker for tags that were left in place.
+        # identical, so it gets []. Null stays the marker for tags that were
+        # left in place.
         for item in items:
             if not has_tags(item):
                 item["resolved_references"] = []
         if not any(has_tags(item) for item in items):
-            return items
-        if not prompt_partials_enabled(self.team):
             return items
         resolved_items: list[dict[str, Any]] = []
         shared_memo: dict[tuple[str, str | None, str | None], tuple[str, int]] = {}
@@ -443,7 +440,7 @@ class LLMPromptViewSet(
                 )
             return self._prompt_not_found_response(prompt_name)
 
-        if resolve and content_mode == "full" and prompt_partials_enabled(self.team):
+        if resolve and content_mode == "full":
             try:
                 prompt = assemble_prompt_payload(self.team, prompt)
             except PromptReferenceResolutionError as err:

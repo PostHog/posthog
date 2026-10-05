@@ -121,7 +121,7 @@ class TestMetricsHistogramQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.times), 3)
 
     def test_weekly_buckets_keep_their_counts(self):
-        monday = dt.datetime(2026, 9, 7, 0, 0, 0, tzinfo=dt.UTC)
+        monday = dt.datetime(2026, 9, 14, 0, 0, 0, tzinfo=dt.UTC)
         self._seed_histogram([(monday + dt.timedelta(hours=3), [4, 4, 4, 0])])
 
         response = self._run(

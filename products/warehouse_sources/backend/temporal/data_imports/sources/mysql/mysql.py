@@ -841,6 +841,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any], team_id: int | None) -
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
                 or _is_transient_tiproxy_unavailable(e)
+                or _is_transient_no_available_tidb_instances(e)
                 or _is_transient_too_many_connections(e)
                 or _is_transient_cant_create_thread(e)
             ):
@@ -908,6 +909,21 @@ def _is_transient_tiproxy_unavailable(e: BaseException) -> bool:
     if not isinstance(e, pymysql.err.OperationalError):
         return False
     return _TIPROXY_UNAVAILABLE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
+# A TiDB-fronting gateway's own ER_UNKNOWN_ERROR (1105) wording for the same "no backend reachable"
+# condition as the TiProxy case above, just phrased differently — the gateway found zero TiDB
+# instances to route to (a scale-down, rolling restart, or momentary control-plane blip) rather
+# than failing to reach one it knew about. Same proxy-layer pattern: a fresh attempt recovers once
+# a TiDB instance is available again. The message carries no host/port, so match it in full.
+_TIDB_NO_AVAILABLE_INSTANCES_TOKEN = "No available TiDB instances, please make sure TiDB is available"
+
+
+def _is_transient_no_available_tidb_instances(e: BaseException) -> bool:
+    """Return True if a TiDB-fronting gateway reported zero reachable TiDB instances."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _TIDB_NO_AVAILABLE_INSTANCES_TOKEN in " ".join(str(arg) for arg in e.args)
 
 
 def _is_transient_metadata_query_reset(e: BaseException) -> bool:

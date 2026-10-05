@@ -32,15 +32,12 @@
 
 ## Release status
 
-<!-- Select exactly one. Agents must inspect the changed code for feature flag checks before choosing. -->
+<!-- Keep exactly one line and delete the other two. Agents must inspect the changed code for feature flag checks before choosing. -->
+<!-- Plain bullets, not checkboxes: GitHub counts every checkbox in the body as an open task. The changelog bot reads the hidden markers. -->
 
-- [ ] No feature flag controls this change <!-- release-status: no-feature-flag -->
-- [ ] This change is behind a feature flag and is not available to users <!-- release-status: behind-feature-flag -->
-- [ ] This change makes a previously flagged feature available to everyone <!-- release-status: fully-available -->
-
-## Automatic notifications
-
-- [ ] Publish to changelog?
+- No feature flag controls this change <!-- release-status: no-feature-flag -->
+- This change is behind a feature flag and is not available to users <!-- release-status: behind-feature-flag -->
+- This change makes a previously flagged feature available to everyone <!-- release-status: fully-available -->
 
 ## Docs update
 

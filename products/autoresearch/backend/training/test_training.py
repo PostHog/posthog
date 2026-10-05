@@ -1,5 +1,6 @@
 import re
 import uuid
+from datetime import date
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -11,6 +12,7 @@ from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 from products.autoresearch.backend.dataset.labeling import TrainingSample
+from products.autoresearch.backend.inference.failures import UnscorableChampion
 from products.autoresearch.backend.inference.sandbox import SandboxInferenceError
 from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
 from products.autoresearch.backend.testing import TeamScopedTestMixin
@@ -36,12 +38,27 @@ class TestBuildAgentDescription(TeamScopedTestMixin, BaseTest):
             iteration_budget_remaining=10,
         )
 
-    @parameterized.expand([("without_notebook", False), ("with_notebook", True)])
-    def test_prompt_renders_without_unresolved_placeholders(self, _name: str, report_notebook: bool) -> None:
+    @parameterized.expand(
+        [
+            ("without_notebook", False, None),
+            ("with_notebook", True, None),
+            ("unscorable_champion", False, UnscorableChampion(failure_kind="limit_exceeded", onset=date(2026, 9, 2))),
+        ]
+    )
+    def test_prompt_renders_without_unresolved_placeholders(
+        self, _name: str, report_notebook: bool, unscorable: UnscorableChampion | None
+    ) -> None:
         pipeline = self._make_pipeline()
         prompt = build_agent_description(
-            pipeline=pipeline, iteration_budget=5, training_run_id="run-123", report_notebook=report_notebook
+            pipeline=pipeline,
+            iteration_budget=5,
+            training_run_id="run-123",
+            report_notebook=report_notebook,
+            unscorable_champion=unscorable,
         )
+        if unscorable is not None:
+            assert "**The current champion cannot score.**" in prompt
+            assert "`limit_exceeded` since 2026-09-02" in prompt
         # `{anchors}` and `{lookback_days}` are intentional — they are documented
         # placeholders the agent is taught to use inside its own SQL, and `{init}`
         # is the literal mermaid `%%{init}%%` directive the report section forbids.

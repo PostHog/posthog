@@ -7251,6 +7251,13 @@ export namespace Schemas {
       Yes: 'yes',
     } as const;
 
+    export interface HogQLMetadataColumn {
+      /** Output column name, in the same order as the SELECT list. */
+      name: string;
+      /** Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative. */
+      type: string;
+    }
+
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
@@ -7259,6 +7266,8 @@ export namespace Schemas {
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
+      /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+      output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];
@@ -38202,6 +38211,13 @@ export namespace Schemas {
       readonly warehouse_origin: unknown;
     }
 
+    export interface ErrorDetail {
+      /** What went wrong and what to do next. */
+      detail: string;
+      /** A stable code for the error, such as `lift_commit_unknown` or `rate_limited`. */
+      code?: string;
+    }
+
     export interface ErrorResponse {
       /** Error message */
       error: string;
@@ -44415,7 +44431,7 @@ export namespace Schemas {
        * * `failed` - Failed
        * * `ineligible` - Ineligible */
       readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned / pii_detected. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
@@ -44767,6 +44783,7 @@ export namespace Schemas {
        * * `application/x-ndjson` - application/x-ndjson */
       readonly export_format: ExportedAssetExportFormatEnum;
       readonly created_at: string;
+      /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
       readonly has_content: boolean;
       export_context?: unknown;
       readonly filename: string;
@@ -44826,6 +44843,7 @@ export namespace Schemas {
        * * `application/json` - application/json */
       export_format: ExportedAssetCreateExportFormatEnum;
       readonly created_at: string;
+      /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
       readonly has_content: boolean;
       export_context?: unknown;
       readonly filename: string;
@@ -56181,6 +56199,8 @@ export namespace Schemas {
       filters?: HogQLFilters | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
+      /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
+      includeOutputTypes?: boolean | null;
       /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
       indexUsage?: boolean | null;
       kind?: 'HogQLMetadata';
@@ -62747,6 +62767,12 @@ export namespace Schemas {
       n_features: number;
       /** The numeric feature column names (excludes distinct_id, __label, __fold). */
       feature_cols: string[];
+      /** Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql over the whole inference population on every cadence, so a slow query here is slow there too. */
+      elapsed_s: number;
+      /** Rows ClickHouse read to materialize the matrix. */
+      rows_read: number;
+      /** Advice on the cost of features_sql. A hint does not block the materialization or the upload, but a champion whose features.sql cannot score today's population in time is not promoted. */
+      hints: string[];
     }
 
     /**
@@ -86504,6 +86530,8 @@ export namespace Schemas {
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
+      /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+      output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];
