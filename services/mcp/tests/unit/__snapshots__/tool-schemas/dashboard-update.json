@@ -256,6 +256,10 @@
                         "required": ["sm"],
                         "type": "object"
                     },
+                    "show_description": {
+                        "description": "Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard.",
+                        "type": "boolean"
+                    },
                     "widget": {
                         "description": "Nested widget row updates.",
                         "properties": {
