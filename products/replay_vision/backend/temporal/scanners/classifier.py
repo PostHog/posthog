@@ -31,7 +31,9 @@ class ClassifierOutput(BaseScannerOutput, frozen=True):
             "Open-text tags emitted by the LLM when the scanner has `allow_freeform_tags=True`; lowercase, deduped."
         ),
     )
-    reasoning: str = Field(description="One paragraph grounding the tag choice in concrete moments.")
+    reasoning: str = Field(
+        description="Short paragraphs of two to four sentences, separated by a blank line, grounding the tag choice in concrete moments."
+    )
     reasoning_segments: list[Segment] = Field(default_factory=list)
 
     @field_validator("tags_freeform", mode="after")
@@ -64,7 +66,12 @@ class ClassifierScanner(BaseScanner, frozen=True):
         tag_literal = typing.Literal[tuple(self.tags)]  # type: ignore[valid-type]
         # Field order is load-bearing: reasoning first (reason before tagging), confidence last.
         fields: dict[str, Any] = {
-            "reasoning": (str, Field(description="One paragraph grounding the tag choice in concrete moments.")),
+            "reasoning": (
+                str,
+                Field(
+                    description="Short paragraphs of two to four sentences, separated by a blank line, grounding the tag choice in concrete moments."
+                ),
+            ),
             "tags": (
                 list[tag_literal],  # type: ignore[valid-type]
                 Field(

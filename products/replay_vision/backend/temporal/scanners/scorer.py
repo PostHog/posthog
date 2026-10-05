@@ -37,7 +37,9 @@ DEFAULT_SCORE_SCALE = ScoreScale(min=1.0, max=5.0)
 class ScorerOutput(BaseScannerOutput, frozen=True):
     scanner_type: Literal[ScannerType.SCORER] = ScannerType.SCORER
     score: float = Field(description="Numeric score on the configured scale.")
-    reasoning: str = Field(description="One paragraph grounding the score in concrete moments.")
+    reasoning: str = Field(
+        description="Short paragraphs of two to four sentences, separated by a blank line, grounding the score in concrete moments."
+    )
     reasoning_segments: list[Segment] = Field(default_factory=list)
     label: str | None = Field(
         default=None, description="Echoes `scanner_config.scale.label`; workflow-stamped, not model-generated."
@@ -58,7 +60,12 @@ class ScorerScanner(BaseScanner, frozen=True):
         # Field order is load-bearing: reasoning first (reason before scoring), confidence last.
         return create_model(
             "ScorerLlmResponse",
-            reasoning=(str, Field(description="One paragraph grounding the score in concrete moments.")),
+            reasoning=(
+                str,
+                Field(
+                    description="Short paragraphs of two to four sentences, separated by a blank line, grounding the score in concrete moments."
+                ),
+            ),
             score=(float, Field(ge=self.scale.min, le=self.scale.max, description=score_description)),
             notability_reason=(str | None, notability_reason_field()),
             notability=(float | None, notability_field()),
