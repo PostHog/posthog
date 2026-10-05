@@ -74,7 +74,7 @@ def slash_source(
     db_incremental_field_last_value: datetime | str | None,
 ) -> SourceResponse:
     path = schema_for_resource(ENDPOINTS, endpoint)
-    params: dict[str, str | int] = {}
+    params: dict[str, Any] = {}
     if endpoint == "transactions" and should_use_incremental_field and db_incremental_field_last_value is not None:
         watermark = db_incremental_field_last_value
         if isinstance(watermark, str):
