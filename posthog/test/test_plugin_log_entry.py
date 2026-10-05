@@ -1,4 +1,5 @@
 import datetime
+from typing import Optional
 
 from posthog.test.base import BaseTest
 
@@ -25,6 +26,7 @@ def create_plugin_log_entry(
     type: PluginLogEntryType,
     message: str,
     instance_id: str,
+    timestamp: Optional[datetime.datetime] = None,
 ):
     from posthog.clickhouse.plugin_log_entries import INSERT_PLUGIN_LOG_ENTRY_SQL
 
@@ -39,7 +41,7 @@ def create_plugin_log_entry(
             "type": type,
             "instance_id": instance_id,
             "message": message,
-            "timestamp": timezone.now().strftime("%Y-%m-%dT%H:%M:%S.%f"),
+            "timestamp": (timestamp or timezone.now()).strftime("%Y-%m-%dT%H:%M:%S.%f"),
         },
     )
 
