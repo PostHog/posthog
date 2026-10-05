@@ -24,6 +24,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.query import HogQLQueryExecutor
+from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.client.execute import ClickHouseExternalTable
@@ -127,16 +128,23 @@ class _DescribedColumn:
 
 
 def _plan_prompt_jev(
-    query_node: ast.SelectQuery | ast.SelectSetQuery, team: Team, context: HogQLContext
+    query_node: ast.SelectQuery | ast.SelectSetQuery,
+    team: Team,
+    context: HogQLContext,
+    resolver_factory: ResolverFactory,
 ) -> ast.SelectQuery | ast.SelectSetQuery:
     """Run the model's jev calls up front, so the query that materializes reads their results
-    from external tables registered on ``context``. The printer refuses a jev call it meets."""
+    from external tables registered on ``context``. The printer refuses a jev call it meets.
+
+    Planning types the query before any model call, so it resolves the view tree too and needs
+    the same cycle, depth and deadline bounds the printing pass gets."""
     planned, tables = HogQLQueryExecutor(
         query=query_node,
         team=team,
         context=context,
         modifiers=context.modifiers,
         limit_context=LimitContext.SAVED_QUERY,
+        resolver_factory=resolver_factory,
     ).plan_prompt_jev()
     for table in tables:
         table.register(context)
@@ -691,7 +699,11 @@ async def hogql_table(
     )
 
     if PromptJevFinder.contains(query_node):
-        query_node = await database_sync_to_async_pool(_plan_prompt_jev)(query_node, team, context)
+        # A factory of its own: the deadline is wall clock, and the jev calls between the two
+        # passes would otherwise spend the printing pass's budget.
+        query_node = await database_sync_to_async_pool(_plan_prompt_jev)(
+            query_node, team, context, bounded_resolver_factory_for_view(view_name)
+        )
 
     factory = bounded_resolver_factory_for_view(view_name)
     prepared_hogql_query = await database_sync_to_async_pool(prepare_ast_for_printing)(

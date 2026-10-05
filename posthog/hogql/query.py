@@ -59,7 +59,7 @@ from posthog.hogql.parser import parse_select, sanitize_client_parser_mode
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
-from posthog.hogql.resolver import Resolver
+from posthog.hogql.resolver import Resolver, ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
@@ -136,6 +136,7 @@ class HogQLQueryExecutor:
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
+    resolver_factory: Optional[ResolverFactory] = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -746,8 +747,9 @@ class HogQLQueryExecutor:
         validate_prompt_jev_access(self.team)
         PromptJevBudget().visit(self.select_query)
         # The resolver types jev calls without model output, so an invalid query fails before any model call.
-        Resolver(
-            context=dataclasses.replace(
+        resolve_types(
+            clone_expr(self.select_query, True),
+            dataclasses.replace(
                 self.context,
                 team_id=self.team.pk,
                 team=self.team,
@@ -768,8 +770,9 @@ class HogQLQueryExecutor:
                 notices=[],
                 errors=[],
             ),
-            dialect="clickhouse",
-        ).visit(clone_expr(self.select_query, True))
+            "clickhouse",
+            resolver_factory=self.resolver_factory,
+        )
         self._prompt_jev_tables = []
         runner = PromptJevRunner(team_id=self.team.pk, distinct_id=self.user.distinct_id if self.user else None)
 

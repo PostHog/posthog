@@ -56,7 +56,7 @@ from posthog.temporal.data_modeling.activities.notify_materialization_failure im
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_modeling.backend.facade.api import compute_enrichment_hash
-from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
+from products.data_modeling.backend.facade.modeling import ResolutionCycleError, bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -1876,6 +1876,24 @@ class TestMaterializeViewPromptJev:
             {"text": "hello there", "is_refund": pytest.approx(0.1), "team": "other"},
             {"text": "please refund me", "is_refund": pytest.approx(0.9), "team": "billing"},
         ]
+
+    async def test_a_self_referencing_model_hits_the_resolution_bounds(self, ateam, auser):
+        # planning types the query before any model call, so a cycle must raise there instead of
+        # recursing until the worker's stack runs out
+        query = "SELECT jev(text, 'Is this a refund request?') AS is_refund FROM jev_cycle"
+        await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+            team=ateam,
+            name="jev_cycle",
+            query={"kind": "HogQLQuery", "query": query},
+            created_by=auser,
+        )
+
+        with (
+            override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key"),
+            unittest.mock.patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
+            pytest.raises(ResolutionCycleError),
+        ):
+            [batch async for batch in hogql_table(query, ateam, LOGGER.bind(), view_name="jev_cycle")]
 
 
 class TestHogqlTableEmptyResults:
