@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::path::Path;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
@@ -9,7 +8,7 @@ use reqwest::blocking::Client;
 use super::checkpoint::Checkpoint;
 use super::config::LokiImportConfig;
 use super::emit::{batch_records, Batch};
-use super::loki::{Entry, LokiClient, INSTANT_LIMIT};
+use super::loki::{Entry, LokiClient, Page, INSTANT_LIMIT};
 use super::mapping::Mapper;
 use super::send::{backoff, classify, Disposition};
 use super::shard::shards;
@@ -54,74 +53,10 @@ impl Pacer {
     }
 }
 
-/// Suppresses entries already sent at one instant, across however many pages that instant spans.
-///
-/// Loki truncates a page by entry count, so a timestamp holding more entries than a page is read
-/// over several pages that all start at it. Forgetting the earlier pages re-sends them.
-#[derive(Debug)]
-struct BoundaryFilter {
-    cursor: i64,
-    sent: HashSet<u64>,
-}
-
-impl BoundaryFilter {
-    fn new(cursor: i64) -> Self {
-        Self {
-            cursor,
-            sent: HashSet::new(),
-        }
-    }
-
-    fn cursor(&self) -> i64 {
-        self.cursor
-    }
-
-    fn keep(&self, entry: &Entry) -> bool {
-        entry.timestamp_ns != self.cursor || !self.sent.contains(&entry_key(entry))
-    }
-
-    /// Takes every entry at the cursor's instant, read in one request, and returns the ones not
-    /// sent yet. The instant is then complete, so the cursor moves one nanosecond past it.
-    fn finish_instant(&mut self, instant: Vec<Entry>) -> Vec<Entry> {
-        let unsent = instant
-            .into_iter()
-            .filter(|entry| self.keep(entry))
-            .collect();
-        *self = BoundaryFilter::new(self.cursor + 1);
-        unsent
-    }
-
-    /// Moves to the next page's start. Staying on the same instant accumulates; moving off it
-    /// discards, so the set never grows past one timestamp's worth of entries.
-    fn advance(&mut self, fresh: &[Entry], resume: i64) {
-        let boundary = fresh
-            .iter()
-            .filter(|entry| entry.timestamp_ns == resume)
-            .map(entry_key);
-
-        if resume == self.cursor {
-            self.sent.extend(boundary);
-        } else {
-            self.sent = boundary.collect();
-            self.cursor = resume;
-        }
-    }
-}
-
-/// Cheap identity for one entry at a shared timestamp, so the boundary dedup set stays small.
-///
-/// Covers the stream labels as well as the line: two pods emitting the same line in the same
-/// nanosecond are different records, and hashing the line alone would drop one of them.
-fn entry_key(entry: &Entry) -> u64 {
-    use std::hash::{Hash, Hasher};
-
-    let mut labels: Vec<(&String, &String)> = entry.labels.iter().collect();
-    labels.sort();
-
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    labels.hash(&mut hasher);
-    entry.line.hash(&mut hasher);
-    hasher.finish()
+#[derive(Default)]
+struct ShardTally {
+    records: u64,
+    bytes: u64,
 }
 
 pub struct Importer<'a> {
@@ -183,61 +118,49 @@ impl Importer<'_> {
             );
 
             for window in windows {
-                let cursor = window
+                let mut cursor = window
                     .start
                     .timestamp_nanos_opt()
                     .context("shard start is outside the nanosecond range")?;
-                let mut records_in_shard = 0u64;
-                let mut bytes_in_shard = 0u64;
-                let mut boundary = BoundaryFilter::new(cursor);
+                let mut tally = ShardTally::default();
 
                 loop {
-                    let (entries, next) =
-                        self.loki
-                            .query_page(selector, boundary.cursor(), window.end)?;
-                    if entries.is_empty() {
-                        break;
-                    }
-
-                    let fresh: Vec<_> = entries
-                        .into_iter()
-                        .filter(|entry| boundary.keep(entry))
-                        .collect();
-
-                    let (records, bytes) = self.send_entries(&fresh, &mut pacer)?;
-                    records_in_shard += records;
-                    bytes_in_shard += bytes;
-
-                    let Some(resume) = next else { break };
-                    let cursor = boundary.cursor();
-
-                    // Loki answering with entries at or before the cursor would otherwise re-fetch
-                    // and re-send the same page forever.
-                    if resume < cursor {
-                        bail!(
-                            "Loki returned entries before the requested start for {selector}; \
-                             refusing to re-send the same page"
-                        );
-                    }
-                    if resume == cursor && fresh.is_empty() {
-                        // Loki answers every query that starts at a crowded instant with the same
-                        // first page, so read the instant whole and step past it.
-                        let Some(instant) = self.loki.query_instant(selector, cursor)? else {
-                            bail!(
-                                "{INSTANT_LIMIT} or more entries for {selector} share the timestamp \
-                                 {cursor}, and Loki cannot page within one instant. Narrow the \
-                                 selector, with more label matchers or a line filter, so fewer \
-                                 entries share that timestamp"
-                            );
-                        };
-                        let unsent = boundary.finish_instant(instant);
-                        let (records, bytes) = self.send_entries(&unsent, &mut pacer)?;
-                        records_in_shard += records;
-                        bytes_in_shard += bytes;
-                        continue;
-                    }
-
-                    boundary.advance(&fresh, resume);
+                    cursor = match self.loki.query_page(selector, cursor, window.end)? {
+                        Page::Last(entries) => {
+                            self.send_entries(&entries, &mut pacer, &mut tally)?;
+                            break;
+                        }
+                        Page::More { entries, resume_at } => {
+                            // Loki answering with entries before the requested start would
+                            // otherwise re-fetch and re-send the same page forever.
+                            if resume_at <= cursor {
+                                bail!(
+                                    "Loki returned entries before the requested start for {selector}; \
+                                     refusing to re-send the same page"
+                                );
+                            }
+                            self.send_entries(&entries, &mut pacer, &mut tally)?;
+                            resume_at
+                        }
+                        Page::Crowded(at) => {
+                            if at < cursor {
+                                bail!(
+                                    "Loki returned entries before the requested start for {selector}; \
+                                     refusing to re-send the same page"
+                                );
+                            }
+                            let Some(instant) = self.loki.query_instant(selector, at)? else {
+                                bail!(
+                                    "{INSTANT_LIMIT} or more entries for {selector} share the \
+                                     timestamp {at}, and Loki cannot page within one instant. \
+                                     Narrow the selector, with more label matchers or a line \
+                                     filter, so fewer entries share that timestamp"
+                                );
+                            };
+                            self.send_entries(&instant, &mut pacer, &mut tally)?;
+                            at + 1
+                        }
+                    };
                 }
 
                 // Only after every batch in the window is acknowledged, so a crash re-sends this
@@ -246,7 +169,7 @@ impl Importer<'_> {
                     .end
                     .timestamp_nanos_opt()
                     .context("shard end is outside the nanosecond range")?;
-                checkpoint.complete_shard(selector, end, records_in_shard, bytes_in_shard);
+                checkpoint.complete_shard(selector, end, tally.records, tally.bytes);
                 checkpoint.save(self.checkpoint_path)?;
             }
         }
@@ -260,17 +183,20 @@ impl Importer<'_> {
         Ok(())
     }
 
-    /// Maps, batches and sends entries, returning the records and bytes sent.
-    fn send_entries(&self, entries: &[Entry], pacer: &mut Pacer) -> Result<(u64, u64)> {
+    fn send_entries(
+        &self,
+        entries: &[Entry],
+        pacer: &mut Pacer,
+        tally: &mut ShardTally,
+    ) -> Result<()> {
         let mapped: Vec<_> = entries.iter().map(|e| self.mapper.map(e)).collect();
-        let (mut records, mut bytes) = (0u64, 0u64);
         for batch in batch_records(&mapped, self.config.tuning.max_request_bytes) {
             self.send(&batch)?;
             pacer.record(batch.records as u32);
-            records += batch.records as u64;
-            bytes += batch.body.len() as u64;
+            tally.records += batch.records as u64;
+            tally.bytes += batch.body.len() as u64;
         }
-        Ok((records, bytes))
+        Ok(())
     }
 
     fn send(&self, batch: &Batch) -> Result<()> {
@@ -343,87 +269,6 @@ pub fn intake_url(host: &str, from: chrono::DateTime<chrono::Utc>) -> String {
 mod tests {
     use super::*;
     use chrono::{Duration, Utc};
-
-    fn at(timestamp_ns: i64, line: &str, pod: &str) -> Entry {
-        Entry {
-            timestamp_ns,
-            line: line.to_string(),
-            structured_metadata: Default::default(),
-            labels: std::collections::HashMap::from([("pod".to_string(), pod.to_string())]),
-        }
-    }
-
-    #[test]
-    fn an_instant_spanning_several_pages_never_resends_an_earlier_page() {
-        // Loki truncates by entry count, so one timestamp can be read over several pages that all
-        // start at it. Replacing the boundary set instead of extending it forgets page one, and
-        // page three sends it again.
-        let mut boundary = BoundaryFilter::new(100);
-        let page_one = vec![at(100, "a", "p1"), at(100, "b", "p1")];
-        boundary.advance(&page_one, 100);
-
-        let page_two = vec![at(100, "c", "p1")];
-        boundary.advance(&page_two, 100);
-
-        assert!(
-            !boundary.keep(&at(100, "a", "p1")),
-            "page one must stay suppressed"
-        );
-        assert!(
-            !boundary.keep(&at(100, "c", "p1")),
-            "page two must stay suppressed"
-        );
-        assert!(
-            boundary.keep(&at(100, "d", "p1")),
-            "an unseen entry must pass"
-        );
-    }
-
-    #[test]
-    fn two_streams_emitting_the_same_line_at_one_instant_are_different_records() {
-        // Hashing the line alone drops one of them, which is data loss rather than duplication.
-        let mut boundary = BoundaryFilter::new(100);
-        boundary.advance(&[at(100, "health check ok", "pod-a")], 100);
-
-        assert!(!boundary.keep(&at(100, "health check ok", "pod-a")));
-        assert!(boundary.keep(&at(100, "health check ok", "pod-b")));
-    }
-
-    #[test]
-    fn reading_a_crowded_instant_whole_sends_only_the_rest_and_moves_past_it() {
-        // Loki answers every query starting at a crowded instant with the same first page. Reading
-        // the instant whole must not re-send that page, and must leave the instant behind, or the
-        // next page starts at it again and the run stops.
-        let mut boundary = BoundaryFilter::new(100);
-        boundary.advance(&[at(100, "a", "p1"), at(100, "b", "p1")], 100);
-
-        let unsent = boundary.finish_instant(vec![
-            at(100, "a", "p1"),
-            at(100, "b", "p1"),
-            at(100, "c", "p1"),
-            at(100, "d", "p2"),
-        ]);
-
-        let lines: Vec<_> = unsent.iter().map(|entry| entry.line.as_str()).collect();
-        assert_eq!(lines, ["c", "d"]);
-        assert_eq!(boundary.cursor(), 101);
-    }
-
-    #[test]
-    fn moving_off_an_instant_forgets_it() {
-        // Otherwise the set grows for the whole shard rather than one timestamp's worth.
-        let mut boundary = BoundaryFilter::new(100);
-        boundary.advance(&[at(100, "a", "p1")], 100);
-
-        boundary.advance(&[at(200, "b", "p1")], 200);
-
-        assert_eq!(boundary.cursor(), 200);
-        assert!(
-            boundary.keep(&at(100, "a", "p1")),
-            "a past instant is no longer suppressed"
-        );
-        assert!(!boundary.keep(&at(200, "b", "p1")));
-    }
 
     #[test]
     fn the_backfill_window_covers_the_oldest_record_in_the_range() {

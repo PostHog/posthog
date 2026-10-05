@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use super::config::Source;
 
-/// Entries kept per page. Loki caps a response at `max_entries_limit_per_query`, 5000 by default.
+/// Entries kept per page, well under Loki's per-request cap (see `INSTANT_LIMIT`).
 const PAGE_LIMIT: usize = 1000;
 
 /// The most entries one request may ask for under Loki's default `max_entries_limit_per_query`.
@@ -135,8 +135,8 @@ impl LokiClient {
         let response = send(
             self.get("/loki/api/v1/index/volume_range").query(&[
                 ("query", selector),
-                ("start", &nanos(start)?),
-                ("end", &nanos(end)?),
+                ("start", &nanos(start)?.to_string()),
+                ("end", &nanos(end)?.to_string()),
                 ("step", "24h"),
             ]),
             "a volume lookup",
@@ -153,39 +153,29 @@ impl LokiClient {
         Ok(total as u64)
     }
 
-    /// One page of a shard, oldest first. Returns the entries and the timestamp to resume from,
-    /// which is `None` once the shard is exhausted.
-    pub fn query_page(
-        &self,
-        selector: &str,
-        start_ns: i64,
-        end: DateTime<Utc>,
-    ) -> Result<(Vec<Entry>, Option<i64>)> {
+    /// One page of a shard, oldest first.
+    pub fn query_page(&self, selector: &str, start_ns: i64, end: DateTime<Utc>) -> Result<Page> {
         // One more than is kept, so a full page is distinguishable from an exhausted shard without
         // inferring it from the count.
-        let mut entries = self.query_range(selector, start_ns, &nanos(end)?, PAGE_LIMIT + 1)?;
-
-        let has_more = entries.len() > PAGE_LIMIT;
-        entries.truncate(PAGE_LIMIT);
-
-        // Resume AT the last kept timestamp, not one nanosecond past it. Loki truncates by entry
-        // count, not by timestamp, so entries sharing that instant can still be waiting. Skipping
-        // them would lose data silently; the caller suppresses the re-read instead.
-        let resume_from = if has_more {
-            entries.last().map(|entry| entry.timestamp_ns)
-        } else {
-            None
-        };
-
-        Ok((entries, resume_from))
+        let entries = self.query_range(selector, start_ns, nanos(end)?, PAGE_LIMIT + 1)?;
+        Ok(split_page(entries, PAGE_LIMIT))
     }
 
-    /// Every entry at exactly `at_ns`. Loki returns the same first page each time a query starts at
-    /// a crowded instant, so a run that pages into one has to read the instant whole. Returns `None`
-    /// when the instant holds `INSTANT_LIMIT` entries or more, which no single request can read.
+    pub fn sample(
+        &self,
+        selector: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+        limit: usize,
+    ) -> Result<Vec<Entry>> {
+        self.query_range(selector, nanos(start)?, nanos(end)?, limit)
+    }
+
+    /// Every entry at exactly `at_ns`, or `None` when the instant holds `INSTANT_LIMIT` entries or
+    /// more, which no single request can read.
     pub fn query_instant(&self, selector: &str, at_ns: i64) -> Result<Option<Vec<Entry>>> {
         // `end` is exclusive, so this range holds one nanosecond.
-        let entries = self.query_range(selector, at_ns, &(at_ns + 1).to_string(), INSTANT_LIMIT)?;
+        let entries = self.query_range(selector, at_ns, at_ns + 1, INSTANT_LIMIT)?;
         Ok((entries.len() < INSTANT_LIMIT).then_some(entries))
     }
 
@@ -193,14 +183,14 @@ impl LokiClient {
         &self,
         selector: &str,
         start_ns: i64,
-        end_ns: &str,
+        end_ns: i64,
         limit: usize,
     ) -> Result<Vec<Entry>> {
         let response = send(
             self.get("/loki/api/v1/query_range").query(&[
                 ("query", selector),
                 ("start", &start_ns.to_string()),
-                ("end", end_ns),
+                ("end", &end_ns.to_string()),
                 ("direction", "forward"),
                 ("limit", &limit.to_string()),
             ]),
@@ -210,6 +200,37 @@ impl LokiClient {
         let body: QueryResponse = decode(response, "query_range")?;
         entries_from(body)
     }
+}
+
+#[derive(Debug)]
+pub enum Page {
+    Last(Vec<Entry>),
+    More {
+        entries: Vec<Entry>,
+        resume_at: i64,
+    },
+    /// A full page that holds one instant only. Loki answers every query starting at that instant
+    /// with the same page, so paging cannot get past it.
+    Crowded(i64),
+}
+
+/// `entries` is one request of up to `limit + 1` entries, oldest first.
+///
+/// Loki truncates a response by entry count, so the instant of the entry past the limit can be cut
+/// short. Every instant before it is complete, so the page keeps only those and the next page starts
+/// at that instant. Nothing is sent twice and nothing needs to be deduplicated.
+fn split_page(entries: Vec<Entry>, limit: usize) -> Page {
+    let Some(overflow) = entries.get(limit) else {
+        return Page::Last(entries);
+    };
+    let resume_at = overflow.timestamp_ns;
+    let complete = entries.partition_point(|entry| entry.timestamp_ns < resume_at);
+    if complete == 0 {
+        return Page::Crowded(resume_at);
+    }
+    let mut entries = entries;
+    entries.truncate(complete);
+    Page::More { entries, resume_at }
 }
 
 /// Flattens Loki's per-stream blocks into one timestamp-ordered run.
@@ -240,9 +261,8 @@ fn entries_from(body: QueryResponse) -> Result<Vec<Entry>> {
 
 /// The config rejects a range outside chrono's nanosecond span, so `None` here means the caller
 /// bypassed validation rather than that the user asked for it.
-fn nanos(at: DateTime<Utc>) -> Result<String> {
+fn nanos(at: DateTime<Utc>) -> Result<i64> {
     at.timestamp_nanos_opt()
-        .map(|ns| ns.to_string())
         .with_context(|| format!("{at} is outside the range Loki nanosecond epochs can express"))
 }
 
@@ -291,6 +311,54 @@ fn decode<T: serde::de::DeserializeOwned>(response: Response, endpoint: &str) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn at(timestamps: &[i64]) -> Vec<Entry> {
+        timestamps
+            .iter()
+            .enumerate()
+            .map(|(i, &timestamp_ns)| Entry {
+                timestamp_ns,
+                line: format!("line {i}"),
+                structured_metadata: HashMap::new(),
+                labels: HashMap::new(),
+            })
+            .collect()
+    }
+
+    fn timestamps(entries: &[Entry]) -> Vec<i64> {
+        entries.iter().map(|entry| entry.timestamp_ns).collect()
+    }
+
+    #[test]
+    fn a_page_keeps_only_complete_instants_and_resumes_at_the_cut_one() {
+        // Loki cut the response inside instant 30, so its entries wait for the next page, which
+        // starts at 30 and returns all of them. Sending them now would send them twice.
+        match split_page(at(&[10, 20, 30, 30]), 3) {
+            Page::More { entries, resume_at } => {
+                assert_eq!(timestamps(&entries), [10, 20]);
+                assert_eq!(resume_at, 30);
+            }
+            page => panic!("expected More, got {page:?}"),
+        }
+    }
+
+    #[test]
+    fn a_full_page_of_one_instant_is_crowded_rather_than_empty() {
+        // Keeping no entries and resuming at the same instant would ask Loki for the same page
+        // forever.
+        assert!(matches!(
+            split_page(at(&[30, 30, 30, 30]), 3),
+            Page::Crowded(30)
+        ));
+    }
+
+    #[test]
+    fn a_page_under_the_limit_is_the_last_and_keeps_everything() {
+        match split_page(at(&[10, 20, 20]), 3) {
+            Page::Last(entries) => assert_eq!(timestamps(&entries), [10, 20, 20]),
+            page => panic!("expected Last, got {page:?}"),
+        }
+    }
 
     #[derive(Debug)]
     struct Layer(&'static str, Option<Box<Layer>>);
