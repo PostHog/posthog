@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 import { insightsApi } from 'scenes/insights/utils/api'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { MetricsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
@@ -27,7 +27,7 @@ import {
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { createViewerClause, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
+import { createViewerClause, isBuilderCompatibleQuery, metricsViewerLogic, resolveDate } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
@@ -862,5 +862,89 @@ describe('metricsViewerLogic', () => {
         } finally {
             jest.useRealTimers()
         }
+    })
+
+    describe('insight editor instance', () => {
+        const SAVED_QUERY: MetricsQuery = {
+            kind: NodeKind.MetricsQuery,
+            clauses: [
+                {
+                    name: 'a',
+                    metricName: 'request_duration',
+                    aggregation: 'quantile',
+                    metricType: 'histogram',
+                    quantile: 0.95,
+                    filters: [{ key: 'namespace', op: 'eq', value: 'posthog' }],
+                    groupBy: [{ key: 'container' }],
+                },
+                { name: 'b', metricName: 'requests_total', aggregation: 'rate', metricType: 'sum' },
+            ],
+            formula: 'a / b',
+            dateRange: { date_from: '-6h' },
+            interval: 'minute_5',
+            minInterval: 'minute',
+            display: { type: 'area' },
+        }
+
+        // The editor writes this node back to the insight; if it differs from the saved
+        // query, merely opening edit mode would mark the insight as changed.
+        it('maps a saved query back to the same node', () => {
+            const editor = metricsViewerLogic({ key: 'editor-test', initialQuery: SAVED_QUERY })
+            editor.mount()
+            expect(editor.values.metricsQueryNode).toEqual(SAVED_QUERY)
+            editor.unmount()
+        })
+
+        it('keeps its state apart from the viewer', () => {
+            const editor = metricsViewerLogic({ key: 'editor-test', initialQuery: SAVED_QUERY })
+            editor.mount()
+            editor.actions.setInterval('hour')
+            expect(editor.values.interval).toBe('hour')
+            expect(logic.values.interval).toBeNull()
+            expect(logic.values.viewerClauses).toHaveLength(1)
+            editor.unmount()
+        })
+
+        it('keeps the saved aggregation when the picker backfills the type', () => {
+            const editor = metricsViewerLogic({
+                key: 'editor-test',
+                initialQuery: {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [{ name: 'a', metricName: 'requests_total', aggregation: 'sum' }],
+                },
+            })
+            editor.mount()
+            metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+            expect(editor.values.aggregation).toBe('sum')
+            editor.unmount()
+        })
+    })
+
+    it('sends the picked interval to the viewer query', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setInterval('minute')
+        expect(logic.values.queryPayload?.interval).toBe('minute')
+        expect(logic.values.metricsQueryNode?.interval).toBe('minute')
+        logic.actions.setInterval(null)
+        expect(logic.values.queryPayload).not.toHaveProperty('interval')
+    })
+})
+
+describe('isBuilderCompatibleQuery', () => {
+    const queryWith = (clause: Partial<MetricsQuery['clauses'][number]>): MetricsQuery => ({
+        kind: NodeKind.MetricsQuery,
+        clauses: [{ name: 'a', metricName: 'm', aggregation: 'sum', ...clause }],
+    })
+
+    it.each([
+        ['a viewer aggregation', queryWith({ aggregation: 'rate' }), true],
+        ['p95', queryWith({ aggregation: 'quantile', quantile: 0.95 }), true],
+        ['another quantile', queryWith({ aggregation: 'quantile', quantile: 0.99 }), false],
+        ['histogram_quantile', queryWith({ aggregation: 'histogram_quantile', quantile: 0.95 }), false],
+        ['a scoped filter', queryWith({ filters: [{ key: 'k', op: 'eq', value: 'v', scope: 'resource' }] }), false],
+        ['a scoped group-by', queryWith({ groupBy: [{ key: 'k', scope: 'attribute' }] }), false],
+        ['auto scopes', queryWith({ filters: [{ key: 'k', op: 'eq', value: 'v', scope: 'auto' }] }), true],
+    ])('%s', (_name, query, expected) => {
+        expect(isBuilderCompatibleQuery(query)).toBe(expected)
     })
 })
