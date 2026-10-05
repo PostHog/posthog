@@ -24,15 +24,11 @@ notification_channel_per_team = {
     JobOwners.TEAM_INGESTION.value: "#alerts-ingestion",
     JobOwners.TEAM_LOGS.value: "#alerts-logs-prod",
     JobOwners.TEAM_POSTHOG_AI.value: "#alerts-max-ai",
-    JobOwners.TEAM_QUERY_PERFORMANCE.value: "#alerts-query-performance",
+    JobOwners.TEAM_QUERY_PERFORMANCE.value: "#team-query-performance",
     JobOwners.TEAM_SECURITY.value: "#alerts-security",
     JobOwners.TEAM_SELF_DRIVING.value: "#alerts-self-driving",
     JobOwners.TEAM_WAREHOUSE_SOURCES.value: "#alerts-warehouse-sources",
     JobOwners.TEAM_WEB_ANALYTICS.value: "#alerts-web-analytics",
-}
-
-JOB_ALERT_CHANNELS = {
-    "export_query_log_archive_to_s3": "#team-query-performance",
 }
 
 JOB_ALERT_RUNBOOK_URLS = {
@@ -139,12 +135,6 @@ def get_job_owner_for_alert(failed_run: dagster.DagsterRun, error_message: str) 
     return job_owner
 
 
-def get_alert_channel(job_name: str, job_owner: str) -> str:
-    return JOB_ALERT_CHANNELS.get(
-        job_name, notification_channel_per_team.get(job_owner, settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL)
-    )
-
-
 def build_failure_alert_blocks(
     job_name: str,
     run_id: str,
@@ -247,7 +237,7 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
         f"{settings.CLOUD_DEPLOYMENT} :flag-{settings.CLOUD_DEPLOYMENT}:" if settings.CLOUD_DEPLOYMENT else "unknown"
     )
 
-    channel = get_alert_channel(job_name, job_owner)
+    channel = notification_channel_per_team.get(job_owner, settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL)
 
     # Truncate so a single oversized field can't get the whole message rejected. The error is wrapped
     # in a ``` code fence, so leave headroom below the 3000-char section limit for the fence + label.
