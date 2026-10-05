@@ -232,6 +232,21 @@ describe('insight error states', () => {
         expect(onRetry).toHaveBeenCalledTimes(1)
     })
 
+    it('keeps the capacity countdown updating after page translation', () => {
+        jest.useFakeTimers()
+        render(<InsightErrorState titleStatus={503} retryAfterTimestamp={Date.now() + 2000} onRetry={jest.fn()} />)
+        const message = screen.getByText('PostHog is busy. You can retry in 2 seconds.')
+        // Chrome and Edge page translation replaces each translated text node with a <font> element.
+        const translated = document.createElement('font')
+        translated.textContent = 'translated'
+        message.replaceChild(translated, message.firstChild!)
+
+        act(() => jest.advanceTimersByTime(1000))
+        expect(message.textContent).toBe('PostHog is busy. You can retry in 1 second.')
+        act(() => jest.advanceTimersByTime(1000))
+        expect(message.textContent).toBe('You can try this query again now.')
+    })
+
     it('uses user-facing copy for invalid query errors', () => {
         render(<InsightErrorState title="This query is invalid" titleStatus={400} query={{ kind: 'InsightVizNode' }} />)
 
