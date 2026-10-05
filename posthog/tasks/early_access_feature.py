@@ -1,4 +1,5 @@
 from typing import Any, Optional
+from uuid import UUID
 
 from django.db import IntegrityError, connection, transaction
 from django.utils import timezone
@@ -13,6 +14,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
+from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.early_access_features.backend.models import EarlyAccessFeature
@@ -114,6 +116,70 @@ def ensure_waitlist_survey_for_feature(instance: EarlyAccessFeature) -> Optional
         payload={**(instance.payload or {}), "survey_id": str(survey.id), "survey_question_id": question_id}
     )
     return survey
+
+
+def close_waitlist_survey_for_feature(instance: EarlyAccessFeature) -> Optional[Survey]:
+    """
+    Idempotently close the waitlist survey of an Early Access Feature that left the concept
+    stage. The survey gets an end date so it stops collecting, and its id moves from
+    `survey_id` to `closed_survey_id` on the payload, so posthog-js consumers stop offering
+    the waitlist while the app can still count the sign-ups it collected. Returns the survey
+    it ended, or None when there is nothing to close.
+    """
+    if instance.stage == EarlyAccessFeature.Stage.CONCEPT:
+        return None
+    payload = instance.payload or {}
+    survey_id = payload.get("survey_id")
+    if not survey_id:
+        return None
+
+    survey = None
+    try:
+        # The payload is writable through the API, so the id can be anything.
+        survey_uuid = UUID(str(survey_id))
+    except ValueError:
+        survey_uuid = None
+    if survey_uuid is not None:
+        survey = Survey.objects.filter(team=instance.team, id=survey_uuid, type=Survey.SurveyType.API).first()
+
+    if survey is not None and survey.end_date is None:
+        survey.end_date = timezone.now()
+        survey.save(update_fields=["end_date"])
+
+    # Same snapshot caveat as the create path: this merge is over the payload read when
+    # `instance` was loaded, so a concurrent write to another key can be dropped.
+    new_payload = {key: value for key, value in payload.items() if key not in ("survey_id", "survey_question_id")}
+    new_payload["closed_survey_id"] = str(survey_id)
+    EarlyAccessFeature.objects.filter(pk=instance.pk).update(payload=new_payload)
+    return survey
+
+
+@shared_task(ignore_result=True, max_retries=3, autoretry_for=(Exception,), retry_backoff=True)
+@skip_team_scope_audit
+def close_waitlist_survey_for_graduated_feature(feature_id: str) -> None:
+    try:
+        instance = EarlyAccessFeature.objects.select_related("team").get(id=feature_id)
+    except EarlyAccessFeature.DoesNotExist:
+        return
+    # Deliberately not gated by `coming_soon_waitlist_surveys_enabled`: a survey that exists
+    # must close even when the gate that created it is off again.
+    survey = close_waitlist_survey_for_feature(instance)
+    if survey is None:
+        return
+
+    # Only this task captures, not the helper: a backfill over many features would pay for a
+    # dedicated client and a blocking flush per row.
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(instance.team.uuid),
+            event="early access feature waitlist survey closed",
+            properties={
+                "feature_id": str(instance.id),
+                "feature_name": instance.name,
+                "stage": instance.stage,
+                "survey_id": str(survey.id),
+            },
+        )
 
 
 @shared_task(ignore_result=True, max_retries=3, autoretry_for=(Exception,), retry_backoff=True)
