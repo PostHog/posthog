@@ -129,14 +129,15 @@ class DatabaseThreadStore:
 
         now = timezone.now()
         # One conditional UPDATE rather than a read and a write: two attempts reading a free
-        # claim at the same moment would both believe they held it.
+        # claim at the same moment would both believe they held it. Every write here sets
+        # `updated_at` itself, because `QuerySet.update()` skips `auto_now`.
         taken = (
             PlatformAlertThread.objects.for_team(self._team_id)
             .filter(id=thread.id)
             .filter(
                 models.Q(pending_evaluation_key__isnull=True) | models.Q(pending_claimed_at__lt=now - PENDING_CLAIM_TTL)
             )
-            .update(pending_evaluation_key=evaluation_key, pending_claimed_at=now)
+            .update(pending_evaluation_key=evaluation_key, pending_claimed_at=now, updated_at=now)
         )
         if not taken:
             raise ThreadBusy(f"thread {thread.id} is being posted to by another send")
@@ -153,6 +154,7 @@ class DatabaseThreadStore:
             "delivered_evaluation_keys": delivered,
             "pending_evaluation_key": None,
             "pending_claimed_at": None,
+            "updated_at": timezone.now(),
         }
         # Only the message that opened the conversation is remembered. Recording a reply would
         # move the thread onto itself, so a later message would reply to a reply.
@@ -161,7 +163,7 @@ class DatabaseThreadStore:
         self._fenced(claim).update(**fields)
 
     def release(self, claim: ThreadClaim) -> None:
-        self._fenced(claim).update(pending_evaluation_key=None, pending_claimed_at=None)
+        self._fenced(claim).update(pending_evaluation_key=None, pending_claimed_at=None, updated_at=timezone.now())
 
     def _fenced(self, claim: ThreadClaim) -> models.QuerySet[PlatformAlertThread]:
         return PlatformAlertThread.objects.for_team(self._team_id).filter(
