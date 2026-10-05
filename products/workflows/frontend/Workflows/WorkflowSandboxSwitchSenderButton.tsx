@@ -16,14 +16,14 @@ export function WorkflowSandboxSwitchSenderButton({
         size: 'small' as const,
         disabledReason,
         'data-attr': 'workflow-sandbox-switch-sender',
-        className: 'max-w-full shrink-0 self-start @xl:self-auto',
+        className: 'max-w-full self-start @xl:self-auto',
     }
 
     if (senders.length === 1) {
-        const email: string = senders[0].config.email
+        const label = `Switch to ${senders[0].config.email}`
         return (
-            <LemonButton {...buttonProps} truncate tooltip={email} onClick={() => onSwitch(senders[0].id)}>
-                {`Switch to ${email}`}
+            <LemonButton {...buttonProps} truncate tooltip={label} onClick={() => onSwitch(senders[0].id)}>
+                {label}
             </LemonButton>
         )
     }

@@ -128,6 +128,18 @@ OneOwnSender.args = { ownSenders: [OWN_SENDER] }
 export const OneOwnSenderNarrow = Template.bind({})
 OneOwnSenderNarrow.args = { ownSenders: [OWN_SENDER], narrow: true }
 
+export const OneOwnSenderLongAddressNarrow = Template.bind({})
+OneOwnSenderLongAddressNarrow.args = {
+    ownSenders: [
+        {
+            ...OWN_SENDER,
+            display_name: 'Acme notifications <notifications-and-billing@mail.acme.example.com>',
+            config: { ...OWN_SENDER.config, email: 'notifications-and-billing@mail.acme.example.com' },
+        },
+    ],
+    narrow: true,
+}
+
 export const SeveralOwnSenders = Template.bind({})
 SeveralOwnSenders.args = { ownSenders: [OWN_SENDER, SECOND_OWN_SENDER] }
 

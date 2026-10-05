@@ -31,7 +31,7 @@ export function WorkflowSandboxSwitchBanner(props: WorkflowLogicProps): JSX.Elem
                 className="flex flex-col gap-2 @xl:flex-row @xl:items-center"
                 data-attr="workflow-sandbox-switch-banner"
             >
-                <span className="grow">
+                <span className="min-w-0 flex-1">
                     Your project has a verified email sender. This workflow still sends from the sandbox sender, which
                     delivers only to verified members of your organization.
                 </span>

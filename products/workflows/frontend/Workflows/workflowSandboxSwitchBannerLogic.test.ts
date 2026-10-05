@@ -214,16 +214,20 @@ describe('workflowSandboxSwitchBannerLogic', () => {
         )
     })
 
-    it('reports the banner once per workflow view even when integrations reload', async () => {
+    it('reports the banner once per workflow view even when it hides and shows again', async () => {
         await mountWith({
             steps: [emailStep('email_1', { integrationId: SANDBOX_SENDER_ID })],
             integrations: [SANDBOX_SENDER, OWN_SENDER],
         })
+        const workflow = workflowLogic({ id: WORKFLOW_ID })
 
-        await expectLogic(integrationsLogic, () => {
-            integrationsLogic.actions.loadIntegrations()
-        }).toDispatchActions(['loadIntegrationsSuccess'])
+        await expectLogic(logic, () => {
+            logic.actions.switchToOwnSender(OWN_SENDER_ID)
+        }).toDispatchActions(['setWorkflowValues'])
+        expect(logic.values.bannerVisible).toBe(false)
+        workflow.actions.setWorkflowValues({ actions: savedWorkflow.actions })
 
+        expect(logic.values.bannerVisible).toBe(true)
         expect(capture.mock.calls.filter(([event]) => event === 'workflows sandbox switch banner shown')).toHaveLength(
             1
         )
