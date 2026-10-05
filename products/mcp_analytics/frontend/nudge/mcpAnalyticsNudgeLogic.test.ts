@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -11,6 +12,7 @@ describe('mcpAnalyticsNudgeLogic', () => {
     let logic: ReturnType<typeof mcpAnalyticsNudgeLogic.build>
     let toolCallDefinitions: { id: string; name: string }[]
     let infoSpy: jest.SpyInstance
+    let captureSpy: jest.SpyInstance
 
     beforeEach(() => {
         localStorage.clear()
@@ -25,12 +27,14 @@ describe('mcpAnalyticsNudgeLogic', () => {
         })
         initKeaTests()
         infoSpy = jest.spyOn(lemonToast, 'info').mockImplementation(() => 'toast-id')
+        captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         logic = mcpAnalyticsNudgeLogic()
         logic.mount()
     })
 
     afterEach(() => {
         infoSpy.mockRestore()
+        captureSpy.mockRestore()
     })
 
     it.each([
@@ -43,6 +47,9 @@ describe('mcpAnalyticsNudgeLogic', () => {
         logic.actions.maybeShowNudge('insight')
         await expectLogic(logic).toFinishAllListeners()
         expect(infoSpy).toHaveBeenCalledTimes(expectedToasts)
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'mcp analytics nudge shown')).toEqual(
+            expectedToasts ? [['mcp analytics nudge shown', { surface: 'insight' }]] : []
+        )
     })
 
     it('shows the nudge only once per project', async () => {

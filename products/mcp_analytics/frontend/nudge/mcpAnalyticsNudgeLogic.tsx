@@ -41,11 +41,7 @@ export interface mcpAnalyticsNudgeLogicActions {
     }
 }
 
-export type mcpAnalyticsNudgeLogicType = MakeLogicType<
-    mcpAnalyticsNudgeLogicValues,
-    mcpAnalyticsNudgeLogicActions,
-    Record<string, any>
->
+export type mcpAnalyticsNudgeLogicType = MakeLogicType<mcpAnalyticsNudgeLogicValues, mcpAnalyticsNudgeLogicActions>
 
 export const mcpAnalyticsNudgeLogic = kea<mcpAnalyticsNudgeLogicType>([
     // pinned: the path sets the localStorage key of handledTeamIds
