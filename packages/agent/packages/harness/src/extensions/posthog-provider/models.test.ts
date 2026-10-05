@@ -168,6 +168,35 @@ describe("resolveModelConfigs", () => {
     expect(gpt?.baseUrl).toBe(`${getLlmGatewayUrl("dev")}/v1`);
   });
 
+  it.each([
+    [
+      "a model in the harness's fallback list",
+      "claude-opus-5-5",
+      "anthropic",
+      ["text", "image"],
+    ],
+    [
+      "a model pi knows takes images",
+      "claude-opus-4-5",
+      "anthropic",
+      ["text", "image"],
+    ],
+    ["a model pi knows is text-only", "o3-mini", "openai", ["text"]],
+    ["a model nothing knows", "mystery-model-1", "anthropic", ["text"]],
+  ])(
+    "reads image support for %s when the gateway sends no supports_vision",
+    async (_, id, ownedBy, input) => {
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ data: [{ id, owned_by: ownedBy }] }),
+      }) as unknown as typeof fetch;
+
+      const [config] = await resolveModelConfigs("dev");
+
+      expect(config?.input).toEqual(input);
+    },
+  );
+
   it("fetches models through an authenticated gateway override", async () => {
     const fetchSpy = vi.fn().mockResolvedValue({
       ok: true,
