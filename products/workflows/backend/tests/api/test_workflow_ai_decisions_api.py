@@ -20,7 +20,7 @@ from posthog.llm.system_one import (
 )
 
 SECRET = "test-workflow-ai-decision-jwt"
-_BUILD = "products.workflows.backend.presentation.views.workflow_ai_decisions.build_system_one_client"
+_BUILD = "posthog.llm.system_one_client.build_system_one_client"
 OPTIONS = {"spam": "Cold outreach or marketing", "support": "A customer asking for help"}
 
 
@@ -64,11 +64,9 @@ class TestWorkflowAiDecisionsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"decision": "spam", "confidence": 0.9}
-        # No TypeSafe fallback, so the data never leaves PostHog.
         assert "typesafe_fallback" not in build.call_args.kwargs
         assert build.call_args.kwargs["ai_product"] == "workflows"
-        assert build.call_args.kwargs["properties"]["team_id"] == str(self.team.id)
-        # User text stays in the state, never in the instructions.
+        assert build.call_args.kwargs["team_id"] == self.team.id
         client.decide.assert_called_once_with(
             state={"subject": "Buy SEO"},
             questions={"decision": ChoiceQuestion(instructions="Is this ticket spam?", criteria=OPTIONS)},
