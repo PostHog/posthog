@@ -13,6 +13,7 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
+import httpx
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
@@ -1687,6 +1688,8 @@ class _EmptyArrowClient:
         self.describe_calls: list[tuple[str, dict[str, str] | None]] = []
         self.reject_describe_with_settings = False
         self.arrow_query: str | None = None
+        self.arrow_external_tables: list[Any] | None = None
+        self.describe_external_tables: list[Any] | None = None
 
     async def astream_query_as_arrow(
         self,
@@ -1695,9 +1698,11 @@ class _EmptyArrowClient:
         query_parameters: dict[str, Any] | None = None,
         query_id: str | None = None,
         on_schema: Callable[[pa.Schema], None] | None = None,
+        external_tables: list[Any] | None = None,
     ) -> AsyncIterator[pa.RecordBatch]:
         self.arrow_query_calls += 1
         self.arrow_query = query
+        self.arrow_external_tables = external_tables
         if on_schema is not None:
             on_schema(self.schema)
         return
@@ -1711,9 +1716,11 @@ class _EmptyArrowClient:
         query_parameters: dict[str, Any] | None = None,
         query_id: str | None = None,
         settings: dict[str, str] | None = None,
+        external_tables: list[Any] | None = None,
     ) -> AsyncIterator[Any]:
         if query.startswith("DESCRIBE TABLE"):
             self.describe_calls.append((query, settings))
+            self.describe_external_tables = external_tables
             if self.reject_describe_with_settings and settings is not None:
                 raise ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream", query=query)
             self.describe_settings = settings
@@ -1812,6 +1819,41 @@ class TestHogqlTableModifiers:
 
         assert len(batches) == 1
         assert client.arrow_query is not None
+
+
+def _jev_gateway_response(_url: str, *, json: dict, headers: dict) -> httpx.Response:
+    answers = {name: {"type": "noul", "noul": 0.9} for name in json["questions"]}
+    return httpx.Response(200, json={"model": "jevk5-0.2", "answers": answers, "usage": {"input_tokens": 10}})
+
+
+class TestHogqlTablePromptJev:
+    async def test_materializes_a_query_that_calls_jev(self, ateam: Team) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("p", pa.float64())]))
+        client.describe_body = b"p\tNullable(Float64)\n"
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with (
+            override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key"),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            ),
+            unittest.mock.patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
+            unittest.mock.patch("httpx.AsyncClient.post", side_effect=_jev_gateway_response),
+        ):
+            batches = [
+                batch
+                async for batch in hogql_table("SELECT jev('please refund me', 'Refund?') AS p", ateam, LOGGER.bind())
+            ]
+
+        assert len(batches) == 1
+        assert client.arrow_external_tables is not None and len(client.arrow_external_tables) == 1
+        table = client.arrow_external_tables[0]
+        assert table["name"] in (client.arrow_query or "")
+        assert [list(row.values()) for row in table["data"]] == [[0.9]]
+        assert client.describe_external_tables == client.arrow_external_tables
 
 
 class TestHogqlTableEmptyResults:
@@ -1937,10 +1979,16 @@ class _SlowDescribeClient(_EmptyArrowClient):
         query_parameters: dict[str, Any] | None = None,
         query_id: str | None = None,
         settings: dict[str, str] | None = None,
+        external_tables: list[Any] | None = None,
     ) -> AsyncIterator[Any]:
         await asyncio.sleep(self.describe_seconds)
         async with super().apost_query(
-            query, *data, query_parameters=query_parameters, query_id=query_id, settings=settings
+            query,
+            *data,
+            query_parameters=query_parameters,
+            query_id=query_id,
+            settings=settings,
+            external_tables=external_tables,
         ) as response:
             yield response
 

@@ -795,6 +795,18 @@ class HogQLQueryExecutor:
         if PromptJevFinder.contains(self.select_query):
             raise QueryError("Use jev in a named SELECT column and filter its results in an outer query.")
 
+    def plan_prompt_jev(self) -> "tuple[ast.SelectQuery | ast.SelectSetQuery, list[PromptJevTable]]":
+        """Run every jev call in the query and return the query rewritten to read the results.
+
+        For callers that print and run the query themselves, such as a materialization. They must
+        register the returned tables on their context and send them with the query.
+        """
+        self._parse_query()
+        self._process_variables()
+        self._process_placeholders()
+        self._evaluate_prompt_jev()
+        return self.select_query, self._prompt_jev_tables
+
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
         self.context.referenced_saved_query_ids.clear()
         self._parse_query()
