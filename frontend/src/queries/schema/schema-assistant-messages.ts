@@ -454,8 +454,6 @@ export type AssistantTool =
     | 'search_session_recordings'
     | 'create_ai_trace_parser'
     | 'fix_hogql_query'
-    | 'analyze_user_interviews'
-    | 'create_user_interview_topic'
     | 'create_hog_transformation_function'
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
@@ -546,6 +544,7 @@ export enum AgentMode {
     Flags = 'flags',
     AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
+    /** Retired. Kept so stored conversations in this mode still load. */
     UserInterview = 'user_interview',
     CustomerAnalytics = 'customer_analytics',
 }

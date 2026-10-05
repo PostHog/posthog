@@ -7,6 +7,7 @@ from unittest.mock import ANY, patch
 
 from django.core.cache import cache
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -14,7 +15,12 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.organization import OrganizationSerializer, _fetch_member_count, _org_serializer_cache_version
+from posthog.api.organization import (
+    OrganizationMemberNoticeSerializer,
+    OrganizationSerializer,
+    _fetch_member_count,
+    _org_serializer_cache_version,
+)
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -178,6 +184,36 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.name, "QWERTY")
+
+    def test_admin_can_set_and_clear_member_notice(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        notice = {
+            "message": "Read how we handle your data.",
+            "action": {"label": "Read the policy", "url": "https://intranet.example.com/policy"},
+        }
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}", {"member_notice": notice}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["member_notice"], notice)
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}",
+            {"member_notice": {"message": "Hi", "action": {"label": "Open", "url": "javascript:alert(1)"}}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.member_notice, notice)
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}", {"member_notice": None}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertIsNone(self.organization.member_notice)
 
     def test_cannot_update_organization_if_not_owner_or_admin(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -1551,3 +1587,68 @@ class TestOrganizationDataFreshnessAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         mock_freshness.assert_called_once()
         assert [team.id for team in mock_freshness.call_args.args[1]] == []
+
+
+class TestOrganizationMemberNoticeValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("message_only", {"message": "Read the policy."}, True),
+            (
+                "with_action",
+                {"message": "Read the policy.", "action": {"label": "Open", "url": "http://intranet.local/policy"}},
+                True,
+            ),
+            ("null_action", {"message": "Read the policy.", "action": None}, True),
+            ("missing_message", {"action": {"label": "Open", "url": "https://example.com"}}, False),
+            ("blank_message", {"message": ""}, False),
+            ("message_too_long", {"message": "a" * 1001}, False),
+            ("only_unsupported_html", {"message": "<style>body{display:none}</style><script>x()</script>"}, False),
+            ("javascript_url", {"message": "Hi", "action": {"label": "Open", "url": "javascript:alert(1)"}}, False),
+            ("ftp_url", {"message": "Hi", "action": {"label": "Open", "url": "ftp://example.com/policy"}}, False),
+            ("missing_label", {"message": "Hi", "action": {"url": "https://example.com"}}, False),
+            ("not_an_object", "Read the policy.", False),
+        ]
+    )
+    def test_member_notice_validation(self, _name: str, notice: object, is_valid: bool) -> None:
+        serializer = OrganizationMemberNoticeSerializer(data=notice)
+        self.assertEqual(serializer.is_valid(), is_valid, serializer.errors)
+
+    @parameterized.expand(
+        [
+            (
+                "keeps_bold_and_links",
+                'Read <b>how</b> we use data. <a href="https://intranet.example.com/policy">Policy</a>',
+                'Read <b>how</b> we use data. <a href="https://intranet.example.com/policy" target="_blank" rel="noopener noreferrer">Policy</a>',
+            ),
+            (
+                "strips_link_tags_and_css",
+                '<link rel="stylesheet" href="https://example.com/x.css"><style>body{display:none}</style><span style="color:red" class="hidden">Hi</span>',
+                "<span>Hi</span>",
+            ),
+            (
+                "strips_scripts_handlers_and_javascript_urls",
+                '<a href="javascript:alert(1)" onclick="x()">Hi</a><script>alert(1)</script><img src="x" onerror="alert(1)">',
+                '<a target="_blank" rel="noopener noreferrer">Hi</a>',
+            ),
+        ]
+    )
+    def test_member_notice_message_is_sanitized(self, _name: str, message: str, expected: str) -> None:
+        serializer = OrganizationMemberNoticeSerializer(data={"message": message})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["message"], expected)
+
+    @parameterized.expand(
+        [
+            ("fits_after_sanitizing", 950, True),
+            ("too_long_after_sanitizing", 980, False),
+        ]
+    )
+    def test_member_notice_length_counts_sanitized_links(self, _name: str, raw_length: int, is_valid: bool) -> None:
+        link = '<a href="https://example.com">policy</a>'
+        message = "a" * (raw_length - len(link)) + link
+        serializer = OrganizationMemberNoticeSerializer(data={"message": message})
+        self.assertEqual(serializer.is_valid(), is_valid, serializer.errors)
+        if is_valid:
+            resaved = OrganizationMemberNoticeSerializer(data={"message": serializer.validated_data["message"]})
+            self.assertTrue(resaved.is_valid(), resaved.errors)
+            self.assertEqual(resaved.validated_data["message"], serializer.validated_data["message"])

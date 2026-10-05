@@ -46,7 +46,7 @@ import { projectTreeLogic } from './projectTreeLogic'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortMenuItems } from './TreeSortMenuItems'
-import { calculateMovePath, resolveProjectTreeDrop } from './utils'
+import { calculateMovePath, isProjectTreeItemActive, resolveProjectTreeDrop } from './utils'
 
 interface ProjectTreeBaseProps {
     layout?: 'panel' | 'inline'
@@ -96,35 +96,6 @@ let counter = 0
 
 const SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY = 'shortcut-dismissal'
 
-// Show active state for items that are active in the URL
-const isItemActive = (item: TreeDataItem): boolean => {
-    if (!item.record?.href) {
-        return false
-    }
-
-    const currentPath = removeProjectIdIfPresent(window.location.pathname)
-    const itemHref = typeof item.record.href === 'string' ? item.record.href : ''
-
-    if (currentPath === itemHref) {
-        return true
-    }
-
-    // Current path is a sub-path of item (e.g., /insights/new under /insights)
-    if (currentPath.startsWith(itemHref + '/')) {
-        return true
-    }
-
-    // Special handling for products with child pages on distinct paths (e.g., /replay/home and /replay/playlists)
-    if (item.name === 'Session replay' && currentPath.startsWith('/replay/')) {
-        return true
-    }
-    if (item.name === 'Workflows' && currentPath.startsWith('/workflows')) {
-        return true
-    }
-
-    return false
-}
-
 export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     const {
         logicKey,
@@ -149,6 +120,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     const {
         fullFileSystemFiltered,
         lastViewedId,
+        projectTreeRef,
         expandedFolders,
         expandedSearchFolders,
         searchTerm,
@@ -261,7 +233,9 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
             data={treeData}
             selectMode={selectMode}
             defaultSelectedFolderOrNodeId={lastViewedId || undefined}
-            isItemActive={isItemActive}
+            isItemActive={(item) =>
+                isProjectTreeItemActive(item, removeProjectIdIfPresent(window.location.pathname), projectTreeRef)
+            }
             size={treeSize}
             onItemChecked={onItemChecked}
             checkedItemCount={checkedItemCountNumeric}

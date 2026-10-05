@@ -93,4 +93,50 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_checked_at": "When the site was last checked.",
         },
     },
+    "environments": {
+        "description": "An environment (e.g. production, staging) that errors in a project are grouped by.",
+        "docs_url": "https://docs.honeybadger.io/api/environments/",
+        "columns": {
+            "id": "Unique identifier for the environment.",
+            "project_id": "Identifier of the project the environment belongs to.",
+            "name": "Name of the environment (e.g. production).",
+            "notifications": "Whether notifications are enabled for errors in this environment.",
+            "created_at": "When the environment was recorded.",
+            "updated_at": "When the environment was last updated.",
+        },
+    },
+    "occurrences": {
+        "description": "Number of error occurrences in a project per one-day bucket, for the most recent month.",
+        "docs_url": "https://docs.honeybadger.io/api/projects/",
+        "columns": {
+            "project_id": "Identifier of the project the counts belong to.",
+            "bucket_start": "Start of the one-day bucket (UTC).",
+            "count": "Number of error occurrences in the bucket, across all environments.",
+        },
+    },
+    "affected_users": {
+        "description": "A user affected by an error (fault), with the number of occurrences that user hit.",
+        "docs_url": "https://docs.honeybadger.io/api/faults/",
+        "columns": {
+            "project_id": "Identifier of the project the fault belongs to.",
+            "fault_id": "Identifier of the fault the user was affected by.",
+            "user": "The affected user, as reported in the error context (e.g. user id or email).",
+            "count": "Number of occurrences of the fault for this user.",
+            "fault_last_notice_at": "Timestamp of the fault's most recent occurrence when the row was synced.",
+        },
+    },
+    "outages": {
+        "description": "A period during which an uptime check ('site') was down.",
+        "docs_url": "https://docs.honeybadger.io/api/uptime/",
+        "columns": {
+            "project_id": "Identifier of the project the uptime check belongs to.",
+            "site_id": "Identifier (UUID) of the uptime check that went down.",
+            "down_at": "When the site went down.",
+            "up_at": "When the site came back up.",
+            "created_at": "When the outage was recorded.",
+            "status": "HTTP status code returned when the check failed.",
+            "reason": "Why the check failed.",
+            "headers": "Response headers returned when the check failed.",
+        },
+    },
 }
