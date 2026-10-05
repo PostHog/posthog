@@ -5539,6 +5539,15 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     displayLabel?: string
     /** Other terms that find this item in search, for example the names of its tabs or common synonyms */
     searchKeywords?: string[]
+    /** Tabs of this item that search lists as their own results */
+    searchTabs?: FileSystemSearchTab[]
+}
+
+export interface FileSystemSearchTab {
+    name: string
+    href: string
+    flag?: string
+    searchKeywords?: string[]
 }
 
 export interface FileSystemViewLogEntry {

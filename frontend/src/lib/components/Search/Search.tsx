@@ -986,9 +986,19 @@ function SearchResults({
                                                                                         )}
                                                                                     </span>
                                                                                 )}
+                                                                            {item.parentName && (
+                                                                                <span className="text-xs text-tertiary shrink-0 mt-[2px]">
+                                                                                    {`in ${item.parentName}`}
+                                                                                </span>
+                                                                            )}
                                                                             {item.productCategory && (
                                                                                 <span className="text-xs text-tertiary shrink-0 mt-[2px]">
                                                                                     {item.productCategory}
+                                                                                </span>
+                                                                            )}
+                                                                            {item.matchedSearchKeyword && (
+                                                                                <span className="text-xs text-tertiary truncate mt-[2px]">
+                                                                                    {`Matches "${item.matchedSearchKeyword}"`}
                                                                                 </span>
                                                                             )}
                                                                             {item.lastViewedAt && (

@@ -1635,6 +1635,16 @@ class FileSystemEntry(BaseModel):
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
+class FileSystemSearchTab(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    flag: str | None = None
+    href: str
+    name: str
+    searchKeywords: list[str] | None = None
+
+
 class FileSystemViewLogEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5590,6 +5600,10 @@ class FileSystemImport(BaseModel):
     searchKeywords: list[str] | None = Field(
         default=None,
         description=("Other terms that find this item in search, for example the names of its tabs or common synonyms"),
+    )
+    searchTabs: list[FileSystemSearchTab] | None = Field(
+        default=None,
+        description="Tabs of this item that search lists as their own results",
     )
     shortcut: bool | None = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: list[Tag] | None = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
