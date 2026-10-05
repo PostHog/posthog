@@ -20,14 +20,14 @@ export function MCPAnalyticsNudgeToast({ surface }: { surface: MCPAnalyticsNudge
         <div className="flex flex-col gap-1.5 py-1 pr-1 min-w-0 items-start">
             <div className="flex items-center gap-1.5 text-sm font-semibold">
                 <IconMCP className="size-4 shrink-0 text-primary" />
-                <span>Track your MCP server with MCP analytics</span>
+                <span>Skip the maintenance. Let MCP analytics handle it</span>
             </div>
             <div className="flex flex-col items-start gap-1.5 ml-5.5 min-w-0 w-full">
                 <div className="text-xs text-secondary leading-snug">
                     MCP analytics captures every tool call with its failure rate and latency, so you don't need custom
                     events.
                     {isCloudOrDev
-                        ? ' Run Wizard in your MCP server repository. The setup agent installs it for you:'
+                        ? ' Run the Wizard in your MCP server repository. The setup agent installs it for you:'
                         : null}
                 </div>
                 {isCloudOrDev && (
