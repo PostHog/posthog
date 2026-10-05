@@ -9403,6 +9403,105 @@
           "row_count": null,
           "type": "system"
       },
+      "system.message_suppressions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "identifier": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "identifier",
+                  "id": null,
+                  "name": "identifier",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source",
+                  "id": null,
+                  "name": "source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "reason": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "reason",
+                  "id": null,
+                  "name": "reason",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "suppressed": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "suppressed",
+                  "id": null,
+                  "name": "suppressed",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "suppressed_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "suppressed_at",
+                  "id": null,
+                  "name": "suppressed_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.message_suppressions",
+          "name": "system.message_suppressions",
+          "row_count": null,
+          "type": "system"
+      },
       "system.integration_repository_cache": {
           "certification": null,
           "fields": {
@@ -22043,6 +22142,105 @@
           },
           "id": "system.message_recipient_preferences",
           "name": "system.message_recipient_preferences",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.message_suppressions": {
+          "certification": null,
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "identifier": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "identifier",
+                  "id": null,
+                  "name": "identifier",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "source": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "source",
+                  "id": null,
+                  "name": "source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "reason": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "reason",
+                  "id": null,
+                  "name": "reason",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "suppressed": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "suppressed",
+                  "id": null,
+                  "name": "suppressed",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "suppressed_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "suppressed_at",
+                  "id": null,
+                  "name": "suppressed_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.message_suppressions",
+          "name": "system.message_suppressions",
           "row_count": null,
           "type": "system"
       },

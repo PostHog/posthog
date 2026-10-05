@@ -53,6 +53,21 @@ describe('personalAPIKeysLogic', () => {
         logic.mount()
     })
 
+    it.each([
+        { audienceFlag: false, offered: false },
+        { audienceFlag: true, offered: true },
+    ])(
+        'offers the email preference sync preset only when the Audience flag is $audienceFlag',
+        ({ audienceFlag, offered }) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AUDIENCE]: audienceFlag })
+
+            const presetValues = logic.values.scopePresets.map((preset) => preset.value)
+
+            expect(presetValues.includes('messaging_preferences')).toBe(offered)
+            expect(presetValues).toContain('read_only_access')
+        }
+    )
+
     it('strips llm_gateway scopes from create payload when GATEWAY_PERSONAL_API_KEY flag is disabled', async () => {
         featureFlagLogic.actions.setFeatureFlags([], {})
 

@@ -1,5 +1,7 @@
 import json
+from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
@@ -21,6 +23,8 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+
+FROZEN_NOW = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 
 
 def mock_response(status_code: int, response_json: dict):
@@ -724,6 +728,52 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         self.assertFalse(
             MessageRecipientPreference.objects.filter(team=other_team, identifier="isolated@example.com").exists()
         )
+
+    def _post_preference(self, endpoint: str, identifier: str):
+        return self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/{endpoint}/",
+            {"identifier": identifier},
+            content_type="application/json",
+        )
+
+    @parameterized.expand(
+        [
+            ("first_row_from_add_opt_out", "add_opt_out", None, False, 1),
+            ("first_row_from_remove_opt_out", "remove_opt_out", None, False, 1),
+            ("team_already_had_a_preference", "add_opt_out", timedelta(days=-1), False, 0),
+            ("another_team_had_an_earlier_preference", "add_opt_out", timedelta(days=-1), True, 1),
+            ("concurrent_first_row_committed_before_the_check", "add_opt_out", timedelta(seconds=1), False, 1),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    def test_first_preference_received_is_reported_once_per_team(
+        self,
+        _name,
+        first_endpoint,
+        other_row_created_after_now,
+        other_row_in_other_team,
+        expected_reports,
+        mock_capture,
+    ):
+        other_row_team = self.organization.teams.create(name="Other Team") if other_row_in_other_team else self.team
+        with time_machine.travel(FROZEN_NOW, tick=False):
+            if other_row_created_after_now is not None:
+                other = MessageRecipientPreference.objects.create(team=other_row_team, identifier="other@example.com")
+                MessageRecipientPreference.objects.filter(id=other.id).update(
+                    created_at=FROZEN_NOW + other_row_created_after_now
+                )
+
+            self._post_preference(first_endpoint, "first@example.com")
+            self._post_preference("add_opt_out", "first@example.com")
+            self._post_preference("add_opt_out", "second@example.com")
+
+        reports = [
+            call for call in mock_capture.call_args_list if call.kwargs["event"] == "audience first preference received"
+        ]
+        self.assertEqual(len(reports), expected_reports)
+        for report in reports:
+            self.assertEqual(report.kwargs["distinct_id"], self.user.distinct_id)
+            self.assertEqual(report.kwargs["groups"]["project"], str(self.team.uuid))
 
     def _remove_opt_out(self, payload: dict):
         return self.client.post(

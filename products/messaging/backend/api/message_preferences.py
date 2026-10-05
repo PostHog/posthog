@@ -2,6 +2,7 @@ import re
 from typing import Any, Literal
 
 from django.db import transaction
+from django.db.models import Q
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -16,6 +17,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
+from posthog.event_usage import report_user_action
 from posthog.plugins import plugin_server_api
 
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
@@ -283,6 +285,8 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             defaults={"created_by": request.user},
         )
         preference.set_preference(category_id, PreferenceStatus.OPTED_OUT)
+        if created:
+            self._report_if_first_preference(preference, request)
 
         # Customer.io round-trips can take tens of seconds, so sync off the request path
         # once the preference write has committed.
@@ -328,11 +332,30 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         preference.preferences = preferences
         preference.save(update_fields=["preferences", "updated_at"])
+        if created:
+            self._report_if_first_preference(preference, request)
 
         transaction.on_commit(lambda: sync_preferences_to_customerio_task.delay(self.team_id, identifier))
 
         response_status = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(MessagePreferencesSerializer(preference).data, status=response_status)
+
+    def _report_if_first_preference(self, preference: MessageRecipientPreference, request: Request) -> None:
+        # Order rows by (created_at, id) instead of checking for "any other row", so that two concurrent
+        # first writes cannot each see the other's row and both skip the report.
+        created_earlier = Q(created_at__lt=preference.created_at) | Q(
+            created_at=preference.created_at, id__lt=preference.id
+        )
+        if MessageRecipientPreference.objects.filter(created_earlier, team_id=self.team_id).exists():
+            return
+        # pinned: feature usage event name, renaming it breaks the Audience setup funnel
+        report_user_action(
+            request.user,
+            "audience first preference received",
+            team=self.team,
+            organization=self.organization,
+            request=request,
+        )
 
     def _lift_global_opt_out(self, preferences: dict[str, Any], category: MessageCategory) -> None:
         """Clear a `$all` opt-out that would otherwise swallow a per-category resubscribe.
