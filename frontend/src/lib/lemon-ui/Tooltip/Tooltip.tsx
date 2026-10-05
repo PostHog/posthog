@@ -2,7 +2,7 @@ import './Tooltip.scss'
 
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { Placement } from '@floating-ui/react'
-import React, { useEffect, useLayoutEffect, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
@@ -105,6 +105,22 @@ export function Tooltip({
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
     const [shouldRenderPortal, setShouldRenderPortal] = useState(false)
     const floatingContainer = useFloatingContainer()
+    // Base UI closes a hovered tooltip on a timer, and the popup portals into a container the
+    // session replay player or the toolbar owns. If that subtree goes away before the timer
+    // fires, the late callback touches a reclaimed node and Firefox throws
+    // "can't access dead object", which escapes to the error boundary and remounts the scene.
+    const isMountedRef = useRef(true)
+
+    // A layout effect, not a passive one: its cleanup runs before React detaches the DOM, so the
+    // flag is already false by the time a node can be reclaimed. Re-arming on mount keeps React
+    // Strict Mode's mount/unmount/remount in dev from leaving a live component flagged as gone.
+    useLayoutEffect(() => {
+        isMountedRef.current = true
+
+        return () => {
+            isMountedRef.current = false
+        }
+    }, [])
 
     const open = controlledOpen ?? uncontrolledOpen
 
@@ -165,8 +181,13 @@ export function Tooltip({
           }
 
     const handleOpenChange = (newOpen: boolean): void => {
-        if (controlledOpen === undefined) {
+        if (!isMountedRef.current || controlledOpen !== undefined) {
+            return
+        }
+        try {
             setUncontrolledOpen(newOpen)
+        } catch {
+            // The trigger's document was torn down under us; there is no state left to update.
         }
     }
 
