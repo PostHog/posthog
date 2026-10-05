@@ -525,6 +525,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             }
         },
 
+        loadSnapshotSourcesFailure: () => {
+            // Only a retry that had no source list ends here. A poll failure must not end a retry that is fetching a source.
+            if (cache.retryPending && !values.snapshotSources?.length) {
+                cache.retryPending = false
+                posthog.capture('recording snapshot retry finished', { recovered: false })
+            }
+        },
+
         loadSnapshotSourcesSuccess: ({ snapshotSources }) => {
             const currentSourceKeys = snapshotSources
                 .map((s) => s.blob_key)
