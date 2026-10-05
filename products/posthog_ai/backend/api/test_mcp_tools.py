@@ -383,8 +383,9 @@ class TestMCPToolsAPI(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"success": False, "content": content, "error_type": "internal"})
 
+    @patch("products.posthog_ai.backend.api.mcp_tools.capture_exception")
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
-    def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute):
+    def test_invoke_tool_unexpected_error_returns_internal_error(self, mock_execute, mock_capture):
         mock_execute.side_effect = RuntimeError("unexpected")
 
         response = self.client.post(
@@ -394,11 +395,12 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
+        error_id = mock_capture.call_args.kwargs["properties"]["error_id"]
         self.assertEqual(
             response.json(),
             {
                 "success": False,
-                "content": "The tool raised an internal error. Do not immediately retry the tool call.",
+                "content": f"The tool raised an internal error. Do not immediately retry the tool call. Error id: {error_id}",
             },
         )
 

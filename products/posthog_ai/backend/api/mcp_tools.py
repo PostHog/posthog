@@ -1,5 +1,6 @@
 import json
 from typing import cast
+from uuid import uuid4
 
 from django.conf import settings
 from django.views.generic import View
@@ -180,12 +181,19 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 }
             )
         except Exception as e:
-            logger.exception("Error calling tool", extra={"tool_name": tool_name, "error": str(e)})
-            capture_exception(e, properties={"tag": "mcp", "args": args_data})
+            # The caller can quote this id back, and it finds the log line and the captured exception.
+            error_id = str(uuid4())
+            logger.exception(
+                "Error calling tool", extra={"tool_name": tool_name, "error": str(e), "error_id": error_id}
+            )
+            capture_exception(e, properties={"tag": "mcp", "args": args_data, "error_id": error_id})
             return Response(
                 {
                     "success": False,
-                    "content": "The tool raised an internal error. Do not immediately retry the tool call.",
+                    "content": (
+                        "The tool raised an internal error. Do not immediately retry the tool call. "
+                        f"Error id: {error_id}"
+                    ),
                 }
             )
 
