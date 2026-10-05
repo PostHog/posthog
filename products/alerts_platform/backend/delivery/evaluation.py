@@ -17,7 +17,7 @@ from products.alerts_platform.backend.delivery.destinations import list_alert_de
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.slack import SlackTransport
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
-from products.alerts_platform.backend.delivery.transport import DeliveryTransport
+from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -94,6 +94,8 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     sent = 0
     skipped = 0
     busy: list[str] = []
+    failures: list[str] = []
+    first_refusal: DeliveryError | None = None
     # Per subscription rather than per destination. A destination subscribes to some of the
     # kinds an alert can announce, so one that asked for firings must not be handed the resolve
     # that another group produced in the same evaluation.
@@ -115,10 +117,25 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 )
             except ThreadBusy as error:
                 busy.append(str(error))
+            # A destination that refuses every send, such as a deleted channel, must not cost the
+            # destinations after it their message on every attempt. Temporal records the message
+            # and the cause chain, and a transport words its own refusals safely. Any other
+            # exception's text can carry a credential URL, so it is named by class and not chained.
+            except DeliveryError as error:
+                failures.append(str(error))
+                first_refusal = first_refusal or error
+            except Exception as error:
+                failures.append(type(error).__name__)
             else:
                 sent += 1
+    # A held thread wins over a failure. The workflow waits a held thread out and then runs the
+    # whole delivery again, which retries the failed destinations too. A failure raised instead
+    # spends the activity's retries inside the claim's TTL, and the held message is lost.
     if busy:
-        raise ThreadBusy("; ".join(busy))
+        # The failures ride along, so a wait that ends still says which destinations refused.
+        raise ThreadBusy("; ".join([*busy, *failures]))
+    if failures:
+        raise DeliveryError(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
     return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped)
 
 
