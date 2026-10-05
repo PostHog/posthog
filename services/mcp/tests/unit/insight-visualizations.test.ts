@@ -16,6 +16,7 @@ import {
     formatPercent,
     getDisplayType,
     getSeriesLabel,
+    insightQueryProperties,
     normalizeFunnelSteps,
 } from '@/ui-apps/components/utils'
 
@@ -243,6 +244,37 @@ describe('insight visualizations', () => {
                 expect(getDisplayType({ kind: 'TrendsQuery', trendsFilter: { display: 'BoldNumber' } })).toBe(
                     'BoldNumber'
                 )
+            })
+        })
+
+        describe('insightQueryProperties', () => {
+            it.each([
+                ['no query', undefined, {}],
+                [
+                    'bare trends without a display',
+                    { kind: 'TrendsQuery' },
+                    { queryKind: 'TrendsQuery', display: 'ActionsLineGraph' },
+                ],
+                [
+                    'trends wrapped in InsightVizNode',
+                    {
+                        kind: 'InsightVizNode',
+                        source: { kind: 'TrendsQuery', trendsFilter: { display: 'BoldNumber' } },
+                    },
+                    { queryKind: 'InsightVizNode', querySourceKind: 'TrendsQuery', display: 'BoldNumber' },
+                ],
+                [
+                    'funnel with a viz type',
+                    { kind: 'FunnelsQuery', funnelsFilter: { funnelVizType: 'trends' } },
+                    { queryKind: 'FunnelsQuery', funnelVizType: 'trends' },
+                ],
+                [
+                    'HogQL wrapped in DataVisualizationNode',
+                    { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'select 1' } },
+                    { queryKind: 'DataVisualizationNode', querySourceKind: 'HogQLQuery' },
+                ],
+            ])('%s', (_, query, expected) => {
+                expect(insightQueryProperties(query)).toEqual(expected)
             })
         })
 
