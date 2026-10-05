@@ -84,6 +84,13 @@ class DigestEventDefinition(BaseModel):
     name: str
     id: UUID
 
+    def render_payload(self) -> dict[str, str]:
+        return {
+            "name": self.name,
+            "id": str(self.id),
+            "url_path": f"/data-management/events/{self.id}",
+        }
+
 
 class DigestExperiment(BaseModel):
     name: str
@@ -264,7 +271,7 @@ class TeamDigest(BaseModel):
     ) -> dict[str, str | int | dict[str, list | dict]]:
         report: dict[str, list | dict] = {
             "new_dashboards": self.dashboards.model_dump(),
-            "new_event_definitions": self.event_definitions.model_dump(),
+            "new_event_definitions": [e.render_payload() for e in self.event_definitions.root],
             "new_experiments_launched": self.experiments_launched.model_dump(),
             "new_experiments_completed": self.experiments_completed.model_dump(),
             "new_external_data_sources": self.external_data_sources.model_dump(),

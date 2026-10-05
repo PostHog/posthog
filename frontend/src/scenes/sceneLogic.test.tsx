@@ -132,6 +132,16 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.featureFlag('123'))
     })
 
+    it.each([
+        ['/events/0190b8a2-1c3d-7e4f-8a5b-6c7d8e9f0a1b', urls.eventDefinition('0190b8a2-1c3d-7e4f-8a5b-6c7d8e9f0a1b')],
+        ['/events/actions', urls.actions()],
+        ['/events/stats', urls.eventDefinitions()],
+    ])('redirects %s to %s instead of a 404', async (path, expected) => {
+        router.actions.push(path)
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expected)
+    })
+
     it('redirects a bare /billing to /organization/billing instead of a 404', async () => {
         router.actions.push('/billing')
         await expectLogic(logic).delay(1)
