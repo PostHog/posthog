@@ -348,6 +348,10 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except api.RepoNotFoundError:
             return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        except api.LiftCommitUnknownError as e:
+            return Response(
+                {"detail": str(e), "code": "lift_commit_unknown"}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
