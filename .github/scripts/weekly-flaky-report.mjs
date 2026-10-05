@@ -37,6 +37,8 @@ import {
 } from './weekly-report-common.mjs'
 
 const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
+// The synced runs table name carries the warehouse source prefix, which differs per project.
+const RUNS_TABLE = process.env.ENG_ANALYTICS_RUNS_TABLE || 'eng_analyticsgithub_workflow_runs'
 const QUARANTINE_FILE = '.test_quarantine.json'
 const TRUNK_TABLE = process.env.TRUNK_QUARANTINE_TABLE || 'trunkio.quarantinedtests'
 
@@ -153,7 +155,8 @@ function selectorVariants(selector) {
 }
 
 // The two most recent failing (run, job) pairs, from the product's ci_failures view. That view
-// holds fewer runs than the endpoint counts, so it supplies links and never a number.
+// holds fewer runs than the endpoint counts, so it supplies links and never a number. A run on
+// another CI engine has no page on GitHub, so only the runs GitHub synced get a link.
 async function enrich(items, runHogql = hogql) {
     const bySelector = new Map()
     for (const item of items) {
@@ -170,11 +173,12 @@ async function enrich(items, runHogql = hogql) {
     try {
         const result = await runHogql(
             `SELECT f.test_id AS test_id,
-                arraySlice(arrayReverseSort(x -> x.1, groupUniqArray(20)((toUnixTimestamp(f.timestamp), f.run_id, f.job_id))), 1, 6) AS recent
+                arraySlice(arraySort(x -> -x.1, groupUniqArray((toUnixTimestamp(f.timestamp), f.run_id, f.job_id))), 1, 6) AS recent
             FROM engineering_analytics_ci_failures f
             WHERE f.timestamp >= now() - INTERVAL 7 DAY
                 AND lower(f.repo) = lower({repository})
                 AND f.test_id IN {selectors}
+                AND f.run_id IN (SELECT id FROM ${RUNS_TABLE})
             GROUP BY f.test_id
             LIMIT ${QUERY_ROW_LIMIT}`,
             { repository: GITHUB_REPOSITORY, selectors }
