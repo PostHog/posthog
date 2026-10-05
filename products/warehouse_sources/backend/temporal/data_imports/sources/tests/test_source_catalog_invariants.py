@@ -68,7 +68,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "Metriport",
     "Mono",
     "OpenRouter",
-    "PromptingCompany",
     "Roark",
     "ScaleAI",
     "Skyvern",
