@@ -376,7 +376,7 @@ describe('cohortCountWarningLogic', () => {
                 dataNodeLogicKey,
             })
             logic.mount()
-            await expectLogic(dataNodeLogic({ key: dataNodeLogicKey, query })).toFinishAllListeners()
+            await expectLogic(dataNodeLogic.findMounted({ key: dataNodeLogicKey })!).toFinishAllListeners()
 
             expect(logic.values.response).toEqual(expectedResponse)
         })

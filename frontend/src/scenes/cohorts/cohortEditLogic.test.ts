@@ -1335,6 +1335,7 @@ describe('cohortEditLogic', () => {
 
         it('pins the cohort filter to the saved cohort after a draft is saved', async () => {
             await initCohortLogic({ id: 'new' })
+            expect((logic.values.effectiveQuery.source as ActorsQuery).fixedProperties).toEqual([])
 
             await expectLogic(logic, () => {
                 logic.actions.setCohort({ ...mockCohort, id: 42 })

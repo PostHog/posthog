@@ -530,14 +530,12 @@ export type cohortEditLogicType = MakeLogicType<
     cohortEditLogicMeta
 >
 
-// The persons table filters on the cohort's own id. A draft has none — `props.id` is 'new' and
-// the route gives the id as a string — so parse it and leave the filter off until `setCohort`
-// supplies a real id. NaN serializes to null, which the API rejects.
+// A draft cohort has no id, so the persons table gets no cohort filter until `setCohort` supplies
+// a saved id. A filter with a missing id serializes to null, which the API rejects.
 function cohortFixedProperties(id: CohortType['id'] | undefined): AnyPersonScopeFilter[] {
-    const cohortId = typeof id === 'number' ? id : parseInt(String(id))
-    return Number.isNaN(cohortId)
-        ? []
-        : [{ type: PropertyFilterType.Cohort, key: 'id', value: cohortId, operator: PropertyOperator.In }]
+    return typeof id === 'number'
+        ? [{ type: PropertyFilterType.Cohort, key: 'id', value: id, operator: PropertyOperator.In }]
+        : []
 }
 
 export const cohortEditLogic = kea<cohortEditLogicType>([
