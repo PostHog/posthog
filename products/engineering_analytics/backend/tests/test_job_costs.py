@@ -1,15 +1,21 @@
 import json
 import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 import pandas as pd
+from parameterized import parameterized
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from products.engineering_analytics.backend.logic import ci_precompute
 from products.engineering_analytics.backend.logic.cost import (
     RunnerOS,
     RunnerProvider,
@@ -18,6 +24,7 @@ from products.engineering_analytics.backend.logic.cost import (
     classify_runner,
     estimate_job_cost_usd,
 )
+from products.engineering_analytics.backend.logic.sources import JobSourceTables
 from products.engineering_analytics.backend.logic.views import depot_ci, job_costs
 from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
@@ -174,6 +181,59 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
             query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
         ).columns
         assert columns == list(job_costs.BUILDER_FIELDS)
+
+    @parameterized.expand(
+        [
+            ("runs", ci_precompute.STORED_RUNS, 9002),
+            ("jobs", ci_precompute.STORED_JOBS, 2),
+        ]
+    )
+    def test_stored_day_holds_the_rows_created_that_utc_day(
+        self, _name: str, stored: ci_precompute.StoredRows, expected_id: int
+    ) -> None:
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        day = datetime(2026, 3, 10, tzinfo=UTC)
+        day_before, inside = "2026-03-09T23:30:00Z", "2026-03-10T00:30:00Z"
+        jobs_table = self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(1, ["depot-ubuntu-22.04-16"], day_before, day_before, "completed", run_id=9001),
+                _job_row(2, ["depot-ubuntu-22.04-16"], inside, inside, "completed", run_id=9002),
+            ],
+        )
+        runs_table = self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(run_id, run_attempt=1, pr_number=1) | {"created_at": created, "run_started_at": created}
+                for run_id, created in ((9001, day_before), (9002, inside))
+            ],
+        )
+        source = JobSourceTables(
+            github_workflow_jobs=jobs_table,
+            github_workflow_runs=runs_table,
+            source_id=str(uuid4()),
+            repository="PostHog/posthog",
+        )
+
+        response = execute_hogql_query(
+            query=parse_select(
+                stored.insert_query(source),
+                placeholders={
+                    "time_window_min": ast.Constant(value=day),
+                    "time_window_max": ast.Constant(value=day + timedelta(days=1)),
+                },
+            ),
+            team=self.team,
+            query_type="engineering_analytics.test",
+        )
+
+        rows = [dict(zip(response.columns or [], row)) for row in response.results]
+        assert [(row["id"], row["source_id"], row["repository"]) for row in rows] == [
+            (expected_id, source.source_id, "posthog/posthog")
+        ]
 
     def test_view_matches_python_cost_model(self) -> None:
         jobs_table = self._create_table(
