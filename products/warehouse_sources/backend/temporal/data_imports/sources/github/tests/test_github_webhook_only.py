@@ -350,5 +350,4 @@ def test_startup_failure_poll_drops_runs_seen_in_an_earlier_window() -> None:
             )
         )
 
-    run_ids = pa.concat_tables(tables).column("id").to_pylist()
-    assert sorted(run_ids) == list(range(1000))
+    assert pa.concat_tables(tables).column("id").to_pylist() == list(range(1000))
