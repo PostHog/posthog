@@ -2729,9 +2729,9 @@ snapshots:
     data-catalog-metric-tests--unsupported-with-checks--light:
         hash: v1.k794b7964.64e9162a5dd7bc47a1667f13d8c77b4d1f00c6e15c70169ab4d4ffc588dd2112.j2HS8sjcKIg0QXaZ9PLel28BVD4vayBEBRzrHVO-dlI
     data-quality-check-runs-table--every-check-type--dark:
-        hash: v1.k794b7964.8cdbb71c619659feb900c816afd412ec8fe0a99c8b44fc956275282ef56b3c3e.tMGIu_lh3Uf5WvR8QXUP3iSTRKFPFS2u9Y6Wl8Ouay4
+        hash: v1.k794b7964.58b1a7ef739ee0fbd3e32caf4cb28f8c81711efde8c25e99078e3b50cae46bc8.gIoFuHrcjiy-DhCsfa6kuyW36xY3EwX5EqxNTkQFZq8
     data-quality-check-runs-table--every-check-type--light:
-        hash: v1.k794b7964.e90e41b601b4690332e483ff2a1d4df0cb8456d1c92f92a97ef25cfe5f87e182.8HRaicZOtyvYQWwDDffAr_NGSMuQOfySkIb4xgd9K5Q
+        hash: v1.k794b7964.dcb1f39625722782dbed6ce97b61684a7664c7d08034cefbb72cb32b6e97e3f3.c33MSTfBglNRA-pjdWyRCUxT8tOVGzg5lGO2CxSEyRc
     data-warehouse-destinationlist--both-selected--dark:
         hash: v1.k794b7964.5da0169833ea8b87e6d903cb4fc0f4d629a1b1db09149c5fb7c450ef312641a0.MH4OyaTjM18a4cpxtpCHPVm1QWWajZL5cz4NlzbJag0
     data-warehouse-destinationlist--both-selected--light:
@@ -13475,9 +13475,9 @@ snapshots:
     scenes-app-tasks--new-task--light:
         hash: v1.k794b7964.318e9c80dc685a794981c4718212c0ff1529a62113f0fe53b1babb86e990ab6e.lc7xztqxXpgNPLRIPef1RY3WwIquiwVm64iyEciqcUg
     scenes-app-tasks--new-task-quill--dark:
-        hash: v1.k794b7964.8cd8e701c13df761d9ba1d08b279e64b94678066aed4304b2eeb32c1c956203a.fDdtlf4c5GL9F3YlxR3_x_tAJEVQznyJzpabKxbtECc
+        hash: v1.k794b7964.c4655eeaf729941f4d89a028993fc2750a9f0263fc9c7efc622b19805da79229.FzDHB2zX6uVa-0UXDcYFVHJVSYcqDu8r1QU-SOQh-5E
     scenes-app-tasks--new-task-quill--light:
-        hash: v1.k794b7964.6e2cf93013fbef02c8e2940abcde2e309a6e84a06d54890f51743d5ce7763212.Zm-mjYbWHC6sCEYuAVqmHaP2-EbushTDRwqCZQwHPFw
+        hash: v1.k794b7964.f776795b7e8a24931a07849fdfc1235701d660c0fe1dfd10d19a570b22019ced.3ZUzVIJ7kC7pvEeZf88Yyjuifh51rN8-Nl-ye2KJBu8
     scenes-app-tasks--new-task-with-repository--dark:
         hash: v1.k794b7964.183b80968dd176e810833f6237d50559eb2b45905a12715d7615b79dd3987304.glKUf15z01yE2oekRT1Y_QLcT87dpxpWCTxnUOh4a-M
     scenes-app-tasks--new-task-with-repository--light:

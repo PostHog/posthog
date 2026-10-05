@@ -23,6 +23,11 @@ export type {
     ComposerSubmitProps,
 } from '../components/composer/Composer'
 
+// The quill composer frame (bordered input group with an inline send button) and its send button.
+export { QuillComposerLayout } from '../components/quill/QuillComposerLayout'
+export type { QuillComposerLayoutProps } from '../components/quill/QuillComposerLayout'
+export { QuillComposerSendButton } from '../components/quill/QuillComposerSendButton'
+
 // Controlled model + reasoning-effort pickers for a composer footer.
 export { ComposerModelEffortPickers } from '../components/composer/ComposerModelEffortPickers'
 export type { ComposerModelEffortPickersProps } from '../components/composer/ComposerModelEffortPickers'
