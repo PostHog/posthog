@@ -56,7 +56,6 @@ from posthog.api.app_metrics2 import (
     AppMetricsTotalsResponseSerializer,
     fetch_app_metric_totals,
     fetch_app_metric_totals_by_source,
-    fetch_app_metric_totals_by_team_and_source,
     fetch_app_metrics_trends,
 )
 from posthog.api.documentation import _FallbackSerializer
