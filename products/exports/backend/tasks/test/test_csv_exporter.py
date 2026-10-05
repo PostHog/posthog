@@ -334,6 +334,7 @@ class TestCSVExporter(APIBaseTest):
             method="get",
             url="http://testserver/" + path + f"&breakdown_limit={CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL}&is_csv_export=1",
             timeout=60,
+            allow_redirects=False,
             json=None,
             headers=ANY,
         )
