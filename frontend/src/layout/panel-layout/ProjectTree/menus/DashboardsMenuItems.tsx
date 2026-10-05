@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconChevronRight } from '@posthog/icons'
 
@@ -18,6 +18,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 
 import { CustomMenuProps } from '../types'
 
+const PINNED_DASHBOARDS_URL = combineUrl(urls.dashboards(), { pinned: true }).url
+
 export function DashboardsMenuItems({
     MenuItem = DropdownMenuItem,
     MenuSub = DropdownMenuSub,
@@ -26,8 +28,15 @@ export function DashboardsMenuItems({
     MenuGroup = DropdownMenuGroup,
     onLinkClick,
 }: CustomMenuProps): JSX.Element {
-    const { pinnedDashboards, dashboardsLoading } = useValues(dashboardsModel)
+    const { pinnedDashboards, dashboardsLoading, loadDashboardsFailed } = useValues(dashboardsModel)
     const { loadDashboardsIfNeeded } = useActions(dashboardsModel)
+    const emptyMessage = loadDashboardsFailed
+        ? "Couldn't load dashboards. Reopen this menu to retry."
+        : dashboardsLoading
+          ? 'Loading...'
+          : pinnedDashboards.length === 0
+            ? 'No pinned dashboards'
+            : null
 
     return (
         <>
@@ -39,19 +48,25 @@ export function DashboardsMenuItems({
                 }}
             >
                 <MenuSubTrigger asChild>
-                    <ButtonPrimitive menuItem>
+                    <Link
+                        buttonProps={{
+                            menuItem: true,
+                        }}
+                        to={PINNED_DASHBOARDS_URL}
+                        onClick={() => onLinkClick?.(false)}
+                    >
                         Pinned dashboards
                         <IconChevronRight className="ml-auto size-3" />
-                    </ButtonPrimitive>
+                    </Link>
                 </MenuSubTrigger>
 
                 <MenuSubContent>
                     <MenuGroup>
-                        {dashboardsLoading ? (
+                        {emptyMessage ? (
                             <MenuItem disabled>
-                                <ButtonPrimitive menuItem>Loading...</ButtonPrimitive>
+                                <ButtonPrimitive menuItem>{emptyMessage}</ButtonPrimitive>
                             </MenuItem>
-                        ) : pinnedDashboards.length > 0 ? (
+                        ) : (
                             pinnedDashboards.map((dashboard) => (
                                 <MenuItem asChild key={dashboard.id}>
                                     <Link
@@ -76,10 +91,6 @@ export function DashboardsMenuItems({
                                     </Link>
                                 </MenuItem>
                             ))
-                        ) : (
-                            <MenuItem disabled>
-                                <ButtonPrimitive menuItem>No pinned dashboards</ButtonPrimitive>
-                            </MenuItem>
                         )}
                     </MenuGroup>
                 </MenuSubContent>
