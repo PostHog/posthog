@@ -22,11 +22,15 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/etl': ['PipelineOverview', 'pipelineOverview'],
+        '/elt': ['PipelineOverview', 'pipelineOverview'],
     },
-    redirects: {},
+    // The scene answered on /etl first. Links to it are already shared and bookmarked, so the
+    // old path keeps working rather than 404ing after the rename.
+    redirects: {
+        '/etl': '/elt',
+    },
     urls: {
-        etlOverview: (): string => '/etl',
+        eltOverview: (): string => '/elt',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -40,7 +44,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.TOOLS,
             iconType: 'data_pipeline',
             iconColor: ['var(--color-product-data-warehouse-light)'],
-            href: urls.etlOverview(),
+            href: urls.eltOverview(),
             // The nav entry and the scene body are gated separately. This hides the entry; the
             // scene itself still has to refuse a direct visit.
             flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
