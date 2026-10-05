@@ -2196,7 +2196,7 @@ SQL
     }
   }
 
-  table "saved_query_reads_daily" {
+  table "warehouse_object_reads_daily" {
     partition_by = "toYYYYMMDD(day)"
     order_by = ["team_id", "day", "read_kind", "subject_kind", "subject_id", "workflow_id", "lc_kind", "lc_product", "lc_feature", "lc_access_method", "source", "scene", "has_user_id", "read_alone"]
     ttl      = "day + toIntervalDay(60)"
@@ -2271,7 +2271,7 @@ SQL
       type = "SimpleAggregateFunction(max, DateTime)"
     }
     engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/noshard/posthog.saved_query_reads_daily"
+      zoo_path     = "/clickhouse/tables/noshard/posthog.warehouse_object_reads_daily"
       replica_name = "{replica}-{shard}"
     }
   }

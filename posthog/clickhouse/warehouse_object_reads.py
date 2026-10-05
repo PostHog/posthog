@@ -2,9 +2,9 @@ from enum import StrEnum
 
 from posthog.clickhouse.table_engines import AggregatingMergeTree
 
-SAVED_QUERY_READS_DAILY_TABLE = "saved_query_reads_daily"
-SAVED_QUERY_READS_DAILY_STAGING_TABLE = "saved_query_reads_daily_staging"
-SAVED_QUERY_READS_RETENTION_DAYS = 60
+WAREHOUSE_OBJECT_READS_DAILY_TABLE = "warehouse_object_reads_daily"
+WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE = "warehouse_object_reads_daily_staging"
+WAREHOUSE_OBJECT_READS_RETENTION_DAYS = 60
 
 
 class ReadKind(StrEnum):
@@ -61,34 +61,34 @@ _COLUMNS = f"""
     max_event_time SimpleAggregateFunction(max, DateTime)"""
 
 
-def _saved_query_reads_table_sql(create_clause: str, table_name: str, force_unique_zk_path: bool = False) -> str:
+def _warehouse_object_reads_table_sql(create_clause: str, table_name: str, force_unique_zk_path: bool = False) -> str:
     return f"""
 {create_clause} {table_name}
 ({_COLUMNS}
 ) ENGINE = {AggregatingMergeTree(table_name, force_unique_zk_path=force_unique_zk_path)}
 PARTITION BY toYYYYMMDD(day)
 ORDER BY ({", ".join(SORT_KEY_COLUMNS)})
-TTL day + INTERVAL {SAVED_QUERY_READS_RETENTION_DAYS} DAY
+TTL day + INTERVAL {WAREHOUSE_OBJECT_READS_RETENTION_DAYS} DAY
 SETTINGS ttl_only_drop_parts = 1
 """
 
 
-def SAVED_QUERY_READS_DAILY_TABLE_SQL() -> str:
-    return _saved_query_reads_table_sql("CREATE TABLE IF NOT EXISTS", SAVED_QUERY_READS_DAILY_TABLE)
+def WAREHOUSE_OBJECT_READS_DAILY_TABLE_SQL() -> str:
+    return _warehouse_object_reads_table_sql("CREATE TABLE IF NOT EXISTS", WAREHOUSE_OBJECT_READS_DAILY_TABLE)
 
 
-def SAVED_QUERY_READS_DAILY_STAGING_TABLE_SQL() -> str:
-    return _saved_query_reads_table_sql("CREATE TABLE IF NOT EXISTS", SAVED_QUERY_READS_DAILY_STAGING_TABLE)
+def WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL() -> str:
+    return _warehouse_object_reads_table_sql("CREATE TABLE IF NOT EXISTS", WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE)
 
 
-def REPLACE_SAVED_QUERY_READS_DAILY_STAGING_TABLE_SQL() -> str:
-    return _saved_query_reads_table_sql(
-        "CREATE OR REPLACE TABLE", SAVED_QUERY_READS_DAILY_STAGING_TABLE, force_unique_zk_path=True
+def REPLACE_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL() -> str:
+    return _warehouse_object_reads_table_sql(
+        "CREATE OR REPLACE TABLE", WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE, force_unique_zk_path=True
     )
 
 
-def TRUNCATE_SAVED_QUERY_READS_DAILY_TABLES_SQL() -> list[str]:
+def TRUNCATE_WAREHOUSE_OBJECT_READS_DAILY_TABLES_SQL() -> list[str]:
     return [
         f"TRUNCATE TABLE IF EXISTS {table_name}"
-        for table_name in (SAVED_QUERY_READS_DAILY_TABLE, SAVED_QUERY_READS_DAILY_STAGING_TABLE)
+        for table_name in (WAREHOUSE_OBJECT_READS_DAILY_TABLE, WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE)
     ]
