@@ -156,10 +156,10 @@ const operatorMappingChoice: Record<keyof typeof PropertyType, Record<string, st
 }
 
 // A version segment at the end of the key, as a whole word ('version', 'app_version', 'sdk.version')
-// or as the camel-case tail of one ('appVersion'). The word boundary keeps ordinary text keys such
-// as 'conversion' out.
+// or as the camel-case tail of one ('appVersion', 'SDKVersion'). The camel-case pattern keeps its
+// capital V, which is what holds ordinary text keys such as 'conversion' out.
 const VERSION_KEY_WORD_REGEX = /(?:^|[._\- ])versions?$/i
-const VERSION_KEY_CAMEL_REGEX = /[a-z0-9]Versions?$/
+const VERSION_KEY_CAMEL_REGEX = /[A-Za-z0-9]Versions?$/
 
 function isVersionPropertyKey(propertyKey: string | null | undefined): boolean {
     const key = propertyKey?.replace(/^\$/, '') ?? ''
