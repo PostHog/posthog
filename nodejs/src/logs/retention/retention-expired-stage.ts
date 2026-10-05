@@ -1,9 +1,13 @@
 import { Counter } from 'prom-client'
 
 import type { LogRecord } from '~/logs/log-record-avro'
-import { EMPTY_DROP_STATS, type PipelineStage, recordContentBytes } from '~/logs/pipeline/log-processing-pipeline'
+import { EMPTY_STAGE_DROP_STATS, type PipelineStage, recordContentBytes } from '~/logs/pipeline/log-processing-pipeline'
 
 const MICROS_PER_DAY = 86_400_000_000
+
+function isPastRetention(timestampMicros: number, retentionDays: number, nowMicros: number): boolean {
+    return timestampMicros + retentionDays * MICROS_PER_DAY <= nowMicros
+}
 
 export const logsRetentionExpiredRowsDroppedCounter = new Counter({
     name: 'logs_ingestion_retention_expired_rows_dropped_total',
@@ -23,7 +27,7 @@ export function canHoldExpiredRow(
     if (minTimestampMicros === undefined) {
         return false
     }
-    return minTimestampMicros + shortestRetentionDays * MICROS_PER_DAY <= nowMicros
+    return isPastRetention(minTimestampMicros, shortestRetentionDays, nowMicros)
 }
 
 /**
@@ -35,8 +39,7 @@ function isExpired(record: LogRecord, defaultRetentionDays: number, nowMicros: n
     if (record.timestamp === null) {
         return false
     }
-    const retentionDays = record.retention_days ?? defaultRetentionDays
-    return record.timestamp + retentionDays * MICROS_PER_DAY <= nowMicros
+    return isPastRetention(record.timestamp, record.retention_days ?? defaultRetentionDays, nowMicros)
 }
 
 export function makeRetentionExpiredStage(
@@ -47,9 +50,8 @@ export function makeRetentionExpiredStage(
     return {
         kind: 'filter',
         name: 'retention_expired',
-        measuresBatchContentFirst: true,
         run: (records) => {
-            const stats = EMPTY_DROP_STATS()
+            const stats = EMPTY_STAGE_DROP_STATS()
             const kept: LogRecord[] = []
             for (const record of records) {
                 if (isExpired(record, defaultRetentionDays, nowMicros)) {
@@ -60,7 +62,6 @@ export function makeRetentionExpiredStage(
                 }
             }
             if (stats.recordsDropped > 0) {
-                stats.droppedBy = 'retention_expired'
                 logsRetentionExpiredRowsDroppedCounter.inc({ team_id: String(teamId) }, stats.recordsDropped)
             }
             return { kept, stats }

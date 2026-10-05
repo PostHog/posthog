@@ -2,6 +2,7 @@ import avro from 'avsc'
 
 import type { RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
 import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/logs/log-record-avro'
+import { type DropStats, runPipelineStages } from '~/logs/pipeline/log-processing-pipeline'
 
 import { compileRuleSet } from './compile-rules'
 import type { CompiledRuleSet } from './evaluate'
@@ -58,11 +59,11 @@ describe('LogsSamplingService', () => {
         ruleSet: CompiledRuleSet,
         teamId?: number,
         headerBytesUncompressed = 0
-    ): Promise<
-        { kept: LogRecord[]; allDropped: boolean } & Awaited<ReturnType<LogsSamplingService['sampleRecords']>>['stats']
-    > {
+    ): Promise<{ kept: LogRecord[]; allDropped: boolean } & DropStats> {
         const [, , records] = await decodeLogRecords(buffer)
-        const { kept, stats } = await service.sampleRecords(records, ruleSet, teamId, headerBytesUncompressed)
+        const { kept, stats } = await runPipelineStages(records, [
+            service.makeSamplingStage(ruleSet, teamId, headerBytesUncompressed),
+        ])
         return { ...stats, kept, allDropped: kept.length === 0 }
     }
 

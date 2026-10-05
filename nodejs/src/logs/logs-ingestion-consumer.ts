@@ -44,7 +44,7 @@ import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
-import { EMPTY_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
+import { EMPTY_STAGE_DROP_STATS, type PipelineStage } from './pipeline/log-processing-pipeline'
 import type { RetentionRuleSource } from './retention/compile-retention-rules'
 import type { CompiledRetentionRuleSet } from './retention/evaluate-retention'
 import { canHoldExpiredRow, makeRetentionExpiredStage } from './retention/retention-expired-stage'
@@ -342,13 +342,8 @@ function makeTransformStage(transform: LogRecordsTransform): PipelineStage {
         kind: 'filter',
         name: 'transformations',
         run: async (records) => {
-            const before = records.length
             await transform(records)
-            const stats = EMPTY_DROP_STATS()
-            if (records.length < before) {
-                stats.droppedBy = 'transformations'
-            }
-            return { kept: records, stats }
+            return { kept: records, stats: EMPTY_STAGE_DROP_STATS() }
         },
     }
 }
@@ -520,7 +515,7 @@ export class LogsIngestionConsumer {
               processedValue: Buffer
               pii: PiiScrubStats
               recordsDropped: number
-              recordsDroppedRetentionExpired: number
+              recordsDroppedByStage: Map<string, number>
               recordsDroppedByRuleId: Map<string, number>
               bytesDroppedByRuleId: Map<string, number>
               contentBytesDropped: number
@@ -528,14 +523,10 @@ export class LogsIngestionConsumer {
           }
         | {
               outcome: 'all_dropped'
-              reason:
-                  | 'sampling_all_dropped'
-                  | 'transformations_all_dropped'
-                  | 'retention_expired_all_dropped'
-                  | 'empty_batch'
+              reason: string
               pii: PiiScrubStats
               recordsDropped: number
-              recordsDroppedRetentionExpired: number
+              recordsDroppedByStage: Map<string, number>
               recordsDroppedByRuleId: Map<string, number>
               bytesDroppedByRuleId: Map<string, number>
               contentBytesDropped: number
@@ -574,17 +565,18 @@ export class LogsIngestionConsumer {
         if (recordsTransform) {
             stages.push(makeTransformStage(recordsTransform))
         }
+        let shortestRetentionDays = defaultRetentionDays
         if (useRetention && retentionRuleSet) {
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
+            shortestRetentionDays = Math.min(
+                defaultRetentionDays,
+                ...retentionRuleSet.rules.map((rule) => rule.retentionDays)
+            )
         }
 
         // Checking rows for expiry needs a decode, which every message would otherwise pay to find rows
         // that only backdated imports produce. The stage runs after the retention stage, so it reads the
         // per-row retention that ClickHouse will use.
-        const shortestRetentionDays =
-            useRetention && retentionRuleSet
-                ? Math.min(defaultRetentionDays, ...retentionRuleSet.rules.map((rule) => rule.retentionDays))
-                : defaultRetentionDays
         const nowMicros = Date.now() * 1000
         if (canHoldExpiredRow(message.minTimestampMicros, shortestRetentionDays, nowMicros)) {
             stages.push(makeRetentionExpiredStage(message.teamId, defaultRetentionDays, nowMicros))
@@ -629,7 +621,6 @@ export class LogsIngestionConsumer {
         if (recordsDroppedBySampling > 0) {
             logsSamplingRecordsDroppedCounter.inc({ team_id: message.teamId.toString() }, recordsDroppedBySampling)
         }
-        const recordsDroppedRetentionExpired = drops.recordsDroppedByStage.get('retention_expired') ?? 0
         if (drops.bytesDropped > 0) {
             logsBytesDroppedByRuleCounter.inc({ team_id: message.teamId.toString() }, drops.bytesDropped)
         }
@@ -637,20 +628,13 @@ export class LogsIngestionConsumer {
         if (value === null) {
             // `droppedBy` tells us which filter emptied the batch; its absence means the batch decoded
             // to zero records to begin with, so attribute it to an empty batch rather than sampling.
-            const reason =
-                drops.droppedBy === 'transformations'
-                    ? 'transformations_all_dropped'
-                    : drops.droppedBy === 'sampling'
-                      ? 'sampling_all_dropped'
-                      : drops.droppedBy === 'retention_expired'
-                        ? 'retention_expired_all_dropped'
-                        : 'empty_batch'
+            const reason = drops.droppedBy ? `${drops.droppedBy}_all_dropped` : 'empty_batch'
             return {
                 outcome: 'all_dropped',
                 reason,
                 pii,
                 recordsDropped: drops.recordsDropped,
-                recordsDroppedRetentionExpired,
+                recordsDroppedByStage: drops.recordsDroppedByStage,
                 recordsDroppedByRuleId: drops.recordsDroppedByRuleId,
                 bytesDroppedByRuleId: drops.bytesDroppedByRuleId,
                 contentBytesDropped: drops.contentBytesDropped,
@@ -662,7 +646,7 @@ export class LogsIngestionConsumer {
             processedValue: value,
             pii,
             recordsDropped: drops.recordsDropped,
-            recordsDroppedRetentionExpired,
+            recordsDroppedByStage: drops.recordsDroppedByStage,
             recordsDroppedByRuleId: drops.recordsDroppedByRuleId,
             bytesDroppedByRuleId: drops.bytesDroppedByRuleId,
             contentBytesDropped: drops.contentBytesDropped,
@@ -1025,7 +1009,7 @@ export class LogsIngestionConsumer {
                         this.queueUsageMetric(
                             message.teamId,
                             'records_dropped_retention_expired',
-                            resolved.recordsDroppedRetentionExpired
+                            resolved.recordsDroppedByStage.get('retention_expired') ?? 0
                         )
 
                         let bytesUncompressedHeaderOverride: number | undefined

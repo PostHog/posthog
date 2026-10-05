@@ -78,6 +78,7 @@ export class LogsSamplingService {
     public async sampleRecords(
         records: LogRecord[],
         ruleSet: CompiledRuleSet,
+        contentBytesTotal: number,
         teamId?: number,
         headerBytesUncompressed: number = 0
     ): Promise<FilterResult> {
@@ -87,7 +88,6 @@ export class LogsSamplingService {
         let bytesDropped = 0
         const bytesDroppedByRuleId = new Map<string, number>()
         let contentBytesDropped = 0
-        const contentBytesTotal = records.reduce((sum, r) => sum + recordContentBytes(r), 0)
 
         const useRate = Boolean(ruleSet.hasRateLimitRules && teamId != null)
 
@@ -173,9 +173,6 @@ export class LogsSamplingService {
                 bytesDropped,
                 bytesDroppedByRuleId,
                 contentBytesDropped,
-                contentBytesTotal,
-                recordsDroppedByStage: new Map(),
-                droppedBy: recordsDropped > 0 ? 'sampling' : undefined,
             },
         }
     }
@@ -189,7 +186,8 @@ export class LogsSamplingService {
         return {
             kind: 'filter',
             name: 'sampling',
-            run: (records) => this.sampleRecords(records, ruleSet, teamId, headerBytesUncompressed),
+            run: (records, batch) =>
+                this.sampleRecords(records, ruleSet, batch.contentBytesTotal, teamId, headerBytesUncompressed),
         }
     }
 

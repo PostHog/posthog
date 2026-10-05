@@ -610,7 +610,7 @@ export const processLogMessageBuffer = instrumented({
             // No surviving records — signal the caller to suppress the message rather than forward or
             // re-encode an empty batch downstream. Checked before the visitor-only shortcut below so a
             // zero-record batch decoded solely for metric-rule tallying is suppressed too.
-            // `stats.droppedBy` distinguishes a filter drop (sampling / transformations) from an
+            // `stats.droppedBy` distinguishes a filter drop (it names the stage) from an
             // already-empty batch so the caller can attribute it correctly.
             return { value: null, pii, drops: stats }
         }

@@ -1,6 +1,6 @@
 import type { LogRecord } from '~/logs/log-record-avro'
 
-import { EMPTY_DROP_STATS, type PipelineStage, runPipelineStages } from './log-processing-pipeline'
+import { EMPTY_STAGE_DROP_STATS, type PipelineStage, runPipelineStages } from './log-processing-pipeline'
 
 describe('runPipelineStages', () => {
     const rec = (uuid: string): LogRecord =>
@@ -18,7 +18,7 @@ describe('runPipelineStages', () => {
         name,
         run: (records) => {
             const kept = records.slice(1)
-            return { kept, stats: { ...EMPTY_DROP_STATS(), recordsDropped: 1, droppedBy: name } }
+            return { kept, stats: { ...EMPTY_STAGE_DROP_STATS(), recordsDropped: 1 } }
         },
     })
 
@@ -47,10 +47,7 @@ describe('runPipelineStages', () => {
     it('measures the billing pro-rate total over the whole batch when a later filter drops after an earlier one', async () => {
         // Each record's content is its one-byte body. The transform drops one row before the expiry
         // filter runs, so a total measured by that filter would cover two rows instead of three.
-        const stages: PipelineStage[] = [
-            dropFirst('transformations'),
-            { ...dropFirst('retention_expired'), measuresBatchContentFirst: true },
-        ]
+        const stages: PipelineStage[] = [dropFirst('transformations'), dropFirst('retention_expired')]
         const { stats } = await runPipelineStages([rec('a'), rec('b'), rec('c')], stages)
         expect(stats.contentBytesTotal).toBe(3)
         expect(Object.fromEntries(stats.recordsDroppedByStage)).toEqual({ transformations: 1, retention_expired: 1 })
@@ -63,7 +60,7 @@ describe('runPipelineStages', () => {
             name: 'sampling',
             run: (records) => ({
                 kept: [],
-                stats: { ...EMPTY_DROP_STATS(), recordsDropped: records.length, droppedBy: 'sampling' },
+                stats: { ...EMPTY_STAGE_DROP_STATS(), recordsDropped: records.length },
             }),
         }
         const later: PipelineStage = { kind: 'mutate', name: 'later', run: () => void (laterRan = true) }
