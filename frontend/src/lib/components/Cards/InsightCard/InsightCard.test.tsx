@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { mockAllIsIntersecting } from 'react-intersection-observer/test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 import EXAMPLE_TRENDS from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import { useMocks } from '~/mocks/jest'
@@ -54,19 +55,36 @@ describe('InsightCard', () => {
             expect(screen.getByText("This query couldn't run right now")).toBeVisible()
         })
 
-        it('holds the card refresh controls until its capacity cooldown ends', () => {
+        it.each([
+            { source: 'card', cardWait: 45, embeddedWait: null },
+            { source: 'embedded query', cardWait: null, embeddedWait: 45 },
+            { source: 'longer card wait', cardWait: 45, embeddedWait: 30 },
+            { source: 'longer embedded wait', cardWait: 30, embeddedWait: 45 },
+        ])('holds refresh controls until the $source cooldown ends', ({ cardWait, embeddedWait }) => {
             const refresh = jest.fn()
             const { container } = render(
                 <InsightCard
                     insight={insight}
                     placement="SavedInsightGrid"
                     doNotLoad
-                    apiErrored
-                    apiError={new ApiError('', 503, new Headers({ 'Retry-After': '45' }))}
+                    apiErrored={cardWait !== null}
+                    apiError={
+                        cardWait === null
+                            ? undefined
+                            : new ApiError('', 503, new Headers({ 'Retry-After': String(cardWait) }))
+                    }
                     refresh={refresh}
                 />
             )
             act(() => mockAllIsIntersecting(true))
+            if (embeddedWait !== null) {
+                act(() => {
+                    insightDataLogic({ dashboardItemId: insight.short_id }).actions.loadDataFailure(
+                        'Capacity rejected',
+                        new ApiError('', 503, new Headers({ 'Retry-After': String(embeddedWait) }))
+                    )
+                })
+            }
             const headerRefresh = container.querySelector('[data-attr="insight-card-refresh"]')!
             expect(headerRefresh).toHaveAttribute('aria-disabled', 'true')
             fireEvent.click(headerRefresh)
@@ -78,7 +96,11 @@ describe('InsightCard', () => {
             fireEvent.click(menuRefresh)
             expect(refresh).not.toHaveBeenCalled()
 
-            act(() => jest.advanceTimersByTime(45_000))
+            act(() => jest.advanceTimersByTime(30_000))
+            expect(headerRefresh).toHaveAttribute('aria-disabled', 'true')
+            fireEvent.click(headerRefresh)
+            expect(refresh).not.toHaveBeenCalled()
+            act(() => jest.advanceTimersByTime(15_000))
             expect(headerRefresh).toHaveAttribute('aria-disabled', 'false')
             fireEvent.click(screen.getByLabelText('more'))
             expect(screen.getByTestId('dashboard-tile-refresh-data')).toHaveAttribute('aria-disabled', 'false')

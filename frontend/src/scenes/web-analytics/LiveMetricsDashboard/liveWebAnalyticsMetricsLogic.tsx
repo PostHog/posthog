@@ -12,7 +12,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
-import { retryWithBackoff } from 'lib/utils/async'
 import { CATEGORY_LABELS } from 'lib/utils/botDetection'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { isAbortedRequest } from 'lib/utils/requests'
@@ -72,8 +71,6 @@ const COUNTRY_BREAKDOWN_LIMIT = 6
 const CITY_BREAKDOWN_LIMIT = 6
 const LIVE_QUERY_SCENE = 'web-analytics-live'
 const LIVE_QUERY_CONCURRENCY = 4
-const LIVE_QUERY_MAX_ATTEMPTS = 3
-const LIVE_QUERY_RETRY_DELAY_MS = 250
 const RELOAD_DEBOUNCE_MS = 300
 const HOGQL_RELOAD_INTERVAL_MS = 30000
 const PAUSE_GRACE_MS = 2000
@@ -88,22 +85,6 @@ const liveQueryTags = (name: string): QueryLogTags => ({
     scene: LIVE_QUERY_SCENE,
     name,
 })
-
-const isTransientQueryError = (error: unknown): boolean => {
-    // performQuery owns 502/503 retries and capacity waits.
-    return (error as { status?: number } | null)?.status === 504
-}
-
-const performLiveQuery = <N extends HogQLQuery | TrendsQuery>(
-    query: N,
-    signal: AbortSignal
-): Promise<NonNullable<N['response']>> =>
-    retryWithBackoff(() => performQuery(query, { signal }), {
-        maxAttempts: LIVE_QUERY_MAX_ATTEMPTS,
-        initialDelayMs: LIVE_QUERY_RETRY_DELAY_MS,
-        signal,
-        shouldRetry: isTransientQueryError,
-    })
 
 const collapseTopWithOther = <T extends { count: number; percentage: number }>(
     items: T[],
@@ -1428,7 +1409,7 @@ const loadQueryData = async ({
     const settled = await Promise.allSettled(
         jobs.map((job) =>
             liveQueryConcurrency.run({
-                fn: () => performLiveQuery(job.query, signal),
+                fn: () => performQuery(job.query, { signal }),
                 abortController,
                 debugTag: job.key,
             })
@@ -1524,7 +1505,7 @@ const loadBotQueryData = async ({
 
     try {
         return await liveQueryConcurrency.run({
-            fn: () => performLiveQuery(botQuery, signal),
+            fn: () => performQuery(botQuery, { signal }),
             abortController,
             debugTag: 'bot',
         })

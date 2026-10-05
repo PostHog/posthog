@@ -332,10 +332,14 @@ function InsightCardInternal(
     )
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
-    const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
+    const { insightDataLoading, insightDataError } = useValues(insightDataLogic(insightLogicProps))
 
     const [, setCooldownTick] = useState(0)
-    const capacityRetryAt = apiErrored && apiError instanceof ApiError ? apiError.retryAfterTimestamp : null
+    const capacityRetryAt =
+        Math.max(
+            apiErrored && apiError instanceof ApiError ? (apiError.retryAfterTimestamp ?? 0) : 0,
+            insightDataError instanceof ApiError ? (insightDataError.retryAfterTimestamp ?? 0) : 0
+        ) || null
     const retrySecondsLeft = capacityRetryAt ? Math.max(0, Math.ceil((capacityRetryAt - Date.now()) / 1000)) : 0
     useInterval(() => setCooldownTick((tick) => tick + 1), retrySecondsLeft > 0 ? 1000 : null)
     const refreshDisabledReason =

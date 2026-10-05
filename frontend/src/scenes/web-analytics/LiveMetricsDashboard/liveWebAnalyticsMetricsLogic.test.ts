@@ -65,23 +65,41 @@ describe('liveWebAnalyticsMetricsLogic', () => {
         })
     }
 
-    it.each([502, 503])('keeps the shared submission budget for HTTP %i failures', async (status) => {
-        await expectLogic(logic).toFinishAllListeners()
-        jest.useFakeTimers()
-        jest.spyOn(console, 'error').mockImplementation(() => undefined)
-        jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
-        ;(api.query as jest.Mock).mockClear().mockRejectedValue(new ApiError('', status))
-        logic.actions.loadInitialData(true)
+    it.each(
+        [
+            { statuses: [502], attempts: 3 },
+            { statuses: [503], attempts: 3 },
+            { statuses: [504], attempts: 1 },
+            { statuses: [502, 502, 504], attempts: 3 },
+            { statuses: [502, 504], attempts: 2 },
+        ].flatMap((testCase) =>
+            ['live_device_breakdown', 'live_bots'].map((failedQuery) => ({ ...testCase, failedQuery }))
+        )
+    )(
+        'bounds $failedQuery submissions for $statuses failures to $attempts attempts',
+        async ({ statuses, attempts, failedQuery }) => {
+            enableBotAnalysis()
+            await expectLogic(logic).toFinishAllListeners()
+            jest.useFakeTimers()
+            jest.spyOn(console, 'error').mockImplementation(() => undefined)
+            jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            let queryAttempts = 0
+            ;(api.query as jest.Mock).mockClear().mockImplementation(async (query: HogQLQuery | TrendsQuery) => {
+                if (query.tags?.name === failedQuery) {
+                    throw new ApiError('', statuses[queryAttempts++ % statuses.length])
+                }
+                return { results: [] }
+            })
+            logic.actions.loadInitialData(true)
 
-        await jest.advanceTimersByTimeAsync(10_000)
+            await jest.advanceTimersByTimeAsync(10_000)
 
-        const names = getLiveQueryNames()
-        expect(names.length).toBeGreaterThan(0)
-        for (const name of new Set(names)) {
-            expect(names.filter((queryName) => queryName === name)).toHaveLength(3)
+            const names = getLiveQueryNames()
+            expect(names).toContain('live_bots')
+            expect(names.filter((name) => name === failedQuery)).toHaveLength(attempts)
+            expect(logic.values.isLoading).toBe(false)
         }
-        expect(logic.values.isLoading).toBe(false)
-    })
+    )
 
     it.each(['live_device_breakdown', 'live_bots'])(
         'respects %s capacity hints during retries and periodic refreshes',
