@@ -1,12 +1,13 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
-import { lazy, Suspense, useId, useMemo, useState } from 'react'
+import { Suspense, useId, useMemo, useState } from 'react'
 
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { DashboardModalLoading } from 'scenes/dashboard/DashboardModalLoading'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -48,7 +49,7 @@ import { AdLevelInfoBanner } from './AdLevelInfoBanner'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 
 // The modal pulls in the recordings playlist and player, so keep it off the dashboard and events eager paths.
-const ConversionRecordingsModal = lazy(() =>
+const ConversionRecordingsModal = lazyWithRetry(() =>
     import('products/marketing_analytics/frontend/ConversionRecordingsModal').then((module) => ({
         default: module.ConversionRecordingsModal,
     }))
