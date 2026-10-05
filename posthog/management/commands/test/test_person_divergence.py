@@ -52,6 +52,14 @@ class TestPersonDivergenceCommand(ClickhouseTestMixin, BaseTest):
         assert [row["outcome"] for row in applied] == ["repaired"]
         assert self._ch_winner(person_uuid) == (0, 104)
 
+    def test_team_scan_writes_one_row_per_team(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = self._run(
+                "scan", "team", "--team-id", str(self.team.pk), "--before", "2100-01-01", "--output", f"{tmp}/team.csv"
+            )
+
+        assert [row["team_id"] for row in rows] == [str(self.team.pk)]
+
 
 class TestPersonDivergenceArguments(SimpleTestCase):
     @parameterized.expand(
@@ -63,6 +71,19 @@ class TestPersonDivergenceArguments(SimpleTestCase):
                 "empty_team_range",
                 ["hidden", "--min-team-id", "5", "--max-team-id", "5"],
                 "--max-team-id must be above --min-team-id",
+            ),
+            ("modulus_zero", ["sample", "--modulus", "0", "--residue", "0"], "0 must be 1 or more"),
+            ("residue_at_modulus", ["sample", "--modulus", "4", "--residue", "4"], "--residue must be between 0 and 3"),
+            ("residue_negative", ["sample", "--modulus", "4", "--residue", "-1"], "--residue must be between 0 and 3"),
+            (
+                "written_within_zero",
+                ["sample", "--modulus", "4", "--residue", "0", "--written-within-days", "0"],
+                "0 must be 1 or more",
+            ),
+            (
+                "sample_size_zero",
+                ["team", "--team-id", "1", "--before", "2026-01-01", "--sample-size", "0"],
+                "0 must be 1 or more",
             ),
         ]
     )
