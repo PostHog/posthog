@@ -62,6 +62,7 @@ the row lists both.
 | agilecrm                         | HTTP                        | requests                                                        | ✅                          |
 | aha                              | HTTP                        | requests                                                        | ✅                          |
 | aha_ideas                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| ahrefs                           | HTTP                        | requests                                                        | ✅                          |
 | airbrake                         | HTTP                        | requests                                                        | ✅                          |
 | aircall                          | HTTP                        | requests                                                        | ✅                          |
 | airops                           | HTTP                        | requests                                                        | ✅                          |
@@ -620,6 +621,7 @@ the row lists both.
 | pulumi_cloud                     | HTTP                        | requests                                                        | ✅                          |
 | pylon                            | HTTP                        | requests                                                        | ✅                          |
 | pypi                             | HTTP                        | requests                                                        | ✅                          |
+| qdrant                           | HTTP                        | requests                                                        | ✅                          |
 | qualaroo                         | HTTP                        | requests                                                        | ✅                          |
 | qualtrics                        | HTTP                        | requests                                                        | ✅                          |
 | qualys_vmdr                      | HTTP (XML responses)        | requests                                                        | ✅                          |
@@ -636,6 +638,7 @@ the row lists both.
 | recruitee                        | HTTP                        | requests                                                        | ✅                          |
 | reddit_ads                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | redshift                         | DB protocol                 | psycopg (Postgres-compatible)                                   | ➖                          |
+| referralhero                     | HTTP                        | requests                                                        | ✅                          |
 | render                           | HTTP                        | requests                                                        | ✅                          |
 | rentcast                         | HTTP                        | requests                                                        | ✅                          |
 | replicate                        | HTTP                        | requests                                                        | ✅                          |
@@ -893,7 +896,6 @@ doesn't conflict with concurrent PRs.
 - adapty
 - adobe_commerce
 - adp_workforce_now
-- ahrefs
 - aikido_security
 - airbridge
 - airbyte
@@ -1325,7 +1327,6 @@ doesn't conflict with concurrent PRs.
 - promptwatch
 - proofpoint_tap
 - pubnub
-- qdrant
 - qonto
 - quay
 - quickbooks
@@ -1340,7 +1341,6 @@ doesn't conflict with concurrent PRs.
 - reddit
 - redis
 - redpanda_cloud
-- referralhero
 - rent_manager
 - repairshopr
 - reply_io
