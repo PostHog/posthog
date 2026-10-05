@@ -16,6 +16,8 @@ export enum Scene {
     AgenticAuthorize = 'AgenticAuthorize',
     AIGateway = 'AIGateway',
     Alerts = 'Alerts',
+    PlatformAlerts = 'PlatformAlerts',
+    PlatformAlert = 'PlatformAlert',
     Annotations = 'Annotations',
     Autoresearch = 'Autoresearch',
     AutoresearchNew = 'AutoresearchNew',
