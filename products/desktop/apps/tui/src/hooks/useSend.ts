@@ -253,7 +253,10 @@ export function useSend({
       },
       (error: unknown) => {
         clearPending();
-        flashNotice(`Couldn't send: ${messageOf(error)}`);
+        composerFor(paneId).putBack(text, images);
+        flashNotice(
+          `Couldn't send: ${messageOf(error)}. Your message is still in the composer.`,
+        );
       },
     );
   };
