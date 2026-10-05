@@ -2097,18 +2097,14 @@ def test_full_job_property_removal_fresh_run_after_failure_restores_every_row(
 
 
 @pytest.mark.django_db
-def test_full_job_property_removal_fails_on_residual_duplicates(cluster: ClickhouseCluster):
+def test_full_job_property_removal_counts_duplicate_uuids_once(cluster: ClickhouseCluster):
     marker = timezone.now() - timedelta(minutes=5)
     now = datetime.now()
     dup_uuid = uuid4()
-    clean = json.dumps({"keep": "yes"})
-    # Two cleaned twins of one uuid from a hypothetically-broken earlier attempt, with no original
-    # left in scope, so nothing this run stages re-supplies that uuid. The twins carry different
-    # distinct_ids (distinct sorting keys) so a background replacing merge cannot collapse them
-    # mid-test and un-seed the corruption before verification observes it.
+    props = json.dumps({"secret": "value", "keep": "yes"})
     rows = [
-        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-1", now - timedelta(hours=1), clean, marker),
-        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-2", now - timedelta(hours=1), clean, marker),
+        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-1", now - timedelta(hours=1), props, marker - timedelta(hours=1)),
+        (PROP_TEAM_ID, "$pageview", dup_uuid, "user-2", now - timedelta(hours=1), props, marker - timedelta(hours=1)),
     ]
     cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, rows)).result()
 
@@ -2118,9 +2114,12 @@ def test_full_job_property_removal_fails_on_residual_duplicates(cluster: Clickho
         resources={"cluster": cluster},
         raise_on_error=False,
     )
-    assert not result.success
+    assert result.success
     request.refresh_from_db()
-    assert request.status == RequestStatus.FAILED
+    assert request.status == RequestStatus.COMPLETED
+    cleaned = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+    assert len(cleaned) == 2
+    assert all("secret" not in properties and "keep" in properties for properties in cleaned)
 
 
 @pytest.mark.django_db

@@ -921,7 +921,7 @@ class PropertyRemovalTarget:
 
 @frozen
 class _MonthFingerprint:
-    """Identifies one month of rows: how many, and the sum of their uuid hashes."""
+    """Identifies one month of event UUIDs: how many, and the sum of their hashes."""
 
     rows: int
     uuid_hash: int
@@ -975,17 +975,18 @@ class _ShardStaging:
         if not months:
             return {}
         rows = client.execute(
-            f"SELECT _file, count() FROM s3({self.data_args(months)}) GROUP BY _file",
+            f"SELECT _file, uniqExact(uuid) FROM s3({self.data_args(months)}) GROUP BY _file",
             settings=_LONG_QUERY_SETTINGS,
         )
         return {file.removesuffix(".native"): count for file, count in rows}
 
     def staged_fingerprints(self, client: Client, months: list[str]) -> dict[str, _MonthFingerprint]:
-        """Row count and uuid hash sum of each staged monthly file."""
+        """Unique uuid count and hash sum of each staged monthly file."""
         if not months:
             return {}
         rows = client.execute(
-            f"SELECT _file, count(), sum(cityHash64(uuid)) FROM s3({self.data_args(months)}) GROUP BY _file",
+            f"SELECT _file, uniqExact(uuid), sumDistinct(cityHash64(uuid)) "
+            f"FROM s3({self.data_args(months)}) GROUP BY _file",
             settings=_LONG_QUERY_SETTINGS,
         )
         return {
@@ -1258,7 +1259,7 @@ def copy_property_removal_shard(
         cleaned = _cleaned_select_list(client, deletion_request, target, predicate.mat_cols, marker_str)
 
         count_sql = (
-            f"SELECT toString(toYYYYMM(timestamp)) AS month, count() FROM {db}.{target.table} "
+            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid) FROM {db}.{target.table} "
             f"WHERE {predicate.sql} GROUP BY month"
         )
         log("count-originals", count_sql)
@@ -1337,7 +1338,7 @@ def delete_property_removal_shard(
         _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
         fingerprint_sql = (
-            f"SELECT toString(toYYYYMM(timestamp)) AS month, count(), sum(cityHash64(uuid)) "
+            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid), sumDistinct(cityHash64(uuid)) "
             f"FROM {db}.{target.table} WHERE {predicate.sql} GROUP BY month"
         )
         log("fingerprint-originals", fingerprint_sql)
@@ -1348,8 +1349,8 @@ def delete_property_removal_shard(
             )
         }
         originals = sum(fingerprint.rows for fingerprint in source.values())
-        # The delete removes every row the predicate matches, so every one of them must be staged. A count
-        # alone misses a different set of the same size; the uuid hash sum catches it.
+        # The copy retains physical duplicates, so completeness is measured by UUID. A count alone misses
+        # a different set of the same size; the UUID hash sum catches it.
         if source != staged:
             if _DELETE_STARTED not in steps:
                 # Nothing is deleted yet, so copying again is safe. Discarding the copy's progress file
@@ -1479,13 +1480,13 @@ def reingest_property_removal_shard(
             client.execute(insert_sql, settings={**_LONG_QUERY_SETTINGS, "insert_deduplicate": 0})
 
             stamped = client.execute(
-                f"SELECT count() FROM {db}.{target.table} WHERE {partial_rows}",
+                f"SELECT uniqExact(uuid) FROM {db}.{target.table} WHERE {partial_rows}",
                 month_params,
                 settings=_LONG_QUERY_SETTINGS,
             )[0][0]
             if stamped != expected:
                 raise dagster.Failure(
-                    description=f"[{target.mapping_key}] month {month}: {stamped} cleaned rows present, "
+                    description=f"[{target.mapping_key}] month {month}: {stamped} cleaned uuids present, "
                     f"{expected} staged. Re-execute this step."
                 )
             staging.finish_step(client, f"{_REINGESTED}_{month}", {"rows": stamped})
@@ -1505,7 +1506,7 @@ def verify_property_removal_shard(
     target: PropertyRemovalTarget,
     deletion_request: DeletionRequestContext,
 ) -> dict:
-    """Fail when this shard kept an original, lost a row, or holds a target property on a cleaned row."""
+    """Fail when this shard kept an original, lost a uuid, or holds a target property on a cleaned row."""
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
     hogql_compiled = _compile_predicate(deletion_request, target)
@@ -1546,17 +1547,16 @@ def verify_property_removal_shard(
             **_presence_params(deletion_request),
         }
         presence = _target_presence_clause(deletion_request, target, predicate.mat_cols)
-        cleaned, still_present, duplicated = client.execute(
-            f"SELECT count(), countIf({presence}), count() - uniqExact(uuid) "
-            f"FROM {db}.{target.table} WHERE {cleaned_rows}",
+        cleaned, still_present = client.execute(
+            f"SELECT uniqExact(uuid), countIf({presence}) FROM {db}.{target.table} WHERE {cleaned_rows}",
             cleaned_params,
             settings=_LONG_QUERY_SETTINGS,
         )[0]
-        if remaining or still_present or duplicated or cleaned != copied["rows"]:
+        if remaining or still_present or cleaned != copied["rows"]:
             raise dagster.Failure(
                 description=f"[{target.mapping_key}] verification failed: {remaining} originals remain, "
-                f"{cleaned} cleaned rows for {copied['rows']} copied, {still_present} cleaned rows still "
-                f"carry a target property, {duplicated} duplicated uuids. Investigate before re-running."
+                f"{cleaned} cleaned uuids for {copied['rows']} copied, {still_present} cleaned rows still "
+                "carry a target property. Investigate before re-running."
             )
         staging.finish_step(client, _VERIFIED, {"rows": cleaned})
         return stats
@@ -1601,17 +1601,14 @@ def verify_property_removal(
     deletion_request: DeletionRequestContext,
     shard_stats: list[dict],
 ) -> DeletionRequestContext:
-    """Fail the run when property removal left originals behind or duplicated cleaned rows.
+    """Fail the run when property removal left originals behind.
 
     Takes ``shard_stats`` (one dict per shard op) purely to sequence verification after every
     shard op has finished — a Dagster fan-in.
 
-    Two checks over each distributed events table:
-    - remaining: rows still matching the full removal predicate (same builder and
-      ``inserted_at_max`` bound as the copy/delete passes, so post-marker ingestion
-      cannot wedge verification). Non-zero means an original survived.
-    - duplicates: uuids appearing more than once among marker-stamped rows. Non-zero
-      means a cleaned re-insert was duplicated.
+    Checks each distributed events table for rows that still match the full removal predicate.
+    It uses the same ``inserted_at_max`` bound as the copy and delete passes, so post-marker
+    ingestion cannot wedge verification. A non-zero result means an original survived.
     """
     total_copied = sum(stats["copied"] for stats in shard_stats)
     context.log.info(f"All {len(shard_stats)} shard op(s) finished; {total_copied} events copied+cleaned in total")
@@ -1647,7 +1644,7 @@ def verify_property_removal(
         table: str,
         json_schema: bool,
         hogql_compiled: tuple[str, dict],
-    ) -> tuple[int, int]:
+    ) -> int:
         mat_cols = (
             _get_affected_mat_columns(client, table, properties, table_column="properties")
             if properties and not json_schema
@@ -1671,45 +1668,28 @@ def verify_property_removal(
             params,
             settings={"max_execution_time": 1800},
         )[0][0]
-        duplicates = client.execute(
-            "SELECT count() FROM ("
-            f"SELECT uuid FROM {table} "
-            "WHERE team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s "
-            "AND inserted_at = toDateTime64(%(marker)s, 6, 'UTC') AND _row_exists = 1 "
-            "GROUP BY uuid HAVING count() > 1)",
-            {
-                "team_id": deletion_request.team_id,
-                "start_time": deletion_request.start_time,
-                "end_time": deletion_request.end_time,
-                "marker": marker_str,
-            },
-            settings={"max_execution_time": 1800},
-        )[0][0]
-        return remaining, duplicates
+        return remaining
 
     results = [
         cluster.any_host(partial(check, table=table, json_schema=json_schema, hogql_compiled=hogql_compiled)).result()
         for table, json_schema, hogql_compiled in targets
     ]
-    remaining = sum(result[0] for result in results)
-    duplicates = sum(result[1] for result in results)
+    remaining = sum(results)
     context.add_output_metadata(
         {
             "remaining_originals": dagster.MetadataValue.int(remaining),
-            "duplicated_cleaned_uuids": dagster.MetadataValue.int(duplicates),
             "shards_processed": dagster.MetadataValue.int(len(shard_stats)),
             "total_copied": dagster.MetadataValue.int(total_copied),
         }
     )
-    if remaining or duplicates:
+    if remaining:
         raise dagster.Failure(
             description=(
                 f"Property removal verification failed for request {deletion_request.request_id}: "
-                f"{remaining} events still match the removal predicate, "
-                f"{duplicates} cleaned uuids are duplicated. Investigate before re-approving."
+                f"{remaining} events still match the removal predicate. Investigate before re-approving."
             )
         )
-    context.log.info("Property removal verified: no residual originals, no duplicated cleaned rows.")
+    context.log.info("Property removal verified: no residual originals.")
     return deletion_request
 
 

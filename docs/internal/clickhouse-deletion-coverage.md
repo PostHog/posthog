@@ -178,6 +178,7 @@ Neither restores what earlier runs left behind. That needs a backfill sweep over
 Because the table can no longer hold person properties, only the event-`properties` half of a request can match rows here.
 
 The events property-removal path copies each shard's matching rows to S3 with the keys dropped and each affected materialized column reset (`NULL` when nullable, `''` otherwise), then deletes the originals and inserts the cleaned copy back.
+The staged files retain every physical row, while copy, reingest and verification progress counts each event UUID once so unmerged `ReplacingMergeTree` duplicates do not block the request.
 That works because `materialize()` creates columns as `DEFAULT <expr>`, so an insert can set the column directly.
 
 All of that machinery (column discovery, staged rewrite, shard walk) is scoped to `events`; none of it reaches `flag_evaluations`.
