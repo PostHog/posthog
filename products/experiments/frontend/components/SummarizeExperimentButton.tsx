@@ -6,6 +6,7 @@ import { IconSparkles } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { addProductIntent } from 'lib/utils/product-intents'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -13,8 +14,6 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
-
-import { experimentLogic } from '../experimentLogic'
 
 /**
  * Minimal context sent to the backend for experiment summarization.
