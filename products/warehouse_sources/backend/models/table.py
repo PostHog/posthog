@@ -485,6 +485,10 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self._reject_client_supplied_url_pattern_change(update_fields=None)
 
     def _validate_models_namespace(self) -> None:
+        # A materialized model stores its rows in a private backing table that has the model's name.
+        # The HogQL schema never exposes that table, so it does not claim the namespace.
+        if self.created_via == self.CreatedVia.MATERIALIZED_VIEW:
+            return
         if is_reserved_models_name(self.name):
             raise ValidationError(
                 {"name": "The models namespace is reserved for data models. Choose a different table name."}
