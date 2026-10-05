@@ -128,7 +128,7 @@ export function formatDuration(durationNano: number): string {
  * `Date.getTime()` only gives millisecond resolution, losing sub-ms
  * precision from timestamps like "2024-01-15T10:30:00.123456Z".
  */
-function parseTimestampUs(iso: string): number {
+export function parseTimestampUs(iso: string): number {
     const ms = new Date(iso).getTime()
     // Extract fractional seconds beyond milliseconds
     const dot = iso.indexOf('.')

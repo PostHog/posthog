@@ -243,6 +243,43 @@ def with_span_attribute_type_suffix(prop: SpanPropertyFilter) -> SpanPropertyFil
     return prop
 
 
+def parse_span_events(raw_events: list[str]) -> list[dict]:
+    """Decode the JSON span events that capture-logs writes, earliest first. Skip elements that are not JSON objects."""
+    parsed: list[tuple[int, dict]] = []
+    for raw in raw_events:
+        try:
+            event = json.loads(raw)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(event, dict):
+            continue
+        time_unix_nano = event.get("time_unix_nano")
+        if not isinstance(time_unix_nano, int) or time_unix_nano < 0:
+            time_unix_nano = 0
+        attributes = event.get("attributes")
+        timestamp = None
+        # OpenTelemetry uses 0 for an unknown event time.
+        if time_unix_nano > 0:
+            seconds, nanos = divmod(time_unix_nano, 1_000_000_000)
+            timestamp = dt.datetime.fromtimestamp(seconds, tz=ZoneInfo("UTC")) + dt.timedelta(
+                microseconds=nanos // 1000
+            )
+        parsed.append(
+            (
+                time_unix_nano,
+                {
+                    "name": str(event.get("name") or ""),
+                    "timestamp": timestamp,
+                    "attributes": {str(k): str(v) for k, v in attributes.items()}
+                    if isinstance(attributes, dict)
+                    else {},
+                },
+            )
+        )
+    parsed.sort(key=lambda item: item[0])
+    return [event for _, event in parsed]
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -523,6 +560,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 # the slowest/fastest sorts. Falls back to this row's own duration.
                 "trace_duration": result[16] if result[16] is not None else result[10],
             }
+            if self._include_events:
+                row["events"] = parse_span_events(result[17])
             results.append(row)
 
         return TraceSpansQueryResponse(results=results, **self.paginator.response_params())
@@ -531,6 +570,15 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         response = super().run(*args, **kwargs)
         assert isinstance(response, TraceSpansQueryResponse | CachedTraceSpansQueryResponse)
         return response
+
+    @property
+    def _include_events(self) -> bool:
+        """Only the single-trace view reads span events. The column is large, so list queries skip it."""
+        return self.query.traceId is not None and not self.query.excludeAttributes
+
+    def _events_column(self) -> ast.Expr:
+        # Select an empty array when skipped, so the positional result mapping stays stable.
+        return parse_expr("events" if self._include_events else "[] AS events")
 
     @property
     def _by_duration(self) -> bool:
@@ -677,7 +725,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 min(if({where_for_start}, timestamp, NULL)) OVER (PARTITION BY trace_id) as trace_start,
                 {attributes},
                 {resource_attributes},
-                max(if({where_for_start}, duration_nano, NULL)) OVER (PARTITION BY trace_id) as trace_duration
+                max(if({where_for_start}, duration_nano, NULL)) OVER (PARTITION BY trace_id) as trace_duration,
+                {events}
             FROM posthog.trace_spans
             WHERE {filters} AND {trace_filter} LIMIT {limit}
         """,
@@ -699,6 +748,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "resource_attributes": parse_expr(
                     "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
                 ),
+                "events": self._events_column(),
             },
         )
         assert isinstance(query, ast.SelectQuery)
@@ -809,7 +859,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 timestamp as trace_start,
                 {attributes},
                 {resource_attributes},
-                duration_nano as trace_duration
+                duration_nano as trace_duration,
+                {events}
             FROM posthog.trace_spans
             WHERE {where}
         """,
@@ -819,6 +870,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 "resource_attributes": parse_expr(
                     "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
                 ),
+                "events": self._events_column(),
             },
         )
         assert isinstance(query, ast.SelectQuery)
