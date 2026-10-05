@@ -293,7 +293,7 @@ function mergeWithExisting(
             const base = op.operationId.replace(/_\d+$/, '')
             const toolName = operationIdToToolName(op.operationId)
             // A kept enabled tool with a lost operation can share this name. Do not overwrite it.
-            if (!existingBaseIds.has(base) && !(toolName in mergedTools)) {
+            if (!existingBaseIds.has(base) && !Object.hasOwn(mergedTools, toolName)) {
                 mergedTools[toolName] = {
                     operation: op.operationId,
                     enabled: false,
@@ -331,6 +331,24 @@ function mergeWithExisting(
         unmatchedTools,
         lostEnabledTools,
     }
+}
+
+/**
+ * An enabled tool whose operation vanished stays in the YAML. Report it and
+ * fail the command so the author fixes it before codegen rejects the file.
+ */
+function reportLostEnabledTools(lostEnabledTools: string[]): void {
+    if (lostEnabledTools.length === 0) {
+        return
+    }
+    process.stderr.write(
+        `  ✗ ${lostEnabledTools.length} enabled tool(s) reference an operationId that no longer exists in OpenAPI. ` +
+            `Fix "operation:" or set "enabled: false" / remove the tool:\n`
+    )
+    for (const tool of lostEnabledTools) {
+        process.stderr.write(`    - ${tool}\n`)
+    }
+    process.exitCode = 1
 }
 
 // ------------------------------------------------------------------
@@ -454,16 +472,7 @@ function syncAll(spec: OpenApiSpec): void {
                 process.stderr.write(`    - ${tool}\n`)
             }
         }
-        if (lostEnabledTools.length > 0) {
-            process.stderr.write(
-                `  ✗ ${lostEnabledTools.length} enabled tool(s) reference an operationId that no longer exists in OpenAPI. ` +
-                    `Fix "operation:" or set "enabled: false" / remove the tool:\n`
-            )
-            for (const tool of lostEnabledTools) {
-                process.stderr.write(`    - ${tool}\n`)
-            }
-            process.exitCode = 1
-        }
+        reportLostEnabledTools(lostEnabledTools)
     }
 
     formatWithPrettier(writtenFiles)
@@ -526,7 +535,7 @@ function main(): void {
     const validIds = new Set(rawOps.map((op) => op.operationId))
 
     if (fs.existsSync(resolvedOutput)) {
-        const { content, added, removed } = mergeWithExisting(resolvedOutput, ops, name, validIds)
+        const { content, added, removed, lostEnabledTools } = mergeWithExisting(resolvedOutput, ops, name, validIds)
         fs.writeFileSync(resolvedOutput, content)
         const parts = [`${ops.length} operation(s)`]
         if (added > 0) {
@@ -539,6 +548,7 @@ function main(): void {
             parts.push('no changes')
         }
         process.stdout.write(`${parts.join(', ')} — ${resolvedOutput}\n`)
+        reportLostEnabledTools(lostEnabledTools)
     } else {
         fs.mkdirSync(path.dirname(resolvedOutput), { recursive: true })
         fs.writeFileSync(resolvedOutput, generateFreshYaml(ops, name))
