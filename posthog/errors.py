@@ -1090,6 +1090,14 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     1004: ErrorCodeMeta("STARTUP_SCRIPTS_ERROR"),
 }
 
+# The error name holds no stored data values, so it is safe to show for an error the query caused,
+# even when the full message is not. Server faults stay out, because callers cannot act on them.
+USER_ERROR_CODE_NAMES = frozenset(
+    meta.name.lower()
+    for meta in CLICKHOUSE_ERROR_CODE_LOOKUP.values()
+    if meta.get_category() == QueryErrorCategory.USER_ERROR
+)
+
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.
 # Capacity errors (codes 202/439) are wrapped as ClickHouseAtCapacity by wrap_clickhouse_query_error.

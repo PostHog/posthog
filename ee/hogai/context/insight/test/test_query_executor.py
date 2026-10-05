@@ -40,7 +40,7 @@ from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import CHQueryErrorUnknownIdentifier, ExposedCHQueryError, InternalCHQueryError
 from posthog.models import Organization, Team, User
 
 from ee.hogai.context.insight.context import InsightContext
@@ -455,6 +455,60 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(str(context.exception), error_message)
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
         self.assertEqual(context.exception.error_type, "internal")
+
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_async_query_error_names_clickhouse_rejection_and_fix(
+        self, mock_get_query_status, mock_process_query
+    ):
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "test-query-id",
+                "complete": True,
+                "error": True,
+                "error_message": None,
+                "error_code": "unknown_identifier",
+            }
+        )
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            with self.assertRaises(MaxToolRetryableError) as context:
+                await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
+
+        self.assertIn("UNKNOWN_IDENTIFIER", str(context.exception))
+        self.assertIn("system.information_schema.columns", str(context.exception))
+        self.assertEqual(context.exception.error_type, "validation")
+
+    @parameterized.expand(
+        [
+            (
+                "names_the_rejection",
+                CHQueryErrorUnknownIdentifier(
+                    "unknown identifier 'stored-secret'", code=47, code_name="unknown_identifier"
+                ),
+                MaxToolRetryableError,
+                "UNKNOWN_IDENTIFIER",
+            ),
+            (
+                "keeps_server_faults_unknown",
+                InternalCHQueryError("replica lost 'stored-secret'", code=999, code_name="keeper_exception"),
+                Exception,
+                "There was an unknown error running this query",
+            ),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_internal_clickhouse_error(self, _name, error, expected_type, expected_text, mock_process_query):
+        mock_process_query.side_effect = error
+
+        with self.assertRaises(Exception) as context:
+            await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
+
+        self.assertIs(type(context.exception), expected_type)
+        self.assertIn(expected_text, str(context.exception))
+        if expected_type is MaxToolRetryableError:
+            self.assertNotIn("stored-secret", str(context.exception))
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

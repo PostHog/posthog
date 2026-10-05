@@ -29,7 +29,7 @@ from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
     is_direct_query_cancellation_requested,
 )
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import CHQueryErrorUnknownIdentifier, ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, Team
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -423,6 +423,38 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.complete)
         assert result.error_message
         self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
+
+    @parameterized.expand(
+        [
+            (
+                "query_caused_error_carries_its_name",
+                CHQueryErrorUnknownIdentifier(
+                    "Unknown identifier 'stored-secret'", code=47, code_name="unknown_identifier"
+                ),
+                "unknown_identifier",
+            ),
+            (
+                "server_fault_carries_no_name",
+                InternalCHQueryError("Replica lost 'stored-secret'", code=999, code_name="keeper_exception"),
+                None,
+            ),
+        ]
+    )
+    def test_async_query_internal_error_hides_message_and_exposes_only_query_caused_names(
+        self, _name, error, expected_code
+    ):
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=error):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        self.assertIsNone(result.error_message)
+        self.assertEqual(result.error_code, expected_code)
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
