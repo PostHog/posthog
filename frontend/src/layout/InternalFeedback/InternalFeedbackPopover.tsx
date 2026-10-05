@@ -79,6 +79,8 @@ export function InternalFeedbackPopover(): JSX.Element | null {
                             }
                         }}
                         rows={3}
+                        // The textarea grows with its content, so cap it to keep Save inside the viewport.
+                        className="max-h-48"
                         autoFocus
                         data-attr="internal-feedback-comment"
                     />

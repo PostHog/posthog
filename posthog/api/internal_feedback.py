@@ -23,12 +23,12 @@ MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
 
 
 def is_posthog_staff_email(user: User) -> bool:
-    # An unverified address proves nothing about who owns it, so only an explicit False is refused:
-    # older accounts predate verification and carry None.
+    # Only a verified address proves ownership. Older accounts carry None, and an email change can set an
+    # unowned address without verification when email delivery is off, so None is refused too.
     return (
         bool(user.email)
         and user.email.lower().endswith(POSTHOG_INTERNAL_EMAIL_SUFFIX)
-        and user.is_email_verified is not False
+        and user.is_email_verified is True
     )
 
 

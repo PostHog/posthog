@@ -29,10 +29,11 @@ class TestInternalFeedbackAPI(APIBaseTest):
         [
             ("outside_email", "someone@example.com", True),
             ("unverified_posthog_email", "someone@posthog.com", False),
+            ("unknown_verification_posthog_email", "someone@posthog.com", None),
         ]
     )
     @patch("posthog.api.internal_feedback.SlackWebClient")
-    def test_rejects_non_staff(self, _name: str, email: str, verified: bool, mock_client: MagicMock) -> None:
+    def test_rejects_non_staff(self, _name: str, email: str, verified: bool | None, mock_client: MagicMock) -> None:
         self.user.email = email
         self.user.is_email_verified = verified
         self.user.save()
@@ -52,6 +53,9 @@ class TestInternalFeedbackAPI(APIBaseTest):
     def test_uploads_screenshot_with_escaped_message(
         self, _name: str, extra: dict[str, str], element_line: str, mock_client: MagicMock
     ) -> None:
+        self.user.is_email_verified = True
+        self.user.save()
+
         with FIXTURE_IMAGE.open("rb") as image:
             response = self._post(screenshot=image, **extra)
 

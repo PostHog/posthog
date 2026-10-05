@@ -24,6 +24,8 @@ export interface FeedbackTarget {
 
 const DATA_ATTRIBUTES = ['data-attr']
 const VIEWPORT_MARGIN = 8
+// Matches the backend limit on the screenshot upload.
+const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
 
 /** Keeps the bar fully on screen, also after the window shrinks below a saved position. */
 export function clampToViewport(
@@ -268,7 +270,9 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
                 return
             }
             // A failed screenshot must not lose the written feedback, so send without one.
-            const screenshot: Blob | null = await (cache.screenshotPromise ?? Promise.resolve(null)).catch(() => null)
+            const captured: Blob | null = await (cache.screenshotPromise ?? Promise.resolve(null)).catch(() => null)
+            // The backend refuses the whole request when the screenshot is too large, so drop it instead.
+            const screenshot = captured && captured.size <= MAX_SCREENSHOT_BYTES ? captured : null
             try {
                 await internalFeedbackCreate({
                     comment: comment.trim(),
@@ -343,6 +347,13 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
             const onViewportChange = (): void => {
                 actions.updateRects()
             }
+            // Enter or Space on a focused page control would activate it, so block it the same way as a press.
+            const blockKeyActivationWhileInspecting = (e: KeyboardEvent): void => {
+                if (values.isInspecting && (e.key === 'Enter' || e.key === ' ') && toSelectableElement(e.target)) {
+                    e.preventDefault()
+                    e.stopPropagation()
+                }
+            }
             const onKeyDown = (e: KeyboardEvent): void => {
                 if (e.key !== 'Escape') {
                     return
@@ -358,6 +369,7 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
                 for (const type of blockedEvents) {
                     document.addEventListener(type, blockWhileInspecting, true)
                 }
+                document.addEventListener('keydown', blockKeyActivationWhileInspecting, true)
                 document.addEventListener('mouseover', onMouseOver, true)
                 document.addEventListener('scroll', onViewportChange, { capture: true, passive: true })
                 window.addEventListener('resize', onViewportChange)
@@ -366,6 +378,7 @@ export const internalFeedbackLogic = kea<internalFeedbackLogicType>([
                     for (const type of blockedEvents) {
                         document.removeEventListener(type, blockWhileInspecting, true)
                     }
+                    document.removeEventListener('keydown', blockKeyActivationWhileInspecting, true)
                     document.removeEventListener('mouseover', onMouseOver, true)
                     document.removeEventListener('scroll', onViewportChange, { capture: true })
                     window.removeEventListener('resize', onViewportChange)
