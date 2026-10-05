@@ -20,13 +20,14 @@ async function shortcutFromBytes(bytes: string): Promise<Shortcut | null> {
 
 describe("shortcutFor", () => {
   it.each([
-    ["legacy Ctrl+S", "\x13", "splitRight"],
-    ["kitty Ctrl+S", "\x1b[115;5u", "splitRight"],
-    ["kitty Cmd+S", "\x1b[115;9u", "splitRight"],
-    ["kitty Ctrl+Shift+S", "\x1b[115;6u", "splitDown"],
-    ["kitty Cmd+Shift+S", "\x1b[115;10u", "splitDown"],
-    ["legacy Ctrl+\\ fallback", "\x1c", "splitDown"],
-    ["kitty Ctrl+\\ fallback", "\x1b[92;5u", "splitDown"],
+    ["legacy Ctrl+\\", "\x1c", "splitRight"],
+    ["kitty Ctrl+\\", "\x1b[92;5u", "splitRight"],
+    ["kitty Cmd+\\", "\x1b[92;9u", "splitRight"],
+    ["kitty Ctrl+Shift+\\", "\x1b[92;6u", "splitDown"],
+    ["kitty Cmd+Shift+\\", "\x1b[92;10u", "splitDown"],
+    ["kitty Ctrl+|", "\x1b[124;5u", "splitDown"],
+    ["legacy Ctrl+S no longer splits", "\x13", null],
+    ["kitty Ctrl+S no longer splits", "\x1b[115;5u", null],
     ["legacy Ctrl+C", "\x03", "close"],
     ["kitty Ctrl+C", "\x1b[99;5u", "close"],
     ["legacy Ctrl+D", "\x04", "close"],

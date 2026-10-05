@@ -11,11 +11,12 @@ export type Shortcut =
 
 export function shortcutFor(input: string, key: Key): Shortcut | null {
   const letter = input.toLowerCase();
-  if ((key.ctrl || key.super) && letter === "s") {
-    return key.shift ? "splitDown" : "splitRight";
-  }
-  // Legacy terminals send Ctrl+Shift+S as Ctrl+S, so Ctrl+\ (a raw byte there) also splits down.
-  if (input === "\x1c" || (key.ctrl && input === "\\")) return "splitDown";
+  // Ctrl+\ splits side by side, as in VS Code, and Ctrl+Shift+\ (Ctrl+|) stacks.
+  // Legacy terminals send both as one raw byte, so there Ctrl+Shift+\ splits side by side too.
+  const modified = key.ctrl || key.super;
+  if (modified && (input === "|" || (input === "\\" && key.shift)))
+    return "splitDown";
+  if (input === "\x1c" || (modified && input === "\\")) return "splitRight";
   if (key.ctrl && (letter === "c" || letter === "d")) return "close";
   if (key.ctrl && letter === "n") return "newChat";
   // Most macOS terminals keep Cmd+K for clearing the screen, so Ctrl+K searches too.

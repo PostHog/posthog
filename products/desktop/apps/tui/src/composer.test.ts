@@ -10,9 +10,10 @@ describe("isAppKey", () => {
   it.each([
     ["Tab", "\t", true],
     ["Shift+Tab", "\x1b[Z", true],
-    ["legacy Ctrl+S", "\x13", true],
-    ["kitty Cmd+Shift+S", "\x1b[115;10u", true],
     ["legacy Ctrl+\\", "\x1c", true],
+    ["kitty Ctrl+Shift+\\", "\x1b[92;6u", true],
+    ["kitty Cmd+|", "\x1b[124;9u", true],
+    ["legacy Ctrl+S, typed into the composer", "\x13", false],
     ["legacy Ctrl+C", "\x03", true],
     ["kitty Ctrl+D", "\x1b[100;5u", true],
     ["Page Up", "\x1b[5~", true],
