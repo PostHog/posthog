@@ -678,6 +678,7 @@ the row lists both.
 | sentinelone                      | HTTP                        | requests                                                        | ✅                          |
 | sentry                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sequenzy                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| serpstat                         | HTTP                        | requests                                                        | ✅                          |
 | servicem8                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
 | sevdesk                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1376,7 +1377,6 @@ doesn't conflict with concurrent PRs.
 - semrush
 - sendpulse
 - senseforce
-- serpstat
 - service_fusion
 - servicetitan
 - servicetrade
