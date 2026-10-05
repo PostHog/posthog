@@ -84,6 +84,7 @@ def serpstat_resource(
             "auth": {"type": "api_key", "name": "token", "api_key": config.api_key, "location": "query"},
             "allow_redirects": False,
             "allowed_hosts": [],
+            "request_timeout": (10.0, 60.0),
         },
         "resources": [
             {

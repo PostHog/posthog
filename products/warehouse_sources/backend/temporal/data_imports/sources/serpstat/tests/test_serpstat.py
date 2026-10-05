@@ -37,6 +37,7 @@ def transport() -> Iterator[tuple[list[PreparedRequest], list[tuple[int, dict[st
         status, body = responses.pop(0)
         response = Response()
         response.status_code = status
+        assert request.url is not None
         response.url = request.url
         response.request = request
         response.headers["Content-Type"] = "application/json"
