@@ -77,7 +77,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const isMobile = isWindowLessThan('md')
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-    const visionCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_ERROR_TRACKING')
 
     // Jump to the session replay list filtered to this issue. Captured so we can measure how often
     // people watch recordings themselves, the baseline the Replay vision cross-sell is weighed against.
@@ -162,7 +161,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 <IconRewindPlay />
                                                 View recordings
                                             </SceneMenuBarItem>
-                                            {visionCrossSellEnabled && (
+                                            {issue.name && (
                                                 <SceneMenuBarItem
                                                     onClick={setUpVisionScanner}
                                                     data-attr="issue-menubar-scan-with-vision"
@@ -207,7 +206,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         disabled={issue.status != 'active'}
                                                     />
                                                 </ButtonGroup>
-                                                {visionCrossSellEnabled ? (
+                                                {issue.name ? (
                                                     <ButtonGroup>
                                                         <Button
                                                             variant="outline"

@@ -16,7 +16,6 @@ import {
 } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -307,7 +306,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         recordingOpened,
         scannerCrossSellClicked,
     } = useActions(logic)
-    const scannerCrossSellEnabled = useFeatureFlag('VISION_ENTRYPOINT_EXPERIMENTS')
     // Which in-session copy applies, from the evidence kind the availability check resolved.
     const inSessionCopy =
         IN_SESSION_COPY[inSessionExposure ? (inSessionExposure.uses_stamped_fallback ? 'stamped' : 'event') : 'unknown']
@@ -382,30 +380,29 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
 
     return (
         <div data-attr="experiment-recordings-tab">
-            {scannerCrossSellEnabled &&
-                (linkedScannersLoading ? (
-                    <LinkedScannersSkeletonCard />
-                ) : linkedScanners.length > 0 ? (
-                    <LinkedScannersCard
-                        scanners={linkedScanners}
-                        addAnotherUrl={scannerSetupUrl}
-                        onAddAnother={scannerCrossSellClicked}
-                    />
-                ) : (
-                    <LemonBanner
-                        type="ai"
-                        className="mb-2"
-                        dismissKey={SCANNER_CROSS_SELL_DISMISS_KEY}
-                        action={{
-                            children: 'Set up scanner for this experiment',
-                            to: scannerSetupUrl,
-                            onClick: () => scannerCrossSellClicked(),
-                            'data-attr': 'experiment-recordings-scanner-cross-sell',
-                        }}
-                    >
-                        Replay vision is here. Scanners watch your recordings for you and surface what matters.
-                    </LemonBanner>
-                ))}
+            {linkedScannersLoading ? (
+                <LinkedScannersSkeletonCard />
+            ) : linkedScanners.length > 0 ? (
+                <LinkedScannersCard
+                    scanners={linkedScanners}
+                    addAnotherUrl={scannerSetupUrl}
+                    onAddAnother={scannerCrossSellClicked}
+                />
+            ) : (
+                <LemonBanner
+                    type="ai"
+                    className="mb-2"
+                    dismissKey={SCANNER_CROSS_SELL_DISMISS_KEY}
+                    action={{
+                        children: 'Set up scanner for this experiment',
+                        to: scannerSetupUrl,
+                        onClick: () => scannerCrossSellClicked(),
+                        'data-attr': 'experiment-recordings-scanner-cross-sell',
+                    }}
+                >
+                    Replay vision is here. Scanners watch your recordings for you and surface what matters.
+                </LemonBanner>
+            )}
             <div className="mb-2 flex flex-wrap gap-2">
                 <LemonSegmentedButton
                     size="small"
