@@ -3540,9 +3540,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             cache.disposables.add(
                 () => {
                     const onOnline = (): void => {
-                        if (values.dashboardFailedToLoad && !values.dashboardLoading && !values.dashboardStreaming) {
-                            actions.retryDashboardLoad()
+                        if (!values.dashboardFailedToLoad) {
+                            return
                         }
+                        if (values.dashboardLoading || values.dashboardStreaming) {
+                            cache.onlineRecoveryPending = true
+                            return
+                        }
+                        actions.retryDashboardLoad()
                     }
                     window.addEventListener('online', onOnline)
                     return () => window.removeEventListener('online', onOnline)
@@ -3711,13 +3716,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 primary_interaction_id: dashboardQueryId,
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
             })
-            if (cache.connectionRecoveryPending && !values.internetConnectionIssue) {
+            if (cache.onlineRecoveryPending || (cache.connectionRecoveryPending && !values.internetConnectionIssue)) {
+                cache.onlineRecoveryPending = false
                 cache.connectionRecoveryPending = false
                 actions.retryDashboardLoad()
             }
         },
         setDashboardStreamFailed: () => {
-            if (cache.connectionRecoveryPending && !values.internetConnectionIssue) {
+            if (cache.onlineRecoveryPending || (cache.connectionRecoveryPending && !values.internetConnectionIssue)) {
+                cache.onlineRecoveryPending = false
                 cache.connectionRecoveryPending = false
                 actions.retryDashboardLoad()
             }
@@ -4808,6 +4815,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadDashboardSuccess: [
             sharedListeners.reportLoadTiming,
             () => {
+                cache.onlineRecoveryPending = false
                 cache.connectionRecoveryPending = false
                 if (!values.dashboard) {
                     actions.dashboardNotFound()
@@ -4817,6 +4825,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             sharedListeners.handleDashboardLoadComplete,
         ],
         loadDashboardMetadataSuccess: ({ dashboard }) => {
+            cache.onlineRecoveryPending = false
             cache.connectionRecoveryPending = false
             if (!dashboard) {
                 actions.dashboardNotFound()

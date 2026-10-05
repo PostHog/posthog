@@ -2324,22 +2324,31 @@ describe('dashboardLogic', () => {
             }).toNotHaveDispatchedActions(['retryDashboardLoad'])
         })
 
-        it('retries once when the connection comes back during a load that then fails', async () => {
-            await expectLogic(logic).toFinishAllListeners()
+        it.each(['request', 'online'])(
+            'retries once when %s signals recovery during a load that then fails',
+            async (trigger) => {
+                await expectLogic(logic).toFinishAllListeners()
+                apiStatusLogic.actions.setInternetConnectionIssue(true)
 
-            await expectLogic(logic, () => {
-                logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
-                apiStatusLogic.actions.setInternetConnectionIssue(false)
-            })
-                .toDispatchActions([
-                    'loadDashboardFailure',
-                    'retryDashboardLoad',
-                    'loadDashboard',
-                    'loadDashboardFailure',
-                ])
-                .toFinishAllListeners()
-                .toNotHaveDispatchedActions(['retryDashboardLoad'])
-        })
+                await expectLogic(logic, () => {
+                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                    if (trigger === 'online') {
+                        window.dispatchEvent(new Event('online'))
+                        apiStatusLogic.actions.setInternetConnectionIssue(true)
+                    } else {
+                        apiStatusLogic.actions.setInternetConnectionIssue(false)
+                    }
+                })
+                    .toDispatchActions([
+                        'loadDashboardFailure',
+                        'retryDashboardLoad',
+                        'loadDashboard',
+                        'loadDashboardFailure',
+                    ])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['retryDashboardLoad'])
+            }
+        )
 
         it.each([
             { id: 14, accessDenied: false },
