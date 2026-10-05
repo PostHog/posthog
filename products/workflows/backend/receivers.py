@@ -6,16 +6,18 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.workflows.backend.models import HogFlow, HogFlowOptimization
-from products.workflows.backend.services.suggestions_scout import sync_suggestions_scout
 
 
 def _sync_after_commit(team_id: int) -> None:
     def sync() -> None:
+        # Deferred: the signals facade it pulls in would otherwise load on every django.setup().
+        from products.workflows.backend.services import suggestions_scout  # noqa: PLC0415
+
         # Without a person there is nobody to grant the scout's write scope, so this can only switch it off.
         try:
             team = Team.objects.filter(id=team_id).select_related("parent_team").first()
             if team is not None:
-                sync_suggestions_scout(team, acting_user=None, may_grant=False)
+                suggestions_scout.sync_suggestions_scout(team, acting_user=None, may_grant=False)
         except Exception as error:
             capture_exception(error)
 
