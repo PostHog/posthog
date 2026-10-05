@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -123,9 +124,10 @@ def semaphore_source(
         # The API uses exclusive whole seconds; overlap one second to preserve records at the boundary.
         params["created_after"] = int(watermark.timestamp()) - 1
 
+    endpoint_config: Endpoint = {"path": endpoint.path, "params": params, "data_selector_required": True}
     resource_config: EndpointResource = {
         "name": inputs.schema_name,
-        "endpoint": {"path": endpoint.path, "params": params, "data_selector_required": True},
+        "endpoint": endpoint_config,
         "data_map": normalize_created_at,
     }
     rest_config: RESTAPIConfig = {"client": client, "resources": [resource_config]}
