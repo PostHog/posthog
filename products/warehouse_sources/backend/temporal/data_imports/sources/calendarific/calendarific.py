@@ -1,4 +1,5 @@
 import re
+from typing import Any
 
 from requests import HTTPError
 
@@ -31,7 +32,7 @@ class CalendarificClient:
         if endpoint not in ENDPOINTS:
             raise ValueError("Unknown Calendarific table. Select holidays, countries, or languages.")
 
-        params: dict[str, str | int] = {}
+        params: dict[str, Any] = {}
         if endpoint == "holidays":
             country = self.config.country.strip().upper()
             year = self.config.year.strip()
