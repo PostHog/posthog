@@ -331,7 +331,7 @@ describe("runNotice during a turn", () => {
       "during a call, naming it by its first line",
       "in_progress",
       "Running",
-      "pnpm test · 30s · 2 tools",
+      "30s · 2 tools",
     ],
   ])("says what the agent is doing %s", (_, status, text, detail) => {
     const lines = [
@@ -352,7 +352,12 @@ describe("runNotice during a turn", () => {
       null,
       Date.now() - 30_000,
     );
-    expect(notice).toEqual({ text, detail, tone: "working" });
+    expect(notice).toEqual({
+      text,
+      subject: "pnpm test",
+      detail,
+      tone: "working",
+    });
   });
 });
 

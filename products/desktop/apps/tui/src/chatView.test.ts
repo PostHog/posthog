@@ -172,6 +172,34 @@ describe("ChatView", () => {
     expect(row).toContain(blue("the docs"));
   });
 
+  it("cuts a long command short so the status keeps its time and tool count, faint", () => {
+    const chat = new ChatView();
+    chat.setTranscript(
+      [
+        { kind: "user", id: "u1", text: "yo" },
+        tool("t1", "bash", "in_progress", "pnpm test"),
+      ],
+      {
+        notice: {
+          text: "Running",
+          subject: `cd ${"/very/long/path".repeat(6)} && pnpm test`,
+          detail: "2m 4s · 3 tools",
+          tone: "working",
+        },
+      },
+    );
+    const row = chat.render(50, 3)[2];
+    const before = row.slice(0, row.indexOf("2m 4s"));
+    const faint = [
+      ...before.matchAll(new RegExp(`${"\u001b"}\\[(0|2|22)?m`, "g")),
+    ];
+
+    expect(stripTerminalSequences(row).trimEnd()).toMatch(
+      /…\s·\s2m 4s · 3 tools$/,
+    );
+    expect(faint.at(-1)?.[1]).toBe("2");
+  });
+
   it("opens a tool group on a click to show each call and its output", () => {
     const chat = new ChatView();
     chat.setTranscript([
@@ -466,6 +494,8 @@ describe("shimmer", () => {
     const frames = [0, 80, 160].map((now) => shimmer("Running", now));
 
     expect(new Set(frames).size).toBe(3);
+    // Bold shares faint's end code, so in a faint pane it turned the text after it bright.
+    expect(frames.some((frame) => frame.includes("\u001b[1m"))).toBe(false);
     expect(frames.map((frame) => stripTerminalSequences(frame))).toEqual([
       "Running",
       "Running",

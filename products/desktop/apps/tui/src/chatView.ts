@@ -48,25 +48,51 @@ const SHELL_COLOUR = orange;
 const OLDER_ROW = "older";
 // Output lines an expanded tool call shows before it cuts off.
 const OUTPUT_LINES = 5;
-const BOLD = (text: string): string => `\u001b[1m${text}\u001b[22m`;
 // Cells the highlight covers, and the cells it travels past the text before it comes round again.
 const SHIMMER_WIDTH = 3;
 const SHIMMER_PAUSE = 8;
 
 // A highlight that sweeps along the text, advancing with the clock on each repaint.
+// The text sits faint and a window of full-strength text sweeps across it. It never uses bold: bold and faint
+// share one end code, and in a faint pane ending the bold also ended the faint, so the text after it flashed bright.
 export function shimmer(text: string, now = Date.now()): string {
   const chars = [...text];
   const head = Math.floor(now / 80) % (chars.length + SHIMMER_PAUSE);
-  return chars
-    .map((char, index) =>
-      index <= head && index > head - SHIMMER_WIDTH ? BOLD(char) : char,
-    )
-    .join("");
+  const start = Math.max(0, head - SHIMMER_WIDTH + 1);
+  const end = Math.min(chars.length, head + 1);
+  const part = (from: number, to: number): string =>
+    chars.slice(from, to).join("");
+  const before = part(0, Math.min(start, chars.length));
+  const lit = start < end ? part(start, end) : "";
+  const after = part(Math.max(start, end), chars.length);
+  return [before && DIM(before), lit, after && DIM(after)].join("");
+}
+
+// A working status in the cells it has: the shimmering text, then what it works on, then the time and tool count.
+// What it works on is cut short first, so the time and tool count always show.
+function liveStatus(
+  notice: ChatNotice,
+  room: number,
+  dim: (text: string) => string,
+): string {
+  const tail = notice.detail
+    ? `${notice.subject ? " · " : " "}${notice.detail}`
+    : "";
+  const fixed = visibleWidth(notice.text) + visibleWidth(tail);
+  const subjectRoom = room - fixed - 1;
+  const subject =
+    notice.subject && subjectRoom > 1
+      ? // pi's truncation ends with a full reset, which would turn the faint text after it bright.
+        ` ${stripTerminalSequences(truncateToWidth(notice.subject, subjectRoom, "…"))}`
+      : "";
+  return `${shimmer(notice.text)}${dim(`${subject}${tail}`)}`;
 }
 
 export interface ChatNotice {
   text: string;
-  // Said in lighter text after it, such as the command a call runs and how long the turn has taken.
+  // What the work is on, such as the command a call runs; cut short first when the row is too narrow.
+  subject?: string;
+  // Said in lighter text after it, such as how long the turn has taken and its tool count.
   detail?: string;
   tone: "working" | "error" | "done";
 }
@@ -75,13 +101,18 @@ export interface ChatNotice {
 class NoticeRow implements Component {
   constructor(private readonly notice: ChatNotice) {}
 
-  render(): string[] {
+  render(width: number): string[] {
     if (this.notice.tone === "error") {
       return [` \u001b[31m${this.notice.text}\u001b[39m`];
     }
     if (this.notice.tone === "done") return [DIM(` ※ ${this.notice.text}`)];
-    const detail = this.notice.detail ? ` ${this.notice.detail}` : "";
-    return [`${DIM(" ※")} ${shimmer(this.notice.text)}${DIM(detail)}`];
+    const lead = " ※ ";
+    return [
+      truncateToWidth(
+        `${DIM(" ※")} ${liveStatus(this.notice, width - visibleWidth(lead), DIM)}`,
+        width,
+      ),
+    ];
   }
 
   invalidate(): void {}
@@ -166,8 +197,9 @@ class ToolGroup implements Component {
     const arrow = open ? "▼" : "▶";
     // Under the pointer it goes from grey to full colour, so it reads as clickable.
     const dim = this.isHovered() ? (text: string): string => text : DIM;
+    const failures = failed ? ` · ${failed} failed` : "";
     const label = this.live
-      ? `${dim(arrow)} ${shimmer(this.live.text)}${dim(this.live.detail ? ` ${this.live.detail}` : "")}`
+      ? `${dim(arrow)} ${liveStatus(this.live, width - visibleWidth(` ${arrow} ${failures}`), dim)}`
       : dim(`${arrow} ${toolSummary(this.tools)}`);
     const summary = `${label}${failed ? ` ${DIM("·")} ${RED(`${failed} failed`)}` : ""}`;
     const lines = [truncateToWidth(` ${summary}`, width)];
