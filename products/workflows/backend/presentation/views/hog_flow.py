@@ -205,6 +205,7 @@ from products.workflows.backend.presentation.views.message_assets import (
 )
 from products.workflows.backend.presentation.views.publish_impact import build_publish_impact
 from products.workflows.backend.providers.ses import SESProvider
+from products.workflows.backend.services.email_reach import EmailReachService
 from products.workflows.backend.services.email_sending_attribution import (
     EMAIL_HEALTH_METRIC_NAMES,
     fold_email_totals_by_flow,
@@ -891,6 +892,15 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
         default=True,
         help_text="Whether the workflow contains an email step. The tiered audience limit only applies to "
         "email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.",
+    )
+
+
+class EmailReachSerializer(serializers.Serializer):
+    verified_member_count = serializers.IntegerField(
+        help_text="Active organization members with verified email addresses. Only these recipients can receive sandbox sender email. This is an eligible-recipient count, not a trigger forecast."
+    )
+    project_email_count = serializers.IntegerField(
+        help_text="People in this project with a non-empty email property. These people can receive email from an own-domain sender if they qualify for the workflow. This is not a trigger forecast."
     )
 
 
@@ -4795,6 +4805,7 @@ class HogFlowViewSet(
         "team_reputation",
         "email_sending_suspension",
         "user_blast_radius",
+        "email_reach",
         "assets",
         "asset_content",
         "revisions",
@@ -4889,7 +4900,7 @@ class HogFlowViewSet(
         # access, so require person:read on top of workflow read. Without it a hog_flow:read-only token
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
         # session auth, so live sizing while editing is unaffected.
-        if self.action == "user_blast_radius":
+        if self.action in ("user_blast_radius", "email_reach"):
             return ["hog_flow:read", "person:read"]
         # Invocation inspection returns distinct_id / person_id and the raw triggering payload
         # (invocation_globals: event/person/groups), so it's person-data access — require person:read
@@ -6631,6 +6642,13 @@ class HogFlowViewSet(
             return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)
 
         return Response(res.json())
+
+    @extend_schema(responses=EmailReachSerializer)
+    @action(methods=["GET"], detail=False)
+    def email_reach(self, request: Request, **kwargs: object) -> Response:
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            raise exceptions.PermissionDenied("You do not have access to workflows.")
+        return Response(EmailReachSerializer(EmailReachService.counts(self.team)).data)
 
     @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)

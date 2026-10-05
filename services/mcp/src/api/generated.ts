@@ -37100,6 +37100,13 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface EmailReach {
+      /** Active organization members with verified email addresses. Only these recipients can receive sandbox sender email. This is an eligible-recipient count, not a trigger forecast. */
+      verified_member_count: number;
+      /** People in this project with a non-empty email property. These people can receive email from an own-domain sender if they qualify for the workflow. This is not a trigger forecast. */
+      project_email_count: number;
+    }
+
     /**
      * How much workflow email this project may send, and how much of that it has used.
      */

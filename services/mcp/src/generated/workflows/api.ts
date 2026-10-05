@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 22 enabled ops
+ * PostHog API - MCP 23 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1272,6 +1272,14 @@ export const HogFlowsSchedulesPartialUpdateBody = () => zod.object({
         .unknown()
         .optional()
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
+})
+
+export const HogFlowsEmailReachRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 export const HogFlowsMetricsGlobalRetrieveParams = () => zod.object({
