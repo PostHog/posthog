@@ -39,6 +39,7 @@ None of them are wired there yet; the charts change is part of turning the rollo
 
 In order: staff suspension or an AWS-paused tenant drops to tier 0; a dirty 7-day window, a workflow auto-pause, or a HIGH tenant reputation impact demotes one tier (at most once per cooldown, anchored on the last rate demotion); a tier above 0 with zero sends for the decay period drops one step per period; promotion needs the dwell served, real use of the tier (at least the use ratio of the daily cap on the minimum number of separate days, counted only after the tier anchor), a clean 30-day window, and a clean tenant reputation.
 Rates only count on a meaningful denominator; below the complaint floor, the absolute complaint backstop still applies, including in windows with no sends.
+Sandbox sender sends never count as sends: the sweep subtracts `email_sandbox_sent` from `email_sent` per day, floored at zero. Their bounces and complaints still count.
 Pinned teams never move automatically.
 
 While the tier is enforced, the sweep notifies teams it moved: a rate demotion sends an in-app notification plus an email to project admins, and an earned promotion sends an in-app notification only.
@@ -64,6 +65,7 @@ Decay, suspension drops, admin recomputes, and the backfill stay silent.
   Every sandbox send, including test sends, skips when that tenant's mirrored sending status is `DISABLED` or the pause lookup fails. A missing row allows sending, with SES enforcing its own state.
   A committed state change reaches the workers through the `reload-sandbox-sender-state` message. Own-sender sends do not read this state.
   Test sends run inline in the CDP API, so the API reads the same `SES_RATE_LIMITER_VALKEY_*` settings as the email worker. Without them, every sandbox test send is skipped.
+  The CDP API's SES webhook captures `workflows sandbox email delivered` for a delivery on `SES_SANDBOX_CONFIGURATION_SET`, test sends included. Without that setting on the CDP API, the event never fires.
   Keep `WORKFLOWS_SANDBOX_SENDER_ENABLED` off until the recipient membership checks, sandbox caps and sandbox pause gate are deployed.
 - The buckets are token buckets: a full idle bucket plus refill allows up to roughly twice the stated cap in the very first period. The bucket TTLs exceed the refill periods so this does not recur from idling.
 - A denied send parks until every short bucket has refilled enough to cover it, instead of retrying on a fixed few-minute cadence.

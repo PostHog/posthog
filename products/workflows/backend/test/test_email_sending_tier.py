@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -449,6 +450,7 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == tier
 
 
+@time_machine.travel("2026-10-05T12:00:00Z", tick=False)
 @override_settings(**TIER_SETTINGS)
 class TestSandboxSendsInTierHistory(ClickhouseTestMixin, BaseTest):
     def _record_sends(self, *, days_ago: int, sent: int, sandbox_sent: int) -> None:
