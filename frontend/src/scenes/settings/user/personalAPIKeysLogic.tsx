@@ -54,8 +54,6 @@ export type PersonalAPIKeyScopeGroup = {
     rows: PersonalAPIKeyScopeRow[]
 }
 
-const ACCESS_LEVEL_ORDER: Record<ScopeAccessLevel, number> = { none: 0, read: 1, write: 2 }
-
 // The highest level at or below `level` that the row can take.
 export const clampScopeLevel = (row: PersonalAPIKeyScopeRow, level: ScopeAccessLevel): ScopeAccessLevel => {
     if (level === 'write' && !row.writeDisabledReason) {
@@ -79,7 +77,8 @@ export const scopeGroupAccessLevel = (rows: PersonalAPIKeyScopeRow[]): ScopeAcce
     )
 }
 
-// Tooltip for the selected group level when some rows sit below it after the clamp.
+// Tooltip for the selected group level when some rows sit below it after the clamp. The clamp only
+// ever lowers a row, so a row that is not at the selected level is below it.
 export const scopeGroupLevelTooltip = (
     rows: PersonalAPIKeyScopeRow[],
     level: ScopeAccessLevel | undefined
@@ -87,7 +86,7 @@ export const scopeGroupLevelTooltip = (
     if (!level) {
         return undefined
     }
-    const lower = rows.filter((row) => ACCESS_LEVEL_ORDER[row.value] < ACCESS_LEVEL_ORDER[level]).length
+    const lower = rows.filter((row) => row.value !== level).length
     if (lower === 0) {
         return undefined
     }
