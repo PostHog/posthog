@@ -1,10 +1,15 @@
 import re
 
+from requests import RequestException
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -17,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.semrush.se
     MAX_REQUEST_ATTEMPTS,
     PROJECT_ID_ERROR,
     REQUEST_ERROR,
+    UNAVAILABLE_ERROR,
 )
 
 
@@ -85,6 +91,8 @@ def validate_credentials(api_key: str, project_id: str, team_id: int) -> tuple[b
         if message in {*ERROR_MESSAGES.values(), PROJECT_ID_ERROR, REQUEST_ERROR}:
             return False, message
         raise
+    except (RequestException, RESTClientRetryableError):
+        return False, UNAVAILABLE_ERROR
     return True, None
 
 
