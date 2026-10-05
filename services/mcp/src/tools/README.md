@@ -50,7 +50,7 @@ Each entry in `schema/tool-definitions.json` needs a clear description, a featur
   The MCP client does not read them.
 - Tool names are lowercase kebab-case.
 
-If you add a new feature, also list it in the root `README.md` and add it to `tests/unit/tool-filtering.test.ts`.
+If you add a new feature, also list it in the feature list in `services/mcp/README.md` and add it to `tests/unit/tool-filtering.test.ts`.
 
 ## Schema Design Philosophy
 
