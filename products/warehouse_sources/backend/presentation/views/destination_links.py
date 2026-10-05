@@ -90,7 +90,7 @@ def set_source_destinations(*, team_id: int, source_id: Any, destination_ids: li
     # the source with a partial set, and every table without an override would sync to it. Locking
     # the source also serializes this edit with the destination backfill.
     with transaction.atomic():
-        ExternalDataSource.objects.for_team(team_id).select_for_update().get(pk=source_id)
+        ExternalDataSource.objects.for_team(team_id).select_for_update(of=("self",)).get(pk=source_id)
         ExternalDataSourceDestination.objects.for_team(team_id).filter(source_id=source_id).delete()
         for destination in destinations:
             ExternalDataSourceDestination.objects.for_team(team_id).create(

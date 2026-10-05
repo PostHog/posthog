@@ -107,7 +107,7 @@ class Command(BaseCommand):
                         try:
                             with transaction.atomic():
                                 # Serialize with destination-set edits before checking for links.
-                                ExternalDataSource.objects.select_for_update().get(pk=source.pk)
+                                ExternalDataSource.objects.select_for_update(of=("self",)).get(pk=source.pk)
                                 if scoped_links.filter(source_id=source.pk).exists():
                                     skipped_during_run += 1
                                     continue
