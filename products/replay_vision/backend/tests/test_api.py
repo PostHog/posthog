@@ -2219,7 +2219,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         )
         for idx, (tags, freeform) in enumerate(
             [
-                (["onboarding"], []),
+                (["onboarding"], ["solo"]),
                 (["onboarding", "support"], ["surprise"]),
                 (["support"], ["surprise"]),
                 ([], []),
@@ -2251,10 +2251,18 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             body["classifier"]["fixed_ranked"],
             [{"tag": "onboarding", "count": 2}, {"tag": "support", "count": 2}],
         )
-        self.assertEqual(body["classifier"]["freeform_ranked"], [{"tag": "surprise", "count": 2}])
-        self.assertEqual(sorted(body["available_tags"]), ["onboarding", "support", "surprise"])
+        self.assertEqual(
+            body["classifier"]["freeform_ranked"], [{"tag": "surprise", "count": 2}, {"tag": "solo", "count": 1}]
+        )
+        self.assertEqual(sorted(body["available_tags"]), ["onboarding", "solo", "support", "surprise"])
         self.assertIsNone(body["monitor"])
         self.assertIsNone(body["scorer"])
+
+        resp = self.client.get(f"{self.observations_url(str(classifier.id))}stats/?tags=support")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["classifier"]["total_with_tags"], 2)
+        self.assertEqual(sorted(body["available_tags"]), ["onboarding", "solo", "support", "surprise"])
 
     def test_filterset_status_multi_value(self) -> None:
         self._create_observation(session_id="ok", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
