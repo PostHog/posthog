@@ -232,7 +232,10 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 "query": "1 + no_field",
                 "errors": [
                     {
-                        "message": "Unable to resolve field: no_field",
+                        "message": (
+                            "Unable to resolve field: no_field. The query that reads from events has no field or"
+                            " alias with that name."
+                        ),
                         "start": 4,
                         "end": 12,
                         "fix": None,

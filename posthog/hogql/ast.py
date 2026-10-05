@@ -497,7 +497,16 @@ class SelectQueryAliasType(Type):
         if self.select_query_type.has_child(name, context):
             return FieldType(name=name, table_type=self)
 
-        raise ResolutionError(f"Field {name} not found on query with alias {self.alias}")
+        selected = list(self.select_query_type.columns.keys())
+        selects = (
+            f"That subquery selects: {resolver_utils.format_field_names(selected)}."
+            if selected
+            else "That subquery selects nothing."
+        )
+        raise ResolutionError(
+            f"Field {name} not found on query with alias {self.alias}. {selects} "
+            f'Add "{name}" to its SELECT list, or read one of the names it does select.'
+        )
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.select_query_type.has_child(name, context)

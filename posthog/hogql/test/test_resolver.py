@@ -435,7 +435,7 @@ class TestResolver(BaseTest):
         expr = self._select("SELECT missing is distinct from 1")
         with self.assertRaises(QueryError) as context:
             resolve_types(expr, self.context, dialect="clickhouse")
-        self.assertEqual(str(context.exception), "Unable to resolve field: missing")
+        self.assertIn("Unable to resolve field: missing", str(context.exception))
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_column_alias_inside_subquery(self):
@@ -450,7 +450,7 @@ class TestResolver(BaseTest):
         )
         with self.assertRaises(QueryError) as e:
             expr = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
-        self.assertEqual(str(e.exception), "Unable to resolve field: e")
+        self.assertIn("Unable to resolve field: e", str(e.exception))
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_constant_type(self):
@@ -509,6 +509,59 @@ class TestResolver(BaseTest):
         self.assertIn("Unknown table `event`", message)
         self.assertIn("Did you mean:", message)
         self.assertIn("events", message)
+
+    @parameterized.expand(
+        [
+            (
+                "alias declared later in the same select list",
+                "SELECT day_count * 2, count() AS day_count FROM events",
+                [
+                    "Unable to resolve field: day_count",
+                    "reads from events",
+                    'declares the alias "day_count" after this expression',
+                    'Move the "day_count" column before this expression',
+                ],
+            ),
+            (
+                "alias of the enclosing query read inside a subquery",
+                "SELECT event AS ev, (SELECT count() FROM persons WHERE toString(id) = ev) AS c FROM events",
+                [
+                    "Unable to resolve field: ev",
+                    "reads from persons",
+                    'The enclosing query can read "ev"',
+                    "move the expression that uses it to the enclosing query",
+                ],
+            ),
+            (
+                "timestamp a grouped subquery aliases away",
+                "SELECT timestamp, total FROM (SELECT toStartOfDay(timestamp) AS day, count() AS total FROM events GROUP BY day)",
+                [
+                    "Unable to resolve field: timestamp",
+                    "reads from unnamed subquery 1",
+                    'The name "timestamp" exists inside unnamed subquery 1, which does not select it',
+                    'Add "timestamp" to its SELECT list',
+                ],
+            ),
+        ]
+    )
+    def test_unresolved_field_names_the_scope_and_a_rewrite(self, _name: str, query: str, expected: list[str]):
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+        message = str(ctx.exception)
+        for fragment in expected:
+            self.assertIn(fragment, message)
+
+    def test_unresolved_field_on_aliased_subquery_lists_what_it_selects(self):
+        query = (
+            "SELECT d.total FROM (SELECT toStartOfDay(timestamp) AS day, count() AS total FROM events GROUP BY day) d "
+            "WHERE d.timestamp > now()"
+        )
+        with self.assertRaises((ResolutionError, QueryError)) as ctx:
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+        message = str(ctx.exception)
+        self.assertIn("Field timestamp not found on query with alias d", message)
+        self.assertIn("That subquery selects: day, total", message)
+        self.assertIn('Add "timestamp" to its SELECT list', message)
 
     def test_unresolved_field_suggests_close_matches(self):
         # user_id isn't on events, but distinct_id and person_id are close enough to suggest
