@@ -30,6 +30,25 @@ function spanInterval(span: Span): Interval {
     return { startMs, endMs: startMs + span.duration_nano / 1_000_000 }
 }
 
+/** The earliest start and latest end of the loaded spans, in ISO 8601, or nulls with no spans. */
+export function traceBounds(spans: Span[]): { traceStart: string | null; traceEnd: string | null } {
+    let startMs = Number.POSITIVE_INFINITY
+    let endMs = Number.NEGATIVE_INFINITY
+    for (const span of spans) {
+        const interval = spanInterval(span)
+        // dayjs(NaN).toISOString() throws, and this runs during render
+        if (!Number.isFinite(interval.startMs) || !Number.isFinite(interval.endMs)) {
+            continue
+        }
+        startMs = Math.min(startMs, interval.startMs)
+        endMs = Math.max(endMs, interval.endMs)
+    }
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+        return { traceStart: null, traceEnd: null }
+    }
+    return { traceStart: dayjs(startMs).toISOString(), traceEnd: dayjs(endMs).toISOString() }
+}
+
 function aiEventInterval(event: TraceAiEvent): Interval {
     const startMs = dayjs(event.started_at).valueOf()
     const latencyMs = Math.max(event.latency_seconds ?? 0, 0) * 1000
@@ -37,15 +56,17 @@ function aiEventInterval(event: TraceAiEvent): Interval {
 }
 
 /**
- * The real span the AI event belongs under. An OpenTelemetry-sourced event names its parent span,
- * so that wins when the span is loaded. Otherwise the narrowest real span whose time range
- * contains the event, so a model call lands under the turn or request that made it.
+ * The real span the AI event belongs under. An event linked by `task_run_trace_id` names its run
+ * span, and an OpenTelemetry-sourced event names its parent span, so a named span wins when it is
+ * loaded. Otherwise the narrowest real span whose time range contains the event, so a model call
+ * lands under the turn or request that made it.
  */
 function findParentSpan(event: TraceAiEvent, candidates: ParentCandidates, interval: Interval): Span | null {
-    const parentId = event.ai_parent_id?.toLowerCase()
-    const named = parentId ? candidates.byId.get(parentId) : undefined
-    if (named) {
-        return named
+    for (const id of [event.run_span_id, event.ai_parent_id]) {
+        const named = id ? candidates.byId.get(id.toLowerCase()) : undefined
+        if (named) {
+            return named
+        }
     }
     let best: Span | null = null
     let bestDurationNano = Number.POSITIVE_INFINITY

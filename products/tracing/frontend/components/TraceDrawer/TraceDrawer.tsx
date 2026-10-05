@@ -16,7 +16,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
-import { buildAiEventSpans, isAiEventSpan } from '../../aiEventSpans'
+import { buildAiEventSpans, isAiEventSpan, traceBounds } from '../../aiEventSpans'
 import type { ErrorScope } from '../../errorCorrelation'
 import { useKeepMountedWhileOpen } from '../../hooks/useKeepMountedWhileOpen'
 import { getQueryText } from '../../spanSummary'
@@ -88,7 +88,10 @@ export function TraceDrawer({
     onSelectSpan,
     onClose,
 }: TraceDrawerProps): JSX.Element | null {
-    const { aiEvents, hasMoreAiEvents, aiEventsLimit } = useValues(traceAiEventsLogic({ traceId }))
+    const { traceStart, traceEnd } = useMemo(() => traceBounds(realSpans), [realSpans])
+    const { aiEvents, hasMoreAiEvents, aiEventsLimit } = useValues(
+        traceAiEventsLogic({ traceId, traceStart, traceEnd })
+    )
     // The waterfall and the inspector read one list, so an AI row selects and inspects like a span.
     const spans = useMemo(() => {
         const aiEventSpans = buildAiEventSpans(aiEvents, realSpans)

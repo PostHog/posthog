@@ -31,8 +31,8 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
         flag_patcher.start()
         self.addCleanup(flag_patcher.stop)
 
-    def _get(self, trace_id: str) -> HttpResponse:
-        return self.client.get(f"/api/projects/{self.team.id}/tracing/spans/trace/{trace_id}/ai_events/")
+    def _get(self, trace_id: str, params: dict[str, str] | None = None) -> HttpResponse:
+        return self.client.get(f"/api/projects/{self.team.id}/tracing/spans/trace/{trace_id}/ai_events/", params)
 
     def _create_ai_event(
         self,
@@ -95,6 +95,7 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
             "output_tokens": 30,
             "total_cost_usd": 0.0071,
             "is_error": True,
+            "run_span_id": None,
         }
         assert results[1]["is_error"] is False
         assert json.loads(response.content)["has_more"] is False
@@ -147,6 +148,35 @@ class TestTraceAiEvents(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert [row["uuid"] for row in json.loads(response.content)["results"]] == [by_uuid]
+
+    # The tasks agent's CLI mints its own `$ai_trace_id` per turn, so its calls reach the run's
+    # trace only through `task_run_trace_id`, and only inside the run's time range.
+    @parameterized.expand(
+        [
+            ("inside the range", {"date_from": "2026-06-02T08:00:00Z", "date_to": "2026-06-02T08:10:00Z"}, True),
+            ("without a range", None, False),
+            ("outside the range", {"date_from": "2026-06-03T08:00:00Z", "date_to": "2026-06-03T08:10:00Z"}, False),
+        ]
+    )
+    def test_finds_events_linked_by_the_run_trace_id(
+        self, _name: str, params: dict[str, str] | None, expect_linked: bool
+    ) -> None:
+        direct = self._create_ai_event(TRACE_A, timestamp="2026-06-02T08:00:01Z")
+        linked = self._create_ai_event(
+            TRACE_B,
+            timestamp="2026-06-02T08:00:05Z",
+            properties={"task_run_trace_id": TRACE_A, "task_run_span_id": PARENT_SPAN},
+        )
+        self._create_ai_event(
+            "0" * 31 + "2", timestamp="2026-06-02T08:00:06Z", properties={"task_run_trace_id": "0" * 31 + "1"}
+        )
+        flush_persons_and_events()
+
+        results = json.loads(self._get(TRACE_A.upper(), params).content)["results"]
+
+        assert [(row["uuid"], row["run_span_id"]) for row in results] == [(direct, None)] + (
+            [(linked, PARENT_SPAN)] if expect_linked else []
+        )
 
     def test_collapses_duplicate_rows_of_one_event(self) -> None:
         # ai_events is a plain MergeTree fed by at-least-once ingestion, so one event can land twice.
