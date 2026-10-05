@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gologin.se
     BASE_URL,
     ENDPOINTS,
     PERMISSION_ERROR,
+    REQUEST_TIMEOUT,
 )
 
 
@@ -29,7 +30,14 @@ class GoLoginResumeConfig:
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
-    client = RESTClient(base_url=BASE_URL, auth=BearerTokenAuth(token=api_key), paginator=SinglePagePaginator())
+    client = RESTClient(
+        base_url=BASE_URL,
+        auth=BearerTokenAuth(token=api_key),
+        paginator=SinglePagePaginator(),
+        allowed_hosts=[],
+        allow_redirects=False,
+        request_timeout=REQUEST_TIMEOUT,
+    )
     try:
         next(client.paginate("/user", data_selector="$"))
     except HTTPError as error:
@@ -61,7 +69,13 @@ def gologin_source(
             resumable_source_manager.save_state(GoLoginResumeConfig(page=int(state["page"])))
 
     config: RESTAPIConfig = {
-        "client": {"base_url": BASE_URL, "auth": {"type": "bearer", "token": api_key}},
+        "client": {
+            "base_url": BASE_URL,
+            "auth": {"type": "bearer", "token": api_key},
+            "allowed_hosts": [],
+            "allow_redirects": False,
+            "request_timeout": REQUEST_TIMEOUT,
+        },
         "resources": [{"name": endpoint, "endpoint": endpoint_config, "write_disposition": "replace"}],
     }
     resource = rest_api_resource(

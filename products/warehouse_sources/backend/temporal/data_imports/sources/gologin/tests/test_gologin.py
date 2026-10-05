@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gologin.go
     gologin_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.gologin.settings import REQUEST_TIMEOUT
 from products.warehouse_sources.backend.temporal.data_imports.sources.gologin.source import GoLoginSource
 
 
@@ -90,6 +91,8 @@ class TestGoLoginTransport:
                 "sorterOrder": ["ascend"],
             }
             assert request.headers["Authorization"] == "Bearer test-token"
+            assert call.kwargs["allow_redirects"] is False
+            assert call.kwargs["timeout"] == REQUEST_TIMEOUT
 
     @pytest.mark.parametrize(
         ("endpoint", "path", "body", "expected"),
@@ -113,6 +116,8 @@ class TestGoLoginTransport:
         request = send.call_args.args[0]
         assert urlsplit(request.url).path == path
         assert request.headers["Authorization"] == "Bearer test-token"
+        assert send.call_args.kwargs["allow_redirects"] is False
+        assert send.call_args.kwargs["timeout"] == REQUEST_TIMEOUT
         if endpoint != "profiles":
             assert urlsplit(request.url).query == ""
         manager.save_state.assert_not_called()
@@ -145,3 +150,5 @@ class TestGoLoginTransport:
         request = send.call_args.args[0]
         assert request.url == "https://api.gologin.com/user"
         assert request.headers["Authorization"] == "Bearer test-token"
+        assert send.call_args.kwargs["allow_redirects"] is False
+        assert send.call_args.kwargs["timeout"] == REQUEST_TIMEOUT

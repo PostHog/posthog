@@ -1,15 +1,22 @@
+from typing import cast
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
 
 BASE_URL = "https://api.gologin.com"
+REQUEST_TIMEOUT = (10.0, 60.0)
 
 ENDPOINTS: dict[str, Endpoint] = {
-    "profiles": {
-        "path": "/browser/v2",
-        "data_selector": "profiles",
-        "data_selector_required": True,
-        "params": {"sorterField": "createdAt", "sorterOrder": "ascend"},
-        "paginator": {"type": "page_number", "base_page": 1, "total_path": None},
-    },
+    # PageNumberPaginator accepts base_page, but its config TypedDict does not expose that constructor argument.
+    "profiles": cast(
+        Endpoint,
+        {
+            "path": "/browser/v2",
+            "data_selector": "profiles",
+            "data_selector_required": True,
+            "params": {"sorterField": "createdAt", "sorterOrder": "ascend"},
+            "paginator": {"type": "page_number", "base_page": 1, "total_path": None},
+        },
+    ),
     "workspaces": {
         "path": "/workspaces",
         "data_selector": "$",
