@@ -732,9 +732,9 @@ def ensure_coder_reachable(setup_hint: str = RUNTIME_SETUP_HINT) -> None:
     resp = _probe_coder()
     if resp is None:
         ensure_tailscale_connected(setup_hint)
-        if ensure_tailscale_routes_accepted() and coder_reachable():
-            return
-    elif resp.ok:
+        if ensure_tailscale_routes_accepted():
+            resp = _probe_coder()
+    if resp is not None and resp.ok:
         return
 
     diagnosis = _diagnose_unreachable_coder()
@@ -942,7 +942,7 @@ def ensure_coder_authenticated() -> None:
 
 
 def ensure_runtime_ready() -> None:
-    """Verify runtime prerequisites without mutating host setup."""
+    """Verify runtime prerequisites, failing with the setup hint instead of installing or logging in."""
     ensure_coder_reachable()
 
     if not coder_installed():
