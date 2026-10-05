@@ -1428,6 +1428,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                         updated_instance, create=False, should_sync=should_sync_value and not held
                     )
 
+                # A repair that cleared the markers after the check above has already resumed the
+                # tables, so the pause this edit just kept or wrote would outlast it.
+                if waits_for_repair and should_sync_value and not reset_pending and not tables_wait_for_repair(source):
+                    unpause_external_data_schedule(str(updated_instance.id))
+
             self._run_temporal_side_effect(update_schedule)
 
         if trigger_refresh:

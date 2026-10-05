@@ -25,7 +25,7 @@ from posthog.api.test.test_user import create_user
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.temporal.common.schedule import describe_schedule
+from posthog.temporal.common.schedule import create_schedule, describe_schedule
 
 from products.data_modeling.backend.facade.models import Edge, Node
 from products.data_warehouse.backend.facade.api import (
@@ -3297,6 +3297,53 @@ class TestUpdateExternalDataSchema:
         runs_after,
     ):
         client.force_login(user)
+        schema = self._cdc_table_beside_a_marked_one(team, marker, marked_table_sync_type, synced_before)
+        if has_schedule:
+            sync_external_data_job_workflow(schema, create=True, should_sync=runs_after, trigger_immediately=False)
+
+        service = "products.data_warehouse.backend.logic.data_load.service"
+        with (
+            self._patch_cdc_edit(),
+            mock.patch(f"{service}.create_schedule", wraps=create_schedule) as create,
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data=payload,
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        schedule = describe_schedule(temporal, str(schema.id)).schedule
+        assert schedule.state.paused is (not runs_after)
+        if "sync_frequency" in payload:
+            assert schedule.spec.intervals[0].every == timedelta(hours=1)
+        if not has_schedule:
+            assert create.call_args.kwargs["trigger_immediately"] is False
+
+    def test_an_edit_resumes_a_table_whose_repair_finished_meanwhile(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        schema = self._cdc_table_beside_a_marked_one(team, {"reason": "auto_dropped_critical_lag"}, "cdc", True)
+        sync_external_data_job_workflow(schema, create=True, should_sync=False, trigger_immediately=False)
+
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        with (
+            self._patch_cdc_edit(),
+            mock.patch(f"{views}.tables_wait_for_repair", side_effect=[True, False]),
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_frequency": "1hour"},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200, response.content
+        assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is False
+
+    def _cdc_table_beside_a_marked_one(
+        self, team, marker: dict[str, Any], marked_table_sync_type: str, synced_before: bool
+    ) -> ExternalDataSchema:
         streaming = {"cdc_mode": "streaming", "cdc_table_mode": "consolidated"}
         source_is_marked = marked_table_sync_type == "cdc"
         source, schema = self._managed_cdc_source_and_full_refresh_schema(
@@ -3316,30 +3363,18 @@ class TestUpdateExternalDataSchema:
             sync_type_config={**streaming, "cdc_broken": marker},
         )
         schema.refresh_from_db()
-        if has_schedule:
-            sync_external_data_job_workflow(schema, create=True, should_sync=runs_after, trigger_immediately=False)
+        return schema
 
+    @staticmethod
+    def _patch_cdc_edit() -> contextlib.ExitStack:
+        stack = contextlib.ExitStack()
         views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
         data_imports = "products.warehouse_sources.backend.temporal.data_imports"
-        with (
-            mock.patch(f"{views}.is_cdc_enabled_for_team", return_value=True),
-            mock.patch(f"{views}.sync_cdc_extraction_schedule"),
-            mock.patch(f"{data_imports}.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"),
-            mock.patch(f"{data_imports}.cdc.source_manager.has_queued_batches", return_value=False),
-        ):
-            response = client.patch(
-                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
-                data=payload,
-                content_type="application/json",
-            )
-
-        assert response.status_code == 200, response.content
-        schema.refresh_from_db()
-        assert schema.should_sync is True
-        schedule = describe_schedule(temporal, str(schema.id)).schedule
-        assert schedule.state.paused is (not runs_after)
-        if "sync_frequency" in payload:
-            assert schedule.spec.intervals[0].every == timedelta(hours=1)
+        stack.enter_context(mock.patch(f"{views}.is_cdc_enabled_for_team", return_value=True))
+        stack.enter_context(mock.patch(f"{views}.sync_cdc_extraction_schedule"))
+        stack.enter_context(mock.patch(f"{data_imports}.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"))
+        stack.enter_context(mock.patch(f"{data_imports}.cdc.source_manager.has_queued_batches", return_value=False))
+        return stack
 
     def test_update_schema_sync_time_of_day_when_previously_not_set(self, team, user, client: HttpClient, temporal):
         client.force_login(user)

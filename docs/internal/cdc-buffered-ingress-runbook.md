@@ -61,6 +61,7 @@ They then start a capture run right away, and recreate the capture schedule if i
 A table edit or a sync frequency change rewrites the capture schedule too, and it keeps the pause, so it does not restart capture on such a source either.
 The table's own schedule stays paused as well while a broken marker holds the source's tables for Repair CDC: turning the table's sync on, or changing its frequency, saves the change and leaves the schedule paused.
 Self-managed critical lag and a billing stop that kept the slot do not pause table schedules, so an edit under those markers leaves them running.
+Repair CDC resumes the table schedules a second time after it clears the markers, and an edit checks the markers again after it writes the schedule, so a table edited or turned on while a repair runs does not stay paused once the repair succeeds.
 Once slot-invalidation recovery has recreated the slot, it removes the markers of the lost slot (`auto_dropped_critical_lag`, `slot_missing`, `publication_missing`), so its tables stop reading as halted. A failed recreation keeps them.
 Each write that stages a reset gives the key a new `generation`, so capture drops only the reset it finished, even when a request stages the same reset again while that snapshot starts.
 The admin resync refuses instead, because it starts its own non-billable run, so it asks the operator to retry once the sync stops.
