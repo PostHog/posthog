@@ -40083,6 +40083,21 @@ export namespace Schemas {
       content_hash: string;
     }
 
+    export interface EstimateExperimentScope {
+      /**
+         * The experiment an experiment scanner watches.
+         * @minimum 1
+         */
+      experiment_id: number;
+      /**
+         * The variant keys it watches. Null or omitted means every variant.
+         * @minItems 1
+         * @nullable
+         * @items.maxLength 400
+         */
+      variants?: string[] | null;
+    }
+
     /**
      * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
@@ -40114,6 +40129,8 @@ export namespace Schemas {
       model?: ScannerModelEnum;
       /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
       experiment_targeting?: ScannerExperimentTargeting | null;
+      /** For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`. */
+      experiment?: EstimateExperimentScope | null;
     }
 
     /**
