@@ -1580,7 +1580,7 @@ class SessionRecordingViewSet(
                 return "shared" if request.GET.get("sharing_access_token", None) else "anonymous"
             else:
                 return "anonymous"
-        except:
+        except Exception:
             return "unknown"
 
     async def _fetch_and_validate_blocks(

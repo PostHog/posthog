@@ -820,5 +820,5 @@ def log_activity_from_viewset(
             activity=activity,
             detail=Detail(**detail_kwargs),
         )
-    except:
+    except Exception:
         pass
