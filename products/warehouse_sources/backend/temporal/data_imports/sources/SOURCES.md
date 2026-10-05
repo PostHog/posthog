@@ -349,6 +349,7 @@ the row lists both.
 | gainsight_px                     | HTTP                        | requests                                                        | ✅                          |
 | genesys_cloud                    | HTTP                        | requests                                                        | ✅                          |
 | gerrit                           | HTTP                        | requests                                                        | ✅                          |
+| getdx                            | HTTP                        | requests                                                        | ✅                          |
 | gitbook                          | HTTP                        | requests                                                        | ✅                          |
 | gitea                            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | github                           | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -1138,7 +1139,6 @@ doesn't conflict with concurrent PRs.
 - gdelt
 - gem
 - gerrit
-- getdx
 - getstream
 - ghost
 - gitea
