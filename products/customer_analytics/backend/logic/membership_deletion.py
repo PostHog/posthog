@@ -343,11 +343,13 @@ class MembershipReconciliation:
         ).result()
 
     def _survivors(self, sources: Sequence[tuple[str, bool]]) -> str:
+        # Filtering by staged distinct IDs before the ARRAY JOIN skips the properties of every other user in the
+        # team. It keeps the full history of each staged ID, so first_seen and last_seen stay correct.
+        staged_ids = (
+            f"(team_id, distinct_id) GLOBAL IN (SELECT DISTINCT team_id, distinct_id FROM {_name(self.read_table)})"
+        )
         candidates = " UNION ALL ".join(
-            self._event_keys(
-                table, json_schema, f"team_id GLOBAL IN (SELECT DISTINCT team_id FROM {_name(self.read_table)})"
-            )
-            for table, json_schema in sources
+            self._event_keys(table, json_schema, staged_ids) for table, json_schema in sources
         )
         return (
             f"SELECT {KEYS}, min(timestamp) AS first_seen, max(timestamp) AS last_seen FROM ({candidates}) "
