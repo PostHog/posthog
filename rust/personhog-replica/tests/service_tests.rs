@@ -1,19 +1,20 @@
 mod common;
 
-use common::TestContext;
+use common::{TestContext, TestPerson};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplica;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CountGroupTypeMappingsRequest,
     DeleteHashKeyOverridesByTeamsRequest, DeletePersonsBatchForTeamRequest, DeletePersonsMode,
-    DeletePersonsRequest, DeleteTombstonedPersonsRequest, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonsRequest, GetGroupRequest, GetGroupTypeMappingsByProjectIdRequest,
-    GetGroupTypeMappingsByProjectIdsRequest, GetGroupTypeMappingsByTeamIdRequest,
-    GetGroupTypeMappingsByTeamIdsRequest, GetGroupsBatchRequest, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetPersonByDistinctIdRequest, GetPersonByUuidRequest,
-    GetPersonRequest, GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest,
-    GetPersonsByUuidsRequest, GetPersonsRequest, GroupIdentifier, GroupKey,
-    SetPersonDistinctIdVersionFloorRequest, SetPersonVersionFloorRequest, SplitPersonRequest,
-    TeamDistinctId, UpsertHashKeyOverridesRequest,
+    DeletePersonsRequest, DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse,
+    GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonsRequest, GetGroupRequest,
+    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
+    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
+    GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
+    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
+    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
+    GetPersonsRequest, GroupIdentifier, GroupKey, SetPersonDistinctIdVersionFloorRequest,
+    SetPersonVersionFloorRequest, SplitPersonRequest, TeamDistinctId,
+    UpsertHashKeyOverridesRequest, VersionBoundedPerson,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use rstest::rstest;
@@ -1402,6 +1403,7 @@ async fn test_delete_tombstoned_persons_reports_each_outcome(
                 Uuid::now_v7().to_string(),
             ],
             max_rows,
+            bounded_persons: vec![],
         }))
         .await
         .expect("RPC failed")
@@ -1409,6 +1411,8 @@ async fn test_delete_tombstoned_persons_reports_each_outcome(
 
     assert_eq!(response.deleted_count, 1);
     assert_eq!(response.skipped_live_count, 1);
+    assert!(!response.version_guard_applied);
+    assert_eq!(response.skipped_version_count, 0);
     assert_eq!(
         response.blocked_person_uuids,
         vec![blocked.uuid.to_string()]
@@ -1423,6 +1427,61 @@ async fn test_delete_tombstoned_persons_reports_each_outcome(
         ctx.distinct_id_row_count(big.id).await.unwrap(),
         20 - expected_trimmed
     );
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_delete_tombstoned_persons_applies_version_bounds() {
+    // Every person is tombstoned once (version 1). `again` is tombstoned a second time
+    // (version 2), and `duplicate` is sent twice, so its lower bound must win.
+    let ctx = ServiceTestContext::new().await;
+    let at_bound = ctx.insert_person("svc_bound_at", None).await.unwrap();
+    let again = ctx.insert_person("svc_bound_again", None).await.unwrap();
+    let duplicate = ctx.insert_person("svc_bound_dup", None).await.unwrap();
+    for person in [&at_bound, &again, &duplicate] {
+        ctx.tombstone_person(person.id, None).await.unwrap();
+    }
+    ctx.tombstone_person(again.id, None).await.unwrap();
+    let live = ctx.insert_person("svc_bound_live", None).await.unwrap();
+    let bound = |person: &TestPerson, max_version: i64| VersionBoundedPerson {
+        person_uuid: person.uuid.to_string(),
+        max_version,
+    };
+
+    let response = ctx
+        .service
+        .delete_tombstoned_persons(Request::new(DeleteTombstonedPersonsRequest {
+            team_id: ctx.team_id,
+            person_uuids: vec![],
+            max_rows: 0,
+            bounded_persons: vec![
+                bound(&at_bound, 1),
+                bound(&again, 1),
+                bound(&duplicate, 5),
+                bound(&duplicate, 0),
+                bound(&live, 5),
+            ],
+        }))
+        .await
+        .expect("RPC failed")
+        .into_inner();
+
+    assert_eq!(
+        response,
+        DeleteTombstonedPersonsResponse {
+            deleted_count: 1,
+            skipped_live_count: 1,
+            rows_deleted: 1,
+            version_guard_applied: true,
+            skipped_version_count: 2,
+            ..Default::default()
+        }
+    );
+    assert!(!ctx.person_row_exists(at_bound.id).await.unwrap());
+    for person in [&again, &duplicate, &live] {
+        assert!(ctx.person_row_exists(person.id).await.unwrap());
+    }
 
     ctx.cleanup().await.ok();
 }

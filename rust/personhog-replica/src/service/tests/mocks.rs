@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -104,6 +105,7 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
+        _max_versions: Option<&HashMap<Uuid, i64>>,
         _max_rows: i64,
     ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
         Err(self.error.clone())
@@ -518,6 +520,7 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
+        _max_versions: Option<&HashMap<Uuid, i64>>,
         _max_rows: i64,
     ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
         Ok(storage::TombstonedDeleteOutcome::default())
@@ -991,6 +994,7 @@ impl storage::PersonLookup for PopulatedStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
+        _max_versions: Option<&HashMap<Uuid, i64>>,
         _max_rows: i64,
     ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
         Ok(storage::TombstonedDeleteOutcome::default())
@@ -1440,6 +1444,7 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
+        _max_versions: Option<&HashMap<Uuid, i64>>,
         _max_rows: i64,
     ) -> storage::StorageResult<storage::TombstonedDeleteOutcome> {
         Ok(storage::TombstonedDeleteOutcome::default())

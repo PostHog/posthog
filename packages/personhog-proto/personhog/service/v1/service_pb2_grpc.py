@@ -607,8 +607,9 @@ class PersonHogServiceServicer:
         raise NotImplementedError("Method not implemented!")
 
     def DeleteTombstonedPersons(self, request, context):
-        """Deletes only persons that are still tombstoned when the delete runs, a bounded
-        number of rows per call; pending uuids are sent again by the caller.
+        """Deletes only persons that are still tombstoned when the delete runs, and at or below
+        their version bound when the request carries bounded_persons, a bounded number of
+        rows per call; pending uuids are sent again by the caller.
         WARNING: Same routing caveat as DeletePersons above.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
