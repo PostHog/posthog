@@ -4953,6 +4953,8 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             with patch(ranker, return_value=mode):
                 resp = self.client.get(self.feed_url)
             items = resp.json()["results"]
+            # The shadow arm ranks on the weighted score, so the response names that ranker too.
+            self.assertEqual(resp.json()["ranker"], "weighted-score", mode)
             # The signal and the verdict hit lead as today; the cached 0.95 moves nothing.
             self.assertEqual(
                 [item["observation"]["session_id"] for item in items],
@@ -4965,6 +4967,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         with patch(ranker, return_value="jev"):
             resp = self.client.get(self.feed_url)
         items = resp.json()["results"]
+        self.assertEqual(resp.json()["ranker"], "jev")
         # jev-high carries evidence; the 0.2 row and the unjudged row fall to the filler tier by
         # recency, so neither claims the model judged it worth watching.
         self.assertEqual(
