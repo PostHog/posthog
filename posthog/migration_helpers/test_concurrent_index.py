@@ -16,6 +16,7 @@ from django.db.migrations.state import ModelState, ProjectState
 
 from posthog.migration_helpers import (
     CreateIndexConcurrently,
+    DropForeignKeyIndexConcurrently,
     DropIndexConcurrently,
     SafeAddIndexConcurrently,
     SafeRemoveIndexConcurrently,
@@ -456,3 +457,148 @@ def test_safe_ops_deconstruct_round_trips(op):
     assert args == []
     rebuilt = type(op)(**kwargs)
     assert rebuilt.deconstruct() == op.deconstruct()
+
+
+# --- DropForeignKeyIndexConcurrently ---
+
+
+@pytest.fixture
+def key_tables():
+    """Table names for a parent and a child with a foreign key, dropped on teardown."""
+    suffix = uuid.uuid4().hex[:8]
+    parent, child = f"test_fkp_{suffix}", f"test_fkc_{suffix}"
+    try:
+        yield parent, child
+    finally:
+        with connection.cursor() as cursor:
+            cursor.execute(f'DROP TABLE IF EXISTS "{child}", "{parent}"')
+
+
+def _create_key_tables(
+    parent: str,
+    child: str,
+    *,
+    on_delete=models.CASCADE,
+    db_constraint: bool = True,
+    to_field: str | None = None,
+    indexes: list[models.Index] | None = None,
+) -> ProjectState:
+    state = ProjectState()
+    state.add_model(
+        ModelState(
+            app_label="posthog",
+            name="TempFkParent",
+            fields=[
+                ("id", models.AutoField(primary_key=True)),
+                ("code", models.CharField(max_length=20, unique=True)),
+            ],
+            options={"db_table": parent},
+        )
+    )
+    state.add_model(
+        ModelState(
+            app_label="posthog",
+            name="TempFkChild",
+            fields=[
+                ("id", models.AutoField(primary_key=True)),
+                (
+                    "owner",
+                    models.ForeignKey(
+                        "posthog.tempfkparent", on_delete=on_delete, db_constraint=db_constraint, to_field=to_field
+                    ),
+                ),
+                ("seq", models.IntegerField(default=0)),
+            ],
+            options={"db_table": child, "indexes": indexes or []},
+        )
+    )
+    with connection.schema_editor() as schema_editor:
+        schema_editor.create_model(state.apps.get_model("posthog", "TempFkParent"))
+        schema_editor.create_model(state.apps.get_model("posthog", "TempFkChild"))
+    return state
+
+
+def _indexes_on_only(table: str, column: str) -> set[str]:
+    with connection.cursor() as cursor:
+        constraints = connection.introspection.get_constraints(cursor, table)
+    return {name for name, info in constraints.items() if info["index"] and info["columns"] == [column]}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "on_delete,db_constraint,to_field,index_fields",
+    [
+        pytest.param(models.CASCADE, True, None, ["owner", "seq"], id="another_index_leads_with_the_column"),
+        pytest.param(models.CASCADE, True, None, ["owner"], id="a_meta_index_on_the_same_column"),
+        pytest.param(models.DO_NOTHING, False, None, None, id="no_parent_delete_reads_the_column"),
+        pytest.param(models.CASCADE, True, "code", ["owner", "seq"], id="a_key_to_a_text_column"),
+    ],
+)
+def test_drop_foreign_key_index_drops_only_the_automatic_indexes(
+    key_tables, on_delete, db_constraint, to_field, index_fields
+):
+    parent, child = key_tables
+    indexes = [models.Index(fields=index_fields, name=f"{child}_meta")] if index_fields else []
+    state = _create_key_tables(
+        parent, child, on_delete=on_delete, db_constraint=db_constraint, to_field=to_field, indexes=indexes
+    )
+    single_column_meta = {index.name for index in indexes if index.fields == ["owner"]}
+    automatic = _indexes_on_only(child, "owner_id") - single_column_meta
+    op = DropForeignKeyIndexConcurrently(model_name="TempFkChild", name="owner")
+
+    _apply_forwards(op, state)
+    assert _indexes_on_only(child, "owner_id") == single_column_meta
+
+    _apply_forwards(op, state)  # a bin/migrate retry finds nothing left to drop
+    assert _indexes_on_only(child, "owner_id") == single_column_meta
+
+    after = state.clone()
+    op.state_forwards("posthog", after)
+    assert after.models["posthog", "tempfkchild"].fields["owner"].db_index is False
+
+    _apply_backwards(op, state)
+    assert all(_index_is_valid(name) for name in automatic)
+    assert _indexes_on_only(child, "owner_id") == automatic | single_column_meta
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "on_delete,db_constraint,setup_sql,error",
+    [
+        pytest.param(
+            models.CASCADE,
+            True,
+            'CREATE INDEX "{child}_stray" ON "{child}" (owner_id)',
+            "Find out what created it",
+            id="an_unexpected_index_on_the_column",
+        ),
+        pytest.param(models.CASCADE, True, None, "No other btree index", id="no_other_index_leads_with_the_column"),
+        pytest.param(
+            models.DO_NOTHING, True, None, "No other btree index", id="only_the_commit_check_reads_the_column"
+        ),
+        pytest.param(
+            models.CASCADE, False, None, "No other btree index", id="only_the_delete_collector_reads_the_column"
+        ),
+        pytest.param(
+            models.CASCADE,
+            True,
+            'DROP INDEX "{automatic}"',
+            "No other btree index",
+            id="the_automatic_index_is_already_gone",
+        ),
+    ],
+)
+def test_drop_foreign_key_index_refuses_and_keeps_the_indexes(key_tables, on_delete, db_constraint, setup_sql, error):
+    parent, child = key_tables
+    state = _create_key_tables(parent, child, on_delete=on_delete, db_constraint=db_constraint)
+    (automatic,) = _indexes_on_only(child, "owner_id")
+    if setup_sql:
+        with connection.cursor() as cursor:
+            cursor.execute(setup_sql.format(child=child, automatic=automatic))
+    before = _indexes_on_only(child, "owner_id")
+    op = DropForeignKeyIndexConcurrently(model_name="TempFkChild", name="owner")
+
+    with pytest.raises(ValueError, match=error):
+        _apply_forwards(op, state)
+
+    assert _indexes_on_only(child, "owner_id") == before

@@ -53,14 +53,20 @@ can't model):
         )],
     )
 
+`DropForeignKeyIndexConcurrently` drops the indexes Django creates for a `ForeignKey`.
+
 The Migration class still needs `atomic = False`.
 """
 
-from django.contrib.postgres.operations import AddIndexConcurrently, RemoveIndexConcurrently
+from django.contrib.postgres.operations import AddIndexConcurrently, NotInTransactionMixin, RemoveIndexConcurrently
 from django.db import migrations, router
 from django.db.backends.base.schema import BaseDatabaseSchemaEditor
+from django.db.migrations.operations.fields import FieldOperation
+from django.db.models import DO_NOTHING, Index
 
 import structlog
+
+from posthog.dataclasses import frozen
 
 logger = structlog.get_logger(__name__)
 
@@ -400,3 +406,143 @@ class SafeRemoveIndexConcurrently(RemoveIndexConcurrently):
         to_model_state = to_state.models[app_label, self.model_name_lower]
         index = to_model_state.get_index_by_name(self.name)
         schema_editor.add_index(model, index, concurrently=True)
+
+
+_LEADING_INDEXES_SQL = """
+    SELECT index_class.relname
+    FROM pg_index idx
+    JOIN pg_class table_class ON table_class.oid = idx.indrelid
+    JOIN pg_class index_class ON index_class.oid = idx.indexrelid
+    JOIN pg_am am ON am.oid = index_class.relam
+    JOIN pg_attribute att ON att.attrelid = idx.indrelid AND att.attnum = idx.indkey[0]
+    WHERE table_class.relname = %(table)s
+      AND pg_table_is_visible(table_class.oid)
+      AND att.attname = %(column)s
+      AND am.amname = 'btree'
+      AND idx.indisvalid
+      AND idx.indpred IS NULL
+"""
+
+
+@frozen
+class _AutomaticIndex:
+    name: str
+    columns: str
+
+
+class DropForeignKeyIndexConcurrently(NotInTransactionMixin, FieldOperation):
+    """Drop the indexes Django creates for a ForeignKey, and set `db_index=False` on the field.
+
+    Use it in place of the `AlterField` that `makemigrations` writes, which runs a plain
+    `DROP INDEX` under ACCESS EXCLUSIVE on the table. The indexes come from the field's
+    `db_index`, not from `Meta.indexes`, so `SafeRemoveIndexConcurrently` cannot resolve them.
+    The op derives the names the same way Django did when it created the indexes, so no
+    hash-suffixed name is typed at the call site. The Migration class still needs
+    `atomic = False`.
+
+        operations = [
+            DropForeignKeyIndexConcurrently(model_name="mymodel", name="team"),
+        ]
+
+    The op raises instead of guessing when another single-column index on the key exists that
+    no Meta index names. It also raises when a parent delete still reads the column and no
+    other btree index leads with it: the foreign key check at COMMIT and every `on_delete` but
+    `DO_NOTHING` would then scan the whole table.
+    """
+
+    def state_forwards(self, app_label, state) -> None:
+        field = state.models[app_label, self.model_name_lower].fields[self.name]
+        if not (field.many_to_one and field.db_index and not field.unique):
+            raise ValueError(
+                f"{type(self).__name__} needs a ForeignKey with an index of its own, "
+                f"and {self.model_name}.{self.name} has none"
+            )
+        field = field.clone()
+        field.db_index = False
+        state.alter_field(app_label, self.model_name_lower, self.name, field, preserve_default=True)
+
+    def _automatic_indexes(self, schema_editor, model, field) -> list[_AutomaticIndex]:
+        # The names and columns BaseDatabaseSchemaEditor._field_indexes_sql uses when it creates them.
+        table = model._meta.db_table
+        indexes = [
+            _AutomaticIndex(
+                name=schema_editor._create_index_name(table, [field.column]),
+                columns=f"({schema_editor.quote_name(field.column)})",
+            )
+        ]
+        # Postgres adds a `_like` pattern-ops companion on a varchar or text column.
+        like = schema_editor._create_like_index_sql(model, field)
+        if like is not None:
+            indexes.append(
+                _AutomaticIndex(
+                    name=schema_editor._create_index_name(table, [field.column], suffix="_like"),
+                    columns=f"({like.parts['columns']})",
+                )
+            )
+        return indexes
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        self._ensure_not_in_transaction(schema_editor)
+        model = from_state.apps.get_model(app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        table = model._meta.db_table
+        field = model._meta.get_field(self.name)
+        automatic = {index.name for index in self._automatic_indexes(schema_editor, model, field)}
+        # The lookup Django's own AlterField runs to find these indexes when db_index turns off.
+        candidates = set(
+            schema_editor._constraint_names(
+                model,
+                [field.column],
+                index=True,
+                type_=Index.suffix,
+                exclude={index.name for index in model._meta.indexes},
+            )
+        )
+        unexpected = sorted(candidates - automatic)
+        if unexpected:
+            raise ValueError(
+                f"{table} holds {', '.join(unexpected)} on only {field.column}. Django did not create it for "
+                f"the key ({', '.join(sorted(automatic))}), and no Meta index names it. Find out what created it first."
+            )
+        # Also checked when the indexes are already gone, so db_index=False never hides a missing cover.
+        if field.db_constraint or field.remote_field.on_delete is not DO_NOTHING:
+            with schema_editor.connection.cursor() as cursor:
+                cursor.execute(_LEADING_INDEXES_SQL, {"table": table, "column": field.column})
+                covering = {name for (name,) in cursor.fetchall()} - automatic
+            if not covering:
+                raise ValueError(
+                    f"No other btree index on {table} leads with {field.column}. Without one, a delete of the "
+                    f"parent row scans {table} for child rows. Add a btree index that leads with {field.column} first."
+                )
+        _disable_timeouts(schema_editor)
+        for name in sorted(candidates & automatic):
+            schema_editor.execute(_build_drop_sql(name))
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        self._ensure_not_in_transaction(schema_editor)
+        model = to_state.apps.get_model(app_label, self.model_name)
+        if not self.allow_migrate_model(schema_editor.connection.alias, model):
+            return
+        field = model._meta.get_field(self.name)
+        _disable_timeouts(schema_editor)
+        for index in self._automatic_indexes(schema_editor, model, field):
+            if _index_validity(schema_editor, index.name) == "invalid":
+                _log_and_drop_invalid_index(schema_editor, index.name, type(self).__name__)
+            schema_editor.execute(
+                _build_create_sql(
+                    index_name=index.name,
+                    table_name=model._meta.db_table,
+                    columns=index.columns,
+                    unique=False,
+                    using="",
+                    where="",
+                )
+            )
+
+    def describe(self) -> str:
+        return f"Concurrently drop the foreign key indexes on {self.model_name}.{self.name}"
+
+    @property
+    def migration_name_fragment(self) -> str:
+        return f"drop_{self.model_name_lower}_{self.name_lower}_indexes"
