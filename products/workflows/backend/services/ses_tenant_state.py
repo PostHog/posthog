@@ -20,7 +20,7 @@ from posthog.tasks.email import (
 
 from products.workflows.backend.models.sandbox_sender_tenant_state import SandboxSenderTenantState
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.providers.ses import SESProvider
+from products.workflows.backend.providers.ses import SESProvider, TenantSendingState
 
 logger = structlog.get_logger(__name__)
 
@@ -70,45 +70,48 @@ def _announce_sandbox_state_change(tenant_name: str) -> None:
         logger.exception("Failed to announce sandbox SES tenant state change to workers", tenant_name=tenant_name)
 
 
-def _apply_sandbox_tenant_state(tenant_name: str, *, sending_status: str, reputation_impact: str | None) -> None:
-    impact = reputation_impact or ""
-    SandboxSenderTenantState.objects.get_or_create(tenant_name=tenant_name)
-    with transaction.atomic():
-        state = SandboxSenderTenantState.objects.select_for_update().get(tenant_name=tenant_name)
-        previous_status = state.sending_status
-        previous_impact = state.reputation_impact
-        state.synced_at = timezone.now()
-        if previous_status == sending_status and previous_impact == impact:
-            state.save(update_fields=["synced_at"])
-            logger.info(
-                "Sandbox SES tenant state unchanged", tenant_name=tenant_name, status=sending_status, impact=impact
-            )
-            return
-
-        state.sending_status = sending_status
-        state.reputation_impact = impact
-        state.save(update_fields=["sending_status", "reputation_impact", "synced_at"])
+def _apply_sandbox_tenant_state(state: SandboxSenderTenantState, tenant: TenantSendingState) -> None:
+    impact = tenant.reputation_impact or ""
+    previous_status = state.sending_status
+    previous_impact = state.reputation_impact
+    state.synced_at = timezone.now()
+    if previous_status == tenant.sending_status and previous_impact == impact:
+        state.save(update_fields=["synced_at"])
         logger.info(
-            "Sandbox SES tenant state changed",
-            tenant_name=tenant_name,
-            from_status=previous_status,
-            to_status=sending_status,
-            from_impact=previous_impact,
-            to_impact=impact,
+            "Sandbox SES tenant state unchanged", tenant_name=state.tenant_name, status=previous_status, impact=impact
         )
-        transaction.on_commit(lambda: _announce_sandbox_state_change(tenant_name))
+        return
+
+    state.sending_status = tenant.sending_status
+    state.reputation_impact = impact
+    state.save(update_fields=["sending_status", "reputation_impact", "synced_at"])
+    logger.info(
+        "Sandbox SES tenant state changed",
+        tenant_name=state.tenant_name,
+        from_status=previous_status,
+        to_status=tenant.sending_status,
+        from_impact=previous_impact,
+        to_impact=impact,
+    )
+    tenant_name = state.tenant_name
+    transaction.on_commit(lambda: _announce_sandbox_state_change(tenant_name))
 
 
 def sync_sandbox_tenant_state(provider: SESProvider | None = None) -> None:
+    """
+    Mirror the shared sandbox tenant's AWS state. The SES read happens under the row lock, so a
+    webhook sync and the sweep apply their readings in the order they took them and an older
+    reading never overwrites a newer pause.
+    """
     tenant_name = settings.SES_SANDBOX_TENANT_NAME
     if not tenant_name:
         return
-    tenant = (provider or SESProvider()).get_tenant_reputation_by_name(tenant_name)
-    if tenant is None:
-        return
-    _apply_sandbox_tenant_state(
-        tenant_name, sending_status=tenant["sending_status"], reputation_impact=tenant["reputation_impact"]
-    )
+    SandboxSenderTenantState.objects.get_or_create(tenant_name=tenant_name)
+    with transaction.atomic():
+        state = SandboxSenderTenantState.objects.select_for_update().get(tenant_name=tenant_name)
+        tenant = (provider or SESProvider()).get_tenant_sending_state(tenant_name)
+        if tenant is not None:
+            _apply_sandbox_tenant_state(state, tenant)
 
 
 def sync_ses_tenant_state(team_id: int, provider: SESProvider | None = None, *, verify_team: bool = True) -> None:

@@ -208,9 +208,9 @@ class TestSandboxTenantStateSync(BaseTest):
         boto3_client = patch("products.workflows.backend.providers.ses.boto3.client")
         self.ses = boto3_client.start().return_value
         self.addCleanup(boto3_client.stop)
-        announce = patch("products.workflows.backend.services.ses_tenant_state.reload_sandbox_sender_state_on_workers")
-        self.announce = announce.start()
-        self.addCleanup(announce.stop)
+        publish = patch("posthog.plugins.plugin_server_api.publish_message")
+        self.publish = publish.start()
+        self.addCleanup(publish.stop)
         self.ses.list_recommendations.return_value = {"Recommendations": []}
 
     def _aws_tenant(self, sending_status: str, impact: str) -> None:
@@ -226,21 +226,23 @@ class TestSandboxTenantStateSync(BaseTest):
     def test_a_changed_state_is_stored_and_announced_after_commit(self) -> None:
         self._aws_tenant("ENABLED", "NONE")
         self._sync()
+        self.publish.reset_mock()
         self._aws_tenant("DISABLED", "HIGH")
 
-        self._sync()
+        with self.captureOnCommitCallbacks(execute=True):
+            sync_sandbox_tenant_state_task()
+            self.publish.assert_not_called()
 
         state = SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT)
         assert (state.sending_status, state.reputation_impact) == ("DISABLED", "HIGH")
         self.ses.get_tenant.assert_called_with(TenantName=SANDBOX_TENANT)
-        assert self.announce.call_count == 2
-        self.announce.assert_called_with(SANDBOX_TENANT)
+        self.publish.assert_called_once_with("reload-sandbox-sender-state", {"tenantName": SANDBOX_TENANT})
 
     def test_an_unchanged_state_refreshes_synced_at_without_announcing(self) -> None:
         self._aws_tenant("DISABLED", "HIGH")
         with time_machine.travel("2026-10-05T10:00:00Z", tick=False):
             self._sync()
-        self.announce.reset_mock()
+        self.publish.reset_mock()
 
         with time_machine.travel("2026-10-05T11:00:00Z", tick=False):
             self._sync()
@@ -248,15 +250,26 @@ class TestSandboxTenantStateSync(BaseTest):
         state = SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT)
         assert state.sending_status == "DISABLED"
         assert state.synced_at == datetime(2026, 10, 5, 11, tzinfo=UTC)
-        self.announce.assert_not_called()
+        self.publish.assert_not_called()
 
-    def test_an_unknown_sandbox_tenant_leaves_no_state(self) -> None:
+    def test_a_pause_is_stored_even_when_findings_cannot_be_listed(self) -> None:
+        self._aws_tenant("DISABLED", "HIGH")
+        self.ses.list_recommendations.side_effect = ClientError(
+            {"Error": {"Code": "TooManyRequestsException"}}, "ListRecommendations"
+        )
+
+        self._sync()
+
+        assert SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).sending_status == "DISABLED"
+
+    def test_an_unknown_sandbox_tenant_is_never_paused(self) -> None:
         self.ses.get_tenant.side_effect = ClientError({"Error": {"Code": "NotFoundException"}}, "GetTenant")
 
         self._sync()
 
-        assert not SandboxSenderTenantState.objects.exists()
-        self.announce.assert_not_called()
+        state = SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT)
+        assert (state.sending_status, state.synced_at) == ("", None)
+        self.publish.assert_not_called()
 
     def test_the_daily_sweep_syncs_the_sandbox_tenant_once_beside_team_tenants(self) -> None:
         Integration.objects.create(team=self.team, kind="email", config={"provider": "ses"})
