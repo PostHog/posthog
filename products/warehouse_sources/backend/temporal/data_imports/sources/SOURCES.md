@@ -750,6 +750,7 @@ the row lists both.
 | survicate                        | HTTP                        | requests                                                        | ✅                          |
 | svix                             | HTTP                        | requests                                                        | ✅                          |
 | swarmia                          | HTTP                        | requests                                                        | ✅                          |
+| systeme                          | HTTP                        | requests                                                        | ✅                          |
 | taboola                          | HTTP                        | requests                                                        | ✅                          |
 | tailscale                        | HTTP                        | requests                                                        | ✅                          |
 | tally                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1433,7 +1434,6 @@ doesn't conflict with concurrent PRs.
 - swan
 - swonkie
 - synthesia
-- systeme
 - tackle_io
 - talkdesk
 - tana
