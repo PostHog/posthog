@@ -66,27 +66,33 @@ Not for changing rules. The read tools cannot write, and the settings page is wh
 
 ## Available tools
 
-| Tool                                              | Returns                                                                                          |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `posthog:access-control-members-list`             | Every member's enforced access to the project and to each tool. `member_id` narrows to a member. |
-| `posthog:access-control-roles-list`               | The same per role. `role_id` narrows to a role.                                                  |
-| `posthog:access-control-defaults-get`             | The project baseline, and which tools accept rules on single objects.                            |
-| `posthog:access-control-member-objects-list`      | The object rules set for a member: every object with a rule for that member.                     |
-| `posthog:access-control-member-properties-list`   | The property rules set for a member.                                                             |
-| `posthog:access-control-role-objects-list`        | The object rules set for a role.                                                                 |
-| `posthog:access-control-role-properties-list`     | The property rules set for a role.                                                               |
-| `posthog:access-control-default-objects-list`     | The object rules that apply to everyone in the project.                                          |
-| `posthog:access-control-default-properties-list`  | The property rules that apply to everyone in the project.                                        |
-| `posthog:org-members-list`                        | Membership ids, names and organization levels. No project access details.                        |
-| `posthog:roles-list`, `posthog:role-members-list` | Role names by id, and who is in a role.                                                          |
+| Tool                                             | Returns                                                                                          |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `posthog:access-control-members-list`            | Every member's enforced access to the project and to each tool. `member_id` narrows to a member. |
+| `posthog:access-control-roles-list`              | The same per role. `role_id` narrows to a role.                                                  |
+| `posthog:access-control-defaults-get`            | The project baseline, and which tools accept rules on single objects.                            |
+| `posthog:access-control-member-objects-list`     | The object rules set for a member: every object with a rule for that member.                     |
+| `posthog:access-control-member-properties-list`  | The property rules set for a member.                                                             |
+| `posthog:access-control-role-objects-list`       | The object rules set for a role.                                                                 |
+| `posthog:access-control-role-properties-list`    | The property rules set for a role.                                                               |
+| `posthog:access-control-default-objects-list`    | The object rules that apply to everyone in the project.                                          |
+| `posthog:access-control-default-properties-list` | The property rules that apply to everyone in the project.                                        |
 
 All access control tools take an optional project id and default to the active project.
 
+The organization also has `posthog:org-members-list`, `posthog:roles-list` and
+`posthog:role-members-list`. Do not build the answer on them. A connection whose API key is restricted to
+one project never sees them, because the catalog drops every tool that needs an `organization` scope. The
+tools above already carry every id and name this skill needs.
+
 ## Workflow
 
-1. **Find the subject id.** `member_id` is the organization membership id: the `id` from
-   `org-members-list`, or `organization_membership_id` from `members-list`. It is not the user id and not
-   the user uuid. `role_id` is the `id` from `roles-list`.
+1. **Find the subject id.** Both ids come from the access control tools themselves.
+   - `member_id` is the `organization_membership_id` on an `access-control-members-list` entry. Run that
+     tool without `member_id`, then match the person on `user.email`, or on `user.first_name` and
+     `user.last_name`. The membership id is not the user id and not the user uuid.
+   - `role_id` is the `role_id` on an `access-control-roles-list` entry. That entry also gives `role_name`.
+     The `role_ids` on a member's entry hold the same ids.
 2. **Tool-level questions need one call.** "Can this member view dashboards?" or "What access to feature
    flags does this member have?" is `members-list` with `member_id`. `effective_access_level` for that tool
    is the complete answer. It already includes the member's roles, the project default and the bypasses.
@@ -129,7 +135,7 @@ How to phrase the answer:
   stored rules do not apply to them.
 - `access_level` is set and equals `effective_access_level`: "This member has an explicit rule: editor."
 - `access_level` is `null` and `source_subject` is `role`: "This member has editor access, based on a role."
-  The role's name is not in the entry; `roles-list` has it if the user wants it.
+  The role's name is not in the entry; `access-control-roles-list` gives it as `role_name`.
 - `access_level` is `null` and `source_subject` is `default`: "This member has viewer access, based on the
   project default."
 - `source` is `system_default`: "No rule is set anywhere, so the PostHog default applies."
@@ -139,6 +145,10 @@ How to phrase the answer:
 
 - An empty object or property list means no rules of that kind, not no access. The tool-level entry
   still applies.
+- A `member_id` or a `role_id` the organization does not have returns 404 with the message `Not found.` A
+  user uuid passed as `member_id` fails this way, because the two ids look alike. Read the id again from
+  `access-control-members-list` or `access-control-roles-list` before you tell the user the subject does
+  not exist.
 - A member missing from `members-list` is not proof of no access. A caller who is not an organization
   admin, in an organization where members cannot see each other, only sees members with project-scoped
   access.
