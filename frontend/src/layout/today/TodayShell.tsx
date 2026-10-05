@@ -57,7 +57,8 @@ const PANE_LABELS = {
 
 /** The left navigation under the Today layout: the rail, then the sidebar for the pane the rail has open. */
 export function TodayShell({ className }: { className?: string }): JSX.Element {
-    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth } = useValues(todayShellLogic)
+    const { activePane, mobileLayout, phoneLayout, sidebarVisible, sidebarWidth, phoneHeaderHidden } =
+        useValues(todayShellLogic)
     // Records the tools and sessions visited while other panes are open, so each pane's Recent group is ready.
     useMountedLogic(todayRecentsLogic)
     const { pickPane, setMobileSidebarOpen, setSidebarOpen, setSidebarWidth, toggleSidebar } =
@@ -121,6 +122,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
     const pane = (
         <div className="TodayShell__pane">
             <QuillSceneHeader
+                className="mx-2 px-2"
                 title={
                     <h2 className="m-0 min-w-0 truncate text-base font-bold text-foreground">
                         {PANE_LABELS[activePane]}
@@ -141,7 +143,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
         return (
             <ToastProvider>
                 <div data-quill className={cn('Today TodayShell TodayShell--phone', className)}>
-                    {!sidebarVisible && <TodayPhoneHeader />}
+                    {!sidebarVisible && !phoneHeaderHidden && <TodayPhoneHeader />}
                     <aside
                         ref={drawerRef}
                         tabIndex={-1}
@@ -155,7 +157,7 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                             {TODAY_MORE_PANES.includes(activePane) && (
                                 <Button
                                     size="icon-lg"
-                                    className="-ml-2 rounded-full"
+                                    className="-ml-2"
                                     aria-label="Back to More"
                                     data-attr="today-more-back"
                                     onClick={() => pickPane('more')}

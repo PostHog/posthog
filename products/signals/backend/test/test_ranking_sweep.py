@@ -20,6 +20,7 @@ from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.ranking import scorer, sweep
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
 from products.signals.backend.ranking.model_store import ModelLoadError
+from products.signals.backend.ranking.overrides import NO_OVERRIDES, RankingOverrides, parse_overrides
 from products.signals.backend.ranking.scorer import NO_VECTOR, ReportScoringOutcome, ScoringError
 from products.signals.backend.ranking.sweep import ScoringCandidate, reports_due_for_scoring, score_inbox_reports
 from products.signals.backend.report_embedding_reader import REPORT_EMBEDDINGS_TABLE
@@ -27,12 +28,20 @@ from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE
 
 MANIFEST = "manifest-b"
 OLD_MANIFEST = "manifest-a"
+SERVED_VERSION = "2026-09-01"
+SERVED_KEY = f"report_embeddings@{SERVED_VERSION}"
 
 
-def _score(*, embedding_inserted_at: datetime.datetime, manifest_version: str, scored_at: datetime.datetime) -> str:
+def _score(
+    *,
+    embedding_inserted_at: datetime.datetime,
+    manifest_version: str,
+    scored_at: datetime.datetime,
+    served_version: str = SERVED_VERSION,
+) -> str:
     served = RankingModelResult(
         model_name="report_embeddings",
-        model_version="2026-09-01",
+        model_version=served_version,
         model_kind="xgboost",
         roles=["served"],
         feature_schema_version=1,
@@ -46,6 +55,10 @@ def _score(*, embedding_inserted_at: datetime.datetime, manifest_version: str, s
         served_key=served.key,
         results={served.key: served},
     ).model_dump_json()
+
+
+def _raise(error: Exception) -> Any:
+    raise error
 
 
 class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
@@ -96,7 +109,13 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         return inserted_at
 
     def _scored(
-        self, report_id: str, *, vector_at: datetime.datetime, manifest: str = MANIFEST, hours_ago: int = 1
+        self,
+        report_id: str,
+        *,
+        vector_at: datetime.datetime,
+        manifest: str = MANIFEST,
+        hours_ago: int = 1,
+        served_version: str = SERVED_VERSION,
     ) -> None:
         SignalReportArtefact.objects.create(
             team=self.team,
@@ -106,12 +125,17 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
                 embedding_inserted_at=vector_at,
                 manifest_version=manifest,
                 scored_at=self.now - datetime.timedelta(hours=hours_ago),
+                served_version=served_version,
             ),
         )
 
     def _due(self, limit: int = 100) -> list[str]:
         candidates = reports_due_for_scoring(
-            self.now, manifest_version=MANIFEST, rendering=EMBEDDING_RENDERING_TITLE_SUMMARY, limit=limit
+            self.now,
+            manifest_version=MANIFEST,
+            served_key=SERVED_KEY,
+            rendering=EMBEDDING_RENDERING_TITLE_SUMMARY,
+            limit=limit,
         )
         return [candidate.report_id for candidate in candidates]
 
@@ -134,6 +158,10 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         other_manifest = self._report()
         self._scored(other_manifest, vector_at=self._vector(other_manifest, hours_ago=5), manifest=OLD_MANIFEST)
 
+        # A served override changes the served model under the same manifest version.
+        other_served = self._report()
+        self._scored(other_served, vector_at=self._vector(other_served, hours_ago=5), served_version="2026-08-25")
+
         retracted = self._report()
         self._vector(retracted, hours_ago=5)
         self._vector(retracted, hours_ago=2, deleted=True)
@@ -148,7 +176,7 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         wrong_team = self._report(team=other_team)
         self._vector(wrong_team, hours_ago=5, team_id=self.team.pk)
 
-        assert sorted(self._due()) == sorted([unscored, edited, other_manifest])
+        assert sorted(self._due()) == sorted([unscored, edited, other_manifest, other_served])
 
     def test_the_cap_keeps_unscored_reports_first_then_the_oldest_scores(self) -> None:
         recently_scored, long_ago_scored, unscored = self._report(), self._report(), self._report()
@@ -164,9 +192,13 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
 class TestScoreInboxReports(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.serving = SimpleNamespace(manifest=SimpleNamespace(manifest_version=MANIFEST))
+        self.serving = SimpleNamespace(
+            manifest=SimpleNamespace(manifest_version=MANIFEST, served=SimpleNamespace(key=SERVED_KEY)),
+            served_override=None,
+        )
+        self._patch(sweep, "read_ranking_overrides", return_value=NO_OVERRIDES)
         self.load_serving_set = self._patch(sweep, "load_serving_set", return_value=self.serving)
-        self._patch(scorer, "served_rendering", return_value=EMBEDDING_RENDERING_TITLE_SUMMARY)
+        self.served_rendering = self._patch(scorer, "served_rendering", return_value=EMBEDDING_RENDERING_TITLE_SUMMARY)
         self.due = self._patch(sweep, "reports_due_for_scoring", return_value=[])
         self.score_reports = self._patch(scorer, "score_reports", side_effect=self._outcomes)
         self.capture = MagicMock()
@@ -306,6 +338,28 @@ class TestScoreInboxReports(SimpleTestCase):
             2,
         )
 
+    def test_a_served_override_the_scorer_cannot_serve_falls_back_to_the_manifest(self) -> None:
+        # A tabular override loads, but no pass can serve it, so taking it would stop every pass.
+        overridden = SimpleNamespace(
+            manifest=SimpleNamespace(manifest_version=MANIFEST, served=SimpleNamespace(key="tabular_xgb@2026-09-01")),
+            served_override=RankingOverrides(served="tabular_xgb@2026-09-01"),
+        )
+        self.load_serving_set.side_effect = [overridden, self.serving]
+        self.served_rendering.side_effect = lambda serving: (
+            _raise(ScoringError("not served yet")) if serving is overridden else EMBEDDING_RENDERING_TITLE_SUMMARY
+        )
+        self._candidates((1, "a"))
+
+        score_inbox_reports()
+
+        assert self.score_reports.call_args.kwargs["serving"] is self.serving
+        assert self.due.call_args.kwargs["served_key"] == SERVED_KEY
+        self.logger.warning.assert_any_call(
+            "inbox_ranking_override_rejected",
+            override_served="tabular_xgb@2026-09-01",
+            reason="not served yet",
+        )
+
     @parameterized.expand(
         [("scoring_error", ScoringError("no served score")), ("served_model_load", ModelLoadError("no booster"))]
     )
@@ -317,3 +371,94 @@ class TestScoreInboxReports(SimpleTestCase):
             score_inbox_reports()
 
         assert self.score_reports.call_count == 1
+
+
+NOW = datetime.datetime(2026, 10, 4, 12, 0, tzinfo=datetime.UTC)
+EXPIRES = "2026-10-11T00:00:00Z"
+
+
+class TestParseOverrides(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("absent", None, NO_OVERRIDES, None),
+            ("empty", {}, NO_OVERRIDES, None),
+            ("not_an_object", ["report_embeddings@2026-10-03"], NO_OVERRIDES, "inbox_ranking_override_invalid"),
+            (
+                "missing_expiry",
+                {"served": "report_embeddings@2026-10-03"},
+                NO_OVERRIDES,
+                "inbox_ranking_override_invalid",
+            ),
+            (
+                "expired",
+                {"expires_at": "2026-10-04T11:00:00Z", "served": "report_embeddings@2026-10-03"},
+                NO_OVERRIDES,
+                "inbox_ranking_override_expired",
+            ),
+            (
+                "too_far_ahead",
+                {"expires_at": "2026-10-19T00:00:00Z", "served": "report_embeddings@2026-10-03"},
+                NO_OVERRIDES,
+                "inbox_ranking_override_invalid",
+            ),
+            (
+                "unknown_gate",
+                {"expires_at": EXPIRES, "promotion": {"skip_gates": {"report_embeddings": ["auc"]}}},
+                NO_OVERRIDES,
+                "inbox_ranking_override_invalid",
+            ),
+            (
+                "unknown_key",
+                {"expires_at": EXPIRES, "serve": "report_embeddings@2026-10-03"},
+                NO_OVERRIDES,
+                "inbox_ranking_override_invalid",
+            ),
+            (
+                "pin_not_a_model_key",
+                {"expires_at": EXPIRES, "pin": ["../champion.json"]},
+                NO_OVERRIDES,
+                "inbox_ranking_override_invalid",
+            ),
+            (
+                "valid",
+                {
+                    "expires_at": EXPIRES,
+                    "served": "report_embeddings@2026-10-03",
+                    "pin": ["report_embeddings@2026-09-26"],
+                    "promotion": {
+                        "freeze": ["tabular_xgb"],
+                        "force": ["report_embeddings"],
+                        "skip_gates": {"report_embeddings": ["min_days", "ece"]},
+                    },
+                },
+                RankingOverrides(
+                    expires_at=datetime.datetime(2026, 10, 11, tzinfo=datetime.UTC),
+                    served="report_embeddings@2026-10-03",
+                    pin=("report_embeddings@2026-09-26",),
+                    freeze=frozenset({"tabular_xgb"}),
+                    force=frozenset({"report_embeddings"}),
+                    skip_gates={"report_embeddings": frozenset({"min_days", "ece"})},
+                ),
+                None,
+            ),
+        ]
+    )
+    def test_parse_overrides(self, _name: str, payload: Any, expected: RankingOverrides, warning: str | None) -> None:
+        with patch("products.signals.backend.ranking.overrides.logger") as logger:
+            assert parse_overrides(payload, now=NOW) == expected
+        assert [call.args[0] for call in logger.warning.call_args_list] == ([warning] if warning else [])
+
+    def test_freeze_wins_over_force_and_skip_gates(self) -> None:
+        overrides = parse_overrides(
+            {
+                "expires_at": EXPIRES,
+                "promotion": {
+                    "freeze": ["report_embeddings"],
+                    "force": ["report_embeddings"],
+                    "skip_gates": {"report_embeddings": ["ece"]},
+                },
+            },
+            now=NOW,
+        )
+        promotion = overrides.promotion_for("report_embeddings")
+        assert (promotion.freeze, promotion.force, promotion.skip_gates) == (True, False, frozenset())

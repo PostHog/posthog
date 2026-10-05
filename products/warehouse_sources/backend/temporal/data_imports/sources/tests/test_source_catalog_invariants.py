@@ -70,7 +70,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "Mono",
     "OpenRouter",
     "PromptingCompany",
-    "Qdrant",
     "Roark",
     "ScaleAI",
     "Skyvern",

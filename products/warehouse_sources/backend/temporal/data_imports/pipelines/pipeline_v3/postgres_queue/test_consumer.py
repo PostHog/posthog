@@ -2957,6 +2957,13 @@ class TestQueueDbRetry:
             (psycopg.errors.ConnectionTimeout("connection timeout expired"), True, True),
             (psycopg.errors.AdminShutdown("terminating connection due to administrator command"), True, True),
             (psycopg.errors.ProtocolViolation("query_wait_timeout"), True, True),
+            (
+                psycopg.errors.ProtocolViolation(
+                    "server login has been failing, cached error: connect failed (server_login_retry)"
+                ),
+                True,
+                True,
+            ),
             (psycopg.errors.DeadlockDetected("deadlock detected"), False, True),
             (psycopg.errors.ProtocolViolation("invalid message length"), False, False),
             (psycopg.OperationalError("relation permission denied"), False, False),
@@ -4074,6 +4081,50 @@ class TestProcessGroupCoalescing:
             (batches[1].id, "executing", expected_status_attempt),
             (batches[1].id, "succeeded", expected_status_attempt),
         ]
+
+    @pytest.mark.asyncio
+    async def test_a_set_whose_post_write_status_update_fails_falls_back_to_its_members(self):
+        # The set's write (process_batches) already landed; only the bookkeeping status update
+        # after it crashes (e.g. a dropped queue-DB connection). This must not bubble out of the
+        # group unhandled — it falls back to the single-batch path, same as a set that never
+        # wrote in the first place, so the already-established retry classification applies
+        # instead of an unconditional captured exception.
+        loaded: list[list[int]] = []
+
+        async def process_batches(batches, verify_ownership=None):
+            loaded.append([b.batch_index for b in batches])
+
+        process_batch = AsyncMock()
+        consumer = self._consumer(process_batches, process_batch)
+        batches = _run_batches(2)
+
+        statuses: list[_BatchStatus] = []
+        raised = False
+
+        async def record_status(conn, *, batch_id, job_state, attempt, **kwargs):
+            nonlocal raised
+            if job_state == "succeeded" and not raised:
+                raised = True
+                raise psycopg.errors.ProtocolViolation("server conn crashed?")
+            statuses.append(_BatchStatus(batch_id, job_state, attempt))
+            return True
+
+        with (
+            patch(f"{self._CONSUMER_QUEUE}.update_status_unless_failed", side_effect=record_status),
+            patch(f"{self._CONSUMER_QUEUE}.unlock_for_batches", new_callable=AsyncMock),
+            patch(f"{self._CONSUMER_QUEUE}.verify_advisory_lock", new_callable=AsyncMock, return_value=True),
+            patch.object(DeltaBatchConsumerAdapter, "should_process_batch", new_callable=AsyncMock, return_value=True),
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+            patch(f"{batch_consumer_module.__name__}.capture_exception") as mock_capture,
+        ):
+            await consumer._process_group((1, "schema-1"), batches)
+
+        assert loaded == [[0, 1]]  # the set loaded exactly once despite the later crash
+        # Every batch still reaches a terminal "succeeded" status via the single-batch fallback.
+        assert [s.job_state for s in statuses if s.batch_id == batches[0].id][-1] == "succeeded"
+        assert [s.job_state for s in statuses if s.batch_id == batches[1].id][-1] == "succeeded"
+        # A transient queue-DB blip during bookkeeping must not reach error tracking.
+        mock_capture.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_without_a_set_loader_every_batch_is_single(self):

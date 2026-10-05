@@ -1,14 +1,13 @@
 import './Navigation.scss'
 
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { ReactNode, useCallback, useEffect, useRef } from 'react'
+import { ReactNode, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene, SceneConfig } from 'scenes/sceneTypes'
 
@@ -55,6 +54,7 @@ export function Navigation({
         todayRailEnabled: todayRail,
         sidebarVisible: todaySidebarVisible,
         phoneLayout: todayPhoneLayout,
+        phoneHeaderHidden: todayPhoneHeaderHidden,
     } = useValues(todayShellLogic)
     const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
     const todayPhone = todayRail && todayPhoneLayout
@@ -106,17 +106,16 @@ export function Navigation({
         }
     }, [mainRef, setMainContentRef, setMainContentRect])
 
-    // Register `create_user_interview_topic` globally so Max can create user interview
-    // topics from any page (including the homepage), not only from the user-interviews
-    // scene. The scene wires its own richer `useMaxTool` for the "New topic" button.
-    const userInterviewsEnabled = useFeatureFlag('USER_INTERVIEWS')
-    useMaxTool({
-        identifier: 'create_user_interview_topic',
-        active: userInterviewsEnabled,
-        context: {},
-    })
-
     const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
+
+    const todayPhoneBodyClass = todayPhone && mode === 'full'
+    useLayoutEffect(() => {
+        if (!todayPhoneBodyClass) {
+            return
+        }
+        document.body.classList.add('has-today-phone-layout')
+        return () => document.body.classList.remove('has-today-phone-layout')
+    }, [todayPhoneBodyClass])
 
     if (mode !== 'full') {
         const showMinimalNavigation = mode === 'minimal' || mode === 'zen'
@@ -164,8 +163,10 @@ export function Navigation({
             <div
                 className={cn('app-layout bg-surface-tertiary', {
                     'app-layout--mobile': (mobileLayout && !todayRail) || todayPhone,
-                    TodayAppLayout: todayRail,
+                    'TodayAppLayout scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[var(--color-bg-fill-scroll-thumb)]':
+                        todayRail,
                     'TodayAppLayout--phone': todayPhone,
+                    'TodayAppLayout--no-phone-header': todayPhoneHeaderHidden,
                 })}
                 style={
                     {

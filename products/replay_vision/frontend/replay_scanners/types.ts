@@ -125,6 +125,7 @@ export type FailureKind =
     | 'infra_transient'
     | 'internal_error'
     | 'orphaned'
+    | 'pii_detected'
 
 type FailureKindInfo = {
     label: string
@@ -175,6 +176,12 @@ const FAILURE_KINDS: Record<FailureKind, FailureKindInfo> = {
     orphaned: {
         label: 'Interrupted',
         description: 'The scan was interrupted before it finished, and PostHog cleaned it up. Retry the scan.',
+        retryWorthwhile: true,
+    },
+    pii_detected: {
+        label: 'Personal data in the answer',
+        description:
+            "The AI's answer included personal data the scanner didn't ask for, so PostHog didn't save it. Retry the scan, or rephrase the scanner prompt if it keeps happening.",
         retryWorthwhile: true,
     },
 }
@@ -295,7 +302,7 @@ const MODEL_NAMES: Record<ScannerModelEnumApi, string> = {
 }
 
 // Names for models dropped from the lineup, so an observation frozen against one still reads as a
-// product name instead of a raw id. Tier arms keep provider names here: no tier claim survives retirement.
+// product name instead of a raw id.
 const RETIRED_MODEL_NAMES: Record<string, string> = {
     'gemini-3.7-flash': 'Gemini 3.7 Flash',
     'gemini-3.6-flash': 'Gemini 3.6 Flash',
@@ -310,57 +317,27 @@ export function homeRedesignVariant(flagValue: unknown): HomeRedesignVariant | n
     return flagValue === 'control' || flagValue === 'test' ? flagValue : null
 }
 
-// Tier-name arms of the replay-vision-model-tier-naming-experiment flag: capability tiers instead
-// of provider model names, keyed by the flag's variant key. Every surface that shows a model must
-// resolve the variant the same way so a user never sees mixed naming schemes for one scanner.
-export type ModelNamingVariant = 'test' | 'lite-standard-pro'
-
-const MODEL_TIER_NAMES: Record<ModelNamingVariant, Record<ScannerModelEnumApi, string>> = {
-    test: {
-        [ScannerModelEnumApi.Gemini35FlashLite]: 'Basic',
-        [ScannerModelEnumApi.Gemini3FlashPreview]: 'Pro',
-        [ScannerModelEnumApi.Gemini38Flash]: 'Ultra',
-    },
-    'lite-standard-pro': {
-        [ScannerModelEnumApi.Gemini35FlashLite]: 'Lite',
-        [ScannerModelEnumApi.Gemini3FlashPreview]: 'Standard',
-        [ScannerModelEnumApi.Gemini38Flash]: 'Pro',
-    },
-}
-
-// Narrows a raw flag value to a naming variant. Control, booleans, and variant keys this build
-// doesn't know yet all resolve to null (provider model names), so a flag/frontend version skew
-// degrades to the control experience instead of mislabeling an arm.
-export function modelNamingVariant(flagValue: unknown): ModelNamingVariant | null {
-    return typeof flagValue === 'string' && flagValue in MODEL_TIER_NAMES ? (flagValue as ModelNamingVariant) : null
-}
-
-export function getModelOptions(
-    namingVariant: ModelNamingVariant | null
-): { value: ScannerModelEnumApi; label: string }[] {
-    return Object.values(ScannerModelEnumApi).map((value) => ({
+export const MODEL_OPTIONS: { value: ScannerModelEnumApi; label: string }[] = Object.values(ScannerModelEnumApi).map(
+    (value) => ({
         value,
-        label: `${modelName(value, namingVariant)} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
-    }))
-}
+        label: `${MODEL_NAMES[value]} · ${formatCreditCount(OBSERVATION_CREDITS_BY_MODEL[value])}/observation`,
+    })
+)
 
 // Falls back to the raw id for models retired before they were named here.
-export function modelLabel(model: string | null | undefined, namingVariant: ModelNamingVariant | null = null): string {
+export function modelLabel(model: string | null | undefined): string {
     if (!model) {
         return '—'
     }
-    return (
-        getModelOptions(namingVariant).find((opt) => opt.value === model)?.label ?? RETIRED_MODEL_NAMES[model] ?? model
-    )
+    return MODEL_OPTIONS.find((opt) => opt.value === model)?.label ?? RETIRED_MODEL_NAMES[model] ?? model
 }
 
 /** Plain model name without the price suffix, for surfaces that show the price separately. */
-export function modelName(model: string | null | undefined, namingVariant: ModelNamingVariant | null = null): string {
+export function modelName(model: string | null | undefined): string {
     if (!model) {
         return '—'
     }
-    const names = namingVariant ? MODEL_TIER_NAMES[namingVariant] : MODEL_NAMES
-    return names[model as ScannerModelEnumApi] ?? RETIRED_MODEL_NAMES[model] ?? model
+    return MODEL_NAMES[model as ScannerModelEnumApi] ?? RETIRED_MODEL_NAMES[model] ?? model
 }
 
 /** Fallback name for a scanner the user never named, e.g. "Hedgebox classifier". */
