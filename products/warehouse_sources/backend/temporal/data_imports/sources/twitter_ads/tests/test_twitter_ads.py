@@ -23,7 +23,10 @@ from requests_oauthlib import OAuth1
 from posthog.models.integration.model import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.settings import PLACEMENTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.settings import (
+    MAX_STATS_BACKFILL_DAYS,
+    PLACEMENTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.twitter_ads import (
     TwitterAdsClient,
     TwitterAdsResumeConfig,
@@ -180,6 +183,31 @@ def test_stats_limits_daily_rows_currency_and_dst(
         resumed = [row for page in sync_items(resource) for row in page]
     assert min(row["date"] for row in resumed) == date.fromisoformat(first_checkpoint.next_date)
     assert max(row["date"] for row in resumed) == date(2025, 11, 9)
+
+
+def test_stats_backfill_caps_start_date_for_old_accounts(client: TwitterAdsClient, manager: MagicMock) -> None:
+    timezone = fixed_timezone(timedelta(hours=-8))
+    starts = []
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        path = urlparse(request_url(request)).path
+        if path.endswith("/funding_instruments"):
+            return response({"data": [{"id": "funding", "currency": "EUR"}]})
+        if path.endswith("/campaigns"):
+            return response({"data": [{"id": "campaign-00", "funding_instrument_id": "funding"}]})
+        if "/stats/" not in path:
+            return response({"data": {"timezone": "America/Los_Angeles", "created_at": "2015-01-01T00:00:00Z"}})
+        params = parse_qs(urlparse(request_url(request)).query)
+        starts.append(datetime.fromisoformat(params["start_time"][0]).astimezone(timezone).date())
+        return response({"data": [{"id": "campaign-00", "id_data": [{"segment": None, "metrics": {}}]}]})
+
+    with (
+        time_machine.travel("2025-11-10T20:00:00Z", tick=False),
+        patch.object(client.session, "send", side_effect=send),
+    ):
+        resource = twitter_ads_source(client, "account", "campaign_stats", manager, None)
+        list(sync_items(resource))
+    assert min(starts) == date(2025, 11, 10) - timedelta(days=MAX_STATS_BACKFILL_DAYS)
 
 
 def test_daily_null_metrics_are_not_shifted(client: TwitterAdsClient) -> None:
