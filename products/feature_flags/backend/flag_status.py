@@ -477,7 +477,11 @@ class FeatureFlagStatusChecker:
         variants = ((filters.get("multivariate") or {}).get("variants")) or []
 
         groups = filters.get("groups") or []
-        decider = next((index for index, group in enumerate(groups) if self.decides_for_everyone(filters, group)), None)
+        mixed = self.mixes_aggregation(filters)
+        decider = next(
+            (index for index, group in enumerate(groups) if self.decides_for_everyone(filters, group, mixed=mixed)),
+            None,
+        )
         if decider is None:
             return None
 
@@ -507,7 +511,11 @@ class FeatureFlagStatusChecker:
         properties = group.get("properties") or []
         return rollout_percentage == 100 and len(properties) == 0
 
-    def decides_for_everyone(self, filters: dict, group: dict) -> bool:
+    def mixes_aggregation(self, filters: dict) -> bool:
+        """Whether the release conditions declare more than one aggregation target."""
+        return len({_condition_aggregation(filters, group) for group in filters.get("groups") or []}) > 1
+
+    def decides_for_everyone(self, filters: dict, group: dict, *, mixed: bool) -> bool:
         """Whether an untargeted 100% condition settles the result for every request the flag addresses.
 
         The matcher skips a group-aggregated condition when the request carries no key for that
@@ -515,11 +523,13 @@ class FeatureFlagStatusChecker:
         that carry it, so its condition decides for that whole audience. A flag that mixes person
         and group aggregation addresses requests without the key too, and only a person-level
         condition reaches those.
+
+        The caller passes `mixed` from `mixes_aggregation`, computed once, because the walk asks
+        this of every condition and the answer reads the whole list.
         """
         if not self.is_group_fully_rolled_out(group):
             return False
-        modes = {_condition_aggregation(filters, other) for other in filters.get("groups") or []}
-        return len(modes) == 1 or _condition_aggregation(filters, group) is None
+        return not mixed or _condition_aggregation(filters, group) is None
 
     def is_boolean_flag_fully_rolled_out(self, flag: FeatureFlag) -> bool:
         # Treat missing filters, `{}`, and `{"groups": []}` as "no release conditions"
@@ -531,8 +541,9 @@ class FeatureFlagStatusChecker:
             logger.debug(f"Boolean flag {flag.id} has no release conditions, so it is rolled out to 100%")
             return True
 
+        mixed = self.mixes_aggregation(filters)
         for release_condition in release_conditions:
-            if self.decides_for_everyone(filters, release_condition):
+            if self.decides_for_everyone(filters, release_condition, mixed=mixed):
                 logger.debug(f"Boolean flag {flag.id} has a release conditions rolled out to 100%")
                 return True
 
