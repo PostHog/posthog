@@ -13,6 +13,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
     Table,
 )
+from posthog.hogql.errors import QueryError
 from posthog.hogql.transforms.order_by_pushdown import push_down_order_by, resolve_alias, unwrap_alias
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
@@ -184,7 +185,13 @@ class DocumentEmbeddingsTable(LazyTable):
 
             return inner_query
         else:
-            raise ValueError(f"Invalid model name: {model_name}")
+            valid_models = ", ".join(f"'{name}'" for name in sorted(HOGQL_EMBEDDING_TABLES))
+            if model_name is None:
+                raise QueryError(
+                    f"Queries on document_embeddings must filter on model_name, for example "
+                    f"WHERE model_name = '...'. Valid values: {valid_models}."
+                )
+            raise QueryError(f"Unknown model_name '{model_name}'. Valid values: {valid_models}.")
 
     def to_printed_clickhouse(self, context: HogQLContext):
         raise NotImplementedError("LazyTables cannot be printed to ClickHouse SQL")
