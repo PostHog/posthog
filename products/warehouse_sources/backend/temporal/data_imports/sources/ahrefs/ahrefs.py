@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from typing import cast
 
 import structlog
 
@@ -27,14 +28,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 logger = structlog.get_logger(__name__)
 
 RESPONSE_ACTIONS: list[ResponseAction] = [
-    {"status_code": status, "content": content, "action": "raise", "message": "ahrefs_quota_exceeded"}
+    cast(
+        ResponseAction,
+        {"status_code": status, "content": content, "action": "raise", "message": "ahrefs_quota_exceeded"},
+    )
     for status in (400, 403)
     for content in ("units", "Units", "quota", "Quota")
-] + [
-    {"status_code": 402, "action": "raise", "message": "ahrefs_quota_exceeded"},
-    {"status_code": 401, "action": "raise", "message": "ahrefs_invalid_api_key"},
-    {"status_code": 403, "action": "raise", "message": "ahrefs_access_denied"},
 ]
+RESPONSE_ACTIONS.extend(
+    [
+        {"status_code": 402, "action": "raise", "message": "ahrefs_quota_exceeded"},
+        {"status_code": 401, "action": "raise", "message": "ahrefs_invalid_api_key"},
+        {"status_code": 403, "action": "raise", "message": "ahrefs_access_denied"},
+    ]
+)
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
@@ -42,6 +49,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
         base_url=API_BASE_URL,
         auth=BearerTokenAuth(token=api_key),
         max_retry_attempts=1,
+        request_timeout=(10, 60),
     )
     try:
         list(
@@ -74,6 +82,7 @@ def ahrefs_source(api_key: str, project_id: str, endpoint: str, team_id: int, jo
             "base_url": API_BASE_URL,
             "auth": {"type": "bearer", "token": api_key},
             "paginator": "single_page",
+            "request_timeout": (10, 60),
         },
         "resources": [
             {

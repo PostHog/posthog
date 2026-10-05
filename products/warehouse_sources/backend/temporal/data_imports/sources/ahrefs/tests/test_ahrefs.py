@@ -1,5 +1,6 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -89,8 +90,9 @@ def test_snapshot_request_and_terminal_page(
     inputs.db_incremental_field_last_value = "2026-01-01"
     result = AhrefsSource().source_for_pipeline(AhrefsSourceConfig(api_key="test-key", project_id="00123"), inputs)
 
-    assert list(result.items()) == ([] if empty else [[{**row, "project_id": "123"}]])
+    assert list(cast(Iterable[Any], result.items())) == ([] if empty else [[{**row, "project_id": "123"}]])
     send.assert_called_once()
+    assert send.call_args.kwargs["timeout"] == (10, 60)
     request = send.call_args.args[0]
     assert request.method == "GET"
     assert request.headers["Authorization"] == "Bearer test-key"
@@ -108,7 +110,7 @@ def test_page_sample_cap(send: MagicMock, count: int) -> None:
     send.return_value = response({"pages": rows})
     with patch(f"{SOURCE_MODULE}.logger") as logger:
         result = ahrefs_source("test-key", "123", "site_audit_pages", 1, "test-job")
-        actual = [row for page in result.items() for row in page]
+        actual = [row for page in cast(Iterable[Any], result.items()) for row in page]
     assert actual == [{**row, "project_id": "123"} for row in rows[:100]]
     assert logger.info.call_count == int(count >= 100)
     send.assert_called_once()
@@ -134,7 +136,7 @@ def test_credential_and_sync_error_mapping(send: MagicMock, status: int, body: o
     send.reset_mock()
 
     with pytest.raises(ValueError) as raised:
-        list(ahrefs_source("test-key", "123", "site_audit_issues", 1, "test-job").items())
+        list(cast(Iterable[Any], ahrefs_source("test-key", "123", "site_audit_issues", 1, "test-job").items()))
     mapped = AhrefsSource().get_non_retryable_errors()[str(raised.value)]
     assert mapped is not None and message in mapped
     send.assert_called_once()
@@ -147,6 +149,7 @@ def test_free_credential_probe(send: MagicMock) -> None:
     request = send.call_args.args[0]
     assert request.headers["Authorization"] == "Bearer test-key"
     assert request.url == "https://api.ahrefs.com/v3/subscription-info/limits-and-usage?output=json"
+    assert send.call_args.kwargs["timeout"] == (10, 60)
 
 
 @pytest.mark.parametrize("status", [429, 500, 503])
@@ -161,7 +164,7 @@ def test_transient_probe_failure_is_not_invalid_credentials(send: MagicMock, sta
 def test_sync_retries_transient_failure(send: MagicMock, status: int) -> None:
     send.side_effect = [response({"error": "Try later"}, status), response({"issues": [{"issue_id": "missing_title"}]})]
     with patch("tenacity.nap.time.sleep"):
-        result = list(ahrefs_source("test-key", "123", "site_audit_issues", 1, "test-job").items())
+        result = list(cast(Iterable[Any], ahrefs_source("test-key", "123", "site_audit_issues", 1, "test-job").items()))
     assert result == [[{"issue_id": "missing_title", "project_id": "123"}]]
     assert send.call_count == 2
 
@@ -179,7 +182,7 @@ def test_missing_response_envelope_fails(send: MagicMock, probe: bool) -> None:
         if probe:
             validate_credentials("test-key")
         else:
-            list(ahrefs_source("test-key", "123", "site_audit_issues", 1, "test-job").items())
+            list(cast(Iterable[Any], ahrefs_source("test-key", "123", "site_audit_issues", 1, "test-job").items()))
 
 
 def test_unknown_table_fails_before_request(send: MagicMock) -> None:
