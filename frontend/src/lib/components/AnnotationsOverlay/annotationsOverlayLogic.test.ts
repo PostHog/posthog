@@ -854,6 +854,12 @@ describe('annotationsOverlayLogic', () => {
                 expected: { '2022-08-10 00:00:00+0000': 2 / 7, '2022-09-10 00:00:00+0000': 4 + 5 / 7 },
             },
             {
+                // Sparse SQL weeks: the badge sits between the real neighbors, not where a full weekly series would put it.
+                interval: null,
+                dates: ['2022-08-08', '2022-08-15', '2022-09-05', '2022-09-12'],
+                expected: { '2022-08-10 00:00:00+0000': 2 / 7, '2022-09-10 00:00:00+0000': 2 + 5 / 7 },
+            },
+            {
                 interval: null,
                 dates: ['2022-08-01', '2022-09-01', '2022-10-01'],
                 expected: { '2022-08-10 00:00:00+0000': 9 / 31, '2022-09-10 00:00:00+0000': 1 + 9 / 30 },
