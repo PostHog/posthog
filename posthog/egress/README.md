@@ -127,6 +127,7 @@ Endpoint labels are normalized to bound cardinality: numeric ids are templated o
 
 Harmonic also records `harmonic_api_request_duration_seconds` from the start of an HTTP request through response headers, and `harmonic_api_admission_wait_seconds` for waits in the bulk client's pacing loop, including time queued for the pacing lock.
 The request duration excludes the local admission wait and response-body parsing.
+Both are one-offs, marked as such in `harmonic/observability.py`, and request duration moves into the base clients once a second domain needs it.
 The weekly Salesforce sweep allows 24 company lookups in flight; each outbound request still draws from the shared BATCH budget.
 
 ## Transport
@@ -134,7 +135,7 @@ The weekly Salesforce sweep allows 24 company lookups in flight; each outbound r
 `transport/transport.py` holds three bases:
 
 - **`EgressClient`**: gate, request, record, for a sync domain with a budget. A subclass sets `observability`, draws from its budget in `_consume`, and names its `EgressBudgetExhausted` subclass.
-- **`RecordedEgressClient`**: request and record with no gate, for an API that publishes no request limit a rate budget can model. `slack/` and `vapi/` use it.
+- **`RecordedEgressClient`**: request and record with no gate, for an API that publishes no request limit a rate budget can model. `slack/` and `openai_auth/` use it.
 - **`AsyncEgressClient`**: the gated algorithm over aiohttp. `harmonic/` uses it.
 
 A domain exposes a `<domain>_request` helper over its client, and may add a typed client for the few endpoints its callers use (see `firecrawl/client.py`).
@@ -143,8 +144,8 @@ Every client is token-agnostic: the caller passes its own credentials.
 Response handling, such as what to do on a 403 or 429, stays with the caller.
 
 Two semgrep rules in `.semgrep/rules/devex/` fail CI on a raw call that bypasses a domain: `github-api-calls-go-through-egress` (a `requests` call that names `api.github.com`) and `slack-api-calls-go-through-egress` (a `requests` call that names `slack.com/api`, or a bare `WebClient`).
-The `requests` half of each rule reads the URL argument only, so a call that binds the URL to a variable first gets through. Keep the URL inline at the call site.
-No rule covers the other domains.
+A `-wide` twin of each rule catches the other shapes: a URL bound to a variable or constant, `requests.Session`, `httpx`, `aiohttp`, `urllib.request`, and an aliased Slack SDK client.
+No rule covers the other domains, another language, or a caller under `tools/`.
 
 ## The one identity rule
 
@@ -153,8 +154,23 @@ It is **never** a PostHog DB row id (`Integration.id`).
 Several PostHog integration rows can point at the same installation (multiple projects, one org), and GitHub gives that installation one shared budget: key a gauge by the row and one real budget splits into N flip-flopping series; key by the installation and you get one true series.
 Per-caller attribution is the `source` label's job, not the identity's.
 
-An identity that must not reach a metric label in plain form, such as a token, is hashed first (see `browserless/` and `vapi/`).
+An identity that must not reach a metric label in plain form, such as a token, is hashed first (see `browserless/`).
 A caller with no identity in scope passes no scope: it records the counter only and skips both the limiter and the gauges.
+
+## Shared mechanisms
+
+A mechanism that more than one domain could use lives in the shared layer, never in a domain.
+The shared layer is the base clients in `transport/transport.py`, the recorder in `observability/` and the limiter in `limiter/`.
+Tracing, request timing, retries and response recording are such mechanisms.
+A domain only fills the hooks the bases define: its identity, its budget, its metric names and its header parser.
+
+A reference domain such as `github/` is the layout that the next domain copies.
+Code added to it gets copied into every later domain under new names, and the domains that exist already never get it.
+Add the mechanism to a base instead, so that every domain gets it with no domain code.
+
+When only one domain can ever use something, keep it in that domain and mark it.
+Put a `# One-off:` comment that says why no other domain needs it, then a `# nosemgrep: shared-mechanisms-stay-out-of-egress-and-ingress-domains` line.
+That semgrep rule fails CI on tracing, on histograms, and on a counter or gauge declared outside `EgressMetrics(...)` in a domain package, so an unmarked one does not land.
 
 ## Adding a new egress domain
 

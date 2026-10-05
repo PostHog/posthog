@@ -22,10 +22,12 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     CreateSourceTemplateInputs,
     ExternalDataJobWorkflow,
     UpdateExternalDataJobStatusInputs,
+    _started_by_own_schedule,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
@@ -53,6 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 _JOB_ID = "01960000-0000-0000-0000-000000000000"
+_SCHEMA_ID = uuid.UUID("01960000-0000-0000-0000-000000000001")
 
 
 def _stub_activities(
@@ -63,6 +66,11 @@ def _stub_activities(
     skip_post_import_activities: bool = False,
     fast_return_eligible: bool = False,
     source_has_new_data: bool = True,
+    scheduled_full_refresh: bool = False,
+    repartition_needed: bool = True,
+    billing_limit_checked: bool = True,
+    hit_billing_limit: bool = False,
+    source_templates_needed: bool = True,
 ) -> list:
     @activity.defn(name="check_pipeline_version_activity")
     async def check_pipeline_version(inputs: CheckPipelineVersionActivityInputs) -> CheckPipelineVersionActivityOutputs:
@@ -92,6 +100,11 @@ def _stub_activities(
             statistics_needed=True,
             person_property_sync_enabled=True,
             fast_return_eligible=fast_return_eligible,
+            scheduled_full_refresh=scheduled_full_refresh,
+            repartition_needed=repartition_needed,
+            billing_limit_checked=billing_limit_checked,
+            hit_billing_limit=hit_billing_limit,
+            source_templates_needed=source_templates_needed,
         )
 
     @activity.defn(name="check_billing_limits_activity")
@@ -106,6 +119,8 @@ def _stub_activities(
     @activity.defn(name="import_data_activity_sync")
     async def import_data(inputs: ImportDataActivityInputs) -> PipelineResult:
         executed.append("import_data_activity_sync")
+        if inputs.scheduled_full_refresh:
+            executed.append("import_data_activity_sync:scheduled_full_refresh")
         if inputs.fast_return_eligible and not source_has_new_data:
             return PipelineResult(
                 should_trigger_cdp_producer=False,
@@ -129,6 +144,9 @@ def _stub_activities(
     @activity.defn(name="update_external_data_job_model")
     async def update_job(inputs: UpdateExternalDataJobStatusInputs) -> None:
         executed.append("update_external_data_job_model")
+        executed.append(f"update_external_data_job_model:status={inputs.status}")
+        if inputs.release_lock_token is not None:
+            executed.append(f"update_external_data_job_model:release_lock_token={inputs.release_lock_token}")
 
     return [
         check_pipeline_version,
@@ -151,6 +169,11 @@ async def _run_workflow(
     skip_post_import_activities: bool = False,
     fast_return_eligible: bool = False,
     source_has_new_data: bool = True,
+    scheduled_full_refresh: bool = False,
+    repartition_needed: bool = True,
+    billing_limit_checked: bool = True,
+    hit_billing_limit: bool = False,
+    source_templates_needed: bool = True,
 ) -> tuple[list[str], list[str]]:
     """Run the workflow with stubbed activities; return (executed activities + child starts in
     order, started child ids)."""
@@ -181,6 +204,11 @@ async def _run_workflow(
                     skip_post_import_activities=skip_post_import_activities,
                     fast_return_eligible=fast_return_eligible,
                     source_has_new_data=source_has_new_data,
+                    scheduled_full_refresh=scheduled_full_refresh,
+                    repartition_needed=repartition_needed,
+                    billing_limit_checked=billing_limit_checked,
+                    hit_billing_limit=hit_billing_limit,
+                    source_templates_needed=source_templates_needed,
                 ),
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -286,6 +314,98 @@ async def test_fast_return_skips_post_import_only_when_the_source_is_unchanged(
         assert child_ids == []
     else:
         assert "create_source_templates" in executed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scheduled_full_refresh", [True, False])
+async def test_the_import_learns_a_run_is_a_scheduled_full_refresh(scheduled_full_refresh: bool):
+    executed, _ = await _run_workflow(
+        is_v3=False, consumer_manages_job_status=False, scheduled_full_refresh=scheduled_full_refresh
+    )
+
+    assert ("import_data_activity_sync:scheduled_full_refresh" in executed) is scheduled_full_refresh
+    assert ("maybe_repartition_table_activity" in executed) is not scheduled_full_refresh
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("repartition_needed", [True, False])
+async def test_repartition_activity_is_scheduled_only_when_job_creation_finds_work(repartition_needed: bool):
+    # The activity round trip is most of what a healthy sync paid for repartitioning; the
+    # job-creation activity already knows whether anything is queued or due for measurement.
+    executed, _ = await _run_workflow(
+        is_v3=False, consumer_manages_job_status=False, repartition_needed=repartition_needed
+    )
+
+    assert ("maybe_repartition_table_activity" in executed) is repartition_needed
+    assert "import_data_activity_sync" in executed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "billing_limit_checked,hit_billing_limit,expect_check_activity,expect_import",
+    [
+        pytest.param(True, False, False, True, id="answered_under_limit_syncs"),
+        pytest.param(True, True, False, False, id="answered_over_limit_stops_the_run"),
+        pytest.param(False, False, True, True, id="legacy_payload_runs_the_check_activity"),
+    ],
+)
+async def test_billing_limit_answered_by_job_creation_skips_the_check_activity(
+    billing_limit_checked: bool, hit_billing_limit: bool, expect_check_activity: bool, expect_import: bool
+) -> None:
+    executed, _ = await _run_workflow(
+        is_v3=False,
+        consumer_manages_job_status=False,
+        billing_limit_checked=billing_limit_checked,
+        hit_billing_limit=hit_billing_limit,
+    )
+
+    assert ("check_billing_limits_activity" in executed) is expect_check_activity
+    assert ("import_data_activity_sync" in executed) is expect_import
+    expected_status = (
+        ExternalDataJob.Status.COMPLETED if expect_import else ExternalDataJob.Status.BILLING_LIMIT_REACHED
+    )
+    assert f"update_external_data_job_model:status={expected_status}" in executed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source_templates_needed", [True, False])
+async def test_source_templates_activity_runs_only_when_job_creation_finds_work(source_templates_needed: bool) -> None:
+    executed, _ = await _run_workflow(
+        is_v3=False, consumer_manages_job_status=False, source_templates_needed=source_templates_needed
+    )
+
+    assert ("create_source_templates" in executed) is source_templates_needed
+    assert "update_external_data_job_model" in executed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "is_v3,consumer_manages_job_status,expect_finalizer_releases",
+    [
+        pytest.param(True, False, True, id="v3_zero_batches_finalizer_releases"),
+        pytest.param(True, True, False, id="v3_with_batches_leaves_lock_to_the_loader"),
+        pytest.param(False, False, False, id="v2_has_no_lock"),
+    ],
+)
+async def test_v3_lock_release_rides_the_finalizer(
+    is_v3: bool, consumer_manages_job_status: bool, expect_finalizer_releases: bool
+) -> None:
+    executed, _ = await _run_workflow(is_v3=is_v3, consumer_manages_job_status=consumer_manages_job_status)
+
+    assert "release_v3_pipeline_lock_activity" not in executed
+    assert ("update_external_data_job_model:release_lock_token=token" in executed) is expect_finalizer_releases
+
+
+@pytest.mark.parametrize(
+    "search_attributes,expected",
+    [
+        pytest.param({"TemporalScheduledById": [str(_SCHEMA_ID)]}, True, id="own_schedule"),
+        pytest.param({"TemporalScheduledById": [str(uuid.uuid4())]}, False, id="another_schedule"),
+        pytest.param({}, False, id="started_directly"),
+    ],
+)
+def test_only_the_schemas_own_schedule_counts_as_scheduled(search_attributes: dict, expected: bool):
+    assert _started_by_own_schedule(search_attributes, _SCHEMA_ID) is expected
 
 
 @pytest.mark.asyncio

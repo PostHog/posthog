@@ -21,6 +21,7 @@ from posthog.hogql import ast
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import PropertyDefinition
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS
@@ -131,6 +132,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         lookback_days: int | None = None,
         allow_multiple_conversions: bool | None = None,
         filter_test_accounts: bool | None = False,
+        live_resolution: bool = False,
     ):
         flush_persons_and_events()
         query = MarketingAnalyticsAttributionQuery(
@@ -144,7 +146,11 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             filterTestAccounts=filter_test_accounts,
             properties=[],
         )
-        return MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).calculate()
+        runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
+        runner.config.live_session_resolution_enabled = live_resolution
+        response = runner.calculate()
+        assert runner._live_session_resolution_used == live_resolution
+        return response
 
     @parameterized.expand([(False, "frequent"), (True, "valuable")])
     def test_revenue_ranking_precedes_row_limit(self, include_revenue: bool, expected: str) -> None:
@@ -345,7 +351,8 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         self.assertAlmostEqual(last_touch.conversions, 2.0, places=4)
         self.assertAlmostEqual(last_touch.conversionValue or 0.0, 200.0, places=2)
 
-    def test_every_model_splits_one_conversion_its_own_way(self):
+    @parameterized.expand([(False,), (True,)])
+    def test_every_model_splits_one_conversion_its_own_way(self, live_resolution: bool) -> None:
         # The one test that catches this design's central risk: five weight arrays are built per
         # conversion and exploded through a single shared ARRAY JOIN, so indexing the wrong array into a
         # model's column, or an off-by-one in `arrayEnumerate(ts)`, silently reports another model's
@@ -356,7 +363,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         self._session("p1", ONE_DAY_BEFORE, utm_campaign="late")
         self._conversion("p1", CONVERSION_AT, revenue=100.0)
 
-        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN)
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, live_resolution=live_resolution)
         by_campaign = self._by_breakdown(response)
 
         self.assertEqual(set(by_campaign), {"early", "middle", "late"})
@@ -770,17 +777,28 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         person_arrays = ctes["person_arrays"].expr
         assert isinstance(person_arrays, ast.SelectQuery)
 
-        # The restriction is a join against the converters subquery. Asserting on the join rather than
-        # on a bare `IN` keeps the test about the property (only converters are scanned) instead of the
-        # operator that happens to express it.
-        join = person_arrays.select_from
-        assert join is not None
-        restrictions = []
-        while join is not None:
-            if isinstance(join.table, ast.SelectQuery):
-                restrictions.append(join)
-            join = join.next_join
-        self.assertTrue(restrictions, "person_arrays must restrict the events scan to converting persons")
+        # Asserts the restriction exists, not the shape it takes: a semi-join in the WHERE and a join
+        # against the converters subquery both pay for the scan, and which one is used is free to change.
+        class FindConverterSubquery(TraversingVisitor):
+            def __init__(self) -> None:
+                self.found = False
+
+            def visit_select_query(self, node: ast.SelectQuery) -> None:
+                if node is not person_arrays and _selects_person_id(node):
+                    self.found = True
+                super().visit_select_query(node)
+
+        def _selects_person_id(node: ast.SelectQuery) -> bool:
+            for column in node.select:
+                expr = column.expr if isinstance(column, ast.Alias) else column
+                if isinstance(expr, ast.Field) and expr.chain[-1] == "person_id":
+                    return True
+            return False
+
+        finder = FindConverterSubquery()
+        finder.visit(person_arrays.select_from)
+        finder.visit(person_arrays.where)
+        self.assertTrue(finder.found, "person_arrays must restrict the events scan to converting persons")
 
     def test_action_goals_credit_the_events_the_action_matches(self):
         # The action branch resolves the goal through Postgres and `action_to_expr` rather than a plain
@@ -1017,10 +1035,13 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             "products.access_control.backend.property_access_control.get_restricted_properties_with_group_type_index_for_team",
             side_effect=restrictions_for,
         ):
-            prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+            printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
 
-        # The property only reaches ClickHouse as a parameter when the query actually extracts it.
-        self.assertEqual("plan" in str(context.values), not restricted)
+        sql = printed[0] if isinstance(printed, tuple) else printed
+        if context.uses_new_events_schema():
+            self.assertEqual("properties.plan" in sql or "properties.^plan" in sql, not restricted)
+        else:
+            self.assertEqual("plan" in str(context.values), not restricted)
 
     @parameterized.expand([("zero", 0), ("negative", -1), ("over_the_ceiling", MAX_ATTRIBUTION_WINDOW_DAYS + 1)])
     def test_lookback_override_outside_the_allowed_range_is_rejected(self, _name: str, days: int):
@@ -1035,7 +1056,12 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         with self.assertRaises(ValueError):
             MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team).to_query()
 
-    def _printed_sql(self, breakdown: MarketingAnalyticsAttributionBreakdown) -> str:
+    def _printed_sql(
+        self,
+        breakdown: MarketingAnalyticsAttributionBreakdown,
+        *,
+        live_resolution: bool = False,
+    ) -> str:
         query = MarketingAnalyticsAttributionQuery(
             dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
             breakdownBy=breakdown,
@@ -1043,10 +1069,12 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             properties=[],
         )
         runner = MarketingAnalyticsAttributionQueryRunner(query=query, team=self.team)
+        runner.config.live_session_resolution_enabled = live_resolution
         context = runner._shared_hogql_context
         # execute_hogql_query flips this on the context it is handed; do the same to print the real query.
         context.enable_select_queries = True
         printed = prepare_and_print_ast(runner.to_query(), context=context, dialect="clickhouse")
+        assert runner._live_session_resolution_used == live_resolution
         return pretty_print_in_tests(printed[0] if isinstance(printed, tuple) else printed, self.team.pk)
 
     # One breakdown per SQL shape. Campaign reads a stored property, and the five breakdowns not listed
@@ -1061,4 +1089,19 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
     )
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_attribution_table_sql(self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown):
-        assert self._printed_sql(breakdown) == self.snapshot
+        printed = self._printed_sql(breakdown)
+        assert printed == self.sql_snapshot(printed)
+
+    @parameterized.expand(
+        [
+            ("live_campaign", MarketingAnalyticsAttributionBreakdown.CAMPAIGN, True),
+            ("live_source", MarketingAnalyticsAttributionBreakdown.SOURCE, True),
+            ("live_channel", MarketingAnalyticsAttributionBreakdown.CHANNEL, True),
+        ]
+    )
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_shared_live_sessions_sql(
+        self, _name: str, breakdown: MarketingAnalyticsAttributionBreakdown, live_resolution: bool
+    ):
+        printed = self._printed_sql(breakdown, live_resolution=live_resolution)
+        assert printed == self.sql_snapshot(printed)

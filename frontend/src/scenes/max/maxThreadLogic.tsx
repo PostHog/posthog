@@ -88,6 +88,7 @@ import {
     MODE_DEFINITIONS,
     TOOL_DEFINITIONS,
     ToolRegistration,
+    getToolDefinition,
     getModeDisplayName,
     messageLength,
 } from './max-constants'
@@ -314,14 +315,12 @@ export interface maxThreadLogicActions {
     } // posthogAiContextLogic
     bootstrapSandboxRun: (payload: {
         justCreatedRun?: boolean
-        reconcileHistory?: boolean
         retainedMessage?: string
         runId: string
         taskId: string
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
-        reconcileHistory?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
@@ -355,8 +354,16 @@ export interface maxThreadLogicActions {
         errorMessage: string
         variant: 'crash' | 'error'
     } // runStreamLogic
-    pushSandboxHumanMessage: (content: string) => {
+    pushSandboxHumanMessage: (
+        content: string,
+        stagedAttachments?:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
+    ) => {
         content: string
+        stagedAttachments:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
     } // runStreamLogic
     resetSandboxStream: () => {
         value: true
@@ -1723,7 +1730,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
             // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
             if (!values.agentModeLockedByUser && conversation?.agent_mode) {
-                actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
+                const conversationAgentMode = conversation.agent_mode as AgentMode
+                // Older conversations can store the retired user interview mode, which has no selector
+                // option. Use the default mode, as ee/hogai/chat_agent/mode_manager.py does. Match the
+                // retired mode exactly, because live modes such as Research also have no MODE_DEFINITIONS entry.
+                actions.syncAgentModeFromConversation(
+                    conversationAgentMode === AgentMode.UserInterview
+                        ? AgentMode.ProductAnalytics
+                        : conversationAgentMode
+                )
             }
             if (conversation?.is_sandbox) {
                 actions.setIsSandboxMode(true)
@@ -3295,6 +3310,12 @@ export async function onEventImplementation(
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             if (parsedResponse.ui_payload != null) {
                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                    const alreadyProcessed = parsedResponse.id
+                        ? cache.processedToolResultIds?.has(parsedResponse.id)
+                        : false
+                    if (!alreadyProcessed) {
+                        getToolDefinition(toolName)?.onResult?.(toolResult)
+                    }
                     if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                         continue // Static tools (mode-level) don't operate via ui_payload
                     }
@@ -3304,6 +3325,10 @@ export async function onEventImplementation(
                         actions.setPendingApproval(proposalId)
                     }
                     await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
+                }
+                if (parsedResponse.id) {
+                    cache.processedToolResultIds ??= new Set()
+                    cache.processedToolResultIds.add(parsedResponse.id)
                 }
             }
             actions.addMessage({

@@ -132,6 +132,38 @@ class TestGmailSync(BaseTest):
         imported = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
         assert imported.comment.content == "Attachment-backed message body"
 
+    def test_html_only_body_keeps_paragraphs_and_links(self) -> None:
+        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
+        html = (
+            b"<html><head><style>p { margin: 0 }</style></head><body>"
+            b"<p>Hey team,</p>\n<p>It goes quickly, so start early.</p>"
+            b'<p>See <a href="https://app.example.com/billing">your billing page</a>.<br>Cheers</p>'
+            b"<p>Ref &#0;0&#0;</p>"
+            b"<pre>def run():\n    return 1</pre>"
+            b"</body></html>"
+        )
+        message["payload"]["mimeType"] = "text/html"
+        message["payload"]["body"] = {"data": base64.urlsafe_b64encode(html).decode().rstrip("=")}
+
+        with patch.object(
+            gmail_sync,
+            "google_workspace_request",
+            side_effect=[
+                _response({"emailAddress": self.user.email, "historyId": "100"}),
+                _response({"messages": [{"id": "gmail-1"}]}),
+                _response(message),
+            ],
+        ):
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        imported = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
+        assert imported.comment.content == (
+            "Hey team,\n\nIt goes quickly, so start early.\n\n"
+            "See [your billing page](https://app.example.com/billing).\nCheers\n\n"
+            "Ref 0\n\n"
+            "def run():\n    return 1"
+        )
+
     def test_message_with_too_many_attachment_backed_bodies_is_skipped(self) -> None:
         message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
         message["payload"]["mimeType"] = "multipart/alternative"
@@ -399,3 +431,8 @@ class TestGmailSync(BaseTest):
             gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
 
         assert not EmailThread.objects.for_team(self.team.id).exists()
+
+
+class TestHtmlToText:
+    def test_many_sibling_paragraphs_flatten_in_one_pass(self) -> None:
+        assert gmail_sync._html_to_text("<p>x</p>" * 20_000) == "\n\n".join(["x"] * 20_000)

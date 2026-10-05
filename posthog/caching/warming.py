@@ -1,7 +1,7 @@
 import itertools
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Optional
 
 from django.db.models import Q
 
@@ -11,10 +11,9 @@ from celery import shared_task
 from celery.canvas import chain
 from prometheus_client import Counter, Gauge
 
-from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 
-from posthog.api.services.query import process_query_dict
+from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
@@ -26,11 +25,14 @@ from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.query_cache.freshness_index import clean_up_stale_insights, get_stale_insights
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
+from posthog.utils import variables_override_requested_by_client
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.facade.api import insight_variables_for_team
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -49,6 +51,13 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
 
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
+
+# Each team's chain starts at its own offset inside this window, so the largest teams do not all
+# send their insight queries to ClickHouse in the same minute.
+WARMING_START_WINDOW = timedelta(minutes=10)
+# How long a team's chain may run after it starts. The start offset plus this stays under an hour,
+# so a chain has expired before the next hourly dispatch starts the same team again.
+WARMING_CHAIN_LIFETIME = timedelta(minutes=50)
 
 # ClickHouse capacity/concurrency errors that should retry with backoff rather than fail the task.
 # ClickHouseAtCapacity is included via CH_TRANSIENT_ERRORS (it's what codes 202/439 surface as).
@@ -149,7 +158,8 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
 def schedule_warming_for_teams_task():
     """
     Runs every hour and schedule warming for all insights (picked from insights_to_cache)
-    for each team enabled for cache warming.
+    for each team enabled for cache warming. Each team's warming starts at a stable
+    offset within WARMING_START_WINDOW.
 
     We trigger recalculation using ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
     so even though we might pick all insights for a team to recalculate,
@@ -183,8 +193,7 @@ def schedule_warming_for_teams_task():
         zip(teams_with_recently_viewed_shared, [True] * len(teams_with_recently_viewed_shared)),
     )
 
-    # Use a fixed expiration time since tasks in the chain are executed sequentially
-    expire_after = datetime.now(UTC) + timedelta(minutes=50)
+    dispatched_at = datetime.now(UTC)
 
     with ph_scoped_capture() as capture_ph_event:
         for team, shared_only in all_teams:
@@ -195,11 +204,19 @@ def schedule_warming_for_teams_task():
                 event="cache warming - insights to cache",
                 properties={
                     "count": len(insight_tuples),
+                    "standalone_count": sum(dashboard_id is None for _, dashboard_id in insight_tuples),
+                    "dashboard_count": sum(dashboard_id is not None for _, dashboard_id in insight_tuples),
                     "team_id": team.id,
                     "organization_id": team.organization_id,
                     "shared_only": shared_only,
                 },
             )
+
+            # Anchored to the dispatch time, so the time this loop spends on earlier teams does not delay
+            # this team. A start time that has already passed runs at once.
+            start_at = dispatched_at + deterministic_offset(str(team.pk), WARMING_START_WINDOW)
+            # Use a fixed expiration time since tasks in the chain are executed sequentially
+            expire_after = start_at + WARMING_CHAIN_LIFETIME
 
             # We chain the task execution to prevent queries *for a single team* running at the same time
             chain(
@@ -207,7 +224,7 @@ def schedule_warming_for_teams_task():
                     warm_insight_cache_task.si(*insight_tuple).set(expires=expire_after)
                     for insight_tuple in insight_tuples
                 )
-            )()
+            ).apply_async(eta=start_at)
 
 
 @shared_task(
@@ -247,22 +264,28 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:
-            results = process_query_dict(
-                insight.team,
-                cast(dict[str, Any], insight.query),
-                dashboard_filters_json=dashboard.filters if dashboard is not None else None,
+            tile = dashboard.tiles.filter(insight=insight).first() if dashboard is not None else None
+            variables_override = (
+                variables_override_requested_by_client(None, dashboard, insight_variables_for_team(insight.team_id))
+                if dashboard is not None and dashboard.variables
+                else None
+            )
+            # The same call a dashboard load makes, so warming writes the cache key the page reads.
+            results = calculate_for_query_based_insight(
+                insight,
+                team=insight.team,
+                dashboard=dashboard,
                 # We need an execution mode with recent cache:
                 # - in case someone refreshed after this task was triggered
                 # - if insight + dashboard combinations have the same cache key, we prevent needless recalculations
-                limit_context=LimitContext.QUERY_ASYNC,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=insight.created_by,
-                insight_id=insight_id,
-                dashboard_id=dashboard_id,
+                variables_override=variables_override,
+                tile_filters_override=tile.filters_overrides if tile is not None else None,
                 analytics_props={"source": EventSource.CACHE_WARMING},
             )
 
-            is_cached = getattr(results, "is_cached", False)
+            is_cached = results.is_cached
 
             PRIORITY_INSIGHTS_COUNTER.labels(
                 team_id=insight.team_id,

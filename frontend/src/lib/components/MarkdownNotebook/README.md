@@ -79,6 +79,17 @@ The shell only handles keys that happened inside its own DOM. A block that rende
 
 `Enter` focuses the element Monaco actually reads keystrokes from, and which one that is depends on the build. An EditContext-based Monaco uses `.native-edit-context` and renders a second textarea only for IME, so focusing that textarea puts the caret nowhere. The selector tries the EditContext element first and keeps the bare `textarea` last for older builds. `NotebookComponentShell.test.tsx` covers both shapes, because JSDOM alone cannot tell them apart.
 
+## Jupyter mode
+
+The `jupyterMode` prop lays the notebook out and drives it the way JupyterLab does. The notebooks scene passes it behind the `notebook-jupyter-mode` flag, and each user can turn it off from the notebook's View menu.
+
+- The notebook is a list of cells (`getNotebookJupyterCells` in `jupyterCells.ts`). Each component tag in `cellTagNames` is a code cell with an `In [n]:` prompt. A run of text blocks that share a card is one markdown cell, the way a Jupyter markdown cell holds several paragraphs. Every other block (an insight, a divider) is a cell of its own and reads as rich output. A cell is named by its first node's id.
+- A selected cell is in command mode, and a cell whose source holds the caret is in edit mode. A code cell's shell takes focus in command mode. Text never takes focus itself, because the canvas is the editing host, so a markdown cell in command mode puts focus on an invisible sink (`MarkdownNotebook__jupyter-command-sink`). Without it, letter keys would type into the text.
+- `resolveNotebookJupyterKey` in `jupyterMode.ts` maps key presses to commands, including the two-key sequences (`D D`, `I I`, `0 0`). In edit mode it only claims the run keys, Escape, and the split chord, so typing never adds, deletes, or converts a cell. `executeCommand` in the editor implements every command against the document, so each edit is undoable and merges like any other.
+- `NotebookJupyterStore` holds the state the cells and the notebook toolbar share: the active cell, the Shift+Up/Down selection and its anchor, each cell's published run handler, the cell clipboard, and the deleted-cell history for `Z`. It lives outside React state, so a selection change re-renders only the cells it affects.
+- Keys inside a code editor live on the editor itself (`jupyterEditorKeys.ts`): Tab completes after code and indents elsewhere, Shift+Tab shows the docs for the name at the cursor, Up and Down at the first and last line leave the cell, Backspace in an empty editor removes it, and Ctrl+Shift+Minus splits it. The shell finds the Monaco instance inside it through `lib/monaco/mountedCodeEditors.ts`, so the Python and SQL cells get the same keys without importing Monaco.
+- The generic editor still knows nothing about Python or SQL. The run handler a cell publishes carries its running state and execution count. The host supplies the cell source (`getCellSource`, `withCellSource`), fresh identities for a pasted copy (`prepareCellCopy`), kernel completion and inspection (`completeCode`, `inspectCode`), and a callback for each command it runs (`onCommand`), which the notebooks scene uses for usage events.
+
 ## Sync model
 
 The component receives two props: `value` (the local content owned by the caller, e.g. `notebookLogic.localContent`) and `remoteValue` (the latest known server content). Internally it tracks:

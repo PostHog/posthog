@@ -161,7 +161,9 @@ function UpcomingOccurrences(): JSX.Element | null {
         return computePreviewOccurrences(scheduleState, currentSchedule.starts_at, currentSchedule.timezone)
     }, [scheduleState, currentSchedule])
 
-    const summary = scheduleState ? buildSummary(scheduleState, currentSchedule?.starts_at ?? null) : null
+    const summary = scheduleState
+        ? buildSummary(scheduleState, currentSchedule?.starts_at ?? null, currentSchedule?.timezone)
+        : null
     const timezone = currentSchedule?.timezone
     const hasFutureOccurrences = occurrences.some((d) => fakeUtcToReal(d, timezone).isAfter(dayjs()))
 

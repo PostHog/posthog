@@ -6,8 +6,13 @@ from pydantic import BaseModel
 
 
 class RefreshScannerSuggestionsInputs(BaseModel, frozen=True):
-    scanner_id: UUID
     team_id: int
+    # None refreshes the team's cross-scanner phrases instead of one scanner's.
+    scanner_id: UUID | None = None
+
+    @property
+    def key(self) -> str:
+        return f"scanner:{self.scanner_id}" if self.scanner_id else f"team:{self.team_id}"
 
 
 class RefreshSearchSuggestionsInputs(BaseModel, frozen=True):
@@ -15,6 +20,6 @@ class RefreshSearchSuggestionsInputs(BaseModel, frozen=True):
 
 
 class RefreshSearchSuggestionsResult(BaseModel, frozen=True):
-    refreshed: list[UUID] = []
-    skipped: list[UUID] = []
-    failed: list[UUID] = []
+    refreshed: list[str] = []
+    skipped: list[str] = []
+    failed: list[str] = []

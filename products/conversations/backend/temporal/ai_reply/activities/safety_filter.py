@@ -12,6 +12,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.conversations.backend.temporal.ai_reply.constants import MAX_SAFETY_REVIEWED_CHARS, UTILITY_MODEL
 from products.conversations.backend.temporal.ai_reply.llms import (
+    anthropic_output_config,
     anthropic_text,
     create_message,
     llm_attempts,
@@ -133,6 +134,7 @@ async def _safety_filter(input: SafetyFilterInput) -> SafetyFilterOutput:
         max_tokens=512,
         system=SAFETY_FILTER_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
+        **anthropic_output_config(SafetyFilterResult),
         **tracing_kwargs(input.trace_id, input.ticket_id),
     )
     content = anthropic_text(message)

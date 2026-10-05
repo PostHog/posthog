@@ -6,6 +6,7 @@ import {
     ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import { DEFAULT_MODEL_BY_RUNTIME_ADAPTER, MODELS } from 'products/tasks/frontend/modelCatalog.generated'
 
 import {
     buildRunCreateRequest,
@@ -17,6 +18,7 @@ import {
     getRuntimeAdapterForModel,
     listRuntimeAdapters,
     modelsForRuntimeAdapter,
+    pickerModels,
 } from './composerModels'
 import { type PermissionMode } from './composerModes'
 
@@ -37,26 +39,57 @@ describe('composerModels', () => {
     ]
 
     it.each([
-        [null, 'gpt-5.6-sol'],
+        [null, 'gpt-6.1-sol'],
         ['gpt-5.6-luna', 'gpt-5.6-luna'],
         ['openai/gpt-5.6-luna', 'gpt-5.6-luna'],
-        ['claude-opus-4-8', 'gpt-5.6-sol'],
-        ['retired-model', 'gpt-5.6-sol'],
+        ['claude-opus-4-8', 'gpt-6.1-sol'],
+        ['retired-model', 'gpt-6.1-sol'],
     ])('selects the Codex default with preference %s', (preference, expected) => {
         const catalogue: ModelChoiceApi[] = [
             ...CATALOGUE,
             {
                 runtime_adapter: 'codex',
-                model: 'gpt-5.6-sol',
-                display_name: 'GPT-5.6 Sol',
-                supported_efforts: ['low', 'medium', 'high'],
+                model: 'gpt-6-sol',
+                display_name: 'GPT-6 Sol',
+                supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+            },
+            {
+                runtime_adapter: 'codex',
+                model: 'gpt-6.1-sol',
+                display_name: 'GPT-6.1 Sol',
+                supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
             },
         ]
 
         expect(getDefaultModelForRuntimeAdapter(catalogue, RuntimeAdapterEnumApi.Codex, preference)).toBe(expected)
     })
 
+    it.each([RuntimeAdapterEnumApi.Claude, RuntimeAdapterEnumApi.Codex])(
+        'selects the shared default for %s before the capability ladder',
+        (adapter) => {
+            const catalogue: ModelChoiceApi[] = MODELS.map((model) => ({
+                runtime_adapter: model.runtimeAdapter as RuntimeAdapterEnumApi,
+                model: model.id,
+                display_name: model.label,
+                supported_efforts: [...model.reasoningEfforts] as ReasoningEffortEnumApi[],
+            }))
+            const model = getDefaultModelForRuntimeAdapter(catalogue, adapter, null)
+
+            expect(model).toBe(DEFAULT_MODEL_BY_RUNTIME_ADAPTER[adapter])
+        }
+    )
+
     it.each([
+        [
+            CATALOGUE.concat({
+                runtime_adapter: RuntimeAdapterEnumApi.Codex,
+                model: 'gpt-6-sol',
+                display_name: 'GPT-6 Sol',
+                supported_efforts: [ReasoningEffortEnumApi.High],
+            }),
+            RuntimeAdapterEnumApi.Codex,
+            'gpt-6-sol',
+        ],
         [CATALOGUE, RuntimeAdapterEnumApi.Codex, 'gpt-5.6-luna'],
         [CATALOGUE, RuntimeAdapterEnumApi.Claude, 'claude-opus-4-8'],
         [[], RuntimeAdapterEnumApi.Codex, null],
@@ -155,30 +188,30 @@ describe('composerModels', () => {
         expect((request as ClaudeTaskRunCreateSchemaApi).reasoning_effort).toBeUndefined()
     })
 
-    // Every rung the Faster/Smarter slider offers has to be sendable. The ladder is a hardcoded progression, so a
-    // model the gateway has retired — or one that no longer takes the paired effort — must drop out of the stops
-    // rather than become a notch whose run the backend rejects.
+    // Every rung the Faster/Smarter slider offers has to be sendable. The catalog is checked in, so a model the
+    // gateway has retired — or one that no longer takes the paired effort — must drop out of the stops rather
+    // than become a notch whose run the backend rejects.
     it('keeps only the ladder rungs the catalogue still serves', () => {
         const catalogue: ModelChoiceApi[] = [
             {
                 runtime_adapter: 'claude',
-                model: 'claude-sonnet-5',
-                display_name: 'Claude Sonnet 5',
+                model: 'claude-sonnet-5-5',
+                display_name: 'Claude Sonnet 5.5',
                 supported_efforts: ['low', 'medium'],
             },
             {
                 runtime_adapter: 'claude',
-                model: 'claude-opus-5',
-                display_name: 'Claude Opus 5',
+                model: 'claude-opus-5-5',
+                display_name: 'Claude Opus 5.5',
                 supported_efforts: ['medium', 'high', 'xhigh'],
             },
         ]
 
         // Dropped: sonnet at `high` (unsupported effort) and fable entirely (absent from the catalogue).
         expect(getCapabilityLadder(catalogue, RuntimeAdapterEnumApi.Claude)).toEqual([
-            { model: 'claude-sonnet-5', effort: ReasoningEffortEnumApi.Medium },
-            { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Medium },
-            { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Xhigh },
+            { model: 'claude-sonnet-5-5', effort: ReasoningEffortEnumApi.Medium },
+            { model: 'claude-opus-5-5', effort: ReasoningEffortEnumApi.Medium },
+            { model: 'claude-opus-5-5', effort: ReasoningEffortEnumApi.Xhigh },
         ])
         expect(getCapabilityLadder(catalogue, RuntimeAdapterEnumApi.Codex)).toEqual([])
     })
@@ -212,5 +245,30 @@ describe('composerModels', () => {
         expect(modelsForRuntimeAdapter(CATALOGUE, RuntimeAdapterEnumApi.Codex).map((o) => o.model)).toEqual([
             'gpt-5.6-luna',
         ])
+    })
+
+    describe('pickerModels', () => {
+        const RETIRED: ModelChoiceApi = {
+            runtime_adapter: 'claude',
+            model: 'claude-opus-4-7',
+            display_name: 'Claude Opus 4.7',
+            supported_efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'],
+        }
+        const FULL = [...CATALOGUE, RETIRED]
+
+        it('lists the retired model this run is on, so its name and efforts survive', () => {
+            expect(pickerModels(FULL, 'claude-opus-4-7')).toEqual(FULL)
+        })
+
+        it('resolves the run model through the same normalization the catalogue uses', () => {
+            expect(pickerModels(FULL, 'anthropic/claude-opus-4-7')).toEqual(FULL)
+        })
+
+        it.each([null, undefined, 'claude-opus-4-8', 'model-no-catalogue-knows'])(
+            'drops every retired model for %s',
+            (selected: string | null | undefined) => {
+                expect(pickerModels(FULL, selected)).toEqual(CATALOGUE)
+            }
+        )
     })
 })

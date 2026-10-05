@@ -253,6 +253,7 @@ const projectGet = (): ToolBase<ReturnType<typeof ProjectGetSchema>, Schemas.Pro
             'secret_api_token',
             'secret_api_token_backup',
             'live_events_token',
+            'heatmaps_screenshot_secret',
             'default_modifiers',
         ]) as typeof result
         return filtered
@@ -497,7 +498,15 @@ const projectSettingsUpdate = (): ToolBase<
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,
             body,
         })
-        return result
+        const filtered = omitResponseFields(result, [
+            'api_token',
+            'secret_api_token',
+            'secret_api_token_backup',
+            'live_events_token',
+            'heatmaps_screenshot_secret',
+            'default_modifiers',
+        ]) as typeof result
+        return filtered
     },
 })
 
