@@ -230,6 +230,11 @@ function lessOrEqualsFn([a, b]: any[]): boolean {
     return !isNullish(a) && !isNullish(b) && a <= b
 }
 
+// Sort by value, not by the default string conversion, so [2, 10, 1] sorts numerically.
+function compareValues(a: any, b: any): number {
+    return a < b ? -1 : a > b ? 1 : 0
+}
+
 function notEqualsFn([a, b]: any[]): boolean {
     return a !== b
 }
@@ -1337,7 +1342,7 @@ export const STL: Record<string, STLFunction> = {
             if (!Array.isArray(arr)) {
                 return []
             }
-            return [...arr].sort()
+            return [...arr].sort(compareValues)
         },
         description: 'Sorts array in ascending order',
         example: 'arraySort($1)',
@@ -1360,7 +1365,7 @@ export const STL: Record<string, STLFunction> = {
             if (!Array.isArray(arr)) {
                 return []
             }
-            return [...arr].sort().reverse()
+            return [...arr].sort(compareValues).reverse()
         },
         description: 'Sorts array in descending order',
         example: 'arrayReverseSort($1)',

@@ -37,6 +37,8 @@ print(arrayPopFront([1,2,3]))
 print(arraySort([3,2,1]))
 print(arrayReverse([1,2,3]))
 print(arrayReverseSort([3,2,1]))
+print(arraySort([2, 10, 1]))
+print(arrayReverseSort([2, 10, 1]))
 print(arrayStringConcat([1,2,3], ','))
 
 print('-----')

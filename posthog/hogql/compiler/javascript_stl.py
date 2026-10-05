@@ -485,7 +485,7 @@ function isIPAddressInRange(address, prefix) {
         [],
     ],
     "arraySort": [
-        "function arraySort (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].sort() }",
+        "function arraySort (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) }",
         [],
     ],
     "arrayReverse": [
@@ -493,7 +493,7 @@ function isIPAddressInRange(address, prefix) {
         [],
     ],
     "arrayReverseSort": [
-        "function arrayReverseSort (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].sort().reverse() }",
+        "function arrayReverseSort (arr) { if (!Array.isArray(arr)) { return [] } return [...arr].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).reverse() }",
         [],
     ],
     "arrayStringConcat": [
