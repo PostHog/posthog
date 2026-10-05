@@ -357,14 +357,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             })}
         >
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
-                {query.source.biConfig &&
+                {query.kind === NodeKind.BIVisualizationNode &&
                 !responseLoading &&
                 response &&
-                'results' in response &&
-                response.results.length >= query.source.biConfig.limit ? (
+                'hasMore' in response &&
+                response.hasMore ? (
                     <LemonBanner type="info">
-                        This worksheet reached its {query.source.biConfig.limit.toLocaleString()} row limit. Increase
-                        the limit or narrow the filters to see all results.
+                        This worksheet reached its {query.config.limit.toLocaleString()} row limit. Increase the limit
+                        or narrow the filters to see all results.
                     </LemonBanner>
                 ) : null}
                 {!readOnly && showResultControls && (
