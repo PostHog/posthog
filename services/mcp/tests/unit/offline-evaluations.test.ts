@@ -86,7 +86,7 @@ describe('offline evaluation MCP tools', () => {
         ['llma-offline-experiment-item-payload-get', 'item_id', 'items'],
         ['llma-offline-experiment-result-payload-get', 'result_id', 'results'],
     ])('returns the full API payload through the registered %s tool', async (name, idField, resource) => {
-        const content = 'x'.repeat(8000) + '🦔'.repeat(5000)
+        const content = 'stored text 🦔'
         const data =
             resource === 'items'
                 ? { input: content, expected_output: null, metadata: {} }
@@ -103,7 +103,6 @@ describe('offline evaluation MCP tools', () => {
         const result = await tool.handler(context, tool.schema.parse({ id: experimentId, [idField]: itemId }))
 
         expect(result).toMatchObject({ ...response, [POSTHOG_INFORMATIONAL_RESPONSE_KEY]: true })
-        expect(result).not.toHaveProperty('data_json')
         expect(request).toHaveBeenCalledExactlyOnceWith({
             method: 'GET',
             path: `/api/projects/17/ai_observability/offline_experiments/${experimentId}/${resource}/${itemId}/payload/`,

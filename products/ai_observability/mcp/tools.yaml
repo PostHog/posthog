@@ -1117,8 +1117,7 @@ tools:
             suite, dataset revision, application/model/prompt versions, source, or upload status. Lists include all
             statuses by default; use statuses=completed for closed runs. Scorer filters additionally require
             llm_analytics:read. Counts cover only authorized results; null counts mean unavailable, not zero. Returns
-            count, next_cursor, and results; continue with cursor and unchanged filters. These curated API reads
-            preserve permissions and run context in SQL-first clients.
+            count, next_cursor, and results; continue with cursor and unchanged filters.
         param_overrides:
             limit:
                 description: Page size, from 1 to 100. Defaults to 20.
@@ -1186,8 +1185,8 @@ tools:
             Read server-computed summaries over all experiment results, grouped by exact immutable scorer version,
             independently of item pagination. Pass rates divide passing scores by successful results only; errors,
             skipped, not-applicable, and missing results are separate. Numeric/categorical scores without a passing rule
-            have null pass rates. Repeated trials each contribute an item. These permission-filtered aggregates are
-            available in SQL-first clients. Page with next_cursor and unchanged filters.
+            have null pass rates. Repeated trials each contribute an item. Page with next_cursor and unchanged
+            filters.
         param_overrides:
             limit:
                 description: Page size, from 1 to 100. Defaults to 20.
@@ -1238,7 +1237,7 @@ tools:
             Defaults to completed experiments; select statuses explicitly to inspect partial runs. Filter by suite,
             dataset/revision, execution dates, application/model/prompt revisions, or scorer-version UUIDs to compare
             compatible cohorts. Never combine different versions merely because their names match. Returns count,
-            next_cursor, and results, preserving backend aggregate and permission semantics in SQL-first clients.
+            next_cursor, and results.
         param_overrides:
             limit:
                 description: Page size, from 1 to 100. Defaults to 20.
@@ -1720,8 +1719,7 @@ tools:
         title: Get scorer version
         description: >
             Retrieve an exact immutable scorer version by definition id and version_id UUID. Its pinned config
-            determines how historical offline scores pass or fail; the current scorer configuration may differ. Use this
-            API to preserve scorer resource permissions in SQL-first clients.
+            determines how historical offline scores pass or fail; the current scorer configuration may differ.
         response:
             informational_wrapper:
                 tag: offline-evaluation-reference
