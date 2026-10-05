@@ -4397,14 +4397,14 @@ Note: Full OpenAPI 3.1.1 spec at https://api.intruder.io/v1/swagger.json (linked
 
 ## Invoiced — gaps
 
-Today (9): `coupons`, `credit_notes`, `customers`, `estimates`, `invoices`, `items`, `payments`, `plans`, `subscriptions`
+Today (13): `coupons`, `credit_balance_adjustments`, `credit_notes`, `customers`, `estimates`, `events`, `invoices`, `items`, `payments`, `plans`, `subscriptions`, `tasks`, `tax_rates`
 
 Diffed against: <https://developer.invoiced.com/api/coupons>
 
-- [ ] `GET /events` — object change/audit event stream — the only way to get invoice and subscription state transitions (high)
-- [ ] `GET /tax_rates` — lookup table resolving the tax rate IDs carried on invoices, items and line items we already sync (high)
-- [ ] `GET /credit_balance_adjustments` — customer credit balance transactions, missing from the AR picture (medium)
-- [ ] `GET /tasks` — AR collection tasks and chasing cadence per customer (medium)
+- [x] `GET /events` — object change/audit event stream — the only way to get invoice and subscription state transitions (high)
+- [x] `GET /tax_rates` — lookup table resolving the tax rate IDs carried on invoices, items and line items we already sync (high)
+- [x] `GET /credit_balance_adjustments` — customer credit balance transactions, missing from the AR picture (medium)
+- [x] `GET /tasks` — AR collection tasks and chasing cadence per customer (medium)
 - [ ] `GET /customers/{id}/contacts` — contact-level lookup for the customers we sync (billing vs technical recipients) (medium)
 - [ ] `GET /customers/{id}/pending_line_items` — metered billing usage accrued but not yet invoiced (medium)
 - [ ] `GET /invoices/{id}/payment_plan` — installment schedule attached to an invoice; explains partial payments (medium)
