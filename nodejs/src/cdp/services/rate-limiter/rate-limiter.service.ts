@@ -249,6 +249,49 @@ end
 return {1, 0, 0, 0}
 `
 
+// Atomic all-or-nothing claim across any number of buckets, each with its own request. Same
+// refill math as the pair script above, and a denial writes nothing either.
+//   KEYS[i]           = bucket hash key
+//   ARGV[4(i-1)+1..4] = requested tokens, capacity, refill/sec, TTL seconds for KEYS[i]
+// Returns {1} when granted, or {0, i...} with the 1-based index of every short bucket.
+const CLAIM_ALL_OR_NOTHING_LUA = `
+local time = redis.call('TIME')
+local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+local available = {}
+local denied = {0}
+for i = 1, #KEYS do
+    local offset = (i - 1) * 4
+    local requested = tonumber(ARGV[offset + 1])
+    local capacity = tonumber(ARGV[offset + 2])
+    local refillPerSecond = tonumber(ARGV[offset + 3])
+    local existing = redis.call('hmget', KEYS[i], 'ts', 'pool')
+    local avail
+    if existing[1] == false then
+        avail = capacity
+    else
+        local elapsedMs = math.max(0, now - tonumber(existing[1]))
+        local currentTokens = capacity
+        if existing[2] ~= false then
+            currentTokens = tonumber(existing[2])
+        end
+        avail = math.min(capacity, currentTokens + (elapsedMs / 1000.0) * refillPerSecond)
+    end
+    available[i] = avail
+    if avail < requested then
+        table.insert(denied, i)
+    end
+end
+if #denied > 1 then
+    return denied
+end
+for i = 1, #KEYS do
+    local offset = (i - 1) * 4
+    redis.call('hset', KEYS[i], 'ts', now, 'pool', available[i] - tonumber(ARGV[offset + 1]))
+    redis.call('expire', KEYS[i], tonumber(ARGV[offset + 4]))
+end
+return {1}
+`
+
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */
     name: string
@@ -368,6 +411,64 @@ export class RateLimiterService {
             })
             claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
             return { granted: 0, retryAfterMs: null, reserved: false }
+        } finally {
+            endTimer()
+        }
+    }
+
+    /**
+     * Atomically claim each bucket's requested tokens from ALL buckets, or none. A denial
+     * writes nothing and returns every short bucket's zero-based index into `buckets`.
+     * Runtime errors or invalid replies deny with `deniedIndexes: null` — fail-closed.
+     *
+     * On clustered Valkey all keys must hash to the same slot (give them the same `{...}`
+     * hash tag), because the cluster rejects cross-slot Lua calls with a CROSSSLOT error.
+     * Single-node tests and local dev do not catch a violation; production does.
+     */
+    public async claimAllOrNothing(
+        buckets: ClaimRequest[]
+    ): Promise<{ granted: true } | { granted: false; deniedIndexes: number[] | null }> {
+        const endTimer = claimLatency.startTimer({ limiter: this.config.name })
+        const keys = buckets.map((bucket) => bucket.key)
+        try {
+            const result = await this.valkey.useClient(
+                { name: `rate-limiter:${this.config.name}:claimAllOrNothing`, timeout: 1000 },
+                (client) =>
+                    client.eval(
+                        CLAIM_ALL_OR_NOTHING_LUA,
+                        buckets.length,
+                        ...keys,
+                        ...buckets.flatMap((bucket) =>
+                            [bucket.requested, bucket.capacity, bucket.refillPerSecond, bucket.ttlSeconds ?? 3600].map(
+                                String
+                            )
+                        )
+                    )
+            )
+            if (Array.isArray(result) && result.length === 1 && result[0] === 1) {
+                claimCounter.inc({ limiter: this.config.name, result: 'granted_full' })
+                return { granted: true }
+            }
+            if (
+                Array.isArray(result) &&
+                result[0] === 0 &&
+                result.length > 1 &&
+                result.slice(1).every((index) => Number.isInteger(index) && index >= 1 && index <= buckets.length) &&
+                new Set(result.slice(1)).size === result.length - 1
+            ) {
+                claimCounter.inc({ limiter: this.config.name, result: 'denied' })
+                return { granted: false, deniedIndexes: result.slice(1).map((index) => index - 1) }
+            }
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) claim returned invalid result`, {
+                keys,
+                raw: result,
+            })
+            claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
+            return { granted: false, deniedIndexes: null }
+        } catch (err) {
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) claim threw`, { keys, error: String(err) })
+            claimCounter.inc({ limiter: this.config.name, result: 'valkey_error' })
+            return { granted: false, deniedIndexes: null }
         } finally {
             endTimer()
         }
