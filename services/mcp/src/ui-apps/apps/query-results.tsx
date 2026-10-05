@@ -3,10 +3,10 @@ import '../styles/tailwind.css'
 import { createRoot } from 'react-dom/client'
 
 import { AppWrapper } from '../components/AppWrapper'
-import { Component } from '../components/Component'
+import { TrackedComponent } from '../components/TrackedComponent'
 
 function QueryResultsApp(): JSX.Element {
-    return <AppWrapper appName="PostHog Query Results">{({ data }) => <Component data={data} />}</AppWrapper>
+    return <AppWrapper appName="PostHog Query Results">{({ data }) => <TrackedComponent data={data} />}</AppWrapper>
 }
 
 const container = document.getElementById('root')

@@ -209,6 +209,7 @@ export type PathsResult = PathsResultItem[]
 export interface TrendsVisualizerProps {
     query: TrendsQuery | undefined
     results: TrendsResult
+    onDisplayChange?: (change: { from: string; to: string }) => void
 }
 
 export interface FunnelVisualizerProps {

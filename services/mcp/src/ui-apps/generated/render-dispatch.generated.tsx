@@ -58,7 +58,7 @@ import {
 } from 'products/workflows/mcp/apps'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
-import { Component } from '../components/Component'
+import { TrackedComponent } from '../components/TrackedComponent'
 
 export interface RenderDispatchProps {
     data: unknown
@@ -435,7 +435,7 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     ),
     'invite-email-preview': ({ data }) => <InviteEmailPreviewView data={data as InviteEmailPreviewData} />,
     'llm-costs': ({ data }) => <LLMCostsView data={data as LLMCostsData} />,
-    'query-results': ({ data }) => <Component data={data} />,
+    'query-results': ({ data }) => <TrackedComponent data={data} />,
     'session-recording': ({ data }) => <SessionRecordingView recording={data as SessionRecordingData} />,
     survey: ({ data }) => <SurveyView survey={data as SurveyData} />,
     'survey-global-stats': ({ data }) => <SurveyStatsView data={data as SurveyStatsData} />,
