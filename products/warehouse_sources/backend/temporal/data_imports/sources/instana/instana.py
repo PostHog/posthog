@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instana.se
     MAX_CATALOG_PAGES,
     MAX_CATALOG_WALK_SECONDS,
     METRICS_DEFAULT_LOOKBACK_DAYS,
+    METRICS_MAX_LOOKBACK_DAYS,
     METRICS_WINDOW_MS,
     PAGE_SIZE,
     SNAPSHOTS_MAX_SIZE,
@@ -453,7 +454,10 @@ def _get_metric_rows(
         page = resume.next_page or 1
         logger.debug(f"Instana: resuming {config.name} from window_from={window_from}, page={page}")
     elif watermark is not None:
-        window_from = _floor_to_window(min(watermark, end) - METRICS_WINDOW_MS)
+        window_from = max(
+            _floor_to_window(min(watermark, end) - METRICS_WINDOW_MS),
+            end - METRICS_MAX_LOOKBACK_DAYS * METRICS_WINDOW_MS,
+        )
     else:
         window_from = end - METRICS_DEFAULT_LOOKBACK_DAYS * METRICS_WINDOW_MS
 

@@ -40,6 +40,9 @@ SNAPSHOTS_MAX_SIZE = 1000
 # window holds exactly one bucket per entity. Only complete days are requested.
 METRICS_WINDOW_MS = 24 * 60 * 60 * 1000
 METRICS_DEFAULT_LOOKBACK_DAYS = 7
+# An incremental run never reaches further back than this, so a bogus (e.g. epoch-zero) bucket
+# timestamp from the host can't turn every later sync into a day-by-day walk from 1970.
+METRICS_MAX_LOOKBACK_DAYS = 31
 # Golden signals. Each aggregation is one the spec allows for its metric.
 APPLICATION_METRICS: list[dict[str, str]] = [
     {"metric": "calls", "aggregation": "SUM"},

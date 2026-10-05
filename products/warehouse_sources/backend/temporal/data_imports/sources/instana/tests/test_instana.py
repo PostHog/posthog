@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.instana.se
     EVENTS_DEFAULT_LOOKBACK_DAYS,
     EVENTS_WINDOW_CHUNK_MS,
     METRICS_DEFAULT_LOOKBACK_DAYS,
+    METRICS_MAX_LOOKBACK_DAYS,
     METRICS_WINDOW_MS,
     PAGE_SIZE,
 )
@@ -421,6 +422,17 @@ class TestMetricRows:
         # (start-of-bucket reading) are both re-fetched.
         assert watermark in windows
         assert watermark + METRICS_WINDOW_MS in windows
+
+    def test_ancient_watermark_is_clamped_to_the_max_lookback(self) -> None:
+        _rows, _saved, bodies = _run_metric_rows(
+            "endpoint_metrics",
+            [{"items": [], "totalHits": 0}],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=0,
+        )
+
+        assert len(bodies) == METRICS_MAX_LOOKBACK_DAYS
+        assert self._windows(bodies)[-1] == self.TODAY_MS
 
     def test_paginates_within_a_window_and_resumes_from_saved_page(self) -> None:
         full = {"items": [{"application": {"id": f"a{i}"}, "metrics": {}} for i in range(PAGE_SIZE)], "totalHits": 999}
