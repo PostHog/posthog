@@ -489,10 +489,15 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # The HogQL schema never exposes that table, so it does not claim the namespace.
         if self.created_via == self.CreatedVia.MATERIALIZED_VIEW:
             return
-        if is_reserved_models_name(self.name):
-            raise ValidationError(
-                {"name": "The models namespace is reserved for data models. Choose a different table name."}
-            )
+        if not is_reserved_models_name(self.name):
+            return
+        # A table saved with this name before the reservation existed must stay editable and deletable.
+        # soft_delete() calls save(), so rejecting an unchanged name would leave the table stuck.
+        if not self._state.adding and type(self).raw_objects.filter(pk=self.pk, name=self.name).exists():
+            return
+        raise ValidationError(
+            {"name": "The models namespace is reserved for data models. Choose a different table name."}
+        )
 
     def _reject_client_supplied_url_pattern_change(self, update_fields: Iterable[str] | None) -> None:
         """Block a url_pattern change on a table with no credential, unless the caller declares the
