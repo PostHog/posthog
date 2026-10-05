@@ -4420,10 +4420,10 @@ Today (15): `clients`, `credits`, `expense_categories`, `expenses`, `invoices`, 
 Diffed against: <https://api-docs.invoicing.co/api-docs.yaml>
 
 - [ ] `GET /api/v1/activities` — the audit/activity log — every entity state transition (invoice sent, viewed, paid, quote approved) (high)
-- [ ] `GET /api/v1/statics` — master lookup payload (currencies, countries, payment types, industries, sizes, timezones, date formats) resolving the \*\_id columns on nearly every synced table (high)
-- [ ] `GET /api/v1/task_statuses` — lookup resolving the status_id on the tasks we already sync (high)
-- [ ] `GET /api/v1/users` — lookup resolving user_id / assigned_user_id on clients, invoices, tasks, expenses (high)
-- [ ] `GET /api/v1/bank_transactions` — bank feed transactions and their match state against payments/expenses (high)
+- [ ] `GET /api/v1/statics` — master lookup payload (currencies, countries, payment types, industries, sizes, timezones, date formats) resolving the \*\_id columns on nearly every synced table (high). Skipped: the endpoint returns one unpaginated object whose keys each hold a different lookup list (currencies, countries, industries, and so on) with separate id spaces, so it is not one table. The lists are reference data shipped with Invoice Ninja, not account records, and self-hosted instances also put the instance `license_key` in the payload.
+- [x] `GET /api/v1/task_statuses` — lookup resolving the status_id on the tasks we already sync (high). Added as `task_statuses`.
+- [x] `GET /api/v1/users` — lookup resolving user_id / assigned_user_id on clients, invoices, tasks, expenses (high). Added as `users`.
+- [x] `GET /api/v1/bank_transactions` — bank feed transactions and their match state against payments/expenses (high). Added as `bank_transactions`.
 - [ ] `GET /api/v1/company_ledger` — per-client ledger entries — the running AR balance behind invoices and payments (medium)
 - [ ] `GET /api/v1/subscriptions` — recurring billing plans customers are subscribed to (medium)
 - [ ] `GET /api/v1/recurring_expenses` — recurring cost side; we sync recurring_invoices but not recurring_expenses (medium)
