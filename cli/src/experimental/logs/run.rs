@@ -9,7 +9,7 @@ use reqwest::blocking::Client;
 use super::checkpoint::Checkpoint;
 use super::config::LokiImportConfig;
 use super::emit::{batch_records, Batch};
-use super::loki::{Entry, LokiClient};
+use super::loki::{Entry, LokiClient, INSTANT_LIMIT};
 use super::mapping::Mapper;
 use super::send::{backoff, classify, Disposition};
 use super::shard::shards;
@@ -78,6 +78,17 @@ impl BoundaryFilter {
 
     fn keep(&self, entry: &Entry) -> bool {
         entry.timestamp_ns != self.cursor || !self.sent.contains(&entry_key(entry))
+    }
+
+    /// Takes every entry at the cursor's instant, read in one request, and returns the ones not
+    /// sent yet. The instant is then complete, so the cursor moves one nanosecond past it.
+    fn finish_instant(&mut self, instant: Vec<Entry>) -> Vec<Entry> {
+        let unsent = instant
+            .into_iter()
+            .filter(|entry| self.keep(entry))
+            .collect();
+        *self = BoundaryFilter::new(self.cursor + 1);
+        unsent
     }
 
     /// Moves to the next page's start. Staying on the same instant accumulates; moving off it
@@ -193,13 +204,9 @@ impl Importer<'_> {
                         .filter(|entry| boundary.keep(entry))
                         .collect();
 
-                    let mapped: Vec<_> = fresh.iter().map(|e| self.mapper.map(e)).collect();
-                    for batch in batch_records(&mapped, self.config.tuning.max_request_bytes) {
-                        self.send(&batch)?;
-                        pacer.record(batch.records as u32);
-                        records_in_shard += batch.records as u64;
-                        bytes_in_shard += batch.body.len() as u64;
-                    }
+                    let (records, bytes) = self.send_entries(&fresh, &mut pacer)?;
+                    records_in_shard += records;
+                    bytes_in_shard += bytes;
 
                     let Some(resume) = next else { break };
                     let cursor = boundary.cursor();
@@ -213,10 +220,21 @@ impl Importer<'_> {
                         );
                     }
                     if resume == cursor && fresh.is_empty() {
-                        bail!(
-                            "Loki made no progress past {cursor} for {selector}; \
-                             the page limit may be smaller than this client expects"
-                        );
+                        // Loki answers every query that starts at a crowded instant with the same
+                        // first page, so read the instant whole and step past it.
+                        let Some(instant) = self.loki.query_instant(selector, cursor)? else {
+                            bail!(
+                                "{INSTANT_LIMIT} or more entries for {selector} share the timestamp \
+                                 {cursor}, and Loki cannot page within one instant. Narrow the \
+                                 selector, with more label matchers or a line filter, so fewer \
+                                 entries share that timestamp"
+                            );
+                        };
+                        let unsent = boundary.finish_instant(instant);
+                        let (records, bytes) = self.send_entries(&unsent, &mut pacer)?;
+                        records_in_shard += records;
+                        bytes_in_shard += bytes;
+                        continue;
                     }
 
                     boundary.advance(&fresh, resume);
@@ -240,6 +258,19 @@ impl Importer<'_> {
             self.checkpoint_path.display()
         );
         Ok(())
+    }
+
+    /// Maps, batches and sends entries, returning the records and bytes sent.
+    fn send_entries(&self, entries: &[Entry], pacer: &mut Pacer) -> Result<(u64, u64)> {
+        let mapped: Vec<_> = entries.iter().map(|e| self.mapper.map(e)).collect();
+        let (mut records, mut bytes) = (0u64, 0u64);
+        for batch in batch_records(&mapped, self.config.tuning.max_request_bytes) {
+            self.send(&batch)?;
+            pacer.record(batch.records as u32);
+            records += batch.records as u64;
+            bytes += batch.body.len() as u64;
+        }
+        Ok((records, bytes))
     }
 
     fn send(&self, batch: &Batch) -> Result<()> {
@@ -356,6 +387,26 @@ mod tests {
 
         assert!(!boundary.keep(&at(100, "health check ok", "pod-a")));
         assert!(boundary.keep(&at(100, "health check ok", "pod-b")));
+    }
+
+    #[test]
+    fn reading_a_crowded_instant_whole_sends_only_the_rest_and_moves_past_it() {
+        // Loki answers every query starting at a crowded instant with the same first page. Reading
+        // the instant whole must not re-send that page, and must leave the instant behind, or the
+        // next page starts at it again and the run stops.
+        let mut boundary = BoundaryFilter::new(100);
+        boundary.advance(&[at(100, "a", "p1"), at(100, "b", "p1")], 100);
+
+        let unsent = boundary.finish_instant(vec![
+            at(100, "a", "p1"),
+            at(100, "b", "p1"),
+            at(100, "c", "p1"),
+            at(100, "d", "p2"),
+        ]);
+
+        let lines: Vec<_> = unsent.iter().map(|entry| entry.line.as_str()).collect();
+        assert_eq!(lines, ["c", "d"]);
+        assert_eq!(boundary.cursor(), 101);
     }
 
     #[test]

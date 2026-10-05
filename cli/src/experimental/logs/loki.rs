@@ -11,6 +11,10 @@ use super::config::Source;
 /// Entries kept per page. Loki caps a response at `max_entries_limit_per_query`, 5000 by default.
 const PAGE_LIMIT: usize = 1000;
 
+/// The most entries one request may ask for under Loki's default `max_entries_limit_per_query`.
+/// Reading one instant needs the largest page Loki allows, because it cannot page within an instant.
+pub const INSTANT_LIMIT: usize = 5000;
+
 pub struct LokiClient {
     http: Client,
     base_url: String,
@@ -157,21 +161,9 @@ impl LokiClient {
         start_ns: i64,
         end: DateTime<Utc>,
     ) -> Result<(Vec<Entry>, Option<i64>)> {
-        let response = send(
-            self.get("/loki/api/v1/query_range").query(&[
-                ("query", selector),
-                ("start", &start_ns.to_string()),
-                ("end", &nanos(end)?),
-                ("direction", "forward"),
-                // One more than is kept, so a full page is distinguishable from an exhausted shard
-                // without inferring it from the count.
-                ("limit", &(PAGE_LIMIT + 1).to_string()),
-            ]),
-            "a query_range page",
-        )?;
-
-        let body: QueryResponse = decode(response, "query_range")?;
-        let mut entries = entries_from(body)?;
+        // One more than is kept, so a full page is distinguishable from an exhausted shard without
+        // inferring it from the count.
+        let mut entries = self.query_range(selector, start_ns, &nanos(end)?, PAGE_LIMIT + 1)?;
 
         let has_more = entries.len() > PAGE_LIMIT;
         entries.truncate(PAGE_LIMIT);
@@ -186,6 +178,37 @@ impl LokiClient {
         };
 
         Ok((entries, resume_from))
+    }
+
+    /// Every entry at exactly `at_ns`. Loki returns the same first page each time a query starts at
+    /// a crowded instant, so a run that pages into one has to read the instant whole. Returns `None`
+    /// when the instant holds `INSTANT_LIMIT` entries or more, which no single request can read.
+    pub fn query_instant(&self, selector: &str, at_ns: i64) -> Result<Option<Vec<Entry>>> {
+        // `end` is exclusive, so this range holds one nanosecond.
+        let entries = self.query_range(selector, at_ns, &(at_ns + 1).to_string(), INSTANT_LIMIT)?;
+        Ok((entries.len() < INSTANT_LIMIT).then_some(entries))
+    }
+
+    fn query_range(
+        &self,
+        selector: &str,
+        start_ns: i64,
+        end_ns: &str,
+        limit: usize,
+    ) -> Result<Vec<Entry>> {
+        let response = send(
+            self.get("/loki/api/v1/query_range").query(&[
+                ("query", selector),
+                ("start", &start_ns.to_string()),
+                ("end", end_ns),
+                ("direction", "forward"),
+                ("limit", &limit.to_string()),
+            ]),
+            "a query_range page",
+        )?;
+
+        let body: QueryResponse = decode(response, "query_range")?;
+        entries_from(body)
     }
 }
 
