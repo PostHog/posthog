@@ -459,51 +459,66 @@ describe('featureFlagLogic', () => {
     })
 
     describe('live key conflict check', () => {
+        const flagListUrl = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`
+        const flagList = (flags: { id: number; key: string }[]): [number, Record<string, any>] => [
+            200,
+            { results: flags.map((flag) => ({ ...MOCK_FEATURE_FLAG, ...flag })), count: flags.length },
+        ]
+
         it.each([
-            ['another flag uses the exact key', 'taken-key', [{ id: 42, key: 'taken-key' }], true],
-            ['another flag uses the key with different case', 'taken-key', [{ id: 42, key: 'Taken-Key' }], false],
-            ['only the flag being edited matches', 'taken-key', [{ id: MOCK_FEATURE_FLAG.id, key: 'taken-key' }], null],
-            ['no flag matches', 'free-key', [], null],
-        ])('when %s', async (_desc, key, results, expectedExact) => {
-            useMocks({
-                get: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [
-                        200,
-                        { results: results.map((flag) => ({ ...MOCK_FEATURE_FLAG, ...flag })), count: results.length },
-                    ],
-                },
-            })
+            [
+                'another flag uses the exact key',
+                'taken-key',
+                flagList([{ id: 42, key: 'taken-key' }]),
+                { existingFlagId: 42, existingFlagKey: 'taken-key', exact: true },
+            ],
+            [
+                'another flag uses the key with different case',
+                'taken-key',
+                flagList([{ id: 42, key: 'Taken-Key' }]),
+                { existingFlagId: 42, existingFlagKey: 'Taken-Key', exact: false },
+            ],
+            [
+                'a case-only match comes back before the exact match',
+                'taken-key',
+                flagList([
+                    { id: 43, key: 'Taken-Key' },
+                    { id: 42, key: 'taken-key' },
+                ]),
+                { existingFlagId: 42, existingFlagKey: 'taken-key', exact: true },
+            ],
+            [
+                'only the flag being edited matches',
+                'taken-key',
+                flagList([{ id: MOCK_FEATURE_FLAG.id, key: 'taken-key' }]),
+                null,
+            ],
+            ['no flag matches', 'free-key', flagList([]), null],
+            ['the lookup fails', 'taken-key', [500, {}] as [number, Record<string, any>], null],
+        ])('when %s', async (_desc, key, response, expectedConflict) => {
+            useMocks({ get: { [flagListUrl]: () => response } })
 
             await expectLogic(logic, () => {
-                logic.actions.setFeatureFlagValue('key', key)
+                logic.actions.setFeatureFlagValue(['key'], key)
             })
                 .toDispatchActions(['checkKeyConflictSuccess'])
                 .toFinishAllListeners()
 
-            expect(logic.values.currentKeyConflict).toEqual(
-                expectedExact === null
-                    ? null
-                    : { key, existingFlagId: 42, existingFlagKey: results[0].key, exact: expectedExact }
-            )
+            expect(logic.values.currentKeyConflict).toEqual(expectedConflict && { key, ...expectedConflict })
         })
 
         it('hides a conflict once the key changes again', async () => {
-            useMocks({
-                get: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [
-                        200,
-                        { results: [{ ...MOCK_FEATURE_FLAG, id: 42, key: 'taken-key' }], count: 1 },
-                    ],
-                },
-            })
+            useMocks({ get: { [flagListUrl]: () => flagList([{ id: 42, key: 'taken-key' }]) } })
             await expectLogic(logic, () => {
-                logic.actions.setFeatureFlagValue('key', 'taken-key')
+                logic.actions.setFeatureFlagValue(['key'], 'taken-key')
             })
                 .toDispatchActions(['checkKeyConflictSuccess'])
                 .toFinishAllListeners()
             expect(logic.values.currentKeyConflict?.exact).toBe(true)
 
-            logic.actions.setFeatureFlagValue('key', 'taken-key-2')
+            logic.actions.setFeatureFlagValue(['key'], 'taken-key-2')
+            expect(logic.values.currentKeyConflict).toBeNull()
+            await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.currentKeyConflict).toBeNull()
         })
     })

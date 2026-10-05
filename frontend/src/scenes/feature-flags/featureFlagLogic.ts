@@ -894,15 +894,13 @@ export interface featureFlagLogicValues {
     copySchedule: boolean
     cronExpression: string | null
     cronPreview: string | null
+    currentKeyConflict: FeatureFlagKeyConflict | null
     customPairDisableCron: string
     customPairDisableCronPreview: string | null
     customPairEnableCron: string
     customPairEnableCronPreview: string | null
     dependentFlags: DependentFlag[]
     dependentFlagsLoading: boolean
-    keyConflict: FeatureFlagKeyConflict | null
-    keyConflictLoading: boolean
-    currentKeyConflict: FeatureFlagKeyConflict | null
     disableCopiedFlag: boolean
     earlyAccessFeaturesList: MinimalEarlyAccessFeatureType[]
     emailDomain: string
@@ -1030,6 +1028,8 @@ export interface featureFlagLogicValues {
     isFeatureFlagValid: boolean
     isFormDirty: boolean
     isRecurring: boolean
+    keyConflict: FeatureFlagKeyConflict | null
+    keyConflictLoading: boolean
     multivariateEnabled: boolean
     newCohort: CohortType | null
     newCohortLoading: boolean
@@ -1120,6 +1120,31 @@ export interface featureFlagLogicActions {
     }
     applyUrlTemplate: (templateId: string) => {
         templateId: string
+    }
+    checkKeyConflict: (key: string) => string
+    checkKeyConflictFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    checkKeyConflictSuccess: (
+        keyConflict: {
+            exact: boolean
+            existingFlagId: number
+            existingFlagKey: string
+            key: string
+        } | null,
+        payload?: string
+    ) => {
+        keyConflict: {
+            exact: boolean
+            existingFlagId: number
+            existingFlagKey: string
+            key: string
+        } | null
+        payload?: string
     }
     copyFlag: () => any
     copyFlagFailure: (
@@ -1257,21 +1282,6 @@ export interface featureFlagLogicActions {
         copyDependencyRequirements: CopyFlagsDependencyRequirementsResponseApi | null
     ) => {
         copyDependencyRequirements: CopyFlagsDependencyRequirementsResponseApi | null
-    }
-    checkKeyConflict: (key: string) => any
-    checkKeyConflictFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    checkKeyConflictSuccess: (
-        keyConflict: FeatureFlagKeyConflict | null,
-        payload?: any
-    ) => {
-        keyConflict: FeatureFlagKeyConflict | null
-        payload?: any
     }
     loadDependentFlags: () => any
     loadDependentFlagsFailure: (
@@ -2100,11 +2110,11 @@ export interface featureFlagLogicMeta {
         projectTreeRef: (arg: number | 'link' | 'new') => ProjectTreeRef
         sidePanelContext: (featureFlag: FeatureFlagType) => SidePanelSceneContext | null
         recordingFilterForFlag: (featureFlag: FeatureFlagType) => Partial<RecordingUniversalFilters>
-        hasEarlyAccessFeatures: (featureFlag: FeatureFlagType) => boolean
         currentKeyConflict: (
             keyConflict: FeatureFlagKeyConflict | null,
             featureFlag: FeatureFlagType
         ) => FeatureFlagKeyConflict | null
+        hasEarlyAccessFeatures: (featureFlag: FeatureFlagType) => boolean
         tagsRequired: (currentTeam: TeamPublicType | TeamType | null) => boolean
         advancedPanelOpen: (
             advancedExpanded: boolean | null,
@@ -3605,7 +3615,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     }),
     listeners(({ actions, values, props, sharedListeners }) => ({
         setFeatureFlagValue: ({ name, value }) => {
-            if (name === 'key') {
+            // The form `Field` dispatches the name as a path array (`['key']`), while direct calls pass a string.
+            const field = Array.isArray(name) ? name.join('.') : name
+            if (field === 'key') {
                 actions.checkKeyConflict(value)
             }
         },
