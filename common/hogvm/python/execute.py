@@ -1,3 +1,4 @@
+import math
 import time
 import operator
 from collections.abc import Callable
@@ -59,6 +60,16 @@ def _ordered(left: Any, right: Any, comparison: Callable[[Any, Any], bool]) -> b
     if left is None or right is None:
         return False
     return _compare_values(left, right, comparison)
+
+
+# `%` keeps the sign of the dividend, as in JavaScript and ClickHouse (Python's `%` follows the divisor).
+def truncated_mod(a: Any, b: Any) -> Any:
+    if b == 0:
+        return a % b  # raises ZeroDivisionError, as before
+    if isinstance(a, int) and isinstance(b, int):
+        result = abs(a) % abs(b)
+        return -result if a < 0 else result
+    return math.fmod(a, b)
 
 
 def execute_bytecode(
@@ -284,7 +295,7 @@ def execute_bytecode(
             case Operation.MULTIPLY:
                 push_stack(pop_stack() * pop_stack())
             case Operation.MOD:
-                push_stack(pop_stack() % pop_stack())
+                push_stack(truncated_mod(pop_stack(), pop_stack()))
             case Operation.EQ:
                 var1, var2 = unify_comparison_types(pop_stack(), pop_stack())
                 push_stack(var1 == var2)
