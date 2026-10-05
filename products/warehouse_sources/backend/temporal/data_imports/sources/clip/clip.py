@@ -129,7 +129,7 @@ def build_config(config: ClipSourceConfig, endpoint: str, start: datetime, end: 
             "paginator": "single_page",
         },
     }
-    resources: list[EndpointResource] = [parent]
+    resources: list[str | EndpointResource] = [parent]
     if endpoint == "settlement_payments":
         parent["data_map"] = settlement_path
         resources.append(
