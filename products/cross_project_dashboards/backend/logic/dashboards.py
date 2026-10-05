@@ -1,5 +1,6 @@
 """Reads and writes of cross-project dashboards and their tiles, mapped to contracts."""
 
+from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -7,7 +8,7 @@ from django.db.models import Count, Prefetch, Q, QuerySet
 
 from rest_framework import serializers
 
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 
@@ -43,6 +44,8 @@ def _log_tile_change(dashboard: CrossProjectDashboard, user: User, change: Chang
         scope="CrossProjectDashboard",
         activity="updated",
         detail=Detail(name=dashboard.name, changes=[change]),
+        # Written inside the tile's transaction, so a failed audit insert rolls the tile change back.
+        strict=True,
     )
 
 
@@ -92,9 +95,25 @@ def _to_dashboard(dashboard: CrossProjectDashboard) -> contracts.CrossProjectDas
     )
 
 
+def _existing_projects(organization_id: UUID | str) -> QuerySet[Team, dict[str, Any]]:
+    return Team.objects.filter(organization_id=organization_id).values("id")
+
+
+def _readable_tiles(organization_id: UUID | str, user: User) -> Q:
+    """Tiles from projects the user can open, plus tiles whose project no longer exists.
+
+    A deleted project names nothing anyone can open, so every member sees its tile as gone and can
+    remove it. Hiding it would leave it on the dashboard for good.
+    """
+    return Q(project_id__in=visible_project_ids(user, organization_id)) | ~Q(
+        project_id__in=_existing_projects(organization_id)
+    )
+
+
 def _dashboards(organization_id: UUID | str, user: User) -> QuerySet[CrossProjectDashboard]:
-    visible = visible_project_ids(user, organization_id)
-    tiles = CrossProjectDashboardTile.objects.filter(deleted=False, project_id__in=visible).order_by("created_at", "id")
+    tiles = CrossProjectDashboardTile.objects.filter(_readable_tiles(organization_id, user), deleted=False).order_by(
+        "created_at", "id"
+    )
     return (
         CrossProjectDashboard.objects.filter(organization_id=organization_id, deleted=False)
         .select_related("created_by")
@@ -118,7 +137,11 @@ def _assert_can_change(organization_id: UUID | str, dashboard: CrossProjectDashb
             "project_id", flat=True
         )
     )
-    if not referenced <= set(visible_project_ids(user, organization_id)):
+    # A tile whose project was deleted protects nothing, so it never blocks a change.
+    still_existing = set(
+        Team.objects.filter(organization_id=organization_id, id__in=referenced).values_list("id", flat=True)
+    )
+    if not still_existing <= set(visible_project_ids(user, organization_id)):
         raise contracts.DashboardChangeDeniedError()
 
 
@@ -143,11 +166,11 @@ def _tiles(organization_id: UUID | str, dashboard_id: UUID, user: User) -> Query
     # A reader denied a project does not learn which of its insights the dashboard references.
     return (
         CrossProjectDashboardTile.objects.filter(
+            _readable_tiles(organization_id, user),
             organization_id=organization_id,
             dashboard_id=dashboard_id,
             dashboard__deleted=False,
             deleted=False,
-            project_id__in=visible_project_ids(user, organization_id),
         )
         .select_related("dashboard")
         .order_by("created_at", "id")
@@ -161,8 +184,30 @@ def _tile_row(organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, us
     return tile
 
 
+def _lock_tile_for_change(
+    organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User
+) -> tuple[CrossProjectDashboardTile, CrossProjectDashboard]:
+    """Lock the dashboard, check the write rule, then read the tile again under that lock.
+
+    Reading the tile after the lock means a tile another request removed while this one waited is
+    a 404, not a write to a deleted row. Call it inside transaction.atomic().
+    """
+    _tile_row(organization_id, dashboard_id, tile_id, user)
+    try:
+        dashboard = _lock_for_change(organization_id, dashboard_id, user)
+    except contracts.DashboardNotFoundError as error:
+        raise contracts.TileNotFoundError() from error
+    tile = _tiles(organization_id, dashboard_id, user).select_for_update(of=("self",)).filter(id=tile_id).first()
+    if tile is None:
+        raise contracts.TileNotFoundError()
+    return tile, dashboard
+
+
 def list_dashboards(*, organization_id: UUID | str, user: User, offset: int, limit: int) -> contracts.DashboardPage:
-    visible = Q(tiles__deleted=False, tiles__project_id__in=visible_project_ids(user, organization_id))
+    readable = Q(tiles__project_id__in=visible_project_ids(user, organization_id)) | ~Q(
+        tiles__project_id__in=_existing_projects(organization_id)
+    )
+    visible = Q(tiles__deleted=False) & readable
     dashboards = (
         CrossProjectDashboard.objects.filter(organization_id=organization_id, deleted=False)
         .select_related("created_by")
@@ -257,56 +302,47 @@ def create_tile(
                 )
         except IntegrityError as error:
             raise serializers.ValidationError({"insight_id": DUPLICATE_TILE}) from error
-    _log_tile_change(
-        dashboard,
-        user,
-        Change(type="CrossProjectDashboardTile", action="created", field="tiles", after=_tile_reference(created)),
-    )
+        _log_tile_change(
+            dashboard,
+            user,
+            Change(type="CrossProjectDashboardTile", action="created", field="tiles", after=_tile_reference(created)),
+        )
     return _to_tile(created)
 
 
 def update_tile(
     *, organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User, changes: contracts.TileChanges
 ) -> contracts.CrossProjectTile:
-    tile = _tile_row(organization_id, dashboard_id, tile_id, user)
     with transaction.atomic():
-        try:
-            dashboard = _lock_for_change(organization_id, tile.dashboard_id, user)
-        except contracts.DashboardNotFoundError as error:
-            raise contracts.TileNotFoundError() from error
+        tile, dashboard = _lock_tile_for_change(organization_id, dashboard_id, tile_id, user)
         updated = [name for name in ("layouts", "color", "filters_overrides") if name in changes.fields]
         before = {name: getattr(tile, name) for name in AUDITED_TILE_FIELDS}
         for name in updated:
             setattr(tile, name, getattr(changes, name))
         if updated:
             tile.save(update_fields=[*updated, "updated_at"])
-        after = {name: getattr(tile, name) for name in AUDITED_TILE_FIELDS}
-    changed = [name for name in AUDITED_TILE_FIELDS if before[name] != after[name]]
-    if changed:
-        _log_tile_change(
-            dashboard,
-            user,
-            Change(
-                type="CrossProjectDashboardTile",
-                action="changed",
-                field="tiles",
-                after={**_tile_reference(tile), "changed_fields": changed},
-            ),
-        )
+        changed = [name for name in AUDITED_TILE_FIELDS if before[name] != getattr(tile, name)]
+        if changed:
+            _log_tile_change(
+                dashboard,
+                user,
+                Change(
+                    type="CrossProjectDashboardTile",
+                    action="changed",
+                    field="tiles",
+                    after={**_tile_reference(tile), "changed_fields": changed},
+                ),
+            )
     return _to_tile(tile)
 
 
 def delete_tile(*, organization_id: UUID | str, dashboard_id: UUID, tile_id: UUID, user: User) -> None:
-    tile = _tile_row(organization_id, dashboard_id, tile_id, user)
     with transaction.atomic():
-        try:
-            dashboard = _lock_for_change(organization_id, tile.dashboard_id, user)
-        except contracts.DashboardNotFoundError as error:
-            raise contracts.TileNotFoundError() from error
+        tile, dashboard = _lock_tile_for_change(organization_id, dashboard_id, tile_id, user)
         tile.deleted = True
         tile.save(update_fields=["deleted"])
-    _log_tile_change(
-        dashboard,
-        user,
-        Change(type="CrossProjectDashboardTile", action="deleted", field="tiles", before=_tile_reference(tile)),
-    )
+        _log_tile_change(
+            dashboard,
+            user,
+            Change(type="CrossProjectDashboardTile", action="deleted", field="tiles", before=_tile_reference(tile)),
+        )

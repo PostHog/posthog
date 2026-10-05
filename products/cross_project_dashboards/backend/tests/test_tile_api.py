@@ -268,6 +268,20 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
         visible.refresh_from_db()
         assert visible.color is None
 
+    def test_a_tile_whose_project_was_deleted_never_blocks_the_dashboard(self, _flag):
+        gone = CrossProjectDashboardTile.objects.create(
+            dashboard=self.dashboard, organization=self.organization, project_id=987654321, insight_id=1
+        )
+        dashboard_url = f"/api/organizations/{self.organization.id}/cross_project_dashboards/{self.dashboard.id}/"
+
+        listed = self.client.get(self._url()).json()["results"]
+        renamed = self.client.patch(dashboard_url, {"name": "Renamed"}, format="json")
+        removed = self.client.delete(self._url(f"{gone.id}/"))
+
+        assert [tile["id"] for tile in listed] == [str(gone.id)]
+        assert renamed.status_code == status.HTTP_200_OK, renamed.json()
+        assert removed.status_code == status.HTTP_204_NO_CONTENT
+
     def test_dashboard_patch_no_longer_writes_tiles(self, _flag):
         insight = self._insight()
         response = self.client.patch(
