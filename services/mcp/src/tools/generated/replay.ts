@@ -5,7 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, withTextProjection, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const SessionRecordingBulkDeleteSchema = () => {
@@ -210,7 +210,29 @@ const sessionRecordingPlaylistsList = (): ToolBase<
                 short_id: params.short_id,
             },
         })
-        return await withPostHogUrl(context, result, '/replay')
+        return withTextProjection(await withPostHogUrl(context, result, '/replay'), [
+            'short_id',
+            'name',
+            'derived_name',
+            'description',
+            'type',
+            'pinned',
+            'is_synthetic',
+            'created_at',
+            'last_modified_at',
+            'created_by.email',
+            'last_modified_by.email',
+            'recordings_counts.saved_filters.count',
+            'recordings_counts.saved_filters.has_more',
+            'recordings_counts.collection.count',
+            'recordings_counts.collection.watched_count',
+            'filters.date_from',
+            'filters.date_to',
+            'filters.duration',
+            'filters.filter_test_accounts',
+            'filters.filter_group',
+            'filters.experiment_exposure',
+        ])
     },
 })
 
