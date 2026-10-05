@@ -178,7 +178,7 @@ func NewPostHogKafkaConsumer(
 		"security.protocol":          consumerConfig.SecurityProtocol,
 		"fetch.message.max.bytes":    1_000_000_000,
 		"fetch.max.bytes":            1_000_000_000,
-		"queued.max.messages.kbytes": 256_000,
+		"queued.max.messages.kbytes": 2_000_000,
 	}
 	applyKafkaConfigOverrides(config, consumerConfig)
 
