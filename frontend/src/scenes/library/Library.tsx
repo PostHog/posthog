@@ -78,11 +78,7 @@ function LibraryContent(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name={title}
-                description={
-                    selectedType
-                        ? null
-                        : 'Everything saved in this project. Pick a type in the sidebar to narrow the list.'
-                }
+                description={selectedType ? null : 'Everything saved in this project.'}
                 resourceType={{ type: objectType || 'folder' }}
                 actions={
                     selectedType ? (

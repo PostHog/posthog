@@ -17,16 +17,17 @@ describe('todayShellLogic', () => {
     test.each([
         ['/project/1/home', 'home'],
         ['/project/1/home/reports/abc', 'home'],
-        ['/project/1/library', 'library'],
-        ['/project/1/library/feature_flag', 'library'],
+        ['/project/1/library', 'apps'],
+        ['/project/1/library/feature_flag', 'apps'],
         ['/project/1/ai', 'spaces'],
         ['/project/1/ai/history', 'spaces'],
         ['/project/1/spaces/abc', 'spaces'],
-        ['/project/1/feature_flags/920847', 'library'],
-        ['/project/1/insights/abc', 'library'],
-        ['/project/1/feature_flags', 'library'],
-        ['/project/1/data-management/destinations', 'tools'],
-        ['/project/1/sql', 'tools'],
+        ['/project/1/feature_flags/920847', 'apps'],
+        ['/project/1/insights/abc', 'apps'],
+        ['/project/1/feature_flags', 'apps'],
+        ['/project/1/data-management/destinations', 'apps'],
+        ['/project/1/sql', 'apps'],
+        ['/project/1/tools', 'apps'],
         ['/project/1/views', 'views'],
         ['/project/1/canvases/abc', 'views'],
         ['/project/1/canvases/new', 'views'],
@@ -52,8 +53,7 @@ describe('todayShellLogic', () => {
         ['home', '/home'],
         ['spaces', '/ai'],
         ['views', '/views/new'],
-        ['library', '/library'],
-        ['tools', '/tools'],
+        ['apps', '/library'],
     ] as const)('opens the %s section when its rail item is picked', (pane, pathname) => {
         const logic = todayShellLogic()
         logic.mount()
@@ -68,9 +68,9 @@ describe('todayShellLogic', () => {
         const logic = todayShellLogic()
         logic.mount()
 
-        logic.actions.pickPane('tools')
+        logic.actions.pickPane('apps')
         router.actions.push('/project/1/airplane')
-        expect(logic.values.activePane).toBe('tools')
+        expect(logic.values.activePane).toBe('apps')
 
         router.actions.push('/project/1/ai')
         expect(logic.values.activePane).toBe('spaces')
@@ -103,7 +103,7 @@ describe('todayShellLogic', () => {
             expect(logic.values.sidebarVisible).toBe(false)
 
             logic.actions.setSidebarOpen(false)
-            logic.actions.pickPane('library')
+            logic.actions.pickPane('apps')
             expect(logic.values.sidebarVisible).toBe(true)
             expect(logic.values.sidebarOpen).toBe(false)
             expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
@@ -115,19 +115,13 @@ describe('todayShellLogic', () => {
         }
     })
 
-    it('on phone widths, drops the rail width and opens More without leaving the page', () => {
+    it('on phone widths, drops the rail width', () => {
         const originalWidth = window.innerWidth
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
         try {
             const logic = todayShellLogic()
             logic.mount()
             expect(logic.values.leftNavWidth).toBe(0)
-
-            router.actions.push('/project/1/airplane')
-            logic.actions.pickPane('more')
-            expect(router.values.location.pathname).toBe('/project/1/airplane')
-            expect(logic.values.activePane).toBe('more')
-            expect(logic.values.sidebarVisible).toBe(true)
         } finally {
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }
@@ -164,7 +158,7 @@ describe('todayShellLogic', () => {
             const logic = todayShellLogic()
             logic.mount()
 
-            logic.actions.pickPane('tools')
+            logic.actions.pickPane('apps')
             router.actions.push('/project/1/sql')
             router.actions.push('/project/1/sql?open_query=abc')
             router.actions.push('/project/1/insights/abc')
@@ -177,7 +171,7 @@ describe('todayShellLogic', () => {
 
             logic.actions.goBackOnPhone()
             expect(logic.values.sidebarVisible).toBe(true)
-            expect(logic.values.activePane).toBe('tools')
+            expect(logic.values.activePane).toBe('apps')
         } finally {
             Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
         }
