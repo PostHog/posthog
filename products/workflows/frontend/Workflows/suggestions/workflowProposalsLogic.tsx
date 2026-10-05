@@ -173,7 +173,7 @@ export interface workflowProposalsLogicActions {
         reason?: string
     ) => {
         proposalId: string
-        reason?: string
+        reason: string | undefined
     }
     reloadLists: () => {
         value: true
