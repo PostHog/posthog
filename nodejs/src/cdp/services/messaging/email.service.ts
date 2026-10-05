@@ -386,6 +386,37 @@ function sandboxAddressList(value?: string): string[] {
         .map((entry) => angleAddress(entry) ?? entry)
 }
 
+type SandboxAddressBlockReason = 'recipient_not_member' | 'check_failed' | 'cap_reached'
+
+const SANDBOX_ADDRESS_BLOCK_COPY: Record<
+    SandboxAddressBlockReason,
+    { explanation: string; label: string; guidance: string }
+> = {
+    recipient_not_member: {
+        explanation:
+            'Skipping send: the sandbox sender only sends to active organization members with verified email addresses',
+        label: '. Blocked addresses: ',
+        guidance: 'Verify your own domain to send to anyone.',
+    },
+    check_failed: {
+        explanation: 'Skipping send: could not check organization members',
+        label: ' for these addresses: ',
+        guidance: 'Try again, or verify your own domain to send to anyone.',
+    },
+    cap_reached: {
+        explanation: "Skipping send: these addresses reached the sandbox sender's daily limit per address",
+        label: ': ',
+        guidance: 'Verify your own domain to send more.',
+    },
+}
+
+const SANDBOX_CAP_SKIP_MESSAGES = {
+    project_cap_reached:
+        "Skipping send: this project reached the sandbox sender's daily limit. Verify your own domain to send more.",
+    check_failed:
+        "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more.",
+} as const
+
 const BLOCKED_ADDRESSES_LABEL = 'Blocked addresses: '
 
 function splitByLength(text: string, maxLength: number): string[] {
@@ -719,6 +750,9 @@ export class EmailService {
                         from.name,
                         invocation.teamId
                     )
+                    if (!(await this.claimSandboxDailyCaps(result, sandboxRecipients!, isTest))) {
+                        return result
+                    }
                     if (
                         !(await this.sendEmailWithSES(
                             result,
@@ -996,22 +1030,39 @@ export class EmailService {
         return false
     }
 
+    private async claimSandboxDailyCaps(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        recipients: string[],
+        isTest: boolean
+    ): Promise<boolean> {
+        const teamId = result.invocation.teamId
+        const claim = await this.sandboxSender!.claimDailyCaps(teamId, recipients)
+        if (claim.type === 'granted') {
+            return true
+        }
+        result.skipped = true
+        result.invocation.state.vmState?.stack.push({ success: false })
+        if (claim.type === 'recipient_cap_reached') {
+            this.logSandboxRecipientBlock(result, claim.addresses, 'cap_reached')
+        } else {
+            createAddLogFunction(result.logs)('info', SANDBOX_CAP_SKIP_MESSAGES[claim.type])
+        }
+        await this.sandboxSender!.capture(teamId, isTest, {
+            type: 'blocked',
+            reason: claim.type === 'check_failed' ? 'check_failed' : 'cap_reached',
+            blockedRecipientCount: claim.type === 'recipient_cap_reached' ? claim.addresses.length : recipients.length,
+        })
+        return false
+    }
+
     private logSandboxRecipientBlock(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         blockedRecipients: string[],
-        reason: 'recipient_not_member' | 'check_failed'
+        reason: SandboxAddressBlockReason
     ): void {
         const addLog = createAddLogFunction(result.logs)
         const addresses = blockedRecipients.map((address) => address.trim() || '(empty address)')
-        const explanation =
-            reason === 'check_failed'
-                ? 'Skipping send: could not check organization members'
-                : 'Skipping send: the sandbox sender only sends to active organization members with verified email addresses'
-        const guidance =
-            reason === 'check_failed'
-                ? 'Try again, or verify your own domain to send to anyone.'
-                : 'Verify your own domain to send to anyone.'
-        const label = reason === 'check_failed' ? ' for these addresses: ' : '. Blocked addresses: '
+        const { explanation, label, guidance } = SANDBOX_ADDRESS_BLOCK_COPY[reason]
         const message = `${explanation}${label}${addresses.join(', ')}. ${guidance}`
         if (sanitizeLogMessage([message]) === message) {
             addLog('info', message)
