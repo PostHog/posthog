@@ -21,8 +21,9 @@ class InfisicalEndpointConfig:
     page_limit: int = 500
     # Extra query params sent on every request (e.g. an explicit stable sort).
     extra_params: dict[str, str] = field(default_factory=dict)
-    # Fan out over every project (`{project_id}`) or group (`{group_id}`) in the configured org.
-    fan_out_over: Literal["projects", "groups"] | None = None
+    # Fan out over every project (`{project_id}`), group (`{group_id}`), or project environment
+    # (`{project_id}` + `{environment_id}`) in the configured org.
+    fan_out_over: Literal["projects", "groups", "environments"] | None = None
     # Only fan out over projects of this type, for endpoints that reject other project types.
     fan_out_project_type: str | None = None
     # Send the parent ID as this query param rather than as a path placeholder.
@@ -32,6 +33,8 @@ class InfisicalEndpointConfig:
     # The endpoint is scoped by the access token's org rather than a path parameter, so an
     # identity in several orgs could see other orgs' rows. Keep only the configured org's rows.
     filter_by_org_id: bool = False
+    # The response holds a single object under `data_key` rather than a list.
+    single_object: bool = False
 
 
 INFISICAL_ENDPOINTS: dict[str, InfisicalEndpointConfig] = {
@@ -129,6 +132,32 @@ INFISICAL_ENDPOINTS: dict[str, InfisicalEndpointConfig] = {
         partition_key="createdAt",
         fan_out_over="projects",
         fan_out_project_type="secret-scanning",
+        parent_id_param="projectId",
+    ),
+    # Project list entries embed only each environment's id, name, and slug, so fetch each one
+    # for its position and timestamps.
+    "project_environments": InfisicalEndpointConfig(
+        name="project_environments",
+        path="/api/v1/projects/{project_id}/environments/{environment_id}",
+        data_key="environment",
+        fan_out_over="environments",
+        single_object=True,
+    ),
+    "project_identity_memberships": InfisicalEndpointConfig(
+        name="project_identity_memberships",
+        path="/api/v1/projects/{project_id}/identity-memberships",
+        data_key="identityMemberships",
+        paginated=True,
+        page_limit=500,
+        extra_params={"orderBy": "name", "orderDirection": "asc"},
+        fan_out_over="projects",
+    ),
+    "secret_syncs": InfisicalEndpointConfig(
+        name="secret_syncs",
+        path="/api/v1/secret-syncs",
+        data_key="secretSyncs",
+        fan_out_over="projects",
+        fan_out_project_type="secret-manager",
         parent_id_param="projectId",
     ),
 }
