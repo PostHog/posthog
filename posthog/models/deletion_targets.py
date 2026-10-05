@@ -35,6 +35,7 @@ from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_DATA_TABLE,
     FLAG_EVALUATIONS_SOURCE_EVENT,
     FLAG_EVALUATIONS_TABLE,
+    FLAG_EVALUATIONS_TTL_DAYS,
 )
 
 COVERAGE_DOC = "docs/internal/clickhouse-deletion-coverage.md"
@@ -125,6 +126,9 @@ class DeletionTarget:
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
+    # Days the TTL keeps a row past toDate(timestamp). Property removal's restore checks leave out
+    # the rows that the TTL can drop.
+    ttl_days: int | None = None
 
     def __post_init__(self) -> None:
         # A table that takes a HogQL predicate has the events schema, including person_properties.
@@ -209,6 +213,7 @@ FLAG_EVALUATIONS = DeletionTarget(
     stores_person_properties=False,
     accepts_person_id_rewrite=True,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
+    ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
 )
 
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)

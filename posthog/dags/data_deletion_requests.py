@@ -999,14 +999,24 @@ class _ShardStaging:
             {"step": step, "payload": json.dumps(payload)},
         )
 
-    def count_staged_uuids(self, client: Client, months: list[str]) -> dict[str, int]:
+    def count_staged_uuids(
+        self, client: Client, months: list[str], where: str = "1", params: dict | None = None
+    ) -> dict[str, int]:
         if not months:
             return {}
         rows = client.execute(
-            f"SELECT _file, uniqExact(uuid) FROM s3({self.data_args(months)}) GROUP BY _file",
+            f"SELECT _file, uniqExact(uuid) FROM s3({self.data_args(months)}) WHERE {where} GROUP BY _file",
+            params,
             settings=_LONG_QUERY_SETTINGS,
         )
         return {file.removesuffix(".native"): count for file, count in rows}
+
+    def unexpired_uuids(self, client: Client, months: dict[str, int], where: str, params: dict) -> dict[str, int]:
+        """Per month, the staged uuids that a restore check must find back in the table."""
+        if self.target.deletion_target.ttl_days is None:
+            # The copy and the delete already matched the staged files to these counts.
+            return months
+        return self.count_staged_uuids(client, sorted(months), where, params)
 
     def discard_step(self, client: Client, step: str) -> None:
         # ClickHouse cannot delete an S3 object, so the progress file is overwritten with zero rows.
@@ -1043,6 +1053,27 @@ _COPIED, _DELETE_STARTED, _DELETED, _REINGESTED, _VERIFIED = (
 # Copy and reingest each move a whole request period for one shard in one query, which for a team
 # whose every event carries the property is most of that team's data on the shard.
 _LONG_QUERY_SETTINGS = {"max_execution_time": 86400}
+
+
+# The TTL expires a row at the start of a day, so a row this many days short of it has a day left.
+_TTL_CHECK_MARGIN_DAYS = 2
+
+
+def _unexpired_rows(client: Client, target: DeletionTarget) -> tuple[str, dict]:
+    """A filter for the rows that the target's TTL cannot drop while a restore check runs.
+
+    With ttl_only_drop_parts, a reingested part that holds only expired rows can drop as soon as it
+    lands. The uuids it held then go missing from the count. A part that holds a row this filter
+    keeps cannot drop, so every kept row is still there to count. Each call fixes one cutoff, so the
+    table side and the staged side of a comparison leave out the same rows.
+    """
+    if target.ttl_days is None:
+        return "1", {}
+    [[since]] = client.execute(
+        "SELECT toString(now64(6, 'UTC') - toIntervalDay(%(days)s))",
+        {"days": target.ttl_days - _TTL_CHECK_MARGIN_DAYS},
+    )
+    return "timestamp >= toDateTime64(%(unexpired_since)s, 6, 'UTC')", {"unexpired_since": since}
 
 
 def _datetime64_str(value: datetime) -> str:
@@ -1566,9 +1597,11 @@ def reingest_property_removal_shard(
             # same blocks, so deduplication would silently drop the rows this month needs.
             client.execute(insert_sql, settings={**_LONG_QUERY_SETTINGS, "insert_deduplicate": 0})
 
+            unexpired_sql, unexpired_params = _unexpired_rows(client, target.deletion_target)
+            expected = staging.unexpired_uuids(client, {month: expected}, unexpired_sql, unexpired_params).get(month, 0)
             stamped = client.execute(
-                f"SELECT uniqExact(uuid) FROM {db}.{target.table} WHERE {partial_rows}",
-                month_params,
+                f"SELECT uniqExact(uuid) FROM {db}.{target.table} WHERE {partial_rows} AND {unexpired_sql}",
+                {**month_params, **unexpired_params},
                 settings=_LONG_QUERY_SETTINGS,
             )[0][0]
             if stamped != expected:
@@ -1636,18 +1669,20 @@ def verify_property_removal_shard(
             **_presence_params(request),
         }
         presence = _target_presence_clause(request, target, predicate.mat_cols)
+        unexpired_sql, unexpired_params = _unexpired_rows(client, target.deletion_target)
+        expected_months = staging.unexpired_uuids(client, copied["months"], unexpired_sql, unexpired_params)
         cleaned_stats = client.execute(
-            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid), countIf({presence}) "
+            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExactIf(uuid, {unexpired_sql}), countIf({presence}) "
             f"FROM {db}.{target.table} WHERE {cleaned_rows} GROUP BY month",
-            cleaned_params,
+            {**cleaned_params, **unexpired_params},
             settings=_LONG_QUERY_SETTINGS,
         )
-        cleaned_months = {month: count for month, count, _ in cleaned_stats}
+        cleaned_months = {month: count for month, count, _ in cleaned_stats if count}
         still_present = sum(present for _, _, present in cleaned_stats)
-        if remaining or still_present or cleaned_months != copied["months"]:
+        if remaining or still_present or cleaned_months != expected_months:
             raise dagster.Failure(
                 description=f"[{target.mapping_key}] verification failed: {remaining} originals remain, "
-                f"cleaned={cleaned_months}, copied={copied['months']}, {still_present} cleaned rows still carry "
+                f"cleaned={cleaned_months}, expected={expected_months}, {still_present} cleaned rows still carry "
                 "a target property. Investigate before re-running."
             )
         staging.finish_step(client, _VERIFIED, {"rows": sum(cleaned_months.values())})

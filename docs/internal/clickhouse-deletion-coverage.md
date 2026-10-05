@@ -204,6 +204,15 @@ The staged files keep every physical row, so the reingest puts every duplicate b
 The copy, the delete's count, the reingest and the shard verify count each uuid once, so duplicates do not block the request.
 The same counting covers unmerged `ReplacingMergeTree` duplicates on events.
 
+#### Rows past the TTL
+
+A request window can reach rows past the 90-day TTL that a part still holds, because `ttl_only_drop_parts = 1` drops a part only once its newest row expires.
+The copy stages those rows like any others.
+A reingested part that holds only expired rows can then drop before the reingest or the shard verify counts it.
+`DeletionTarget.ttl_days` makes both checks compare only rows at least two days short of their TTL, on the table side and the staged side alike.
+A part that holds one of those rows cannot drop, so every counted row is still there.
+Each expired row that drops took its property with it.
+
 #### HogQL predicates
 
 `compile_hogql_predicate` compiles against the events schema only (see the HogQL section below), so the job cannot apply a request's predicate to this table.

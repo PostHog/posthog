@@ -84,7 +84,11 @@ from posthog.models.event.sql import (
     PERSON_PROPERTIES_JSON_TYPE,
     json_property_presence_expr,
 )
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
+from posthog.models.flag_evaluations.sql import (
+    FLAG_EVALUATIONS_DATA_TABLE,
+    FLAG_EVALUATIONS_SOURCE_EVENT,
+    FLAG_EVALUATIONS_TTL_DAYS,
+)
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
 from posthog.test.persons import create_person
 
@@ -2734,6 +2738,58 @@ def test_full_job_property_removal_rewrites_flag_evaluations(
         for uuid in sorted((replayed_uuid, replayed_uuid, single_uuid))
     ]
     assert cluster.any_host(partial(_flag_evaluation_rows, PROP_TEAM_ID)).result() == expected
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+
+    cluster.any_host(_truncate_flag_evaluations).result()
+
+
+@pytest.mark.django_db
+def test_full_job_property_removal_survives_the_ttl_dropping_reingested_flag_evaluations(
+    cluster: ClickhouseCluster,
+) -> None:
+    # Tests build the table without a TTL, so the patch deletes the expired row where the drop would.
+    now = timezone.now()
+    live_at = now - timedelta(hours=1)
+    expired_at = now - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS + 5)
+    stored = json.dumps({"$session_id": "s1", "keep": "yes"})
+    live_uuid, expired_uuid = str(uuid4()), str(uuid4())
+    rows = [
+        (PROP_TEAM_ID, "someone", stored, live_uuid, live_at, live_at),
+        (PROP_TEAM_ID, "someone", stored, expired_uuid, expired_at, expired_at),
+    ]
+    cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(partial(_insert_flag_evaluations_with_properties, rows)).result()
+
+    request = DataDeletionRequest.objects.create(
+        team_id=PROP_TEAM_ID,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=[FLAG_EVALUATIONS_SOURCE_EVENT],
+        properties=["$session_id"],
+        start_time=now - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS + 30),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.APPROVED,
+    )
+    original = _ShardStaging.finish_step
+
+    def drop_expired_after_reingest(self: _ShardStaging, client: Client, name: str, payload: dict) -> None:
+        original(self, client, name, payload)
+        if self.target.table == FLAG_EVALUATIONS_DATA_TABLE and name == "reingested":
+            client.execute(
+                f"DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE uuid = %(uuid)s",
+                {"uuid": expired_uuid},
+                settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
+            )
+
+    with patch.object(_ShardStaging, "finish_step", drop_expired_after_reingest):
+        result = data_deletion_request_property_removal.execute_in_process(
+            run_config={"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}},
+            resources={"cluster": cluster},
+        )
+    assert result.success
+
+    remaining = cluster.any_host(partial(_flag_evaluation_rows, PROP_TEAM_ID)).result()
+    assert [(uuid, properties) for uuid, properties, *_ in remaining] == [(live_uuid, {"keep": "yes"})]
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
 
