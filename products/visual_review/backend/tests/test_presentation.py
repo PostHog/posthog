@@ -5,13 +5,14 @@ from urllib.parse import quote, urlencode
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
 from products.visual_review.backend.facade import api
@@ -28,7 +29,7 @@ from products.visual_review.backend.facade.enums import (
     RunType,
     SnapshotResult,
 )
-from products.visual_review.backend.logic import artifact_store, github_api, quarantine, runs
+from products.visual_review.backend.logic import artifact_store, errors, github_api, quarantine, runs
 from products.visual_review.backend.models import Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
@@ -91,22 +92,47 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("head_known", "abc123", status.HTTP_204_NO_CONTENT, []),
-            ("head_unknown", None, status.HTTP_503_SERVICE_UNAVAILABLE, ["Button"]),
+            ("head_known", True, "head_known", status.HTTP_204_NO_CONTENT, None, []),
+            (
+                "head_unknown",
+                True,
+                "head_unknown",
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "lift_commit_unknown",
+                ["Button"],
+            ),
+            ("no_integration", True, "no_integration", status.HTTP_400_BAD_REQUEST, None, ["Button"]),
+            ("rate_limited", True, "rate_limited", status.HTTP_429_TOO_MANY_REQUESTS, "rate_limited", ["Button"]),
+            ("repeat_lift_while_head_unknown", False, "head_unknown", status.HTTP_204_NO_CONTENT, None, []),
         ]
     )
-    def test_expire_quarantine_takes_only_an_identifier(self, _name, head_sha, expected_status, expected_active):
+    def test_expire_quarantine_takes_only_an_identifier(
+        self, _name, quarantined, github_state, expected_status, expected_code, expected_active
+    ):
         repo = api.create_repo(team_id=self.team.id, repo_external_id=444, repo_full_name="org/expire")
-        quarantine.quarantine_identifier(
-            repo_id=repo.id,
-            identifier="Button",
-            run_type=RunType.STORYBOOK,
-            reason="flaky",
-            user_id=self.user.id,
-            team_id=self.team.id,
-        )
+        if quarantined:
+            quarantine.quarantine_identifier(
+                repo_id=repo.id,
+                identifier="Button",
+                run_type=RunType.STORYBOOK,
+                reason="flaky",
+                user_id=self.user.id,
+                team_id=self.team.id,
+            )
+        github = MagicMock()
+        github.get_default_branch.return_value = "master"
+        github.api_request.return_value = MagicMock(status_code=200, json=lambda: {"sha": "abc123"})
+        integration_error = None
+        if github_state == "head_unknown":
+            github.api_request.return_value = MagicMock(status_code=502)
+        elif github_state == "no_integration":
+            integration_error = errors.GitHubIntegrationNotFoundError("none")
+        elif github_state == "rate_limited":
+            github.get_default_branch.side_effect = GitHubRateLimitError("limited", retry_after=30)
 
-        with patch.object(github_api, "default_branch_head_sha", return_value=head_sha):
+        with patch.object(
+            github_api, "get_github_integration_for_repo", return_value=github, side_effect=integration_error
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/visual_review/repos/{repo.id}/quarantine/{RunType.STORYBOOK}/expire",
                 {"identifier": "Button"},
@@ -114,6 +140,8 @@ class TestRepoViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
             )
 
         assert response.status_code == expected_status
+        if expected_code:
+            assert response.json()["code"] == expected_code
         active = quarantine.list_quarantined_identifiers(repo.id, team_id=self.team.id)
         assert [entry.identifier for entry in active] == expected_active
 
