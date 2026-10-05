@@ -20,6 +20,10 @@ from products.replay_vision.backend.temporal.scanners.base import (
 )
 
 _MAX_FREEFORM_TAGS = 5
+_REASONING_DESCRIPTION = (
+    "One or more short paragraphs of two to four sentences, separated by a blank line, grounding the tag choice in "
+    "concrete moments."
+)
 
 
 class ClassifierOutput(BaseScannerOutput, frozen=True):
@@ -31,9 +35,7 @@ class ClassifierOutput(BaseScannerOutput, frozen=True):
             "Open-text tags emitted by the LLM when the scanner has `allow_freeform_tags=True`; lowercase, deduped."
         ),
     )
-    reasoning: str = Field(
-        description="Short paragraphs of two to four sentences, separated by a blank line, grounding the tag choice in concrete moments."
-    )
+    reasoning: str = Field(description=_REASONING_DESCRIPTION)
     reasoning_segments: list[Segment] = Field(default_factory=list)
 
     @field_validator("tags_freeform", mode="after")
@@ -68,9 +70,7 @@ class ClassifierScanner(BaseScanner, frozen=True):
         fields: dict[str, Any] = {
             "reasoning": (
                 str,
-                Field(
-                    description="Short paragraphs of two to four sentences, separated by a blank line, grounding the tag choice in concrete moments."
-                ),
+                Field(description=_REASONING_DESCRIPTION),
             ),
             "tags": (
                 list[tag_literal],  # type: ignore[valid-type]

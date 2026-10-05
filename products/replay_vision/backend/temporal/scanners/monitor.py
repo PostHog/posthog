@@ -23,8 +23,8 @@ _VERDICT_DESCRIPTION = (
     "`yes` if it did, `no` if it didn't, `inconclusive` only when the session genuinely does not provide enough signal to decide."
 )
 _REASONING_DESCRIPTION = (
-    "Short paragraphs of two to four sentences, separated by a blank line, grounding the verdict in concrete "
-    "moments from the video and events."
+    "One or more short paragraphs of two to four sentences, separated by a blank line, grounding the verdict in "
+    "concrete moments from the video and events."
 )
 
 
