@@ -22,6 +22,9 @@ export const AI_DECISION_UNAVAILABLE_MESSAGE =
     "The AI service couldn't take the request. Contact support if this keeps happening."
 const INVALID_REQUEST_MESSAGE =
     "The AI decision service rejected the step's request. Check the step's question, options, and context, and contact support if this keeps happening."
+// Django's gateway call can wait 5 s to connect and 5 s more to read. The worker waits past both, because a
+// worker that gives up first asks again for a decision the gateway may still bill.
+const DECIDE_TIMEOUT_MS = 15_000
 
 function retryAfter(headers: Record<string, string>): number | undefined {
     const value = headers['retry-after']?.trim()
@@ -78,7 +81,7 @@ export class AiDecisionClient {
                 {
                     method: 'POST',
                     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                    timeoutMs: 15_000,
+                    timeoutMs: DECIDE_TIMEOUT_MS,
                     body: JSON.stringify({
                         invocation_id: request.invocationId,
                         action_id: request.actionId,
