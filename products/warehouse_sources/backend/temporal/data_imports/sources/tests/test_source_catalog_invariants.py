@@ -73,7 +73,6 @@ SOURCES_WITHOUT_AN_ICON_FILE = {
     "Roark",
     "ScaleAI",
     "Skyvern",
-    "Synthesia",
     "TerraApi",
     "TriggerDev",
     "TwelveLabs",
