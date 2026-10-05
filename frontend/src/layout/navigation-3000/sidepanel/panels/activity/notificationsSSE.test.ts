@@ -1,3 +1,5 @@
+import { EventSourceMessage } from '@microsoft/fetch-event-source'
+
 import api from 'lib/api'
 
 import { InAppNotification } from '~/types'
@@ -7,6 +9,11 @@ import { connectToNotificationsSSE } from './notificationsSSE'
 jest.mock('lib/api')
 
 const mockStream = api.stream as jest.MockedFunction<typeof api.stream>
+type StreamOptions = Parameters<typeof api.stream>[1]
+
+function message(fields: Partial<EventSourceMessage>): EventSourceMessage {
+    return { id: '', event: '', data: '', ...fields }
+}
 
 function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNotification {
     return {
@@ -57,20 +64,40 @@ describe('connectToNotificationsSSE', () => {
         )
     })
 
-    it('reports the end event instead of treating it as a notification', async () => {
+    it.each([
+        ['an end event', 'rotate', (opts: StreamOptions): void => opts.onMessage(message({ event: 'end' }))],
+        ['a 204', 'no_content', (opts: StreamOptions): void => opts.onNoContent?.()],
+        ['an abort', 'aborted', (): void => abortController.abort()],
+        ['a clean close', 'closed', (): void => {}],
+    ])('resolves with the outcome of %s', async (_name, expectedOutcome, serverDoes) => {
         const onNotification = jest.fn()
-        const onEnd = jest.fn()
         const onFirstMessage = jest.fn()
+        mockStream.mockImplementation(async (_url, opts) => serverDoes(opts))
 
-        mockStream.mockImplementation(async (_url, opts) => {
-            opts.onMessage({ event: 'end', data: 'reconnect' } as any)
-        })
-
-        await connectToNotificationsSSE(url, undefined, abortController.signal, onNotification, {
-            onEnd,
+        const outcome = await connectToNotificationsSSE(url, undefined, abortController.signal, onNotification, {
             onFirstMessage,
         })
-        expect(onEnd).toHaveBeenCalledTimes(1)
+
+        expect(outcome).toBe(expectedOutcome)
+        expect(onNotification).not.toHaveBeenCalled()
+        expect(onFirstMessage).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['ready event', message({ event: 'ready', data: 'subscribed' }), 1],
+        ['heartbeat', message({}), 0],
+    ])('treats a %s as a control frame, not a notification', async (_name, frame, subscribedCalls) => {
+        const onNotification = jest.fn()
+        const onFirstMessage = jest.fn()
+        const onSubscribed = jest.fn()
+        mockStream.mockImplementation(async (_url, opts) => opts.onMessage(frame))
+
+        await connectToNotificationsSSE(url, undefined, abortController.signal, onNotification, {
+            onFirstMessage,
+            onSubscribed,
+        })
+
+        expect(onSubscribed).toHaveBeenCalledTimes(subscribedCalls)
         expect(onNotification).not.toHaveBeenCalled()
         expect(onFirstMessage).not.toHaveBeenCalled()
     })

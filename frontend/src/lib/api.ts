@@ -6911,6 +6911,7 @@ const api = {
             onError,
             onOpen,
             onClose,
+            onNoContent,
             headers,
             signal,
         }:
@@ -6926,6 +6927,10 @@ const api = {
                   /** Fires when the server cleanly closes the response body (not on errors,
                    *  not on abort). Use this to react to server-initiated stream rotation. */
                   onClose?: () => void
+                  /** Fires on a 204, which an SSE server sends to tell the client to stop reconnecting.
+                   *  The stream then resolves without reading a body. Without this handler, a 204
+                   *  goes to onError, because a 204 has no body to read. */
+                  onNoContent?: () => void
                   headers?: Record<string, string>
                   signal?: AbortSignal
               }
@@ -6937,6 +6942,7 @@ const api = {
                   onError: (error: any) => void
                   onOpen?: () => void
                   onClose?: () => void
+                  onNoContent?: () => void
                   headers?: Record<string, string>
                   signal?: AbortSignal
               }
@@ -6972,6 +6978,9 @@ const api = {
                         onError(new RateLimitError(parseInt(retryAfter, 10)))
                         abortController.abort()
                     }
+                } else if (response.status === 204 && onNoContent) {
+                    onNoContent()
+                    abortController.abort()
                 } else if (!response.ok) {
                     const error = await ApiError.fromResponse(response, `Request failed with status ${response.status}`)
                     const errorData = error.data
