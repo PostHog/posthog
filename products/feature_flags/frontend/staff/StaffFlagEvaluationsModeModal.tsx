@@ -77,7 +77,7 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
     return (
         <LemonModal
             title="Set flag evaluations mode"
-            description="Choose which table the flag Usage tab reads $feature_flag_called data from. The mode applies to the whole organization of each selected team."
+            description="Choose which table $feature_flag_called data is read from. The mode applies to the whole organization of each selected team."
             isOpen={isFlagEvaluationsModeModalOpen}
             onClose={closeFlagEvaluationsModeModal}
             closable={!flagEvaluationsModeResultLoading}

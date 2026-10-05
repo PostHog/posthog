@@ -775,7 +775,7 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
                 <div className="text-secondary">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
                 {readsFlagEvaluationsTable(currentTeam) && (
                     <div className="text-secondary">
-                        The log shows calls from the last {FLAG_EVALUATIONS_RETENTION_DAYS} days.
+                        The log can show calls from up to {FLAG_EVALUATIONS_RETENTION_DAYS} days ago.
                     </div>
                 )}
             </div>

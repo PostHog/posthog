@@ -1501,6 +1501,10 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_flag_evaluations_list_stops_at_the_retention_window(self, _name: str, after: str):
         self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
         self._insert_flag_evaluation("recent-user", uuid.uuid4())
+        # The UTC start of the day FLAG_EVALUATIONS_TTL_DAYS before the frozen clock below.
+        self._insert_flag_evaluation(
+            "first-retained-day-user", uuid.uuid4(), timestamp=datetime(2019, 10, 13, tzinfo=UTC)
+        )
         self._insert_flag_evaluation(
             "expired-user", uuid.uuid4(), timestamp=FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS + 30)
         )
@@ -1510,7 +1514,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             response = EventsQueryRunner(query=query, team=self.team).run()
 
         assert isinstance(response, CachedEventsQueryResponse)
-        assert [row[0] for row in response.results] == ["recent-user"]
+        assert sorted(row[0] for row in response.results) == ["first-retained-day-user", "recent-user"]
 
     @snapshot_clickhouse_queries
     def test_flag_evaluations_person_display_names_resolve_each_rows_person_id(self):

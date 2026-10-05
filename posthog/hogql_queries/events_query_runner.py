@@ -122,6 +122,8 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     joined_fields=EVENTS_LIST_JOINED_FIELDS,
     # flag_evaluations drops a monthly part only after its newest row passes the TTL. Rows older than the TTL can
     # therefore remain for up to a month. This bound ends the list at the first day that the Usage tab charts show.
+    # The TTL has already expired the rows of that day when today starts, so the list can show only part of that day.
+    # The day is empty after a TTL merge drops every part that holds it.
     retention_days=FLAG_EVALUATIONS_TTL_DAYS,
     cache_key_variant="_flag_evaluations",
 )

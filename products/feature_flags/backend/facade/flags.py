@@ -32,7 +32,7 @@ def get_organization_flag_evaluations_mode(organization_id: UUID) -> int:
 
 
 def get_flag_evaluations_read_mode(organization_id: UUID) -> int:
-    """The mode that decides which table every reader of the organization's flag calls uses.
+    """The mode that picks the table for the flag-call readers that the READ_FLAG_EVALUATIONS comment lists.
     FLAG_EVALUATIONS_READS_FORCE_EVENTS makes it EVENTS for an organization on READ_FLAG_EVALUATIONS and leaves
     the stored mode unchanged."""
     mode = get_organization_flag_evaluations_mode(organization_id)

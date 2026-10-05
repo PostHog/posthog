@@ -13,8 +13,9 @@ class FlagEvaluationsMode(LabeledIntEnum):
     # Every reader of $feature_flag_called reads the events table. The flag_evaluations HogQL table stays
     # hidden unless the flag-evaluations-hogql-table flag is on for the organization.
     EVENTS = 0, "Events"
-    # Every reader of $feature_flag_called reads flag_evaluations: the Usage tab, the per-project counts on a
-    # flag's Projects tab, and events lists filtered to only $feature_flag_called. The HogQL table is visible.
+    # The Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only
+    # $feature_flag_called read flag_evaluations. Other readers, such as experiment exposures, still read events.
+    # The HogQL table is visible.
     # Ingestion still writes every flag call to events, so FLAG_EVALUATIONS_READS_FORCE_EVENTS can move these
     # readers back to events.
     READ_FLAG_EVALUATIONS = 1, "Read flag evaluations"
