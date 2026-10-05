@@ -14,6 +14,7 @@ import type { WorkflowRun } from '../../lib/lifecycle'
 import { withCurrentScope } from '../../lib/scope'
 import { ciExplorerLogic } from '../../scenes/ciExplorerLogic'
 import { RunConclusionTag } from '../runTables'
+import { CIExplorerChips } from './CIExplorerChips'
 
 function Row({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
     return (
@@ -26,7 +27,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
 
 /** What is known about the selected job. Steps are not synced yet, so the job is the deepest level. */
 export function CIExplorerJobPanel({ job, run }: { job: WorkflowJobApi; run: WorkflowRun }): JSX.Element {
-    const { repoOwner, repoName, sourceId, focusLevels, focusedJobFailure } = useValues(ciExplorerLogic)
+    const { repoOwner, repoName, sourceId, focusLevels, focusedJobFailure, focusedJobInsights } =
+        useValues(ciExplorerLogic)
     const { setFocus } = useActions(ciExplorerLogic)
 
     return (
@@ -61,6 +63,11 @@ export function CIExplorerJobPanel({ job, run }: { job: WorkflowJobApi; run: Wor
                     <Row label="Estimated cost">{compactUsd(job.estimated_cost_usd)}</Row>
                 )}
             </dl>
+            {focusedJobInsights && focusedJobInsights.job.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                    <CIExplorerChips badges={focusedJobInsights.job} />
+                </div>
+            )}
             {focusedJobFailure && (
                 <pre className="m-0 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-fill-error-tertiary p-3 font-mono text-xs text-danger">
                     {focusedJobFailure.lines.map((line) => line.text).join('\n')}

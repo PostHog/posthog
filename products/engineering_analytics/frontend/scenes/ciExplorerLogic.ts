@@ -12,11 +12,13 @@ import {
     engineeringAnalyticsPrLifecycle,
     engineeringAnalyticsPrRuns,
     engineeringAnalyticsCiFailureLogs,
+    engineeringAnalyticsJobLogInsights,
     engineeringAnalyticsWorkflowJobs,
 } from '../generated/api'
 import type {
     CIFailureLogsApi,
     CIJobFailureLogApi,
+    JobLogInsightsApi,
     PRLifecycleApi,
     WorkflowJobApi,
     WorkflowRunDetailApi,
@@ -45,6 +47,10 @@ export interface CIExplorerLogicProps {
     sourceId: string | null
 }
 
+function jobInsightsKey(job: WorkflowJobApi): string {
+    return `${job.ci_engine ?? ''}:${job.run_id}:${job.id}`
+}
+
 function runJobsKey(run: WorkflowRun): string | null {
     return run.runId === null ? null : jobCacheKey(run.runId, run.runAttempt, run.ciEngine)
 }
@@ -56,12 +62,16 @@ export interface ciExplorerLogicValues {
     failureLogs: CIFailureLogsApi | null
     failureLogsLoading: boolean
     focusLevels: CIExplorerFocusLevel[]
+    focusedBadgedSteps: ReadonlySet<number>
     focusedJob: {
         job: WorkflowJobApi
         run: WorkflowRun
     } | null
     focusedJobFailure: CIJobFailureLogApi | null
+    focusedJobInsights: JobLogInsightsApi | null
     focusedNodeId: string | null
+    jobInsights: Record<string, JobLogInsightsApi>
+    jobInsightsLoading: boolean
     jobsByRun: Record<string, WorkflowJobApi[]>
     jobsByRunLoading: boolean
     layouts: Record<string, CIExplorerLayout>
@@ -97,6 +107,21 @@ export interface ciExplorerLogicActions {
     ) => {
         failureLogs: CIFailureLogsApi | null
         payload?: any
+    }
+    loadJobInsights: (job: WorkflowJobApi) => WorkflowJobApi
+    loadJobInsightsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadJobInsightsSuccess: (
+        jobInsights: Record<string, JobLogInsightsApi>,
+        payload?: WorkflowJobApi
+    ) => {
+        jobInsights: Record<string, JobLogInsightsApi>
+        payload?: WorkflowJobApi
     }
     loadJobs: (runs: WorkflowRun[]) => WorkflowRun[]
     loadJobsFailure: (
@@ -185,6 +210,14 @@ export interface ciExplorerLogicMeta {
             job: WorkflowJobApi
             run: WorkflowRun
         } | null
+        focusedJobInsights: (
+            focusedJob: {
+                job: WorkflowJobApi
+                run: WorkflowRun
+            } | null,
+            jobInsights: any
+        ) => JobLogInsightsApi | null
+        focusedBadgedSteps: (focusedJobInsights: any) => ReadonlySet<number>
         focusedJobFailure: (
             focusedJob: {
                 job: WorkflowJobApi
@@ -280,6 +313,22 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                     }),
             },
         ],
+        // Keyed by job. What a finished job's log says it did, read when the job is first focused.
+        jobInsights: [
+            {} as Record<string, JobLogInsightsApi>,
+            {
+                loadJobInsights: async (job: WorkflowJobApi): Promise<Record<string, JobLogInsightsApi>> => {
+                    const insights = await engineeringAnalyticsJobLogInsights(projectId(), {
+                        repo: `${props.repoOwner}/${props.repoName}`,
+                        run_id: job.run_id,
+                        job_id: job.id,
+                        ci_engine: job.ci_engine ?? undefined,
+                        source_id: props.sourceId ?? undefined,
+                    })
+                    return { ...values.jobInsights, [jobInsightsKey(job)]: insights }
+                },
+            },
+        ],
         // Keyed by workflow id. A workflow has no entry until its graph is placed.
         layouts: [
             {} as Record<string, CIExplorerLayout>,
@@ -290,7 +339,7 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                         workflows.map(
                             async (workflow): Promise<[string, CIExplorerLayout]> => [
                                 workflow.id,
-                                await layoutWorkflow(elk, workflow, values.focusedNodeId),
+                                await layoutWorkflow(elk, workflow, values.focusedNodeId, values.focusedBadgedSteps),
                             ]
                         )
                     )
@@ -366,6 +415,19 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                 workflows: CIExplorerWorkflow[],
                 focusedNodeId: string | null
             ): { job: WorkflowJobApi; run: WorkflowRun } | null => focusedJob(workflows, focusedNodeId),
+        ],
+        focusedJobInsights: [
+            (s) => [s.focusedJob, s.jobInsights],
+            (
+                focusedJob: { job: WorkflowJobApi; run: WorkflowRun } | null,
+                jobInsights: Record<string, JobLogInsightsApi>
+            ): JobLogInsightsApi | null => (focusedJob ? (jobInsights[jobInsightsKey(focusedJob.job)] ?? null) : null),
+        ],
+        // The steps of the focused job that its log has something to say about. Those always get a row.
+        focusedBadgedSteps: [
+            (s) => [s.focusedJobInsights],
+            (insights: JobLogInsightsApi | null): ReadonlySet<number> =>
+                new Set((insights?.steps ?? []).filter((step) => step.badges.length).map((step) => step.number)),
         ],
         focusedJobFailure: [
             (s) => [s.focusedJob, s.failureLogs],
@@ -450,6 +512,26 @@ export const ciExplorerLogic = kea<ciExplorerLogicType>([
                 )
                 if (resized.length) {
                     actions.loadLayouts(resized)
+                }
+                const job = values.focusedJob?.job
+                if (
+                    job &&
+                    job.status === 'completed' &&
+                    job.ci_engine !== 'depot_ci' &&
+                    !(jobInsightsKey(job) in values.jobInsights)
+                ) {
+                    actions.loadJobInsights(job)
+                }
+            },
+            // A step with a chip always gets a row, so the focused job can grow once its log is read.
+            loadJobInsightsSuccess: () => {
+                const focused = values.focusedNodeId
+                if (values.focusedBadgedSteps.size && focused) {
+                    actions.loadLayouts(
+                        values.workflows.filter(
+                            (workflow) => workflow.items !== null && focused.startsWith(`${workflow.id}/`)
+                        )
+                    )
                 }
             },
             loadPrRunsSuccess: () => {

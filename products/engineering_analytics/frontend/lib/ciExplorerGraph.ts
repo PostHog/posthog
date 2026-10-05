@@ -222,6 +222,7 @@ export function buildWorkflows(runs: WorkflowRun[], jobsByRun: Record<string, Wo
 }
 
 const QUICK_STEP_SECONDS = 1
+export const NO_STEPS: ReadonlySet<number> = new Set()
 export const STEP_HEIGHT = 32
 export const STEP_GAP = 4
 /** Space above and below the step list inside a focused shard. */
@@ -229,15 +230,22 @@ export const SHARD_STEPS_PADDING = 14
 const JOB_STEPS_MARGIN = 4
 
 /** The steps worth a row. Quick steps that passed are left out, unless that leaves none. */
-export function shownSteps(job: WorkflowJobApi): WorkflowJobStepApi[] {
+export function shownSteps(
+    job: WorkflowJobApi,
+    /** Numbers of the steps that the job's log has something to say about. Those are always shown. */
+    badgedSteps: ReadonlySet<number> = NO_STEPS
+): WorkflowJobStepApi[] {
     const notable = job.steps.filter(
-        (step) => (step.duration_seconds ?? 0) >= QUICK_STEP_SECONDS || (step.conclusion ?? 'success') !== 'success'
+        (step) =>
+            (step.duration_seconds ?? 0) >= QUICK_STEP_SECONDS ||
+            (step.conclusion ?? 'success') !== 'success' ||
+            badgedSteps.has(step.number)
     )
     return notable.length ? notable : job.steps
 }
 
-function stepsHeight(job: WorkflowJobApi): number {
-    const count = shownSteps(job).length
+function stepsHeight(job: WorkflowJobApi, badgedSteps: ReadonlySet<number>): number {
+    const count = shownSteps(job, badgedSteps).length
     return count ? count * STEP_HEIGHT + (count - 1) * STEP_GAP : 0
 }
 
@@ -247,16 +255,17 @@ function stepsHeight(job: WorkflowJobApi): number {
  */
 export function itemSize(
     item: CIExplorerItem,
-    focusedNodeId: string | null = null
+    focusedNodeId: string | null = null,
+    badgedSteps: ReadonlySet<number> = NO_STEPS
 ): { height: number; titleHeight: number; gridHeight: number; stepsHeight: number } {
     const titleHeight = 20 + Math.min(3, Math.ceil(item.name.length / TITLE_CHARS_PER_LINE)) * 17
-    const jobSteps = item.job && focusedNodeId === item.id ? stepsHeight(item.job) * INNER_SCALE : 0
+    const jobSteps = item.job && focusedNodeId === item.id ? stepsHeight(item.job, badgedSteps) * INNER_SCALE : 0
     const focusedShard = item.shards.findIndex((shard) => shard.id === focusedNodeId)
     const rowHeights: number[] = []
     if (focusedShard === -1) {
         rowHeights.push(...Array(Math.ceil(item.shards.length / SHARDS_PER_ROW)).fill(SHARD_HEIGHT))
     } else {
-        const shardSteps = stepsHeight(item.shards[focusedShard].job)
+        const shardSteps = stepsHeight(item.shards[focusedShard].job, badgedSteps)
         rowHeights.push(
             ...Array(Math.ceil(focusedShard / SHARDS_PER_ROW)).fill(SHARD_HEIGHT),
             SHARD_HEIGHT + (shardSteps ? shardSteps + SHARD_STEPS_PADDING : 0),
@@ -318,7 +327,8 @@ function wirePath(points: Point[]): string {
 export async function layoutWorkflow(
     elk: ELK,
     workflow: CIExplorerWorkflow,
-    focusedNodeId: string | null = null
+    focusedNodeId: string | null = null,
+    badgedSteps: ReadonlySet<number> = NO_STEPS
 ): Promise<CIExplorerLayout> {
     const items = workflow.items ?? []
     if (!items.length) {
@@ -330,7 +340,7 @@ export async function layoutWorkflow(
         children: items.map((item) => ({
             id: item.id,
             width: NODE_WIDTH,
-            height: itemSize(item, focusedNodeId).height,
+            height: itemSize(item, focusedNodeId, badgedSteps).height,
             layoutOptions: { 'elk.partitioning.partition': String(workflow.columnOf[item.id]) },
         })),
         edges: workflow.edges.map(([from, to], index) => ({ id: `e${index}`, sources: [from], targets: [to] })),

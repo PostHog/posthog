@@ -15,9 +15,9 @@ function duration(seconds: number | null): string {
 
 /** One node of a workflow's graph: a job, or a matrix job with its shards inside it. A focused job lists its steps. */
 export function CIExplorerUnit({ item, x, y }: { item: CIExplorerItem; x: number; y: number }): JSX.Element {
-    const { focusedNodeId } = useValues(ciExplorerLogic)
+    const { focusedNodeId, focusedBadgedSteps } = useValues(ciExplorerLogic)
     const { setFocus } = useActions(ciExplorerLogic)
-    const { titleHeight, gridHeight, stepsHeight } = itemSize(item, focusedNodeId)
+    const { titleHeight, gridHeight, stepsHeight } = itemSize(item, focusedNodeId, focusedBadgedSteps)
     const focus = (event: MouseEvent<HTMLElement>): void => setFocus(clickedNodeId(event.currentTarget))
     const focused = focusedNodeId === item.id
 
@@ -100,7 +100,7 @@ export function CIExplorerUnit({ item, x, y }: { item: CIExplorerItem; x: number
                                             {duration(shard.job.duration_seconds)}
                                         </span>
                                     </button>
-                                    {shardFocused && shownSteps(shard.job).length > 0 && (
+                                    {shardFocused && shownSteps(shard.job, focusedBadgedSteps).length > 0 && (
                                         <div className="CIExplorer__cellSteps">
                                             <CIExplorerSteps job={shard.job} />
                                         </div>

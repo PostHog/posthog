@@ -10,11 +10,13 @@ import type { WorkflowJobApi } from '../../generated/api.schemas'
 import { shownSteps, statusOf } from '../../lib/ciExplorerGraph'
 import { githubRunUrl } from '../../lib/github'
 import { ciExplorerLogic } from '../../scenes/ciExplorerLogic'
+import { CIExplorerChips } from './CIExplorerChips'
 
 /** The steps of a focused job, each with a bar for its share of the slowest step. A row opens the step on GitHub. */
 export function CIExplorerSteps({ job }: { job: WorkflowJobApi }): JSX.Element {
-    const { repoOwner, repoName } = useValues(ciExplorerLogic)
-    const steps = shownSteps(job)
+    const { repoOwner, repoName, focusedJobInsights, focusedBadgedSteps } = useValues(ciExplorerLogic)
+    const steps = shownSteps(job, focusedBadgedSteps)
+    const badgesOf = new Map((focusedJobInsights?.steps ?? []).map((step) => [step.number, step.badges]))
     const longest = Math.max(1, ...steps.map((step) => step.duration_seconds ?? 0))
     const jobUrl =
         job.ci_engine === 'depot_ci' ? null : `${githubRunUrl(repoOwner, repoName, job.run_id)}/job/${job.id}`
@@ -27,8 +29,11 @@ export function CIExplorerSteps({ job }: { job: WorkflowJobApi }): JSX.Element {
                 const row = (
                     <>
                         <span className="CIExplorer__stepIndex">{step.number}</span>
-                        <span className="CIExplorer__stepName" title={step.name}>
-                            {step.name}
+                        <span className="CIExplorer__stepLabel">
+                            <span className="CIExplorer__stepName" title={step.name}>
+                                {step.name}
+                            </span>
+                            <CIExplorerChips badges={badgesOf.get(step.number) ?? []} />
                         </span>
                         <span className="CIExplorer__duration">
                             {step.duration_seconds === null
