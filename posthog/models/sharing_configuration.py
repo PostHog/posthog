@@ -161,7 +161,7 @@ class SharingConfiguration(models.Model):
 
             return keep
 
-    def _lock_resource_for_rotation(self) -> None:
+    def lock_resource(self) -> None:
         # Resolve each parent model from its own FK instead of importing it. This keeps the module
         # free of product imports.
         for field_name in ("dashboard", "insight", "notebook", "recording", "interviewee_context"):
@@ -192,7 +192,7 @@ class SharingConfiguration(models.Model):
         resource_lookup = self._resource_lookup_for_instance()
 
         with transaction.atomic():
-            self._lock_resource_for_rotation()
+            self.lock_resource()
 
             active_configs = list(
                 SharingConfiguration.objects.select_for_update()

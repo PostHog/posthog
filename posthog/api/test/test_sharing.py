@@ -213,33 +213,54 @@ class TestSharing(APIBaseTest):
         assert mock_render_template.call_args.kwargs["context"]["add_safe_og_tags"] == self.dashboard
         assert mock_render_template.call_args.kwargs["context"]["add_og_tags"] is False
 
-    @parameterized.expand(["dashboard", "legacy_token_dashboard", "insight", "recording"])
+    @parameterized.expand(
+        ["dashboard", "legacy_token_dashboard", "insight", "insight_disabled_before_rotation_existed", "recording"]
+    )
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_reenabling_sharing_issues_a_new_link(self, resource: str, patched_exporter_task: Mock):
         legacy_dashboard = Dashboard.objects.create(team=self.team, name="legacy", share_token="legacy_token")
+        disabled_insight = Insight.objects.create(team=self.team, filters=self.insight_filter_dict)
+        SharingConfiguration.objects.create(
+            team=self.team, insight=disabled_insight, enabled=False, access_token="disabled_token"
+        )
         sharing_url = {
             "dashboard": f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing",
             "legacy_token_dashboard": f"/api/projects/{self.team.id}/dashboards/{legacy_dashboard.id}/sharing",
             "insight": f"/api/projects/{self.team.id}/insights/{self.insight.id}/sharing",
+            "insight_disabled_before_rotation_existed": (
+                f"/api/projects/{self.team.id}/insights/{disabled_insight.id}/sharing"
+            ),
             "recording": f"/api/projects/{self.team.id}/session_recordings/re-enabled-session/sharing",
         }[resource]
+        revoked_tokens = {"legacy_token", "disabled_token"}
+
+        def assert_only_live_link(token: str) -> None:
+            assert self.client.get(f"/shared/{token}").status_code == 200
+            for revoked in revoked_tokens:
+                assert self.client.get(f"/shared/{revoked}").status_code == 404, revoked
 
         with time_machine.travel("2025-01-01 00:00:00", tick=False):
-            old_token = self.client.patch(sharing_url, {"enabled": True}).json()["access_token"]
-            assert self.client.get(f"/shared/{old_token}").status_code == 200
-
-            self.client.patch(sharing_url, {"enabled": False})
-            assert self.client.get(f"/shared/{old_token}").status_code == 404
+            first_token = self.client.patch(sharing_url, {"enabled": True}).json()["access_token"]
+            assert first_token not in revoked_tokens
 
         with time_machine.travel("2025-01-01 01:00:00", tick=False):
             call_command("cleanup_expired_sharing_configs")
             self.client.get(sharing_url)
+            assert_only_live_link(first_token)
 
-            reenabled = self.client.patch(sharing_url, {"enabled": True}).json()
-            assert reenabled["enabled"] is True
-            assert reenabled["access_token"] != old_token
-            assert self.client.get(f"/shared/{old_token}").status_code == 404
-            assert self.client.get(f"/shared/{reenabled['access_token']}").status_code == 200
+            self.client.patch(sharing_url, {"enabled": False})
+            revoked_tokens.add(first_token)
+
+        with time_machine.travel("2025-01-01 01:00:30", tick=False):
+            new_token = self.client.patch(sharing_url, {"enabled": True}).json()["access_token"]
+            assert new_token not in revoked_tokens
+            assert self.client.get(sharing_url).json()["access_token"] == new_token
+            assert_only_live_link(new_token)
+
+        with time_machine.travel("2025-01-01 02:00:00", tick=False):
+            call_command("cleanup_expired_sharing_configs")
+            self.client.get(sharing_url)
+            assert_only_live_link(new_token)
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_edit_enabled_state(self, patched_exporter_task: Mock):
@@ -405,11 +426,12 @@ class TestSharing(APIBaseTest):
             f"/api/projects/{self.team.id}/dashboards/{dashboard.id}/sharing",
             {"enabled": True},
         )
-        response = self.client.get(f"/shared_dashboard/my_test_token")
+        token = response.json()["access_token"]
+        response = self.client.get(f"/shared_dashboard/{token}")
         assert response.status_code == 200
         response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"deleted": True})
         assert response.status_code == 200
-        response = self.client.get(f"/shared_dashboard/my_test_token")
+        response = self.client.get(f"/shared_dashboard/{token}")
         assert response.status_code == 404
 
     @parameterized.expand(
