@@ -15,21 +15,22 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from django.conf import settings
+
 import requests
 import structlog
 
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.ingress.verify.sns_signature import is_valid_sns_url
 
-from products.workflows.backend.tasks.ses_tenant_state import sync_ses_tenant_state_task
+from products.workflows.backend.tasks.ses_tenant_state import sync_sandbox_tenant_state_task, sync_ses_tenant_state_task
 
 logger = structlog.get_logger(__name__)
 
 _TENANT_TEAM_RE = re.compile(r"\bteam-(\d+)\b")
 
 
-def _extract_team_id(event: dict[str, Any]) -> int | None:
-    """Pull the `team-<id>` tenant name out of an EventBridge event, wherever AWS put it."""
+def _tenant_candidates(event: dict[str, Any]) -> list[str]:
     detail = event.get("detail") or {}
     candidates: list[Any] = [
         detail.get("tenantName"),
@@ -39,8 +40,24 @@ def _extract_team_id(event: dict[str, Any]) -> int | None:
     resources = event.get("resources")
     if isinstance(resources, list):
         candidates.extend(resources)
-    for candidate in candidates:
-        if isinstance(candidate, str) and (match := _TENANT_TEAM_RE.search(candidate)):
+    return [candidate for candidate in candidates if isinstance(candidate, str)]
+
+
+def _names_sandbox_tenant(event: dict[str, Any]) -> bool:
+    tenant_name = settings.SES_SANDBOX_TENANT_NAME
+    if not tenant_name:
+        return False
+    tenant_path = re.compile(rf"(?:/|:)tenant/{re.escape(tenant_name)}(?:/|$)")
+    return any(
+        candidate == tenant_name or (candidate.startswith("arn:") and tenant_path.search(candidate) is not None)
+        for candidate in _tenant_candidates(event)
+    )
+
+
+def _extract_team_id(event: dict[str, Any]) -> int | None:
+    """Pull the `team-<id>` tenant name out of an EventBridge event, wherever AWS put it."""
+    for candidate in _tenant_candidates(event):
+        if match := _TENANT_TEAM_RE.search(candidate):
             return int(match.group(1))
     return None
 
@@ -71,6 +88,11 @@ def _handle_notification(message: Mapping[str, Any]) -> None:
     except (json.JSONDecodeError, TypeError):
         return
     if not isinstance(event, dict) or event.get("source") != "aws.ses":
+        return
+
+    if _names_sandbox_tenant(event):
+        logger.info("ses_tenant_events_webhook_accepted", tenant="sandbox", detail_type=event.get("detail-type"))
+        sync_sandbox_tenant_state_task.delay()
         return
 
     team_id = _extract_team_id(event)

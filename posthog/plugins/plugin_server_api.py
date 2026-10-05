@@ -81,6 +81,11 @@ def reload_team_workflows_config_on_workers(team_id: int):
     publish_message("reload-team-workflows-config", {"teamId": team_id})
 
 
+def reload_sandbox_sender_state_on_workers(tenant_name: str) -> None:
+    logger.info(f"Reloading sandbox sender state for tenant {tenant_name} on workers")
+    publish_message("reload-sandbox-sender-state", {"tenantName": tenant_name})
+
+
 def populate_plugin_capabilities_on_workers(plugin_id: str):
     logger.info(f"Populating plugin capabilities for plugin {plugin_id} on workers")
     publish_message("populate-plugin-capabilities", {"pluginId": plugin_id})

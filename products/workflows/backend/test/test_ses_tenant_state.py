@@ -1,16 +1,25 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
+from botocore.exceptions import ClientError
 from parameterized import parameterized
 
+from posthog.models.integration import Integration
+
+from products.workflows.backend.models.sandbox_sender_tenant_state import SandboxSenderTenantState
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.ses_tenant_state import (
     PROVIDER_PAUSE_REASON,
     PROVIDER_PAUSE_REASON_UNSPECIFIED,
     apply_ses_tenant_state,
     sync_ses_tenant_state,
+)
+from products.workflows.backend.tasks.ses_tenant_state import (
+    reconcile_ses_tenant_states,
+    sync_sandbox_tenant_state_task,
 )
 
 
@@ -183,3 +192,98 @@ class TestSyncSesTenantState(BaseTest):
 
         provider.get_tenant_reputation.assert_not_called()
         assert not TeamWorkflowsConfig.objects.filter(team_id=self.team.id + 99_999).exists()
+
+
+SANDBOX_TENANT = "workflows-sandbox"
+SANDBOX_TENANT_ARN = f"arn:aws:ses:us-east-1:123456789012:tenant/{SANDBOX_TENANT}/abc"
+
+
+@override_settings(SES_SANDBOX_TENANT_NAME=SANDBOX_TENANT)
+class TestSandboxTenantStateSync(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        boto3_client = patch("products.workflows.backend.providers.ses.boto3.client")
+        self.ses = boto3_client.start().return_value
+        self.addCleanup(boto3_client.stop)
+        announce = patch("products.workflows.backend.services.ses_tenant_state.reload_sandbox_sender_state_on_workers")
+        self.announce = announce.start()
+        self.addCleanup(announce.stop)
+        self.ses.list_recommendations.return_value = {"Recommendations": []}
+
+    def _aws_tenant(self, sending_status: str, impact: str) -> None:
+        self.ses.get_tenant.return_value = {"Tenant": {"TenantName": SANDBOX_TENANT, "TenantArn": SANDBOX_TENANT_ARN}}
+        self.ses.get_reputation_entity.return_value = {
+            "ReputationEntity": {"ReputationImpact": impact, "SendingStatusAggregate": sending_status}
+        }
+
+    def _sync(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            sync_sandbox_tenant_state_task()
+
+    def test_a_changed_state_is_stored_and_announced_after_commit(self) -> None:
+        self._aws_tenant("ENABLED", "NONE")
+        self._sync()
+        self._aws_tenant("DISABLED", "HIGH")
+
+        self._sync()
+
+        state = SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT)
+        assert (state.sending_status, state.reputation_impact) == ("DISABLED", "HIGH")
+        self.ses.get_tenant.assert_called_with(TenantName=SANDBOX_TENANT)
+        assert self.announce.call_count == 2
+        self.announce.assert_called_with(SANDBOX_TENANT)
+
+    def test_an_unchanged_state_refreshes_synced_at_without_announcing(self) -> None:
+        self._aws_tenant("DISABLED", "HIGH")
+        self._sync()
+        first_synced_at = SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).synced_at
+        self.announce.reset_mock()
+
+        self._sync()
+
+        state = SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT)
+        assert state.sending_status == "DISABLED"
+        assert state.synced_at > first_synced_at
+        self.announce.assert_not_called()
+
+    def test_an_unknown_sandbox_tenant_leaves_no_state(self) -> None:
+        self.ses.get_tenant.side_effect = ClientError({"Error": {"Code": "NotFoundException"}}, "GetTenant")
+
+        self._sync()
+
+        assert not SandboxSenderTenantState.objects.exists()
+        self.announce.assert_not_called()
+
+    def test_the_daily_sweep_syncs_the_sandbox_tenant_once_beside_team_tenants(self) -> None:
+        Integration.objects.create(team=self.team, kind="email", config={"provider": "ses"})
+        self._aws_tenant("ENABLED", "LOW")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            reconcile_ses_tenant_states()
+
+        tenant_names = [call.kwargs["TenantName"] for call in self.ses.get_tenant.call_args_list]
+        assert sorted(tenant_names) == sorted([SANDBOX_TENANT, f"team-{self.team.id}"])
+        assert SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).reputation_impact == "LOW"
+
+    def test_a_failed_sandbox_sync_does_not_stop_the_team_sweep(self) -> None:
+        Integration.objects.create(team=self.team, kind="email", config={"provider": "ses"})
+
+        def get_tenant(TenantName: str) -> dict:
+            if TenantName == SANDBOX_TENANT:
+                raise ClientError({"Error": {"Code": "TooManyRequestsException"}}, "GetTenant")
+            return {"Tenant": {"TenantName": TenantName, "SendingStatus": "ENABLED"}}
+
+        self.ses.get_tenant.side_effect = get_tenant
+
+        with self.captureOnCommitCallbacks(execute=True):
+            reconcile_ses_tenant_states()
+
+        assert TeamWorkflowsConfig.objects.get(team=self.team).ses_tenant_sending_status == "ENABLED"
+
+    @override_settings(SES_SANDBOX_TENANT_NAME="")
+    def test_nothing_is_synced_while_no_sandbox_tenant_is_configured(self) -> None:
+        sync_sandbox_tenant_state_task()
+        reconcile_ses_tenant_states()
+
+        self.ses.get_tenant.assert_not_called()
+        assert not SandboxSenderTenantState.objects.exists()
