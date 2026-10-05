@@ -6,10 +6,12 @@ from datetime import datetime
 from typing import Any, Optional, cast, get_args
 from urllib.parse import urlencode
 
+from django.db import OperationalError
 from django.db.models import Q, QuerySet
 
+import psycopg
 from drf_spectacular.utils import extend_schema
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import BasePagination, Cursor, CursorPagination, PageNumberPagination
 from rest_framework.permissions import BasePermission
@@ -684,7 +686,15 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         queryset = self.get_queryset()
         queryset = self.filter_manager.apply_filters(queryset, filters)
 
-        page = self.paginate_queryset(queryset)
+        try:
+            page = self.paginate_queryset(queryset)
+        except OperationalError as err:
+            if not isinstance(err.__cause__, psycopg.errors.QueryCanceled):
+                raise
+            return Response(
+                {"detail": "The activity log search timed out. Narrow the date range or the filters and try again."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if page is not None:
             serializer = self.get_serializer(page, many=True)
             return self.get_paginated_response(serializer.data)
