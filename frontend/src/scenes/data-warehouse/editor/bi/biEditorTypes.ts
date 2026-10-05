@@ -733,7 +733,7 @@ function filterExpression(filter: BIFilter): string | null {
         return `${field} IS NULL`
     }
     if (filter.operator === 'last_7_days') {
-        return `${field} >= now() - INTERVAL 7 DAY`
+        return `(${field} >= now() - INTERVAL 7 DAY AND ${field} < now())`
     }
     // Strip leading zeroes so decimal input cannot become an octal HogQL literal.
     const literal = (value: string): string =>

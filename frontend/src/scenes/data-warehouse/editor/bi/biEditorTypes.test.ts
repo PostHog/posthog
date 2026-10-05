@@ -472,18 +472,18 @@ describe('BI editor query generation', () => {
         expect(createDefaultDateFilter(source)).toBeNull()
     })
 
-    it('generates a relative date condition for the last 7 days', () => {
+    it('bounds the default last 7 days condition at the current time', () => {
         const result = buildBIQuery({
             source: { table: 'events' },
             chartType: ChartDisplayType.Auto,
             rows: [],
             columns: [],
             values: [],
-            filters: [{ field: timestampField, operator: 'last_7_days', value: '' }],
+            filters: [createDefaultDateFilter({ table: 'events' })!],
             limit: 100,
         })
 
-        expect(result?.query).toContain('timestamp >= now() - INTERVAL 7 DAY')
+        expect(result?.query).toContain('(timestamp >= now() - INTERVAL 7 DAY AND timestamp < now())')
     })
 
     test.each([
