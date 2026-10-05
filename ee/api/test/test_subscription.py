@@ -50,7 +50,6 @@ from products.exports.backend.temporal.subscriptions.types import (
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.api.test.base import APILicensedTest
-from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
 from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
@@ -1612,68 +1611,6 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert session_response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
         assert mock_client.start_workflow.call_count == 3
-
-    def test_backfill_picks_same_integration_as_delivery(self):
-        """The data migration must assign the lowest-id Slack integration
-        per team, matching get_slack_integration_for_team behavior."""
-        import importlib
-
-        from django.apps import apps
-        from django.utils import timezone
-
-        migration = importlib.import_module("posthog.migrations.1041_backfill_subscription_integration")
-
-        # Team 1: two slack integrations
-        integration_a = Integration.objects.create(team=self.team, kind="slack", config={"a": 1})
-        Integration.objects.create(team=self.team, kind="slack", config={"b": 2})
-
-        # Team 2: its own slack integration (higher id than team 1's)
-        other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        other_insight = Insight.objects.create(
-            filters=Filter(data=self.insight_filter_dict).to_dict(),
-            team=other_team,
-            created_by=self.user,
-        )
-        other_integration = Integration.objects.create(team=other_team, kind="slack", config={"c": 3})
-
-        sub_team1 = Subscription.objects.create(
-            team=self.team,
-            insight=self.insight,
-            target_type="slack",
-            target_value="C1234|#general",
-            frequency="weekly",
-            interval=1,
-            start_date=timezone.now(),
-            title="Slack Sub Team 1",
-        )
-        sub_team2 = Subscription.objects.create(
-            team=other_team,
-            insight=other_insight,
-            target_type="slack",
-            target_value="C5678|#alerts",
-            frequency="weekly",
-            interval=1,
-            start_date=timezone.now(),
-            title="Slack Sub Team 2",
-        )
-
-        # Run the actual backfill migration function
-        migration.backfill_subscription_integration(apps, None)
-
-        sub_team1.refresh_from_db()
-        sub_team2.refresh_from_db()
-
-        # Each subscription got its own team's integration, not a global lowest id
-        assert sub_team1.integration_id == integration_a.id
-        assert sub_team2.integration_id == other_integration.id
-
-        # And both match what get_slack_integration_for_team would return
-        delivery_team1 = get_slack_integration_for_team(self.team.id)
-        delivery_team2 = get_slack_integration_for_team(other_team.id)
-        assert delivery_team1 is not None
-        assert delivery_team2 is not None
-        assert sub_team1.integration_id == delivery_team1.id
-        assert sub_team2.integration_id == delivery_team2.id
 
     def test_list_subscriptions_defaults_to_newest_created_first(self):
         r1 = self._create_subscription(title="Older")

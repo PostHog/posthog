@@ -133,6 +133,30 @@ describe('todayShellLogic', () => {
         }
     })
 
+    test.each([
+        ['/project/1/ai', { task: 'task-1' }, true],
+        ['/project/1/ai', { chat: 'chat-1' }, false],
+        ['/project/1/ai', {}, false],
+        ['/project/1/ai-observability', { task: 'task-1' }, false],
+        ['/project/1/tasks', { task: 'task-1' }, false],
+    ])('on phone widths, %s with %o hides the phone header: %s', (pathname, searchParams, hidden) => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })
+        try {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            const logic = todayShellLogic()
+            logic.mount()
+
+            router.actions.push(pathname, searchParams)
+            expect(logic.values.phoneHeaderHidden).toBe(hidden)
+        } finally {
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+        }
+    })
+
     it('on phone widths, goes back through pages and then to the pane', () => {
         const originalWidth = window.innerWidth
         Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 })

@@ -40,7 +40,7 @@ from posthog.temporal.codec_server import decode_payloads
 from posthog.web_bot_auth import http_message_signatures_directory
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
-from products.canvas.backend.artifacts import canvas_artifact, canvas_sandbox_document
+from products.canvas.backend.presentation.views import canvas_artifact, canvas_sandbox_document
 from products.cdp.backend.api import hog_function_template
 from products.conversations.backend.api.internal import InternalTicketView as ConversationsInternalTicketView
 from products.customer_analytics.backend.presentation.views.internal import (
@@ -74,7 +74,6 @@ from products.streamlit_apps.backend.presentation.bridge_views import StreamlitB
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
-from products.user_interviews.backend.presentation.webhooks import start_call as user_interviews_start_call
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.workflows.backend.presentation.views import hog_flow, hog_flow_template
 
@@ -149,11 +148,6 @@ urlpatterns = [
         name="user_signal_autonomy",
     ),
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
-    path(
-        "api/user_interviews/share/<str:access_token>/start_call/",
-        csrf_exempt(user_interviews_start_call),
-        name="user_interviews_start_call",
-    ),
     path("api/sdk_health/", sdk_health),
     # Conversations serves its widget and channel API from backend/api/, which its routes module
     # may not import (import-linter contract "routes must only import presentation"), so the mount
@@ -305,10 +299,6 @@ urlpatterns = [
     ),
     path(
         "embedded/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
-    ),
-    path(
-        "interview/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("render_query", render_query, name="render_query"),

@@ -220,7 +220,7 @@ class SummarizerScanner(BaseScanner, frozen=True):
     output_cls: ClassVar[type[BaseScannerOutput]] = SummarizerOutput
     length: SummaryLength = "medium"
     chapter_target: int = MIN_CHAPTER_TARGET
-    session_fields: ClassVar[frozenset[str]] = frozenset({"chapter_target"})
+    session_fields: ClassVar[frozenset[str]] = BaseScanner.session_fields | {"chapter_target"}
 
     @property
     def llm_response_schema(self) -> type[BaseModel]:
