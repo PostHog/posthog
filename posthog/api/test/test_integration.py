@@ -44,7 +44,7 @@ from posthog.api.github_callback.team_services import (
     list_org_github_installations,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
+from posthog.api.integration import EMAIL_DOMAIN_AGENT_SETUP_FLAG, IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
@@ -91,6 +91,13 @@ from products.workflows.backend.facade.contracts import EmailDomainVerification,
 from products.workflows.backend.facade.testing import create_workflow_for_test
 
 EMAIL_CONFIG = {"email": "hello@mail.example.com", "domain": "mail.example.com", "provider": "ses"}
+
+
+def patch_email_domain_agent_setup_flag(enabled: bool) -> Any:
+    return patch(
+        "posthoganalytics.feature_enabled",
+        side_effect=lambda key, *_args, **_kwargs: enabled and key == EMAIL_DOMAIN_AGENT_SETUP_FLAG,
+    )
 
 
 def _p256_public_pem() -> str:
@@ -1910,15 +1917,76 @@ class TestIntegrationAPIKeyAccess:
         if body is not None:
             body = {key: ids.get(value, value) if isinstance(value, str) else value for key, value in body.items()}
 
-        response = getattr(client, method)(
-            f"/api/environments/{self.team.pk}/integrations/{path}",
-            data=json.dumps(body) if body is not None else None,
-            content_type="application/json",
-            HTTP_AUTHORIZATION=f"Bearer {key_value}",
-        )
+        with patch_email_domain_agent_setup_flag(True):
+            response = getattr(client, method)(
+                f"/api/environments/{self.team.pk}/integrations/{path}",
+                data=json.dumps(body) if body is not None else None,
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
 
         assert response.status_code == expected_status, response.json()
         assert response.json() == {**response.json(), **expected_json}
+
+    @pytest.mark.parametrize(
+        "method,url_suffix",
+        [
+            ("get", "domain-connect/check/?domain=mail.example.com"),
+            ("post", "domain-connect/apply-url/"),
+            ("post", "{email_id}/email/verify/"),
+            ("patch", "{email_id}/email/"),
+        ],
+    )
+    @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
+    @patch("posthog.api.integration.discover_domain_connect", return_value=None)
+    def test_email_domain_actions_reject_api_keys_while_the_agent_setup_flag_is_off(
+        self, _mock_discover: MagicMock, _mock_verify: MagicMock, method: str, url_suffix: str, client: HttpClient
+    ) -> None:
+        OrganizationMembership.objects.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+        email_integration = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@mail.example.com", config=EMAIL_CONFIG
+        )
+        key_value = "test_key_email_domain"
+        PersonalAPIKey.objects.create(
+            label="Test Key", user=self.user, secure_value=hash_key_value(key_value), scopes=["integration:write"]
+        )
+
+        with patch_email_domain_agent_setup_flag(False):
+            response = getattr(client, method)(
+                f"/api/environments/{self.team.pk}/integrations/{url_suffix.format(email_id=email_integration.id)}",
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.json()["detail"] == "This action does not support personal API key access"
+
+    @pytest.mark.parametrize(
+        "flag_on,stored_email,sent_email",
+        [
+            (True, "Hello@mail.example.com", "Hello@mail.example.com"),
+            (False, "hello@mail.example.com", "team@mail.example.com"),
+        ],
+    )
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
+    def test_email_update_from_the_app_keeps_the_sender_address(
+        self, _mock_update: MagicMock, flag_on: bool, stored_email: str, sent_email: str, client: HttpClient
+    ) -> None:
+        OrganizationMembership.objects.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+        email_integration = Integration.objects.create(
+            team=self.team, kind="email", integration_id=stored_email, config={**EMAIL_CONFIG, "email": stored_email}
+        )
+        client.force_login(self.user)
+
+        with patch_email_domain_agent_setup_flag(flag_on):
+            response = client.patch(
+                f"/api/environments/{self.team.pk}/integrations/{email_integration.id}/email/",
+                data=json.dumps({"config": {"email": sent_email, "name": "Acme", "provider": "ses"}}),
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["config"]["email"] == stored_email
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):

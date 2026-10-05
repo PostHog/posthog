@@ -72,7 +72,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
-from posthog.models import OrganizationMembership, ProxyRecord, User
+from posthog.models import OrganizationMembership, ProxyRecord, Team, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
@@ -132,7 +132,9 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
+    get_authenticator_scopes,
 )
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
@@ -158,6 +160,8 @@ stripe_marketplace_install_counter = Counter(
 )
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+EMAIL_DOMAIN_AGENT_SETUP_FLAG = "workflows-email-domain-agent-setup"
 
 
 class SlackIntegrationInactiveError(APIException):
@@ -1354,6 +1358,28 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
+def email_domain_agent_setup_enabled(team: Team, user: User) -> bool:
+    return feature_enabled_or_false(
+        EMAIL_DOMAIN_AGENT_SETUP_FLAG,
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id), "project": str(team.uuid)},
+        group_properties={"organization": {"id": str(team.organization_id)}, "project": {"id": str(team.uuid)}},
+        send_feature_flag_events=False,
+    )
+
+
+class EmailDomainAgentSetupPermission(BasePermission):
+    message = "This action does not support personal API key access"
+    token_actions = frozenset({"domain_connect_check", "domain_connect_apply_url", "email_update", "email_verify"})
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        if getattr(view, "action", None) not in self.token_actions:
+            return True
+        if get_authenticator_scopes(request.successful_authenticator) is None:
+            return True
+        return email_domain_agent_setup_enabled(cast("IntegrationViewSet", view).team, cast(User, request.user))
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -1396,7 +1422,11 @@ class IntegrationViewSet(
         "email_verify",
         "domain_connect_apply_url",
     ]
-    permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
+    permission_classes = [
+        IntegrationManagementPermission,
+        PersonalConnectionRecentAuthPermission,
+        EmailDomainAgentSetupPermission,
+    ]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
     # page boundary. Clients page this list to find one kind, so a dropped row reads as
     # "not configured". Order oldest-first: several clients take the first row of a kind as their
@@ -2463,7 +2493,10 @@ class IntegrationViewSet(
     @action(methods=["PATCH"], detail=True, url_path="email")
     def email_update(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         email = self._get_email_integration()
-        email.update_native_integration(request.validated_data["config"], email.integration.team_id)
+        config = request.validated_data["config"]
+        if email_domain_agent_setup_enabled(self.team, cast(User, request.user)):
+            email.reject_address_change(config["email"])
+        email.update_native_integration(config, email.integration.team_id)
         return Response(IntegrationSerializer(email.integration).data)
 
     def _get_email_integration(self) -> EmailIntegration:
