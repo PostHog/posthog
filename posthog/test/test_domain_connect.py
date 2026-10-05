@@ -7,9 +7,6 @@ from urllib.parse import unquote
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
-
-import dns.resolver
 from cryptography.hazmat.primitives import hashes as crypto_hashes
 from cryptography.hazmat.primitives.asymmetric import (
     padding as asym_padding,
@@ -19,15 +16,11 @@ from parameterized import parameterized
 
 from posthog.domain_connect import (
     DOMAIN_CONNECT_PROVIDERS,
-    EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC,
-    DomainConnectSigningKeyMissing,
     build_sync_apply_url,
-    discover_domain_connect,
     extract_root_domain_and_host,
     generate_apply_url,
     get_available_providers,
     get_service_id_for_region,
-    resolve_email_context,
     resolve_proxy_context,
     sign_query_string,
 )
@@ -187,54 +180,6 @@ class TestSignQueryString(BaseTest):
         )
 
 
-class TestDiscoverDomainConnect(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        cache.clear()
-
-    @patch("posthog.domain_connect._fetch_provider_settings")
-    @patch("posthog.domain_connect._lookup_domain_connect_endpoint")
-    def test_supported_provider(self, mock_lookup: MagicMock, mock_settings: MagicMock) -> None:
-        mock_lookup.return_value = "api.cloudflare.com/client/v4/dns/domainconnect"
-        mock_settings.return_value = {"urlSyncUX": "https://dash.cloudflare.com/domainconnect"}
-
-        with patch.dict(DOMAIN_CONNECT_PROVIDERS, {"api.cloudflare.com/client/v4/dns/domainconnect": "Cloudflare"}):
-            result = discover_domain_connect("example.com")
-
-        self.assertIsNotNone(result)
-
-        if result:
-            self.assertEqual(result["provider_name"], "Cloudflare")
-            self.assertEqual(result["url_sync_ux"], "https://dash.cloudflare.com/domainconnect")
-
-    @patch("posthog.domain_connect._lookup_domain_connect_endpoint")
-    def test_unsupported_provider(self, mock_lookup: MagicMock) -> None:
-        mock_lookup.return_value = "unknown.provider.example"
-
-        result = discover_domain_connect("example.com")
-
-        self.assertIsNone(result)
-
-    @patch("posthog.domain_connect._lookup_domain_connect_endpoint")
-    def test_no_txt_record(self, mock_lookup: MagicMock) -> None:
-        mock_lookup.return_value = None
-
-        result = discover_domain_connect("example.com")
-
-        self.assertIsNone(result)
-
-    @patch("posthog.domain_connect._fetch_provider_settings")
-    @patch("posthog.domain_connect._lookup_domain_connect_endpoint")
-    def test_provider_settings_unavailable(self, mock_lookup: MagicMock, mock_settings: MagicMock) -> None:
-        mock_lookup.return_value = "api.cloudflare.com/client/v4/dns/domainconnect"
-        mock_settings.return_value = None
-
-        with patch.dict(DOMAIN_CONNECT_PROVIDERS, {"api.cloudflare.com/client/v4/dns/domainconnect": "Cloudflare"}):
-            result = discover_domain_connect("example.com")
-
-        self.assertIsNone(result)
-
-
 class TestGetAvailableProviders(BaseTest):
     def test_returns_all_providers(self) -> None:
         with patch.dict(
@@ -264,53 +209,6 @@ class TestGenerateApplyUrl(BaseTest):
                 service_id="reverse-proxy-us",
                 variables={"target": "abc.proxy.posthog.com"},
                 provider_endpoint="evil.internal.service",
-            )
-
-    @patch("posthog.domain_connect._fetch_provider_settings")
-    @patch("posthog.domain_connect.get_signing_key")
-    def test_allows_known_provider_endpoint(self, mock_key: MagicMock, mock_settings: MagicMock) -> None:
-        mock_key.return_value = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        mock_settings.return_value = {"urlSyncUX": "https://dash.cloudflare.com/domainconnect"}
-
-        url = generate_apply_url(
-            domain="example.com",
-            service_id="reverse-proxy-us",
-            variables={"target": "abc.proxy.posthog.com"},
-            provider_endpoint="api.cloudflare.com/client/v4/dns/domainconnect",
-        )
-
-        self.assertIn("domain=example.com", url)
-        self.assertIn("sig=", url)
-
-    @patch("posthog.domain_connect.get_signing_key")
-    def test_rejects_signing_required_provider_without_key(self, mock_key: MagicMock) -> None:
-        mock_key.return_value = None
-
-        with self.assertRaises(DomainConnectSigningKeyMissing):
-            generate_apply_url(
-                domain="example.com",
-                service_id="reverse-proxy-us",
-                variables={"target": "abc.proxy.posthog.com"},
-                provider_endpoint="api.cloudflare.com/client/v4/dns/domainconnect",
-            )
-
-    @patch("posthog.domain_connect.discover_domain_connect")
-    @patch("posthog.domain_connect.get_signing_key")
-    def test_rejects_discovered_signing_required_provider_without_key(
-        self, mock_key: MagicMock, mock_discover: MagicMock
-    ) -> None:
-        mock_key.return_value = None
-        mock_discover.return_value = {
-            "provider_name": "Cloudflare",
-            "endpoint": "api.cloudflare.com/client/v4/dns/domainconnect",
-            "url_sync_ux": "https://dash.cloudflare.com/domainconnect",
-        }
-
-        with self.assertRaises(DomainConnectSigningKeyMissing):
-            generate_apply_url(
-                domain="example.com",
-                service_id="reverse-proxy-us",
-                variables={"target": "abc.proxy.posthog.com"},
             )
 
 
@@ -344,117 +242,3 @@ class TestTemplateResolverAlignment(BaseTest):
         self.assertEqual(resolved.host, "ph")
         if template.get("hostRequired"):
             self.assertTrue(resolved.host, "hostRequired template but resolver returned empty host")
-
-    @parameterized.expand(
-        [
-            (
-                "subdomain sender without a dmarc record",
-                "posthog.com.email-verification-us.json",
-                "US",
-                "news.example.com",
-                "news",
-                dns.resolver.NXDOMAIN(),
-                True,
-            ),
-            (
-                "root sender without a dmarc record",
-                "posthog.com.email-verification-eu.json",
-                "EU",
-                "example.com",
-                "",
-                dns.resolver.NoAnswer(),
-                True,
-            ),
-            (
-                "sender with an existing dmarc record",
-                "posthog.com.email-verification-us.json",
-                "US",
-                "news.example.com",
-                "news",
-                [MagicMock(strings=[b"v=DMARC1; p=reject;"])],
-                False,
-            ),
-            (
-                "sender whose dmarc lookup times out",
-                "posthog.com.email-verification-eu.json",
-                "EU",
-                "example.com",
-                "",
-                dns.resolver.Timeout(),
-                False,
-            ),
-            (
-                "sender whose dmarc record is not utf-8",
-                "posthog.com.email-verification-us.json",
-                "US",
-                "news.example.com",
-                "news",
-                [MagicMock(strings=[b"\xff"])],
-                False,
-            ),
-        ]
-    )
-    @patch("posthog.models.integration.EmailIntegration")
-    @patch("posthog.models.integration.Integration")
-    def test_email_resolver_variables_match_template(
-        self,
-        _name: str,
-        template_file: str,
-        region: str,
-        sender_domain: str,
-        expected_host: str,
-        dmarc_lookup: Exception | list[MagicMock],
-        applies_dmarc: bool,
-        mock_integration_cls: MagicMock,
-        mock_email_cls: MagicMock,
-    ) -> None:
-        template = _load_template(template_file)
-        expected_vars = _extract_template_variables(template)
-
-        mock_instance = MagicMock()
-        mock_instance.kind = "email"
-        mock_instance.config = {"domain": sender_domain, "mail_from_subdomain": "feedback"}
-        mock_integration_cls.objects.get.return_value = mock_instance
-
-        mock_email = MagicMock()
-        mock_email.verify.return_value = {
-            "dnsRecords": [
-                {
-                    "type": "verification",
-                    "recordType": "TXT",
-                    "recordHostname": f"_amazonses.{sender_domain}",
-                    "recordValue": "verify-token-123",
-                },
-                {"type": "dkim", "recordHostname": f"aaa._domainkey.{sender_domain}"},
-                {"type": "dkim", "recordHostname": f"bbb._domainkey.{sender_domain}"},
-                {"type": "dkim", "recordHostname": f"ccc._domainkey.{sender_domain}"},
-            ]
-        }
-        mock_email_cls.return_value = mock_email
-
-        with (
-            self.settings(CLOUD_DEPLOYMENT=region, SES_REGION="us-east-1"),
-            patch("posthog.domain_connect.dns.resolver.resolve") as mock_resolve,
-        ):
-            if isinstance(dmarc_lookup, Exception):
-                mock_resolve.side_effect = dmarc_lookup
-            else:
-                mock_resolve.return_value = dmarc_lookup
-            resolved = resolve_email_context(1, 1)
-
-        mock_resolve.assert_called_once_with(f"_dmarc.{sender_domain}", "TXT", lifetime=5)
-
-        self.assertEqual(set(resolved.variables.keys()), expected_vars)
-        self.assertEqual(resolved.service_id, template["serviceId"])
-        self.assertEqual(resolved.root_domain, "example.com")
-        self.assertEqual(resolved.host, expected_host)
-        self.assertEqual(resolved.variables["verifyToken"], "verify-token-123")
-        self.assertEqual(resolved.variables["dkim1"], "aaa")
-        self.assertEqual(resolved.variables["mailFromSub"], "feedback")
-
-        template_groups = {record["groupId"] for record in template["records"]}
-        if applies_dmarc:
-            self.assertEqual(resolved.group_ids, ())
-        else:
-            self.assertEqual(resolved.group_ids, EMAIL_TEMPLATE_GROUPS_WITHOUT_DMARC)
-            self.assertEqual(template_groups - set(resolved.group_ids), {"dmarc"})

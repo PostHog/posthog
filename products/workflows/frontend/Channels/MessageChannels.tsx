@@ -11,6 +11,7 @@ import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { ChannelSetupModal } from './ChannelSetupModal'
+import { useStartEmailDomainSetup } from './EmailDomain/useStartEmailDomainSetup'
 
 const HedgehogReporter = pngHoggie(reporterPng)
 
@@ -21,6 +22,7 @@ export function MessageChannels(): JSX.Element {
     const { setupModalOpen, integrations, integrationsLoading, setupModalType, selectedIntegration } =
         useValues(integrationsLogic)
     const { openSetupModal, closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
+    const startEmailDomainSetup = useStartEmailDomainSetup('channels')
 
     const allWorkflowIntegrations =
         integrations?.filter((integration) => MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType)) ?? []
@@ -53,7 +55,7 @@ export function MessageChannels(): JSX.Element {
                         thingName="channel integration"
                         description="Set up messaging channels to automatically send emails, SMS, or Slack notifications triggered by user actions and events."
                         docsURL="https://posthog.com/docs/workflows/configure-channels"
-                        action={() => openSetupModal(undefined, 'email')}
+                        action={startEmailDomainSetup ?? (() => openSetupModal(undefined, 'email'))}
                         customHog={HedgehogReporter}
                         isEmpty
                     />

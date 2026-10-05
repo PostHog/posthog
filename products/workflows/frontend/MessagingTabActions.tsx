@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { useStartEmailDomainSetup } from './Channels/EmailDomain/useStartEmailDomainSetup'
 import type { MessagingNavTabKey } from './messagingTabs'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
 import { newTemplateAgentLogic } from './TemplateLibrary/newTemplateAgentLogic'
@@ -56,6 +57,7 @@ function NewTemplateButton(): JSX.Element {
 function NewChannelButton({ channelsUrl }: { channelsUrl: string }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSetupModal } = useActions(integrationsLogic)
+    const startEmailDomainSetup = useStartEmailDomainSetup('channels')
     const newChannelRestrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -68,7 +70,7 @@ function NewChannelButton({ channelsUrl }: { channelsUrl: string }): JSX.Element
                     <IconLetter /> Email
                 </div>
             ),
-            onClick: () => openSetupModal(undefined, 'email'),
+            onClick: startEmailDomainSetup ?? (() => openSetupModal(undefined, 'email')),
         },
 
         {
