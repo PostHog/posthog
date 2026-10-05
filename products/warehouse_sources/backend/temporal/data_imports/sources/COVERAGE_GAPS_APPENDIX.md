@@ -4412,7 +4412,7 @@ Note: Docs are HTML only (no sitemap, no llms.txt, no OpenAPI); the resource lis
 
 ## Invoiceninja — gaps
 
-Today (15): `clients`, `credits`, `expense_categories`, `expenses`, `invoices`, `payment_terms`, `payments`, `products`, `projects`, `purchase_orders`, `quotes`, `recurring_invoices`, `tasks`, `tax_rates`, `vendors`
+Today (18): `bank_transactions`, `clients`, `credits`, `expense_categories`, `expenses`, `invoices`, `payment_terms`, `payments`, `products`, `projects`, `purchase_orders`, `quotes`, `recurring_invoices`, `tasks`, `task_statuses`, `tax_rates`, `users`, `vendors`
 
 Diffed against: <https://api-docs.invoicing.co/api-docs.yaml>
 
