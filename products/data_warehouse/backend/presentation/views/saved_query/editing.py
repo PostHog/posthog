@@ -22,6 +22,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -52,6 +53,16 @@ if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
+
+
+def _saved_query_analytics_properties(view: DataWarehouseSavedQuery) -> dict[str, Any]:
+    # Never include the query text or the view name: both are customer-authored content.
+    return {
+        "saved_query_id": str(view.id),
+        "origin": view.origin,
+        "is_materialized": bool(view.is_materialized),
+        "has_warehouse_tables": bool(view.external_tables),
+    }
 
 
 def _as_uuid(value: object) -> uuid.UUID | None:
@@ -408,6 +419,18 @@ class DataWarehouseSavedQuerySerializer(
                         database=self.context.get("database"),
                     )
                 _apply_frequency_target(view, sync_frequency, self.user_access_control)
+
+        report_user_action(
+            self.context["request"].user,
+            "saved query created",
+            {
+                **_saved_query_analytics_properties(view),
+                "has_description": has_description,
+                "sync_frequency": sync_frequency,
+            },
+            team=team,
+            request=self.context["request"],
+        )
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
@@ -596,6 +619,21 @@ class DataWarehouseSavedQuerySerializer(
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+
+        report_user_action(
+            self.context["request"].user,
+            "saved query updated",
+            {
+                **_saved_query_analytics_properties(view),
+                "query_changed": query_changed,
+                "name_changed": before_update.name != view.name,
+                "description_changed": has_description,
+                "sync_frequency": sync_frequency if frequency_changed else None,
+                "soft_update": soft_update,
+            },
+            team=team,
+            request=self.context["request"],
+        )
         return view
 
     def validate_query(self, query):

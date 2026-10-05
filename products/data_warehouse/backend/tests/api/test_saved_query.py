@@ -130,6 +130,66 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertIsNotNone(saved_query["latest_history_id"])
 
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.editing.report_user_action")
+    def test_create_and_update_report_user_action(self, mock_report_user_action) -> None:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+
+        mock_report_user_action.assert_called_once()
+        args, kwargs = mock_report_user_action.call_args
+        self.assertEqual(args[0], self.user)
+        self.assertEqual(args[1], "saved query created")
+        self.assertEqual(
+            args[2],
+            {
+                "saved_query_id": saved_query["id"],
+                "origin": "data_warehouse",
+                "is_materialized": False,
+                "has_warehouse_tables": False,
+                "has_description": False,
+                "sync_frequency": None,
+            },
+        )
+        self.assertEqual(kwargs["team"], self.team)
+
+        mock_report_user_action.reset_mock()
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}/",
+            {
+                "name": "event_view_renamed",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"},
+                "edited_history_id": saved_query["latest_history_id"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+        mock_report_user_action.assert_called_once()
+        args, _ = mock_report_user_action.call_args
+        self.assertEqual(args[1], "saved query updated")
+        self.assertEqual(
+            args[2],
+            {
+                "saved_query_id": saved_query["id"],
+                "origin": "data_warehouse",
+                "is_materialized": False,
+                "has_warehouse_tables": False,
+                "query_changed": True,
+                "name_changed": True,
+                "description_changed": False,
+                "sync_frequency": None,
+                "soft_update": False,
+            },
+        )
+
     def test_create_and_update_resolve_allowed_materialization_system_tables(self) -> None:
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/",
