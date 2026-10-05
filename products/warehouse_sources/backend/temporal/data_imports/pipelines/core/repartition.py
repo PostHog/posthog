@@ -985,6 +985,18 @@ async def _rewrite_into_temp(
     )
     writer: PartitionedFileWriter | None = None
 
+    async def run_io(function: Callable[..., Any], *args: Any) -> Any:
+        """Do not let task cancellation abandon a native I/O call that still owns these objects."""
+        task = asyncio.create_task(asyncio.to_thread(function, *args))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            try:
+                await asyncio.shield(task)
+            except BaseException:
+                pass
+            raise
+
     resolved: RepartitionTarget | None = None
     rows_written = 0
     started_at = time.monotonic()
@@ -1040,8 +1052,8 @@ async def _rewrite_into_temp(
         last_commit_at = time.monotonic()
         if writer is None or not completed_sources:
             return
-        written = await asyncio.to_thread(writer.finish)
-        await asyncio.to_thread(committer.commit, written, completed_sources)
+        written = await run_io(writer.finish)
+        await run_io(committer.commit, written, completed_sources)
         completed_sources = []
         rows_written += sum(file.num_records for file in written)
         commits += 1
@@ -1095,16 +1107,16 @@ async def _rewrite_into_temp(
         combined = staged[0] if len(staged) == 1 else pa.concat_tables(staged)
         staged = []
         staged_bytes = 0
-        prepared = await asyncio.to_thread(prepare, combined)
+        prepared = await run_io(prepare, combined)
         if writer is None:
-            file_schema = await asyncio.to_thread(committer.open_or_create, prepared.schema)
+            file_schema = await run_io(committer.open_or_create, prepared.schema)
             writer = PartitionedFileWriter(
                 filesystem=storage_filesystem(temp_uri, storage_options),
                 schema=file_schema,
                 budget=budget,
                 configuration=table_configuration,
             )
-        await asyncio.to_thread(writer.write, prepared)
+        await run_io(writer.write, prepared)
         # Feeds the workload reporter bound by the repartition activity; no-op everywhere else.
         report_buffer_bytes(writer.buffered_bytes)
 
@@ -1112,7 +1124,7 @@ async def _rewrite_into_temp(
     sources = reader.iter_sources(plan)
     try:
         while True:
-            entry = await asyncio.to_thread(next, sources, None)
+            entry = await run_io(next, sources, None)
             if entry is None:
                 break
             source, tables = entry
@@ -1122,7 +1134,7 @@ async def _rewrite_into_temp(
                     if last_claim_check is None or now - last_claim_check >= claim_recheck_interval_seconds:
                         await ensure_claim()
                         last_claim_check = now
-                table = await asyncio.to_thread(next, tables, None)
+                table = await run_io(next, tables, None)
                 if table is None:
                     break
                 # Deliberately after the read, so exhausting the last file always beats the deadline.
@@ -1151,10 +1163,17 @@ async def _rewrite_into_temp(
         await commit()
     except BaseException:
         if writer is not None:
-            await _delete_uncommitted(temp_uri, storage_options, writer.abort())
+            try:
+                paths = await run_io(writer.abort)
+                await _delete_uncommitted(temp_uri, storage_options, paths)
+            except BaseException:
+                await logger.awarning("repartition: could not clean up uncommitted files", exc_info=True)
         raise
     finally:
-        await asyncio.to_thread(sources.close)
+        try:
+            await run_io(sources.close)
+        except BaseException:
+            await logger.awarning("repartition: could not close the source reader", exc_info=True)
 
     if resolved is None:
         # Empty source table — nothing to rewrite.
@@ -1194,6 +1213,8 @@ async def defer_repartition_to_full_refresh(
     schema: ExternalDataSchema,
     target: RepartitionTarget,
     logger: FilteringBoundLogger,
+    *,
+    claim_token: str | None = None,
 ) -> dict[str, Any]:
     """Apply `target` through the next full refresh instead of rewriting the table.
 
@@ -1209,17 +1230,19 @@ async def defer_repartition_to_full_refresh(
     except Exception:
         await logger.awarning("repartition: could not sweep stale temp tables", exc_info=True)
 
-    def _write() -> None:
-        stage_partition_scheme_for_full_refresh(
+    def _write() -> bool:
+        return stage_partition_scheme_for_full_refresh(
             schema,
             partitioning_keys=target.partition_keys,
             partition_count=target.partition_count,
             partition_size=target.partition_size,
             partition_mode=target.partition_mode,
             partition_format=target.partition_format,
+            claim_token=claim_token,
         )
 
-    await asyncio.to_thread(retry_on_db_connection_drop, _write)
+    if not await asyncio.to_thread(retry_on_db_connection_drop, _write):
+        raise RepartitionSupersededError(f"repartition claim lost before full-refresh deferral schema_id={schema.id}")
     await logger.ainfo(
         f"repartition: full-refresh table, staged scheme={_format_scheme(target)} for the next sync to write "
         f"schema_id={schema.id}",

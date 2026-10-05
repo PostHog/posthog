@@ -2995,6 +2995,7 @@ class TestDeferToFullRefresh:
             "partition_size": None,
             "partition_mode": "datetime",
             "partition_format": "month",
+            "claim_token": None,
         }
         assert result["outcome"] == "deferred"
 

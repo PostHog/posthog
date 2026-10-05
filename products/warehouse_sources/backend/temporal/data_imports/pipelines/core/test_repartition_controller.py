@@ -1008,6 +1008,30 @@ class TestRepartitionActivity:
         assert schema.repartition_rewrite is None
         assert schema.last_repartition_at is not None
 
+    def test_full_refresh_staging_stands_down_when_a_newer_attempt_owns_the_claim(self, team):
+        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4})
+        schema.set_repartition_claim({"token": "newer-claim", "job_id": "j2", "claimed_at": _days_ago_iso(0)})
+        schema.set_repartition_pending(
+            {"partition_mode": "md5", "partition_count": 8, "partition_keys": ["id"], "trigger_reason": "t"}
+        )
+
+        wrote = external_data_schema.stage_partition_scheme_for_full_refresh(
+            schema,
+            partitioning_keys=["id"],
+            partition_count=8,
+            partition_size=None,
+            partition_mode="md5",
+            partition_format=None,
+            claim_token="superseded-claim",
+        )
+
+        schema.refresh_from_db()
+        assert wrote is False
+        assert schema.partition_count_override is None
+        assert schema.repartition_pending is not None
+        assert schema.repartition_claim is not None
+        assert schema.repartition_claim["token"] == "newer-claim"
+
     def test_finalizing_stands_down_when_a_newer_attempt_owns_the_claim(self, team):
         # A zombie writing here would describe a layout the new claimant is in the middle of replacing.
         schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 4})

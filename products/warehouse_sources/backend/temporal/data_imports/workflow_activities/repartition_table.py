@@ -663,12 +663,16 @@ def _defer_to_full_refresh(
     attempt could finish its swap after the full refresh and put its stale copy back over live.
     """
     try:
+        claim_token = str(uuid.uuid4())
         schema.set_repartition_claim(
-            {"token": str(uuid.uuid4()), "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
+            {"token": claim_token, "job_id": inputs.job_id, "claimed_at": timezone.now().isoformat()}
         )
         result = async_to_sync(defer_repartition_to_full_refresh)(
-            table_ref=table_ref, schema=schema, target=target, logger=logger
+            table_ref=table_ref, schema=schema, target=target, logger=logger, claim_token=claim_token
         )
+    except RepartitionSupersededError:
+        logger.info("repartition: full-refresh deferral superseded by a newer claim")
+        return
     except Exception as e:
         # Like a failed rewrite, this must not block the sync: the table keeps its layout and the
         # next run tries again.

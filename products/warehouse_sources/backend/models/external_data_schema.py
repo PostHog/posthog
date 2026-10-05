@@ -1680,7 +1680,8 @@ def stage_partition_scheme_for_full_refresh(
     partition_size: int | None,
     partition_mode: PartitionMode | None,
     partition_format: PartitionFormat | None,
-) -> None:
+    claim_token: str | None = None,
+) -> bool:
     """Pin a new partition scheme for the next full refresh to write, and retire the repartition markers.
 
     A full-refresh sync deletes the table and writes it again, so it can lay out the new scheme with
@@ -1696,7 +1697,14 @@ def stage_partition_scheme_for_full_refresh(
         "partition_mode_override": partition_mode,
     }
 
+    wrote = False
+
     def _write(config: dict[str, Any]) -> None:
+        nonlocal wrote
+        if claim_token is not None:
+            claim = config.get("repartition_claim")
+            if not (claim and claim.get("token") == claim_token):
+                return
         for key, value in overrides.items():
             if value is None:
                 config.pop(key, None)
@@ -1708,8 +1716,10 @@ def stage_partition_scheme_for_full_refresh(
         config["last_repartition_at"] = timezone.now().isoformat()
         for key in ("repartition_swap", "repartition_pending", "repartition_rewrite"):
             config.pop(key, None)
+        wrote = True
 
     schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return wrote
 
 
 def mark_schema_running_unless_halted(schema: ExternalDataSchema) -> bool:
