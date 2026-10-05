@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import Any, cast
@@ -93,14 +93,14 @@ def test_cursor_pages(
         response({selector: [row], "nextCursor": None, "hasMore": False}),
     ]
     source = mintlify_source(config, endpoint, 1, "job", manager)
-    assert list(source.items()) == [[row], [row]]
-    requests = [call.args[0] for call in transport.call_args_list]
-    params = [parse_qs(urlsplit(request.url).query) for request in requests]
+    assert list(cast(Iterable[Any], source.items())) == [[row], [row]]
+    requests = [cast(PreparedRequest, call.args[0]) for call in transport.call_args_list]
+    params = [parse_qs(urlsplit(cast(str, request.url)).query) for request in requests]
     assert [param.get("cursor") for param in params] == [None, ["cursor-2"], ["cursor-3"]]
     assert all(param["limit"] == [str(limit)] for param in params)
     assert all(param["dateTo"] == params[0]["dateTo"] for param in params)
     assert all("dateFrom" not in param for param in params)
-    assert all(urlsplit(request.url).path == f"/v1/analytics/example-project/{path}" for request in requests)
+    assert all(urlsplit(cast(str, request.url)).path == f"/v1/analytics/example-project/{path}" for request in requests)
     assert all(request.headers["Authorization"] == "Bearer mint_example_fake_key" for request in requests)
     assert [call.args[0].paginator_state for call in manager.save_state.call_args_list] == [
         {"cursor": "cursor-2"},
@@ -124,7 +124,7 @@ def test_offset_pages_use_has_more(
         response({endpoint: terminal_rows, "hasMore": False}),
     ]
     source = mintlify_source(config, endpoint, 1, "job", manager)
-    assert [item for page in source.items() for item in page] == [row, *terminal_rows]
+    assert [item for page in cast(Iterable[Any], source.items()) for item in page] == [row, *terminal_rows]
     params = [parse_qs(urlsplit(call.args[0].url).query) for call in transport.call_args_list]
     assert [param["offset"] for param in params] == [["0"], ["250"], ["500"]]
     assert all(param["limit"] == ["250"] for param in params)
@@ -156,7 +156,7 @@ def test_incremental_date_filter(
         response({"conversations": [], "nextCursor": None}),
     ]
     source = mintlify_source(config, "assistant_conversations", 1, "job", manager, incremental, watermark)
-    list(source.items())
+    list(cast(Iterable[Any], source.items()))
     for call in transport.call_args_list:
         params = parse_qs(urlsplit(call.args[0].url).query)
         assert params.get("dateFrom") == ([expected] if expected else None)
@@ -186,9 +186,9 @@ def test_resume_preserves_window(
         paginator_state=state, date_to="2026-01-02T00:00:00Z", date_from=None
     )
     transport.return_value = response({selector: [], "nextCursor": None, "hasMore": False})
-    list(mintlify_source(config, endpoint, 1, "job", manager).items())
+    list(cast(Iterable[Any], mintlify_source(config, endpoint, 1, "job", manager).items()))
     request = cast(PreparedRequest, transport.call_args.args[0])
-    params = parse_qs(urlsplit(request.url).query)
+    params = parse_qs(urlsplit(cast(str, request.url)).query)
     assert params[parameter] == [value]
     assert params["dateTo"] == ["2026-01-02T00:00:00Z"]
     assert "dateFrom" not in params
@@ -197,7 +197,7 @@ def test_resume_preserves_window(
 
 @pytest.mark.parametrize("status", [200, 401, 403, 404, 400])
 def test_credentials_and_terminal_errors(config: MintlifySourceConfig, transport: MagicMock, status: int) -> None:
-    body = {"feedback": []} if status == 200 else {"error": "Unauthorized"}
+    body: dict[str, Any] = {"feedback": []} if status == 200 else {"error": "Unauthorized"}
     transport.return_value = response(body, status)
     if status == 400:
         with pytest.raises(HTTPError):
@@ -209,15 +209,15 @@ def test_credentials_and_terminal_errors(config: MintlifySourceConfig, transport
             assert message
             assert message == MintlifySource().get_non_retryable_errors()[f"{status} Client Error"]
     transport.assert_called_once()
-    request = transport.call_args.args[0]
+    request = cast(PreparedRequest, transport.call_args.args[0])
     assert request.headers["Authorization"] == "Bearer mint_example_fake_key"
-    assert parse_qs(urlsplit(request.url).query) == {"limit": ["1"]}
+    assert parse_qs(urlsplit(cast(str, request.url)).query) == {"limit": ["1"]}
 
 
 @pytest.mark.parametrize("status", [429, 500])
 def test_transient_errors_stay_retryable(config: MintlifySourceConfig, transport: MagicMock, status: int) -> None:
     transport.return_value = response({"error": "Unavailable"}, status)
-    with patch.object(RESTClient, "_send_request", RESTClient._send_request.__wrapped__):
+    with patch.object(RESTClient, "_send_request", cast(Any, RESTClient._send_request).__wrapped__):
         with pytest.raises(RESTClientRetryableError):
             validate_credentials(config)
     assert not any(str(status) in key for key in MintlifySource().get_non_retryable_errors())
@@ -238,9 +238,9 @@ def test_project_id_cannot_change_request_path(
 ) -> None:
     config.project_id = "example/other?limit=5#fragment"
     transport.return_value = response({"feedback": [], "nextCursor": None})
-    list(mintlify_source(config, "feedback", 1, "job", manager).items())
-    request = transport.call_args.args[0]
-    url = urlsplit(request.url)
+    list(cast(Iterable[Any], mintlify_source(config, "feedback", 1, "job", manager).items()))
+    request = cast(PreparedRequest, transport.call_args.args[0])
+    url = urlsplit(cast(str, request.url))
     assert url.netloc == "api.mintlify.com"
     assert url.path == "/v1/analytics/example%2Fother%3Flimit%3D5%23fragment/feedback"
     assert parse_qs(url.query)["limit"] == ["100"]
