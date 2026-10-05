@@ -272,24 +272,48 @@ describe('Home dashboard creation', () => {
         expect(templateCreateRequestCount).toBe(1)
     })
 
-    it('clears the Home assignment when template creation is canceled', () => {
+    it.each([false, true])('clears Home and AI intent on cancellation (AI: %s)', (openAI) => {
         const logic = newDashboardLogic()
         logic.mount()
 
-        logic.actions.setAsHomeTabDashboardAfterCreation(true)
+        logic.actions.setAsHomeTabDashboardAfterCreation(true, openAI)
         logic.actions.hideNewDashboardModal()
 
         expect(logic.values.setAsHomeTabDashboardAfterCreation).toBe(false)
         expect(logic.values.openAIAfterCreation).toBe(false)
     })
 
-    it('clears the AI handoff when dashboard creation is canceled', () => {
+    it('preserves Home and AI intent when retrying failed dashboard creation', async () => {
+        let attempts = 0
+        useMocks({
+            post: {
+                '/api/environments/:team/dashboards/': () => {
+                    attempts += 1
+                    return attempts === 1
+                        ? [500, { type: 'server_error', detail: 'Unable to create dashboard' }]
+                        : [201, { id: 123, name: 'My dashboard' }]
+                },
+            },
+        })
         const logic = newDashboardLogic()
         logic.mount()
-
         logic.actions.setAsHomeTabDashboardAfterCreation(true, true)
-        logic.actions.hideNewDashboardModal()
 
+        await expectLogic(logic, () => {
+            logic.actions.addDashboard({ name: 'My dashboard', show: false })
+        }).toFinishAllListeners()
+
+        expect(logic.values.isLoading).toBe(false)
+        expect(logic.values.setAsHomeTabDashboardAfterCreation).toBe(true)
+        expect(logic.values.openAIAfterCreation).toBe(true)
+
+        await expectLogic(logic, () => {
+            logic.actions.addDashboard({ name: 'My dashboard', show: false })
+        }).toFinishAllListeners()
+
+        expect(attempts).toBe(2)
+        expect(teamLogic.values.currentTeam?.home_tab_dashboard).toBe(123)
+        expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
         expect(logic.values.setAsHomeTabDashboardAfterCreation).toBe(false)
         expect(logic.values.openAIAfterCreation).toBe(false)
     })

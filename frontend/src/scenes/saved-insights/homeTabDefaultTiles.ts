@@ -1,5 +1,5 @@
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
-import { dateMapping } from 'lib/utils/dateFilters'
+import { dateMapping, getDefaultInterval } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
 import {
@@ -84,13 +84,16 @@ export function getHomeTabInterval(dateRange: DateRange): IntervalType {
         return Number(dayRange[1]) <= 2 ? 'hour' : 'day'
     }
 
-    if (dateFrom?.includes('T')) {
+    if (dateFrom?.match(/^\d{4}-\d{2}-\d{2}(?:T|$)/)) {
         const durationMs = Date.parse(dateTo ?? new Date().toISOString()) - Date.parse(dateFrom)
         if (durationMs > 0 && durationMs <= 60 * 60 * 1000) {
             return 'minute'
         }
         if (durationMs > 0 && durationMs <= 48 * 60 * 60 * 1000) {
             return 'hour'
+        }
+        if (durationMs > 0) {
+            return getDefaultInterval(dateFrom, dateTo ?? new Date().toISOString())
         }
     }
     return 'day'
