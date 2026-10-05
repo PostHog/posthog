@@ -1,7 +1,8 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -11,7 +12,7 @@ from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_treasury_fiscal_data.source import (
     UsTreasuryFiscalDataSource,
 )
@@ -56,6 +57,11 @@ def response(body: dict[str, Any], status: int = 200) -> Response:
     result._content = json.dumps(body).encode()
     result.headers["Content-Type"] = "application/json"
     return result
+
+
+def collect_rows(output: SourceResponse) -> list[dict[str, Any]]:
+    pages = cast(Iterable[Iterable[dict[str, Any]]], output.items())
+    return [row for page in pages for row in page]
 
 
 @pytest.mark.parametrize(
@@ -107,7 +113,7 @@ def test_requests_pagination_and_normalization(
 
     with patch("requests.sessions.Session.send", side_effect=send):
         output = fiscal_data_source(make_inputs(name, incremental, watermark), manager)
-        actual = [row for page in output.items() for row in page]
+        actual = collect_rows(output)
 
     assert len(sent) == 2
     for page, request in enumerate(sent, 1):
@@ -139,7 +145,7 @@ def test_resume_preserves_original_filter_when_watermark_advances(lower_bound: s
         "requests.sessions.Session.send", return_value=response({"data": [], "meta": {"total-pages": 3}})
     ) as send:
         output = fiscal_data_source(make_inputs(watermark="2025-03-31"), manager)
-        assert list(output.items()) == []
+        assert collect_rows(output) == []
     request = send.call_args.args[0]
     params = parse_qs(urlparse(request.url).query)
     assert params["page[number]"] == ["3"]
@@ -214,6 +220,6 @@ def test_exchange_rate_keys_preserve_amendments_and_duplicate_report_lines() -> 
     ]
     with patch("requests.sessions.Session.send", return_value=response({"data": rows, "meta": {"total-pages": 1}})):
         output = fiscal_data_source(make_inputs("rates_of_exchange"), make_manager())
-        actual = [row for page in output.items() for row in page]
+        actual = collect_rows(output)
     assert output.primary_keys is not None
     assert len({tuple(row[key] for key in output.primary_keys) for row in actual}) == 3

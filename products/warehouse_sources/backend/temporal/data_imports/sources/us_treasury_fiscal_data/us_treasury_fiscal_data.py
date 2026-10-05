@@ -8,6 +8,7 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -74,24 +75,23 @@ def fiscal_data_source(inputs: SourceInputs, manager: ResumableSourceManager[Fis
     if lower_bound is not None:
         params["filter"] = f"{endpoint.incremental_field}:gte:{lower_bound}"
 
+    resource_config: EndpointResource = {
+        "name": inputs.schema_name,
+        "table_format": "delta",
+        "endpoint": {
+            "path": endpoint.path,
+            "data_selector": "data",
+            "data_selector_required": True,
+            "params": params,
+        },
+    }
     config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
             "paginator": PageNumberPaginator(base_page=1, page_param="page[number]", total_path="meta['total-pages']"),
             "request_timeout": (10.0, 60.0),
         },
-        "resources": [
-            {
-                "name": inputs.schema_name,
-                "table_format": "delta",
-                "endpoint": {
-                    "path": endpoint.path,
-                    "data_selector": "data",
-                    "data_selector_required": True,
-                    "params": params,
-                },
-            }
-        ],
+        "resources": [resource_config],
     }
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
@@ -101,13 +101,13 @@ def fiscal_data_source(inputs: SourceInputs, manager: ResumableSourceManager[Fis
     def normalize_row(row: dict[str, Any]) -> dict[str, Any]:
         normalized = {key: None if value == "null" else value for key, value in row.items()}
         for field in endpoint.numeric_fields:
-            if normalized.get(field) is not None:
-                normalized[field] = Decimal(normalized[field])
+            if (value := normalized.get(field)) is not None:
+                normalized[field] = Decimal(str(value))
         for field in ("record_date", "effective_date"):
-            if normalized.get(field) is not None:
-                normalized[field] = date.fromisoformat(normalized[field])
-        if normalized.get("src_line_nbr") is not None:
-            normalized["src_line_nbr"] = int(normalized["src_line_nbr"])
+            if (value := normalized.get(field)) is not None:
+                normalized[field] = date.fromisoformat(str(value))
+        if (value := normalized.get("src_line_nbr")) is not None:
+            normalized["src_line_nbr"] = int(str(value))
         return normalized
 
     resource = rest_api_resource(
