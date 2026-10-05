@@ -1027,6 +1027,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'self-optimising-workflows',
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
+            'workflows-email-domain-agent-setup',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
