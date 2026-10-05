@@ -108,6 +108,7 @@ describe('weekly engineering analytics digest', () => {
     for (const [name, usage, expected] of [
         ['exhausted minutes', [10000, 700, 350], /The contract minutes are used up/],
         ['zero usage', [9000, 0, 350], /minutes are not counted here\.$/],
+        ['omitted protobuf list', [9000, {}, 350], /minutes are not counted here\.$/],
         [
             'omitted protobuf zero',
             [9000, { githubActionsJobs: [{ total: {} }] }, 350],

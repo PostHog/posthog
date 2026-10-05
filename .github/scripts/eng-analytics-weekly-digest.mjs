@@ -81,10 +81,12 @@ async function depotBilledMinutes(startAt, endAt) {
         throw new Error(`Depot GetUsage -> ${res.status}`)
     }
     const usage = await res.json()
-    if (!Array.isArray(usage?.githubActionsJobs)) {
-        throw new Error('Depot GetUsage returned no githubActionsJobs list')
+    // Protobuf JSON omits empty repeated fields.
+    const jobs = usage?.githubActionsJobs ?? []
+    if (!usage || typeof usage !== 'object' || Array.isArray(usage) || !Array.isArray(jobs)) {
+        throw new Error('Depot GetUsage returned invalid usage')
     }
-    return usage.githubActionsJobs.reduce((sum, repo) => {
+    return jobs.reduce((sum, repo) => {
         // Protobuf JSON omits scalar fields at their zero default.
         const minutes = repo?.total?.minutesBilled ?? 0
         if (!repo?.total || !Number.isFinite(minutes) || minutes < 0 || !Number.isFinite(sum + minutes)) {
