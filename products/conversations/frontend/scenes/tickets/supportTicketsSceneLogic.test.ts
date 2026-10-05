@@ -261,6 +261,112 @@ describe('supportTicketsSceneLogic', () => {
             expect(router.values.searchParams.view).toBeUndefined()
         })
 
+        const SAVED_VIEW = makeSavedView('view-a', { status: ['open'] })
+
+        // Applies a view, then rebuilds the kea context the way a new browser session does:
+        // the persisted view and filters survive, the mounted logic does not.
+        async function applyViewThenReopenAt(path: string, searchParams?: Record<string, any>): Promise<void> {
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.applyView(SAVED_VIEW)
+            }).toFinishAllListeners()
+            logic.unmount()
+
+            initKeaTests()
+            router.actions.push(path, searchParams)
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+
+        it.each([urls.supportTickets(), `${urls.supportTickets()}/`])(
+            'reopens the inbox on the saved view the user last had applied at %s',
+            async (path) => {
+                useMocks({
+                    get: { '/api/projects/:team_id/conversations/views/:short_id/': () => [200, SAVED_VIEW] },
+                })
+
+                await applyViewThenReopenAt(path)
+
+                expect(logic.values.activeView?.short_id).toBe('view-a')
+                expect(logic.values.statusFilter).toEqual(['open'])
+                expect(router.values.searchParams.view).toBe('view-a')
+            }
+        )
+
+        it('detaches a restored view when the URL names the same filters', async () => {
+            useMocks({
+                get: { '/api/projects/:team_id/conversations/views/:short_id/': () => [200, SAVED_VIEW] },
+            })
+
+            await applyViewThenReopenAt(urls.supportTickets(), { status: ['open'] })
+
+            // The link states the filters, so it keeps them. A view left attached here would
+            // turn the next URL write into ?view=view-a and drop what the link asked for.
+            expect(logic.values.activeView).toBeNull()
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(router.values.searchParams.status).toEqual(['open'])
+            expect(router.values.searchParams.view).toBeUndefined()
+        })
+
+        it('drops a restored view that was deleted and keeps the filters on screen', async () => {
+            // The shared mock answers 404, as a deleted view does.
+            await applyViewThenReopenAt(urls.supportTickets())
+
+            expect(logic.values.activeView).toBeNull()
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(router.values.searchParams.view).toBeUndefined()
+        })
+
+        it('keeps a restored view when loading it fails for another reason', async () => {
+            useMocks({
+                get: { '/api/projects/:team_id/conversations/views/:short_id/': () => [500, { detail: 'Error' }] },
+            })
+
+            await applyViewThenReopenAt(urls.supportTickets())
+
+            expect(logic.values.activeView?.short_id).toBe('view-a')
+            expect(logic.values.statusFilter).toEqual(['open'])
+        })
+
+        it('leaves another page alone when a scene there mounts the ticket list', async () => {
+            // The ticket detail scene connects to this logic for its loadTickets action.
+            useMocks({
+                get: { '/api/projects/:team_id/conversations/views/:short_id/': () => [200, SAVED_VIEW] },
+            })
+
+            await applyViewThenReopenAt(urls.supportTicketDetail('ticket-1'))
+
+            expect(router.values.location.pathname).toContain(urls.supportTicketDetail('ticket-1'))
+            expect(router.values.searchParams).toEqual({})
+            expect(logic.values.activeView?.short_id).toBe('view-a')
+        })
+
+        it('keeps the saved view when the user comes back to the list from a ticket', async () => {
+            useMocks({
+                get: { '/api/projects/:team_id/conversations/views/:short_id/': () => [200, SAVED_VIEW] },
+            })
+            router.actions.push(urls.supportTickets())
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.applyView(SAVED_VIEW)
+            }).toFinishAllListeners()
+
+            // The logic stays mounted for the whole trip, so the return is a navigation and not
+            // a new mount. The sidebar link, the scene tab and the back button all land bare.
+            router.actions.push(urls.supportTicketDetail('ticket-1'))
+            await expectLogic(logic).toFinishAllListeners()
+            router.actions.push(urls.supportTickets())
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.activeView?.short_id).toBe('view-a')
+            expect(logic.values.statusFilter).toEqual(['open'])
+            expect(router.values.searchParams.view).toBe('view-a')
+        })
+
         it('ignores a saved view response after navigating to explicit filters', async () => {
             const pending: Record<string, { resolve: (view: SavedTicketView) => void }> = {}
             useMocks({
