@@ -40,7 +40,8 @@ describe('NativeEmailIntegrationChoice', () => {
             senderIntegrationsLoading: false,
             logicProps: {},
             senderIntegrations: sandboxEmailSender ? [...OWN_SENDERS, sandboxEmailSender] : OWN_SENDERS,
-            sandboxEmailSender,
+            sandboxSenderId: sandboxEmailSender?.id,
+            isSandboxSenderSelected: false,
             ...overrides,
         })
     }
@@ -63,7 +64,7 @@ describe('NativeEmailIntegrationChoice', () => {
 
     it('hides the custom sender controls and explains the recipient rule while the sandbox sender is selected', () => {
         mockSenderRotationEnabled = true
-        mockValues(SANDBOX_SENDER)
+        mockValues(SANDBOX_SENDER, { isSandboxSenderSelected: true })
 
         render(
             <NativeEmailIntegrationChoice

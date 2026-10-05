@@ -61,6 +61,7 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
         testSendResult,
         testSendResultLoading,
         testSendSkipMessage,
+        membersLoading,
     } = useValues(logic)
     const { setModalOpen, setRecipientEmail, setSenderIntegrationId, sendTestEmail } = useActions(logic)
 
@@ -96,6 +97,7 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
                             value={recipientEmail ? [recipientEmail] : []}
                             onChange={(values) => setRecipientEmail(values[0] ?? '')}
                             options={recipientSuggestions.map((email) => ({ key: email, label: email }))}
+                            loading={membersLoading}
                             placeholder="you@example.com"
                             emptyStateComponent="Type an email address and press Enter"
                             data-attr="send-test-email-recipient"
@@ -163,7 +165,7 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
                 {testSendSkipMessage ? (
                     <LemonBanner type="warning">
                         <div className="font-semibold">This test email was not sent</div>
-                        <div>{testSendSkipMessage}</div>
+                        <div className="break-words">{testSendSkipMessage}</div>
                     </LemonBanner>
                 ) : testSendResult && testSendResult.status === 'error' ? (
                     <LemonBanner type="error">

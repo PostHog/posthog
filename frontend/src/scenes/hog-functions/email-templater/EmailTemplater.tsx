@@ -278,18 +278,14 @@ export function NativeEmailIntegrationChoice({
     onChange: (value: EmailTemplateFrom) => void
     value?: EmailTemplateFrom
 }): JSX.Element {
-    const { logicProps, senderIntegrations, sandboxEmailSender, senderIntegrationsLoading } =
+    const { logicProps, senderIntegrations, sandboxSenderId, isSandboxSenderSelected, senderIntegrationsLoading } =
         useValues(emailTemplaterLogic)
     const { chooseSenders } = useActions(emailTemplaterLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
-    const selectedIntegrationIds = selectedSenderIds(value)
-    const sandboxSenderId =
-        sandboxEmailSender && senderIntegrations.includes(sandboxEmailSender) ? sandboxEmailSender.id : undefined
-    const sandboxSelected = sandboxSenderId !== undefined && selectedIntegrationIds.includes(sandboxSenderId)
 
     // Presence of the override keys is what reveals the inputs, so a saved override is
     // visible again on reopen without any separate reveal state.
-    const overridesVisible = !sandboxSelected && (value?.email !== undefined || value?.name !== undefined)
+    const overridesVisible = !isSandboxSenderSelected && (value?.email !== undefined || value?.name !== undefined)
 
     const onChangeIntegration = (integrationId: number): void => {
         if (integrationId === -1) {
@@ -348,7 +344,7 @@ export function NativeEmailIntegrationChoice({
                                 labelComponent: senderLabel(integration),
                                 value: integration.id,
                             }))}
-                            value={selectedIntegrationIds}
+                            value={selectedSenderIds(value)}
                             size="small"
                             fullWidth
                             autoWidth={false}
@@ -361,7 +357,7 @@ export function NativeEmailIntegrationChoice({
                             }}
                         />
                         <span className="px-2 pb-1 text-xs text-muted">
-                            {sandboxSelected
+                            {isSandboxSenderSelected
                                 ? SANDBOX_EMAIL_SENDER_NOTE
                                 : `Choose up to ${MAX_WORKFLOW_EMAIL_SENDERS} senders. Each workflow run uses one sender from this list.`}
                         </span>
@@ -398,12 +394,12 @@ export function NativeEmailIntegrationChoice({
                             onChange={onChangeIntegration}
                             data-attr="workflow-email-sender-select"
                         />
-                        {sandboxSelected && (
+                        {isSandboxSenderSelected && (
                             <span className="px-2 pb-1 text-xs text-muted">{SANDBOX_EMAIL_SENDER_NOTE}</span>
                         )}
                     </div>
                 )}
-                {!overridesVisible && !sandboxSelected && (
+                {!overridesVisible && !isSandboxSenderSelected && (
                     <LemonButton
                         size="xsmall"
                         type="secondary"

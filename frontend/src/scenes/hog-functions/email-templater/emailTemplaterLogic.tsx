@@ -30,7 +30,7 @@ import { IntegrationType, PreflightStatus, PropertyDefinition, PropertyDefinitio
 
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
-import { selectSenders } from './selectSenders'
+import { selectSenders, selectedSenderIds } from './selectSenders'
 import type { EmailFieldErrors, EmailTemplate } from './types'
 
 export type { EmailTemplate }
@@ -258,6 +258,7 @@ export interface emailTemplaterLogicValues {
     personPropertyDefinitions: PropertyDefinition[]
     personPropertyDefinitionsLoading: boolean
     revealedAdvancedFields: EmailMetaFieldKey[]
+    sandboxSenderId: number | undefined
     senderIntegrations: IntegrationType[]
     senderIntegrationsLoading: boolean
     showEmailTemplateErrors: boolean
@@ -413,11 +414,11 @@ export interface emailTemplaterLogicMeta {
             revealedAdvancedFields: EmailMetaFieldKey[]
         ) => EmailMetaField[]
         hiddenAdvancedFields: (supportedFields: EmailMetaField[], visibleFields: EmailMetaField[]) => EmailMetaField[]
-        isSandboxSenderSelected: (
-            emailTemplate: EmailTemplate,
+        sandboxSenderId: (
             senderIntegrations: IntegrationType[],
             sandboxEmailSender: IntegrationType | null
-        ) => boolean
+        ) => number | undefined
+        isSandboxSenderSelected: (emailTemplate: EmailTemplate, sandboxSenderId: number | undefined) => boolean
     }
 }
 
@@ -698,24 +699,20 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             (supportedFields: EmailMetaField[], visibleFields: EmailMetaField[]): EmailMetaField[] =>
                 supportedFields.filter((f) => f.isAdvancedField && !visibleFields.includes(f)),
         ],
+        sandboxSenderId: [
+            (s) => [s.senderIntegrations, s.sandboxEmailSender],
+            (senderIntegrations: IntegrationType[], sandboxEmailSender: IntegrationType | null): number | undefined =>
+                sandboxEmailSender && senderIntegrations.includes(sandboxEmailSender)
+                    ? sandboxEmailSender.id
+                    : undefined,
+        ],
         isSandboxSenderSelected: [
-            (s) => [s.emailTemplate, s.senderIntegrations, s.sandboxEmailSender],
-            (
-                emailTemplate: EmailTemplate,
-                senderIntegrations: IntegrationType[],
-                sandboxEmailSender: IntegrationType | null
-            ): boolean => {
+            (s) => [s.emailTemplate, s.sandboxSenderId],
+            (emailTemplate: EmailTemplate, sandboxSenderId: number | undefined): boolean => {
                 const from = emailTemplate?.from
-                if (
-                    !sandboxEmailSender ||
-                    !senderIntegrations.includes(sandboxEmailSender) ||
-                    typeof from !== 'object'
-                ) {
-                    return false
-                }
                 return (
-                    from.integrationId === sandboxEmailSender.id ||
-                    !!from.integrationIds?.includes(sandboxEmailSender.id)
+                    sandboxSenderId !== undefined &&
+                    selectedSenderIds(typeof from === 'object' ? from : undefined).includes(sandboxSenderId)
                 )
             },
         ],
@@ -724,10 +721,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     listeners(({ props, values, actions, cache }) => ({
         chooseSenders: ({ integrationIds }) => {
             const from = values.emailTemplate?.from
-            const sandboxSenderId =
-                values.sandboxEmailSender && values.senderIntegrations.includes(values.sandboxEmailSender)
-                    ? values.sandboxEmailSender.id
-                    : undefined
+            const { sandboxSenderId } = values
             const next = selectSenders(typeof from === 'object' ? from : undefined, integrationIds, sandboxSenderId)
             if (!next) {
                 return
