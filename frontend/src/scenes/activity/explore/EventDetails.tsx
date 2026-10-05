@@ -2,15 +2,17 @@ import { IconLlmAnalytics } from '@posthog/icons'
 
 import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
 import { ErrorEventType } from 'lib/components/Errors/types'
-import { ErrorPropertyTabEvent, EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
+import {
+    ErrorPropertyTabEvent,
+    EventPropertyTabContent,
+    EventPropertyTabs,
+} from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { SurveyResponseDisplay } from 'lib/components/SurveyResponseDisplay/SurveyResponseDisplay'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
-import { Link } from 'lib/lemon-ui/Link'
 import { ReplayCaptureDiagnosticsModalButton } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsModalButton'
 import { hasReplayDiagnosticSignals } from 'scenes/session-recordings/utils/replayCaptureDiagnostics'
 import { urls } from 'scenes/urls'
@@ -129,57 +131,45 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     case 'exception_properties':
                         return (
                             <div className="mx-3 -mt-4">
-                                <LemonBanner type="info" dismissKey="event-details-exception-properties-why-banner">
-                                    These are the internal properties that PostHog uses to display information about
-                                    exceptions.
-                                </LemonBanner>
-                                <PropertiesTable
-                                    type={PropertyDefinitionType.Event}
-                                    properties={properties}
-                                    sortProperties
-                                    tableProps={tableProps}
-                                    collapsible
-                                />
+                                <EventPropertyTabContent tabKey={tabKey} properties={properties}>
+                                    <PropertiesTable
+                                        type={PropertyDefinitionType.Event}
+                                        properties={properties}
+                                        sortProperties
+                                        tableProps={tableProps}
+                                        collapsible
+                                    />
+                                </EventPropertyTabContent>
                             </div>
                         )
                     case '$set_properties':
                         return (
                             <div className="mx-3 -mt-4">
-                                <p>
-                                    Person properties sent with this event. Will replace any property value that may
-                                    have been set on this person profile before now.{' '}
-                                    <Link to="https://posthog.com/docs/getting-started/person-properties">
-                                        Learn more
-                                    </Link>
-                                </p>
-                                <PropertiesTable
-                                    type={PropertyDefinitionType.Event}
-                                    properties={properties}
-                                    useDetectedPropertyType={true}
-                                    tableProps={tableProps}
-                                    searchable
-                                    collapsible
-                                />
+                                <EventPropertyTabContent tabKey={tabKey} properties={properties}>
+                                    <PropertiesTable
+                                        type={PropertyDefinitionType.Event}
+                                        properties={properties}
+                                        useDetectedPropertyType={true}
+                                        tableProps={tableProps}
+                                        searchable
+                                        collapsible
+                                    />
+                                </EventPropertyTabContent>
                             </div>
                         )
                     case '$set_once_properties':
                         return (
                             <div className="mx-3 -mt-4">
-                                <p>
-                                    "Set once" person properties sent with this event. Will replace any property value
-                                    that has never been set on this person profile before now.{' '}
-                                    <Link to="https://posthog.com/docs/getting-started/person-properties">
-                                        Learn more
-                                    </Link>
-                                </p>
-                                <PropertiesTable
-                                    type={PropertyDefinitionType.Event}
-                                    properties={properties}
-                                    useDetectedPropertyType={true}
-                                    tableProps={tableProps}
-                                    searchable
-                                    collapsible
-                                />
+                                <EventPropertyTabContent tabKey={tabKey} properties={properties}>
+                                    <PropertiesTable
+                                        type={PropertyDefinitionType.Event}
+                                        properties={properties}
+                                        useDetectedPropertyType={true}
+                                        tableProps={tableProps}
+                                        searchable
+                                        collapsible
+                                    />
+                                </EventPropertyTabContent>
                             </div>
                         )
                     case 'raw':
@@ -202,22 +192,24 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                         <ReplayCaptureDiagnosticsModalButton eventProperties={properties} />
                                     </div>
                                 )}
-                                <PropertiesTable
-                                    type={PropertyDefinitionType.Event}
-                                    properties={properties}
-                                    useDetectedPropertyType={['flags', 'properties'].includes(tabKey)}
-                                    tableProps={tableProps}
-                                    filterable={tabKey === 'properties'}
-                                    sortProperties
-                                    // metadata is so short, that serachable is wasted space
-                                    searchable={tabKey !== 'metadata'}
-                                    parent={
-                                        tabKey === 'properties'
-                                            ? (event.event as KNOWN_PROMOTED_PROPERTY_PARENTS)
-                                            : undefined
-                                    }
-                                    collapsible
-                                />
+                                <EventPropertyTabContent tabKey={tabKey} properties={properties}>
+                                    <PropertiesTable
+                                        type={PropertyDefinitionType.Event}
+                                        properties={properties}
+                                        useDetectedPropertyType={['flags', 'properties'].includes(tabKey)}
+                                        tableProps={tableProps}
+                                        filterable={tabKey === 'properties'}
+                                        sortProperties
+                                        // metadata is so short, that serachable is wasted space
+                                        searchable={tabKey !== 'metadata'}
+                                        parent={
+                                            tabKey === 'properties'
+                                                ? (event.event as KNOWN_PROMOTED_PROPERTY_PARENTS)
+                                                : undefined
+                                        }
+                                        collapsible
+                                    />
+                                </EventPropertyTabContent>
                             </div>
                         )
                 }
