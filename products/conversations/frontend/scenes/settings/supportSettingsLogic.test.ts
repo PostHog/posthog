@@ -1,15 +1,15 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { teamLogic } from '~/scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
-import { TeamType } from '~/types'
+import { OrganizationType, TeamType } from '~/types'
 
 import { aiAllChannelsForFeatureFlags, supportSettingsLogic } from './supportSettingsLogic'
 
@@ -524,6 +524,66 @@ describe('supportSettingsLogic', () => {
             } as unknown as TeamType)
 
             expect(logic.values.teamsChannelPairs).toEqual(updatedChannels)
+        })
+    })
+
+    describe('admin-only integration loads on mount', () => {
+        let errorToastSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
+        })
+
+        afterEach(() => {
+            errorToastSpy.mockRestore()
+        })
+
+        it.each([
+            ['member skips the loads', OrganizationMembershipLevel.Member, 200, false],
+            ['admin loads the lists', OrganizationMembershipLevel.Admin, 200, true],
+            ['admin gets no toast on a 403', OrganizationMembershipLevel.Admin, 403, true],
+        ])('%s', async (_label, membershipLevel, status, expectRequests) => {
+            const requestedPaths: string[] = []
+            const respond =
+                (body: Record<string, unknown>) =>
+                async ({ request }: { request: Request }) => {
+                    requestedPaths.push(new URL(request.url).pathname)
+                    return status === 200 ? [200, body] : [status, { detail: 'Forbidden' }]
+                }
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                post: {
+                    '/api/conversations/v1/teams/teams': respond({ teams: [] }),
+                    '/api/conversations/v1/teams/channels': respond({ channels: [] }),
+                    '/api/conversations/v1/github/repos': respond({ repos: [] }),
+                },
+            })
+            initKeaTests(
+                true,
+                {
+                    ...MOCK_DEFAULT_TEAM,
+                    conversations_settings: { teams_enabled: true, teams_team_id: 't1', github_enabled: true },
+                } as unknown as TeamType,
+                undefined,
+                { ...MOCK_DEFAULT_ORGANIZATION, membership_level: membershipLevel } as OrganizationType
+            )
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requestedPaths.sort()).toEqual(
+                expectRequests
+                    ? [
+                          '/api/conversations/v1/github/repos/',
+                          '/api/conversations/v1/teams/channels/',
+                          '/api/conversations/v1/teams/teams/',
+                      ]
+                    : []
+            )
+            expect(errorToastSpy).not.toHaveBeenCalled()
         })
     })
 
