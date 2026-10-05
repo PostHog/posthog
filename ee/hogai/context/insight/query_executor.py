@@ -534,7 +534,7 @@ class AssistantQueryExecutor:
             raise MaxToolRetryableError(err_message, error_type=error_type) from err
         except Exception as err:
             if isinstance(err, InternalCHQueryError) and (rejection := describe_clickhouse_rejection(err.code_name)):
-                raise MaxToolRetryableError(rejection, error_type="validation")
+                raise MaxToolRetryableError(rejection, error_type="validation") from err
             elapsed = time.time() - start_time
             # Catch-all for unexpected errors during query execution. Surface the underlying error
             # text (truncated) so callers can diagnose the failure instead of an opaque message —

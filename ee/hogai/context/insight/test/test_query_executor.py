@@ -456,10 +456,35 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
         self.assertEqual(context.exception.error_type, "internal")
 
+    @parameterized.expand(
+        [
+            (
+                "query_caused_error_names_the_rejection_and_fix",
+                "unknown_identifier",
+                MaxToolRetryableError,
+                "validation",
+                ("UNKNOWN_IDENTIFIER", "system.information_schema.columns"),
+            ),
+            (
+                "server_fault_name_stays_unknown",
+                "keeper_exception",
+                Exception,
+                None,
+                ("There was an unknown error running this query: Query failed",),
+            ),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_query_error_names_clickhouse_rejection_and_fix(
-        self, mock_get_query_status, mock_process_query
+    async def test_async_query_error_code_decides_what_the_agent_reads(
+        self,
+        _name,
+        error_code,
+        expected_type,
+        expected_error_type,
+        expected_texts,
+        mock_get_query_status,
+        mock_process_query,
     ):
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
         mock_get_query_status.return_value = Mock(
@@ -468,17 +493,18 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "complete": True,
                 "error": True,
                 "error_message": None,
-                "error_code": "unknown_identifier",
+                "error_code": error_code,
             }
         )
 
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
-            with self.assertRaises(MaxToolRetryableError) as context:
+            with self.assertRaises(Exception) as context:
                 await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
 
-        self.assertIn("UNKNOWN_IDENTIFIER", str(context.exception))
-        self.assertIn("system.information_schema.columns", str(context.exception))
-        self.assertEqual(context.exception.error_type, "validation")
+        self.assertIs(type(context.exception), expected_type)
+        self.assertEqual(getattr(context.exception, "error_type", None), expected_error_type)
+        for text in expected_texts:
+            self.assertIn(text, str(context.exception))
 
     @parameterized.expand(
         [
@@ -489,17 +515,21 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 ),
                 MaxToolRetryableError,
                 "UNKNOWN_IDENTIFIER",
+                "stored-secret",
             ),
             (
                 "keeps_server_faults_unknown",
                 InternalCHQueryError("replica lost 'stored-secret'", code=999, code_name="keeper_exception"),
                 Exception,
                 "There was an unknown error running this query",
+                None,
             ),
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_internal_clickhouse_error(self, _name, error, expected_type, expected_text, mock_process_query):
+    async def test_internal_clickhouse_error(
+        self, _name, error, expected_type, expected_text, hidden_text, mock_process_query
+    ):
         mock_process_query.side_effect = error
 
         with self.assertRaises(Exception) as context:
@@ -507,8 +537,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIs(type(context.exception), expected_type)
         self.assertIn(expected_text, str(context.exception))
-        if expected_type is MaxToolRetryableError:
-            self.assertNotIn("stored-secret", str(context.exception))
+        if hidden_text:
+            self.assertNotIn(hidden_text, str(context.exception))
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
