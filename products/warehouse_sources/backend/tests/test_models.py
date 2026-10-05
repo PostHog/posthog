@@ -356,7 +356,7 @@ class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
         assert schema.sync_type_config["max_partition_bytes"] == 4096
         assert schema.sync_type_config["incremental_field"] == "updated_at"
 
-    def test_a_repartition_claim_from_a_stale_instance_preserves_concurrent_keys(self) -> None:
+    def test_repartition_claims_are_ordered_and_preserve_concurrent_keys(self) -> None:
         schema = ExternalDataSchema.objects.create(
             team_id=self.team.pk, source=self.source, name="orders", sync_type_config={"repartition_pending": {}}
         )
@@ -379,6 +379,10 @@ class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
         }
         assert schema.sync_type_config["repartition_pending"] == {}
         assert schema.sync_type_config["last_full_run_at"] == "2026-10-05T12:00:00+00:00"
+
+        stale.set_repartition_claim({"token": "latest", "claimed_at": "2026-10-05T12:02:00+00:00"})
+        schema.refresh_from_db()
+        assert schema.sync_type_config["repartition_claim"]["token"] == "latest"
 
     @parameterized.expand(
         [
