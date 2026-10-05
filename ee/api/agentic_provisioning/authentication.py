@@ -304,3 +304,7 @@ class ConfidentialPartnerAuthentication(ActivityCredentialMixin, BaseAuthenticat
 
 class GitHubGrantsAuthentication(ConfidentialPartnerAuthentication):
     capability = "can_use_github_grants"
+
+
+class PayerAuthentication(ConfidentialPartnerAuthentication):
+    capability = "pays_for_customers"

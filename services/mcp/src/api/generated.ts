@@ -73782,6 +73782,292 @@ export namespace Schemas {
       results: WorkflowProposal[];
     }
 
+    export interface PartnerPayerAddress {
+      /**
+         * First line of the address.
+         * @nullable
+         */
+      line1?: string | null;
+      /**
+         * Second line of the address.
+         * @nullable
+         */
+      line2?: string | null;
+      /**
+         * City.
+         * @nullable
+         */
+      city?: string | null;
+      /**
+         * State, county, province, or region.
+         * @nullable
+         */
+      state?: string | null;
+      /**
+         * Postal code.
+         * @nullable
+         */
+      postal_code?: string | null;
+      /**
+         * Two-letter ISO country code.
+         * @nullable
+         */
+      country?: string | null;
+    }
+
+    export interface PartnerPayerApplication {
+      /** ID of the partner's OAuth application. The other partner billing routes take it. */
+      readonly id: string;
+      /** Name of the partner application. */
+      readonly name: string;
+      /**
+         * URL of the partner application's logo, or null.
+         * @nullable
+         */
+      readonly logo_uri: string | null;
+    }
+
+    export interface PartnerPayerTaxId {
+      /** Tax ID type, for example `eu_vat`. */
+      type?: string;
+      /** The tax ID. */
+      value?: string;
+    }
+
+    export interface PartnerPayerBillingDetails {
+      /** Billing address on the payer's invoices. */
+      address?: PartnerPayerAddress | null;
+      /** Tax IDs on the payer's invoices. */
+      tax_ids?: PartnerPayerTaxId[];
+    }
+
+    export interface PartnerPayerInvoice {
+      /** ID of the invoice. */
+      invoice_id: string;
+      /** ID of the organization the invoice is for. */
+      organization_id?: string;
+      /**
+         * Start of the billing period.
+         * @nullable
+         */
+      period_start?: string | null;
+      /**
+         * End of the billing period.
+         * @nullable
+         */
+      period_end?: string | null;
+      /** Invoice total in the currency's minor unit. */
+      amount_cents?: number;
+      /** Three-letter ISO currency code, for example `usd`. */
+      currency?: string;
+      /** Invoice status, for example `open` or `paid`. */
+      status?: string;
+      /**
+         * ID of the settlement that pays this invoice, or null.
+         * @nullable
+         */
+      settlement_id?: string | null;
+      /**
+         * URL of the invoice PDF, or null.
+         * @nullable
+         */
+      pdf_url?: string | null;
+    }
+
+    export interface PartnerPayerInvoiceList {
+      /** Total number of invoices. */
+      count: number;
+      /** This page of invoices. */
+      results: PartnerPayerInvoice[];
+    }
+
+    /**
+     * Monthly spend limit in whole US dollars per product key for this organization.
+     */
+    export type PartnerPayerOrganizationCustomLimitsUsd = {[key: string]: number | null};
+
+    export interface PartnerPayerOrganization {
+      /** ID of the PostHog organization. */
+      organization_id: string;
+      /** Name of the organization. */
+      name?: string;
+      /**
+         * When the partner started paying for the organization.
+         * @nullable
+         */
+      linked_at?: string | null;
+      /**
+         * When the organization stopped being paid for by the partner, or null.
+         * @nullable
+         */
+      detached_at?: string | null;
+      /** Monthly spend limit in whole US dollars per product key for this organization. */
+      custom_limits_usd?: PartnerPayerOrganizationCustomLimitsUsd;
+    }
+
+    export interface PartnerPayerOrganizationList {
+      /** Total number of organizations. */
+      count: number;
+      /** This page of organizations. */
+      results: PartnerPayerOrganization[];
+    }
+
+    export interface PartnerPayerPortal {
+      /** Billing portal URL to send the person's browser to. It expires shortly. */
+      url: string;
+    }
+
+    export interface PartnerPayerPortalRequest {
+      /**
+         * Path in PostHog that the billing portal returns to. Defaults to the billing page.
+         * @maxLength 2048
+         */
+      return_path?: string;
+    }
+
+    export interface PartnerPayerSettlement {
+      /** ID of the settlement. */
+      settlement_id: string;
+      /**
+         * Start of the billing period.
+         * @nullable
+         */
+      period_start?: string | null;
+      /**
+         * End of the billing period.
+         * @nullable
+         */
+      period_end?: string | null;
+      /** Settlement total in the currency's minor unit. */
+      amount_cents?: number;
+      /** Three-letter ISO currency code, for example `usd`. */
+      currency?: string;
+      /** Settlement status, for example `paid` or `failed`. */
+      status?: string;
+      /** Number of times billing tried the charge. */
+      attempt_count?: number;
+      /**
+         * When billing tries the charge again, or null.
+         * @nullable
+         */
+      next_attempt_at?: string | null;
+      /**
+         * When the charge succeeded, or null.
+         * @nullable
+         */
+      paid_at?: string | null;
+    }
+
+    export interface PartnerPayerSettlementDetail {
+      /** ID of the settlement. */
+      settlement_id: string;
+      /**
+         * Start of the billing period.
+         * @nullable
+         */
+      period_start?: string | null;
+      /**
+         * End of the billing period.
+         * @nullable
+         */
+      period_end?: string | null;
+      /** Settlement total in the currency's minor unit. */
+      amount_cents?: number;
+      /** Three-letter ISO currency code, for example `usd`. */
+      currency?: string;
+      /** Settlement status, for example `paid` or `failed`. */
+      status?: string;
+      /** Number of times billing tried the charge. */
+      attempt_count?: number;
+      /**
+         * When billing tries the charge again, or null.
+         * @nullable
+         */
+      next_attempt_at?: string | null;
+      /**
+         * When the charge succeeded, or null.
+         * @nullable
+         */
+      paid_at?: string | null;
+      /** The organization invoices that the settlement pays. */
+      invoices?: PartnerPayerInvoice[];
+    }
+
+    export interface PartnerPayerSettlementList {
+      /** Total number of settlements. */
+      count: number;
+      /** This page of settlements. */
+      results: PartnerPayerSettlement[];
+    }
+
+    export interface PartnerPayerSpend {
+      /** Spend this month across the partner's organizations, as a decimal string in US dollars. */
+      month_to_date_usd?: string;
+      /**
+         * Spend alert threshold, as a decimal string in US dollars, or null.
+         * @nullable
+         */
+      alert_usd?: string | null;
+      /**
+         * Spend cap, as a decimal string in US dollars, or null.
+         * @nullable
+         */
+      cap_usd?: string | null;
+      /** Whether this month's spend has reached the cap. */
+      capped?: boolean;
+    }
+
+    /**
+     * Monthly spend limit in whole US dollars per product key, applied to each new organization.
+     */
+    export type PartnerPayerStatusDefaultLimitsUsd = {[key: string]: number | null};
+
+    export interface PartnerPayerWebhook {
+      /**
+         * URL that receives the partner's billing events, or null.
+         * @nullable
+         */
+      url?: string | null;
+      /**
+         * When the current webhook signing secret was created, or null when there is none.
+         * @nullable
+         */
+      secret_created_at?: string | null;
+    }
+
+    export interface PartnerPayerStatus {
+      /** Name on the payer's invoices. */
+      name?: string;
+      /** Whether billing charges the partner for its organizations. */
+      billing_enabled?: boolean;
+      /** Whether the payer has a payment method on file. */
+      has_payment_method?: boolean;
+      /** Address and tax IDs on the payer's invoices. */
+      billing_details?: PartnerPayerBillingDetails;
+      /** Number of organizations the partner pays for. */
+      organization_count?: number;
+      /** Where billing sends the partner's events. */
+      webhook?: PartnerPayerWebhook;
+      /** Whether the payer owes a settlement that billing could not charge. */
+      past_due?: boolean;
+      /** This month's spend, and its alert and cap. */
+      spend?: PartnerPayerSpend;
+      /** Monthly spend limit in whole US dollars per product key, applied to each new organization. */
+      default_limits_usd?: PartnerPayerStatusDefaultLimitsUsd;
+    }
+
+    export interface PartnerPayerTestEvent {
+      /** ID of the test event, also sent as its `webhook-id` header. */
+      event_id: string;
+    }
+
+    export interface PartnerPayerWebhookSecret {
+      /** The new webhook signing secret, in `whsec_` format. Billing returns it only once. */
+      secret: string;
+      /** When the secret was created. */
+      created_at: string;
+    }
+
     export interface PassRateBucket {
       /** Bucket start, aligned to success_rate_series_granularity (top of hour, midnight, or Monday). */
       bucket_start: string;
@@ -78647,6 +78933,44 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * Monthly spend limit in whole US dollars per product key, applied to each organization when it links to the partner. Null for a product removes its default.
+     */
+    export type PatchedPartnerPayerAdminUpdateDefaultLimitsUsd = {[key: string]: number | null};
+
+    export interface PatchedPartnerPayerAdminUpdate {
+      /**
+         * HTTPS URL that receives the partner's billing events, signed with the webhook secret. Null removes the webhook.
+         * @maxLength 2048
+         * @nullable
+         */
+      webhook_url?: string | null;
+      /**
+         * Month-to-date spend in US dollars, across every organization the partner pays for, at which billing sends a spend alert. Null turns the alert off.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      spend_alert_usd?: string | null;
+      /**
+         * Month-to-date spend in US dollars, across every organization the partner pays for, at which billing caps further usage. Null removes the cap.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      spend_cap_usd?: string | null;
+      /** Monthly spend limit in whole US dollars per product key, applied to each organization when it links to the partner. Null for a product removes its default. */
+      default_limits_usd?: PatchedPartnerPayerAdminUpdateDefaultLimitsUsd;
+    }
+
+    /**
+     * Monthly spend limit in whole US dollars per product key for this organization. Null for a product clears this organization's limit for it.
+     */
+    export type PatchedPartnerPayerOrganizationLimitsCustomLimitsUsd = {[key: string]: number | null};
+
+    export interface PatchedPartnerPayerOrganizationLimits {
+      /** Monthly spend limit in whole US dollars per product key for this organization. Null for a product clears this organization's limit for it. */
+      custom_limits_usd?: PatchedPartnerPayerOrganizationLimitsCustomLimitsUsd;
     }
 
     /**
@@ -111889,6 +112213,58 @@ export namespace Schemas {
     limit?: number;
     /**
      * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type PartnerBillingInvoicesListParams = {
+    /**
+     * Number of results to return, from 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Number of results to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Only return this organization's invoices.
+     */
+    organization_id?: string;
+    /**
+     * Only return invoices in this status, for example `open` or `paid`.
+     * @minLength 1
+     * @maxLength 32
+     */
+    status?: string;
+    };
+
+    export type PartnerBillingOrganizationListParams = {
+    /**
+     * Number of results to return, from 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Number of results to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type PartnerBillingSettlementsListParams = {
+    /**
+     * Number of results to return, from 1 to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Number of results to skip.
+     * @minimum 0
      */
     offset?: number;
     };

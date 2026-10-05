@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from enum import Enum, StrEnum
 from http.cookiejar import DefaultCookiePolicy
 from typing import Any, Literal, Optional, cast
+from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
@@ -63,6 +64,13 @@ BILLING_EXPORT_REQUEST_TIMEOUT = (5, 120)
 # Marks tokens minted by the billing alerts evaluation job; billing recognizes this claim
 # on its read-only billing status path for tokens without a user role.
 BILLING_ALERTS_EVALUATION_SERVICE_ACTION = "billing_alerts_evaluation"
+
+# Billing's /api/payer routes accept only tokens with this claim, which name a paying partner rather than
+# a customer organization.
+PARTNER_PAYER_SERVICE_ACTION = "partner_payer"
+# Each token is minted for one call and spent at once, so its lifetime only has to cover clock skew.
+PARTNER_PAYER_TOKEN_LIFETIME = timedelta(minutes=5)
+PARTNER_PAYER_REQUEST_TIMEOUT = (5, 30)
 
 
 StartupProgramLabel = Literal["Startup", "YC"]
@@ -229,6 +237,27 @@ def build_billing_token(
     return encoded_jwt
 
 
+def build_partner_payer_token(license: License, application: OAuthApplication) -> str:
+    if application.organization_id is None:
+        raise NotAuthenticated("This partner has no verified PostHog organization.")
+
+    license_id = license.key.split("::")[0]
+    license_secret = license.key.split("::")[1]
+
+    payload = {
+        "exp": datetime.now(tz=UTC) + PARTNER_PAYER_TOKEN_LIFETIME,
+        "id": license_id,
+        "aud": "posthog:license-key",
+        "service_action": PARTNER_PAYER_SERVICE_ACTION,
+        "partner_application_id": str(application.id),
+        # Billing refuses the call unless this is the payer's managing organization, so a CIMD refresh
+        # that moves the application to another organization cannot move the bill with it.
+        "organization_id": str(application.organization_id),
+    }
+
+    return jwt.encode(payload, license_secret, algorithm="HS256")
+
+
 def _compute_webhook_signature(secret: str, timestamp: int, body: bytes) -> str:
     """HMAC-SHA256 over "<timestamp>.<body>", hex-encoded."""
     mac = hmac.new(secret.encode(), digestmod=hashlib.sha256)
@@ -318,6 +347,10 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 
             body = res.text
 
         raise BillingServiceResponseError(res.status_code, body)
+
+
+def _without_none(**params: Any) -> dict[str, Any]:
+    return {key: value for key, value in params.items() if value is not None}
 
 
 def _parse_funding_status(data: object) -> OrganizationFundingStatus:
@@ -1182,6 +1215,94 @@ class BillingManager:
             timeout=BILLING_TIMESERIES_REQUEST_TIMEOUT,
         )
         handle_billing_service_error(res)
+        return res.json()
+
+    def get_payer(self, application: OAuthApplication) -> dict[str, Any]:
+        try:
+            return self._payer_request("GET", application)
+        except BillingServiceResponseError as error:
+            # Billing answers 404 until staff set up the partner's payer and turn partner billing on.
+            if error.status_code == 404:
+                return {"billing_enabled": False}
+            raise
+
+    def create_payer_portal_session(self, application: OAuthApplication, return_url: str) -> dict[str, Any]:
+        return self._payer_request("POST", application, "/portal", body={"return_url": return_url})
+
+    def update_payer(self, application: OAuthApplication, changes: dict[str, Any]) -> dict[str, Any]:
+        return self._payer_request("PATCH", application, body=changes)
+
+    def rotate_payer_webhook_secret(self, application: OAuthApplication) -> dict[str, Any]:
+        return self._payer_request("POST", application, "/webhook_secret")
+
+    def send_payer_test_event(self, application: OAuthApplication) -> dict[str, Any]:
+        return self._payer_request("POST", application, "/test_event")
+
+    def list_payer_organizations(
+        self, application: OAuthApplication, *, limit: int | None = None, offset: int | None = None
+    ) -> dict[str, Any]:
+        return self._payer_request(
+            "GET", application, "/organizations", params=_without_none(limit=limit, offset=offset)
+        )
+
+    def update_payer_organization_limits(
+        self, application: OAuthApplication, organization_id: str, custom_limits_usd: dict[str, int | None]
+    ) -> dict[str, Any]:
+        return self._payer_request(
+            "PATCH",
+            application,
+            f"/organizations/{quote(organization_id, safe='')}/limits",
+            body={"custom_limits_usd": custom_limits_usd},
+        )
+
+    def list_payer_invoices(
+        self,
+        application: OAuthApplication,
+        *,
+        organization_id: str | None = None,
+        status: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> dict[str, Any]:
+        params = _without_none(organization_id=organization_id, status=status, limit=limit, offset=offset)
+        return self._payer_request("GET", application, "/invoices", params=params)
+
+    def list_payer_settlements(
+        self, application: OAuthApplication, *, limit: int | None = None, offset: int | None = None
+    ) -> dict[str, Any]:
+        return self._payer_request("GET", application, "/settlements", params=_without_none(limit=limit, offset=offset))
+
+    def get_payer_settlement(self, application: OAuthApplication, settlement_id: str) -> dict[str, Any]:
+        return self._payer_request("GET", application, f"/settlements/{quote(settlement_id, safe='')}")
+
+    def retry_payer_settlement(self, application: OAuthApplication, settlement_id: str) -> dict[str, Any]:
+        return self._payer_request("POST", application, f"/settlements/{quote(settlement_id, safe='')}/retry")
+
+    def _payer_request(
+        self,
+        method: Literal["GET", "POST", "PATCH"],
+        application: OAuthApplication,
+        path: str = "",
+        *,
+        params: dict[str, Any] | None = None,
+        body: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not self.license:
+            raise Exception("No license found")
+        headers = {"Authorization": f"Bearer {build_partner_payer_token(self.license, application)}"}
+        if self.ip_address:
+            headers["X-PostHog-Actor-IP"] = self.ip_address
+        res = http_session.request(
+            method,
+            f"{BILLING_SERVICE_URL}/api/payer{path}",
+            headers=headers,
+            params=params,
+            json=body,
+            timeout=PARTNER_PAYER_REQUEST_TIMEOUT,
+        )
+        # The default valid codes accept 401 and 404, which would hand billing's error body to the caller as
+        # the payer's data.
+        handle_billing_service_error(res, valid_codes=(200, 201))
         return res.json()
 
     def get_usage_data(self, organization: Organization, params: dict[str, Any]) -> dict[str, Any]:

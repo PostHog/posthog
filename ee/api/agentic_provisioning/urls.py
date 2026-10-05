@@ -77,6 +77,46 @@ urlpatterns = [
         csrf_exempt(views.GitHubGrantRepositoriesView.as_view()),
         name="agentic_provisioning_github_grant_repositories",
     ),
+    path(
+        "api/agentic/provisioning/payer",
+        csrf_exempt(views.PayerView.as_view()),
+        name="agentic_provisioning_payer",
+    ),
+    path(
+        "api/agentic/provisioning/payer/webhook_secret",
+        csrf_exempt(views.PayerWebhookSecretView.as_view()),
+        name="agentic_provisioning_payer_webhook_secret",
+    ),
+    path(
+        "api/agentic/provisioning/payer/test_event",
+        csrf_exempt(views.PayerTestEventView.as_view()),
+        name="agentic_provisioning_payer_test_event",
+    ),
+    path(
+        "api/agentic/provisioning/payer/organizations",
+        csrf_exempt(views.PayerOrganizationsView.as_view()),
+        name="agentic_provisioning_payer_organizations",
+    ),
+    path(
+        "api/agentic/provisioning/payer/organizations/<uuid:organization_id>/limits",
+        csrf_exempt(views.PayerOrganizationLimitsView.as_view()),
+        name="agentic_provisioning_payer_organization_limits",
+    ),
+    path(
+        "api/agentic/provisioning/payer/invoices",
+        csrf_exempt(views.PayerInvoicesView.as_view()),
+        name="agentic_provisioning_payer_invoices",
+    ),
+    path(
+        "api/agentic/provisioning/payer/settlements",
+        csrf_exempt(views.PayerSettlementsView.as_view()),
+        name="agentic_provisioning_payer_settlements",
+    ),
+    path(
+        "api/agentic/provisioning/payer/settlements/<slug:settlement_id>",
+        csrf_exempt(views.PayerSettlementDetailView.as_view()),
+        name="agentic_provisioning_payer_settlement",
+    ),
     path("api/agentic/authorize", views.agentic_authorize, name="agentic_authorize"),
     path("api/agentic/authorize/pending/", views.AuthorizePendingView.as_view(), name="agentic_authorize_pending"),
     path("api/agentic/authorize/confirm/", views.AuthorizeConfirmView.as_view(), name="agentic_authorize_confirm"),

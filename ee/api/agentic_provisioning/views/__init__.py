@@ -5,6 +5,16 @@ from ee.api.agentic_provisioning.views.deep_links import DeepLinksView, agentic_
 from ee.api.agentic_provisioning.views.github_grants import GitHubGrantRepositoriesView, GitHubGrantsCreateView
 from ee.api.agentic_provisioning.views.limits import LimitsView
 from ee.api.agentic_provisioning.views.oauth_token import OAuthTokenView
+from ee.api.agentic_provisioning.views.payer import (
+    PayerInvoicesView,
+    PayerOrganizationLimitsView,
+    PayerOrganizationsView,
+    PayerSettlementDetailView,
+    PayerSettlementsView,
+    PayerTestEventView,
+    PayerView,
+    PayerWebhookSecretView,
+)
 from ee.api.agentic_provisioning.views.resources import (
     GitHubIntegrationView,
     ResourceDetailView,
@@ -25,6 +35,14 @@ __all__ = [
     "GitHubIntegrationView",
     "LimitsView",
     "OAuthTokenView",
+    "PayerInvoicesView",
+    "PayerOrganizationLimitsView",
+    "PayerOrganizationsView",
+    "PayerSettlementDetailView",
+    "PayerSettlementsView",
+    "PayerTestEventView",
+    "PayerView",
+    "PayerWebhookSecretView",
     "ResourceDetailView",
     "ResourceRemoveView",
     "ResourcesCreateView",

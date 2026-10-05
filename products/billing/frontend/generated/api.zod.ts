@@ -430,3 +430,71 @@ export const BillingAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.obj
         .max(billingAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
         .describe('HogFunction IDs to delete as one atomic destination group.'),
 })
+
+/**
+ * @summary Change the partner's webhook, spend alert, spend cap or default limits
+ */
+export const partnerBillingPartialUpdateBodyWebhookUrlMax = 2048
+
+export const partnerBillingPartialUpdateBodySpendAlertUsdRegExp = new RegExp('^-?\\d{0,10}(?:\\.\\d{0,2})?$')
+export const partnerBillingPartialUpdateBodySpendCapUsdRegExp = new RegExp('^-?\\d{0,10}(?:\\.\\d{0,2})?$')
+export const partnerBillingPartialUpdateBodyDefaultLimitsUsdMinOne = 0
+
+export const PartnerBillingPartialUpdateBody = /* @__PURE__ */ zod.object({
+    webhook_url: zod
+        .url()
+        .max(partnerBillingPartialUpdateBodyWebhookUrlMax)
+        .nullish()
+        .describe(
+            "HTTPS URL that receives the partner's billing events, signed with the webhook secret. Null removes the webhook."
+        ),
+    spend_alert_usd: zod
+        .stringFormat('decimal', partnerBillingPartialUpdateBodySpendAlertUsdRegExp)
+        .nullish()
+        .describe(
+            'Month-to-date spend in US dollars, across every organization the partner pays for, at which billing sends a spend alert. Null turns the alert off.'
+        ),
+    spend_cap_usd: zod
+        .stringFormat('decimal', partnerBillingPartialUpdateBodySpendCapUsdRegExp)
+        .nullish()
+        .describe(
+            'Month-to-date spend in US dollars, across every organization the partner pays for, at which billing caps further usage. Null removes the cap.'
+        ),
+    default_limits_usd: zod
+        .record(zod.string(), zod.number().min(partnerBillingPartialUpdateBodyDefaultLimitsUsdMinOne).nullable())
+        .optional()
+        .describe(
+            'Monthly spend limit in whole US dollars per product key, applied to each organization when it links to the partner. Null for a product removes its default.'
+        ),
+})
+
+/**
+ * @summary Set an organization's monthly spend limits
+ */
+export const partnerBillingOrganizationLimitsPartialUpdateBodyCustomLimitsUsdMinOne = 0
+
+export const PartnerBillingOrganizationLimitsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    custom_limits_usd: zod
+        .record(
+            zod.string(),
+            zod.number().min(partnerBillingOrganizationLimitsPartialUpdateBodyCustomLimitsUsdMinOne).nullable()
+        )
+        .optional()
+        .describe(
+            "Monthly spend limit in whole US dollars per product key for this organization. Null for a product clears this organization's limit for it."
+        ),
+})
+
+/**
+ * @summary Open the payer's billing portal to manage the payment method and billing details
+ */
+export const partnerBillingPortalCreateBodyReturnPathDefault = `/organization/billing`
+export const partnerBillingPortalCreateBodyReturnPathMax = 2048
+
+export const PartnerBillingPortalCreateBody = /* @__PURE__ */ zod.object({
+    return_path: zod
+        .string()
+        .max(partnerBillingPortalCreateBodyReturnPathMax)
+        .default(partnerBillingPortalCreateBodyReturnPathDefault)
+        .describe('Path in PostHog that the billing portal returns to. Defaults to the billing page.'),
+})

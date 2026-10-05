@@ -47,8 +47,25 @@ import type {
     PaginatedBillingAlertConfigurationListApi,
     PaginatedBillingAlertEventListApi,
     PaginatedBillingTimeSeriesPointListApi,
+    PartnerBillingInvoicesListParams,
+    PartnerBillingOrganizationListParams,
+    PartnerBillingSettlementsListParams,
+    PartnerPayerApplicationApi,
+    PartnerPayerInvoiceListApi,
+    PartnerPayerOrganizationApi,
+    PartnerPayerOrganizationListApi,
+    PartnerPayerPortalApi,
+    PartnerPayerPortalRequestApi,
+    PartnerPayerSettlementApi,
+    PartnerPayerSettlementDetailApi,
+    PartnerPayerSettlementListApi,
+    PartnerPayerStatusApi,
+    PartnerPayerTestEventApi,
+    PartnerPayerWebhookSecretApi,
     PatchedBillingAlertConfigurationApi,
     PatchedBillingApi,
+    PatchedPartnerPayerAdminUpdateApi,
+    PatchedPartnerPayerOrganizationLimitsApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -1035,4 +1052,296 @@ export const billingUsageTimeseriesRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getPartnerBillingListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/partner_billing/`
+}
+
+export const partnerBillingList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<PartnerPayerApplicationApi[]> => {
+    return apiMutator<PartnerPayerApplicationApi[]>(getPartnerBillingListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPartnerBillingRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/partner_billing/${id}/`
+}
+
+/**
+ * @summary Get the partner's billing status
+ */
+export const partnerBillingRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PartnerPayerStatusApi> => {
+    return apiMutator<PartnerPayerStatusApi>(getPartnerBillingRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPartnerBillingPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/partner_billing/${id}/`
+}
+
+/**
+ * @summary Change the partner's webhook, spend alert, spend cap or default limits
+ */
+export const partnerBillingPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedPartnerPayerAdminUpdateApi?: PatchedPartnerPayerAdminUpdateApi,
+    options?: RequestInit
+): Promise<PartnerPayerStatusApi> => {
+    return apiMutator<PartnerPayerStatusApi>(getPartnerBillingPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedPartnerPayerAdminUpdateApi),
+    })
+}
+
+export const getPartnerBillingInvoicesListUrl = (
+    organizationId: string,
+    id: string,
+    params?: PartnerBillingInvoicesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/partner_billing/${id}/invoices/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/partner_billing/${id}/invoices/`
+}
+
+/**
+ * @summary List the organization invoices the partner pays
+ */
+export const partnerBillingInvoicesList = async (
+    organizationId: string,
+    id: string,
+    params?: PartnerBillingInvoicesListParams,
+    options?: RequestInit
+): Promise<PartnerPayerInvoiceListApi> => {
+    return apiMutator<PartnerPayerInvoiceListApi>(getPartnerBillingInvoicesListUrl(organizationId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPartnerBillingOrganizationListUrl = (
+    organizationId: string,
+    id: string,
+    params?: PartnerBillingOrganizationListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/partner_billing/${id}/organizations/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/partner_billing/${id}/organizations/`
+}
+
+/**
+ * @summary List the organizations the partner pays for
+ */
+export const partnerBillingOrganizationList = async (
+    organizationId: string,
+    id: string,
+    params?: PartnerBillingOrganizationListParams,
+    options?: RequestInit
+): Promise<PartnerPayerOrganizationListApi> => {
+    return apiMutator<PartnerPayerOrganizationListApi>(
+        getPartnerBillingOrganizationListUrl(organizationId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getPartnerBillingOrganizationLimitsPartialUpdateUrl = (
+    organizationId: string,
+    id: string,
+    customerOrganizationId: string
+) => {
+    return `/api/organizations/${organizationId}/partner_billing/${id}/organizations/${customerOrganizationId}/limits/`
+}
+
+/**
+ * @summary Set an organization's monthly spend limits
+ */
+export const partnerBillingOrganizationLimitsPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    customerOrganizationId: string,
+    patchedPartnerPayerOrganizationLimitsApi?: PatchedPartnerPayerOrganizationLimitsApi,
+    options?: RequestInit
+): Promise<PartnerPayerOrganizationApi> => {
+    return apiMutator<PartnerPayerOrganizationApi>(
+        getPartnerBillingOrganizationLimitsPartialUpdateUrl(organizationId, id, customerOrganizationId),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedPartnerPayerOrganizationLimitsApi),
+        }
+    )
+}
+
+export const getPartnerBillingPortalCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/partner_billing/${id}/portal/`
+}
+
+/**
+ * @summary Open the payer's billing portal to manage the payment method and billing details
+ */
+export const partnerBillingPortalCreate = async (
+    organizationId: string,
+    id: string,
+    partnerPayerPortalRequestApi?: PartnerPayerPortalRequestApi,
+    options?: RequestInit
+): Promise<PartnerPayerPortalApi> => {
+    return apiMutator<PartnerPayerPortalApi>(getPartnerBillingPortalCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(partnerPayerPortalRequestApi),
+    })
+}
+
+export const getPartnerBillingSettlementsListUrl = (
+    organizationId: string,
+    id: string,
+    params?: PartnerBillingSettlementsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/partner_billing/${id}/settlements/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/partner_billing/${id}/settlements/`
+}
+
+/**
+ * @summary List the partner's monthly settlements
+ */
+export const partnerBillingSettlementsList = async (
+    organizationId: string,
+    id: string,
+    params?: PartnerBillingSettlementsListParams,
+    options?: RequestInit
+): Promise<PartnerPayerSettlementListApi> => {
+    return apiMutator<PartnerPayerSettlementListApi>(getPartnerBillingSettlementsListUrl(organizationId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPartnerBillingSettlementsRetrieveUrl = (organizationId: string, id: string, settlementId: string) => {
+    return `/api/organizations/${organizationId}/partner_billing/${id}/settlements/${settlementId}/`
+}
+
+/**
+ * @summary Get a settlement and the invoices it pays
+ */
+export const partnerBillingSettlementsRetrieve = async (
+    organizationId: string,
+    id: string,
+    settlementId: string,
+    options?: RequestInit
+): Promise<PartnerPayerSettlementDetailApi> => {
+    return apiMutator<PartnerPayerSettlementDetailApi>(
+        getPartnerBillingSettlementsRetrieveUrl(organizationId, id, settlementId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getPartnerBillingSettlementRetryCreateUrl = (organizationId: string, id: string, settlementId: string) => {
+    return `/api/organizations/${organizationId}/partner_billing/${id}/settlements/${settlementId}/retry/`
+}
+
+/**
+ * @summary Charge a failed settlement again
+ */
+export const partnerBillingSettlementRetryCreate = async (
+    organizationId: string,
+    id: string,
+    settlementId: string,
+    options?: RequestInit
+): Promise<PartnerPayerSettlementApi> => {
+    return apiMutator<PartnerPayerSettlementApi>(
+        getPartnerBillingSettlementRetryCreateUrl(organizationId, id, settlementId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getPartnerBillingTestEventCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/partner_billing/${id}/test_event/`
+}
+
+/**
+ * @summary Send a test event to the partner's webhook
+ */
+export const partnerBillingTestEventCreate = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PartnerPayerTestEventApi> => {
+    return apiMutator<PartnerPayerTestEventApi>(getPartnerBillingTestEventCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getPartnerBillingWebhookSecretCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/partner_billing/${id}/webhook_secret/`
+}
+
+/**
+ * The previous secret stops signing events. The response is the only time the secret is shown.
+ * @summary Replace the webhook signing secret
+ */
+export const partnerBillingWebhookSecretCreate = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PartnerPayerWebhookSecretApi> => {
+    return apiMutator<PartnerPayerWebhookSecretApi>(getPartnerBillingWebhookSecretCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
+    })
 }

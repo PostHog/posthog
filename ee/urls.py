@@ -25,7 +25,7 @@ from ee.api.vercel import vercel_connect, vercel_sso
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import authentication, billing, conversation, core_memory, organization_billing, subscription
+from .api import authentication, billing, conversation, core_memory, organization_billing, partner_billing, subscription
 from .api.scim import views as scim_views
 
 
@@ -41,6 +41,9 @@ def extend_api_router() -> None:
     root_router.register(r"billing", billing.BillingViewset, "billing")
     organizations_router.register(
         r"billing", organization_billing.OrganizationBillingViewSet, "organization_billing", ["organization_id"]
+    )
+    organizations_router.register(
+        r"partner_billing", partner_billing.PartnerBillingViewSet, "organization_partner_billing", ["organization_id"]
     )
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])

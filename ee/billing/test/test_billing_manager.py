@@ -20,6 +20,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -31,16 +32,19 @@ from ee.billing.billing_manager import (
     BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION,
     BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER,
     BillingManager,
+    BillingServiceResponseError,
     FundingStatusUnavailable,
     OrganizationFundingStatus,
     PrepaidCreditState,
     _get_user_organization_role,
     _parse_funding_status,
     build_billing_token,
+    build_partner_payer_token,
     http_session,
 )
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.models.license import License, LicenseManager
+from ee.settings import BILLING_SERVICE_URL
 
 
 def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
@@ -1866,3 +1870,164 @@ class TestDisputeSignalsPr(BaseTest):
                     self.organization, {"refund_id": "r1", "credits": 1500, "metadata": {}}
                 )
         assert str(status_code) in str(context.exception)
+
+
+PAYER_LICENSE = License(key="license_id::license_secret")
+PAYER_APPLICATION_ID = "0192d7c4-5b6e-7000-8000-00000000a001"
+PAYER_ORGANIZATION_ID = "0192d7c4-5b6e-7000-8000-00000000b001"
+CUSTOMER_ORGANIZATION_ID = "0192d7c4-5b6e-7000-8000-00000000c001"
+
+
+def _payer_application(organization_id: str | None = PAYER_ORGANIZATION_ID) -> OAuthApplication:
+    return OAuthApplication(id=PAYER_APPLICATION_ID, organization_id=organization_id)
+
+
+def _billing_response(status_code: int, payload: Any) -> MagicMock:
+    response = MagicMock(status_code=status_code, text="")
+    response.json.return_value = payload
+    return response
+
+
+class TestBuildPartnerPayerToken(SimpleTestCase):
+    @time_machine.travel(datetime.datetime(2026, 10, 5, 12, 0, tzinfo=datetime.UTC), tick=False)
+    def test_names_the_partner_and_its_verified_organization(self):
+        token = build_partner_payer_token(PAYER_LICENSE, _payer_application())
+
+        claims = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
+        assert claims == {
+            "id": "license_id",
+            "aud": "posthog:license-key",
+            "service_action": "partner_payer",
+            "partner_application_id": PAYER_APPLICATION_ID,
+            "organization_id": PAYER_ORGANIZATION_ID,
+            "exp": int(datetime.datetime(2026, 10, 5, 12, 5, tzinfo=datetime.UTC).timestamp()),
+        }
+
+    def test_refuses_a_partner_without_a_verified_organization(self):
+        with self.assertRaises(NotAuthenticated):
+            build_partner_payer_token(PAYER_LICENSE, _payer_application(organization_id=None))
+
+
+class TestPartnerPayerRequests(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("status", lambda manager, app: manager.get_payer(app), "GET", "/api/payer", None, None),
+            (
+                "portal",
+                lambda manager, app: manager.create_payer_portal_session(app, "https://app.example.com/billing"),
+                "POST",
+                "/api/payer/portal",
+                None,
+                {"return_url": "https://app.example.com/billing"},
+            ),
+            (
+                "update",
+                lambda manager, app: manager.update_payer(app, {"spend_cap_usd": "5000.00"}),
+                "PATCH",
+                "/api/payer",
+                None,
+                {"spend_cap_usd": "5000.00"},
+            ),
+            (
+                "webhook secret",
+                lambda manager, app: manager.rotate_payer_webhook_secret(app),
+                "POST",
+                "/api/payer/webhook_secret",
+                None,
+                None,
+            ),
+            (
+                "test event",
+                lambda manager, app: manager.send_payer_test_event(app),
+                "POST",
+                "/api/payer/test_event",
+                None,
+                None,
+            ),
+            (
+                "organizations",
+                lambda manager, app: manager.list_payer_organizations(app, limit=20, offset=40),
+                "GET",
+                "/api/payer/organizations",
+                {"limit": 20, "offset": 40},
+                None,
+            ),
+            (
+                "organization limits",
+                lambda manager, app: manager.update_payer_organization_limits(
+                    app, CUSTOMER_ORGANIZATION_ID, {"session_replay": None}
+                ),
+                "PATCH",
+                f"/api/payer/organizations/{CUSTOMER_ORGANIZATION_ID}/limits",
+                None,
+                {"custom_limits_usd": {"session_replay": None}},
+            ),
+            (
+                "invoices",
+                lambda manager, app: manager.list_payer_invoices(
+                    app, organization_id=CUSTOMER_ORGANIZATION_ID, status="open"
+                ),
+                "GET",
+                "/api/payer/invoices",
+                {"organization_id": CUSTOMER_ORGANIZATION_ID, "status": "open"},
+                None,
+            ),
+            (
+                "settlements",
+                lambda manager, app: manager.list_payer_settlements(app),
+                "GET",
+                "/api/payer/settlements",
+                {},
+                None,
+            ),
+            (
+                "settlement",
+                lambda manager, app: manager.get_payer_settlement(app, "stl_1"),
+                "GET",
+                "/api/payer/settlements/stl_1",
+                None,
+                None,
+            ),
+            (
+                "settlement retry",
+                lambda manager, app: manager.retry_payer_settlement(app, "stl_1"),
+                "POST",
+                "/api/payer/settlements/stl_1/retry",
+                None,
+                None,
+            ),
+        ]
+    )
+    def test_sends_the_payer_contract_request(self, _name, call, method, path, params, body):
+        with patch(
+            "ee.billing.billing_manager.http_session.request", return_value=_billing_response(200, {"ok": True})
+        ) as request:
+            assert call(BillingManager(PAYER_LICENSE), _payer_application()) == {"ok": True}
+
+        request.assert_called_once()
+        assert request.call_args.args == (method, f"{BILLING_SERVICE_URL}{path}")
+        assert request.call_args.kwargs["params"] == params
+        assert request.call_args.kwargs["json"] == body
+        token = request.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        claims = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
+        assert claims["service_action"] == "partner_payer"
+
+    @parameterized.expand([("token refused", 401), ("payer missing", 404)])
+    def test_raises_on_errors_the_default_valid_codes_accept(self, _name, status_code):
+        with patch(
+            "ee.billing.billing_manager.http_session.request",
+            return_value=_billing_response(status_code, {"detail": "refused"}),
+        ):
+            with self.assertRaises(BillingServiceResponseError) as context:
+                BillingManager(PAYER_LICENSE).list_payer_organizations(_payer_application())
+
+        assert context.exception.status_code == status_code
+
+    def test_payer_status_reads_billing_off_until_billing_has_the_payer(self):
+        with patch(
+            "ee.billing.billing_manager.http_session.request",
+            return_value=_billing_response(404, {"detail": "Partner billing is not set up for this partner."}),
+        ):
+            payer = BillingManager(PAYER_LICENSE).get_payer(_payer_application())
+
+        assert payer == {"billing_enabled": False}
