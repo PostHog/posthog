@@ -369,6 +369,55 @@ class TestHogFlowRevisions(APIBaseTest):
         assert flow.draft is None
         assert [r["version"] for r in self._list_revisions(flow_id)] == [3, 2, 1]
 
+    def test_restore_reports_the_steps_it_drops_from_the_draft(self):
+        flow_id = self._create_active_three_step_flow()
+        self._stage_draft_delete_action_1(flow_id)
+        self._publish(flow_id)
+        restore = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/1/restore", {})
+        assert restore.status_code == 200, restore.json()
+        self._publish(flow_id)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_2",
+                        "patch": {"config": {"inputs": {"url": {"value": "https://staged.example.com"}}}},
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert response.status_code == 200, response.json()
+
+        expected = {
+            "removed_steps": ["action_1"],
+            "added_steps": [],
+            "updated_steps": ["action_2"],
+            "updated_settings": ["edges"],
+        }
+        detail = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/2")
+        assert detail.status_code == 200, detail.json()
+        assert detail.json()["restore_changes"] == expected
+
+        restore = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions/2/restore", {"overwrite": True}
+        )
+        assert restore.status_code == 200, restore.json()
+        entry = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("-created_at").first()
+        assert entry is not None and entry.activity == "revision_restored"
+        restored = [c for c in entry.detail["changes"] if c["field"] == "restored_version"]
+        assert restored == [
+            {
+                "type": "HogFlow",
+                "action": "changed",
+                "field": "restored_version",
+                "before": None,
+                "after": {"version": 2, **expected},
+            }
+        ]
+
     def _stage_draft_delete_action_1(self, flow_id: str) -> None:
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",

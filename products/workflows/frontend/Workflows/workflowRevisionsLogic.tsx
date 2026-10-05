@@ -8,9 +8,14 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { hogFlowsRevisionsList, hogFlowsRevisionsRestoreCreate } from '../generated/api'
-import type { HogFlowRevisionBasicApi, PaginatedHogFlowRevisionBasicListApi } from '../generated/api.schemas'
+import { hogFlowsRevisionsList, hogFlowsRevisionsRestoreCreate, hogFlowsRevisionsRetrieve } from '../generated/api'
+import type {
+    HogFlowRestoreChangesApi,
+    HogFlowRevisionBasicApi,
+    PaginatedHogFlowRevisionBasicListApi,
+} from '../generated/api.schemas'
 import type { HogFlow } from './hogflows/types'
+import { RestoreChangesSummary, restoreChangesAreEmpty } from './RestoreChangesSummary'
 import { workflowLogic } from './workflowLogic'
 
 export interface WorkflowRevisionsLogicProps {
@@ -122,18 +127,41 @@ export const workflowRevisionsLogic = kea<workflowRevisionsLogicType>([
         ],
     }),
     listeners(({ actions, props, values }) => ({
-        restoreRevision: ({ version }) => {
+        restoreRevision: async ({ version }) => {
             if (values.restoringVersion !== null) {
                 return
             }
             // The stamp of the draft this confirmation is about. The restore sends it as a fence, so
             // a draft staged or edited after this dialog opened returns 409 instead of being clobbered.
             const expectedDraftUpdatedAt = values.originalWorkflow?.draft_updated_at ?? null
+            const hasStagedDraft = values.hasStagedDraft
+            // The restore replaces the draft whole, so show what it drops before the user confirms.
+            actions.setRestoringVersion(version)
+            let changes: HogFlowRestoreChangesApi | null = null
+            try {
+                changes = (await hogFlowsRevisionsRetrieve(String(values.currentTeamIdStrict), props.id, version))
+                    .restore_changes
+            } catch {
+                // Without the preview the dialog still warns that the draft is replaced.
+            } finally {
+                actions.setRestoringVersion(null)
+            }
+            const comparedWith = hasStagedDraft ? 'your staged draft' : 'the live workflow'
             LemonDialog.open({
                 title: `Restore version ${version} as draft?`,
-                description: values.hasStagedDraft
+                description: hasStagedDraft
                     ? 'This replaces your current staged draft with this version. The live workflow keeps running until you publish.'
                     : 'This version opens on the canvas as a draft. The live workflow keeps running until you publish.',
+                content: changes ? (
+                    restoreChangesAreEmpty(changes) ? (
+                        <p className="mb-0">This version has the same steps and settings as {comparedWith}.</p>
+                    ) : (
+                        <div>
+                            <p className="mb-1">Compared with {comparedWith}, this version:</p>
+                            <RestoreChangesSummary changes={changes} />
+                        </div>
+                    )
+                ) : null,
                 primaryButton: {
                     children: 'Restore as draft',
                     onClick: () => actions.confirmRestoreRevision(version, expectedDraftUpdatedAt),
