@@ -101,6 +101,8 @@ const CONFIG: SignalScoutConfigApi = {
     enabled: false,
     status: 'active',
     pause_reason: null,
+    managed_by: 'team',
+    deprecation: null,
     emit: true,
     run_interval_minutes: 1440,
     run_cron_schedule: null,
@@ -111,6 +113,7 @@ const CONFIG: SignalScoutConfigApi = {
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
+    status_changed_by: null,
     auto_pause_exempt: false,
     network_access: 'trusted',
     model: null,
@@ -467,5 +470,59 @@ describe('scoutSuggestionsLogic', () => {
         logic.actions.showStrip()
         expect(logic.values.stripHidden).toBe(false)
         expect(logic.values.collapsed).toBe(false)
+    })
+
+    it('reports each expand, collapse and close of the strip once, and nothing for a remembered state', async () => {
+        await mountWithBatch()
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        logic.actions.setCollapsed(false)
+        logic.actions.setCollapsed(true)
+        logic.actions.hideStrip()
+
+        const clicks = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED
+        )
+        expect(clicks.map(([, properties]) => properties)).toEqual(
+            ['expand', 'collapse', 'close'].map((target) =>
+                expect.objectContaining({
+                    click_target: target,
+                    suggestion_count: 2,
+                    batch_status: 'fresh',
+                    surface: 'strip',
+                })
+            )
+        )
+        expect(clicks[0][1]).not.toHaveProperty('skill_name')
+
+        // A reload restores the closed strip from storage, and that is not a press.
+        logic.unmount()
+        ;(posthog.capture as jest.Mock).mockClear()
+        await mountWithBatch()
+        expect(logic.values.stripHidden).toBe(true)
+        expect(
+            (posthog.capture as jest.Mock).mock.calls.filter(
+                ([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_CLICKED
+            )
+        ).toEqual([])
+    })
+
+    it('ties a created scout to its suggestion and config, under the name it was created with', async () => {
+        await mountWithBatch()
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        logic.actions.suggestionCreated(CUSTOM_ITEM, 'strip', { ...CONFIG, id: 'config-9', skill_name: 'renamed' })
+
+        const created = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === INBOX_EVENTS.SCOUT_SUGGESTION_CREATED
+        )
+        expect(created.map(([, properties]) => properties)).toEqual([
+            expect.objectContaining({
+                suggestion_id: CUSTOM_ITEM.id,
+                config_id: 'config-9',
+                skill_name: 'renamed',
+                suggestion_kind: 'custom',
+            }),
+        ])
     })
 })

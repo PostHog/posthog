@@ -25,6 +25,23 @@ def _make_writer(delta_uri: str) -> Scd2DeltaWriter:
 
 class TestScd2Write:
     @pytest.mark.asyncio
+    async def test_first_write_creates_the_table_with_a_short_checkpoint_interval(self, tmp_path: Path) -> None:
+        # The SCD2 writer has its own create path; a table it creates on delta-rs's default interval
+        # would replay a long uncheckpointed tail on every open.
+        delta_path = str(tmp_path / "scd2_table")
+        batch = pa.table(
+            {
+                "id": pa.array([1]),
+                "valid_from": pa.array([datetime(2026, 1, 1, tzinfo=UTC)], type=_TS_TYPE),
+                "valid_to": pa.array([None], type=_TS_TYPE),
+            }
+        )
+
+        await _make_writer(delta_path).write(data=batch, primary_keys=["id"])
+
+        assert deltalake.DeltaTable(delta_path).metadata().configuration.get("delta.checkpointInterval") == "25"
+
+    @pytest.mark.asyncio
     async def test_write_misaligned_decimal_to_local_delta(self, tmp_path: Path) -> None:
         # The SCD2 write carries its own realignment guard; without it the
         # close-existing merge would hand delta-rs a misaligned decimal and abort the worker.

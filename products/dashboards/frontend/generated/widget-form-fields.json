@@ -42,6 +42,13 @@
             "formFields": ["limit", "dateRange", "wrapLines", "timezone"],
             "live": false
         },
+        "notebook_widget": {
+            "configSchemaExport": "notebookWidgetConfigSchema",
+            "configTypeExport": "NotebookWidgetConfig",
+            "formSchemaExport": "notebookWidgetFormSchema",
+            "formFields": [],
+            "live": false
+        },
         "session_replay_list": {
             "configSchemaExport": "sessionReplayWidgetConfigSchema",
             "configTypeExport": "SessionReplayWidgetConfig",

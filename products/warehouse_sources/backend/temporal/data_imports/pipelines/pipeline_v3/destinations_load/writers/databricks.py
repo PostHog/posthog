@@ -30,7 +30,7 @@ import pyarrow.parquet as pq
 from posthog.models.integration import Integration
 from posthog.models.integration.databricks import DatabricksIntegration
 
-from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
+from products.batch_exports.backend.facade.destinations.databricks import (
     FIVE_MINUTES,
     ONE_HOUR,
     ONE_MINUTE,

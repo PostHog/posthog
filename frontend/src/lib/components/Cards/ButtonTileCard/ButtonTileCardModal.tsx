@@ -9,7 +9,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
-import { DashboardPlacement, DashboardTile, DashboardTileIdOrNew, DashboardType, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile, DashboardTileIdOrNew, DashboardType } from '~/types'
 
 export function ButtonTileCardModal({
     isOpen,
@@ -19,7 +19,7 @@ export function ButtonTileCardModal({
 }: {
     isOpen: boolean
     onClose: () => void
-    dashboard: DashboardType<QueryBasedInsightModel>
+    dashboard: DashboardType
     buttonTileId: DashboardTileIdOrNew
 }): JSX.Element {
     const isNewTile = buttonTileId === null
@@ -33,7 +33,7 @@ export function ButtonTileCardModal({
     }
 
     const firstError = buttonTileValidationErrors.url || buttonTileValidationErrors.text
-    const previewTile: DashboardTile<QueryBasedInsightModel> = {
+    const previewTile: DashboardTile = {
         id: buttonTileId ?? 0,
         color: null,
         button_tile: { ...buttonTile, text: buttonTile.text || 'Click me' },

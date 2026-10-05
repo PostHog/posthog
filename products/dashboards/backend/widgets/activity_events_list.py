@@ -24,7 +24,7 @@ ValidatedActivityEventsListWidgetConfig = dict[str, Any]
 
 DEFAULT_ACTIVITY_EVENTS_DATE_FROM = "-24h"
 
-# Mirrors the /activity/explore DataTable's key columns; `person_display_name` keeps the
+# Mirrors the /activity/events DataTable's key columns; `person_display_name` keeps the
 # query on ClickHouse (no per-row person lookup in Postgres, unlike the `person` column).
 ACTIVITY_EVENTS_WIDGET_SELECT = [
     "uuid",

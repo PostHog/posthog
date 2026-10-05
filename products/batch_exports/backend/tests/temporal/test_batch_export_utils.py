@@ -5,10 +5,9 @@ import pytest
 
 import pytest_asyncio
 
-from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
-
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
+from products.batch_exports.backend.tests.temporal.utils.models import acreate_batch_export, adelete_batch_export
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
@@ -20,7 +19,7 @@ async def s3_batch_export(
 ):
     """Provide a batch export for tests, not intended to be used."""
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "a-bucket",
             "region": "us-east-1",

@@ -66,7 +66,7 @@ MAX_UPLOAD_REQUEST_BODY_BYTES = MAX_FILE_UPLOAD_SIZE_BYTES + 1024 * 1024
 
 # Which request surface each transport attributes a table to. The PostHog apps and the headless
 # agents share `self_driving`, matching how the source path collapses them. Agent transports that
-# wrap MCP but aren't separately tracked (the CLI, Slack, Max) land on `mcp` alongside plain MCP
+# wrap MCP but aren't separately tracked (the CLI, Slack, Max, WebMCP) land on `mcp` alongside plain MCP
 # clients, and anything without a surface of its own is a plain API caller.
 _EVENT_SOURCE_TO_CREATED_VIA = {
     EventSource.WEB: DataWarehouseTableCreatedVia.WEB,
@@ -78,6 +78,7 @@ _EVENT_SOURCE_TO_CREATED_VIA = {
     EventSource.SLACK: DataWarehouseTableCreatedVia.MCP,
     EventSource.CLI: DataWarehouseTableCreatedVia.MCP,
     EventSource.POSTHOG_AI: DataWarehouseTableCreatedVia.MCP,
+    EventSource.WEBMCP: DataWarehouseTableCreatedVia.MCP,
 }
 
 
@@ -350,6 +351,18 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
         return table
 
     def validate_url_pattern(self, url_pattern):
+        # A credential-less table reads from PostHog's own storage by design - PostHog built the URL
+        # when the file was uploaded. Editing anything else about such a table resubmits that URL
+        # unchanged, so checking it against the owned-bucket rule below would reject every edit with
+        # an instruction the user can't follow.
+        keeps_posthog_built_url = (
+            self.instance is not None
+            and self.instance.credential_id is None
+            and url_pattern == self.instance.url_pattern
+        )
+        if keeps_posthog_built_url:
+            return url_pattern
+
         is_valid, error_message = validate_warehouse_table_url_pattern(url_pattern)
         if not is_valid:
             raise serializers.ValidationError(error_message)

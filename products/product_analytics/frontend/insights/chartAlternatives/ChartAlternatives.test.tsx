@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -55,7 +56,7 @@ describe('ChartAlternatives', () => {
         initKeaTests()
         featureFlagLogic.mount()
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES], {
-            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: true,
+            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: 'test',
         })
 
         insightLogic(insightProps).mount()
@@ -67,7 +68,7 @@ describe('ChartAlternatives', () => {
 
     afterEach(() => {
         cleanup()
-        chartAlternativesLogic.findMounted({ editMode: true, embedded: false, ...insightProps })?.unmount()
+        chartAlternativesLogic.findMounted({ embedded: false, ...insightProps })?.unmount()
     })
 
     function setQuery(query: TrendsQuery): void {
@@ -78,11 +79,11 @@ describe('ChartAlternatives', () => {
         render(
             <Provider>
                 <BindLogic logic={insightLogic} props={insightProps}>
-                    <ChartAlternatives insightProps={insightProps} editMode embedded={false} />
+                    <ChartAlternatives insightProps={insightProps} embedded={false} />
                 </BindLogic>
             </Provider>
         )
-        return chartAlternativesLogic.findMounted({ editMode: true, embedded: false, ...insightProps })!
+        return chartAlternativesLogic.findMounted({ embedded: false, ...insightProps })!
     }
 
     function currentTrendsQuery(): TrendsQuery {
@@ -90,12 +91,7 @@ describe('ChartAlternatives', () => {
     }
 
     it('applies the display rewrite when a chart is selected and closes the gallery', () => {
-        setQuery(
-            makeTrendsQuery({
-                breakdownFilter: { breakdown: 'browser', breakdown_type: 'event' },
-                trendsFilter: { display: ChartDisplayType.ActionsLineGraph, formula: 'A / B' },
-            })
-        )
+        setQuery(makeTrendsQuery({ trendsFilter: { display: ChartDisplayType.ActionsLineGraph, formula: 'A / B' } }))
         const logic = alternativesLogic()
         logic.actions.openGallery()
         expect(logic.values.galleryOpen).toBe(true)
@@ -107,7 +103,6 @@ describe('ChartAlternatives', () => {
             formula: undefined,
             formulaNodes: [],
         })
-        expect(currentTrendsQuery().breakdownFilter).toBeUndefined()
         expect(logic.values.galleryOpen).toBe(false)
     })
 
@@ -115,7 +110,7 @@ describe('ChartAlternatives', () => {
         setQuery(makeTrendsQuery())
         alternativesLogic()
 
-        expect(chartPreviewsLogic.findMounted({ editMode: true, embedded: false, ...insightProps })).not.toBeUndefined()
+        expect(chartPreviewsLogic.findMounted({ embedded: false, ...insightProps })).not.toBeUndefined()
     })
 
     it('opens the gallery in a popover anchored to the chart type button', async () => {
@@ -130,14 +125,84 @@ describe('ChartAlternatives', () => {
         )
     })
 
-    it('renders the chart switch control only while the flag is on', async () => {
+    it.each([
+        ['the flag is off', [], {}],
+        [
+            'the control variant is served',
+            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES],
+            { [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: 'control' },
+        ],
+    ])('hides the chart switch control when %s', async (_, flags, variants) => {
         setQuery(makeTrendsQuery())
         alternativesLogic()
         await waitFor(() => expect(document.querySelector('[data-attr="chart-alternatives-all"]')).toBeInTheDocument())
 
-        featureFlagLogic.actions.setFeatureFlags([], {})
+        featureFlagLogic.actions.setFeatureFlags(flags, variants)
         await waitFor(() =>
             expect(document.querySelector('[data-attr="chart-alternatives-all"]')).not.toBeInTheDocument()
         )
+    })
+
+    it.each([
+        ['the gallery', 'test', 'chart-alternatives-all', 1],
+        ['the chart type dropdown', 'control', 'chart-filter', 1],
+    ])('reports an exposure when %s opens', async (_, variant, dataAttr, expected) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES], {
+            [FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES]: variant,
+        })
+        setQuery(makeTrendsQuery())
+        alternativesLogic()
+        const capture = jest.spyOn(posthog, 'capture')
+
+        const menuButton = await waitFor(() => {
+            const button = document.querySelector(`[data-attr="${dataAttr}"]`)
+            expect(button).toBeInTheDocument()
+            return button!
+        })
+        fireEvent.click(menuButton)
+
+        await waitFor(() =>
+            expect(capture.mock.calls.filter(([event]) => event === 'insight chart type menu opened')).toHaveLength(
+                expected
+            )
+        )
+        jest.restoreAllMocks()
+    })
+
+    it('does not report an exposure when the chart type dropdown opens on a read-only insight', () => {
+        setQuery(makeTrendsQuery())
+        const capture = jest.spyOn(posthog, 'capture')
+
+        chartAlternativesLogic({ embedded: true, ...insightProps }).mount()
+        chartAlternativesLogic({ embedded: true, ...insightProps }).actions.reportChartMenuOpened()
+
+        expect(capture.mock.calls.map(([event]) => event)).not.toContain('insight chart type menu opened')
+        jest.restoreAllMocks()
+    })
+
+    it.each([
+        ['a read-only insight', true, NodeKind.TrendsQuery],
+        ['a non-trends insight', false, NodeKind.FunnelsQuery],
+    ])('does not read the experiment flag for %s', (_, embedded, kind) => {
+        const readFlags: string[] = []
+        const featureFlags = new Proxy(
+            {},
+            {
+                get: (_target, flag) => {
+                    readFlags.push(String(flag))
+                    return 'test'
+                },
+            }
+        )
+        jest.spyOn(featureFlagLogic.selectors, 'featureFlags').mockReturnValue(featureFlags)
+        builtInsightVizDataLogic.actions.updateQuerySource({ ...makeTrendsQuery(), kind } as unknown as TrendsQuery)
+
+        const logic = chartAlternativesLogic({ embedded, ...insightProps })
+        logic.mount()
+
+        expect(logic.values.canShowAlternatives).toBe(false)
+        expect(readFlags).not.toContain(FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES)
+        logic.unmount()
+        jest.restoreAllMocks()
     })
 })

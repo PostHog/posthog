@@ -5,12 +5,8 @@ refuses a timestamp outside a 5 minute window. So a test drives the real route r
 stubbing the verifier, and posts a freshly signed form each time.
 """
 
-import hmac
-import time
-import hashlib
 from types import SimpleNamespace
 from typing import Any
-from uuid import uuid4
 
 from unittest.mock import patch
 
@@ -19,6 +15,7 @@ from django.test import Client
 from django.utils import timezone
 
 from posthog.ingress.contracts import WebhookDelivery
+from posthog.ingress.mailgun import testing as mailgun_testing
 from posthog.ingress.mailgun.provider import FILES_KEY
 
 from products.conversations.backend.services.mailgun_events import SENDER_STATUS_ABSENT, SENDER_STATUS_ABSENT_BODY
@@ -49,19 +46,8 @@ def _instance_setting(name: str) -> str:
 
 
 def signed_mailgun_fields() -> dict[str, str]:
-    """A fresh signature triple, with the token Mailgun mints per delivery.
-
-    The token is the delivery id ingress dedups on, so it has to be new for every post: a real
-    redelivery reuses it, and no test here is exercising a redelivery.
-    """
-    timestamp = str(int(time.time()))
-    token = uuid4().hex
-    signature = hmac.new(
-        key=MAILGUN_SIGNING_KEY.encode("utf-8"),
-        msg=f"{timestamp}{token}".encode(),
-        digestmod=hashlib.sha256,
-    ).hexdigest()
-    return {"timestamp": timestamp, "token": token, "signature": signature}
+    """A fresh signature triple with a new token, under the key the endpoints verify against."""
+    return mailgun_testing.signed_mailgun_fields(MAILGUN_SIGNING_KEY)
 
 
 def post_mailgun(client: Client, path: str, data: dict[str, Any]) -> Any:

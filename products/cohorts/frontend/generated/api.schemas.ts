@@ -518,39 +518,51 @@ export interface PatchedAddPersonsToStaticCohortRequestApi {
 }
 
 /**
- * * `person` - person
+ * The actor's properties.
  */
-export type CohortPersonResultTypeEnumApi =
-    (typeof CohortPersonResultTypeEnumApi)[keyof typeof CohortPersonResultTypeEnumApi]
+export type SerializedPersonActorApiProperties = { [key: string]: unknown }
 
-export const CohortPersonResultTypeEnumApi = {
-    Person: 'person',
-} as const
+export type SerializedPersonActorApiMatchedRecordingsItem = { [key: string]: unknown }
 
-export type CohortPersonResultApiProperties = { [key: string]: unknown }
-
-export type CohortPersonResultApiMatchedRecordingsItem = { [key: string]: unknown }
-
-export interface CohortPersonResultApi {
+export interface SerializedPersonActorApi {
+    /** The person's UUID, or the group's key. */
     id: string
-    uuid: string
-    type: CohortPersonResultTypeEnumApi
-    name: string
-    distinct_ids: string[]
-    properties: CohortPersonResultApiProperties
-    /** @nullable */
+    /** The actor's properties. */
+    properties: SerializedPersonActorApiProperties
+    /**
+     * When the actor was first seen.
+     * @nullable
+     */
     created_at: string | null
-    /** @nullable */
-    last_seen_at: string | null
-    /** @nullable */
-    is_identified: boolean | null
-    matched_recordings: CohortPersonResultApiMatchedRecordingsItem[]
-    /** @nullable */
+    /** Recordings that matched the query. Empty unless the endpoint asks for them. */
+    matched_recordings: SerializedPersonActorApiMatchedRecordingsItem[]
+    /**
+     * The actor's value at the data point it was queried for. Null unless the query computes one.
+     * @nullable
+     */
     value_at_data_point: number | null
+    /** Marks this actor as a person. */
+    type: 'person'
+    /** The person's UUID. Same value as `id`. */
+    uuid: string
+    /** Display name, resolved from the person's properties or distinct IDs. */
+    name: string
+    /** The person's distinct IDs, newest first. */
+    distinct_ids: string[]
+    /**
+     * When the person was last seen.
+     * @nullable
+     */
+    last_seen_at: string | null
+    /**
+     * Whether the person has been identified.
+     * @nullable
+     */
+    is_identified: boolean | null
 }
 
 export interface CohortPersonsResponseApi {
-    results: CohortPersonResultApi[]
+    results: SerializedPersonActorApi[]
     /** @nullable */
     next: string | null
     /** @nullable */

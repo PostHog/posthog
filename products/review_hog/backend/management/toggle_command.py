@@ -12,7 +12,8 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.team import Team
 
-from products.review_hog.backend.settings_toggles import ToggleField, UsersNotInOrganization, apply_toggle, plan_toggle
+from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.settings_toggles import ToggleField, apply_toggle, plan_toggle
 
 
 class SettingsToggleCommand(BaseCommand):
@@ -38,16 +39,24 @@ class SettingsToggleCommand(BaseCommand):
             action="store_true",
             help="Print what would change without touching the database.",
         )
+        if self.field == "review_authored_prs" and self.enabled:
+            parser.add_argument(
+                "--effort",
+                choices=ReviewUserSettings.FlashReasoningEffort.values,
+                help="Set these users' Flash reasoning effort. Omit to preserve their saved preference.",
+            )
 
     def handle(self, *args: Any, **options: Any) -> None:
         try:
+            effort = options.get("effort")
             plan = plan_toggle(
                 team_id=options["team_id"],
                 field=self.field,
                 enabled=self.enabled,
                 user_ids=options.get("user_ids"),
+                flash_reasoning_effort=ReviewUserSettings.FlashReasoningEffort(effort) if effort is not None else None,
             )
-        except (TeamScopeError, Team.DoesNotExist, UsersNotInOrganization) as err:
+        except (TeamScopeError, Team.DoesNotExist, ValueError) as err:
             raise CommandError(str(err)) from err
 
         changed = ", ".join(str(user_id) for user_id in plan.changed_user_ids) or "none"

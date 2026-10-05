@@ -85,13 +85,23 @@ class BearerJwt:
         if token is None:
             return Verification(outcome=VerificationOutcome.INVALID)
 
-        jwks_uri = self.jwks_uri_getter()
         audience = self.audience_getter()
         issuers = self.issuers_getter()
         # An empty issuer allowlist rejects every token that will ever arrive, so it is an
-        # operator problem rather than a caller one, the same as a missing secret.
-        if not jwks_uri or not audience or not issuers:
+        # operator problem rather than a caller one, the same as a missing secret. Both are read
+        # before the URI, so an instance that was never set up buys no discovery request.
+        if not audience or not issuers:
             return Verification(outcome=VerificationOutcome.NOT_CONFIGURED)
+
+        jwks_uri = self.jwks_uri_getter()
+        if not jwks_uri:
+            # The getter discovers this URI remotely, so no URI reads as a discovery that failed
+            # rather than as an instance nobody configured. It is the same answer as a JWKS fetch
+            # that never completed: the check did not run, and a provider that retries a server
+            # error sends the delivery again. A provider whose unconfigured status is a 4xx would
+            # otherwise drop every delivery for the length of the issuer's outage.
+            logger.warning("ingress_jwt_signing_key_uri_unavailable")
+            return Verification(outcome=VerificationOutcome.UNAVAILABLE)
 
         try:
             signing_key = _jwks_client(jwks_uri).get_signing_key_from_jwt(token)

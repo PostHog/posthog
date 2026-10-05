@@ -1,3 +1,6 @@
+import json
+from collections.abc import Callable
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -5,22 +8,161 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+import pyarrow as pa
 import deltalake
+import deltalite
+import pyarrow.parquet as pq
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
+    DeltaLiteHandleCache,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    ObjectStorePermissionDeniedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (
     _PURGE_S3_PREFIX_MAX_ATTEMPTS,
     DeltaTableRef,
     _purge_s3_prefix,
+    live_row_count,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
+    make_local_table_ref,
+    make_logger,
+)
 
 
 def table_ref():
     return DeltaTableRef(resource_name="test_resource", job=MagicMock(), logger=make_logger())
+
+
+def _openable_table_ref(delta_uri: str) -> DeltaTableRef:
+    ref = DeltaTableRef(resource_name="t", job=MagicMock(), logger=make_logger())
+    patch.object(ref, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)).start()
+    patch.object(ref, "_get_credentials", MagicMock(return_value={})).start()
+    return ref
+
+
+class TestGetDeltaTableCache:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+
+    @pytest.mark.asyncio
+    async def test_one_ref_cannot_evict_another_refs_handle(self):
+        # A loader process has several tables in flight. When they shared one cache slot, every
+        # interleaved call re-opened its table (a full Delta-log replay against object storage).
+        first = _openable_table_ref("s3://bucket/team/job/first")
+        second = _openable_table_ref("s3://bucket/team/job/second")
+
+        with patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table:
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = lambda table_uri, storage_options: MagicMock(uri=table_uri)
+
+            first_handle = await first.get_delta_table()
+            await second.get_delta_table()
+            assert await first.get_delta_table() is first_handle
+            assert await second.get_delta_table() is not first_handle
+
+        assert mock_delta_table.call_count == 2
+
+    @parameterized.expand([("invalidate", "invalidate_cached_table"), ("pop", "pop_cached_table")])
+    @pytest.mark.asyncio
+    async def test_dropping_the_handle_forces_a_fresh_open(self, _name: str, method: str):
+        # Reset and repartition rewrite the files under the table, so a caller that drops the handle
+        # must get the live log on its next read rather than the pre-swap snapshot.
+        ref = _openable_table_ref("s3://bucket/team/job/t")
+
+        with patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table:
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = lambda table_uri, storage_options: MagicMock(
+                version=MagicMock(return_value=1)
+            )
+
+            stale = await ref.get_delta_table()
+            ref.note_deltalite_commit(9)
+            getattr(ref, method)()
+            fresh = cast(MagicMock, await ref.get_delta_table())
+
+        assert fresh is not stale
+        assert mock_delta_table.call_count == 2
+        # The deltalite commit belonged to the dropped incarnation: the fresh open is current as is,
+        # and the old version must not outrank the new table's own.
+        fresh.update_incremental.assert_not_called()
+        assert ref.latest_known_version(fresh) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_deltalite_commit_is_caught_up_on_the_next_read_only(self):
+        # deltalite commits past the delta-rs handle. A reader of the version or the file list
+        # (post-load, maintenance) must see that commit; a reader that opts out must not pay the
+        # log read for it; and the catch-up happens once, not on every later call.
+        ref = _openable_table_ref("s3://bucket/team/job/t")
+
+        with patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table:
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = lambda table_uri, storage_options: MagicMock(
+                version=MagicMock(return_value=3)
+            )
+
+            handle = cast(MagicMock, await ref.get_delta_table())
+            ref.note_deltalite_commit(4)
+
+            assert await ref.get_delta_table(allow_stale=True) is handle
+            handle.update_incremental.assert_not_called()
+            assert ref.latest_known_version(handle) == 4
+
+            assert await ref.get_delta_table() is handle
+            handle.update_incremental.assert_called_once()
+            await ref.get_delta_table()
+            handle.update_incremental.assert_called_once()
+
+        assert mock_delta_table.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("transient_blip", OSError("Generic S3 error: connection reset"), TransientObjectStoreError, False),
+            ("other_error", RuntimeError("something else went wrong"), RuntimeError, True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_a_failed_catch_up_keeps_the_handle_behind(
+        self, _name: str, error: Exception, expected: type[Exception], captured: bool
+    ):
+        # A refresh that fails must not clear the mark, or the next reader would trust a snapshot
+        # that is known to be behind the log. Classification mirrors the open path so a transient
+        # blip is not reported as a defect.
+        ref = _openable_table_ref("s3://bucket/team/job/t")
+
+        with (
+            patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{self._MODULE}.capture_exception") as capture,
+        ):
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = lambda table_uri, storage_options: MagicMock()
+
+            handle = cast(MagicMock, await ref.get_delta_table())
+            handle.update_incremental.side_effect = [error, None]
+            ref.note_deltalite_commit(4)
+
+            with pytest.raises(expected):
+                await ref.get_delta_table()
+            assert await ref.get_delta_table() is handle
+
+        assert handle.update_incremental.call_count == 2
+        assert capture.called is captured
+
+    @pytest.mark.asyncio
+    async def test_pop_never_opens_the_table(self):
+        # End-of-run cleanup pops the handle. If the table was never fetched, a pop that opened it
+        # would make an object-storage call whose failure could mask the import error being handled.
+        ref = _openable_table_ref("s3://bucket/team/job/t")
+
+        with patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_delta_table:
+            assert ref.pop_cached_table() is None
+
+        mock_delta_table.is_deltatable.assert_not_called()
+        mock_delta_table.assert_not_called()
 
 
 class TestStorageOptionsCommitSafety:
@@ -177,9 +319,9 @@ class TestGetDeltaTableUnrecoverableErrors:
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
-            mock_delta_table.is_deltatable.side_effect = OSError("Access Denied: not authorized to list bucket")
+            mock_delta_table.is_deltatable.side_effect = OSError("unexpected end of stream while reading response")
 
-            with pytest.raises(OSError, match="Access Denied"):
+            with pytest.raises(OSError, match="unexpected end of stream"):
                 await table_ref.get_delta_table()
 
             mock_capture.assert_called_once()
@@ -215,6 +357,38 @@ class TestGetDeltaTableUnrecoverableErrors:
             assert exc_info.value.__cause__ is original_error
             mock_capture.assert_not_called()
             cast(AsyncMock, table_ref._logger.awarning).assert_awaited_once()
+            assert table_ref.is_first_sync is False
+
+    @pytest.mark.asyncio
+    async def test_object_store_refusal_is_typed_and_not_captured_inline(self):
+        """The bucket refusing the read is a policy condition on PostHog's own storage, not a defect
+        in this code and not a corrupt table. Capturing inline here and then reraising the raw
+        OSError reported the same refusal twice, once from this call and once from the activity
+        interceptor, and the raw message names the `_delta_log` key it was refused on, which both
+        leaks the object key into the customer's error text and fingerprints into its own
+        error-tracking issue per table. Raising the typed error leaves one report, with a message
+        that names no key."""
+        table_ref = DeltaTableRef(resource_name="t", job=MagicMock(), logger=make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        original_error = OSError(
+            "Kernel error -> The operation lacked the necessary privileges to complete for path "
+            "warehouse/team_42_source_7/orders/_delta_log/00000000000000000012.json"
+        )
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+        with (
+            patch.object(table_ref, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.capture_exception") as mock_capture,
+        ):
+            mock_delta_table.is_deltatable.side_effect = original_error
+
+            with pytest.raises(ObjectStorePermissionDeniedError) as exc_info:
+                await table_ref.get_delta_table()
+
+            assert exc_info.value.__cause__ is original_error
+            assert "_delta_log" not in str(exc_info.value)
+            mock_capture.assert_not_called()
             assert table_ref.is_first_sync is False
 
     @pytest.mark.asyncio
@@ -300,7 +474,7 @@ class TestIsTableCorrupted:
         assert result is expected
 
 
-class TestPurgeS3PrefixRetriesPermissionError:
+class TestPurgeS3PrefixPermissionErrors:
     _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
 
     # A HeadObject 403 never carries the underlying S3 error code in its body (AWS omits it for HEAD
@@ -321,16 +495,167 @@ class TestPurgeS3PrefixRetriesPermissionError:
 
         assert mock_once.await_count == 2
 
+    @parameterized.expand(
+        [
+            # A bodyless 403 keeps the whole budget, because it can still be the race above.
+            ("bodyless_403_spends_the_budget", "Forbidden", _PURGE_S3_PREFIX_MAX_ATTEMPTS, PermissionError),
+            # S3 only returns an explicit AccessDenied code when a policy refuses the call, so the
+            # remaining attempts would make the same refused DeleteObjects calls. They only delay the
+            # failure by the backoff, which is why this one has to fail on the first attempt and say
+            # what it is instead of surfacing as a bare PermissionError.
+            ("explicit_access_denied_fails_once", "Access Denied", 1, ObjectStorePermissionDeniedError),
+        ]
+    )
     @pytest.mark.asyncio
-    async def test_gives_up_after_max_attempts_on_persistent_permission_error(self):
+    async def test_persistent_permission_error(
+        self, _case: str, message: str, expected_attempts: int, expected_error: type[Exception]
+    ):
         with (
             patch(
                 f"{self._MODULE}._purge_s3_prefix_once",
-                new=AsyncMock(side_effect=PermissionError("Forbidden")),
+                new=AsyncMock(side_effect=PermissionError(message)),
             ) as mock_once,
             patch(f"{self._MODULE}.asyncio.sleep", new=AsyncMock()),
         ):
-            with pytest.raises(PermissionError):
+            with pytest.raises(expected_error):
                 await _purge_s3_prefix(MagicMock(), "s3://bucket/prefix")
 
-        assert mock_once.await_count == _PURGE_S3_PREFIX_MAX_ATTEMPTS
+        assert mock_once.await_count == expected_attempts
+
+
+class TestInvalidateDropsTheDeltaliteHandle:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+
+    @pytest.mark.asyncio
+    async def test_invalidating_the_ref_forgets_the_process_wide_handle(self):
+        # A reset or repartition swap replaces the table under the same URI. A deltalite handle
+        # that survives it would refresh the old snapshot with the new log's commits.
+        cache = DeltaLiteHandleCache(maxsize=2, opener=lambda uri, storage_options: MagicMock())
+        ref = _openable_table_ref("s3://bucket/team/job/t")
+
+        with patch(f"{self._MODULE}.get_handle_cache", return_value=cache):
+            await ref.get_table_uri()
+            with cache.lease("s3://bucket/team/job/t", storage_options={}, table_id="tid", table_version=1):
+                pass
+            assert "s3://bucket/team/job/t" in cache
+
+            ref.invalidate_cached_table()
+
+        assert "s3://bucket/team/job/t" not in cache
+
+
+def _rows(ids: list[int], partition: str) -> pa.Table:
+    return pa.table({"id": pa.array(ids, pa.int64()), "part": [partition] * len(ids)})
+
+
+def _appended(uri: str) -> None:
+    deltalake.write_deltalake(uri, _rows([5, 6], "b"), mode="append", partition_by=["part"])
+
+
+def _overwritten(uri: str) -> None:
+    deltalake.write_deltalake(uri, _rows([7], "c"), mode="overwrite", partition_by=["part"])
+
+
+def _deleted_from(uri: str) -> None:
+    deltalake.DeltaTable(uri).delete("id = 1")
+
+
+def _emptied(uri: str) -> None:
+    deltalake.DeltaTable(uri).delete("id > 0")
+
+
+def _merged(uri: str) -> None:
+    (
+        deltalake.DeltaTable(uri)
+        .merge(_rows([2, 9], "a"), predicate="t.id = s.id", source_alias="s", target_alias="t")
+        .when_matched_update_all()
+        .when_not_matched_insert_all()
+        .execute()
+    )
+
+
+def _upserted_with_deltalite(uri: str) -> None:
+    deltalite.DeltaLiteTable.open(uri).upsert(_rows([3, 10, 11], "a"), primary_keys=["id"], partition_key="part")
+
+
+def _compacted(uri: str) -> None:
+    _appended(uri)
+    deltalake.DeltaTable(uri).optimize.compact()
+
+
+def _vacuumed(uri: str) -> None:
+    _deleted_from(uri)
+    deltalake.DeltaTable(uri).vacuum(retention_hours=0, enforce_retention_duration=False, dry_run=False)
+
+
+def _strip_add_stats(uri: str) -> None:
+    for commit in sorted((Path(uri) / "_delta_log").glob("*.json")):
+        actions = [json.loads(line) for line in commit.read_text().splitlines() if line]
+        for action in actions:
+            action.get("add", {}).pop("stats", None)
+        commit.write_text("\n".join(json.dumps(action) for action in actions) + "\n")
+
+
+class TestLiveRowCount:
+    @staticmethod
+    def _create(tmp_path: Path) -> str:
+        uri = str(tmp_path / "t")
+        deltalake.write_deltalake(uri, _rows([1, 2, 3, 4], "a"), partition_by=["part"])
+        return uri
+
+    @parameterized.expand(
+        [
+            ("append_only", lambda uri: None),
+            ("append", _appended),
+            ("overwrite", _overwritten),
+            ("delete", _deleted_from),
+            ("delete_every_row", _emptied),
+            ("merge", _merged),
+            ("deltalite_upsert", _upserted_with_deltalite),
+            ("compaction", _compacted),
+            ("vacuum", _vacuumed),
+        ]
+    )
+    def test_matches_a_count_of_the_published_files(self, _name: str, history: Callable[[str], None]) -> None:
+        # The query folder is a copy of file_uris(), so a count over it is the sum of their rows.
+        uri = self._create(self.tmp_path)
+        history(uri)
+        table = deltalake.DeltaTable(uri)
+
+        published_rows = sum(pq.read_metadata(path).num_rows for path in table.file_uris())
+
+        assert live_row_count(table) == published_rows == table.to_pyarrow_table().num_rows
+
+    def test_files_without_stats_fall_back_to_a_file_count(self) -> None:
+        uri = self._create(self.tmp_path)
+        _strip_add_stats(uri)
+
+        assert live_row_count(deltalake.DeltaTable(uri)) is None
+
+    def test_unreadable_add_actions_fall_back_to_a_file_count(self) -> None:
+        table = MagicMock()
+        table.get_add_actions.side_effect = Exception("Offset overflow error: 2229224676")
+
+        assert live_row_count(table) is None
+
+    @pytest.mark.asyncio
+    async def test_ref_reads_the_count_after_a_deltalite_commit(self) -> None:
+        # deltalite commits outside the cached delta-rs handle, so a stale handle would miss its rows.
+        uri = self._create(self.tmp_path)
+        ref = make_local_table_ref(uri)
+        assert await ref.get_live_row_count() == 4
+
+        deltalite.DeltaLiteTable.open(uri).upsert(_rows([10, 11], "a"), primary_keys=["id"], partition_key="part")
+        ref.note_deltalite_commit(None)
+
+        assert await ref.get_live_row_count() == 6
+
+    @pytest.mark.asyncio
+    async def test_ref_without_a_table_has_no_count(self) -> None:
+        ref = make_local_table_ref(str(self.tmp_path / "missing"))
+
+        assert await ref.get_live_row_count() is None
+
+    @pytest.fixture(autouse=True)
+    def _tmp(self, tmp_path: Path) -> None:
+        self.tmp_path = tmp_path

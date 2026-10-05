@@ -280,6 +280,31 @@ export function resolveTraceModelSelection(
     return { resolvedModelId: modelId, providerKeyId }
 }
 
+/**
+ * Resolves a model selection restored from a saved prompt config. The saved provider key wins
+ * when it still exists and still serves the saved model; otherwise this degrades to the same
+ * matching trace import uses, so a prompt saved on another team or with a deleted key still
+ * lands on the closest available model.
+ */
+export function resolveSavedModelSelection(
+    modelId: string,
+    provider: string | null,
+    savedProviderKeyId: string | null,
+    availableModels: MatchModelOption[],
+    providerKeys: LLMProviderKey[]
+): { resolvedModelId: string; providerKeyId?: string } {
+    if (savedProviderKeyId) {
+        const savedKeyUsable = providerKeys.some((key) => key.id === savedProviderKeyId && key.state !== 'invalid')
+        const savedKeyServesModel = availableModels.some(
+            (option) => option.id === modelId && option.providerKeyId === savedProviderKeyId
+        )
+        if (savedKeyUsable && savedKeyServesModel) {
+            return { resolvedModelId: modelId, providerKeyId: savedProviderKeyId }
+        }
+    }
+    return resolveTraceModelSelection(modelId, provider, availableModels, providerKeys)
+}
+
 export function matchClosestModelOption(
     targetModel: string,
     availableModels: MatchModelOption[],
