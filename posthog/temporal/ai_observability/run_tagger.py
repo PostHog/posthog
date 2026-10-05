@@ -24,6 +24,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
+    ContentFilteredError,
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
@@ -347,9 +348,9 @@ Output: {output_data}"""
             type=TAGGER_REQUEST_REJECTED_ERROR_TYPE,
             non_retryable=True,
         ) from e
-    except (OutputTokenLimitError, StructuredOutputParseError) as e:
-        # A reply cut off at the output limit reaches the tagger as unusable output, same as a
-        # malformed one, so both take the parse path.
+    except (OutputTokenLimitError, StructuredOutputParseError, ContentFilteredError) as e:
+        # A reply cut off at the output limit or refused by the content filter reaches the tagger
+        # as unusable output, same as a malformed one, so all take the parse path.
         logger.warning("LLM tagger returned unusable output", tagger_id=tagger["id"], model=model, error=str(e))
         raise ApplicationError(
             str(e),

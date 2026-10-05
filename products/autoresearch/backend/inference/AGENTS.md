@@ -74,7 +74,7 @@ The prediction event is itself an event on the person, so every live cadence add
 2. Resolve the inference population and build anchors at the cutoff, the start of the prediction date in UTC (`../dataset/labeling.py`).
 3. If the champion has an `artifact_prefix`, materialize features into a sandbox and run `predict.py`. Otherwise compile the recorded recipe and score in-process.
 4. Map `person_id` → `distinct_id` and emit one event each.
-5. Record an `AutoresearchRun` for the execution.
+5. Record an `AutoresearchRun` for the execution. A run the daily sweep starts has `scheduled` set. A failed run records `metrics["failure_kind"]` from `classify_failure()` in `failures.py`: `limit_exceeded`, `query_failed` and `model_load_failed` fail again with the same champion, and `other` (transport, capture, cluster capacity, anything unknown) can pass on a retry. Promotion reads the scheduled runs to decide that a champion cannot score.
 
 Both model shapes are live and must stay that way: bundle-backed champions take the sandbox path, older recipe-only champions take the in-process path.
 
