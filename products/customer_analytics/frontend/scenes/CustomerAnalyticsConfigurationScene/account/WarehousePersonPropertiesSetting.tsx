@@ -251,7 +251,6 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             status="danger"
                             icon={<IconTrash />}
                             tooltip="Delete"
-                            data-attr="delete-warehouse-profile-property"
                             onClick={() => confirmDelete(definition)}
                             disabledReason={deleteRestrictionReason}
                         />
