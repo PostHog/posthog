@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING
 
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
+    DatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
     FloatDatabaseField,
@@ -55,7 +56,7 @@ from products.engineering_analytics.backend.logic.cost import (
     render_provider,
     render_vcpu,
 )
-from products.engineering_analytics.backend.logic.sources import resolve_job_source_tables
+from products.engineering_analytics.backend.logic.sources import JobSourceTables, resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 
 if TYPE_CHECKING:
@@ -123,36 +124,26 @@ FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-# The two endpoint-only run pass-through columns — the run's start time and the *run's* head branch
-# (distinct from the job's ``head_branch``), used only by the product's endpoint cost queries to
-# window and branch-filter on run attributes. One source of truth: the innermost join layer renders
-# "<expr> AS <alias>" and every outer layer re-projects the bare aliases, so a new pass-through is
-# added in exactly one place. Deliberately kept out of the public view (``build_team_view`` uses the
-# default): ``run_head_branch`` would duplicate ``head_branch`` for the exposed grain, and the view
-# already carries ``created_at`` for time filtering.
-_RUN_PASSTHROUGH: tuple[tuple[str, str], ...] = (
-    ("run_started_at", "r.run_started_at"),
-    ("run_head_branch", "r.head_branch"),
+_PASSTHROUGH: tuple[tuple[str, DatabaseField], ...] = (
+    # The public view omits the run's start time and branch: ``run_head_branch`` would duplicate
+    # ``head_branch`` for the exposed grain, and the view already carries ``created_at`` for time filtering.
+    ("r.run_started_at", DateTimeDatabaseField(name="run_started_at", nullable=True)),
+    ("r.head_branch", StringDatabaseField(name="run_head_branch", nullable=True)),
+    ("j.id", IntegerDatabaseField(name="id")),
+    ("j.head_sha", StringDatabaseField(name="head_sha")),
+    ("j.labels", StringDatabaseField(name="labels")),
+    ("j.provisioning_seconds", IntegerDatabaseField(name="provisioning_seconds", nullable=True)),
+    ("j.head_branch", StringDatabaseField(name="job_head_branch")),
 )
 
+BUILDER_FIELDS: dict[str, FieldOrTable] = {**FIELDS, **{field.name: field for _, field in _PASSTHROUGH}}
 
-def _run_passthrough_defs() -> str:
-    """ "<expr> AS <alias>" for each run pass-through — the innermost join layer that first reads them."""
-    return "".join(f",\n                    {expr} AS {alias}" for alias, expr in _RUN_PASSTHROUGH)
+_PASSTHROUGH_DEFS = "".join(f",\n            {expr} AS {field.name}" for expr, field in _PASSTHROUGH)
 
-
-def _run_passthrough_aliases() -> str:
-    """Bare aliases for each run pass-through — re-projected by every layer above the join."""
-    return "".join(f",\n            {alias}" for alias, _ in _RUN_PASSTHROUGH)
+COST_COLUMNS = ("provider", "os", "vcpu", "multiplier", "billable_seconds", "estimated_cost_usd")
 
 
-def build_query(
-    *,
-    jobs_table: workflow_jobs.JobsTable,
-    runs_table: str,
-    include_run_columns: bool = False,
-    created_floor: bool = False,
-) -> str:
+def build_query(*, jobs_table: workflow_jobs.JobsTable, runs_table: str, created_floor: bool = False) -> str:
     """The per-job cost SELECT for one GitHub source: curated jobs LEFT JOIN curated runs.
 
     Grain is one row per job attempt (a retry appears once per attempt — correct for cost). The
@@ -160,15 +151,7 @@ def build_query(
     unjoined run (no ``r`` row) leaves only the attribution columns (``repo_owner`` / ``repo_name`` /
     ``pr_number``) NULL.
 
-    Layered so each per-row classification step is computed once: the join layer parses ``labels_arr``
-    and derives ``billed_seconds`` (an internal column — the exposed ``billable_seconds`` is that clock
-    gated on the row being billable);
-    the label layer picks ``depot_label`` / ``hosted_label`` from it (one ``arrayFilter`` scan each);
-    the tier layer derives ``provider`` / ``os`` / ``vcpu`` from those two cheap columns; the final
-    layer derives ``multiplier`` / ``billable_seconds`` / ``estimated_cost_usd``.
-
-    ``include_run_columns`` threads the ``_RUN_PASSTHROUGH`` run columns through every layer — used
-    only by the endpoint cost queries; the public view omits them.
+    The result has the ``BUILDER_FIELDS`` columns. The public view selects its ``FIELDS`` from them.
 
     ``created_floor`` threads the jobs builder's raw-string scan floor (its ``{job_created_floor}``
     placeholder, which the caller must register) down to the jobs scan. Every windowed cost query
@@ -179,134 +162,114 @@ def build_query(
     ``created_at`` bound with a coarse ``created_at_raw`` floor, which is the predicate the scan can
     prune on and the reason the view exposes that column.
     """
-    jobs = workflow_jobs.build_query(jobs_table, created_floor=created_floor)
-    runs = workflow_runs.build_query(runs_table)
+    costed_jobs = build_costed_jobs_query(workflow_jobs.build_query(jobs_table, created_floor=created_floor))
+    return build_attributed_query(costed_jobs=costed_jobs, runs=workflow_runs.build_query(runs_table))
 
+
+def build_costed_jobs_query(jobs: str) -> str:
+    """The rows of the jobs builder with ``COST_COLUMNS``. ``jobs`` is a query with the columns of
+    ``workflow_jobs.COLUMNS``.
+
+    The cost of a job reads no column of its run, so a stored job row can carry it.
+
+    Layered so each per-row classification step is computed once: the innermost layer parses
+    ``labels_arr`` and derives ``billed_seconds`` (an internal column — the exposed ``billable_seconds``
+    is that clock gated on the row being billable);
+    the label layer picks ``depot_label`` / ``hosted_label`` from it (one ``arrayFilter`` scan each);
+    the tier layer derives ``provider`` / ``os`` / ``vcpu`` from those two cheap columns; the final
+    layer derives ``multiplier`` / ``billable_seconds`` / ``estimated_cost_usd``.
+    """
+    job_columns = ", ".join(workflow_jobs.COLUMNS)
     # labels is already ifNull'd to '[]' by the jobs builder; JSONExtract to Array(String) yields
     # [] for any non-array/invalid JSON, matching cost._parse_labels' empty-on-bad-input behavior.
     labels_array = "JSONExtract(labels, 'Array(String)')"
-    billed_seconds = render_billed_elapsed_seconds("j.duration_seconds", "j.provisioning_seconds")
-
-    inner_run_columns = _run_passthrough_defs() if include_run_columns else ""
-    run_columns = _run_passthrough_aliases() if include_run_columns else ""
-
+    billed_seconds = render_billed_elapsed_seconds("duration_seconds", "provisioning_seconds")
     return f"""
         SELECT
-            repo_owner,
-            repo_name,
-            pr_number,
-            workflow_name,
-            job_name,
-            run_id,
-            run_attempt,
-            head_branch,
-            status,
-            conclusion,
-            runner_name,
-            created_at,
-            started_at,
-            completed_at,
-            queue_seconds,
-            duration_seconds,
+            {job_columns},
             provider,
             os,
             vcpu,
             {render_multiplier("vcpu")} AS multiplier,
             {render_billable_seconds("provider", "os", "is_rerun_copy", "billed_seconds")} AS billable_seconds,
-            {render_estimated_cost_usd("provider", "os", "vcpu", "is_rerun_copy", "billed_seconds")} AS estimated_cost_usd,
-            is_merge_queue,
-            is_rerun_copy,
-            created_at_raw,
-            ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id{run_columns}
+            {render_estimated_cost_usd("provider", "os", "vcpu", "is_rerun_copy", "billed_seconds")} AS estimated_cost_usd
         FROM (
             SELECT
-                repo_owner,
-                repo_name,
-                pr_number,
-                workflow_name,
-                job_name,
-                run_id,
-                run_attempt,
-                head_branch,
-                status,
-                conclusion,
-                runner_name,
-                created_at,
-                started_at,
-                completed_at,
-                queue_seconds,
-                duration_seconds,
+                {job_columns},
                 billed_seconds,
-                is_merge_queue,
-                is_rerun_copy,
-                created_at_raw,
-                ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                 {render_provider("depot_label", "hosted_label")} AS provider,
                 {render_os("depot_label", "hosted_label")} AS os,
-                {render_vcpu("depot_label", "hosted_label")} AS vcpu{run_columns}
+                {render_vcpu("depot_label", "hosted_label")} AS vcpu
             FROM (
                 SELECT
-                    repo_owner,
-                    repo_name,
-                    pr_number,
-                    workflow_name,
-                    job_name,
-                    run_id,
-                    run_attempt,
-                    head_branch,
-                    status,
-                    conclusion,
-                    runner_name,
-                    created_at,
-                    started_at,
-                    completed_at,
-                    queue_seconds,
-                    duration_seconds,
+                    {job_columns},
                     billed_seconds,
-                    is_merge_queue,
-                    is_rerun_copy,
-                    created_at_raw,
-                    ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                     {render_depot_label("labels_arr")} AS depot_label,
-                    {render_hosted_label("labels_arr")} AS hosted_label{run_columns}
+                    {render_hosted_label("labels_arr")} AS hosted_label
                 FROM (
                     SELECT
-                        r.repo_owner AS repo_owner,
-                        r.repo_name AS repo_name,
-                        -- An unattributed run surfaces pr_number 0 in the runs builder; normalize both
-                        -- that and the LEFT-JOIN NULL to NULL so a missing PR is never read as PR #0.
-                        nullIf(r.pr_number, 0) AS pr_number,
-                        j.workflow_name AS workflow_name,
-                        j.name AS job_name,
-                        j.run_id AS run_id,
-                        j.run_attempt AS run_attempt,
-                        {workflow_jobs.branch("j", "r")} AS head_branch,
-                        j.status AS status,
-                        j.conclusion AS conclusion,
-                        j.runner_name AS runner_name,
-                        j.created_at AS created_at,
-                        j.started_at AS started_at,
-                        j.completed_at AS completed_at,
-                        j.queue_seconds AS queue_seconds,
-                        j.duration_seconds AS duration_seconds,
+                        {job_columns},
                         -- What Depot actually bills: the wall-clock minus the runner boot GitHub
                         -- stamps into it. duration_seconds stays the full window for queue/duration UX.
                         {billed_seconds} AS billed_seconds,
-                        r.is_merge_queue AS is_merge_queue,
-                        j.is_rerun_copy AS is_rerun_copy,
-                        j.created_at_raw AS created_at_raw,
-                        j.ci_engine AS ci_engine,
-                        j.native_run_id AS native_run_id,
-                        j.native_workflow_run_id AS native_workflow_run_id,
-                        j.native_job_id AS native_job_id,
-                        j.native_attempt_id AS native_attempt_id,
-                        {labels_array} AS labels_arr{inner_run_columns}
-                    FROM ({jobs}) AS j
-                    LEFT JOIN ({runs}) AS r ON j.run_id = r.id AND j.ci_engine = r.ci_engine
+                        {labels_array} AS labels_arr
+                    FROM ({jobs})
                 )
             )
         )
     """
+
+
+def build_attributed_query(*, costed_jobs: str, runs: str) -> str:
+    """Costed job rows with the attribution of their runs: the ``BUILDER_FIELDS`` columns.
+
+    ``costed_jobs`` has the columns of ``build_costed_jobs_query`` and ``runs`` the columns of the runs
+    builder. The join reads the run row as it is now, so a re-run that moves the start of a run moves
+    every job of that run with it.
+    """
+    return f"""
+        SELECT
+            r.repo_owner AS repo_owner,
+            r.repo_name AS repo_name,
+            -- An unattributed run surfaces pr_number 0 in the runs builder; normalize both
+            -- that and the LEFT-JOIN NULL to NULL so a missing PR is never read as PR #0.
+            nullIf(r.pr_number, 0) AS pr_number,
+            j.workflow_name AS workflow_name,
+            j.name AS job_name,
+            j.run_id AS run_id,
+            j.run_attempt AS run_attempt,
+            {workflow_jobs.branch("j", "r")} AS head_branch,
+            j.status AS status,
+            j.conclusion AS conclusion,
+            j.runner_name AS runner_name,
+            j.created_at AS created_at,
+            j.started_at AS started_at,
+            j.completed_at AS completed_at,
+            j.queue_seconds AS queue_seconds,
+            j.duration_seconds AS duration_seconds,
+            j.provider AS provider,
+            j.os AS os,
+            j.vcpu AS vcpu,
+            j.multiplier AS multiplier,
+            j.billable_seconds AS billable_seconds,
+            j.estimated_cost_usd AS estimated_cost_usd,
+            r.is_merge_queue AS is_merge_queue,
+            j.is_rerun_copy AS is_rerun_copy,
+            j.created_at_raw AS created_at_raw,
+            j.ci_engine AS ci_engine,
+            j.native_run_id AS native_run_id,
+            j.native_workflow_run_id AS native_workflow_run_id,
+            j.native_job_id AS native_job_id,
+            j.native_attempt_id AS native_attempt_id{_PASSTHROUGH_DEFS}
+        FROM ({costed_jobs}) AS j
+        LEFT JOIN ({runs}) AS r ON j.run_id = r.id AND j.ci_engine = r.ci_engine
+    """
+
+
+def build_source_query(source: JobSourceTables) -> str:
+    """The public view's rows for one repository."""
+    rows = build_query(jobs_table=source.jobs_source, runs_table=source.runs_source)
+    return f"SELECT {', '.join(FIELDS)} FROM ({rows})"
 
 
 def build_team_view(team: "Team") -> str | None:
@@ -318,5 +281,4 @@ def build_team_view(team: "Team") -> str | None:
     sources = resolve_job_source_tables(team)
     if not sources:
         return None
-    selects = [build_query(jobs_table=source.jobs_source, runs_table=source.runs_source) for source in sources]
-    return "\nUNION ALL\n".join(selects)
+    return "\nUNION ALL\n".join(build_source_query(source) for source in sources)
