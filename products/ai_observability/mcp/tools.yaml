@@ -1185,8 +1185,7 @@ tools:
             Read server-computed summaries over all experiment results, grouped by exact immutable scorer version,
             independently of item pagination. Pass rates divide passing scores by successful results only; errors,
             skipped, not-applicable, and missing results are separate. Numeric/categorical scores without a passing rule
-            have null pass rates. Repeated trials each contribute an item. Page with next_cursor and unchanged
-            filters.
+            have null pass rates. Repeated trials each contribute an item. Page with next_cursor and unchanged filters.
         param_overrides:
             limit:
                 description: Page size, from 1 to 100. Defaults to 20.
