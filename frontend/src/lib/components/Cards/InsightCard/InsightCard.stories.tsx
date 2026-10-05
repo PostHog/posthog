@@ -286,7 +286,7 @@ export const ErrorStates: Story = {
 export const CapacityCooldown: Story = {
     parameters: {
         mockDate: '2026-01-01T12:00:00Z',
-        testOptions: { viewportWidths: [520, 800] },
+        testOptions: { viewportWidths: ['narrow', 'medium'] },
     },
     render: () => {
         const [error] = useState(

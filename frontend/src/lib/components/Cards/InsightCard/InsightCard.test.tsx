@@ -72,7 +72,7 @@ describe('InsightCard', () => {
             fireEvent.click(headerRefresh)
             expect(refresh).not.toHaveBeenCalled()
 
-            fireEvent.click(screen.getByRole('button', { name: 'more' }))
+            fireEvent.click(screen.getByLabelText('more'))
             const menuRefresh = screen.getByTestId('dashboard-tile-refresh-data')
             expect(menuRefresh).toHaveAttribute('aria-disabled', 'true')
             fireEvent.click(menuRefresh)
@@ -80,7 +80,7 @@ describe('InsightCard', () => {
 
             act(() => jest.advanceTimersByTime(45_000))
             expect(headerRefresh).toHaveAttribute('aria-disabled', 'false')
-            fireEvent.click(screen.getByRole('button', { name: 'more' }))
+            fireEvent.click(screen.getByLabelText('more'))
             expect(screen.getByTestId('dashboard-tile-refresh-data')).toHaveAttribute('aria-disabled', 'false')
             expect(refresh).not.toHaveBeenCalled()
             fireEvent.click(screen.getByTestId('dashboard-tile-refresh-data'))
