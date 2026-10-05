@@ -4,9 +4,8 @@ import { useContext, useEffect, useMemo, useRef } from 'react'
 
 import { LemonInput, LemonInputSelect, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { integrationAccountsLogic } from 'lib/integrations/integrationAccountsLogic'
-import { integrationsLogic, reconnectReturnUrl } from 'lib/integrations/integrationsLogic'
+import { integrationAuthorizeUrl, integrationsLogic, reconnectReturnUrl } from 'lib/integrations/integrationsLogic'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -199,7 +198,7 @@ function ReconnectLink({ integrationKind }: { integrationKind: string }): JSX.El
     return (
         <Link
             disableClientSideRouting
-            to={api.integrations.authorizeUrl({
+            to={integrationAuthorizeUrl({
                 kind: integrationKind,
                 next: reconnectReturnUrl(window.location.pathname, window.location.search),
             })}

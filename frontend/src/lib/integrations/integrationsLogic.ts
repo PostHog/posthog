@@ -71,6 +71,11 @@ function landsOnErrorAwarePage(pathname: string): boolean {
 // pinned: URL search param — the callback redirect and the landing page both read it.
 export const OAUTH_INTEGRATION_ID_PARAM = 'integration_id'
 
+export function integrationAuthorizeUrl(params: Parameters<typeof api.integrations.authorizeUrl>[0]): string {
+    // nosemgrep: prefer-codegen-api-namespaced-integrations -- generated client does not support the authorize query parameters
+    return api.integrations.authorizeUrl(params)
+}
+
 /** Where an in-place reconnect returns to. Pages like the data warehouse source wizard keep their
  *  state in the query (`?kind=`), so a bare pathname drops the user somewhere else. The previous
  *  callback's result params are dropped because the new callback sets its own. */
