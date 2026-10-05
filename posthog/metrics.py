@@ -1,5 +1,6 @@
 # Shared metrics and labels for prometheus metrics
 from contextlib import contextmanager
+from urllib.error import HTTPError, URLError
 
 from django.conf import settings
 
@@ -35,6 +36,12 @@ KLUDGES_COUNTER = Counter(
     labelnames=["kludge"],
 )
 
+PUSHGATEWAY_PUSH_FAILURES_COUNTER = Counter(
+    "posthog_pushgateway_push_failures_total",
+    "Metrics registries that could not be pushed to the Prometheus pushgateway. The reason label is 'unavailable' when the gateway could not be reached, and 'error' when it answered with a failure.",
+    labelnames=["job", "reason"],
+)
+
 TOMBSTONE_COUNTER = Counter(
     "posthog_tombstone_total",
     "Rare anomalous events that should almost never occur. Used to track edge cases, cleanup operations finding stale data, and other scenarios that indicate potential bugs or race conditions. Details (team_id, flag_id, etc.) are logged separately to avoid high-cardinality labels.",
@@ -59,6 +66,12 @@ def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
 _expo._make_handler = _make_handler_no_proxy  # ty: ignore[invalid-assignment]
 
 
+def _is_pushgateway_unavailable(err: BaseException) -> bool:
+    """urllib wraps a refused connection, an unresolvable name and a timeout in URLError. Its HTTPError subclass means the gateway did answer, so that is not an outage."""
+
+    return isinstance(err, URLError) and not isinstance(err, HTTPError)
+
+
 @contextmanager
 def pushed_metrics_registry(job_name: str):
     """
@@ -78,5 +91,15 @@ def pushed_metrics_registry(job_name: str):
         if settings.PROM_PUSHGATEWAY_ADDRESS:
             push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
     except Exception as err:
-        logger.exception("push_to_gateway", target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
-        capture_exception(err)
+        unavailable = _is_pushgateway_unavailable(err)
+        PUSHGATEWAY_PUSH_FAILURES_COUNTER.labels(job=job_name, reason="unavailable" if unavailable else "error").inc()
+        if unavailable:
+            logger.warning(
+                "push_to_gateway_unavailable",
+                job=job_name,
+                target=settings.PROM_PUSHGATEWAY_ADDRESS,
+                exception=err,
+            )
+        else:
+            logger.exception("push_to_gateway", job=job_name, target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
+            capture_exception(err)
