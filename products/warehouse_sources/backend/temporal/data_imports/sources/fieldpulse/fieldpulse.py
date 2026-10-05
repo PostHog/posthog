@@ -93,7 +93,7 @@ def fieldpulse_source(
             # Page offsets must use the original filter, even when the pipeline has advanced its watermark.
             lower_bound = saved.lower_bound if should_use_incremental_field else None
 
-    params: dict[str, str | int] = {
+    params: dict[str, Any] = {
         "limit": PAGE_SIZE,
         "sort[0][attribute]": "updated_at" if should_use_incremental_field else "id",
         "sort[0][order]": "asc",
