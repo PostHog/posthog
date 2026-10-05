@@ -622,6 +622,7 @@ the row lists both.
 | productboard                     | HTTP                        | requests                                                        | ✅                          |
 | productive                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | profound                         | HTTP                        | requests (rest_source.RESTClient)                               | ✅                          |
+| prompting_company                | HTTP                        | requests                                                        | ✅                          |
 | promptwatch                      | HTTP                        | requests                                                        | ✅                          |
 | propertyware                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pulumi_cloud                     | HTTP                        | requests                                                        | ✅                          |
@@ -1331,7 +1332,6 @@ doesn't conflict with concurrent PRs.
 - printavo
 - procore
 - productiv
-- prompting_company
 - proofpoint_tap
 - pubnub
 - qonto
