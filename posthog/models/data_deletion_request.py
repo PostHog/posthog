@@ -983,7 +983,7 @@ def count_remaining_property_events(request: "DataDeletionRequest") -> int:
         query_type="data_deletion_request_verify_property",
     ):
         for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
-            if target.property_rewrite is None or not target.may_hold_any_of(events):
+            if not target.accepts_property_rewrite or not target.may_hold_any_of(events):
                 continue
             person_properties = (request.person_properties or []) if target.stores_person_properties else []
             if not request.properties and not person_properties:

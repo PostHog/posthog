@@ -66,20 +66,6 @@ class HogQLSchema(Enum):
     NATIVE_JSON = "native_json"
 
 
-class PropertyRewrite(Enum):
-    """How the property-removal job in posthog/dags/data_deletion_requests.py treats a target it sweeps.
-
-    The job copies the matching rows out with the named properties removed, deletes the originals,
-    and inserts the cleaned rows back.
-    """
-
-    # The rewrite removes every copy of a property that the table keeps.
-    COMPLETE = "complete"
-    # The table also keeps copies that the rewrite leaves in place, so the property-removal gate
-    # refuses while the table holds rows the request names.
-    LEAVES_COPIES = "leaves_copies"
-
-
 @dataclass(frozen=True, kw_only=True)
 class DeletionTarget:
     """One physical table a deletion sweep runs against.
@@ -114,9 +100,10 @@ class DeletionTarget:
     # physical columns (mat_*, the property-group maps, or JSON subcolumns), so it only runs
     # against the schema it was compiled for.
     hogql_schema: HogQLSchema | None = None
-    # Set where the property-removal job sweeps the table. A property removal refuses while a target
-    # that is not COMPLETE holds rows the request names.
-    property_rewrite: PropertyRewrite | None = None
+    # True where the property-removal job sweeps the table and its rewrite cleans every copy of a
+    # property that the table keeps. A property removal refuses while a target without it holds rows
+    # the request names.
+    accepts_property_rewrite: bool = False
     # Whether property removal may build a person_properties predicate or replacement here. False
     # where the column has been dropped out of band on PostHog Cloud, which makes the predicate an
     # unknown-identifier error rather than a count. The flag narrows the gate and the rewrite on
@@ -151,11 +138,6 @@ class DeletionTarget:
     @property
     def cluster_name(self) -> str:
         return getattr(settings, self.cluster_setting)
-
-    @property
-    def accepts_property_rewrite(self) -> bool:
-        """Whether property removal can complete here: the rewrite sweeps the table and cleans every copy."""
-        return self.property_rewrite is PropertyRewrite.COMPLETE
 
     @property
     def accepts_hogql_predicate(self) -> bool:
@@ -194,7 +176,7 @@ EVENTS = DeletionTarget(
     data_table=EVENTS_DATA_TABLE(),
     read_table="events",
     hogql_schema=HogQLSchema.LEGACY,
-    property_rewrite=PropertyRewrite.COMPLETE,
+    accepts_property_rewrite=True,
     accepts_person_id_rewrite=True,
 )
 
@@ -205,8 +187,8 @@ EVENTS_JSON = DeletionTarget(
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
     node_role=NodeRole.EVENTS,
     hogql_schema=HogQLSchema.NATIVE_JSON,
-    # The rewrite leaves the temporary properties and quarantine diagnostics this table also keeps.
-    property_rewrite=PropertyRewrite.LEAVES_COPIES,
+    # Not swept for property removal: the rewrite would leave the temporary properties and quarantine
+    # diagnostics this table also keeps.
     # Left out of the squash on purpose; PERSON_ID_REWRITE_EXEMPT carries the reason and the cost.
     # Dual-written from the same events, so its uuids are the legacy table's.
     queue_uuid_candidates=False,
@@ -223,7 +205,7 @@ FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,
     optional=True,
-    property_rewrite=PropertyRewrite.COMPLETE,
+    accepts_property_rewrite=True,
     stores_person_properties=False,
     accepts_person_id_rewrite=True,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
@@ -458,7 +440,7 @@ def count_surviving_rows(cluster: ClickhouseCluster, target: DeletionTarget, pre
     return int(rows[0][0]) if rows else 0
 
 
-STORES_NONE_OF_THE_EVENTS = "it stores none of the request's events"
+_STORES_NONE_OF_THE_EVENTS = "it stores none of the request's events"
 
 
 @dataclass(frozen=True)
@@ -495,7 +477,7 @@ def assert_no_unsweepable_rows(
     """
     for target in targets:
         criteria = (
-            predicate_for(target) if target.may_hold_any_of(events) else NotCounted(reason=STORES_NONE_OF_THE_EVENTS)
+            predicate_for(target) if target.may_hold_any_of(events) else NotCounted(reason=_STORES_NONE_OF_THE_EVENTS)
         )
         if isinstance(criteria, NotCounted):
             if log:

@@ -11,7 +11,6 @@ from posthog.clickhouse.cluster import ClickhouseCluster, HostInfo
 from posthog.models.deletion_targets import (
     DeletionTarget,
     HogQLSchema,
-    PropertyRewrite,
     UnreachableTargetError,
     dispatchable_here,
     placement_for,
@@ -144,6 +143,6 @@ def test_an_events_schema_target_cannot_take_the_property_rewrite_without_person
             data_table="sharded_events",
             read_table="events",
             hogql_schema=HogQLSchema.LEGACY,
-            property_rewrite=PropertyRewrite.COMPLETE,
+            accepts_property_rewrite=True,
             stores_person_properties=False,
         )

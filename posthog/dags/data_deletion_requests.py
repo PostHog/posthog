@@ -55,7 +55,6 @@ from posthog.models.deletion_targets import (
     COVERAGE_DOC,
     FLAG_EVALUATIONS,
     PERSONAL_DATA_TARGETS,
-    STORES_NONE_OF_THE_EVENTS,
     DeletionTarget,
     NotCounted,
     TargetPlacement,
@@ -65,6 +64,7 @@ from posthog.models.deletion_targets import (
     assert_sweep_complete,
     resolve_placements,
     resolve_targets_here,
+    surviving_rows_sql,
 )
 from posthog.models.event.sql import json_property_presence_expr
 from posthog.models.person.bulk_delete import (
@@ -552,18 +552,25 @@ def _refuse_unsweepable(
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
 
 
-def _scoped_to(target: DeletionTarget, deletion_request: DeletionRequestContext) -> DeletionRequestContext | NotCounted:
+_STORES_NONE_OF_THE_PROPERTIES = "the request names only person properties, and this table stores none"
+
+
+def _deletion_target(data_table: str) -> DeletionTarget:
+    return next(target for target in PERSONAL_DATA_TARGETS if target.data_table == data_table)
+
+
+def _scoped_to(target: DeletionTarget, deletion_request: DeletionRequestContext) -> DeletionRequestContext:
     """The property-removal request narrowed to the property columns ``target`` stores.
 
     A target without ``stores_person_properties`` (today only flag_evaluations) drops the
     request's ``person_properties`` half, since that column cannot be queried or assigned there;
-    see the field's own comment on ``DeletionTarget`` for what that costs. ``NotCounted`` when
-    nothing in ``properties`` is left either, so the caller skips the target rather than querying it.
+    see the field's own comment on ``DeletionTarget`` for what that costs.
     """
-    request = deletion_request if target.stores_person_properties else replace(deletion_request, person_properties=[])
-    if not request.properties and not request.person_properties:
-        return NotCounted(reason="the request names only person properties, and this table stores none")
-    return request
+    return deletion_request if target.stores_person_properties else replace(deletion_request, person_properties=[])
+
+
+def _names_any_property(request: DeletionRequestContext) -> bool:
+    return bool(request.properties or request.person_properties)
 
 
 def _hogql_excludes(target: DeletionTarget, deletion_request: DeletionRequestContext) -> bool:
@@ -581,14 +588,14 @@ def _refuse_property_removal_unsweepable(
 ) -> None:
     """Gate a property-removal request against every one of ``targets`` the rewrite cannot complete.
 
-    That is a target the rewrite does not fully clean, and a target the request's HogQL predicate
-    excludes, which ``_property_rewrite_targets`` leaves out of the sweep.
+    That is a target the job does not rewrite, and a target the request's HogQL predicate excludes,
+    which ``_property_rewrite_targets`` leaves out of the sweep.
     """
 
     def predicate_for(target: DeletionTarget) -> tuple[str, dict] | NotCounted:
         request = _scoped_to(target, deletion_request)
-        if isinstance(request, NotCounted):
-            return request
+        if not _names_any_property(request):
+            return NotCounted(reason=_STORES_NONE_OF_THE_PROPERTIES)
         return _property_removal_where(request, inserted_at_max=marker_str, json_schema=target.uses_new_events_schema)
 
     _refuse_unsweepable(
@@ -668,7 +675,7 @@ class EventRemovalShard:
 
 
 def _placement_for_table(cluster: ClickhouseCluster, data_table: str) -> TargetPlacement:
-    target = next(t for t in PERSONAL_DATA_TARGETS if t.data_table == data_table)
+    target = _deletion_target(data_table)
     placements = resolve_placements(cluster, [target])
     if not placements:
         raise dagster.Failure(description=f"{data_table} is not present on any reachable cluster")
@@ -682,7 +689,7 @@ def _verify_immediate_event_deletion(
     deleted_shards: list[EventRemovalShard],
 ) -> None:
     tables = list(dict.fromkeys(shard.data_table for shard in deleted_shards))
-    targets = [next(t for t in PERSONAL_DATA_TARGETS if t.data_table == table) for table in tables]
+    targets = [_deletion_target(table) for table in tables]
     _verify_swept(
         cluster,
         targets,
@@ -943,6 +950,10 @@ class PropertyRemovalTarget:
     def mapping_key(self) -> str:
         return f"{self.table}_shard_{self.shard}"
 
+    @property
+    def deletion_target(self) -> DeletionTarget:
+        return _deletion_target(self.table)
+
 
 @frozen
 class _ShardStaging:
@@ -1047,11 +1058,11 @@ def _marker_str(deletion_request: DeletionRequestContext) -> str:
     return _datetime64_str(deletion_request.inserted_at_marker)
 
 
-def _compile_predicate(deletion_request: DeletionRequestContext, target: PropertyRemovalTarget) -> tuple[str, dict]:
+def _compile_predicate(deletion_request: DeletionRequestContext, json_schema: bool) -> tuple[str, dict]:
     # HogQL compilation reaches into the Django ORM (Team lookup), so it runs on the op's own thread
     # before the shard work is dispatched to a cluster worker thread. Property access lowers
     # differently on the legacy and native-JSON tables, hence one compilation per schema.
-    return compile_hogql_predicate(deletion_request, use_new_events_schema=target.json_schema)
+    return compile_hogql_predicate(deletion_request, use_new_events_schema=json_schema)
 
 
 @frozen
@@ -1066,10 +1077,10 @@ class _ShardPredicate:
 def _shard_predicate(
     client: Client,
     deletion_request: DeletionRequestContext,
-    target: PropertyRemovalTarget,
+    target: DeletionTarget,
     marker_str: str,
     hogql_compiled: tuple[str, dict],
-    log: QueryLogger,
+    log: QueryLogger | None = None,
 ) -> _ShardPredicate:
     """Build the predicate that selects this shard's originals.
 
@@ -1081,15 +1092,14 @@ def _shard_predicate(
     # through JSON subcolumns.
     mat_cols: list[tuple[str, bool]] = []
     person_mat_cols: list[tuple[str, bool]] = []
-    read_table = _deletion_target(target.table).read_table
-    if not target.json_schema:
+    if not target.uses_new_events_schema:
         if deletion_request.properties:
             mat_cols = _get_affected_mat_columns(
-                client, read_table, deletion_request.properties, table_column="properties", log=log
+                client, target.read_table, deletion_request.properties, table_column="properties", log=log
             )
         if deletion_request.person_properties:
             person_mat_cols = _get_affected_mat_columns(
-                client, read_table, deletion_request.person_properties, table_column="person_properties", log=log
+                client, target.read_table, deletion_request.person_properties, table_column="person_properties", log=log
             )
     sql, params = _property_removal_where(
         deletion_request,
@@ -1097,7 +1107,7 @@ def _shard_predicate(
         person_mat_cols=person_mat_cols,
         inserted_at_max=marker_str,
         hogql_compiled=hogql_compiled,
-        json_schema=target.json_schema,
+        json_schema=target.uses_new_events_schema,
     )
     return _ShardPredicate(sql=sql, params=params, mat_cols=mat_cols + person_mat_cols)
 
@@ -1214,47 +1224,28 @@ def _query_logger(context: dagster.OpExecutionContext, target: PropertyRemovalTa
     return log
 
 
-def _deletion_target(table: str) -> DeletionTarget:
-    return next(target for target in PERSONAL_DATA_TARGETS if target.data_table == table)
-
-
 def _property_rewrite_targets(
     targets: list[DeletionTarget], deletion_request: DeletionRequestContext, *, log: logging.Logger
 ) -> list[DeletionTarget]:
     """The tables out of ``targets`` that this request's sweep rewrites and its verification counts.
 
-    sharded_events_json is swept although its rewrite leaves copies, after
-    ``_refuse_property_removal_unsweepable`` has checked it. A target the request's HogQL predicate
-    excludes is left out, and that gate refuses the request while such a target holds rows the
+    A target the request's HogQL predicate excludes is left out, and
+    ``_refuse_property_removal_unsweepable`` refuses the request while such a target holds rows the
     request names.
     """
     events = [] if deletion_request.delete_all_events else deletion_request.events
     swept: list[DeletionTarget] = []
     for target in targets:
-        if target.property_rewrite is None or _hogql_excludes(target, deletion_request):
+        if not target.accepts_property_rewrite or _hogql_excludes(target, deletion_request):
             continue
-        request = (
-            _scoped_to(target, deletion_request)
-            if target.may_hold_any_of(events)
-            else NotCounted(reason=STORES_NONE_OF_THE_EVENTS)
-        )
-        if isinstance(request, NotCounted):
-            log.info(f"{target.read_table}: not rewritten, because {request.reason}")
+        if not target.may_hold_any_of(events):
+            log.info(f"{target.read_table}: not rewritten, because it stores none of the request's events")
+            continue
+        if not _names_any_property(_scoped_to(target, deletion_request)):
+            log.info(f"{target.read_table}: not rewritten, because {_STORES_NONE_OF_THE_PROPERTIES}")
             continue
         swept.append(target)
     return swept
-
-
-def _swept_request(target: DeletionTarget, deletion_request: DeletionRequestContext) -> DeletionRequestContext:
-    """The request narrowed to the property columns ``target`` stores, for a target the sweep covers.
-
-    ``_property_rewrite_targets`` only lets through a target that the narrowed request still has
-    criteria for.
-    """
-    request = _scoped_to(target, deletion_request)
-    if isinstance(request, NotCounted):
-        raise dagster.Failure(description=f"{target.data_table}: not rewritten, because {request.reason}")
-    return request
 
 
 @dagster.op(out=dagster.DynamicOut(PropertyRemovalTarget), tags=OWNER_TAG)
@@ -1315,7 +1306,7 @@ def _copy_property_removal_target(
         )
 
     _sync_replica(client, target, log)
-    predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
+    predicate = _shard_predicate(client, deletion_request, target.deletion_target, marker_str, hogql_compiled, log)
     inserted_at_sql = f"SELECT maxOrNull(inserted_at) FROM {db}.{target.table} WHERE {predicate.sql}"
     log("max-inserted-at", inserted_at_sql)
     [[inserted_at_max]] = client.execute(inserted_at_sql, predicate.params, settings=_LONG_QUERY_SETTINGS)
@@ -1383,8 +1374,8 @@ def copy_property_removal_shard(
     ClickHouse, and the write overwrites each monthly file.
     """
     marker_str = _marker_str(deletion_request)
-    hogql_compiled = _compile_predicate(deletion_request, target)
-    request = _swept_request(_deletion_target(target.table), deletion_request)
+    hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
+    request = _scoped_to(target.deletion_target, deletion_request)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
@@ -1409,8 +1400,8 @@ def delete_property_removal_shard(
     """
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
-    hogql_compiled = _compile_predicate(deletion_request, target)
-    request = _swept_request(_deletion_target(target.table), deletion_request)
+    hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
+    request = _scoped_to(target.deletion_target, deletion_request)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
@@ -1434,7 +1425,7 @@ def delete_property_removal_shard(
             )
 
         _sync_replica(client, target, log)
-        predicate = _shard_predicate(client, request, target, marker_str, hogql_compiled, log)
+        predicate = _shard_predicate(client, request, target.deletion_target, marker_str, hogql_compiled, log)
         predicate = _with_copied_inserted_at_bound(predicate, copied["inserted_at_max"])
         count_sql = (
             f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid) "
@@ -1605,8 +1596,8 @@ def verify_property_removal_shard(
     """Fail when this shard kept an original, lost a uuid, or holds a target property on a cleaned row."""
     db = django_settings.CLICKHOUSE_DATABASE
     marker_str = _marker_str(deletion_request)
-    hogql_compiled = _compile_predicate(deletion_request, target)
-    request = _swept_request(_deletion_target(target.table), deletion_request)
+    hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
+    request = _scoped_to(target.deletion_target, deletion_request)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
 
@@ -1626,7 +1617,7 @@ def verify_property_removal_shard(
             return stats
 
         _sync_replica(client, target, log)
-        predicate = _shard_predicate(client, request, target, marker_str, hogql_compiled, log)
+        predicate = _shard_predicate(client, request, target.deletion_target, marker_str, hogql_compiled, log)
         predicate = _with_copied_inserted_at_bound(predicate, copied["inserted_at_max"])
         remaining = client.execute(
             f"SELECT count() FROM {db}.{target.table} WHERE {predicate.sql}",
@@ -1723,40 +1714,26 @@ def verify_property_removal(
     _refuse_property_removal_unsweepable(cluster, here, deletion_request, marker_str, log=context.log)
 
     def check(client: Client, target: DeletionTarget, hogql_compiled: tuple[str, dict]) -> int:
-        request = _swept_request(target, deletion_request)
-        mat_cols: list[tuple[str, bool]] = []
-        person_mat_cols: list[tuple[str, bool]] = []
-        if not target.uses_new_events_schema:
-            if request.properties:
-                mat_cols = _get_affected_mat_columns(
-                    client, target.read_table, request.properties, table_column="properties"
-                )
-            if request.person_properties:
-                person_mat_cols = _get_affected_mat_columns(
-                    client, target.read_table, request.person_properties, table_column="person_properties"
-                )
-        predicate, params = _property_removal_where(
-            request,
-            mat_cols=mat_cols,
-            person_mat_cols=person_mat_cols,
-            inserted_at_max=marker_str,
-            hogql_compiled=hogql_compiled,
-            json_schema=target.uses_new_events_schema,
-        )
+        request = _scoped_to(target, deletion_request)
+        predicate = _shard_predicate(client, request, target, marker_str, hogql_compiled)
         return client.execute(
-            f"SELECT count() FROM {target.read_table} WHERE {predicate} AND _row_exists = 1",
-            params,
+            surviving_rows_sql(target.read_table, predicate.sql),
+            predicate.params,
             settings={"max_execution_time": 1800},
         )[0][0]
 
-    remaining = 0
-    for target in _property_rewrite_targets(here, deletion_request, log=context.log):
-        # Compiled on the op's thread: HogQL compilation reads the Django ORM. A table the predicate
-        # does not compile against is never swept with a predicate, so its fragment is empty.
-        hogql_compiled = compile_hogql_predicate(deletion_request, use_new_events_schema=target.uses_new_events_schema)
-        remaining += cluster.any_host_by_role(
-            partial(check, target=target, hogql_compiled=hogql_compiled), NodeRole.DATA
-        ).result()
+    pending = [
+        cluster.any_host_by_role(
+            partial(
+                check,
+                target=target,
+                hogql_compiled=_compile_predicate(deletion_request, target.uses_new_events_schema),
+            ),
+            NodeRole.DATA,
+        )
+        for target in _property_rewrite_targets(here, deletion_request, log=context.log)
+    ]
+    remaining = sum(future.result() for future in pending)
     context.add_output_metadata(
         {
             "remaining_originals": dagster.MetadataValue.int(remaining),
