@@ -4,8 +4,7 @@ Kept apart from `PipelineV3` on purpose: every other source runs the base class,
 the single-table path it has always been. Only a source that declares `SourceResponse.lanes`
 gets this subclass, so nothing in here can change what a single-table run does.
 
-Each table beyond the first gets its own `ExternalDataJob`, the way the legacy CDC extraction
-already writes a `both` schema (see `cdc/activities.py`). That is what keeps the queue out of it:
+Each table beyond the first gets its own `ExternalDataJob`. That is what keeps the queue out of it:
 a job is where batch idempotency, staging paths, claim ordering and completion all hang, so two
 tables under one job would collide on every one of them, while two jobs are two ordinary
 single-table runs the loader already knows how to finish.
@@ -160,7 +159,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
                 "workflow_run_id": None,
                 # The history table has no destination mapping: delivery names the destination
                 # table from the schema, and SCD2 rows merged by key there would clobber the
-                # consolidated table's rows. Legacy never delivered companion batches either.
+                # consolidated table's rows.
                 "destination_ids": [],
             }
         )
@@ -218,10 +217,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         itself discards the batches it has not yet claimed once it sees the job Failed; the next
         run re-reads those files from the table's position, so nothing is lost, only re-staged.
 
-        Written directly, the way the legacy CDC path retires its own companion jobs. Going
-        through `update_external_job_status` would repaint the customer's schema FAILED and fire a
-        failure digest, and this runs from a `finally` on every attempt — including ones Temporal
-        retries and succeeds.
+        Written directly. Going through `update_external_job_status` would repaint the customer's
+        schema FAILED and fire a failure digest, and this runs from a `finally` on every attempt —
+        including ones Temporal retries and succeeds.
         """
         for job_id in self._companion_job_ids:
             if job_id in self._final_sent_job_ids:

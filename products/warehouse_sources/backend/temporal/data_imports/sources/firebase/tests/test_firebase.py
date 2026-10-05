@@ -12,6 +12,7 @@ import jwt
 import requests
 from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.firebase import (
     AccessTokenProvider,
     FirebaseAuthError,
@@ -59,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     REALTIME_DATABASE_VALUE_COLUMN,
     RESPONSE_TOO_LARGE_ERROR,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.source import FirebaseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.tests.conftest import (
     PUBLIC_KEY_PEM,
     TOKEN_PAYLOAD,
@@ -962,6 +964,36 @@ class TestRealtimeDatabase:
         )
 
         assert [row[REALTIME_DATABASE_KEY_COLUMN] for row in batches[0]] == ["0", "2"]
+
+    def test_missing_database_stops_with_a_message_that_omits_the_url(self, logger: FilteringBoundLogger) -> None:
+        url = "https://demo-project.firebaseio.com"
+        session = FakeSession(
+            request_responses=[
+                FakeResponse(status_code=404, payload={"error": "404 Not Found"}, url=f"{url}/rooms.json")
+            ],
+            post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)],
+        )
+
+        with pytest.raises(FirebaseConfigError) as exc_info:
+            list(
+                iter_realtime_database(
+                    session.as_session(),
+                    token_provider(session),
+                    credentials(realtime_database_url=url),
+                    "rooms",
+                    FakeResumeManager(),
+                    logger,
+                )
+            )
+
+        matches = [
+            message
+            for pattern, message in FirebaseSource().get_non_retryable_errors().items()
+            if error_message_matches(str(exc_info.value), [pattern])
+        ]
+        assert matches and matches[0] is not None
+        assert "Realtime Database" in matches[0]
+        assert "demo-project" not in matches[0]
 
     def test_missing_url_is_a_config_error(self, logger: FilteringBoundLogger) -> None:
         session = FakeSession(post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)])
