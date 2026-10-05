@@ -193,6 +193,19 @@ def test_credential_validation(status: int, schema_name: str | None, expected: t
     assert send.call_args.args[0].headers["Authorization"] == "example-company:fake-secret"
 
 
+@pytest.mark.parametrize(
+    "config",
+    [
+        QontoSourceConfig(login="bad\nlogin", secret_key="stored-secret"),
+        QontoSourceConfig(login="example-company", secret_key="bad\rsecret"),
+    ],
+)
+def test_credential_validation_rejects_header_injection(config: QontoSourceConfig) -> None:
+    with patch("requests.Session.send") as send:
+        assert validate_credentials(config, "v2", None) == (False, AUTH_ERROR)
+    send.assert_not_called()
+
+
 @pytest.mark.parametrize("status", [429, 500])
 def test_credential_validation_propagates_transient_errors(status: int) -> None:
     with patch("requests.Session.send", return_value=response({}, status)), pytest.raises(HTTPError):

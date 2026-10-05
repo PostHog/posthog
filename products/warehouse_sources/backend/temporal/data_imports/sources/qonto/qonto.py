@@ -35,6 +35,9 @@ class QontoResumeConfig:
 def validate_credentials(
     config: QontoSourceConfig, api_version: str, schema_name: str | None
 ) -> tuple[bool, str | None]:
+    if any("\r" in value or "\n" in value for value in (config.login, config.secret_key)):
+        return False, AUTH_ERROR
+
     with make_tracked_session() as session:
         response = session.get(
             f"https://thirdparty.qonto.com/{api_version}/organization",
