@@ -228,8 +228,6 @@ def ensure_stored(
         wait_timeout_seconds=wait_timeout_seconds,
         stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         run_inserts=run_inserts,
-        # No read follows a refresh in the same request.
-        read_after_write=False,
         database=database,
     )
 
