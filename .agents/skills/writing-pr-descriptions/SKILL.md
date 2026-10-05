@@ -82,7 +82,7 @@ Prose is the slowest form on the page. Before writing a sentence, ask what carri
 | The fact you have                                                                    | The form that carries it                                  |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
 | A visual change (any UI a person sees, including a flow through screens)             | Screenshot, before and after. Mandatory, not optional     |
-| An architecture or topology change that a single sentence cannot carry (see Mermaid) | Two branded `flowchart` blocks, before first              |
+| An architecture or topology change one sentence cannot carry (defined under Mermaid) | Two branded `flowchart` blocks, before first              |
 | Several values compared across the same dimensions                                   | A markdown table                                          |
 | A config or setting change                                                           | A fenced `diff` block                                     |
 | Existing code a reviewer needs to see                                                | A line-range permalink, which GitHub renders as a snippet |
@@ -109,7 +109,8 @@ Touching UI code without a visible change is common, and the mandate has to be d
 ### Mermaid
 
 Draw a diagram only for an architecture or topology change that one sentence cannot carry.
-Architecture and topology mean CI wiring, pipelines, services and the calls between them, module or package boundaries, a state machine with several states, or a request path across systems.
+Architecture and topology mean CI wiring, pipelines, services and the calls between them, or module and package boundaries.
+They also mean a state machine with several states, or a request path across systems.
 A UI flow or a linear sequence of screens is not a topology.
 It gets screenshots, not a diagram.
 When one sentence states the whole change, such as one step added to a straight chain, write the sentence instead.
