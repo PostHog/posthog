@@ -167,7 +167,7 @@ class JiraIntegration:
 
         response = requests.get(
             f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/user/assignable/search",
-            params={"project": project_key, "maxResults": 100},
+            params={"project": project_key, "maxResults": "100"},
             headers={
                 "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
                 "Accept": "application/json",
