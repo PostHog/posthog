@@ -1,9 +1,10 @@
 import abc
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from functools import partial
+from itertools import groupby
 
 from django.conf import settings
 from django.db.models import Q
@@ -649,6 +650,72 @@ def load_and_verify_adhoc_event_deletes_dictionary(
     return dictionary
 
 
+_MEMBERSHIP_REQUEST_PAGE_SIZE = 1000
+
+
+@frozen
+class _MembershipScanPredicate:
+    predicate: str
+    parameters: dict[str, object]
+
+
+def _membership_scan_predicates(
+    cluster: ClickhouseCluster,
+    pending: PendingDeletesDictionary,
+    adhoc: AdhocEventDeletesDictionary,
+) -> Iterator[_MembershipScanPredicate]:
+    # Read the verified snapshots here. Skipped event sources can lack both dictionaries.
+    requests = (
+        f"SELECT team_id, deletion_type, key, toDateTime64(created_at, 6, 'UTC') AS created_at FROM {pending.qualified_name} "
+        f"WHERE deletion_type IN ({DeletionType.Person}, {DeletionType.Event}) "
+        f"UNION ALL SELECT team_id, toUInt8(0) AS deletion_type, toString(uuid) AS key, created_at FROM {adhoc.qualified_name}"
+    )
+    predicate = """team_id = %(team_id)s AND arrayExists(request -> or(
+        (request.1 = %(person_type)s AND toString(person_id) = request.2
+            AND timestamp <= toDateTime64(request.3, 6, 'UTC')
+            AND (inserted_at IS NULL OR inserted_at <= toDateTime64(request.3, 6, 'UTC'))),
+        (request.1 = %(event_type)s AND toString(uuid) = request.2),
+        (request.1 = 0 AND toString(uuid) = request.2
+            AND (inserted_at IS NULL OR inserted_at <= toDateTime64(request.3, 6, 'UTC')))
+    ), %(membership_requests)s)"""
+    after: tuple | None = None
+    while True:
+        params: dict[str, object] = {
+            "dictionary": pending.qualified_name,
+            "team_type": DeletionType.Team,
+        }
+        cursor = ""
+        if after is not None:
+            cursor = " AND (team_id, deletion_type, key) > %(after)s"
+            params["after"] = after
+        rows = cluster.any_host_by_role(
+            Query(
+                f"SELECT team_id, deletion_type, key, created_at FROM ({requests}) "
+                "WHERE NOT dictHas(%(dictionary)s, (team_id, %(team_type)s, team_id))"
+                f"{cursor} ORDER BY team_id, deletion_type, key LIMIT {_MEMBERSHIP_REQUEST_PAGE_SIZE}",
+                params,
+                settings={"max_execution_time": "1800", "max_memory_usage": str(2 * 1024**3)},
+            ),
+            NodeRole.DATA,
+        ).result()
+        if not rows:
+            return
+        for (team_id,), team_requests in groupby(rows, key=lambda row: row[:1]):
+            yield _MembershipScanPredicate(
+                predicate=predicate,
+                parameters={
+                    "team_id": team_id,
+                    "person_type": DeletionType.Person,
+                    "event_type": DeletionType.Event,
+                    "membership_requests": [
+                        (kind, key, created_at.strftime("%Y-%m-%d %H:%M:%S.%f"))
+                        for _, kind, key, created_at in team_requests
+                    ],
+                },
+            )
+        after = rows[-1][:3]
+
+
 @dagster.op
 def delete_events(
     context: dagster.OpExecutionContext,
@@ -700,44 +767,26 @@ def delete_events(
     # Every target this run sweeps must get the delete, or rows survive on the one that missed it.
     placements = resolve_placements(cluster, _targets_named(swept_targets))
     membership_sources = [p.target for p in placements if p.target in EVENTS_TARGETS]
-    # finish_membership_deletion deletes all membership of a deleted team, so its events are not staged.
-    # Staging them would put every membership key in the team's events into one GLOBAL IN set, which can
-    # pass the set limits for a large team and fail the whole run.
-    membership_predicate = (
-        f"team_id GLOBAL IN (SELECT team_id FROM {load_and_verify_deletes_dictionary.qualified_name} "
-        f"UNION ALL SELECT team_id FROM {load_and_verify_adhoc_event_deletes_dictionary.qualified_name}) "
-        "AND NOT dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id)) "
-        f"AND ({_DELETE_PREDICATE})"
-    )
-    membership_params: dict[str, object] = dict(
-        _delete_predicate_params(load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary)
-    )
-    refuse_unswept_membership_sources(
-        cluster,
-        [
-            (
-                t.read_table,
-                t.uses_new_events_schema,
-                membership_predicate,
-                membership_params,
-            )
-            for t in EVENTS_TARGETS
-            if t not in membership_sources
-        ],
-    )
-    stage_membership_deletion(
-        cluster,
-        "async_deletes",
-        [
-            (
-                t.read_table,
-                t.uses_new_events_schema,
-                membership_predicate,
-                membership_params,
-            )
-            for t in membership_sources
-        ],
-    )
+    # finish_membership_deletion clears deleted teams without reading their source events.
+    for membership in _membership_scan_predicates(
+        cluster, load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
+    ):
+        refuse_unswept_membership_sources(
+            cluster,
+            [
+                (t.read_table, t.uses_new_events_schema, membership.predicate, membership.parameters)
+                for t in EVENTS_TARGETS
+                if t not in membership_sources
+            ],
+        )
+        stage_membership_deletion(
+            cluster,
+            "async_deletes",
+            [
+                (t.read_table, t.uses_new_events_schema, membership.predicate, membership.parameters)
+                for t in membership_sources
+            ],
+        )
     reuse_floor = _mutation_reuse_floor(cluster)
     delete_mutation_runners = [
         (

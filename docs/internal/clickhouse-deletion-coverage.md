@@ -157,6 +157,14 @@ Immediate event removal, person event removal, and `deletes_job` therefore run c
 Deferred event requests, including HogQL requests and queued UUID drains, reconcile when `deletes_job` drains their queue.
 The drain reads and recomputes from the event targets selected for that run.
 It refuses a skipped source that holds events for affected membership rows.
+The initiating node reads the verified deletion dictionaries in pages of at most 1,000 requests.
+It excludes whole-team requests because the team hook clears their membership directly.
+Each source scan receives a bounded, dictionary-free predicate with that team's request keys and cutoffs.
+Remote sources do not need the pending-deletion tables, deletion dictionaries, or new dictionary credentials.
+The person arm preserves both timestamp and insertion-time bounds, including NULL insertion times.
+Event UUID requests stay unbounded, and adhoc requests retain their insertion-time bound and cancelled-request exclusion.
+A failed probe fails the run before any source mutation.
+The probe does not enable deletion of skipped events or change the default skip list.
 Thus the default native-JSON skip cannot silently preserve an association that the request should remove.
 Empty membership leaves the existing source-table gap unchanged.
 

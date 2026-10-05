@@ -522,6 +522,10 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
             request.refresh_from_db()
             assert request.delete_verified_at is None
             assert len(self._rows()) == 4
+            for table in ("events", "events_json"):
+                assert sync_execute(
+                    f"SELECT count() FROM {table} WHERE team_id = %(team_id)s", {"team_id": self.team.pk}
+                ) == [(4,)]
 
     def test_interrupted_cleanup_keeps_person_deletion_working(self) -> None:
         stage_membership_deletion(

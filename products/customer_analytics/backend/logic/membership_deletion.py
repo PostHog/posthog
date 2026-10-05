@@ -345,6 +345,7 @@ class MembershipReconciliation:
             "distinct_id, timestamp FROM ("
             f"SELECT team_id, distinct_id, timestamp, properties FROM {_name(table)} "
             "PREWHERE team_id = %(membership_team_id)s "
+            f"AND %(membership_index)s <= {PERSON_GROUP_MEMBERSHIP_MAX_GROUP_TYPE_INDEX} "
             "AND distinct_id IN arrayMap(key -> key.2, %(membership_keys)s) "
             f"WHERE ({predicate})) WHERE group_key != '' AND (group_key, distinct_id) IN %(membership_keys)s"
         )
