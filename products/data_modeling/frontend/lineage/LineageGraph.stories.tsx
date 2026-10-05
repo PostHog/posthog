@@ -269,6 +269,12 @@ export const DraggableNodes: Story = {
             throw new Error('The node menu must not duplicate the graph lineage behavior')
         }
         fireEvent.keyDown(canvasElement.ownerDocument, { key: 'Escape' })
+        // The snapshot is taken when play resolves, so wait for the menu to leave the DOM.
+        await waitFor(() => {
+            if (page.queryByRole('menuitem')) {
+                throw new Error('Escape must close the node menu')
+            }
+        })
     },
 }
 
