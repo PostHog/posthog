@@ -1,12 +1,14 @@
 import { useMemo } from 'react'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconLlmAnalytics } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 
+import { aiObservabilityUrl } from '../../aiEventSpans'
 import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } from '../../dateFormats'
 import { deriveSpanSummary } from '../../spanSummary'
 import { formatDuration } from '../../TraceWaterfallView'
@@ -57,6 +59,7 @@ export function SpanSummaryHeader({
 }): JSX.Element {
     // Memoized so a parent resize-drag (re-renders every mousemove) doesn't re-scan the attributes.
     const summary = useMemo(() => deriveSpanSummary(span), [span])
+    const aiUrl = aiObservabilityUrl(span)
 
     return (
         <div className="flex flex-col gap-1.5 px-1 pb-2" data-attr="tracing-span-summary">
@@ -108,6 +111,18 @@ export function SpanSummaryHeader({
                 <LemonTag type="muted">{summary.kind}</LemonTag>
                 {summary.cluster && <LemonTag>Cluster: {summary.cluster}</LemonTag>}
                 {summary.pod && <LemonTag>Pod: {summary.pod}</LemonTag>}
+                {aiUrl && (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        sideIcon={<IconLlmAnalytics />}
+                        to={aiUrl}
+                        targetBlank
+                        data-attr="tracing-ai-event-view-in-ai-observability"
+                    >
+                        View in AI observability
+                    </LemonButton>
+                )}
             </div>
         </div>
     )
