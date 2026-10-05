@@ -102,6 +102,49 @@ class TestRecalculationService(BaseTest):
         assert row.total_metrics == 3
         assert set(row.metric_uuids) == {"p1", "s1", "shared1"}
 
+    @parameterized.expand(
+        [
+            # (name, trigger, minutes_since_query_to, expects_new_run)
+            ("manual_inside_window_reuses_latest", "manual", 2, False),
+            ("agent_mcp_inside_window_reuses_latest", "agent_mcp", 2, False),
+            ("manual_outside_window_starts_new", "manual", 6, True),
+            ("heal_inside_window_starts_new", "heal_latest_run", 2, True),
+            ("manual_retry_inside_window_starts_new", "manual_retry", 2, True),
+        ]
+    )
+    def test_request_recalculation_user_refresh_window(
+        self, name: str, trigger: str, minutes_since_query_to: int, expects_new_run: bool
+    ):
+        exp = self._launched_experiment(flag_key=f"window-{name}")
+        now = timezone.now()
+        latest = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            query_to=now - timedelta(minutes=minutes_since_query_to),
+            completed_at=now - timedelta(minutes=1),
+        )
+
+        if not expects_new_run:
+            # An older run at the same query_to must not shadow the newest one the latest read serves.
+            ExperimentMetricsRecalculation.objects.filter(id=latest.id).update(created_at=now - timedelta(seconds=30))
+            older = ExperimentMetricsRecalculation.objects.create(
+                team=self.team,
+                experiment=exp,
+                status="completed",
+                query_to=latest.query_to,
+                completed_at=now - timedelta(minutes=2),
+            )
+            ExperimentMetricsRecalculation.objects.filter(id=older.id).update(created_at=now - timedelta(minutes=2))
+        rows_before = ExperimentMetricsRecalculation.objects.filter(experiment=exp).count()
+
+        result = request_recalculation(exp, self.user, trigger)
+
+        assert result["is_existing"] is (not expects_new_run)
+        assert (result["id"] != str(latest.id)) is expects_new_run
+        rows_after = ExperimentMetricsRecalculation.objects.filter(experiment=exp).count()
+        assert rows_after == rows_before + (1 if expects_new_run else 0)
+
     def test_request_recalculation_is_idempotent(self):
         exp = self._launched_experiment()
         first = request_recalculation(exp, self.user, "manual")
