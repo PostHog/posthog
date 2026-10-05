@@ -19,7 +19,7 @@ export function HomeTabStatTiles({ dateRange, compare, selectedKey, onSelect }: 
             {stats.map((stat) => (
                 <div
                     key={stat.key}
-                    className="w-[45%] shrink-0 snap-start @min-[42rem]/home-overview:w-[23%] @min-[60rem]/home-overview:flex-1"
+                    className="w-52 min-w-[10rem] shrink-0 snap-start @min-[60rem]/home-overview:flex-1"
                 >
                     <HomeTabStatTile
                         stat={stat}
