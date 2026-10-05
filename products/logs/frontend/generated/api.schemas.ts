@@ -1663,7 +1663,7 @@ export const FacetFieldEnumApi = {
 } as const
 
 export interface _LogsFacetValuesBodyApi {
-    /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.
+    /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts come from a pre-aggregated rollup honouring severityLevels, serviceNames and this facet's own filter exclusion, but not body search, log-attribute filters, or resource-attribute filters. When personId or sessionId is set, counts come from the logs table directly instead, honouring every filter exactly.
      *
      * * `severity_text` - severity_text
      * * `service_name` - service_name */

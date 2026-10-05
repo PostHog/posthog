@@ -802,7 +802,7 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                    "Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts come from a pre-aggregated rollup honouring severityLevels, serviceNames and this facet's own filter exclusion, but not body search, log-attribute filters, or resource-attribute filters. When personId or sessionId is set, counts come from the logs table directly instead, honouring every filter exactly.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name"
                 ),
             facetResourceAttribute: zod
                 .string()
