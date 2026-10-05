@@ -7,6 +7,7 @@ import {
     modelName,
     modelNamingVariant,
     observationRetryOffer,
+    unsuccessfulScanReason,
 } from './types'
 
 describe('scanner type helpers', () => {
@@ -67,6 +68,31 @@ describe('scanner type helpers', () => {
 
         it('carries a hint for the ineligible kinds it offers, so the button can say why retrying might work', () => {
             expect(observationRetryOffer('ineligible', 'no_snapshots:nothing to render').hint).not.toBeNull()
+        })
+    })
+
+    describe('unsuccessfulScanReason', () => {
+        // The table cell is the first thing a reader checks after a scan fails. The encoded message is an
+        // upstream exception string, so a failure must read as curated copy however the reason was encoded.
+        it.each<[string, string]>([
+            ['a classified failure', 'provider_rejected:403 PERMISSION_DENIED from provider'],
+            ['an unclassified failure', 'internal_error:KeyError: <object at 0x7f>'],
+            ['a failure kind this build does not know', 'future_kind:Traceback (most recent call last)'],
+            ['an unencoded failure', 'RuntimeError: something broke'],
+        ])('shows curated copy for %s', (_label, errorReason) => {
+            const reason = unsuccessfulScanReason('failed', errorReason)
+            expect(reason).not.toBeNull()
+            expect(errorReason).not.toContain(reason)
+        })
+
+        it('keeps the product-written message for an ineligible session', () => {
+            expect(unsuccessfulScanReason('ineligible', 'too_short:The session lasted 3 seconds.')).toBe(
+                'The session lasted 3 seconds.'
+            )
+        })
+
+        it('has nothing to say about an observation that did not end unsuccessfully', () => {
+            expect(unsuccessfulScanReason('succeeded', null)).toBeNull()
         })
     })
 
