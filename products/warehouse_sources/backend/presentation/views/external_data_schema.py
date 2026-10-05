@@ -1418,6 +1418,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     sync_external_data_job_workflow(
                         updated_instance, create=True, should_sync=False, trigger_immediately=False
                     )
+                    # A repair that started after the checks above may have resumed its tables
+                    # before this schedule existed, and it does not come back for it.
+                    if repair_is_running(source) or not tables_wait_for_repair(source):
+                        unpause_external_data_schedule(str(updated_instance.id))
                 elif should_sync_value:
                     # No schedule yet but the schema should be syncing — create (or recover) it. The
                     # schedule is built from the current frequency, so a cadence-only edit on an

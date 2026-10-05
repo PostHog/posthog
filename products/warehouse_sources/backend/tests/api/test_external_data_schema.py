@@ -3359,11 +3359,7 @@ class TestUpdateExternalDataSchema:
         sync_external_data_job_workflow(schema, create=True, should_sync=False, trigger_immediately=False)
 
         def finish_the_repair(_source: ExternalDataSource) -> bool:
-            marked = ExternalDataSchema.objects.filter(
-                source_id=schema.source_id, sync_type_config__has_key="cdc_broken"
-            )
-            for schema_id in marked.values_list("id", flat=True):
-                update_sync_type_config_keys(schema_id, team.pk, removes=["cdc_broken"])
+            self._clear_broken_markers(schema)
             return False
 
         views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
@@ -3379,6 +3375,37 @@ class TestUpdateExternalDataSchema:
 
         assert response.status_code == 200, response.content
         assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is False
+
+    def test_sync_turned_on_without_a_schedule_as_a_repair_ends_resumes_the_table(
+        self, team, user, client: HttpClient, temporal
+    ):
+        client.force_login(user)
+        schema = self._cdc_table_beside_a_marked_one(team, {"reason": "auto_dropped_critical_lag"}, "cdc", False)
+
+        def create_as_the_repair_ends(*args: Any, **kwargs: Any) -> Any:
+            created = create_schedule(*args, **kwargs)
+            self._clear_broken_markers(schema)
+            return created
+
+        service = "products.data_warehouse.backend.logic.data_load.service"
+        with (
+            self._patch_cdc_edit(),
+            mock.patch(f"{service}.create_schedule", side_effect=create_as_the_repair_ends),
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={"should_sync": True},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200, response.content
+        assert describe_schedule(temporal, str(schema.id)).schedule.state.paused is False
+
+    @staticmethod
+    def _clear_broken_markers(schema: ExternalDataSchema) -> None:
+        marked = ExternalDataSchema.objects.filter(source_id=schema.source_id, sync_type_config__has_key="cdc_broken")
+        for schema_id in marked.values_list("id", flat=True):
+            update_sync_type_config_keys(schema_id, schema.team_id, removes=["cdc_broken"])
 
     def _cdc_table_beside_a_marked_one(
         self, team, marker: dict[str, Any], marked_table_sync_type: str, synced_before: bool
