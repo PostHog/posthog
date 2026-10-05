@@ -42,6 +42,72 @@ export function isBranchingAction(action: Pick<HogFlowAction, 'type'>): boolean 
     return BRANCHING_ACTION_TYPES.includes(action.type as (typeof BRANCHING_ACTION_TYPES)[number])
 }
 
+const getEdgeKey = (edge: HogFlowEdge): string => `${edge.from}:${edge.to}:${edge.type}:${edge.index ?? ''}`
+
+function getReachableActionIds(workflow: Pick<HogFlow, 'actions'>, edges: HogFlowEdge[]): Set<string> {
+    const trigger = workflow.actions.find((action) => action.type === 'trigger') ?? workflow.actions[0]
+    const reachable = new Set<string>(trigger ? [trigger.id] : [])
+    const queue = [...reachable]
+
+    for (let index = 0; index < queue.length; index++) {
+        for (const edge of edges) {
+            if (edge.from === queue[index] && !reachable.has(edge.to)) {
+                reachable.add(edge.to)
+                queue.push(edge.to)
+            }
+        }
+    }
+
+    return reachable
+}
+
+export type EarlyExitBlockedReason = 'already-exits' | 'cuts-off-steps'
+
+export const EARLY_EXIT_BLOCKED_REASONS: Record<EarlyExitBlockedReason, { label: string; message: string }> = {
+    'already-exits': {
+        label: 'Already goes to exit',
+        message: 'This path already goes to the exit.',
+    },
+    'cuts-off-steps': {
+        label: 'Cuts off later steps',
+        message:
+            'An early exit here would cut off the steps below it. Add it to a path that joins the rest of the workflow.',
+    },
+}
+
+type EarlyExitResult =
+    | { edges: HogFlowEdge[]; blockedReason: null }
+    | { edges: null; blockedReason: EarlyExitBlockedReason }
+
+/**
+ * Points the given edges straight at the workflow exit. It is blocked when the edges already end
+ * there, or when a step after them would no longer be reachable along another path.
+ */
+export function computeEarlyExit(
+    workflow: Pick<HogFlow, 'actions' | 'edges'>,
+    edgesToReplace: HogFlowEdge[]
+): EarlyExitResult {
+    const exitActionId = workflow.actions.findLast((action) => action.type === 'exit')?.id
+    const replacedKeys = new Set(edgesToReplace.map(getEdgeKey))
+    const matchingEdgeCount = workflow.edges.filter((edge) => replacedKeys.has(getEdgeKey(edge))).length
+
+    if (!exitActionId || edgesToReplace.some((edge) => edge.to === exitActionId)) {
+        return { edges: null, blockedReason: 'already-exits' }
+    }
+    if (matchingEdgeCount === 0 || matchingEdgeCount !== edgesToReplace.length) {
+        return { edges: null, blockedReason: 'cuts-off-steps' }
+    }
+
+    const newEdges = workflow.edges.map((edge) =>
+        replacedKeys.has(getEdgeKey(edge)) ? { ...edge, to: exitActionId } : edge
+    )
+    const reachableAfter = getReachableActionIds(workflow, newEdges)
+
+    return [...getReachableActionIds(workflow, workflow.edges)].every((actionId) => reachableAfter.has(actionId))
+        ? { edges: newEdges, blockedReason: null }
+        : { edges: null, blockedReason: 'cuts-off-steps' }
+}
+
 export function getWaitTimeoutLabel(maxWaitDuration: string | undefined): string | null {
     const parts = COMPLETE_DURATION_PATTERN.exec(maxWaitDuration ?? '')
     if (!parts) {
@@ -204,8 +270,7 @@ function collectBranchJoinEdges(
     joinEdges: Map<string, HogFlowEdge>
 ): void {
     if (sequence.trailingEdge?.to === joinActionId) {
-        const edge = sequence.trailingEdge
-        joinEdges.set(`${edge.from}:${edge.to}:${edge.type}:${edge.index ?? ''}`, edge)
+        joinEdges.set(getEdgeKey(sequence.trailingEdge), sequence.trailingEdge)
     }
 
     for (const node of sequence.nodes) {

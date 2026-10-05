@@ -4,13 +4,19 @@ import type { DragEvent } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn, Popover, PopoverContent, PopoverTrigger } from 'lib/ui/quill'
 
 import { type CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowEditorPanelBuild } from '../panel/HogFlowEditorPanelBuild'
 import type { HogFlowEdge } from '../types'
-import { computeMoveTreeBranchEdges, isBranchingAction } from './workflowTree'
+import {
+    EARLY_EXIT_BLOCKED_REASONS,
+    computeEarlyExit,
+    computeMoveTreeBranchEdges,
+    isBranchingAction,
+} from './workflowTree'
 
 export function HogFlowTreeDropzone({
     active,
@@ -37,7 +43,7 @@ export function HogFlowTreeDropzone({
     insertionLabel?: string
     alwaysVisible?: boolean
 }): JSX.Element {
-    const { workflow } = useValues(hogFlowEditorLogic)
+    const { nodeToBeAdded, workflow } = useValues(hogFlowEditorLogic)
     const {
         moveNodeToEdge,
         onDragOver,
@@ -50,6 +56,13 @@ export function HogFlowTreeDropzone({
     const [highlighted, setHighlighted] = useState(false)
     const [pickerOpen, setPickerOpen] = useState(false)
     const isAdjacentToDraggedAction = draggedActionId === edge.to || (!isBranchJoin && draggedActionId === edge.from)
+    const earlyExitBlockedReason =
+        nodeToBeAdded?.type === 'exit'
+            ? computeEarlyExit(
+                  workflow,
+                  isBranchJoin ? (joinEdges ?? workflow.edges.filter((e) => e.to === edge.to)) : [edge]
+              ).blockedReason
+            : null
     const handleDragOver = (event: DragEvent<HTMLElement>): void => {
         setHighlighted(true)
         onDragOver(event)
@@ -162,7 +175,8 @@ export function HogFlowTreeDropzone({
                     'absolute -inset-y-3 inset-x-0 z-20 items-center',
                     isAdjacentToDraggedAction
                         ? 'hidden'
-                        : 'hidden group-data-[workflow-tree-dropzone-closest=true]:flex'
+                        : 'hidden group-data-[workflow-tree-dropzone-closest=true]:flex',
+                    earlyExitBlockedReason && 'cursor-not-allowed'
                 )}
                 onDragOver={handleDragOver}
                 onDragLeave={() => setHighlighted(false)}
@@ -172,19 +186,30 @@ export function HogFlowTreeDropzone({
                 <div
                     aria-hidden="true"
                     className={cn(
-                        'absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 bg-primary opacity-30 transition-opacity duration-150 group-data-[workflow-tree-dropzone-closest=true]:opacity-100',
+                        'absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 opacity-30 transition-opacity duration-150 group-data-[workflow-tree-dropzone-closest=true]:opacity-100',
+                        earlyExitBlockedReason ? 'bg-danger' : 'bg-primary',
                         highlighted && 'opacity-100'
                     )}
                 />
-                <span
-                    aria-hidden="true"
-                    className={cn(
-                        'absolute -right-2 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border border-primary bg-primary text-primary-foreground opacity-30 transition-[opacity,transform,box-shadow] duration-150 group-data-[workflow-tree-dropzone-closest=true]:scale-110 group-data-[workflow-tree-dropzone-closest=true]:opacity-100 group-data-[workflow-tree-dropzone-closest=true]:shadow-sm',
-                        highlighted && 'scale-110 opacity-100 shadow-sm'
-                    )}
-                >
-                    <IconPlus className="size-3" />
-                </span>
+                {earlyExitBlockedReason ? (
+                    <span
+                        className="absolute -right-2 top-1/2 flex -translate-y-1/2 items-center gap-1 rounded bg-card ps-1 text-xs text-danger"
+                        data-attr="workflow-tree-dropzone-blocked"
+                    >
+                        {EARLY_EXIT_BLOCKED_REASONS[earlyExitBlockedReason].label}
+                        <IconCancel className="size-4" />
+                    </span>
+                ) : (
+                    <span
+                        aria-hidden="true"
+                        className={cn(
+                            'absolute -right-2 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded-full border border-primary bg-primary text-primary-foreground opacity-30 transition-[opacity,transform,box-shadow] duration-150 group-data-[workflow-tree-dropzone-closest=true]:scale-110 group-data-[workflow-tree-dropzone-closest=true]:opacity-100 group-data-[workflow-tree-dropzone-closest=true]:shadow-sm',
+                            highlighted && 'scale-110 opacity-100 shadow-sm'
+                        )}
+                    >
+                        <IconPlus className="size-3" />
+                    </span>
+                )}
             </div>
         </div>
     )
