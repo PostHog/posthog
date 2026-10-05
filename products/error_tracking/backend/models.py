@@ -247,8 +247,8 @@ class ErrorTrackingIssueFingerprintV2(UUIDTModel):
             # reads the index alone and never fetches from the heap.
             models.UniqueConstraint(
                 fields=["team", "fingerprint"],
-                include=["id", "issue", "version"],
-                name="unique_fingerprint_for_team_covering",
+                include=["id", "issue", "version", "first_seen"],
+                name="unique_fingerprint_for_team_covering_v2",
             ),
         ]
         db_table = "posthog_errortrackingissuefingerprintv2"
