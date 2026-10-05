@@ -28,7 +28,12 @@ from posthog.models import PersonalAPIKey
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
+from posthog.rate_limit import (
+    BurstRateThrottle,
+    LLMPromptFetchRateThrottle,
+    LLMPromptPublishBurstRateThrottle,
+    SustainedRateThrottle,
+)
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptDependency, LLMPromptLabel
@@ -947,15 +952,15 @@ class TestLLMPromptAPI(APIBaseTest):
         assert isinstance(throttles[1], BurstRateThrottle)
         assert isinstance(throttles[2], SustainedRateThrottle)
 
-    def test_get_by_name_uses_default_burst_and_sustained_throttles(self):
+    @parameterized.expand(["list", "get_by_name", "resolve_by_name"])
+    def test_fetch_actions_use_dedicated_throttle_instead_of_shared_budget(self, action):
         view = LLMPromptViewSet()
-        view.action = "get_by_name"
+        view.action = action
 
         throttles = view.get_throttles()
 
-        assert len(throttles) == 2
-        assert isinstance(throttles[0], BurstRateThrottle)
-        assert isinstance(throttles[1], SustainedRateThrottle)
+        assert len(throttles) == 1
+        assert isinstance(throttles[0], LLMPromptFetchRateThrottle)
 
     def test_duplicate_prompt_creates_new_prompt_with_latest_content(self):
         self.create_prompt_version(name="original", version=1, is_latest=False, prompt="v1")
@@ -2100,8 +2105,7 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
             == status.HTTP_204_NO_CONTENT
         )
 
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
-    def test_fetch_resolves_references_into_assembled_content(self, _flag):
+    def test_fetch_resolves_references_into_assembled_content(self):
         self._make_prompt("guardrails", prompt="Never lie.", label="production")
         self._make_prompt("tone", prompt="Be kind.", version=3)
         self.client.post(
@@ -2122,23 +2126,7 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
             {"name": "tone", "version": 3, "label": None},
         ]
 
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=False)
-    def test_fetch_passes_tags_through_when_flag_is_off(self, _flag):
-        self._make_prompt("guardrails", label="production")
-        self.client.post(
-            f"/api/environments/{self.team.id}/llm_prompts/",
-            data={"name": "agent", "prompt": "@@@prompt:name=guardrails|label=production@@@"},
-            format="json",
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/name/agent/")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["prompt"] == "@@@prompt:name=guardrails|label=production@@@"
-        assert "resolved_references" not in response.json()
-
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
-    def test_fetch_with_resolve_false_returns_raw_tags(self, _flag):
+    def test_fetch_with_resolve_false_returns_raw_tags(self):
         self._make_prompt("guardrails", label="production")
         self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/",
@@ -2151,8 +2139,7 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["prompt"] == "@@@prompt:name=guardrails|label=production@@@"
 
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
-    def test_label_move_changes_the_assembled_fetch(self, _flag):
+    def test_label_move_changes_the_assembled_fetch(self):
         self._make_prompt("guardrails", prompt="Old rules.", label="prod")
         self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/",
@@ -2178,8 +2165,7 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         assert second.json()["prompt"] == "New rules."
         assert second.json()["resolved_references"] == [{"name": "guardrails", "version": 2, "label": "prod"}]
 
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
-    def test_fetch_404s_naming_a_missing_referenced_prompt(self, _flag):
+    def test_fetch_404s_naming_a_missing_referenced_prompt(self):
         self._make_prompt("guardrails")
         self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/",
@@ -2194,8 +2180,7 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         assert response.json()["reference_name"] == "guardrails"
         assert "guardrails" in response.json()["detail"]
 
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
-    def test_fetch_409s_on_nested_references(self, _flag):
+    def test_fetch_409s_on_nested_references(self):
         self._make_prompt("base")
         self._make_prompt("mid", prompt="@@@prompt:name=base|version=1@@@")
         # Bypasses publish validation the way a raced write would.
@@ -2206,8 +2191,7 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["reference_name"] == "mid"
 
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
-    def test_fetch_409s_when_assembly_exceeds_the_size_cap(self, _flag):
+    def test_fetch_409s_when_assembly_exceeds_the_size_cap(self):
         self._make_prompt("big", prompt="x" * 600_000)
         # Two tags to the same 600k partial: each version is under the cap,
         # the assembly is not. Bypasses publish validation like a raced label move.
@@ -2218,8 +2202,7 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["reference_name"] == "agent"
 
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
-    def test_repeated_tags_cost_one_lookup_and_one_provenance_entry(self, _flag):
+    def test_repeated_tags_cost_one_lookup_and_one_provenance_entry(self):
         self._make_prompt("guardrails", prompt="G.", label="production")
         tag = "@@@prompt:name=guardrails|label=production@@@"
         self.client.post(
@@ -2239,8 +2222,7 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         assert response.json()["resolved_references"] == [{"name": "guardrails", "version": 1, "label": "production"}]
         assert cache_read.call_count == 1
 
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
-    def test_assembly_exactly_at_the_cap_is_accepted(self, _flag):
+    def test_assembly_exactly_at_the_cap_is_accepted(self):
         # Padding plus spliced content fits the cap only if the tag's own
         # bytes are not double counted; the overcounting bug rejected this.
         self._make_prompt("big", prompt="x" * 600_000)
@@ -2258,8 +2240,7 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert len(response.json()["prompt"]) == 1_000_000
 
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
-    def test_transient_reference_lookup_failure_is_503_not_404(self, _flag):
+    def test_transient_reference_lookup_failure_is_503_not_404(self):
         # A database outage degrades the cached lookup to None; that must not
         # tell SDK callers the referenced prompt "no longer exists".
         self._make_prompt("guardrails", label="production")
@@ -2297,8 +2278,7 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/base/")
         assert response.json()["referenced_by"] == []
 
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
-    def test_labeled_list_resolves_references(self, _flag):
+    def test_labeled_list_resolves_references(self):
         self._make_prompt("guardrails", prompt="G.", label="shared")
         agent = self.client.post(
             f"/api/environments/{self.team.id}/llm_prompts/",
@@ -2326,8 +2306,7 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         assert rows["plain"]["prompt"] == "No tags."
         assert rows["plain"]["resolved_references"] == []
 
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True)
-    def test_labeled_list_fails_naming_the_prompt_whose_reference_cannot_resolve(self, _flag):
+    def test_labeled_list_fails_naming_the_prompt_whose_reference_cannot_resolve(self):
         self._make_prompt("healthy", prompt="Fine.", label="production")
         # Simulates a raced write: a labeled prompt referencing a prompt that no longer exists.
         self._make_prompt("broken", prompt="@@@prompt:name=missing|version=1@@@", label="production")
@@ -2339,22 +2318,17 @@ class TestLLMPromptDependenciesAPI(APIBaseTest):
         assert response.json()["reference_name"] == "missing"
         assert "broken" in response.json()["detail"]
 
-    @patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=False)
-    def test_labeled_list_passes_tags_through_when_flag_is_off(self, _flag):
+    def test_labeled_list_with_resolve_false_returns_raw_tags(self):
         self._make_prompt("guardrails", prompt="G.", label="shared")
         self._make_prompt("agent", prompt="@@@prompt:name=guardrails|label=shared@@@", label="production")
 
-        response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/?label=production&content=full")
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_prompts/?label=production&content=full&resolve=false"
+        )
 
         rows = {row["name"]: row for row in response.json()["results"]}
         assert rows["agent"]["prompt"] == "@@@prompt:name=guardrails|label=shared@@@"
         assert rows["agent"]["resolved_references"] is None
-
-        with patch("posthog.api.llm_prompt.prompt_partials_enabled", return_value=True):
-            raw = self.client.get(
-                f"/api/environments/{self.team.id}/llm_prompts/?label=production&content=full&resolve=false"
-            )
-        assert raw.json()["results"][0]["prompt"] == "@@@prompt:name=guardrails|label=shared@@@"
 
     def test_label_cannot_activate_a_version_whose_references_went_dead(self):
         self._make_prompt("dep")

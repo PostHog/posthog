@@ -2,6 +2,8 @@
 work with both writer flags off; creating and enabling need the project's flags on.
 """
 
+from unittest.mock import patch
+
 from django.conf import settings
 from django.test import override_settings
 
@@ -10,13 +12,19 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import ServiceRequest
+from posthog.exceptions import Conflict
 from posthog.models import Team
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.serializers import ApprovalPolicySerializer
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import (
+    FeatureFlagSerializer,
+    _get_flag_rollout_info,
+    flag_version_conflict_message,
+)
 from products.feature_flags.backend.api.test.test_feature_flag_config_v2_updates import (
     AdmittedV2TestCase,
+    JsonValue,
     V2UpdateTestCase,
     admit_v2,
     config,
@@ -27,6 +35,13 @@ from products.feature_flags.backend.facade import api as flag_facade
 from products.feature_flags.backend.flags_cache import _get_feature_flags_for_service
 from products.feature_flags.backend.local_evaluation import _get_flags_response_for_local_evaluation_batch
 from products.feature_flags.backend.models import FeatureFlag
+
+
+def nested_list(levels: int) -> JsonValue:
+    value: JsonValue = 1
+    for _ in range(levels):
+        value = [value]
+    return value
 
 
 class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
@@ -43,14 +58,115 @@ class TestV2SafetyWritesNeedNoAdmission(V2UpdateTestCase):
         assert entry.activity == "updated"
         assert self.changed_fields(entry) == {"active", "version"}
 
-    def test_an_echoed_deleted_false_does_not_undo_a_concurrent_bulk_delete(self) -> None:
+    def test_an_echoed_deleted_false_does_not_undo_a_soft_delete_that_kept_the_version(self) -> None:
         flag = self.flag(active=True)
         stale = FeatureFlag.objects.get(pk=flag.pk)
-        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)  # a bulk delete does not bump version
+        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)  # as the file-system trash does
         updated = flag_facade.update_flag(
             stale, {"version": 3, "deleted": False, "active": False}, team=self.team, user=self.user
         )
         assert (updated.deleted, updated.active, updated.version) == (True, False, 4)
+
+    def test_bulk_delete_disables_and_bumps_the_version_like_a_single_delete(self) -> None:
+        flag = self.flag(active=True)
+        v1_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="v1-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            version=5,
+        )
+        self._activity_qs(v1_flag).delete()
+        stale = FeatureFlag.objects.get(pk=flag.pk)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/", {"ids": [flag.id, v1_flag.id]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {item["id"] for item in response.json()["deleted"]} == {flag.id, v1_flag.id}
+        flag.refresh_from_db()
+        assert (flag.deleted, flag.active, flag.version) == (True, False, 4)
+        (entry,) = self.activity(flag)
+        assert entry.activity == "deleted"
+        assert {c["field"]: (c["before"], c["after"]) for c in (entry.detail or {})["changes"]} == {
+            "deleted": (False, True),
+            "active": (True, False),
+            "version": (3, 4),
+        }
+        v1_flag.refresh_from_db()
+        assert (v1_flag.deleted, v1_flag.active, v1_flag.version) == (True, True, 5)
+        (v1_entry,) = self.activity(v1_flag)
+        assert (v1_entry.activity, (v1_entry.detail or {})["changes"]) == ("deleted", [])
+        with self.assertRaises(Conflict):
+            flag_facade.update_flag(stale, {"version": 3, "active": False}, team=self.team, user=self.user)
+
+    def test_bulk_delete_reports_a_row_the_single_delete_refuses(self) -> None:
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.disable",
+            approver_config={},
+            enabled=True,
+        )
+        flag = self.flag(active=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/", {"ids": [flag.id]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["deleted"] == []
+        assert response.json()["errors"] == [
+            {
+                "id": flag.id,
+                "key": flag.key,
+                "reason": "This flag cannot be written while an approval policy is enabled.",
+            }
+        ]
+        flag.refresh_from_db()
+        assert (flag.deleted, flag.active, flag.version) == (False, True, 3)
+        assert self.activity(flag) == []
+        assert not ChangeRequest.objects.filter(organization=self.organization).exists()
+
+    def test_bulk_delete_reports_a_row_that_changed_after_the_read_and_deletes_the_rest(self) -> None:
+        moved = self.flag(active=True, key="moved")
+        other = self.flag(active=True, key="other")
+
+        def read_then_move(flag, checker):
+            if flag.pk == moved.pk:
+                FeatureFlag.objects.filter(pk=moved.pk).update(version=4)
+            return _get_flag_rollout_info(flag, checker)
+
+        with patch(
+            "products.feature_flags.backend.api.feature_flag._get_flag_rollout_info", side_effect=read_then_move
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
+                {"ids": [moved.id, other.id]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["errors"] == [
+            {"id": moved.id, "key": moved.key, "reason": flag_version_conflict_message(3, 4)}
+        ]
+        assert [item["id"] for item in response.json()["deleted"]] == [other.id]
+        moved.refresh_from_db()
+        assert (moved.deleted, moved.active, moved.version) == (False, True, 4)
+        other.refresh_from_db()
+        assert (other.deleted, other.active, other.version) == (True, False, 4)
+
+    def test_bulk_delete_still_soft_deletes_a_row_in_an_unsupported_format(self) -> None:
+        flag = self.flag({"version": 99}, active=True)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/bulk_delete/", {"ids": [flag.id]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [item["id"] for item in response.json()["deleted"]] == [flag.id]
+        flag.refresh_from_db()
+        assert (flag.deleted, flag.active, flag.version) == (True, True, 3)
 
     def test_soft_deleting_disables_an_enabled_row_in_the_same_write(self) -> None:
         flag = self.flag(active=True)
@@ -120,6 +236,48 @@ class TestAdmittedV2Creation(AdmittedV2TestCase):
         assert (read.json()["filters"], read.json()["active"]) == (flag.filters, False)
         (entry,) = self.activity(flag)
         assert entry.activity == "created"
+
+    @parameterized.expand(
+        [
+            ("string", "compact", "standard"),
+            ("number", -2.5, 0),
+            ("object", {"layout": "compact", "options": [1, True, None]}, {}),
+        ]
+    )
+    def test_typed_documents_are_created_and_round_trip(
+        self, return_type: str, value: JsonValue, default: JsonValue
+    ) -> None:
+        submitted = config(
+            targeted(rule_id=None, value=value), rollout(rule_id=None, seed=None, value=value), return_type=return_type
+        )
+        submitted["default_value"] = default
+        response = self.post_flag({"key": "typed-v2", "filters": submitted})
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        flag = FeatureFlag.objects.get(team=self.team, key="typed-v2")
+        assert [rule["value"] for rule in flag.filters["rules"]] == [value, value]
+        assert (flag.filters["return_type"], flag.filters["default_value"]) == (return_type, default)
+        read = self.client.get(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/")
+        assert read.json()["filters"] == flag.filters
+
+    @parameterized.expand(
+        [
+            ("string_bool_default", "string", True, "compact", "filters.default_value"),
+            ("string_empty_value", "string", None, "", "filters.rules[0].value"),
+            ("number_string_value", "number", 0, "1", "filters.rules[0].value"),
+            ("number_unsafe_integer", "number", 2**53, 1, "filters.default_value"),
+            ("object_array_value", "object", None, [1], "filters.rules[0].value"),
+            ("object_too_deep", "object", None, {"a": nested_list(20)}, "filters.rules[0].value"),
+        ]
+    )
+    def test_values_that_do_not_match_the_return_type_are_rejected(
+        self, _name: str, return_type: str, default: JsonValue, value: JsonValue, attr: str
+    ) -> None:
+        submitted = config(targeted(rule_id=None, value=value), return_type=return_type)
+        submitted["default_value"] = default
+        response = self.post_flag({"key": "typed-v2", "filters": submitted})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"].startswith(f"{attr}: "), response.json()
+        assert not FeatureFlag.objects.filter(team=self.team, key="typed-v2").exists()
 
     def test_active_on_create_is_rejected_not_downgraded(self) -> None:
         response = self.post_flag({"key": "new-v2", "filters": config(targeted(rule_id=None)), "active": True})
@@ -239,6 +397,27 @@ class TestAdmittedV2Enabling(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert (flag.active, flag.version) == (False, 5)
         assert [entry.activity for entry in self.activity(flag)] == ["updated", "updated"]
+
+    def test_enabling_reports_a_disabled_flag_the_rule_targeting_depends_on(self) -> None:
+        dependency = FeatureFlag.objects.create(team=self.team, key="base-flag", active=False, created_by=self.user)
+        # Stored past the validator, which does not admit flag targeting yet. The non-integer key is skipped.
+        targeting = {
+            "properties": [
+                {"key": str(dependency.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                {"key": "checkout-flow", "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+            ]
+        }
+        stored = config(targeted(targeting=targeting))
+        flag = self.flag(stored, active=False)
+
+        response = self.patch_flag(flag, {"version": 3, "active": True})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        detail = response.json()["detail"]
+        assert "Cannot enable this feature flag because it depends on disabled flags" in detail
+        assert f"base-flag (ID: {dependency.id})" in detail
+        flag.refresh_from_db()
+        assert (flag.active, flag.version, flag.filters) == (False, 3, stored)
 
     @parameterized.expand(
         [

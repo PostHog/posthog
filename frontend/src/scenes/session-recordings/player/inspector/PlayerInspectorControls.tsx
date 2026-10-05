@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect } from 'react'
 
 import {
@@ -34,16 +35,19 @@ import { SessionRecordingPlayerMode, sessionRecordingPlayerLogic } from '../sess
 import { InspectorSearchInfo } from './components/InspectorSearchInfo'
 
 function sideActionForType({
+    type,
     miniFilters,
     setMiniFilter,
     allItemsByMiniFilterKey,
 }: {
+    type: FilterableInspectorListItemTypes
     miniFilters: SharedListMiniFilter[]
     setMiniFilter: (key: string, enabled: boolean) => void
     allItemsByMiniFilterKey: Record<string, InspectorListItem[]>
 }): SideAction {
     return {
         icon: <IconChevronRight className="rotate-90" />,
+        'data-attr': `player-inspector-${type}-mini-filter-menu`,
         dropdown: {
             closeOnClickInside: false,
             overlay: (
@@ -97,12 +101,14 @@ function FilterSettingsButton({
     disabledReason,
     upsellSideAction,
     label,
+    'data-attr': dataAttr,
 }: {
     type: FilterableInspectorListItemTypes
     icon: JSX.Element
     disabledReason?: string | undefined
     upsellSideAction?: SideAction
     label?: string
+    'data-attr'?: string
 }): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
     const { allItemsByMiniFilterKey, allItemsByItemType } = useValues(playerInspectorLogic(logicProps))
@@ -120,6 +126,7 @@ function FilterSettingsButton({
                     ? upsellSideAction
                     : allItemsByItemType[type]?.length > 1
                       ? sideActionForType({
+                            type,
                             setMiniFilter,
                             allItemsByMiniFilterKey,
                             miniFilters: filteredMiniFiltersForType,
@@ -128,6 +135,7 @@ function FilterSettingsButton({
             }
             label={label || capitalizeFirstLetter(type)}
             icon={icon}
+            data-attr={dataAttr}
             onClick={() => {
                 setMiniFilters(filterKeys, !isEnabled)
             }}
@@ -143,6 +151,13 @@ function NetworkFilterSettingsButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     const hasNetworkItems = allItemsByItemType['network']?.length > 0
+    const showNetworkUpsell = !!currentTeam && !hasNetworkItems && !currentTeam.capture_performance_opt_in
+
+    useEffect(() => {
+        if (showNetworkUpsell) {
+            posthog.capture('recording inspector upsell shown', { type: 'network' })
+        }
+    }, [showNetworkUpsell])
 
     return (
         <FilterSettingsButton
@@ -153,9 +168,10 @@ function NetworkFilterSettingsButton(): JSX.Element {
             disabledReason={!hasNetworkItems ? 'There are no network requests in this recording' : undefined}
             // if there are no results and the feature is disabled, then we'd upsell
             upsellSideAction={
-                !hasNetworkItems && !currentTeam?.capture_performance_opt_in
+                showNetworkUpsell
                     ? {
                           icon: <IconChevronDown />,
+                          'data-attr': 'player-inspector-network-upsell-menu',
 
                           dropdown: {
                               closeOnClickInside: false,
@@ -184,6 +200,13 @@ function ConsoleFilterSettingsButton(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     const hasConsoleItems = allItemsByItemType['console']?.length > 0
+    const showConsoleUpsell = !!currentTeam && !hasConsoleItems && !currentTeam.capture_console_log_opt_in
+
+    useEffect(() => {
+        if (showConsoleUpsell) {
+            posthog.capture('recording inspector upsell shown', { type: 'console' })
+        }
+    }, [showConsoleUpsell])
 
     return (
         <FilterSettingsButton
@@ -194,9 +217,10 @@ function ConsoleFilterSettingsButton(): JSX.Element {
             disabledReason={!hasConsoleItems ? 'There are no console logs in this recording' : undefined}
             // if there are no results and the feature is disabled, then we'd upsell
             upsellSideAction={
-                !hasConsoleItems && !currentTeam?.capture_console_log_opt_in
+                showConsoleUpsell
                     ? {
                           icon: <IconChevronRight className="rotate-90" />,
+                          'data-attr': 'player-inspector-console-upsell-menu',
 
                           dropdown: {
                               closeOnClickInside: false,

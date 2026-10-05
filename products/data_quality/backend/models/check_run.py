@@ -33,7 +33,7 @@ class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     status = models.CharField(
         max_length=16,
         choices=[(s.value, s.value) for s in SuiteRunStatus],
-        default=SuiteRunStatus.RUNNING,
+        default=SuiteRunStatus.RUNNING.value,
         help_text="empty means the trigger matched no runnable checks, which is not a failure.",
     )
 

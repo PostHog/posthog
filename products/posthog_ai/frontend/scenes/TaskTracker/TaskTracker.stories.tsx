@@ -49,6 +49,7 @@ function mockRun(
         error_message: null,
         output: null,
         task_summary: null,
+        task_tags: [],
         state: {},
         artifacts: [],
         created_at: createdAt,
@@ -264,6 +265,13 @@ export const CloudTaskSelected: Story = {
 export const NewTask: Story = {
     parameters: {
         pageUrl: taskNewUrl(),
+    },
+}
+
+export const NewTaskQuill: Story = {
+    parameters: {
+        pageUrl: taskNewUrl(),
+        featureFlags: [FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_QUILL],
     },
 }
 

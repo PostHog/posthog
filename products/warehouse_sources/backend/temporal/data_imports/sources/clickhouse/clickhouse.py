@@ -166,6 +166,11 @@ _TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
     # 407` above, which wraps the same "Cannot connect to proxy." prefix around a deterministic
     # proxy-auth response and must stay non-retryable.
     "Cannot connect to proxy.', TimeoutError('timed out')",
+    # The egress proxy accepted the TCP connection but hung up before answering the CONNECT
+    # request ("ProxyError('Cannot connect to proxy.', RemoteDisconnected('Remote end closed
+    # connection without response'))"). Same proxy-side blip as the TimeoutError case above, just
+    # a different socket-layer shape, so it gets the same in-process re-dial.
+    "Cannot connect to proxy.', RemoteDisconnected",
 )
 
 

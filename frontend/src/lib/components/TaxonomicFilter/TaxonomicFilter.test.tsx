@@ -240,6 +240,27 @@ describe('TaxonomicFilter', () => {
     }
 
     describe('rendering', () => {
+        it('does not tag the $pageview primary property as "Not seen" in Suggested filters', async () => {
+            // Real timers: this scenario includes SuggestedFilters, whose reveal-barrier state
+            // doesn't survive the fake->real timer switch withoutDebounceDelay performs. See
+            // the "collapses URLs" test in this describe for the same pattern.
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.Events,
+                ],
+                eventNames: ['$pageview'],
+            })
+
+            // $pageview's taxonomy primary property ($pathname) is promoted into Suggested
+            // filters as a synthesized row with no per-event seen flag, so it must not be
+            // tagged "Not seen" even though it fires on $pageview.
+            const firstRow = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
+            expect(firstRow).toHaveTextContent('Path name')
+            expect(firstRow).not.toHaveTextContent('Not seen')
+        })
+
         it('renders search input and loads results from the API', async () => {
             renderFilter()
 
@@ -1741,6 +1762,29 @@ describe('TaxonomicFilter', () => {
                 parseInt(deploymentIdx.split('-').pop() as string)
             )
         })
+    })
+
+    it('sends endpoint filters with the remote attribute request', async () => {
+        const requests: URLSearchParams[] = []
+        const captureRequest = (info: MockResolverInfo): [number, unknown] => {
+            requests.push(new URL(info.request.url).searchParams)
+            return [200, { results: [], count: 0 }]
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team/metrics/attributes': captureRequest,
+                '/api/environments/:team/metrics/attributes': captureRequest,
+            },
+        })
+
+        renderFilter({
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.MetricAttributes],
+            endpointFilters: { metricName: 'http_requests', dateFrom: '2026-01-01T00:00:00Z' },
+        })
+
+        await waitFor(() => expect(requests.length).toBeGreaterThan(0))
+        expect(requests[0].get('metricName')).toBe('http_requests')
+        expect(requests[0].get('dateFrom')).toBe('2026-01-01T00:00:00Z')
     })
 
     describe('excludedOperators', () => {

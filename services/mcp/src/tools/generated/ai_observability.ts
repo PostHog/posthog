@@ -711,6 +711,163 @@ const llmaDatasetUpdate = (): ToolBase<
     },
 })
 
+const LlmaEvaluationBackfillCancelSchema = () => {
+    const EvaluationsBackfillsCancelCreateParams = orvalSchemas.EvaluationsBackfillsCancelCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ evaluation_id: ['evaluationId'], id: ['backfillId', 'backfill_id'] }),
+        EvaluationsBackfillsCancelCreateParams.omit({ project_id: true })
+    )
+}
+
+const llmaEvaluationBackfillCancel = (): ToolBase<
+    ReturnType<typeof LlmaEvaluationBackfillCancelSchema>,
+    Schemas.EvaluationBackfill
+> => ({
+    name: 'llma-evaluation-backfill-cancel',
+    schema: LlmaEvaluationBackfillCancelSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaEvaluationBackfillCancelSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EvaluationBackfill>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.evaluation_id))}/backfills/${encodeURIComponent(String(params.id))}/cancel/`,
+        })
+        return result
+    },
+})
+
+const LlmaEvaluationBackfillCreateSchema = () => {
+    const EvaluationsBackfillsCreateBody = orvalSchemas.EvaluationsBackfillsCreateBody()
+    const EvaluationsBackfillsCreateParams = orvalSchemas.EvaluationsBackfillsCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ evaluation_id: ['evaluationId'] }),
+        EvaluationsBackfillsCreateParams.omit({ project_id: true }).extend(EvaluationsBackfillsCreateBody.shape)
+    )
+}
+
+const llmaEvaluationBackfillCreate = (): ToolBase<
+    ReturnType<typeof LlmaEvaluationBackfillCreateSchema>,
+    Schemas.EvaluationBackfill
+> => ({
+    name: 'llma-evaluation-backfill-create',
+    schema: LlmaEvaluationBackfillCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaEvaluationBackfillCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.window_start !== undefined) {
+            body['window_start'] = params.window_start
+        }
+        if (params.window_end !== undefined) {
+            body['window_end'] = params.window_end
+        }
+        if (params.conditions !== undefined) {
+            body['conditions'] = params.conditions
+        }
+        if (params.rerun_existing !== undefined) {
+            body['rerun_existing'] = params.rerun_existing
+        }
+        const result = await context.api.request<Schemas.EvaluationBackfill>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.evaluation_id))}/backfills/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaEvaluationBackfillEstimateSchema = () => {
+    const EvaluationsBackfillsEstimateCreateBody = orvalSchemas.EvaluationsBackfillsEstimateCreateBody()
+    const EvaluationsBackfillsEstimateCreateParams = orvalSchemas.EvaluationsBackfillsEstimateCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ evaluation_id: ['evaluationId'] }),
+        EvaluationsBackfillsEstimateCreateParams.omit({ project_id: true }).extend(
+            EvaluationsBackfillsEstimateCreateBody.shape
+        )
+    )
+}
+
+const llmaEvaluationBackfillEstimate = (): ToolBase<
+    ReturnType<typeof LlmaEvaluationBackfillEstimateSchema>,
+    Schemas.EvaluationBackfillEstimate
+> => ({
+    name: 'llma-evaluation-backfill-estimate',
+    schema: LlmaEvaluationBackfillEstimateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaEvaluationBackfillEstimateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.window_start !== undefined) {
+            body['window_start'] = params.window_start
+        }
+        if (params.window_end !== undefined) {
+            body['window_end'] = params.window_end
+        }
+        if (params.conditions !== undefined) {
+            body['conditions'] = params.conditions
+        }
+        if (params.rerun_existing !== undefined) {
+            body['rerun_existing'] = params.rerun_existing
+        }
+        const result = await context.api.request<Schemas.EvaluationBackfillEstimate>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.evaluation_id))}/backfills/estimate/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaEvaluationBackfillGetSchema = () => {
+    const EvaluationsBackfillsRetrieveParams = orvalSchemas.EvaluationsBackfillsRetrieveParams()
+    return z.preprocess(
+        normalizeParamAliases({ evaluation_id: ['evaluationId'], id: ['backfillId', 'backfill_id'] }),
+        EvaluationsBackfillsRetrieveParams.omit({ project_id: true })
+    )
+}
+
+const llmaEvaluationBackfillGet = (): ToolBase<
+    ReturnType<typeof LlmaEvaluationBackfillGetSchema>,
+    Schemas.EvaluationBackfill
+> => ({
+    name: 'llma-evaluation-backfill-get',
+    schema: LlmaEvaluationBackfillGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaEvaluationBackfillGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EvaluationBackfill>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.evaluation_id))}/backfills/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const LlmaEvaluationBackfillListSchema = () => {
+    const EvaluationsBackfillsListParams = orvalSchemas.EvaluationsBackfillsListParams()
+    const EvaluationsBackfillsListQueryParams = orvalSchemas.EvaluationsBackfillsListQueryParams()
+    return z.preprocess(
+        normalizeParamAliases({ evaluation_id: ['evaluationId'] }),
+        EvaluationsBackfillsListParams.omit({ project_id: true }).extend(EvaluationsBackfillsListQueryParams.shape)
+    )
+}
+
+const llmaEvaluationBackfillList = (): ToolBase<
+    ReturnType<typeof LlmaEvaluationBackfillListSchema>,
+    WithPostHogUrl<Schemas.PaginatedEvaluationBackfillList>
+> => ({
+    name: 'llma-evaluation-backfill-list',
+    schema: LlmaEvaluationBackfillListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaEvaluationBackfillListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedEvaluationBackfillList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/${encodeURIComponent(String(params.evaluation_id))}/backfills/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/ai-observability')
+    },
+})
+
 const LlmaEvaluationConfigGetSchema = () => z.object({})
 
 const llmaEvaluationConfigGet = (): ToolBase<
@@ -2019,6 +2176,12 @@ const llmaScoreDefinitionNewVersion = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaScoreDefinitionNewVersionSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
         if (params.config !== undefined) {
             body['config'] = params.config
         }
@@ -2095,6 +2258,9 @@ const llmaSummarizationCreate = (): ToolBase<
         }
         if (params.force_refresh !== undefined) {
             body['force_refresh'] = params.force_refresh
+        }
+        if (params.compact_context !== undefined) {
+            body['compact_context'] = params.compact_context
         }
         if (params.model !== undefined) {
             body['model'] = params.model
@@ -2728,6 +2894,11 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-dataset-restore': llmaDatasetRestore,
     'llma-dataset-revision-list': llmaDatasetRevisionList,
     'llma-dataset-update': llmaDatasetUpdate,
+    'llma-evaluation-backfill-cancel': llmaEvaluationBackfillCancel,
+    'llma-evaluation-backfill-create': llmaEvaluationBackfillCreate,
+    'llma-evaluation-backfill-estimate': llmaEvaluationBackfillEstimate,
+    'llma-evaluation-backfill-get': llmaEvaluationBackfillGet,
+    'llma-evaluation-backfill-list': llmaEvaluationBackfillList,
     'llma-evaluation-config-get': llmaEvaluationConfigGet,
     'llma-evaluation-config-set-active-key': llmaEvaluationConfigSetActiveKey,
     'llma-evaluation-create': llmaEvaluationCreate,

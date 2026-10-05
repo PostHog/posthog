@@ -10,6 +10,7 @@ import { navigateToPullRequestView } from "@posthog/ui/router/navigationBridge";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DotsCircleSpinner } from "../../../../primitives/DotsCircleSpinner";
 import { NestedButton } from "../../../../primitives/NestedButton";
+import { Spinner } from "../../../../primitives/Spinner";
 import { Tooltip } from "../../../../primitives/Tooltip";
 import type { SidebarPrState } from "../../useTaskPrStatus";
 import { SidebarItem } from "../SidebarItem";
@@ -41,6 +42,7 @@ interface TaskItemProps {
   isSelected?: boolean;
   /** Archive request in flight: show a spinner and suppress hover actions. */
   isArchiving?: boolean;
+  isFiling?: boolean;
   hideHoverActions?: boolean;
   workspaceMode?: WorkspaceMode;
   isGenerating?: boolean;
@@ -117,6 +119,7 @@ export function TaskItem({
   isActive,
   isSelected = false,
   isArchiving = false,
+  isFiling = false,
   hideHoverActions = false,
   workspaceMode,
   isSuspended = false,
@@ -143,10 +146,16 @@ export function TaskItem({
   onEditSubmit,
   onEditCancel,
 }: TaskItemProps) {
+  const isBusy = isArchiving || isFiling;
   const icon = isArchiving ? (
     <>
       <DotsCircleSpinner size={ICON_SIZE} className="text-gray-10" />
       <span className="sr-only">Archiving</span>
+    </>
+  ) : isFiling ? (
+    <>
+      <Spinner size="xs" label="Filing" className="text-gray-10" />
+      <span className="sr-only">Filing</span>
     </>
   ) : (
     <TaskIcon
@@ -167,7 +176,7 @@ export function TaskItem({
 
   const prRef = useMemo(() => (prUrl ? parseGithubUrl(prUrl) : null), [prUrl]);
   const prBadge =
-    !isArchiving && prUrl && prRef?.kind === "pr" ? (
+    !isBusy && prUrl && prRef?.kind === "pr" ? (
       <PrBadge url={prUrl} number={prRef.number} />
     ) : null;
 
@@ -180,7 +189,7 @@ export function TaskItem({
     ) : null;
 
   const toolbar =
-    !isArchiving && !hideHoverActions && (onArchive || onTogglePin) ? (
+    !isBusy && !hideHoverActions && (onArchive || onTogglePin) ? (
       <TaskHoverToolbar
         isPinned={isPinned}
         onTogglePin={onTogglePin}
@@ -209,7 +218,7 @@ export function TaskItem({
     [onDragStart, taskId],
   );
 
-  if (isEditing && !isArchiving) {
+  if (isEditing && !isBusy) {
     return (
       <InlineEditInput
         depth={depth}
@@ -230,17 +239,17 @@ export function TaskItem({
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
-      aria-busy={isArchiving || undefined}
+      aria-busy={isBusy || undefined}
       // Lets a drag-selection find the row and the session it stands for.
       {...{ [SESSION_ROW_ATTRIBUTE]: taskId }}
-      isDimmed={isArchiving}
-      disabled={isArchiving}
-      draggable={!isArchiving}
+      isDimmed={isBusy}
+      disabled={isBusy}
+      draggable={!isBusy}
       onDragStart={handleDragStart}
       onDragEnd={onDragEnd}
-      onClick={isArchiving ? undefined : onClick}
-      onDoubleClick={isArchiving ? undefined : onDoubleClick}
-      onContextMenu={isArchiving ? undefined : onContextMenu}
+      onClick={isBusy ? undefined : onClick}
+      onDoubleClick={isBusy ? undefined : onDoubleClick}
+      onContextMenu={isBusy ? undefined : onContextMenu}
       endContent={endContent}
     />
   );

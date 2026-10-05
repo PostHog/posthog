@@ -61,6 +61,8 @@ an agent, so it can show active setup hooks while `session/new` is still pending
 Startup subscriptions end on success or failure. Updates from an older run cannot
 change the current run's startup phase. Startup events do not count as conversation
 history during recovery.
+The model, effort and fast mode requests that follow initialization each get the same 30-second timeout.
+A failed or timed-out request stops the Claude process, and the startup fails with an error that names the request.
 
 Worktree creation shows its own preparation screen and setup output. Agent startup
 shows one status line beside a spinner: "Starting local agent" or "Running
