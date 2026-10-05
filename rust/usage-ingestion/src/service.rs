@@ -3,14 +3,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use chrono::Utc;
-use common_kafka::kafka_producer::{
-    send_keyed_payloads_to_kafka_with_encoding, EnvelopeEncoding, KafkaContext,
-};
-use rdkafka::producer::FutureProducer;
-use tonic::{Request, Response, Status};
+use common_kafka::kafka_producer::KafkaContext;
+use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord};
 use usage_ingestion_proto::usage_ingestion::v1::{
-    usage_ingestion_server::UsageIngestion, BillingUsageRecord, IngestBillingUsageRequest,
-    IngestBillingUsageResponse,
+    BillingUsageRecord, IngestBillingUsageRequest, IngestBillingUsageResponse,
 };
 use uuid::Uuid;
 
@@ -82,7 +78,7 @@ impl UsageIngestionService {
     async fn prepare_batch(
         &self,
         records: Vec<BillingUsageRecord>,
-    ) -> Result<(Vec<KafkaBillingUsageRecord>, Vec<Rejection>), Status> {
+    ) -> Result<(Vec<KafkaBillingUsageRecord>, Vec<Rejection>), ProcessingError> {
         // One resolver call per distinct team, not per record: a full batch from one
         // team would otherwise be 500 Redis reads and 500 queries on a cold cache.
         let mut resolved = HashMap::new();
@@ -104,37 +100,22 @@ impl UsageIngestionService {
         rejected.dedup();
         Ok((prepared, rejected))
     }
-}
 
-/// Splits a failed record by what the producer should do about it. Anything a retry cannot
-/// change is skipped; anything the service could not determine fails the whole batch, so the
-/// producer sends it again.
-#[derive(Debug)]
-enum PrepareError {
-    Rejected(&'static str),
-    Unavailable(Status),
-}
-
-/// A team the service dropped records for, and why. Deduplicated per batch, so a team that
-/// fails the same way twice reads as one lead.
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct Rejection {
-    team_id: i64,
-    reason: &'static str,
-}
-
-#[tonic::async_trait]
-impl UsageIngestion for UsageIngestionService {
-    async fn ingest_billing_usage(
+    /// Validates the request and hands its records to the producer without awaiting delivery.
+    /// The Kafka transport enqueues a whole poll batch before confirming anything, so it pays
+    /// one producer linger window per batch instead of one per message.
+    pub async fn enqueue(
         &self,
-        request: Request<IngestBillingUsageRequest>,
-    ) -> Result<Response<IngestBillingUsageResponse>, Status> {
-        let records = request.into_inner().records;
+        request: IngestBillingUsageRequest,
+    ) -> Result<PendingBatch, ProcessingError> {
+        let records = request.records;
         if records.is_empty() {
-            return Err(Status::invalid_argument("records must not be empty"));
+            return Err(ProcessingError::InvalidArgument(
+                "records must not be empty",
+            ));
         }
         if records.len() > self.max_batch_size {
-            return Err(Status::invalid_argument(
+            return Err(ProcessingError::InvalidArgument(
                 "records exceeds the configured batch limit",
             ));
         }
@@ -146,38 +127,61 @@ impl UsageIngestion for UsageIngestionService {
                 "dropped usage records the service cannot accept"
             );
         }
-        if prepared.is_empty() {
-            return Ok(Response::new(IngestBillingUsageResponse::default()));
-        }
 
         let accepted_record_ids = prepared
             .iter()
             .map(|record| record.record_id.clone())
             .collect::<Vec<_>>();
-        // No key: nothing downstream reads per-team order, and a team key crowds one partition.
-        let payloads = prepared.iter().map(|record| {
-            serde_json::to_vec(record)
-                .map(|payload| (None, payload))
-                .map_err(|error| {
-                    Status::internal(format!("failed to encode usage record: {error}"))
-                })
-        });
-        let payloads = payloads.collect::<Result<Vec<_>, _>>()?;
-        let producer_started_at = Instant::now();
-        let results = send_keyed_payloads_to_kafka_with_encoding(
-            &self.producer,
-            &self.topic,
-            EnvelopeEncoding::None,
-            payloads,
-        )
-        .await;
-        metrics::histogram!("usage_ingestion_kafka_delivery_seconds")
-            .record(producer_started_at.elapsed().as_secs_f64());
-        if results.iter().any(Result::is_err) {
-            return Err(Status::unavailable(
-                "Kafka did not confirm every usage record; retry with the same record IDs",
-            ));
+        let mut deliveries = Vec::with_capacity(prepared.len());
+        for record in &prepared {
+            let payload = serde_json::to_vec(record).map_err(|error| {
+                ProcessingError::Internal(format!("failed to encode usage record: {error}"))
+            })?;
+            // No key: nothing downstream reads per-team order, and a team key crowds one
+            // partition.
+            let record = FutureRecord::<(), _>::to(&self.topic).payload(&payload);
+            let delivery = self.producer.send_result(record).map_err(|(error, _)| {
+                ProcessingError::Unavailable(format!(
+                    "Kafka did not accept a usage record: {error}"
+                ))
+            })?;
+            deliveries.push(delivery);
         }
+
+        Ok(PendingBatch {
+            accepted_record_ids,
+            deliveries,
+            prepared,
+            enqueued_at: Instant::now(),
+        })
+    }
+
+    /// Awaits the delivery acks for an enqueued batch. Only after this is the batch durable.
+    pub async fn confirm(
+        &self,
+        pending: PendingBatch,
+    ) -> Result<IngestBillingUsageResponse, ProcessingError> {
+        let PendingBatch {
+            accepted_record_ids,
+            deliveries,
+            prepared,
+            enqueued_at,
+        } = pending;
+        if prepared.is_empty() {
+            return Ok(IngestBillingUsageResponse::default());
+        }
+
+        for delivery in deliveries {
+            let confirmed = matches!(delivery.await, Ok(Ok(_)));
+            if !confirmed {
+                return Err(ProcessingError::Unavailable(
+                    "Kafka did not confirm every usage record; retry with the same record IDs"
+                        .to_string(),
+                ));
+            }
+        }
+        metrics::histogram!("usage_ingestion_kafka_delivery_seconds")
+            .record(enqueued_at.elapsed().as_secs_f64());
 
         if let Some(counters) = &self.counters {
             metrics::histogram!("usage_ingestion_distinct_scopes_per_request")
@@ -194,19 +198,77 @@ impl UsageIngestion for UsageIngestionService {
             }
         }
 
-        Ok(Response::new(IngestBillingUsageResponse {
+        Ok(IngestBillingUsageResponse {
             accepted_record_ids,
-        }))
+        })
     }
+
+    pub async fn process(
+        &self,
+        request: IngestBillingUsageRequest,
+    ) -> Result<IngestBillingUsageResponse, ProcessingError> {
+        let pending = self.enqueue(request).await?;
+        self.confirm(pending).await
+    }
+}
+
+/// A batch the producer holds but has not confirmed durable. Drop it only when the source
+/// is replayed anyway: an unconfirmed delivery may still fail after the fact.
+pub struct PendingBatch {
+    accepted_record_ids: Vec<String>,
+    deliveries: Vec<DeliveryFuture>,
+    prepared: Vec<KafkaBillingUsageRecord>,
+    enqueued_at: Instant,
+}
+
+impl PendingBatch {
+    pub fn accepted_count(&self) -> usize {
+        self.accepted_record_ids.len()
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProcessingError {
+    #[error("{0}")]
+    InvalidArgument(&'static str),
+    #[error("{0}")]
+    Unavailable(String),
+    #[error("{0}")]
+    Internal(String),
+}
+
+impl ProcessingError {
+    /// Only `Unavailable` can succeed on a retry. `Internal` is a deterministic encode
+    /// failure, so replaying it would block a Kafka partition forever.
+    pub fn is_retryable(&self) -> bool {
+        matches!(self, Self::Unavailable(_))
+    }
+}
+
+/// Splits a failed record by what the producer should do about it. Anything a retry cannot
+/// change is skipped; anything the service could not determine fails the whole batch, so the
+/// producer sends it again.
+#[derive(Debug)]
+enum PrepareError {
+    Rejected(&'static str),
+    Unavailable(ProcessingError),
+}
+
+/// A team the service dropped records for, and why. Deduplicated per batch, so a team that
+/// fails the same way twice reads as one lead.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Rejection {
+    team_id: i64,
+    reason: &'static str,
 }
 
 fn prepare_error(error: ResolveError) -> PrepareError {
     match error {
         ResolveError::InvalidTeamId => PrepareError::Rejected("invalid_team_id"),
         ResolveError::Missing => PrepareError::Rejected("organization_missing"),
-        ResolveError::Database(error) => PrepareError::Unavailable(Status::unavailable(format!(
-            "team organization lookup failed: {error}"
-        ))),
+        ResolveError::Database(error) => PrepareError::Unavailable(ProcessingError::Unavailable(
+            format!("team organization lookup failed: {error}"),
+        )),
     }
 }
 
@@ -388,6 +450,46 @@ mod tests {
             .await
             .expect_err("an unavailable lookup must fail the batch");
 
-        assert_eq!(status.code(), tonic::Code::Unavailable);
+        assert!(matches!(status, ProcessingError::Unavailable(_)));
+    }
+
+    #[tokio::test]
+    async fn enqueue_accepts_without_delivery_and_confirm_reports_the_failure() {
+        // No broker listens on this port, so a delivery can never be confirmed. Enqueue
+        // still accepts the batch, which is what lets the Kafka transport enqueue a whole
+        // poll batch before awaiting any delivery.
+        let producer = ClientConfig::new()
+            .set("bootstrap.servers", "localhost:1")
+            .set("message.timeout.ms", "100")
+            .create_with_context(KafkaContext::new(AlwaysHealthy))
+            .expect("failed to build the test producer");
+        let service = UsageIngestionService::new(
+            producer,
+            Arc::new(FixedResolver),
+            500,
+            "test-topic".to_string(),
+            None,
+        );
+
+        let pending = service
+            .enqueue(IngestBillingUsageRequest {
+                records: vec![record()],
+            })
+            .await
+            .expect("enqueue must not wait for the unreachable broker");
+        assert_eq!(pending.accepted_count(), 1);
+
+        let status = service
+            .confirm(pending)
+            .await
+            .expect_err("an unreachable broker cannot confirm a delivery");
+        assert!(matches!(status, ProcessingError::Unavailable(_)));
+    }
+
+    #[test]
+    fn only_unavailable_errors_are_retryable() {
+        assert!(ProcessingError::Unavailable("broker down".to_string()).is_retryable());
+        assert!(!ProcessingError::InvalidArgument("bad record").is_retryable());
+        assert!(!ProcessingError::Internal("encode failed".to_string()).is_retryable());
     }
 }

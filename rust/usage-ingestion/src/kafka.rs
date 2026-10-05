@@ -1,0 +1,435 @@
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::time::Duration;
+
+use common_kafka::kafka_producer::KafkaContext;
+use common_liveness::SyncLivenessReporter;
+use futures::future::try_join_all;
+use prost::Message;
+use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
+use rdkafka::error::KafkaError;
+use rdkafka::message::{Header, OwnedHeaders, OwnedMessage};
+use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::types::RDKafkaErrorCode;
+use rdkafka::util::Timeout;
+use rdkafka::{ClientConfig, ClientContext, Message as KafkaMessage, Offset, TopicPartitionList};
+use usage_ingestion_proto::usage_ingestion::v1::IngestBillingUsageRequest;
+
+use crate::service::{PendingBatch, ProcessingError, UsageIngestionService};
+
+#[derive(Clone, Copy)]
+pub struct KafkaBatchConfig {
+    pub max_messages: usize,
+    pub max_wait: Duration,
+    pub concurrency: usize,
+}
+
+pub struct KafkaUsageIngestion {
+    consumer: StreamConsumer<KafkaConsumerContext>,
+    dead_letter_producer: FutureProducer<KafkaContext>,
+    dead_letter_topic: String,
+    service: Arc<UsageIngestionService>,
+    batch: KafkaBatchConfig,
+}
+
+struct EnqueuedMessage<'a> {
+    message: &'a OwnedMessage,
+    pending: PendingBatch,
+    record_count: usize,
+}
+
+struct KafkaConsumerContext {
+    liveness: Arc<dyn SyncLivenessReporter>,
+}
+
+impl KafkaConsumerContext {
+    fn new(liveness: impl SyncLivenessReporter + Clone + 'static) -> Self {
+        Self {
+            liveness: Arc::new(liveness),
+        }
+    }
+}
+
+impl ClientContext for KafkaConsumerContext {
+    fn stats(&self, stats: rdkafka::Statistics) {
+        if stats.brokers.values().any(|broker| broker.state == "UP") {
+            self.liveness.report_healthy();
+        } else {
+            self.liveness.report_unhealthy();
+        }
+    }
+}
+
+impl ConsumerContext for KafkaConsumerContext {}
+
+impl KafkaUsageIngestion {
+    pub fn new(
+        config: &ClientConfig,
+        input_topic: &str,
+        dead_letter_producer: FutureProducer<KafkaContext>,
+        dead_letter_topic: String,
+        service: Arc<UsageIngestionService>,
+        batch: KafkaBatchConfig,
+        liveness: impl SyncLivenessReporter + Clone + 'static,
+    ) -> Result<Self, KafkaUsageIngestionError> {
+        let consumer: StreamConsumer<KafkaConsumerContext> =
+            config.create_with_context(KafkaConsumerContext::new(liveness.clone()))?;
+        verify_topic(&consumer, input_topic)?;
+        // A missing dead-letter topic would otherwise fail every dead-letter send, which
+        // replays the same batch forever without ever committing.
+        verify_topic(&consumer, &dead_letter_topic)?;
+        consumer.subscribe(&[input_topic])?;
+        liveness.report_healthy();
+        Ok(Self {
+            consumer,
+            dead_letter_producer,
+            dead_letter_topic,
+            service,
+            batch,
+        })
+    }
+
+    pub async fn run(&self) -> Result<(), KafkaUsageIngestionError> {
+        loop {
+            let messages = self.receive_batch().await?;
+
+            // Enqueue every message before confirming any: the batch's durability point is
+            // the commit below, so awaiting deliveries per message would serialize producer
+            // linger windows. The concurrency limit bounds parallel resolver lookups.
+            let mut enqueued = Vec::with_capacity(messages.len());
+            for chunk in messages.chunks(self.batch.concurrency) {
+                let outcomes =
+                    try_join_all(chunk.iter().map(|message| self.enqueue_message(message))).await?;
+                enqueued.extend(outcomes.into_iter().flatten());
+            }
+            for outcome in enqueued {
+                self.confirm_message(outcome).await?;
+            }
+
+            // A batch is all-or-nothing: failures leave every offset uncommitted. Successful
+            // output may be replayed, which is safe because usage record IDs are idempotent.
+            if let Err(error) = self
+                .consumer
+                .commit(&batch_offsets(&messages)?, CommitMode::Sync)
+            {
+                if !is_rebalance_commit_error(&error) {
+                    return Err(error.into());
+                }
+                // A rebalance mid-batch revokes partitions before their commit lands. The new
+                // owner replays them, which is safe under idempotency. Failing here would tear
+                // the consumer down, which triggers another rebalance, and so on in a storm.
+                tracing::warn!(error = %error, "skipped a batch commit interrupted by a rebalance");
+                metrics::counter!("usage_ingestion_kafka_commits_skipped_total").increment(1);
+                continue;
+            }
+            metrics::counter!("usage_ingestion_kafka_commits_total").increment(1);
+        }
+    }
+
+    async fn receive_batch(&self) -> Result<Vec<OwnedMessage>, KafkaError> {
+        let mut messages = vec![self.consumer.recv().await?.detach()];
+        let deadline = tokio::time::sleep(self.batch.max_wait);
+        tokio::pin!(deadline);
+
+        while messages.len() < self.batch.max_messages {
+            tokio::select! {
+                _ = &mut deadline => break,
+                message = self.consumer.recv() => messages.push(message?.detach()),
+            }
+        }
+
+        metrics::histogram!("usage_ingestion_kafka_batch_size").record(messages.len() as f64);
+        Ok(messages)
+    }
+
+    /// Decodes and enqueues one message. `None` means it was dead-lettered and needs no
+    /// confirmation; a retryable error fails the whole batch, so the offsets stay uncommitted.
+    async fn enqueue_message<'a>(
+        &self,
+        message: &'a OwnedMessage,
+    ) -> Result<Option<EnqueuedMessage<'a>>, KafkaUsageIngestionError> {
+        let request = decode_request(message.payload());
+
+        match request {
+            Ok(request) => {
+                let record_count = request.records.len();
+                match self.service.enqueue(request).await {
+                    Ok(pending) => Ok(Some(EnqueuedMessage {
+                        message,
+                        pending,
+                        record_count,
+                    })),
+                    Err(error) if error.is_retryable() => Err(error.into()),
+                    Err(error) => {
+                        self.dead_letter(message, error.to_string()).await?;
+                        tracing::warn!(
+                            error = %error,
+                            partition = message.partition(),
+                            offset = message.offset(),
+                            "sent rejected usage ingestion message to the dead-letter topic"
+                        );
+                        Ok(None)
+                    }
+                }
+            }
+            Err(error) => {
+                self.dead_letter(message, error.to_string()).await?;
+                tracing::warn!(
+                    error = %error,
+                    partition = message.partition(),
+                    offset = message.offset(),
+                    "sent malformed usage ingestion message to the dead-letter topic"
+                );
+                Ok(None)
+            }
+        }
+    }
+
+    /// Confirms one enqueued message. An unconfirmed delivery fails the batch for replay;
+    /// a message whose records were partially rejected dead-letters after its accepted
+    /// records are durable.
+    async fn confirm_message(
+        &self,
+        outcome: EnqueuedMessage<'_>,
+    ) -> Result<(), KafkaUsageIngestionError> {
+        let EnqueuedMessage {
+            message,
+            pending,
+            record_count,
+        } = outcome;
+        let accepted_count = pending.accepted_count();
+        self.service.confirm(pending).await?;
+
+        if accepted_count == record_count {
+            metrics::counter!(
+                "usage_ingestion_kafka_messages_total",
+                "outcome" => "processed"
+            )
+            .increment(1);
+            return Ok(());
+        }
+        let reason = "one or more usage records were rejected";
+        self.dead_letter(message, reason.to_string()).await?;
+        tracing::warn!(
+            partition = message.partition(),
+            offset = message.offset(),
+            "sent partially rejected usage ingestion message to the dead-letter topic"
+        );
+        Ok(())
+    }
+
+    async fn dead_letter(
+        &self,
+        message: &OwnedMessage,
+        reason: String,
+    ) -> Result<(), KafkaUsageIngestionError> {
+        let partition = message.partition().to_string();
+        let offset = message.offset().to_string();
+        let headers = OwnedHeaders::new()
+            .insert(Header {
+                key: "usage-ingestion-source-topic",
+                value: Some(message.topic()),
+            })
+            .insert(Header {
+                key: "usage-ingestion-source-partition",
+                value: Some(&partition),
+            })
+            .insert(Header {
+                key: "usage-ingestion-source-offset",
+                value: Some(&offset),
+            })
+            .insert(Header {
+                key: "usage-ingestion-error",
+                value: Some(&reason),
+            });
+        let mut record = FutureRecord::to(&self.dead_letter_topic)
+            .payload(message.payload().unwrap_or_default())
+            .headers(headers);
+        if let Some(key) = message.key() {
+            record = record.key(key);
+        }
+        self.dead_letter_producer
+            .send(record, Timeout::After(Duration::from_secs(10)))
+            .await
+            .map_err(|(error, _)| error)?;
+        metrics::counter!(
+            "usage_ingestion_kafka_messages_total",
+            "outcome" => "dead_lettered"
+        )
+        .increment(1);
+        Ok(())
+    }
+}
+
+fn verify_topic(
+    consumer: &StreamConsumer<KafkaConsumerContext>,
+    topic: &str,
+) -> Result<(), KafkaUsageIngestionError> {
+    let metadata = consumer.fetch_metadata(Some(topic), Duration::from_secs(10))?;
+    let topic_metadata = metadata
+        .topics()
+        .iter()
+        .find(|candidate| candidate.name() == topic)
+        .ok_or_else(|| KafkaUsageIngestionError::Topic(format!("{topic} is missing")))?;
+    if let Some(error) = topic_metadata.error() {
+        return Err(KafkaUsageIngestionError::Topic(format!(
+            "broker returned {error:?} for {topic}"
+        )));
+    }
+    if topic_metadata.partitions().is_empty() {
+        return Err(KafkaUsageIngestionError::Topic(format!(
+            "{topic} has no partitions"
+        )));
+    }
+    Ok(())
+}
+
+/// prost decodes a whole payload before any record-count limit applies, so a fetched 50 MB
+/// message of empty repeated records would expand to gigabytes of structs. Cap the bytes
+/// first; the limit matches tonic's default gRPC message cap.
+const MAX_MESSAGE_BYTES: usize = 4 * 1024 * 1024;
+
+fn decode_request(payload: Option<&[u8]>) -> Result<IngestBillingUsageRequest, prost::DecodeError> {
+    match payload {
+        None => Err(prost::DecodeError::new("empty Kafka payload")),
+        Some(payload) if payload.len() > MAX_MESSAGE_BYTES => Err(prost::DecodeError::new(
+            "payload exceeds the 4 MiB message limit",
+        )),
+        Some(payload) => IngestBillingUsageRequest::decode(payload),
+    }
+}
+
+fn is_rebalance_commit_error(error: &KafkaError) -> bool {
+    matches!(
+        error.rdkafka_error_code(),
+        Some(
+            RDKafkaErrorCode::RebalanceInProgress
+                | RDKafkaErrorCode::IllegalGeneration
+                | RDKafkaErrorCode::UnknownMemberId
+        )
+    )
+}
+
+fn batch_offsets(messages: &[OwnedMessage]) -> Result<TopicPartitionList, KafkaError> {
+    let mut offsets = BTreeMap::new();
+    for message in messages {
+        offsets
+            .entry((message.topic().to_string(), message.partition()))
+            .and_modify(|offset: &mut i64| *offset = (*offset).max(message.offset() + 1))
+            .or_insert(message.offset() + 1);
+    }
+
+    let mut partitions = TopicPartitionList::with_capacity(offsets.len());
+    for ((topic, partition), offset) in offsets {
+        partitions.add_partition_offset(&topic, partition, Offset::Offset(offset))?;
+    }
+    Ok(partitions)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum KafkaUsageIngestionError {
+    #[error("Kafka transport failed: {0}")]
+    Kafka(#[from] KafkaError),
+    #[error("usage processing failed before the input offsets were committed: {0}")]
+    Processing(#[from] ProcessingError),
+    #[error("Kafka topic is unavailable: {0}")]
+    Topic(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use rdkafka::message::OwnedMessage;
+    use rdkafka::statistics::Broker;
+    use rdkafka::Timestamp;
+
+    use super::*;
+
+    #[derive(Clone, Default)]
+    struct TestLiveness(Arc<AtomicBool>);
+
+    impl SyncLivenessReporter for TestLiveness {
+        fn report_healthy(&self) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+
+        fn report_unhealthy(&self) {
+            self.0.store(false, Ordering::Relaxed);
+        }
+    }
+
+    fn message(topic: &str, partition: i32, offset: i64) -> OwnedMessage {
+        OwnedMessage::new(
+            None,
+            None,
+            topic.to_string(),
+            Timestamp::NotAvailable,
+            partition,
+            offset,
+            None,
+        )
+    }
+
+    #[test]
+    fn commits_only_the_high_water_mark_for_each_partition() {
+        let offsets = batch_offsets(&[
+            message("usage", 0, 4),
+            message("usage", 1, 8),
+            message("usage", 0, 6),
+            message("usage", 1, 7),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            offsets.find_partition("usage", 0).unwrap().offset(),
+            Offset::Offset(7)
+        );
+        assert_eq!(
+            offsets.find_partition("usage", 1).unwrap().offset(),
+            Offset::Offset(9)
+        );
+    }
+
+    #[test]
+    fn oversized_payloads_are_rejected_before_decoding() {
+        assert!(decode_request(Some(&vec![0u8; MAX_MESSAGE_BYTES + 1])).is_err());
+        assert!(decode_request(None).is_err());
+        // An empty request decodes fine; the service rejects it later as an empty batch.
+        assert!(decode_request(Some(&[])).is_ok());
+    }
+
+    #[test]
+    fn only_rebalance_class_commit_errors_are_skipped() {
+        for code in [
+            RDKafkaErrorCode::RebalanceInProgress,
+            RDKafkaErrorCode::IllegalGeneration,
+            RDKafkaErrorCode::UnknownMemberId,
+        ] {
+            assert!(is_rebalance_commit_error(&KafkaError::ConsumerCommit(code)));
+        }
+        assert!(!is_rebalance_commit_error(&KafkaError::ConsumerCommit(
+            RDKafkaErrorCode::BrokerTransportFailure
+        )));
+    }
+
+    #[test]
+    fn consumer_health_follows_broker_connectivity() {
+        let liveness = TestLiveness::default();
+        let context = KafkaConsumerContext::new(liveness.clone());
+
+        context.stats(rdkafka::Statistics::default());
+        assert!(!liveness.0.load(Ordering::Relaxed));
+
+        let mut stats = rdkafka::Statistics::default();
+        stats.brokers.insert(
+            "broker".to_string(),
+            Broker {
+                state: "UP".to_string(),
+                ..Default::default()
+            },
+        );
+        context.stats(stats);
+        assert!(liveness.0.load(Ordering::Relaxed));
+    }
+}
