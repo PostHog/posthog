@@ -124,6 +124,7 @@ the row lists both.
 | aws_step_functions               | HTTP                        | requests                                                        | ✅                          |
 | aws_systems_manager              | HTTP                        | requests                                                        | ✅                          |
 | aws_waf                          | HTTP                        | requests                                                        | ✅                          |
+| azure_application_insights       | HTTP                        | requests                                                        | ✅                          |
 | azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
 | babelforce                       | HTTP                        | requests                                                        | ✅                          |
@@ -968,7 +969,6 @@ doesn't conflict with concurrent PRs.
 - azure_activity_log
 - azure_advisor
 - azure_api_management
-- azure_application_insights
 - azure_blob
 - azure_data_explorer
 - azure_data_factory
