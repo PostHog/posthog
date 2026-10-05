@@ -145,28 +145,38 @@ describe('messageTemplateLogic', () => {
         })
     })
 
-    it('keeps the loaded template on screen while a save is in flight', async () => {
+    it('keeps the editor usable while a save is in flight', async () => {
         let finishSave!: () => void
         const saveHeld = new Promise<void>((resolve) => {
             finishSave = resolve
         })
+        const content = { email: { subject: 'Hello' } }
         useMocks({
+            get: {
+                '/api/environments/:team_id/messaging_templates/:id/': { id: 'existing-id', name: 'Existing', content },
+            },
             patch: {
                 '/api/environments/:team_id/messaging_templates/:id/': async () => {
                     await saveHeld
-                    return [200, { id: 'existing-id', name: 'Saved' }]
+                    return [200, { id: 'existing-id', name: 'Saved', content }]
                 },
             },
         })
         logic = messageTemplateLogic({ id: 'existing-id' })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        logic.actions.setTemplateValue('name', 'Saved')
 
-        logic.actions.saveTemplate({ ...logic.values.template, name: 'Saved' })
+        logic.actions.submitTemplate()
+        await expectLogic(logic).toDispatchActions(['saveTemplate'])
         expect(logic.values.templateLoading).toBe(false)
+        logic.actions.setTemplateValue('name', 'Typed while saving')
 
         finishSave()
-        await expectLogic(logic).toDispatchActions(['saveTemplateSuccess'])
+        await expectLogic(logic).toDispatchActions(['saveTemplateSuccess']).toFinishAllListeners()
+        await expectLogic(logic).toMatchValues({ templateChanged: true })
+        expect(logic.values.template.name).toBe('Typed while saving')
+        expect(logic.values.originalTemplate.name).toBe('Saved')
     })
 
     describe('edited elsewhere', () => {
@@ -249,7 +259,7 @@ describe('messageTemplateLogic', () => {
             },
         ])('parks events that arrive during a save and $description', async ({ events, name }) => {
             await expectLogic(logic, () => {
-                logic.actions.saveTemplate({ ...logic.values.template, name: 'Saved here' })
+                logic.actions.saveTemplate(logic.values.template)
                 events.forEach((updated_at) => resourceEditedLogic.actions.resourceEdited(edited({ updated_at })))
             })
                 .toDispatchActions(['setDeferredExternalEdit', 'saveTemplateSuccess', 'replayDeferredExternalEdit'])

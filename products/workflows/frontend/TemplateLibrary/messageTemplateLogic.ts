@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { objectsEqual } from 'lib/utils/objects'
 import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -510,12 +511,16 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             lemonToast.error('Failed to save template. Please try again.')
         },
-        saveTemplateSuccess: async ({ savedTemplate }) => {
+        saveTemplateSuccess: async ({ savedTemplate, payload: submittedTemplate }) => {
             lemonToast.success('Template saved')
-            // Clear the unsaved-changes state before navigating so the beforeUnload guard
-            // does not intercept the post-save redirect.
-            actions.resetTemplate(savedTemplate)
             actions.setOriginalTemplate(savedTemplate)
+            // A new template reloads at its own URL, so only an existing one keeps edits typed during the save.
+            const editedWhileSaving = props.id !== 'new' && !objectsEqual(values.template, submittedTemplate)
+            if (!editedWhileSaving) {
+                // Clear the unsaved-changes state before navigating so the beforeUnload guard
+                // does not intercept the post-save redirect.
+                actions.resetTemplate(savedTemplate)
+            }
             savedTemplate.id && router.actions.replace(urls.workflowsLibraryTemplate(savedTemplate.id))
             actions.replayDeferredExternalEdit()
         },
