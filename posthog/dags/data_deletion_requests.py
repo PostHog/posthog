@@ -1532,6 +1532,10 @@ def reingest_property_removal_shard(
         copied = steps[_COPIED]
         columns = ", ".join(f"`{name}`" for name in copied["columns"])
 
+        # A failed earlier attempt may have inserted a month on another replica of this shard. Without
+        # that part here, the leftover count below misses those rows and the insert adds them a second
+        # time, which a plain MergeTree such as flag_evaluations never merges away.
+        _sync_replica(client, target, log)
         for month, expected in sorted(copied["months"].items()):
             if f"{_REINGESTED}_{month}" in steps:
                 continue
