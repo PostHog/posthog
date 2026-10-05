@@ -2780,10 +2780,6 @@ snapshots:
         hash: v1.k794b7964.7850b437d0b757b20409473a16858b9ef875f35021e592521bdf94b2876e85c5.ix5aXJkl2sMIrSYeEmiT_OgH7Eb94qxUEEAt_DvutJk
     data-warehouse-jobdestinations--destination-since-deleted--light:
         hash: v1.k794b7964.1006a4fb83ff9f0134af7e919f30ca873aac4f04b8dfd068eb631717a884d43d.tkCjdAFZpkv34Y6e9vv--B5P7ZPcYHIGZJl6wb26oVc
-    data-warehouse-jobdestinations--none-recorded--dark:
-        hash: v1.k794b7964.dea76b53ba18d6bfe40ecb75b1a64fab690266a082624956d99f67a6e0b6ebf8.HDCVy9kwOdoEb5dCIc-6oAUhUJvUKTAjmtL4eVgm3_g
-    data-warehouse-jobdestinations--none-recorded--light:
-        hash: v1.k794b7964.08667ab1c9265093c965360b142e49375d4d501fb118aee7685c52400615a6f1.Cm1L_qMrAlW3V_unPXRb8OAryI5Fbw0cbxhxRQBrYSA
     data-warehouse-jobdestinations--still-loading--dark:
         hash: v1.k794b7964.dea76b53ba18d6bfe40ecb75b1a64fab690266a082624956d99f67a6e0b6ebf8.xA22JNcrso3fgiZdWGiwIW94beEQN4ka7hHIwybKxSo
     data-warehouse-jobdestinations--still-loading--light:
