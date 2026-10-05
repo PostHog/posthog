@@ -39,6 +39,16 @@ The event definitions API counts matching rows separately and applies `LIMIT` an
 
 Tag-filtered requests retain ORM pagination after resolving matching event IDs. Both paths preserve the same response fields and project scope, including legacy definitions whose `project_id` is null.
 
+## Property list pagination
+
+The property definitions API uses the same capped count when one property type of a project has more than the large-project threshold of definitions.
+The size check counts the requested type only, so a project with many event properties keeps exact counts and the usual order for its person properties.
+On that path the list orders by name only, and `count_is_capped` tells the caller that `count` is a lower bound.
+Small types keep the seen-on-events-first and verified-first order.
+A request with `event_names` still gets `is_seen_on_filtered_events` for each row, but seen properties do not move to the top.
+A request that sets `search`, `filter_by_event_names`, `properties`, `is_numerical=true`, `is_feature_flag=true` or `verified` keeps the exact count and the usual order, because those filters match too few rows for a bounded count to stop early.
+Virtual properties go after the last row, which is the page without a `next` link.
+
 ## Cohort names on individual insights
 
 Individual insight pages load cohort names by ID from the query's cohort property filters and cohort breakdowns.
