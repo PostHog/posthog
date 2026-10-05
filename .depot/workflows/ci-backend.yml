@@ -58,6 +58,10 @@
 # - Superseded-run cancel: Depot's concurrency policy can keep an older event, so each event gets
 #   its own group and `cancel-superseded-runs` cancels older runs. See "Superseded runs" in
 #   .agents/skills/depot-ci/references/posthog-check-run-semantics.md.
+# - `closed` trigger: Depot does not cancel a pull request's runs when it closes. A close therefore
+#   starts a run in which `cancel-superseded-runs` is the only job, and it cancels that pull
+#   request's active runs. The Trunk merge queue closes a batch's draft pull request whenever it
+#   rebuilds the batch, and that batch's full matrix would otherwise run to the end.
 # - Deterministic-failure self-cancel: `depot ci cancel` with DEPOT_CI_CANCEL_TOKEN replaces
 #   `gh run cancel` with github.token, which only reaches GitHub Actions runs.
 # - calculate-running-time: canonical's PostHog/posthog-github-action reads the run from the
@@ -166,7 +170,9 @@ on:
         # .github/new-events-schema-targets.txt, the same as canonical, so a routed PR
         # cannot pass here and fail the queue. The `test-new-events-schema` label runs
         # the doubled matrices in place of that leg.
-        types: [opened, synchronize, reopened, ready_for_review]
+        # `closed` runs `cancel-superseded-runs` alone: the `wait-for-handoff` job skips it, which
+        # cascades every test job off.
+        types: [opened, synchronize, reopened, ready_for_review, closed]
 concurrency:
     # PRs: one group per event; cancel-superseded-runs cancels stale runs. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
@@ -236,10 +242,12 @@ jobs:
     # needs this one, so Depot CI runs nothing GitHub Actions did not hand off, and the
     # tests and their side effects never run on both engines.
     wait-for-handoff:
+        # GitHub Actions starts no run for a `closed` event, so no hand-off can arrive for one.
         if: >-
-            github.event_name != 'pull_request'
+            github.event.action != 'closed'
+            && (github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
-            || !contains(github.event.pull_request.labels.*.name, 'no-ci')
+            || !contains(github.event.pull_request.labels.*.name, 'no-ci'))
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         # The check name carries the event, so GitHub Actions can tell this run's checks from other
