@@ -302,8 +302,8 @@ export function Pane({
       ) : (
         <Text dimColor>
           {newChatPlace === "local"
-            ? `Type a message to start a local chat in ${process.cwd()}.`
-            : "Type a message to start a cloud run."}
+            ? `Type a message to start a local chat in ${process.cwd()}, or press Ctrl+K to find a chat.`
+            : "Type a message to start a cloud run, or press Ctrl+K to find a chat."}
         </Text>
       );
   else if (isLocalPane && !local)
