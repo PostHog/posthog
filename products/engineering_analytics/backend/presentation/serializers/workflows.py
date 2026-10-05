@@ -18,6 +18,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthItem,
     WorkflowJob,
     WorkflowJobAggregate,
+    WorkflowJobStep,
     WorkflowRunActivity,
     WorkflowRunActivityPoint,
     WorkflowRunDetail,
@@ -120,7 +121,33 @@ class WorkflowRunActivitySerializer(DataclassSerializer):
         }
 
 
+class WorkflowJobStepSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowJobStep
+        extra_kwargs = {
+            "number": {"help_text": "1-based position of the step in the job."},
+            "name": {"help_text": "Step name."},
+            "status": {"help_text": "Raw step status: 'queued', 'in_progress', 'completed', etc."},
+            "conclusion": {
+                "help_text": "Step conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null until the "
+                "step finishes.",
+                "allow_null": True,
+            },
+            "started_at": {"help_text": "When the step started, or null if it has not started.", "allow_null": True},
+            "completed_at": {"help_text": "When the step finished, or null while it runs.", "allow_null": True},
+            "duration_seconds": {
+                "help_text": "Wall-clock duration in seconds; null until the step finishes.",
+                "allow_null": True,
+            },
+        }
+
+
 class WorkflowJobSerializer(DataclassSerializer):
+    steps = WorkflowJobStepSerializer(
+        many=True,
+        help_text="The job's steps in run order. Empty when the source reports no steps, as for a Depot CI job.",
+    )
+
     class Meta:
         dataclass = WorkflowJob
         extra_kwargs = {

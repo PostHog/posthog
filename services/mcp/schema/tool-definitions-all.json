@@ -4446,7 +4446,7 @@
         "feature_flag": "engineering-analytics"
     },
     "engineering-analytics-workflow-jobs": {
-        "description": "The jobs of a single workflow run attempt, each with its status, conclusion, wall-clock duration_seconds, runner tier (runner_provider / runner_label), and estimated_cost_usd. Use this to see where a run spent its time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced yet. Pass ci_engine with run_id when following an engine-qualified run; ambiguous integer IDs return 400.",
+        "description": "The jobs of a single workflow run attempt, each with its status, conclusion, wall-clock duration_seconds, runner tier (runner_provider / runner_label), and estimated_cost_usd. Use this to see where a run spent its time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free GitHub-hosted, non-Linux, or unfinished jobs. Each job carries its steps in run order (name, status, conclusion, timestamps, duration_seconds), so you can find the step that failed or took the time; steps is empty for a Depot CI job. Returns an empty list when the job-level source isn't synced yet. Pass ci_engine with run_id when following an engine-qualified run; ambiguous integer IDs return 400.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "Jobs of a workflow run",
