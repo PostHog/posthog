@@ -21,12 +21,14 @@ export function InternalFeedbackWidget(): JSX.Element | null {
     }
 
     return createPortal(
-        <div {...{ [INTERNAL_FEEDBACK_IGNORE_ATTR]: '' }} className="contents">
-            {selectedElementRect && <ElementHighlight rect={selectedElementRect} isSelected />}
-            {isInspecting && hoverElementRect && <ElementHighlight rect={hoverElementRect} />}
+        <>
+            <div {...{ [INTERNAL_FEEDBACK_IGNORE_ATTR]: '' }} className="contents">
+                {selectedElementRect && <ElementHighlight rect={selectedElementRect} isSelected />}
+                {isInspecting && hoverElementRect && <ElementHighlight rect={hoverElementRect} />}
+            </div>
             <InternalFeedbackPopover />
             <InternalFeedbackBar />
-        </div>,
+        </>,
         document.body
     )
 }
