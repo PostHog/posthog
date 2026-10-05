@@ -367,6 +367,20 @@ class TestAgentCheckConfig(SimpleTestCase):
         with self.assertRaises(CheckConfigValidationError):
             parse_check_config("agent", config)
 
+    def test_probe_hint_bounds_reach_the_published_schema(self) -> None:
+        hint_schema = AgentCheckConfig.model_json_schema()["properties"]["probe_hints"]
+
+        assert hint_schema["maxItems"] == MAX_CHECK_PROBE_HINTS
+        assert hint_schema["items"]["maxLength"] == MAX_CHECK_PROBE_HINT_LENGTH
+        assert hint_schema["items"]["minLength"] == 1
+
+    def test_probe_hints_are_trimmed_before_the_length_bound(self) -> None:
+        hint = "x" * MAX_CHECK_PROBE_HINT_LENGTH
+        config = parse_check_config("agent", {"instructions": "look again", "probe_hints": [f"  {hint}  "]})
+
+        assert isinstance(config, AgentCheckConfig)
+        assert config.probe_hints == [hint]
+
     def test_a_check_that_names_no_skill_runs_on_the_follow_up_scout(self) -> None:
         config = parse_check_config("agent", {"instructions": " did the exception stop? "})
 

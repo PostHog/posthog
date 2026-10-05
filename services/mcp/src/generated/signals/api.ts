@@ -2811,6 +2811,8 @@ export const signalsScoutReportCheckCreateBodyConfigOneTwoInstructionsMax = 2000
 
 export const signalsScoutReportCheckCreateBodyConfigOneTwoSkillNameOneMax = 200
 
+export const signalsScoutReportCheckCreateBodyConfigOneTwoProbeHintsItemMax = 300
+
 export const signalsScoutReportCheckCreateBodyConfigOneTwoProbeHintsMax = 5
 
 export const signalsScoutReportCheckCreateBodyRunIntervalMinutesMin = 360
@@ -2931,7 +2933,9 @@ export const SignalsScoutReportCheckCreateBody = () => zod
                                 "Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored."
                             ),
                         probe_hints: zod
-                            .array(zod.string())
+                            .array(
+                                zod.string().min(1).max(signalsScoutReportCheckCreateBodyConfigOneTwoProbeHintsItemMax)
+                            )
                             .max(signalsScoutReportCheckCreateBodyConfigOneTwoProbeHintsMax)
                             .optional()
                             .describe(

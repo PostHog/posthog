@@ -25,10 +25,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError, field_validator, model_validator
 
 from products.signals.backend.report_charts import _unstorable_text
 from products.signals.backend.report_metrics import (
@@ -261,7 +261,10 @@ class AgentCheckConfig(BaseModel):
             "the right lane for a report no scout authored."
         ),
     )
-    probe_hints: list[str] = Field(
+    # The bounds sit on the item type, not in a validator, so the published schema declares them.
+    probe_hints: list[
+        Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_CHECK_PROBE_HINT_LENGTH)]
+    ] = Field(
         default_factory=list,
         max_length=MAX_CHECK_PROBE_HINTS,
         description="Concrete places to look, such as an issue id, a service name, or a query to repeat.",
@@ -288,16 +291,6 @@ class AgentCheckConfig(BaseModel):
         if not stripped or stripped.split() != [stripped]:
             raise ValueError("must be a single scout skill name")
         return stripped
-
-    @field_validator("probe_hints")
-    @classmethod
-    def probe_hints_must_be_short_and_nonempty(cls, value: list[str]) -> list[str]:
-        hints = [hint.strip() for hint in value]
-        if any(not hint for hint in hints):
-            raise ValueError("a probe hint must not be empty or whitespace-only")
-        if any(len(hint) > MAX_CHECK_PROBE_HINT_LENGTH for hint in hints):
-            raise ValueError(f"a probe hint must be at most {MAX_CHECK_PROBE_HINT_LENGTH} characters")
-        return hints
 
 
 def soak_minutes_from_gap(next_run_at: datetime, since: datetime) -> int:
