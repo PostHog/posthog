@@ -31,6 +31,25 @@ Always run `--dry-run` first. It sizes the job and reports how many sampled reco
 rule actually matched. A rule that matches nothing reports `NOT FOUND`, which is the only warning
 you get before a run that would otherwise take hours and produce unusable data.
 
+## Internal certificates
+
+A self-hosted Loki usually answers on an internal hostname, and no public certificate authority
+issues certificates for a name that does not resolve on the public internet. Clusters sign those
+hosts with an authority they run themselves.
+
+The CLI trusts the public authorities and whatever is in the trust store of the machine it runs
+on, so an internally signed Loki works once its root certificate is in that store. In a container,
+install the certificate into the image, or mount it and set `SSL_CERT_FILE` to the file or
+`SSL_CERT_DIR` to a directory of them.
+
+Setting either variable replaces the machine's trust store instead of adding to it. The public
+authorities are compiled into the CLI and stay trusted either way, so pointing `SSL_CERT_FILE` at
+a single internal root does not break the connection to PostHog.
+
+A certificate the CLI cannot verify stops the run on its first request, with
+`invalid peer certificate: UnknownIssuer`. Add the root certificate through one of the routes
+above.
+
 ## The config
 
 ```yaml

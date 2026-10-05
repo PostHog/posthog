@@ -48,11 +48,16 @@ proguard = "5.6.2"
 magic_string = "0.3.4"
 miette = { version = "7.5.0", features = ["fancy"] }
 serde_json = "1.0.140"
+# Both root stores. `rustls-tls` compiles in the public CA list, which verifies PostHog
+# Cloud even where no trust store exists. `rustls-tls-native-roots` reads the machine's
+# store, which is the only way to reach an internally signed host, because the compiled-in
+# list cannot be extended from outside.
 reqwest = { version = "0.12.14", features = [
     "blocking",
     "json",
     "multipart",
     "rustls-tls",
+    "rustls-tls-native-roots",
 ], default-features = false }
 anyhow = "1.0.97"
 serde = { version = "1.0.219", features = ["derive"] }
