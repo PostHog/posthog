@@ -668,6 +668,15 @@ class BISortDirection(StrEnum):
     DESC = "desc"
 
 
+class BITableCalculationType(StrEnum):
+    PERCENT_OF_TOTAL = "percent_of_total"
+    RUNNING_TOTAL = "running_total"
+    DIFFERENCE = "difference"
+    PERCENT_CHANGE = "percent_change"
+    MOVING_AVERAGE = "moving_average"
+    RANK = "rank"
+
+
 class BaseMathType(StrEnum):
     TOTAL = "total"
     DAU = "dau"

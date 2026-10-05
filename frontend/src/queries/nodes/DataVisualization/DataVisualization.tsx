@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { useCallback, useRef, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { PIE_DISPLAY_TYPES } from 'lib/constants'
@@ -357,6 +357,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
             })}
         >
             <div className="relative w-full flex flex-col gap-4 flex-1 overflow-hidden">
+                {query.source.biConfig &&
+                !responseLoading &&
+                response &&
+                'results' in response &&
+                response.results.length >= query.source.biConfig.limit ? (
+                    <LemonBanner type="info">
+                        This worksheet reached its {query.source.biConfig.limit.toLocaleString()} row limit. Increase
+                        the limit or narrow the filters to see all results.
+                    </LemonBanner>
+                ) : null}
                 {!readOnly && showResultControls && (
                     <>
                         <LemonDivider className="my-0" />

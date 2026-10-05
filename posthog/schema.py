@@ -65,6 +65,7 @@ from posthog.schema_enums import (
     BingAdsDefaultSources as BingAdsDefaultSources,
     BIQueryLimit as BIQueryLimit,
     BISortDirection as BISortDirection,
+    BITableCalculationType as BITableCalculationType,
     BounceRatePageViewMode as BounceRatePageViewMode,
     Breakdown1 as Breakdown1,
     BreakdownAttributionType as BreakdownAttributionType,
@@ -950,6 +951,25 @@ class BIDataSource(BaseModel):
     )
     connectionId: str | None = None
     table: str
+
+
+class BITopN(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: float
+    fieldId: str
+    includeOther: bool
+    measureIndex: float
+
+
+class BITotals(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: bool | None = None
+    rows: bool | None = None
+    subtotals: bool | None = None
 
 
 class BaseAssistantMessage(BaseModel):
@@ -5010,6 +5030,21 @@ class BISort(BaseModel):
     key: str
 
 
+class BITableCalculation(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computeUsing: str | None = Field(
+        default=None,
+        description=("Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions."),
+    )
+    type: BITableCalculationType
+    window: float | None = Field(
+        default=None,
+        description=("Number of points, including the current point, in a trailing moving average."),
+    )
+
+
 class BIValue(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5018,6 +5053,7 @@ class BIValue(BaseModel):
     customExpression: str | None = None
     field: BIField
     label: str | None = None
+    tableCalculation: BITableCalculation | None = None
 
 
 class BoxPlotDatum(BaseModel):
@@ -11085,6 +11121,8 @@ class BIConfig(BaseModel):
         description=("null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."),
     )
     source: BIDataSource | None = None
+    topN: BITopN | None = None
+    totals: BITotals | None = None
     values: list[BIValue]
 
 

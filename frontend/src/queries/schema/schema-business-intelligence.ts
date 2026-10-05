@@ -66,6 +66,36 @@ export interface BIValue {
     aggregation: BIAggregation
     customExpression?: string
     label?: string
+    tableCalculation?: BITableCalculation
+}
+
+export type BITableCalculationType =
+    | 'percent_of_total'
+    | 'running_total'
+    | 'difference'
+    | 'percent_change'
+    | 'moving_average'
+    | 'rank'
+
+export interface BITableCalculation {
+    type: BITableCalculationType
+    /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
+    computeUsing?: string
+    /** Number of points, including the current point, in a trailing moving average. */
+    window?: number
+}
+
+export interface BITopN {
+    fieldId: string
+    count: number
+    measureIndex: number
+    includeOther: boolean
+}
+
+export interface BITotals {
+    rows?: boolean
+    columns?: boolean
+    subtotals?: boolean
 }
 
 export interface BIFilter {
@@ -92,4 +122,6 @@ export interface BIConfig {
     limit: BIQueryLimit
     /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
     sort?: BISort | null
+    topN?: BITopN
+    totals?: BITotals
 }
