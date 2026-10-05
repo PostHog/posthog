@@ -30,6 +30,7 @@ from posthog.schema import (
     MarketingIntegrationConfig10,
     MarketingIntegrationConfig11,
     MarketingIntegrationConfig12,
+    MarketingIntegrationConfig13,
     MetaAdsConversionFallbackActionTypes,
     MetaAdsConversionOmniActionTypes,
     MetaAdsConversionSpecificActionTypes,
@@ -44,6 +45,7 @@ from posthog.schema import (
     SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources,
     TikTokAdsDefaultSources,
+    TwitterAdsDefaultSources,
     WebAnalyticsItemKind,
 )
 
@@ -512,6 +514,7 @@ _ALL_CONFIG_MODELS: list[type[BaseModel]] = [
     MarketingIntegrationConfig10,
     MarketingIntegrationConfig11,
     MarketingIntegrationConfig12,
+    MarketingIntegrationConfig13,
     MarketingIntegrationConfig2,
     MarketingIntegrationConfig3,
     MarketingIntegrationConfig4,
@@ -561,6 +564,7 @@ _DEFAULT_SOURCES_ENUMS = {
     NativeMarketingSource.BING_ADS: BingAdsDefaultSources,
     NativeMarketingSource.SNAPCHAT_ADS: SnapchatAdsDefaultSources,
     NativeMarketingSource.PINTEREST_ADS: PinterestAdsDefaultSources,
+    NativeMarketingSource.TWITTER_ADS: TwitterAdsDefaultSources,
 }
 
 # Derived constants from generated types

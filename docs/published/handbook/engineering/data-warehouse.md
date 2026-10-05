@@ -106,6 +106,27 @@ Sponsored Brands, Sponsored Display, ad groups, and individual ads are not inclu
 
 Monetary tiles require the report date and currency columns; reports without currency can still supply impressions and clicks.
 
+## X Ads in Marketing analytics
+
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-x-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
+Sync `campaigns` and `campaign_stats` for campaign-level reporting, and add `line_items` and `line_item_stats` for the ad-group drill-down.
+Both stats tables name their entity `entity_id` rather than `campaign_id` or `line_item_id`, so the join keys off that column at either level.
+
+X splits a day's figures by placement, so `campaign_stats` holds up to three rows per campaign per day, one each for `ALL_ON_TWITTER`, `SPOTLIGHT` and `TREND`.
+Every metric aggregates, so the placements add together into the single daily figure a tile shows.
+Querying the table directly without summing across `placement` reports one placement and silently drops the rest.
+
+Spend comes from `billed_charge_local_micro`, which X reports in millionths of a currency unit, so the integration divides it by 1,000,000.
+The currency is the one on the campaign's funding instrument, stored per row in `currency`, and spend converts from it at each row's own date.
+Impressions and clicks come from `impressions` and `clicks`.
+
+Reported conversions and conversion value are always zero.
+The importer requests the `ENGAGEMENT` and `BILLING` metric groups, and neither carries a conversion count, so there is nothing to report until it asks for a conversion metric group.
+
 ## Rokt Ads in Marketing analytics
 
 Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-rokt-ads` and is off by default.

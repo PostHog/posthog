@@ -145,8 +145,13 @@ class TestStructuralInvariants:
 
     def test_every_oauth_kind_is_one_the_authorize_endpoint_accepts(self):
         # Spelled out means it can drift, and a kind `authorize` rejects is a Connect button
-        # that 400s. `supported_kinds` is what that endpoint validates against.
-        unknown = set(OAUTH_KIND_BY_NATIVE.values()) - set(OauthIntegration.supported_kinds)
+        # that 400s. `supported_kinds` is what that endpoint validates against for OAuth 2.0.
+        # X Ads is OAuth 1.0a, so `authorize` branches on it before reaching that list; a kind
+        # handled there is accepted just as surely, and leaving it out would fail a working
+        # button. Add to this set only for a kind `authorize` really does branch on.
+        oauth1_kinds = {"twitter-ads"}
+        accepted = set(OauthIntegration.supported_kinds) | oauth1_kinds
+        unknown = set(OAUTH_KIND_BY_NATIVE.values()) - accepted
 
         assert not unknown, f"{sorted(unknown)} are not kinds the authorize endpoint accepts"
 

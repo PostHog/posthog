@@ -32,6 +32,7 @@ const MARKETING_SOURCE_ICONS: Record<
     },
     OpenAIAds: { name: 'OpenAIAds', iconPath: '/static/services/openai_ads.svg', fields: [], caption: 'OpenAI Ads' },
     RoktAds: { name: 'RoktAds', iconPath: '/static/services/rokt_ads.png', fields: [], caption: 'Rokt Ads' },
+    TwitterAds: { name: 'TwitterAds', iconPath: '/static/services/twitter_ads.png', fields: [], caption: 'X Ads' },
     GoogleAds: {
         name: 'GoogleAds',
         iconPath: '/static/services/google-ads.png',

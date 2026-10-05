@@ -35,6 +35,7 @@ export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, 
     RoktAds: FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS,
     AppleSearchAds: FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
     OpenAIAds: FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
+    TwitterAds: FEATURE_FLAGS.MARKETING_ANALYTICS_X_ADS,
 }
 
 /**
@@ -77,6 +78,7 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     RoktAds: 'Rokt Ads',
     AppleSearchAds: 'Apple Ads',
     OpenAIAds: 'OpenAI Ads',
+    TwitterAds: 'X Ads',
 }
 export function nativeSourceDisplayLabel(sourceType: string): string {
     return NATIVE_SOURCE_DISPLAY_LABELS[sourceType as NativeMarketingSource] ?? sourceType
@@ -410,6 +412,33 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             }
             if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
                 return buildConversionExpr('conversion_value', table)
+            }
+            return null
+        },
+    },
+    TwitterAds: {
+        // Both stats tables name their entity `entity_id`, whatever level that entity sits at.
+        idField: 'entity_id',
+        timestampField: 'date',
+        columnMappings: {
+            // X reports spend in millionths of the funding instrument's currency.
+            cost: 'billed_charge_local_micro',
+            costNeedsDivision: true,
+            impressions: 'impressions',
+            clicks: 'clicks',
+            // The source requests the ENGAGEMENT and BILLING metric groups, and neither carries a
+            // conversion count.
+            reportedConversion: '0',
+            reportedConversionValue: '0',
+            currencyColumn: 'currency',
+            currencyTimestampColumn: 'date',
+        },
+        specialConversionLogic: (_table, tileColumnSelection) => {
+            if (
+                tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion ||
+                tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+            ) {
+                return { math: HogQLMathType.HogQL, math_hogql: '0' }
             }
             return null
         },

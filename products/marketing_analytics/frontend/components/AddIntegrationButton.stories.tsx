@@ -59,6 +59,7 @@ const meta: Meta<typeof AddIntegrationButton> = {
                             AppleSearchAds: 'apple_search_ads.png',
                             OpenAIAds: 'openai_ads.svg',
                             AmazonAds: 'amazon_ads.png',
+                            TwitterAds: 'twitter_ads.png',
                             BigQuery: 'bigquery.png',
                         }).map(([name, icon]) => [
                             name,

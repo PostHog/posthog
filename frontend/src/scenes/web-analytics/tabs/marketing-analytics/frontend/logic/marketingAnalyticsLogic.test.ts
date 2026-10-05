@@ -723,6 +723,7 @@ describe('marketingAnalyticsLogic', () => {
         ['OpenAIAds', FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS],
         ['AmazonAds', FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS],
         ['RoktAds', FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS],
+        ['TwitterAds', FEATURE_FLAGS.MARKETING_ANALYTICS_X_ADS],
     ] as const)(
         'removes %s from connected sources and mapping menus when its flag turns off',
         async (sourceType, flag) => {

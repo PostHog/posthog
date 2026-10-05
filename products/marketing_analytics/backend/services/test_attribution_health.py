@@ -406,6 +406,7 @@ class TestAttributionHealthPaidSignalClickhouse(ClickhouseTestMixin, BaseTest):
             ("snapchat", "snapchat_ads", "sccid"),
             ("tiktok", "tiktok_ads", "ttclid"),
             ("rokt", "rokt_ads", "rtid"),
+            ("twitter", "twitter_ads", "twclid"),
             ("pinterest", "pinterest_ads", "pp"),
         ]
     )

@@ -32,6 +32,7 @@ describe('marketing analytics utils', () => {
         ['OpenAIAds', FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS],
         ['AmazonAds', FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS],
         ['RoktAds', FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS],
+        ['TwitterAds', FEATURE_FLAGS.MARKETING_ANALYTICS_X_ADS],
     ] as const)('getEnabledNativeMarketingSources: %s', (sourceType, flag) => {
         it.each([undefined, false, true, 'test'])('gates the source when its flag is %s', (enabled) => {
             const flags: Record<string, boolean | string> = {
@@ -39,6 +40,7 @@ describe('marketing analytics utils', () => {
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_X_ADS]: true,
             }
             if (enabled === undefined) {
                 delete flags[flag]
@@ -311,6 +313,7 @@ describe('marketing analytics utils', () => {
                 'conversion_value',
             ],
             AppleSearchAds: ['local_spend', 'impressions', 'taps', 'total_installs'],
+            TwitterAds: ['entity_id', 'date', 'billed_charge_local_micro', 'impressions', 'clicks', 'currency'],
             OpenAIAds: ['campaign_id', 'start_time', 'spend', 'impressions', 'clicks', 'currency_code'],
             GoogleAds: [
                 'metrics_cost_micros',
@@ -366,6 +369,7 @@ describe('marketing analytics utils', () => {
             AmazonAds: ['campaign_id', 'date', 'cost', 'impressions', 'clicks', 'campaign_budget_currency_code'],
             RoktAds: ['campaign_id', 'datetime', 'currency_code', 'gross_cost', 'impressions', 'referrals'],
             AppleSearchAds: ['local_spend', 'impressions', 'taps'],
+            TwitterAds: ['entity_id', 'date', 'billed_charge_local_micro', 'impressions', 'clicks', 'currency'],
             OpenAIAds: ['campaign_id', 'start_time', 'spend', 'impressions', 'clicks', 'currency_code'],
             GoogleAds: ['metrics_cost_micros', 'metrics_impressions', 'metrics_clicks', 'customer_currency_code'],
             RedditAds: ['spend', 'impressions', 'clicks', 'currency'],

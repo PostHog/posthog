@@ -52,6 +52,7 @@ from .google_ads import GoogleAdsAdapter
 from .openai_ads import OpenAIAdsAdapter
 from .rokt_ads import RoktAdsAdapter
 from .self_managed import AWSAdapter, AzureAdapter, CloudflareR2Adapter, GoogleCloudAdapter
+from .twitter_ads import TwitterAdsAdapter
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +94,7 @@ class MarketingSourceFactory:
         "BingAds": BingAdsAdapter,
         "SnapchatAds": SnapchatAdsAdapter,
         "PinterestAds": PinterestAdsAdapter,
+        "TwitterAds": TwitterAdsAdapter,
         # Non-native adapters
         "BigQuery": BigQueryAdapter,
         # Self-managed adapters
@@ -117,6 +119,7 @@ class MarketingSourceFactory:
         "BingAds": (NativeMarketingSource.BING_ADS, BingAdsConfig),
         "SnapchatAds": (NativeMarketingSource.SNAPCHAT_ADS, SnapchatAdsConfig),
         "PinterestAds": (NativeMarketingSource.PINTEREST_ADS, PinterestAdsConfig),
+        "TwitterAds": (NativeMarketingSource.TWITTER_ADS, HierarchicalNativeAdsConfig),
     }
 
     @classmethod

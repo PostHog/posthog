@@ -30,6 +30,7 @@ NativeIntegration = Literal[
     "pinterest_ads",
     "snapchat_ads",
     "tiktok_ads",
+    "twitter_ads",
 ]
 
 
@@ -48,6 +49,7 @@ NATIVE_TO_KEY: dict[NativeMarketingSource, NativeIntegration] = {
     NativeMarketingSource.PINTEREST_ADS: "pinterest_ads",
     NativeMarketingSource.SNAPCHAT_ADS: "snapchat_ads",
     NativeMarketingSource.TIK_TOK_ADS: "tiktok_ads",
+    NativeMarketingSource.TWITTER_ADS: "twitter_ads",
 }
 
 KEY_TO_NATIVE: dict[NativeIntegration, NativeMarketingSource] = {v: k for k, v in NATIVE_TO_KEY.items()}
@@ -69,6 +71,7 @@ EXTERNAL_SOURCE_TYPE_TO_NATIVE: dict[str, NativeMarketingSource] = {
     "PinterestAds": NativeMarketingSource.PINTEREST_ADS,
     "SnapchatAds": NativeMarketingSource.SNAPCHAT_ADS,
     "TikTokAds": NativeMarketingSource.TIK_TOK_ADS,
+    "TwitterAds": NativeMarketingSource.TWITTER_ADS,
 }
 
 # Human-facing names for surfaces that produce text (LLMs, UI, error messages).
@@ -85,6 +88,7 @@ DISPLAY_NAMES: dict[NativeMarketingSource, str] = {
     NativeMarketingSource.PINTEREST_ADS: "Pinterest Ads",
     NativeMarketingSource.SNAPCHAT_ADS: "Snapchat Ads",
     NativeMarketingSource.TIK_TOK_ADS: "TikTok Ads",
+    NativeMarketingSource.TWITTER_ADS: "X Ads",
 }
 
 
@@ -99,6 +103,7 @@ OAUTH_KIND_BY_NATIVE: dict[NativeMarketingSource, str] = {
     NativeMarketingSource.PINTEREST_ADS: "pinterest-ads",
     NativeMarketingSource.SNAPCHAT_ADS: "snapchat",
     NativeMarketingSource.TIK_TOK_ADS: "tiktok-ads",
+    NativeMarketingSource.TWITTER_ADS: "twitter-ads",
 }
 
 
@@ -107,6 +112,7 @@ NATIVE_SOURCE_FEATURE_FLAGS: dict[str, str] = {
     "AppleSearchAds": "marketing-analytics-apple-ads",
     "OpenAIAds": "marketing-analytics-openai-ads",
     "RoktAds": "marketing-analytics-rokt-ads",
+    "TwitterAds": "marketing-analytics-x-ads",
 }
 
 
