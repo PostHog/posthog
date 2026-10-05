@@ -175,7 +175,23 @@ def _records_from_grid(grid: list[list[str]]) -> list[dict[str, Any]]:
 
     # default_blank defaults to "", which turns empty cells into strings and breaks numeric
     # columns that legitimately have gaps. None lets blank cells import as null instead.
-    return [dict(zip(column_names, numericise_all(row, default_blank=None))) for row in grid[1:]]
+    rows = [numericise_all(row, default_blank=None) for row in grid[1:]]
+
+    # A column that holds both numbers and text must stay text. The pipeline JSON-encodes a column
+    # of mixed Python types, which stores each text cell wrapped in double quotes.
+    text_columns = {
+        index
+        for index in range(len(column_names))
+        if len({isinstance(row[index], str) for row in rows if index < len(row) and row[index] is not None}) > 1
+    }
+
+    return [
+        {
+            name: (cell or None) if index in text_columns else value
+            for index, (name, cell, value) in enumerate(zip(column_names, raw_row, row))
+        }
+        for raw_row, row in zip(grid[1:], rows)
+    ]
 
 
 # Google's frontend returns this stable "That's an error" doodle page — an HTML body, not the JSON
