@@ -195,11 +195,15 @@ export const searchPerformanceLogic = kea<searchPerformanceLogicType>([
             }),
         ],
         detailQuery: [
-            (s) => [s.allSearchSources, s.selectedRow, s.query],
-            (sources: ExternalDataSource[], row, query): MarketingAnalyticsSearchQuery | null => {
+            (s) => [s.allSearchSources, s.integrationFilter, s.selectedRow, s.query],
+            (allSources: ExternalDataSource[], integrationFilter, row, query): MarketingAnalyticsSearchQuery | null => {
                 if (!row || !(row.page || row.keyword)) {
                     return null
                 }
+                const sources =
+                    row.platform === 'GoogleSearchConsole'
+                        ? selectedSearchSources(allSources, integrationFilter.integrationSourceIds ?? [])
+                        : allSources
                 const detailSources = sources
                     .filter((source) => source.source_type === 'GoogleSearchConsole')
                     .flatMap((source) => {

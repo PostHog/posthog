@@ -21,6 +21,7 @@ import {
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsSearchRow,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
@@ -34,6 +35,7 @@ import {
     ExternalDataJobStatus,
     ExternalDataSchemaStatus,
     ExternalDataSource,
+    ExternalDataSourceSchema,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -107,7 +109,13 @@ describe('marketingAnalyticsLogic', () => {
                         source_id: 'example.com',
                         connection_id: 'example-organic',
                         source_type: 'GoogleSearchConsole',
-                        schemas: [],
+                        schemas: [
+                            {
+                                name: 'search_analytics_by_query_page',
+                                should_sync: true,
+                                table: { name: 'organic_query_pages', hogql_name: 'organic_query_pages' },
+                            } as ExternalDataSourceSchema,
+                        ],
                         status: ExternalDataJobStatus.Completed,
                         prefix: null,
                         description: 'example.com',
@@ -138,6 +146,49 @@ describe('marketingAnalyticsLogic', () => {
             expect(searchLogic.values.sources.map((source) => source.id)).toEqual(['organic'])
             expect(searchLogic.values.query.search).toBe('')
             expect(logic.values.compareFilter).toEqual({ compare: true })
+            const organicSource = logic.values.dataWarehouseSources!.results[0]
+            await expectLogic(logic, () =>
+                logic.actions.loadSourcesSuccess({
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [
+                        organicSource,
+                        {
+                            ...organicSource,
+                            id: 'organic-other',
+                            schemas: [
+                                {
+                                    ...organicSource.schemas[0],
+                                    table: {
+                                        ...organicSource.schemas[0].table!,
+                                        name: 'other_query_pages',
+                                        hogql_name: 'other_query_pages',
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                })
+            ).toFinishAllListeners()
+            logic.actions.setIntegrationFilter({ integrationSourceIds: ['organic'] })
+            searchLogic.actions.selectRow({
+                platform: 'GoogleSearchConsole',
+                keyword: 'analytics',
+                page: null,
+            } as MarketingAnalyticsSearchRow)
+            expect(searchLogic.values.detailQuery?.sources.map((source) => source.statsTable)).toEqual([
+                'organic_query_pages',
+            ])
+            searchLogic.actions.selectRow({
+                platform: 'GoogleAds',
+                keyword: 'analytics',
+                page: null,
+            } as MarketingAnalyticsSearchRow)
+            expect(searchLogic.values.detailQuery?.sources.map((source) => source.statsTable)).toEqual([
+                'organic_query_pages',
+                'other_query_pages',
+            ])
         } finally {
             unmountSearch()
         }

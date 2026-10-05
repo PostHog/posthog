@@ -85,6 +85,8 @@ Empty filtered results offer Clear filters; unfiltered views suggest connecting 
 Connected sources with missing tables show a sync setup action instead of a reconnect prompt.
 Source discovery loads every page of connected integrations before applying the filter.
 The date and comparison controls select the current and comparison periods.
+Organic query and page details retain the selected integration sources.
+Paid keyword and page details use the available GSC sources to find organic results for the same text or URL.
 Cached results are partitioned by warehouse table, view, and source permissions.
 Metrics group targeted keywords by platform, match type and account currency; spend is never added across currencies.
 Conversions retain the ad platform's attribution, while CTR, CPC and CPA use the summed metrics in each period.
