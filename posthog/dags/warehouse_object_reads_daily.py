@@ -8,11 +8,11 @@ from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.execute import ClickHouseExternalTable
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import Feature
-from posthog.clickhouse.saved_query_reads import (
-    REPLACE_SAVED_QUERY_READS_DAILY_STAGING_TABLE_SQL,
-    SAVED_QUERY_READS_DAILY_STAGING_TABLE,
-    SAVED_QUERY_READS_DAILY_TABLE,
+from posthog.clickhouse.warehouse_object_reads import (
+    REPLACE_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL,
     SORT_KEY_COLUMNS,
+    WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
+    WAREHOUSE_OBJECT_READS_DAILY_TABLE,
     ReadKind,
     SubjectKind,
 )
@@ -34,7 +34,7 @@ QUERY_FINISH_TYPE = "QueryFinish"
 MAX_EXECUTION_TIME_SECONDS = 600
 ROLLUP_START_DATE = "2026-08-01"
 SCHEDULE_HOUR_UTC = 7
-CONCURRENCY_TAG = {"saved_query_reads_backfill_concurrency": "saved_query_reads_v1"}
+CONCURRENCY_TAG = {"warehouse_object_reads_backfill_concurrency": "warehouse_object_reads_v1"}
 
 REFRESH_SUBJECTS_TABLE = "refresh_subjects"
 PARTITION_ID_FORMAT = "%Y%m%d"
@@ -148,7 +148,7 @@ REFRESH_READS_SQL = _archive_branch_sql(
 )
 
 INSERT_ROLLUP_SQL = f"""
-INSERT INTO {SAVED_QUERY_READS_DAILY_STAGING_TABLE}
+INSERT INTO {WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE}
 SELECT
     {", ".join(SORT_KEY_COLUMNS)},
     {", ".join(AGGREGATE_COLUMNS)}
@@ -250,10 +250,10 @@ def refuse_to_run_beside_another_rollup(context: dagster.OpExecutionContext) -> 
 
 
 def publish_day(context: dagster.OpExecutionContext, cluster: ClickhouseCluster, day: date) -> None:
-    sync_partitions_on_replicas(context, cluster, SAVED_QUERY_READS_DAILY_STAGING_TABLE)
-    if get_partitions(context, cluster, SAVED_QUERY_READS_DAILY_STAGING_TABLE, filter_by_partition_window=True):
+    sync_partitions_on_replicas(context, cluster, WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE)
+    if get_partitions(context, cluster, WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE, filter_by_partition_window=True):
         swap_partitions_from_staging(
-            context, cluster, SAVED_QUERY_READS_DAILY_TABLE, SAVED_QUERY_READS_DAILY_STAGING_TABLE
+            context, cluster, WAREHOUSE_OBJECT_READS_DAILY_TABLE, WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE
         )
         return
     drop_day_partition(cluster, day)
@@ -262,7 +262,7 @@ def publish_day(context: dagster.OpExecutionContext, cluster: ClickhouseCluster,
 def drop_day_partition(cluster: ClickhouseCluster, day: date) -> None:
     cluster.any_host_by_roles(
         lambda client: client.execute(
-            f"ALTER TABLE {SAVED_QUERY_READS_DAILY_TABLE} DROP PARTITION ID %(partition_id)s",
+            f"ALTER TABLE {WAREHOUSE_OBJECT_READS_DAILY_TABLE} DROP PARTITION ID %(partition_id)s",
             {"partition_id": day.strftime(PARTITION_ID_FORMAT)},
         ),
         [NodeRole.DATA],
@@ -270,7 +270,7 @@ def drop_day_partition(cluster: ClickhouseCluster, day: date) -> None:
 
 
 @dagster.op
-def rollup_saved_query_reads_for_day(
+def rollup_warehouse_object_reads_for_day(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> None:
@@ -278,10 +278,13 @@ def rollup_saved_query_reads_for_day(
     day = date.fromisoformat(context.partition_key)
     teams = cluster.any_host_by_roles(lambda client: find_team_refreshes(client, day), [NodeRole.DATA]).result()
     refresh_subjects = load_refresh_subjects(teams)
-    context.log.info(f"Rolling up saved query reads for {day}")
+    context.log.info(f"Rolling up warehouse object reads for {day}")
 
     recreate_staging_table(
-        context, cluster, SAVED_QUERY_READS_DAILY_STAGING_TABLE, REPLACE_SAVED_QUERY_READS_DAILY_STAGING_TABLE_SQL
+        context,
+        cluster,
+        WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
+        REPLACE_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL,
     )
     insert_rollup_into_staging(context, cluster, day, [as_external_table(refresh_subjects)])
     publish_day(context, cluster, day)
@@ -299,12 +302,12 @@ def rollup_saved_query_reads_for_day(
     partitions_def=daily_partitions,
     tags={"owner": JobOwners.TEAM_DATA_MODELING.value, **CONCURRENCY_TAG},
 )
-def saved_query_reads_daily_job() -> None:
-    rollup_saved_query_reads_for_day()
+def warehouse_object_reads_daily_job() -> None:
+    rollup_warehouse_object_reads_for_day()
 
 
-saved_query_reads_daily_schedule = dagster.build_schedule_from_partitioned_job(
-    saved_query_reads_daily_job,
+warehouse_object_reads_daily_schedule = dagster.build_schedule_from_partitioned_job(
+    warehouse_object_reads_daily_job,
     hour_of_day=SCHEDULE_HOUR_UTC,
     minute_of_hour=0,
     default_status=dagster.DefaultScheduleStatus.STOPPED,

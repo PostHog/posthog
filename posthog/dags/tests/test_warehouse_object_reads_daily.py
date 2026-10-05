@@ -12,11 +12,11 @@ from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_TABLE
-from posthog.clickhouse.saved_query_reads import SAVED_QUERY_READS_DAILY_TABLE
-from posthog.dags.saved_query_reads_daily import (
+from posthog.clickhouse.warehouse_object_reads import WAREHOUSE_OBJECT_READS_DAILY_TABLE
+from posthog.dags.warehouse_object_reads_daily import (
     ROLLUP_START_DATE,
-    saved_query_reads_daily_job,
-    saved_query_reads_daily_schedule,
+    warehouse_object_reads_daily_job,
+    warehouse_object_reads_daily_schedule,
 )
 from posthog.models import Team
 
@@ -86,7 +86,7 @@ def clear_archive(client: Client) -> None:
 
 
 def run_rollup(cluster: ClickhouseCluster, day: date) -> None:
-    result = saved_query_reads_daily_job.execute_in_process(
+    result = warehouse_object_reads_daily_job.execute_in_process(
         partition_key=day.isoformat(), resources={"cluster": cluster}
     )
     assert result.success
@@ -108,7 +108,7 @@ def read_rollup(team_id: int, day: date, subject_ids: list[str], client: Client)
             f"""
             SELECT read_kind, subject_kind, subject_id, workflow_id, read_alone,
                 uniqMerge(requests), uniqMerge(users), sum(read_count), sum(duration_ms_sum), sum(read_bytes_sum)
-            FROM {SAVED_QUERY_READS_DAILY_TABLE}
+            FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
             WHERE team_id = %(team_id)s AND day = %(day)s AND subject_id IN %(subject_ids)s
             GROUP BY read_kind, subject_kind, subject_id, workflow_id, read_alone
             """,
@@ -190,7 +190,7 @@ def test_rollup_counts_view_and_table_reads_and_refreshes_and_replaces_its_parti
 
 @pytest.mark.django_db
 def test_rollup_of_a_day_without_archive_rows_succeeds(cluster: ClickhouseCluster) -> None:
-    result = saved_query_reads_daily_job.execute_in_process(
+    result = warehouse_object_reads_daily_job.execute_in_process(
         partition_key=ROLLUP_START_DATE, resources={"cluster": cluster}
     )
 
@@ -198,19 +198,19 @@ def test_rollup_of_a_day_without_archive_rows_succeeds(cluster: ClickhouseCluste
 
 
 def test_schedule_runs_after_the_archive_day_closes() -> None:
-    assert isinstance(saved_query_reads_daily_schedule, dagster.ScheduleDefinition)
-    assert saved_query_reads_daily_schedule.cron_schedule == "0 7 * * *"
+    assert isinstance(warehouse_object_reads_daily_schedule, dagster.ScheduleDefinition)
+    assert warehouse_object_reads_daily_schedule.cron_schedule == "0 7 * * *"
 
 
 @pytest.mark.django_db
 def test_rollup_fails_before_touching_staging_while_another_run_executes(cluster: ClickhouseCluster) -> None:
     instance = dagster.DagsterInstance.ephemeral()
     other_run = instance.create_run_for_job(
-        job_def=saved_query_reads_daily_job, status=dagster.DagsterRunStatus.STARTED
+        job_def=warehouse_object_reads_daily_job, status=dagster.DagsterRunStatus.STARTED
     )
 
-    with patch("posthog.dags.saved_query_reads_daily.recreate_staging_table") as recreate_staging_table:
-        result = saved_query_reads_daily_job.execute_in_process(
+    with patch("posthog.dags.warehouse_object_reads_daily.recreate_staging_table") as recreate_staging_table:
+        result = warehouse_object_reads_daily_job.execute_in_process(
             partition_key=ROLLUP_START_DATE, resources={"cluster": cluster}, instance=instance, raise_on_error=False
         )
 
