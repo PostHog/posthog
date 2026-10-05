@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, events, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
 import { FieldNamePath, capitalizeFirstLetter, forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { lazyLoaders } from 'kea-loaders'
@@ -108,6 +108,9 @@ export type SwitchPlanPayload = {
 }
 
 // Billing can answer with an empty body (a proxy error page, an upstream failure), so this takes null.
+const isBillingOverviewPath = (pathname: string): boolean =>
+    pathname.endsWith('/billing') || pathname.endsWith('/billing/overview')
+
 const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | null => {
     if (!data) {
         return null
@@ -349,6 +352,21 @@ export interface billingLogicActions {
         error: string
         errorObject?: any
     }
+    loadBillingForecast: () => any
+    loadBillingForecastFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadBillingForecastSuccess: (
+        billing: BillingType | null,
+        payload?: any
+    ) => {
+        billing: BillingType | null
+        payload?: any
+    }
     loadBillingSuccess: (
         billing: BillingType | null,
         payload?: any
@@ -523,6 +541,9 @@ export interface billingLogicActions {
     }
     setShowLicenseDirectInput: (show: boolean) => {
         show: boolean
+    }
+    loadBillingForecastIfEnabled: () => {
+        value: true
     }
     setSwitchPlanLoading: (productKey: string | null) => {
         productKey: string | null
@@ -729,6 +750,7 @@ export const billingLogic = kea<billingLogicType>([
         setRegisteredCustomLimitKeys: (keys: string[]) => ({ keys }),
         scrollToProduct: (productType: string) => ({ productType }),
         setSwitchPlanLoading: (productKey: string | null) => ({ productKey }),
+        loadBillingForecastIfEnabled: true,
     }),
     connect(() => ({
         values: [
@@ -860,24 +882,40 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
-    lazyLoaders(({ actions, values }) => ({
+    lazyLoaders(({ actions, values, cache }) => ({
         billing: [
             null as BillingType | null,
             {
                 loadBilling: async () => {
-                    // Note: this is a temporary flag to skip forecasting in the billing page
-                    // for customers running into performance issues until we have a more permanent fix
-                    // of splitting the billing and forecasting data.
-                    const skipForecasting = values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
+                    cache.billingLoadCount = (cache.billingLoadCount ?? 0) + 1
+                    // Forecasting is the slow part of the billing read and only the overview shows it,
+                    // so this read skips it. loadBillingForecast adds it in the background.
                     // Many scenes read billing, so a failed read keeps the last known state quietly
                     // rather than toasting on every page or reaching error tracking.
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                        const response = await api.get(
-                            'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
-                        )
+                        const response = await api.get('api/billing?include_forecasting=false')
                         return parseBillingResponse(response) ?? values.billing
                     } catch {
+                        return values.billing
+                    }
+                },
+
+                loadBillingForecast: async (_, breakpoint) => {
+                    const billingLoadCount = cache.billingLoadCount
+                    try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with an unchecked response type. Use a generated function if one covers this endpoint.
+                        const response = await api.get('api/billing')
+                        breakpoint()
+                        // A newer read can hold changes, such as new limits, that this response does not.
+                        if (cache.billingLoadCount !== billingLoadCount) {
+                            return values.billing
+                        }
+                        return parseBillingResponse(response) ?? values.billing
+                    } catch (error) {
+                        if (isBreakpoint(error as Error)) {
+                            throw error
+                        }
                         return values.billing
                     }
                 },
@@ -1083,6 +1121,14 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     })),
+    reducers({
+        // The forecast loads after the page shows, so it must not put billing back into a loading state.
+        billingLoading: {
+            loadBillingForecast: (state) => state,
+            loadBillingForecastSuccess: (state) => state,
+            loadBillingForecastFailure: (state) => state,
+        },
+    }),
     selectors({
         minimumBillingAccessLevel: [
             (s) => [s.featureFlags],
@@ -1513,7 +1559,15 @@ export const billingLogic = kea<billingLogicType>([
         switchFlatrateSubscriptionPlan: async (payload) => {
             actions.setSwitchPlanLoading(payload.to_product_key)
         },
+        loadBillingForecastIfEnabled: () => {
+            if (!values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]) {
+                actions.loadBillingForecast()
+            }
+        },
         loadBillingSuccess: async (_, breakpoint) => {
+            if (isBillingOverviewPath(router.values.location.pathname)) {
+                actions.loadBillingForecastIfEnabled()
+            }
             actions.registerInstrumentationProps()
             actions.determineBillingAlert()
             actions.loadCreditOverview()
@@ -1823,6 +1877,10 @@ export const billingLogic = kea<billingLogicType>([
             if (values.isOnboarding !== isOnboarding) {
                 actions.setIsOnboarding(isOnboarding)
             }
+            // When billing is not loaded yet, loadBillingSuccess loads the forecast.
+            if (values.billing && !values.billingLoading) {
+                actions.loadBillingForecastIfEnabled()
+            }
         }
 
         return {
@@ -1846,8 +1904,7 @@ export const billingLogic = kea<billingLogicType>([
     events(({ actions, values }) => ({
         afterMount: () => {
             const { location, searchParams, hashParams } = router.values
-            const isBillingOverviewRoute =
-                location.pathname.endsWith('/billing') || location.pathname.endsWith('/billing/overview')
+            const isBillingOverviewRoute = isBillingOverviewPath(location.pathname)
 
             if (isBillingOverviewRoute) {
                 if (typeof hashParams.license === 'string') {
