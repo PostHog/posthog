@@ -183,6 +183,18 @@ PostgresErrors = {
         "database project is paused or deleted, or the pooler username/host is wrong. Check that "
         "your database is active and the connection details are correct."
     ),
+    # Supavisor runs an `auth_query` against the tenant's database to fetch the user's password
+    # secret. These two "(EAUTHQUERY)" outcomes are permanent, unlike the "secret check timed out"
+    # race `postgres.py` retries: the user doesn't exist, or its password is stored in a format the
+    # pooler can't verify (no password, or a non-SCRAM hash). Setting the password again stores it
+    # as SCRAM.
+    "user not found in the database": (
+        "Your database doesn't have a user with the username you entered. Check the user for this source and try again."
+    ),
+    "unsupported or invalid secret format": (
+        "Your connection pooler can't check this user's password because of how your database "
+        "stores it. Reset the user's password in your database, then try again."
+    ),
     # Supabase/Supavisor's shared regional pooler (aws-0-<region>.pooler.supabase.com) can't
     # identify the project from SNI, so the pooler username must embed the project ref (for example
     # "postgres.<project-ref>"). A plain "postgres" username leaves it nothing to route on and it
@@ -239,6 +251,14 @@ PostgresErrors = {
     "is not permitted to log in": (
         "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a "
         "different user, then try again."
+    ),
+    # Supavisor rejects a client IP outside the project's network restrictions with
+    # "FATAL: (EADDRNOTALLOWED) address not in tenant allow_list: ...". `get_non_retryable_errors`
+    # already handles this on the streaming path; map it here too so validation returns an
+    # actionable message instead of the generic fallback.
+    "address not in tenant allow_list": (
+        "Your database provider rejected the connection because PostHog's IP address isn't on its IP "
+        "allow list. Add PostHog's IP addresses to that allow list, then try again."
     ),
     "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
