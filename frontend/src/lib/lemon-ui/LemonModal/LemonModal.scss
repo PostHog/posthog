@@ -104,6 +104,10 @@ body.ReactModal__Body--open {
         overflow-y: auto;
         overscroll-behavior: contain;
 
+        // Content that grows while the modal is open (a search, an expanded section) would otherwise
+        // reflow every line the moment the scrollbar takes its width.
+        scrollbar-gutter: stable;
+
         &.LemonModal__content--embedded {
             padding: 0;
         }
