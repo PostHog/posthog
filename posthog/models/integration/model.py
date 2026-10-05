@@ -142,6 +142,7 @@ class Integration(models.Model):
         GITHUB = "github"
         GITLAB = "gitlab"
         GOOGLE_ADS = "google-ads"
+        GOOGLE_ADSENSE = "google-adsense"
         GOOGLE_ANALYTICS = "google-analytics"
         GOOGLE_CALENDAR = "google-calendar"
         GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
