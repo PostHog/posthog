@@ -17,6 +17,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.topics import KAFKA_PERSON
+from posthog.models import Team
 from posthog.models.person import Person
 from posthog.models.person.divergence import (
     DivergentPerson,
@@ -26,9 +27,14 @@ from posthog.models.person.divergence import (
     RepairAction,
     RepairOutcome,
     RepairSummary,
+    SampleBucket,
+    SampledPerson,
+    TeamCheck,
     _WritePacer,
+    check_team,
     repair_persons,
     scan_hidden_persons,
+    scan_sample,
     scan_stale_persons,
     scan_swept_persons,
 )
@@ -289,6 +295,75 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             )
         ]
         assert (summary.candidates, summary.divergent) == (2, 1)
+
+    def test_sample_classifies_live_clickhouse_persons_against_postgres(self) -> None:
+        gone_team = Team.objects.create(organization=self.organization, name="deleted team")
+        gone_team_id = gone_team.pk
+        gone_team.delete()
+        equal = self._pg_person(version=3)
+        self._ch_person_row(equal.uuid, 3, hours_ago=48)
+        below = self._pg_person(version=3)
+        self._ch_person_row(below.uuid, 5)
+        above = self._pg_person(version=6)
+        self._ch_person_row(above.uuid, 5)
+        tombstoned = self._pg_person(version=3)
+        tombstone_persons_in_postgres(self.team.pk, [tombstoned.uuid])
+        self._ch_person_row(tombstoned.uuid, 3)
+        absent = uuid4()
+        self._ch_person_row(absent, 3)
+        team_gone = uuid4()
+        self._ch_person_row(team_gone, 1, team_id=gone_team_id)
+        deleted_winner = self._pg_person(version=3)
+        self._ch_person_row(deleted_winner.uuid, 4, deleted=True)
+        written_long_ago = self._pg_person(version=3)
+        self._ch_person_row(written_long_ago.uuid, 3, hours_ago=24 * 10)
+
+        sampled: list[SampledPerson] = []
+        summary = scan_sample(
+            modulus=1,
+            residue=0,
+            written_within_days=5,
+            cutoff=now() - timedelta(days=1),
+            min_team_id=self.team.pk,
+            max_team_id=gone_team_id + 1,
+            on_sampled=sampled.append,
+            log=lambda _: None,
+        )
+
+        assert {s.person_uuid: (s.classification, s.era, s.pg_version) for s in sampled} == {
+            str(equal.uuid): ("equal", "before_cutoff", 3),
+            str(below.uuid): ("pg_below_ch", "since_cutoff", 3),
+            str(above.uuid): ("pg_above_ch", "since_cutoff", 6),
+            str(tombstoned.uuid): ("pg_tombstone", "since_cutoff", None),
+            str(absent): ("pg_absent", "since_cutoff", None),
+            str(team_gone): ("team_gone", "since_cutoff", None),
+        }
+        assert summary.sampled == 6
+        assert summary.counts[SampleBucket(classification="equal", era="before_cutoff")] == 1
+
+    def test_team_check_counts_old_live_clickhouse_rows_that_postgres_still_holds(self) -> None:
+        kept = self._pg_person(version=1, distinct_ids={"kept": 0})
+        self._ch_person_row(kept.uuid, 1, hours_ago=48)
+        self._ch_mapping_row("kept", kept.uuid, 0, hours_ago=48)
+        lost = uuid4()
+        self._ch_person_row(lost, 1, hours_ago=48)
+        self._ch_mapping_row("lost", lost, 0, hours_ago=48)
+        recent = self._pg_person(version=1, distinct_ids={"recent": 0})
+        self._ch_person_row(recent.uuid, 1)
+        self._ch_mapping_row("recent", recent.uuid, 0)
+        deleted = uuid4()
+        self._ch_person_row(deleted, 1, deleted=True, hours_ago=48)
+        self._ch_mapping_row("deleted", deleted, 1, deleted=True, hours_ago=48)
+
+        result = check_team(team_id=self.team.pk, sample_size=10, before=now() - timedelta(days=1))
+
+        assert result == TeamCheck(
+            team_id=self.team.pk,
+            persons_sampled=2,
+            persons_live_in_postgres=1,
+            distinct_ids_sampled=2,
+            distinct_ids_live_in_postgres=1,
+        )
 
     # ── Repair ───────────────────────────────────────────────────────
 

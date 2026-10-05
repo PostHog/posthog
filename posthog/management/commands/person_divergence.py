@@ -4,6 +4,8 @@ Usage:
     python manage.py person_divergence scan hidden --output hidden.csv
     python manage.py person_divergence scan swept --output swept.csv
     python manage.py person_divergence scan stale --window-days 60 --output stale.csv
+    python manage.py person_divergence scan sample --modulus 20000 --residue 7 --cutoff 2025-12-01 --output sample.csv
+    python manage.py person_divergence scan team --team-id 2 --before 2026-08-01T00:00:00 --output team.csv
     python manage.py person_divergence repair --input hidden.csv --output actions.csv
     python manage.py person_divergence repair --input hidden.csv --output actions.csv --apply
 
@@ -18,6 +20,7 @@ import time
 import argparse
 import dataclasses
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 from uuid import UUID
@@ -32,9 +35,13 @@ from posthog.models.person.divergence import (
     DivergentPerson,
     PersonRef,
     RepairAction,
+    SampledPerson,
     ScanSummary,
+    TeamCheck,
+    check_team,
     repair_persons,
     scan_hidden_persons,
+    scan_sample,
     scan_stale_persons,
     scan_swept_persons,
 )
@@ -58,6 +65,11 @@ _DIVERGENT_SCANS: dict[str, tuple[Callable[..., ScanSummary], int, str]] = {
         "Persons whose live ClickHouse winner outranks Postgres, found through a late lower-version row.",
     ),
 }
+
+
+def _parse_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 class Command(BaseCommand):
@@ -88,6 +100,43 @@ class Command(BaseCommand):
                     default=60,
                     help="Only persons written in the last N days (default: %(default)s).",
                 )
+
+        sample = scans.add_parser(
+            "sample", help="Classify a uniform sample of live ClickHouse persons against Postgres."
+        )
+        self._add_output(sample)
+        self._add_team_range(sample)
+        sample.add_argument(
+            "--modulus", type=int, required=True, help="Sample the persons where cityHash64(id) %% MODULUS = RESIDUE."
+        )
+        sample.add_argument("--residue", type=int, required=True, help="See --modulus.")
+        sample.add_argument(
+            "--written-within-days",
+            type=int,
+            default=None,
+            help="Only persons whose winner was written in the last N days.",
+        )
+        sample.add_argument(
+            "--cutoff",
+            type=_parse_utc,
+            default=None,
+            help="Split each class by whether the winner was written before this ISO date or datetime (UTC if no zone).",
+        )
+
+        team = scans.add_parser(
+            "team", help="Per team, count how many old live ClickHouse persons and mappings Postgres still holds."
+        )
+        self._add_output(team)
+        team.add_argument("--team-id", type=int, action="append", required=True, help="Team to check. Repeatable.")
+        team.add_argument(
+            "--sample-size", type=int, default=200, help="Persons and mappings per team (default: %(default)s)."
+        )
+        team.add_argument(
+            "--before",
+            type=_parse_utc,
+            required=True,
+            help="Only rows last written before this ISO datetime (UTC if no zone).",
+        )
 
         repair_help = (
             "DRY RUN unless --apply is passed. Republish the Postgres state of the persons in --input, "
@@ -163,6 +212,33 @@ class Command(BaseCommand):
                     f"{name} scan: {summary.candidates} ClickHouse candidates, {summary.divergent} divergent, "
                     f"skipped teams {summary.skipped_team_ids}"
                 )
+            elif name == "sample":
+                sample_summary = scan_sample(
+                    modulus=options["modulus"],
+                    residue=options["residue"],
+                    written_within_days=options["written_within_days"],
+                    cutoff=options["cutoff"],
+                    min_team_id=options["min_team_id"],
+                    max_team_id=options["max_team_id"],
+                    on_sampled=_csv_sink(handle, SampledPerson),
+                    log=self._log,
+                )
+                counts = ", ".join(
+                    f"{bucket.classification}/{bucket.era}={count}"
+                    for bucket, count in sorted(
+                        sample_summary.counts.items(), key=lambda item: (item[0].classification, item[0].era)
+                    )
+                )
+                self._log(f"sample scan: {sample_summary.sampled} persons: {counts}")
+            else:
+                write = _csv_sink(handle, TeamCheck)
+                for team_id in options["team_id"]:
+                    result = check_team(team_id=team_id, sample_size=options["sample_size"], before=options["before"])
+                    write(result)
+                    self._log(
+                        f"team {team_id}: persons live in Postgres {result.persons_live_in_postgres}/{result.persons_sampled}, "
+                        f"mappings live in Postgres {result.distinct_ids_live_in_postgres}/{result.distinct_ids_sampled}"
+                    )
 
     def _repair(self, options: dict[str, Any]) -> None:
         targets = _read_targets(options["input"], options["team_id"])
