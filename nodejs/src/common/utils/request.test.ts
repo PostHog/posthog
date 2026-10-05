@@ -373,7 +373,7 @@ describe('fetch', () => {
             ['a lookup that rejects', () => jest.mocked(dns.lookup).mockRejectedValue(new Error('ENOTFOUND'))],
         ])('releases the in-flight DNS gauge after %s', async (_name, applyMock) => {
             const readGauge = async (): Promise<number> =>
-                (await register.getSingleMetric('node_dns_lookups_in_flight')?.get())?.values[0]?.value ?? 0
+                (await register.getSingleMetric('node_dns_lookups_in_flight')!.get()).values[0].value
 
             applyMock()
             const before = await readGauge()
@@ -381,6 +381,7 @@ describe('fetch', () => {
             // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
             await expect(fetch(`http://example.com`)).rejects.toThrow()
 
+            expect(dns.lookup).toHaveBeenCalled()
             expect(await readGauge()).toEqual(before)
         })
     })
