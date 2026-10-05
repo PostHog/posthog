@@ -32,11 +32,19 @@ describe('MCPAnalyticsNudgeToast', () => {
     })
 
     it.each([
-        ['copying the wizard command', 'Copy MCP analytics wizard command', 'mcp analytics nudge command copied'],
-        ['clicking the setup button', 'Set up MCP analytics', 'mcp analytics nudge cta clicked'],
-    ])('tracks %s', async (_, label, event) => {
+        [
+            'copying the wizard command',
+            () => screen.findByLabelText('Copy MCP analytics wizard command'),
+            'mcp analytics nudge command copied',
+        ],
+        [
+            'clicking the setup button',
+            () => screen.findByText('Set up MCP analytics'),
+            'mcp analytics nudge cta clicked',
+        ],
+    ])('tracks %s', async (_, findTarget, event) => {
         render(<MCPAnalyticsNudgeToast surface="dashboard" />)
-        fireEvent.click(await screen.findByRole('button', { name: label }))
+        fireEvent.click(await findTarget())
         expect(captureSpy).toHaveBeenCalledWith(event, { surface: 'dashboard' })
     })
 })
