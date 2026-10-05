@@ -1,5 +1,5 @@
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -38,6 +38,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
+from products.actions.backend.models.selector_match_change import ActionSelectorMatchChange
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import Experiment
@@ -289,6 +290,27 @@ class ActionReferenceSerializer(serializers.Serializer):
     url = serializers.CharField(help_text="Relative URL to the resource")
     created_at = serializers.DateTimeField(help_text="When the resource was created", allow_null=True)
     created_by = UserBasicSerializer(help_text="User who created the resource", allow_null=True)
+
+
+class ActionSelectorMatchChangesQuerySerializer(serializers.Serializer):
+    action_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+        max_length=100,
+        help_text="Action IDs used by the insight whose selector changes should be returned.",
+    )
+
+
+class ActionSelectorMatchChangeSerializer(serializers.Serializer):
+    action_id = serializers.IntegerField(help_text="ID of an affected action.")
+    action_name = serializers.CharField(
+        allow_null=True,
+        help_text="Name of the affected action, or null when it has no name.",
+    )
+    selectors = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="CSS selectors whose matching behavior changed, in action step order.",
+    )
 
 
 _ACTION_JSONPATH = (
@@ -553,6 +575,56 @@ class ActionViewSet(
 
         queryset = queryset.annotate(count=Count(TREND_FILTER_TYPE_EVENTS))
         return queryset.filter(team_id=self.team_id).order_by(*self.ordering)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "action_ids",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                many=True,
+                description="Action IDs used by the insight. Accepts repeated or comma-separated values.",
+            )
+        ],
+        responses={200: ActionSelectorMatchChangeSerializer(many=True)},
+    )
+    @drf_action(methods=["GET"], detail=False, required_scopes=["action:read"], pagination_class=None)
+    def selector_match_changes(self, request: request.Request, **kwargs: Any) -> Response:
+        raw_action_ids = [
+            part.strip()
+            for value in request.query_params.getlist("action_ids")
+            for part in value.split(",")
+            if part.strip()
+        ]
+        query = ActionSelectorMatchChangesQuerySerializer(data={"action_ids": raw_action_ids})
+        query.is_valid(raise_exception=True)
+        action_ids = list(dict.fromkeys(query.validated_data["action_ids"]))
+
+        visible_actions = self.user_access_control.filter_queryset_by_access_level(
+            Action.objects.filter(team_id=self.team_id, id__in=action_ids, deleted=False),
+            resource="action",
+        )
+        actions_by_id = {action.id: action for action in visible_actions}
+        selectors_by_action: dict[int, list[str]] = defaultdict(list)
+        stored_changes = (
+            ActionSelectorMatchChange.objects.for_team(self.team_id)
+            .filter(action_id__in=actions_by_id)
+            .order_by("action_id", "step_index")
+        )
+        for change in stored_changes:
+            if change.describes(actions_by_id[change.action_id]):
+                selectors_by_action[change.action_id].append(change.selector)
+
+        changes = [
+            {
+                "action_id": action_id,
+                "action_name": actions_by_id[action_id].name,
+                "selectors": selectors,
+            }
+            for action_id, selectors in sorted(selectors_by_action.items())
+        ]
+        return Response(ActionSelectorMatchChangeSerializer(changes, many=True).data)
 
     @extend_schema(responses={200: ActionReferenceSerializer(many=True)})
     @drf_action(methods=["GET"], detail=True, required_scopes=["action:read"], pagination_class=None)
