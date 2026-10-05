@@ -61,28 +61,28 @@ class TestDivergenceClassification(TestCase):
             (
                 "agreed",
                 _check("firing"),
-                SourceVerdict(coverage=SourceCoverage.EVALUATED, state="firing"),
+                SourceVerdict(caught_up_at=None, coverage=SourceCoverage.EVALUATED, state="firing"),
                 Agreement.AGREED,
                 None,
             ),
             (
                 "differing verdicts on an evaluated check",
                 _check("firing"),
-                SourceVerdict(coverage=SourceCoverage.EVALUATED, state="not_firing"),
+                SourceVerdict(caught_up_at=None, coverage=SourceCoverage.EVALUATED, state="not_firing"),
                 Agreement.DIVERGED,
                 DivergenceClass.REAL,
             ),
             (
                 "a declared divergence explains the difference",
                 _check("firing", muted_notification="fire"),
-                SourceVerdict(coverage=SourceCoverage.EVALUATED, state="not_firing"),
+                SourceVerdict(caught_up_at=None, coverage=SourceCoverage.EVALUATED, state="not_firing"),
                 Agreement.DIVERGED,
                 DivergenceClass.INTENTIONAL,
             ),
             (
                 "a declared divergence is asked before a lag",
                 _check("firing", muted_notification="fire"),
-                SourceVerdict(coverage=SourceCoverage.BEHIND, state="not_firing"),
+                SourceVerdict(caught_up_at=None, coverage=SourceCoverage.BEHIND, state="not_firing"),
                 Agreement.DIVERGED,
                 DivergenceClass.INTENTIONAL,
             ),
@@ -90,6 +90,7 @@ class TestDivergenceClassification(TestCase):
                 "a declared divergence does not excuse checking an alert the source had disabled",
                 _check("firing", muted_notification="fire"),
                 SourceVerdict(
+                    caught_up_at=None,
                     coverage=SourceCoverage.SUPPRESSED,
                     state="not_firing",
                     suppressed_by=SuppressionReason.DISABLED,
@@ -100,7 +101,7 @@ class TestDivergenceClassification(TestCase):
             (
                 "the source has not reached this check",
                 _check("firing"),
-                SourceVerdict(coverage=SourceCoverage.BEHIND, state="not_firing"),
+                SourceVerdict(caught_up_at=None, coverage=SourceCoverage.BEHIND, state="not_firing"),
                 Agreement.DIVERGED,
                 DivergenceClass.TIMING,
             ),
@@ -108,6 +109,7 @@ class TestDivergenceClassification(TestCase):
                 "the platform checked an alert the source had disabled",
                 _check("firing"),
                 SourceVerdict(
+                    caught_up_at=None,
                     coverage=SourceCoverage.SUPPRESSED,
                     state="not_firing",
                     suppressed_by=SuppressionReason.DISABLED,
@@ -119,6 +121,7 @@ class TestDivergenceClassification(TestCase):
                 "the platform checked an alert the source had disabled, and both read not firing",
                 _check("not_firing"),
                 SourceVerdict(
+                    caught_up_at=None,
                     coverage=SourceCoverage.SUPPRESSED,
                     state="not_firing",
                     suppressed_by=SuppressionReason.DISABLED,
@@ -129,14 +132,14 @@ class TestDivergenceClassification(TestCase):
             (
                 "the source cannot say",
                 _check("firing"),
-                SourceVerdict(coverage=SourceCoverage.UNKNOWN, state=None, detail="no such alert"),
+                SourceVerdict(caught_up_at=None, coverage=SourceCoverage.UNKNOWN, state=None, detail="no such alert"),
                 Agreement.UNCOMPARABLE,
                 None,
             ),
             (
                 "a lagging source that happens to hold the same verdict",
                 _check("firing"),
-                SourceVerdict(coverage=SourceCoverage.BEHIND, state="firing"),
+                SourceVerdict(caught_up_at=None, coverage=SourceCoverage.BEHIND, state="firing"),
                 Agreement.AGREED,
                 None,
             ),

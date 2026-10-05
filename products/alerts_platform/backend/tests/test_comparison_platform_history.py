@@ -7,7 +7,11 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from posthog.clickhouse.client import sync_execute
 from posthog.models.scoping import team_scope
 
-from products.alerts_platform.backend.comparison.platform_history import UnregisteredSource, read_platform_checks
+from products.alerts_platform.backend.comparison.platform_history import (
+    UnregisteredSource,
+    read_platform_checks,
+    teams_with_configurations,
+)
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
@@ -117,6 +121,13 @@ class TestReadPlatformChecks(ClickhouseTestMixin, APIBaseTest):
 
         with pytest.raises(UnregisteredSource):
             read_platform_checks(team_id=self.team.id, source=SourceKind.INSIGHT, since=since, until=until)
+
+    def test_only_teams_holding_a_configuration_for_the_source_are_worth_sweeping(self) -> None:
+        # A sweep over every team pays a Postgres round trip each to learn most have nothing.
+        self._configuration(legacy_configuration_id=uuid4())
+        self._configuration(source_kind="insight", legacy_configuration_id=uuid4())
+
+        assert teams_with_configurations(SourceKind.LOGS) == [self.team.id]
 
     def test_another_source_is_not_in_a_logs_comparison(self) -> None:
         self._record(

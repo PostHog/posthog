@@ -83,20 +83,23 @@ class TestLogsDivergenceDeclarations(TestCase):
                 "the source made no check because it was muted",
                 _platform_check(),
                 SourceVerdict(
-                    coverage=SourceCoverage.SUPPRESSED, state="snoozed", suppressed_by=SuppressionReason.MUTED
+                    caught_up_at=None,
+                    coverage=SourceCoverage.SUPPRESSED,
+                    state="snoozed",
+                    suppressed_by=SuppressionReason.MUTED,
                 ),
                 True,
             ),
             (
                 "the platform held an announcement while the source fell behind",
                 _platform_check(muted_notification="fire"),
-                SourceVerdict(coverage=SourceCoverage.BEHIND, state="not_firing"),
+                SourceVerdict(caught_up_at=None, coverage=SourceCoverage.BEHIND, state="not_firing"),
                 True,
             ),
             (
                 "the platform held an announcement the source was not muted for",
                 _platform_check(muted_notification="fire"),
-                SourceVerdict(coverage=SourceCoverage.EVALUATED, state="not_firing"),
+                SourceVerdict(caught_up_at=None, coverage=SourceCoverage.EVALUATED, state="not_firing"),
                 False,
             ),
         ]
@@ -284,6 +287,39 @@ class TestLogsCorrespondence(BaseTest):
 
         assert verdict.coverage is SourceCoverage.EVALUATED
         assert verdict.suppressed_by is None
+
+    @parameterized.expand(
+        [
+            # A later check bounds the read past both transitions.
+            ("both transitions inside the window", True),
+            # The read reaches past the window only for the rows it asks for by name.
+            ("both transitions after the last check", False),
+        ]
+    )
+    def test_catching_up_is_the_first_move_into_the_state_not_merely_the_next_move(
+        self, _name: str, later_check: bool
+    ) -> None:
+        # Reading only the next transition would book this lag as a genuine disagreement.
+        alert = self._alert(state=LogsAlertConfiguration.State.FIRING)
+        early = CHECKED_AT - timedelta(minutes=10)
+        self._event(
+            alert,
+            at=early + timedelta(minutes=2),
+            state_before=LogsAlertConfiguration.State.NOT_FIRING,
+            state_after=LogsAlertConfiguration.State.ERRORED,
+        )
+        self._event(
+            alert,
+            at=early + timedelta(minutes=6),
+            state_before=LogsAlertConfiguration.State.ERRORED,
+            state_after=LogsAlertConfiguration.State.FIRING,
+        )
+        checks = [self._check(alert, at=early), *([self._check(alert)] if later_check else [])]
+
+        verdicts = LogsCorrespondence().verdicts_for(checks)
+
+        assert verdicts[checks[0].ref].state == LogsAlertConfiguration.State.NOT_FIRING
+        assert verdicts[checks[0].ref].caught_up_at == early + timedelta(minutes=6)
 
     def test_a_check_whose_configuration_names_no_logs_alert_cannot_be_answered(self) -> None:
         orphan = replace(self._check(self._alert()), legacy_configuration_id=None)
