@@ -168,8 +168,11 @@ def _latest_session_event_properties_between(
     restricted_properties = get_restricted_property_names(
         team_id=team.pk, user=user, property_type=PropertyDefinition.Type.EVENT
     )
+    # the SDK adds recording diagnostics to only some events, so prefer the latest one that has them
+    prefer_diagnostic_events = "$recording_status" not in restricted_properties
     if use_new_events_schema(team.pk):
         property_names = sorted(_DIAGNOSTIC_PROPERTIES - {"$session_recording_remote_config"} - restricted_properties)
+        native_order = "properties.`$recording_status` != '' DESC, " if prefer_diagnostic_events else ""
         fields = ", ".join(f"toJSONString(properties.{escape_clickhouse_identifier(key)})" for key in property_names)
         # The open-ended SDK debug prefix requires the temporary bag, limited to one event.
         native_query = f"""
@@ -179,7 +182,7 @@ def _latest_session_event_properties_between(
                 AND properties.`$session_id` = %(session_id)s
                 AND timestamp >= %(date_from)s
                 AND timestamp <= %(date_to)s
-            ORDER BY timestamp DESC
+            ORDER BY {native_order}timestamp DESC
             LIMIT 1
         """
         rows = sync_execute(
@@ -199,14 +202,15 @@ def _latest_session_event_properties_between(
         )
         return properties
 
+    hogql_order = "ifNull(properties.$recording_status, '') != '' DESC, " if prefer_diagnostic_events else ""
     query = HogQLQuery(
-        query="""
+        query=f"""
             SELECT properties
             FROM events
-            WHERE $session_id = {session_id}
-                AND timestamp >= {date_from}
-                AND timestamp <= {date_to}
-            ORDER BY timestamp DESC
+            WHERE $session_id = {{session_id}}
+                AND timestamp >= {{date_from}}
+                AND timestamp <= {{date_to}}
+            ORDER BY {hogql_order}timestamp DESC
             LIMIT 1
         """,
         values={"session_id": session_id, "date_from": date_from, "date_to": date_to},
