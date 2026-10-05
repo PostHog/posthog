@@ -46,12 +46,12 @@ def _realtime_payload(event: NotificationEvent) -> dict[str, Any]:
     }
 
 
-def _publish_to_kafka(event: NotificationEvent) -> None:
+def _publish_to_kafka(event: NotificationEvent, payload: dict[str, Any]) -> None:
     try:
         producer = get_producer(topic=KAFKA_NOTIFICATION_EVENTS)
         producer.produce(
             topic=KAFKA_NOTIFICATION_EVENTS,
-            data=_realtime_payload(event),
+            data=payload,
             key=str(event.organization_id),
         )
     except Exception:
@@ -243,9 +243,10 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
         event = NotificationEvent.objects.create(**event_data)
 
     def _on_commit() -> None:
-        _publish_to_kafka(event)
+        payload = _realtime_payload(event)
+        _publish_to_kafka(event, payload)
         invalidate_unread_count_for_users(resolved_user_ids, organization.id)
-        publish_notification_payload(organization.id, _realtime_payload(event))
+        publish_notification_payload(organization.id, payload)
 
     transaction.on_commit(_on_commit)
 

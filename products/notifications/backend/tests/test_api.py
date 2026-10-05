@@ -73,16 +73,27 @@ class TestNotificationsAPI(BaseTest):
         assert self.client.get(url).json()["results"] == []
         assert self.client.get(url + "unread_count/").json()["count"] == 0
 
+    @parameterized.expand(
+        [
+            ("both_flags_on", {"real-time-notifications", "notifications-django-sse"}, 200),
+            ("django_stream_flag_off", {"real-time-notifications"}, 204),
+        ]
+    )
     @override_settings(SERVER_GATEWAY_INTERFACE="ASGI")
-    def test_stream_requires_session_and_returns_event_stream(self):
+    def test_stream_requires_session_and_both_flags(self, _name, enabled_flags, expected_status):
         url = f"/api/projects/{self.team.id}/notifications/stream/"
 
         anonymous = APIClient().get(url, HTTP_ACCEPT="text/event-stream")
         assert anonymous.status_code == 401
 
-        resp = self.client.get(url, HTTP_ACCEPT="text/event-stream")
-        assert resp.status_code == 200
-        assert resp["Content-Type"] == "text/event-stream"
+        with patch(
+            "products.notifications.backend.presentation.views.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag in enabled_flags,
+        ):
+            resp = self.client.get(url, HTTP_ACCEPT="text/event-stream")
+        assert resp.status_code == expected_status
+        if expected_status == 200:
+            assert resp["Content-Type"] == "text/event-stream"
 
     def test_unread_count(self):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/unread_count/")

@@ -10,8 +10,10 @@ from redis.exceptions import RedisError
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.redis import get_client
 
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.notifications.backend import pubsub
 from products.notifications.backend.cache import _unread_count_cache_key
 from products.notifications.backend.facade.contracts import NotificationData
 from products.notifications.backend.facade.enums import (
@@ -482,6 +484,12 @@ class TestRedisPublish(BaseTest):
         self.organization = Organization.objects.create(name="Redis Org")
         self.team = Team.objects.create(organization=self.organization, name="Redis Team")
         self.user = User.objects.create_and_join(self.organization, "redis@test.com", "password")
+        paused_until = patch.object(pubsub._publisher, "paused_until", 0.0)
+        paused_until.start()
+        self.addCleanup(paused_until.stop)
+        self.subscriber = get_client().pubsub(ignore_subscribe_messages=True)
+        self.subscriber.subscribe(pubsub.notifications_channel(self.organization.id, self.user.id))
+        self.addCleanup(self.subscriber.close)
 
     def _create_notification(self) -> None:
         create_notification(
@@ -505,31 +513,39 @@ class TestRedisPublish(BaseTest):
 
     @parameterized.expand(
         [
-            ("create_notification", "_create_notification", None),
-            ("create_notification_redis_down", "_create_notification", RedisError("down")),
-            ("resource_edited", "_publish_resource_edited", None),
-            ("resource_edited_redis_down", "_publish_resource_edited", RedisError("down")),
+            ("create_notification", "_create_notification"),
+            ("resource_edited", "_publish_resource_edited"),
         ]
     )
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic.get_producer")
-    @patch("products.notifications.backend.pubsub.get_client")
-    def test_publishes_kafka_payload_to_org_channel_after_commit(
-        self, _name, publish_method, redis_error, mock_redis_client, mock_get_producer, mock_ff
+    def test_publishes_kafka_payload_to_recipient_channel_after_commit(
+        self, _name, publish_method, mock_get_producer, mock_ff
     ):
-        redis_publish = mock_redis_client.return_value.publish
-        redis_publish.side_effect = redis_error
-
         with self.captureOnCommitCallbacks(execute=False) as callbacks:
             getattr(self, publish_method)()
-        redis_publish.assert_not_called()
+        assert self.subscriber.get_message(timeout=0) is None
 
         for callback in callbacks:
             callback()
 
         mock_get_producer.return_value.produce.assert_called_once()
         kafka_payload = mock_get_producer.return_value.produce.call_args.kwargs["data"]
-        channel, message = redis_publish.call_args.args
-        assert channel == f"notifications:org:{self.organization.id}"
-        assert orjson.loads(message) == kafka_payload
         assert kafka_payload["resolved_user_ids"] == [self.user.id]
+        message = self.subscriber.get_message(timeout=1)
+        assert message is not None
+        assert orjson.loads(message["data"]) == {
+            key: value for key, value in kafka_payload.items() if key != "resolved_user_ids"
+        }
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic.get_producer")
+    def test_redis_failure_spares_kafka_and_pauses_later_publishes(self, mock_get_producer, mock_ff):
+        with patch("products.notifications.backend.pubsub.get_client", side_effect=RedisError("down")) as redis_client:
+            with self.captureOnCommitCallbacks(execute=True):
+                self._create_notification()
+            with self.captureOnCommitCallbacks(execute=True):
+                self._publish_resource_edited()
+
+        assert mock_get_producer.return_value.produce.call_count == 2
+        assert redis_client.call_count == 1

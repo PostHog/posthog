@@ -164,7 +164,7 @@ export const getNotificationsStreamRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Stream the current user's real-time notifications as server-sent events. Each `data` line is one notification as JSON. The stream sends a heartbeat comment about every 15 seconds and ends after about 15 minutes with an `end` event; reconnect when it arrives. Returns 204 when real-time notifications are off.
+ * Stream the current user's real-time notifications as server-sent events. The first event is `ready`, sent when the server is subscribed: refetch what changed while disconnected when it arrives. Each `data` line after it is one notification as JSON. The stream sends a heartbeat comment about every 15 seconds and ends after about 15 minutes with an `end` event; reconnect when it arrives. Returns 204 when real-time notifications or this stream are off: do not reconnect after a 204.
  */
 export const notificationsStreamRetrieve = async (projectId: string, options?: RequestInit): Promise<string | void> => {
     return apiMutator<string | void>(getNotificationsStreamRetrieveUrl(projectId), {
