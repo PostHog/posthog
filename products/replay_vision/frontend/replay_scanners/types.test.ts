@@ -20,6 +20,7 @@ describe('scanner type helpers', () => {
             ['rasterization_failed', true, false],
             ['orphaned', true, false],
             ['internal_error', true, false],
+            ['pii_detected', true, false],
             ['provider_rejected', false, true],
             ['validation_failed', false, true],
         ]

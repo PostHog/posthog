@@ -178,7 +178,9 @@ from products.signals.backend.report_read_state import (
 )
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
+from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
 from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
+from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksPermissionErrorSerializer,
@@ -1132,6 +1134,8 @@ class SignalReportViewSet(
     def read_state(self, request, **kwargs):
         serializer = ReportReadStateRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        if "read" in serializer.validated_data and trial_store_for_request(request, self.team_id) is not None:
+            raise exceptions.PermissionDenied("Private scout trials cannot change inbox read state.")
         requested = serializer.validated_data["report_ids"]
         ids = list(self.get_queryset().filter(id__in=requested).values_list("id", flat=True))
         if len(set(requested)) != len(ids):
@@ -1970,6 +1974,12 @@ class SignalReportViewSet(
         }
 
     def retrieve(self, request, *args, **kwargs):
+        with trial_state_errors():
+            store = trial_store_for_request(request, self.team_id)
+            if store is not None:
+                private = TrialInboxReads(self, store).detail(str(kwargs["pk"]))
+                if private is not None:
+                    return Response(private)
         report = self.get_object()
         serializer = self.get_serializer(report, context=self._enriched_report_context(report))
         return Response(serializer.data)
@@ -2325,11 +2335,17 @@ class SignalReportViewSet(
     )
     @tracer.start_as_current_span("signals.reports.list")
     def list(self, request: ValidatedRequest, *args, **kwargs):
+        count_only: bool = request.validated_query_data["count_only"]
+        include_source_metadata: bool = request.validated_query_data["include_source_metadata"]
+        with trial_state_errors():
+            store = trial_store_for_request(request, self.team_id)
+            if store is not None:
+                return TrialInboxReads(self, store).list(
+                    count_only=count_only, include_source_metadata=include_source_metadata
+                )
         # The reports list is the primary inbox-load endpoint. Each phase gets its own child span
         # so a slow load can be attributed to Postgres (queryset annotations), ClickHouse (source
         # products), the task facade (PR urls), or serialization, rather than one opaque request.
-        count_only: bool = request.validated_query_data["count_only"]
-        include_source_metadata: bool = request.validated_query_data["include_source_metadata"]
         list_span = trace.get_current_span()
         list_span.set_attribute(
             "signals.reports.list.client", classify_report_list_client(request.headers.get("user-agent"))
@@ -2372,9 +2388,11 @@ class SignalReportViewSet(
             return self.get_paginated_response(data)
         return Response(data)
 
-    def _render_report_rows(self, reports: Sequence[Any], *, include_source_metadata: bool) -> Any:
+    def _render_report_rows(
+        self, reports: Sequence[SignalReport], *, include_source_metadata: bool
+    ) -> Sequence[dict[str, object]]:
         """Serialize report rows the way the inbox list does, with batched lookups instead of per-row queries."""
-        report_ids = [str(r.id) for r in reports]
+        report_ids = [str(report.id) for report in reports]
         # Source metadata is decorative. The serializer degrades to empty values when ClickHouse is
         # unavailable, so a metadata failure does not hide otherwise available reports. The web inbox
         # opts out and loads it after the rows render, so the page does not wait on ClickHouse.
@@ -2407,8 +2425,10 @@ class SignalReportViewSet(
             artefact_counts = SignalReportArtefact.counts_by_report(report_ids)
             live_channel_ids = SignalReportArtefact.live_channel_ids_by_report(report_ids)
             for report in reports:
-                report.artefact_count = artefact_counts.get(str(report.id), 0)
-                report.channel_id = live_channel_ids.get(str(report.id))
+                report.__dict__.update(
+                    artefact_count=artefact_counts.get(str(report.id), 0),
+                    channel_id=live_channel_ids.get(str(report.id)),
+                )
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -2614,10 +2634,22 @@ class SignalReportViewSet(
     @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
+        with trial_state_errors():
+            store = trial_store_for_request(request, self.team_id)
+            if store is not None:
+                private = store.get_report(str(pk))
+                if private is not None:
+                    document = TrialInboxReads(self, store).detail(str(pk))
+                    evidence = fetch_signals_for_report_sync(self.team, str(pk)) if private.source_report_id else []
+                    return Response(
+                        ReportSignalsResponseSerializer(
+                            {"report": document, "signals": [*evidence, *private.evidence]}
+                        ).data
+                    )
         report = self.get_object()
         report_data = SignalReportSerializer(report, context=self._enriched_report_context(report)).data
         signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
-        return Response({"report": report_data, "signals": signals_list})
+        return Response(ReportSignalsResponseSerializer({"report": report_data, "signals": signals_list}).data)
 
     @extend_schema(
         request=SignalReportStateRequestSerializer,
@@ -4998,6 +5030,16 @@ class SignalReportArtefactViewSet(
             queryset = queryset.exclude(type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES)
         return queryset
 
+    def retrieve(self, request, *args, **kwargs):
+        with trial_state_errors():
+            store = trial_store_for_request(request, self.team_id)
+            if store is not None:
+                report_id = str(self._validated_report_id())
+                for artefact in private_report_artefacts(store, report_id):
+                    if str(artefact.id) == str(kwargs["pk"]):
+                        return Response(self.get_serializer(artefact).data)
+        return super().retrieve(request, *args, **kwargs)
+
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         # Surface legacy `SignalReportTask` associations as synthetic `task_run` artefacts so a
@@ -5011,6 +5053,10 @@ class SignalReportArtefactViewSet(
             team_id=self.team.id,
             existing_artefacts=real_artefacts,
         )
+        with trial_state_errors():
+            store = trial_store_for_request(request, self.team_id)
+            if store is not None:
+                synthetic.extend(private_report_artefacts(store, str(self._validated_report_id())))
         log = (
             sorted([*real_artefacts, *synthetic], key=lambda a: a.created_at, reverse=True)
             if synthetic

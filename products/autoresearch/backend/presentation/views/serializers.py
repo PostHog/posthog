@@ -834,6 +834,13 @@ class AutoresearchModelSerializer(DataclassSerializer):
     )
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
+    in_shadow_set = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True if this model is in the pipeline's shadow set: the champion, the previous champion, "
+            "and up to 3 recent fitted challengers with distinct recipes."
+        ),
+    )
 
     class Meta:
         dataclass = Model
@@ -857,6 +864,7 @@ class AutoresearchModelSerializer(DataclassSerializer):
             "archived_at",
             "created_at",
             "updated_at",
+            "in_shadow_set",
         ]
 
 
@@ -1125,6 +1133,104 @@ class TrainingRunHistorySerializer(serializers.Serializer):
     )
 
 
+class OnlinePerformanceQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False,
+        default=api.ONLINE_PERFORMANCE_DATES_DEFAULT,
+        min_value=1,
+        max_value=api.ONLINE_PERFORMANCE_DATES_MAX,
+        help_text=(
+            f"Maximum number of validated prediction dates to return, newest first "
+            f"(default {api.ONLINE_PERFORMANCE_DATES_DEFAULT}, at most {api.ONLINE_PERFORMANCE_DATES_MAX}). "
+            "Each date returns one row per model that emitted predictions on it."
+        ),
+    )
+
+
+class CalibrationBinSerializer(serializers.Serializer):
+    n = serializers.IntegerField(help_text="Number of scored users in this bin.")
+    mean_p_y = serializers.FloatField(help_text="Mean predicted probability of the users in this bin.")
+    positive_rate = serializers.FloatField(
+        help_text="Fraction of the users in this bin who did the target event within the horizon."
+    )
+
+
+class OnlinePerformanceRowSerializer(serializers.Serializer):
+    validation_run_id = serializers.UUIDField(help_text="UUID of the validation run that recorded these metrics.")
+    prediction_date = serializers.DateField(help_text="Date the predictions were made for (UTC).")
+    horizon_days = serializers.IntegerField(help_text="Prediction horizon, in days, the predictions were made under.")
+    weekday = serializers.IntegerField(
+        help_text="ISO weekday of the prediction date: 1 is Monday and 7 is Sunday. Use it to find weekday effects."
+    )
+    model_id = serializers.UUIDField(help_text="UUID of the model that emitted the predictions.")
+    emitted_role = serializers.CharField(
+        help_text="Role the model had when it emitted the predictions: 'champion' or 'challenger'."
+    )
+    current_role = serializers.CharField(
+        help_text=(
+            "Role the model has now: 'champion', 'challenger', 'archived', or 'deleted'. "
+            "A former champion that a promotion archived keeps its rows."
+        )
+    )
+    n_scored = serializers.IntegerField(help_text="Number of users the model scored on this date.")
+    n_positive = serializers.IntegerField(help_text="Number of scored users who did the target event in the horizon.")
+    base_rate = serializers.FloatField(
+        help_text="Fraction of scored users who did the target event (n_positive / n_scored)."
+    )
+    mean_p_y = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Mean predicted probability. Compare it with base_rate: a higher value means the model "
+            "over-predicts. Null for dates validated before this metric existed."
+        ),
+    )
+    realized_auc = serializers.FloatField(
+        allow_null=True, help_text="Realized ROC AUC against actual outcomes. Null when the date has one class only."
+    )
+    realized_auc_ci_low = serializers.FloatField(
+        allow_null=True,
+        help_text="Lower bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.",
+    )
+    realized_auc_ci_high = serializers.FloatField(
+        allow_null=True,
+        help_text="Upper bound of the 95% AUC interval (Hanley-McNeil). Null when realized_auc is null.",
+    )
+    brier_score = serializers.FloatField(allow_null=True, help_text="Brier score. Lower is better.")
+    calibration_error = serializers.FloatField(
+        allow_null=True, help_text="Expected calibration error over 10 equal-width bins. Lower is better."
+    )
+    lift_at_10 = serializers.FloatField(
+        allow_null=True, help_text="Positives in the top 10% by score, relative to a random 10%."
+    )
+    lift_at_20 = serializers.FloatField(
+        allow_null=True, help_text="Positives in the top 20% by score, relative to a random 20%."
+    )
+    calibration_bins = CalibrationBinSerializer(
+        many=True,
+        allow_null=True,
+        help_text=(
+            "Calibration table with up to 10 bins cut at score quantiles, lowest scores first. "
+            "Users with equal scores share a bin, so heavy ties give fewer bins. "
+            "Null for dates validated before this metric existed."
+        ),
+    )
+    warning = serializers.CharField(
+        allow_null=True,
+        help_text="'single_class_no_auc' when every scored user had the same outcome, otherwise null.",
+    )
+    validated_at = serializers.DateTimeField(allow_null=True, help_text="When the validation run completed.")
+
+
+class OnlinePerformanceSerializer(serializers.Serializer):
+    rows = OnlinePerformanceRowSerializer(
+        many=True,
+        help_text=(
+            "One row per model per validated prediction date, newest date first. "
+            "Empty until a prediction horizon has elapsed and online validation has run."
+        ),
+    )
+
+
 @extend_schema_serializer(component_name="AutoresearchRun")
 class AutoresearchRunSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique UUID of this run.")
@@ -1148,7 +1254,13 @@ class AutoresearchRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Number of users scored in this inference run.",
     )
-    metrics = MetricsBundleField(help_text="Run metrics: rows scored, score distribution summary, validation AUC, etc.")
+    metrics = MetricsBundleField(
+        help_text=(
+            "Run metrics: score distribution summary, validation AUC, etc. An inference run records "
+            "'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run "
+            "scored a rolling part of the population: users never scored first, then users whose last score was oldest."
+        )
+    )
     error = serializers.CharField(required=False, allow_blank=True, help_text="Error message if the run failed.")
     started_at = serializers.DateTimeField(required=False, allow_null=True, help_text="Timestamp when the run started.")
     completed_at = serializers.DateTimeField(
@@ -1182,7 +1294,9 @@ class ValidationWarningSerializer(serializers.Serializer):
         help_text=(
             "Machine-readable warning code. 'horizon_exceeds_lookback', and 'population_too_large' with severity "
             "'error', mean a run would fail: fix the definition before creating. 'population_too_large' with "
-            "severity 'info' means training uses a sample of the population. 'low_volume', 'low_positives' and "
+            "severity 'info' means training uses a sample of the population, or each scoring run scores a rolling "
+            "part of it: users never scored first, then users whose last score was oldest. 'low_volume', "
+            "'low_positives' and "
             "'low_negatives' mean the data is too thin for a reliable model (severity 'error', advisory). "
             "'moderate_volume', 'mostly_anonymous_population', 'extreme_imbalance' and 'near_universal' are "
             "severity 'warning'."
@@ -1245,7 +1359,7 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
     can_proceed = serializers.BooleanField(
         help_text=(
             "False when any warning has severity 'error'. Creation does not enforce it, but a definition with "
-            "an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train or score."
+            "an 'error' 'population_too_large' or 'horizon_exceeds_lookback' cannot train."
         )
     )
     requires_acknowledgement = serializers.BooleanField(
@@ -1478,6 +1592,20 @@ class MaterializeFeaturesResponseSerializer(serializers.Serializer):
     feature_cols = serializers.ListField(
         child=serializers.CharField(),
         help_text="The numeric feature column names (excludes distinct_id, __label, __fold).",
+    )
+    elapsed_s = serializers.FloatField(
+        help_text=(
+            "Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql "
+            "over the whole inference population on every cadence, so a slow query here is slow there too."
+        )
+    )
+    rows_read = serializers.IntegerField(help_text="Rows ClickHouse read to materialize the matrix.")
+    hints = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Advice on the cost of features_sql. A hint does not block the materialization or the upload, "
+            "but a champion whose features.sql cannot score today's population in time is not promoted."
+        ),
     )
 
 

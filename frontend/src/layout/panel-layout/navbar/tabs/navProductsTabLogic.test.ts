@@ -92,7 +92,7 @@ describe('navProductsTabLogic', () => {
             groupedItems: [],
         })
         const items = [
-            { path: 'Links', category: 'Unreleased', href: '/links' },
+            { path: 'Pulse', category: 'Unreleased', href: '/pulse' },
             { path: 'Web analytics', category: 'Analytics', href: '/web' },
             {
                 path: 'LLM analytics',
@@ -109,7 +109,7 @@ describe('navProductsTabLogic', () => {
             ['Analytics', ['Web analytics']],
             ['AI engineering', ['AI gateway', 'AI observability']],
             ['Monitoring', ['Logs']],
-            ['Unreleased', ['Links']],
+            ['Unreleased', ['Pulse']],
         ])
         expect(groupProducts(items, 'observability')[0].items[0].href).toEqual('/ai')
     })

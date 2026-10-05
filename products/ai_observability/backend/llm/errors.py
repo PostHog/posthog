@@ -142,6 +142,14 @@ def is_output_limit_error_message(message: str) -> bool:
     return any(marker in lowered for marker in _OUTPUT_LIMIT_ERROR_MARKERS)
 
 
+class ContentFilteredError(LLMError):
+    """Raised when the provider's content filter refused the prompt or withheld the reply.
+
+    The prompt is usually built from customer trace content, so the refusal is not a PostHog
+    defect. Callers should skip the item rather than report one.
+    """
+
+
 class ModelPermissionError(LLMError):
     """Raised when the API key doesn't have permission to access a model"""
 
@@ -203,6 +211,8 @@ def user_facing_error_message(error: Exception | None) -> str:
         return "This conversation is too long for the model's context window. Shorten it, then try again."
     if isinstance(error, OutputTokenLimitError):
         return "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again."
+    if isinstance(error, ContentFilteredError):
+        return "The provider's content filter refused this request. Change the input, then try again."
     if isinstance(error, (ProviderTimeoutError, ProviderRequestRejectedError)):
         return str(error)
     if isinstance(error, ProviderConnectionError):

@@ -41,6 +41,9 @@ export const AGGREGATION_OPTIONS: { value: BIAggregation; label: string }[] = [
 export const NUMERIC_AGGREGATIONS: BIAggregation[] = ['sum', 'average', 'minimum', 'maximum']
 
 export const FILTER_OPERATOR_OPTIONS: { value: BIFilterOperator; label: string }[] = [
+    { value: 'in', label: 'Is any of' },
+    { value: 'not_in', label: 'Is none of' },
+    { value: 'between', label: 'Between' },
     { value: 'equals', label: 'Equals' },
     { value: 'not_equals', label: 'Does not equal' },
     { value: 'contains', label: 'Contains' },

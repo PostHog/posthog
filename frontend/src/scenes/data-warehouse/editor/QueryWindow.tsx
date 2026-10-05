@@ -127,6 +127,7 @@ export function QueryWindow({
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
+    const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
     const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
     const showBIEditor = biModeFeatureEnabled && mode === SQLEditorMode.FullScene && editorView === BIEditorView.BI
@@ -280,7 +281,10 @@ export function QueryWindow({
                         {mode === SQLEditorMode.FullScene && biModeFeatureEnabled ? (
                             <LemonSegmentedButton
                                 value={editorView}
-                                onChange={setEditorView}
+                                onChange={(view) => {
+                                    setEditorView(view)
+                                    setDatabaseTreeCollapsed(view === BIEditorView.BI)
+                                }}
                                 options={[
                                     { value: BIEditorView.SQL, label: 'SQL' },
                                     { value: BIEditorView.BI, label: 'BI' },

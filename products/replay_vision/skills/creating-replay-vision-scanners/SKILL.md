@@ -171,9 +171,8 @@ observations they have to go read.
 - **Notifications and digests.** `vision-alerts-create` (plus a destination) notifies on findings;
   `vision-scanners-scouts-create` adds a scheduled scout that writes a report about the scanner's findings.
 - **Say how the scanner gets better.** A first prompt is a guess, and the first sweep is what corrects it.
-  Tell the user that rating results thumbs up or down with `vision-observations-label-create` turns into a
-  config recommendation they can review on the scanner's Calibration tab. Most scanners are never rated, so
-  they run forever on the first guess. The `exploring-replay-vision-observations` skill covers that loop.
+  Tell the user to rate results thumbs up or down with `vision-observations-label-create`, with a line on
+  what the scanner got wrong or right. Most scanners are never rated, so they run forever on the first guess. The `exploring-replay-vision-observations` skill covers that loop.
 
 ## Updating an existing scanner
 
