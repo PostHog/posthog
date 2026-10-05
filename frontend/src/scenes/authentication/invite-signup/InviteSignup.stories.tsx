@@ -13,7 +13,7 @@ import { inviteSignupLogic } from './inviteSignupLogic'
 const MOCK_INVITE_ID = '1234'
 
 type StoryArgs = {
-    scenario: 'new-user' | 'existing-account' | 'invalid-link'
+    scenario: 'new-user' | 'existing-account' | 'invalid-link' | 'used-link'
     cloud: boolean
     googleOAuth: boolean
     github: boolean
@@ -41,6 +41,10 @@ const meta: Meta<StoryArgs> = {
                     },
                 ],
                 '/api/signup/not-found/': () => [404, { detail: 'Invite not found or already used.' }],
+                '/api/signup/used/': () => [
+                    400,
+                    { type: 'validation_error', code: 'invite_used', detail: 'This invite has already been used.' },
+                ],
             },
             post: {
                 '/api/signup': async () => {
@@ -58,7 +62,7 @@ const meta: Meta<StoryArgs> = {
         scenario: {
             control: 'select',
             name: 'Scenario',
-            options: ['new-user', 'existing-account', 'invalid-link'],
+            options: ['new-user', 'existing-account', 'invalid-link', 'used-link'],
         },
         cloud: { control: 'boolean', name: 'Cloud' },
         googleOAuth: { control: 'boolean', name: 'Google OAuth' },
@@ -84,7 +88,7 @@ export default meta
 const Template: StoryFn<StoryArgs> = ({ scenario, cloud, googleOAuth, github, gitlab, ssoEnforcement }) => {
     const enforcement = ssoEnforcement === 'none' ? null : ssoEnforcement
     const isExistingAccount = scenario === 'existing-account'
-    const inviteId = scenario === 'invalid-link' ? 'not-found' : MOCK_INVITE_ID
+    const inviteId = scenario === 'invalid-link' ? 'not-found' : scenario === 'used-link' ? 'used' : MOCK_INVITE_ID
 
     useStorybookMocks({
         get: {
@@ -142,6 +146,9 @@ ExistingAccount.args = { scenario: 'existing-account' }
 
 export const InvalidLink: StoryFn<StoryArgs> = Template.bind({})
 InvalidLink.args = { scenario: 'invalid-link' }
+
+export const UsedLink: StoryFn<StoryArgs> = Template.bind({})
+UsedLink.args = { scenario: 'used-link' }
 
 export const SSOEnforced: StoryFn<StoryArgs> = Template.bind({})
 SSOEnforced.args = { ssoEnforcement: 'google-oauth2' }

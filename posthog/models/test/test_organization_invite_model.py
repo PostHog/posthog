@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from posthog.models import OrganizationInvite
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_invite import was_invite_used
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -191,23 +192,35 @@ class TestOrganizationInvite(BaseTest):
             organization=second_org,
             target_email="cross_org@posthog.com",
         )
+        sibling_invite_org1 = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="cross_org@posthog.com",
+        )
 
         # Verify both invites exist before using one
         self.assertTrue(OrganizationInvite.objects.filter(id=invite_org1.id).exists())
         self.assertTrue(OrganizationInvite.objects.filter(id=invite_org2.id).exists())
 
+        used_invite_id = invite_org1.id
+
         # Use the invite for the first organization
-        invite_org1.use(user, prevalidated=True)
+        with self.captureOnCommitCallbacks(execute=True):
+            invite_org1.use(user, prevalidated=True)
 
         # Verify the user has been added to the first organization
         org_membership = OrganizationMembership.objects.filter(organization=self.organization, user=user).first()
         self.assertIsNotNone(org_membership)
 
         # Verify the invite for the first organization has been deleted
-        self.assertFalse(OrganizationInvite.objects.filter(id=invite_org1.id).exists())
+        self.assertFalse(OrganizationInvite.objects.filter(id=used_invite_id).exists())
 
         # Verify the invite for the second organization still exists
         self.assertTrue(OrganizationInvite.objects.filter(id=invite_org2.id).exists())
+
+        # Reopened links for the used invite and its swept sibling show "already joined"
+        self.assertTrue(was_invite_used(used_invite_id))
+        self.assertTrue(was_invite_used(sibling_invite_org1.id))
+        self.assertFalse(was_invite_used(invite_org2.id))
 
         # Clean up
         second_org.delete()
