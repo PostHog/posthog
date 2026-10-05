@@ -204,6 +204,7 @@ export interface EmailTemplaterLogicProps {
     // not compute these itself; a caller that validates the email step (e.g. the workflow builder)
     // decides what and when to show.
     fieldErrors?: EmailFieldErrors
+    onTemplateApplied?: (templateId: string) => void
 }
 
 function autoRevealAdvancedFields(
@@ -731,6 +732,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 cache.lastEditorDesign = emailTemplateContent.design
                 values.emailEditorRef?.editor?.loadDesign(emailTemplateContent.design)
             }
+
+            props.onTemplateApplied?.(template.id)
         },
 
         closeWithConfirmation: async () => {

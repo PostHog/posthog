@@ -29,6 +29,11 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                 errors={validationResult?.errors}
                 warnings={validationResult?.warnings}
                 emailFieldErrors={validationResult?.emailErrors}
+                onEmailTemplateApplied={
+                    node.data.type === 'function_email'
+                        ? (templateId) => partialSetWorkflowActionConfig(node.id, { template_uuid: templateId })
+                        : undefined
+                }
             />
         </>
     )
