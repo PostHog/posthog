@@ -16,8 +16,9 @@ Every environment runs one main cluster plus the same satellites and ingestion n
   sharded tables and the `Distributed` read tables the app queries, including those in front of
   satellite tables.
 - Satellites — `ai_events`, `aux`, `batch_exports`, `endpoints`, `logs`, `sessions`, `ops`. Each is
-  a single shard with multiple replicas, and owns the tables for one product area. `aux` holds the
-  product pre-aggregates and rollups (see "Satellite storage with a main-cluster read table" below).
+  a single shard with multiple replicas, and owns the tables for one product area, including rollups
+  of that data. `aux` holds general product pre-aggregates (see "Satellite storage with a main-cluster
+  read table" below).
 - Ingestion nodes — `ingestion-events`, `ingestion-medium`, `ingestion-small`, `ingestion-apm`.
   Stateless, one shard per node, no replicas. See Ingestion nodes below.
 
@@ -244,10 +245,11 @@ the next section.
 
 ## Satellite storage with a main-cluster read table
 
-Product pre-aggregates and rollups are stored on `AUX` and read through a `Distributed` table on the
-main cluster, because the app's ClickHouse client does not route to `AUX`. Create the
-`Distributed` table on `AUX` too, for ad-hoc reads there. The storage table needs a different name
-from the read table, since both exist on `AUX`:
+Pre-aggregates and rollups are stored on a satellite and read through a `Distributed` table on the
+main cluster, unless the app already connects to that satellite directly. A rollup of a satellite's own data stays on that satellite; general product
+pre-aggregates go to `AUX`. Confirm the satellite with the live check above. Create the `Distributed`
+table on the storage satellite too, for ad-hoc reads there. The storage table needs a different name
+from the read table, since both exist on that satellite. With `AUX` as the storage satellite:
 
 ```python
 operations = [
@@ -257,11 +259,11 @@ operations = [
 ]
 ```
 
-The read table uses `Distributed(data_table=..., cluster=settings.CLICKHOUSE_AUX_CLUSTER)`. Find a
-current example of this layout with the live check above, and its HCL layers with `hclexp locate`.
-Inserts can go through the `Distributed` table on `DATA`, which forwards them to `AUX`. Operations
-that must run where the storage table lives (partition swaps, `ALTER`s, recreating a staging table) go
-to an `AUX` host through `ClickhouseCluster` with `NodeRole.AUX`.
+The read table uses `Distributed(data_table=..., cluster=<the storage satellite's cluster setting>)`.
+Find a current example of this layout with the live check, and its HCL layers with `hclexp locate`.
+Inserts can go through the `Distributed` table on `DATA`, which forwards them to the satellite.
+Operations that must run where the storage table lives (partition swaps, `ALTER`s, recreating a
+staging table) go to a host of that satellite through `ClickhouseCluster` with its `NodeRole`.
 
 ## Replicated, sharded tables
 

@@ -46,10 +46,11 @@ Pick the role by **which cluster owns the object**, not by its type alone:
   US/EU prod — never branch on `CLOUD_DEPLOYMENT` to give dev a different layout.
 - `[NodeRole.ALL]`: rarely used
 
-Product pre-aggregates and daily rollups are stored on `AUX` and read through a `Distributed` table on
-`DATA` (and on `AUX`, for ad-hoc reads there). The app's ClickHouse client does not route to `AUX`, so
-that `Distributed` table is the read path. Find a current example with the live check below, and its HCL
-layers with `hclexp locate`.
+Pre-aggregates and rollups are stored on a satellite and read through a `Distributed` table on `DATA`
+(and on the storage satellite, for ad-hoc reads there), unless the app already connects to that satellite
+directly. A rollup of a satellite's own data stays on that
+satellite; general product pre-aggregates go to `AUX`. Confirm the satellite with the live check below,
+and find a current example's HCL layers with `hclexp locate`.
 
 ### Check the live clusters before choosing a role
 
