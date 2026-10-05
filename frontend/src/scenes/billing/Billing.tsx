@@ -34,6 +34,8 @@ import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
 import { BillingSummary } from './BillingSummary'
 import { CreditCTAHero } from './CreditCTAHero'
+import { payerDetachLogic } from './payerDetachLogic'
+import { PayerDetachModal } from './PayerDetachModal'
 import { StripePortalButton } from './StripePortalButton'
 import { UnsubscribeCard } from './UnsubscribeCard'
 
@@ -61,6 +63,8 @@ export function Billing(): JSX.Element {
         billingManagedByPartnerNotice,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
+    const { canDetachFromPayer } = useValues(payerDetachLogic)
+    const { openPayerDetachModal } = useActions(payerDetachLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -163,10 +167,23 @@ export function Billing(): JSX.Element {
             )}
 
             {billingManagedByPartnerNotice && (
-                <LemonBanner type="info" className="max-w-300 mb-2">
+                <LemonBanner
+                    type="info"
+                    className="max-w-300 mb-2"
+                    action={
+                        canDetachFromPayer
+                            ? {
+                                  children: 'Pay for this organization yourself',
+                                  onClick: () => openPayerDetachModal(),
+                                  'data-attr': 'billing-payer-detach-open',
+                              }
+                            : undefined
+                    }
+                >
                     {billingManagedByPartnerNotice}
                 </LemonBanner>
             )}
+            <PayerDetachModal />
 
             {billing?.trial ? (
                 <LemonBanner type="info" hideIcon className="max-w-300 mb-2">

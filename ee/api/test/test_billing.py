@@ -1,7 +1,7 @@
 import gzip
 import json
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast, get_args
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -19,7 +19,7 @@ import jwt
 from asgiref.sync import async_to_sync
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
-from requests import Response, get
+from requests import Response, Timeout, get
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
@@ -63,6 +63,7 @@ from ee.billing.grants import (
 from ee.billing.quota_limiting import QuotaResource
 from ee.billing.test.test_billing_manager import create_default_products_response
 from ee.models.license import License
+from ee.settings import BILLING_SERVICE_URL
 
 
 def create_usage_summary(**kwargs) -> dict[str, Any]:
@@ -1310,6 +1311,113 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["billing_managed_by_partner"] == expected
 
+    def _billing_answer(self, status_code: int, body: Any) -> MagicMock:
+        answer = MagicMock(status_code=status_code, text=json.dumps(body))
+        answer.json.return_value = body
+        return answer
+
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_owner_detach_tells_billing_records_its_time_and_lifts_the_partner_lock(
+        self, mock_post: MagicMock, mock_get_billing: MagicMock
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        self._provision(pays_for_customers=True)
+        mock_post.return_value = self._billing_answer(200, {"detached_at": "2026-10-05T12:00:00+00:00"})
+        mock_get_billing.return_value = {"available_product_features": [], "products": []}
+
+        response = self.client.post("/api/billing/payer/detach")
+
+        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"detached_at": "2026-10-05T12:00:00Z"})
+        token = mock_post.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
+        claims = jwt.decode(
+            token, self.license.key.split("::")[1], algorithms=["HS256"], audience="posthog:license-key"
+        )
+        assert (mock_post.call_args.args[0], claims["organization_id"], claims.get("organization_role")) == (
+            f"{BILLING_SERVICE_URL}/api/payer/detach",
+            str(self.organization.id),
+            "owner",
+        )
+        assert OrganizationProvisioning.objects.get(organization=self.organization).payer_detached_at == datetime(
+            2026, 10, 5, 12, tzinfo=UTC
+        )
+        assert self.client.get("/api/billing").json()["billing_managed_by_partner"] is None
+
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN, True, False),
+            ("member", OrganizationMembership.Level.MEMBER, True, False),
+            ("owner_of_an_organization_its_partner_does_not_pay_for", OrganizationMembership.Level.OWNER, False, False),
+            ("owner_through_the_partners_oauth_token", OrganizationMembership.Level.OWNER, True, True),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_detach_is_refused_before_billing_is_called(
+        self,
+        _name: str,
+        level: OrganizationMembership.Level,
+        partner_pays: bool,
+        through_oauth_token: bool,
+        mock_post: MagicMock,
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        application = self._provision(pays_for_customers=partner_pays)
+        assert application is not None
+        if through_oauth_token:
+            OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token="pha_partner_example",
+                expires=now() + timedelta(hours=1),
+                scope="billing:write",
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION="Bearer pha_partner_example")
+
+        response = self.client.post("/api/billing/payer/detach")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        mock_post.assert_not_called()
+        assert OrganizationProvisioning.objects.get(organization=self.organization).payer_detached_at is None
+
+    @parameterized.expand(
+        [
+            ("billing_error", 500, {"detail": "A server error occurred."}, None),
+            ("billing_unreachable", None, None, Timeout()),
+            ("answer_without_the_detach_time", 200, {"status": "ok"}, None),
+        ]
+    )
+    @patch("ee.billing.billing_manager.BillingManager.get_billing")
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_failed_detach_keeps_the_partner_paying(
+        self,
+        _name: str,
+        status_code: int | None,
+        body: Any,
+        error: Exception | None,
+        mock_post: MagicMock,
+        mock_get_billing: MagicMock,
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        self._provision(pays_for_customers=True)
+        mock_post.return_value = self._billing_answer(status_code, body) if status_code else None
+        mock_post.side_effect = error
+        mock_get_billing.return_value = {"available_product_features": [], "products": []}
+
+        response = self.client.post("/api/billing/payer/detach")
+
+        assert (response.status_code, response.json().get("code")) == (
+            status.HTTP_502_BAD_GATEWAY,
+            "payer_detach_failed",
+        )
+        assert OrganizationProvisioning.objects.get(organization=self.organization).payer_detached_at is None
+        assert self.client.get("/api/billing").json()["billing_managed_by_partner"] == {
+            "partner_name": "Example Partner"
+        }
+
 
 class TestPartnerBillingLockCoverage(SimpleTestCase):
     READ_ONLY_ACTIONS = {
@@ -1333,6 +1441,7 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
         "apply_startup_program",
         "claim_coupon",
     }
+    PARTNER_PAID_ONLY_ACTIONS = {"detach_from_payer"}
 
     def test_every_billing_action_is_partner_locked_or_explicitly_exempt(self) -> None:
         declared_permissions: dict[str, Sequence[object]] = {
@@ -1345,7 +1454,7 @@ class TestPartnerBillingLockCoverage(SimpleTestCase):
 
         unlocked = {name for name, classes in declared_permissions.items() if BillingNotManagedByPartner not in classes}
 
-        assert unlocked == self.READ_ONLY_ACTIONS | self.UNLOCKED_WRITE_ACTIONS
+        assert unlocked == self.READ_ONLY_ACTIONS | self.UNLOCKED_WRITE_ACTIONS | self.PARTNER_PAID_ONLY_ACTIONS
 
 
 class TestBillingUsageRequestSerializer(SimpleTestCase):

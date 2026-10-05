@@ -78,6 +78,11 @@ export interface PatchedBillingApi {
     billing_limit?: number
 }
 
+export interface PayerDetachResponseApi {
+    /** When the partner stopped paying for this organization. The partner pays for usage before this time, and the organization pays for usage from then on. */
+    detached_at: string
+}
+
 export interface BillingPeriodResponseApi {
     /**
      * Start of the organization's current billing period, or null when billing has not synced a period.

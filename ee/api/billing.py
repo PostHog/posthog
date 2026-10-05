@@ -24,11 +24,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.event_usage import groups
+from posthog.event_usage import groups, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.models.organization_provisioning import get_billing_lock_partner
+from posthog.models.organization_provisioning import OrganizationProvisioning, get_billing_lock_partner
 from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.user_permissions import UserPermissions
@@ -36,7 +36,13 @@ from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager, http_session, raise_if_billing_managed_by_partner
+from ee.billing.billing_manager import (
+    BillingManager,
+    BillingServiceResponseError,
+    PayerDetachUnconfirmed,
+    http_session,
+    raise_if_billing_managed_by_partner,
+)
 from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.billing.exports import (  # noqa: F401
     _EXPORT_STREAMS,
@@ -112,6 +118,15 @@ class BillingServiceError(APIException):
     status_code = status.HTTP_502_BAD_GATEWAY
     default_code = "billing_service_error"
     default_detail = "Billing could not answer this request. Try again in a moment."
+
+
+class PayerDetachFailed(APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_code = "payer_detach_failed"
+    default_detail = (
+        "Billing couldn't make the change, so your partner still pays for this organization. "
+        "Try again in a few minutes, and contact support if it keeps happening."
+    )
 
 
 class BillingExportThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -274,6 +289,27 @@ class BillingNotManagedByPartner(permissions.BasePermission):
         if organization is not None:
             raise_if_billing_managed_by_partner(organization)
         return True
+
+
+class BillingManagedByPartner(permissions.BasePermission):
+    message = "No partner pays for this organization, so there is nothing to change."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        organization = view._get_org()
+        return organization is not None and get_billing_lock_partner(organization) is not None
+
+
+class IsOrganizationOwner(permissions.BasePermission):
+    message = "Only an owner of this organization can do this."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        organization = view._get_org()
+        if organization is None or not isinstance(request.user, User):
+            return False
+        membership = (
+            OrganizationMembership.objects.filter(user=request.user, organization=organization).only("level").first()
+        )
+        return membership is not None and membership.level >= OrganizationMembership.Level.OWNER
 
 
 def billing_managed_by_partner(organization: Organization | None) -> dict[str, str] | None:
@@ -541,6 +577,15 @@ class BillingPeriodResponseSerializer(serializers.Serializer):
     )
 
 
+class PayerDetachResponseSerializer(serializers.Serializer):
+    detached_at = serializers.DateTimeField(
+        help_text=(
+            "When the partner stopped paying for this organization. The partner pays for usage before this time, "
+            "and the organization pays for usage from then on."
+        ),
+    )
+
+
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
@@ -688,6 +733,38 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         billing_manager = self.get_billing_manager()
         res = billing_manager.activate_subscription(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Stop the partner paying for this organization",
+        description=(
+            "Moves an organization a partner pays for to paying for itself. The partner pays for usage up to "
+            "`detached_at`, and the organization pays from then on, so it needs its own payment method. "
+            "Only organization owners can call this, and only from a logged-in session."
+        ),
+        request=None,
+        responses={200: OpenApiResponse(response=PayerDetachResponseSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="payer/detach",
+        permission_classes=[permissions.IsAuthenticated, IsOrganizationOwner, BillingManagedByPartner],
+    )
+    def detach_from_payer(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        organization = self._get_org_required()
+        try:
+            detached_at = self.get_billing_manager().detach_from_payer(organization)
+        except (BillingServiceResponseError, PayerDetachUnconfirmed, requests.RequestException) as error:
+            capture_exception(error, {"organization_id": str(organization.id)})
+            raise PayerDetachFailed() from error
+
+        OrganizationProvisioning.objects.filter(organization=organization, payer_detached_at__isnull=True).update(
+            payer_detached_at=detached_at
+        )
+        report_user_action(
+            cast(User, request.user), "billing payer detached", organization=organization, request=request
+        )
+        return Response(PayerDetachResponseSerializer({"detached_at": detached_at}).data)
 
     class DeactivateSerializer(serializers.Serializer):
         products = serializers.CharField()

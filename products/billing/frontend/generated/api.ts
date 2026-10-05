@@ -49,6 +49,7 @@ import type {
     PaginatedBillingTimeSeriesPointListApi,
     PatchedBillingAlertConfigurationApi,
     PatchedBillingApi,
+    PayerDetachResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -206,6 +207,21 @@ export const billingLicensePartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedBillingApi),
+    })
+}
+
+export const getBillingPayerDetachCreateUrl = () => {
+    return `/api/billing/payer/detach/`
+}
+
+/**
+ * Moves an organization a partner pays for to paying for itself. The partner pays for usage up to `detached_at`, and the organization pays from then on, so it needs its own payment method. Only organization owners can call this, and only from a logged-in session.
+ * @summary Stop the partner paying for this organization
+ */
+export const billingPayerDetachCreate = async (options?: RequestInit): Promise<PayerDetachResponseApi> => {
+    return apiMutator<PayerDetachResponseApi>(getBillingPayerDetachCreateUrl(), {
+        ...options,
+        method: 'POST',
     })
 }
 

@@ -221,6 +221,7 @@ export interface billingLogicValues {
     billingLoading: boolean
     billingManagedByPartnerDisabledReason: string | null
     billingManagedByPartnerNotice: string | null
+    billingPartnerName: string | null
     billingPeriodUTC: BillingPeriod
     billingPlan: BillingPlan | null
     canAccessBilling: boolean
@@ -651,7 +652,8 @@ export interface billingLogicMeta {
         billingPeriodUTC: (billing: BillingType | null) => BillingPeriod
         showBillingSummary: (billing: BillingType | null, isOnboarding: boolean) => boolean
         isBillingManagedByPartner: (billing: BillingType | null) => boolean
-        billingManagedByPartnerDisabledReason: (billing: BillingType | null) => string | null
+        billingPartnerName: (billing: BillingType | null) => string | null
+        billingManagedByPartnerDisabledReason: (billingPartnerName: string | null) => string | null
         billingManagedByPartnerNotice: (billingManagedByPartnerDisabledReason: string | null) => string | null
         showCreditCTAHero: (
             creditOverview: {
@@ -1243,15 +1245,20 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.billing],
             (billing: BillingType | null): boolean => !!billing?.billing_managed_by_partner,
         ],
-        billingManagedByPartnerDisabledReason: [
+        billingPartnerName: [
             (s) => [s.billing],
             (billing: BillingType | null): string | null => {
                 const partner = billing?.billing_managed_by_partner
                 if (!partner) {
                     return null
                 }
-                return `Billing for this organization is managed by ${partner.partner_name.trim() || 'your partner'}.`
+                return partner.partner_name.trim() || 'your partner'
             },
+        ],
+        billingManagedByPartnerDisabledReason: [
+            (s) => [s.billingPartnerName],
+            (billingPartnerName: string | null): string | null =>
+                billingPartnerName ? `Billing for this organization is managed by ${billingPartnerName}.` : null,
         ],
         billingManagedByPartnerNotice: [
             (s) => [s.billingManagedByPartnerDisabledReason],

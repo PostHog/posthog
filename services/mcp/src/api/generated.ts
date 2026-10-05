@@ -82772,6 +82772,11 @@ export namespace Schemas {
       timestamp: string;
     }
 
+    export interface PayerDetachResponse {
+      /** When the partner stopped paying for this organization. The partner pays for usage before this time, and the organization pays for usage from then on. */
+      detached_at: string;
+    }
+
     export interface PersonBulkDeleteRequest {
       /** A list of PostHog person UUIDs to delete (max 1000). */
       ids?: string[];

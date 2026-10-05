@@ -1,4 +1,12 @@
-import { Meta, StoryObj } from '@storybook/react'
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
+import { Decorator, Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
+import { useEffect } from 'react'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
@@ -68,19 +76,44 @@ export const _Billing: Story = {
     },
 }
 
+const billingManagedByPartnerJson: BillingType = {
+    ...billingUnsubscribedJson,
+    customer_id: '',
+    billing_managed_by_partner: { partner_name: 'Example Partner' },
+}
+
+const ownerOrganization = { ...MOCK_DEFAULT_ORGANIZATION, membership_level: OrganizationMembershipLevel.Owner }
+
+const asOrganizationOwner: Decorator = (Story) => {
+    useStorybookMocks({ get: { '/api/organizations/@current/': ownerOrganization } })
+    useEffect(() => {
+        organizationLogic.actions.loadCurrentOrganizationSuccess(ownerOrganization)
+    }, [])
+    return <Story />
+}
+
 export const BillingManagedByPartner: Story = {
     render: () => {
-        useStorybookMocks({
-            get: {
-                '/api/billing/': {
-                    ...billingUnsubscribedJson,
-                    customer_id: '',
-                    billing_managed_by_partner: { partner_name: 'Example Partner' },
-                },
-            },
-        })
+        useStorybookMocks({ get: { '/api/billing/': billingManagedByPartnerJson } })
 
         return <Billing />
+    },
+}
+
+export const BillingManagedByPartnerForOwner: Story = {
+    decorators: [asOrganizationOwner],
+    render: () => {
+        useStorybookMocks({ get: { '/api/billing/': billingManagedByPartnerJson } })
+
+        return <Billing />
+    },
+}
+
+export const BillingManagedByPartnerPayYourselfModal: Story = {
+    ...BillingManagedByPartnerForOwner,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: 'Pay for this organization yourself' }))
     },
 }
 

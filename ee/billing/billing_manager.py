@@ -306,6 +306,10 @@ class BillingServiceResponseError(Exception):
         self.body = body
 
 
+class PayerDetachUnconfirmed(Exception):
+    pass
+
+
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 201, 404, 401)) -> None:
     if res.status_code not in valid_codes:
         logger.error(f"Billing service returned bad status code: {res.status_code}, body: {res.text}")
@@ -1128,6 +1132,19 @@ class BillingManager:
         handle_billing_service_error(res, valid_codes=(200,))
 
         return res.json()
+
+    def detach_from_payer(self, organization: Organization) -> datetime:
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/payer/detach",
+            headers=self.get_auth_headers(organization),
+            timeout=30,
+        )
+        handle_billing_service_error(res, valid_codes=(200,))
+        body = res.json()
+        try:
+            return datetime.fromisoformat(body["detached_at"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise PayerDetachUnconfirmed(body) from error
 
     def switch_plan(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         res = http_session.post(

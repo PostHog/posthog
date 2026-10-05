@@ -35,6 +35,7 @@ class OrganizationProvisioning(models.Model):
     )
     # Reported by the partner that created the organization, not observed by PostHog.
     terms_accepted_at = models.DateTimeField(null=True, blank=True)
+    payer_detached_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -54,5 +55,6 @@ def get_billing_lock_partner(organization: "Organization") -> OAuthApplication |
         return None
     return OAuthApplication.objects.filter(
         provisioned_organizations__organization=organization,
+        provisioned_organizations__payer_detached_at__isnull=True,
         _provisioning_config__pays_for_customers=True,
     ).first()
