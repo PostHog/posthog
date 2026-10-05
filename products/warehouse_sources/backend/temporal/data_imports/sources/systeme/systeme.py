@@ -83,7 +83,7 @@ def systeme_source(
     db_incremental_field_last_value: datetime | str | None = None,
 ) -> SourceResponse:
     path = schema_for_resource(ENDPOINTS, endpoint)
-    params: dict[str, str | int] = {"limit": PAGE_SIZE, "order": "desc"}
+    params: dict[str, Any] = {"limit": PAGE_SIZE, "order": "desc"}
     if endpoint == "contacts" and should_use_incremental_field and db_incremental_field_last_value is not None:
         params["registeredAfter"] = (
             db_incremental_field_last_value.isoformat()
