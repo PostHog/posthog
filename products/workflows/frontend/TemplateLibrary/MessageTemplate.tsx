@@ -208,6 +208,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     size="small"
                                     onClick={() => syncExternalEdit()}
                                     loading={isSyncingExternalEdit}
+                                    disabledReason={isTemplateSubmitting ? 'Wait for the save to finish' : undefined}
                                 >
                                     Reload
                                 </LemonButton>
