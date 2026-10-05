@@ -1,10 +1,16 @@
+import snappyInit from 'snappy-wasm'
+
 import {
     DecompressionWorkerManager,
     getDecompressionWorkerManager,
     terminateDecompressionWorker,
 } from './DecompressionWorkerManager'
 
-jest.mock('snappy-wasm')
+jest.mock('snappy-wasm', () => ({
+    __esModule: true,
+    default: jest.fn(() => Promise.resolve()),
+    decompress_raw: jest.fn((data: Uint8Array) => data),
+}))
 
 describe('DecompressionWorkerManager', () => {
     let manager: DecompressionWorkerManager
@@ -54,6 +60,33 @@ describe('DecompressionWorkerManager', () => {
             expect(result1).toEqual(data1)
             expect(result2).toEqual(data2)
             expect(result3).toEqual(data3)
+        })
+    })
+
+    describe('when the worker and the main-thread fallback both fail to initialize', () => {
+        it('records both failures and recovers once the fallback loads', async () => {
+            const capture = jest.fn()
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            jest.mocked(snappyInit)
+                .mockRejectedValueOnce(new Error('wasm fetch failed'))
+                .mockRejectedValueOnce(new Error('wasm fetch failed'))
+            // jest.setup.ts mocks this module globally, so load the real implementation.
+            const { DecompressionWorkerManager: RealManager } =
+                jest.requireActual<typeof import('./DecompressionWorkerManager')>('./DecompressionWorkerManager')
+            const failingManager = new RealManager({ capture } as any)
+
+            await expect(failingManager.decompress(new Uint8Array([1]))).rejects.toThrow(
+                'Could not load the snappy decompression module: wasm fetch failed'
+            )
+            expect(capture.mock.calls.map(([event]) => event)).toEqual([
+                'replay_worker_init_failed',
+                'replay_decompression_fallback_init_failed',
+            ])
+
+            await expect(failingManager.decompress(new Uint8Array([2]))).resolves.toEqual(new Uint8Array([2]))
+
+            failingManager.terminate()
+            consoleError.mockRestore()
         })
     })
 
