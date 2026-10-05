@@ -7,6 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { workflowsEmailSuspensionLogic } from './workflowsEmailSuspensionLogic'
 import { workflowsSendingLimitsLogic } from './workflowsSendingLimitsLogic'
 
 // The billing page scrolls to the product whose billing type matches, and Workflows bills as `workflows_emails`.
@@ -19,11 +20,15 @@ export function SendingLimitsBanner({
     sendingAllowanceUrl?: string
 }): JSX.Element | null {
     const { sendingLimits } = useValues(workflowsSendingLimitsLogic)
+    const { emailSendingSuspended } = useValues(workflowsEmailSuspensionLogic)
 
     if (!sendingLimits) {
         return null
     }
 
+    // The daily cap promises that held emails go out later, which is false while another block stops every email.
+    const emailsWaitForAllowance =
+        sendingLimits.email_daily_cap_reached && !sendingLimits.email_quota_limited && !emailSendingSuspended
     const manageBilling = { children: 'Manage billing', to: urls.organizationBilling([WORKFLOWS_BILLING_PRODUCT]) }
 
     // LemonBanner drops unknown props, so each data-attr sits on a wrapper.
@@ -45,7 +50,7 @@ export function SendingLimitsBanner({
                     </LemonBanner>
                 </div>
             )}
-            {sendingLimits.email_daily_cap_reached && !sendingLimits.email_quota_limited && (
+            {emailsWaitForAllowance && (
                 <div data-attr="workflows-email-daily-cap-banner">
                     <LemonBanner
                         type="warning"

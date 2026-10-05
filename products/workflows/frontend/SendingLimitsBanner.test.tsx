@@ -5,9 +5,13 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { WorkflowSendingLimitsApi } from 'products/workflows/frontend/generated/api.schemas'
+import type {
+    EmailSendingSuspensionStatusApi,
+    WorkflowSendingLimitsApi,
+} from 'products/workflows/frontend/generated/api.schemas'
 
 import { SendingLimitsBanner } from './SendingLimitsBanner'
+import { workflowsEmailSuspensionLogic } from './workflowsEmailSuspensionLogic'
 import { workflowsSendingLimitsLogic } from './workflowsSendingLimitsLogic'
 
 const nothingLimited: WorkflowSendingLimitsApi = {
@@ -18,6 +22,14 @@ const nothingLimited: WorkflowSendingLimitsApi = {
 }
 
 const sendingLimitsEndpoint = '/api/projects/:team_id/hog_flows/sending_limits/'
+
+const suspensionEndpoint = '/api/projects/:team_id/hog_flows/email_sending_suspension/'
+
+const notSuspended: EmailSendingSuspensionStatusApi = {
+    email_sending_suspended: false,
+    email_sending_suspended_at: null,
+    email_sending_suspension_reason: '',
+}
 
 const sendingAllowanceUrl = '/broadcasts/reputation'
 
@@ -76,20 +88,28 @@ describe('SendingLimitsBanner', () => {
         expect(within(notice).getAllByText(link)[0].closest('a')).toHaveAttribute('href', expect.stringContaining(href))
     })
 
-    it('leaves out the daily cap while the email quota already stops email', async () => {
+    it.each([
+        {
+            name: 'the email quota already stops email',
+            limits: { ...nothingLimited, email_quota_limited: true, email_daily_cap_reached: true },
+            suspended: false,
+        },
+        {
+            name: 'the project cannot send email',
+            limits: { ...nothingLimited, email_daily_cap_reached: true },
+            suspended: true,
+        },
+    ])('leaves out the daily cap while $name', async ({ limits, suspended }) => {
         useMocks({
             get: {
-                [sendingLimitsEndpoint]: {
-                    ...nothingLimited,
-                    email_quota_limited: true,
-                    email_daily_cap_reached: true,
-                    emails_per_day: 1000,
-                },
+                [sendingLimitsEndpoint]: limits,
+                [suspensionEndpoint]: { ...notSuspended, email_sending_suspended: suspended },
             },
         })
         renderBanner()
 
-        await screen.findByTestId('workflows-email-quota-limited-banner')
+        await waitFor(() => expect(workflowsSendingLimitsLogic.values.sendingLimits).toEqual(limits))
+        await waitFor(() => expect(workflowsEmailSuspensionLogic.values.suspensionStatus).not.toBeNull())
         expect(screen.queryByTestId('workflows-email-daily-cap-banner')).toBeNull()
     })
 
