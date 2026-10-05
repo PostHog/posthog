@@ -217,7 +217,11 @@ def handle_task_run_event_ingest_wsgi(
         "type": "http",
         "method": environ.get("REQUEST_METHOD"),
         "path": path,
-        "headers": _wsgi_headers(environ),
+        "headers": [
+            (_wsgi_header_name(key).encode("latin-1"), value.encode("latin-1"))
+            for key, value in environ.items()
+            if isinstance(value, str) and (key.startswith("HTTP_") or key in ("CONTENT_TYPE", "CONTENT_LENGTH"))
+        ],
     }
     async_to_sync(handle_task_run_event_ingest)(scope, receive, send)
     if not sent:
@@ -232,19 +236,8 @@ def handle_task_run_event_ingest_wsgi(
     return [cast(bytes, message.get("body", b"")) for message in sent[1:]]
 
 
-def _wsgi_headers(environ: dict[str, object]) -> list[tuple[bytes, bytes]]:
-    headers: list[tuple[bytes, bytes]] = []
-    for key, value in environ.items():
-        if not isinstance(value, str):
-            continue
-        if key.startswith("HTTP_"):
-            name = key[5:]
-        elif key in ("CONTENT_TYPE", "CONTENT_LENGTH"):
-            name = key
-        else:
-            continue
-        headers.append((name.replace("_", "-").lower().encode("latin-1"), value.encode("latin-1")))
-    return headers
+def _wsgi_header_name(environ_key: str) -> str:
+    return environ_key.removeprefix("HTTP_").replace("_", "-").lower()
 
 
 async def _ingest_event_lines(
