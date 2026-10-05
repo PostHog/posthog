@@ -13,6 +13,7 @@ from posthog.models.team.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
 
+from ee.api.agentic_provisioning.authentication import PRIVATE_KEY_REQUIRED_MESSAGE
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
 
@@ -54,6 +55,20 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
 
     def _stamp_session_revoke(self, when=None) -> None:
         OAuthApplication.objects.filter(id=self.partner.id).update(sessions_revoked_at=when or timezone.now())
+
+    def _public_partner(self) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            client_id="pkce-token-partner",
+            name="PKCE Token Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            scopes=TEST_PARTNER_SCOPES,
+            is_provisioning_partner=True,
+            _provisioning_config=provisioning_config(active=True),
+        )
 
     def test_valid_code_exchange_returns_tokens(self):
         res = self._request_bearer_token()
@@ -172,24 +187,37 @@ class TestOAuthTokenExchange(ProvisioningTestBase):
     def test_pkce_partner_exchanges_code_without_a_secret(self):
         # PKCE partners are public clients: code_verifier is their only client authentication,
         # so requiring a secret from confidential partners must not reach them.
-        pkce_partner = OAuthApplication.objects.create(
-            client_id="pkce-token-partner",
-            name="PKCE Token Partner",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://partner.example.com/callback",
-            algorithm="RS256",
-            scopes=TEST_PARTNER_SCOPES,
-            is_provisioning_partner=True,
-            _provisioning_config=provisioning_config(active=True),
-        )
-        code, verifier = self._mint_auth_code(partner=pkce_partner)
+        code, verifier = self._mint_auth_code(partner=self._public_partner())
 
         res = self._post_api(TOKEN_URL, {"grant_type": "authorization_code", "code": code, "code_verifier": verifier})
 
         assert res.status_code == 200
         assert res.json()["access_token"].startswith("pha_")
+
+    @parameterized.expand(
+        [
+            ("public_code_exchange", False, "authorization_code"),
+            ("public_refresh", False, "refresh_token"),
+            ("client_secret_refresh", True, "refresh_token"),
+        ]
+    )
+    def test_paying_partner_without_a_private_key_gets_no_tokens(
+        self, _name: str, confidential: bool, grant_type: str
+    ) -> None:
+        partner = self.partner if confidential else self._public_partner()
+        credentials = self._client_credentials() if confidential else {}
+        if grant_type == "authorization_code":
+            code, verifier = self._mint_auth_code(partner=partner)
+            body = {"grant_type": grant_type, "code": code, "code_verifier": verifier, **credentials}
+        else:
+            refresh_token = self._request_bearer_token(partner=partner).json()["refresh_token"]
+            body = {"grant_type": grant_type, "refresh_token": refresh_token, **credentials}
+        partner.update_provisioning(pays_for_customers=True)
+
+        res = self._post_api(TOKEN_URL, body)
+
+        assert res.status_code == 401
+        assert res.json() == {"error": "invalid_client", "error_description": PRIVATE_KEY_REQUIRED_MESSAGE}
 
     def test_pkce_mismatch_returns_400_without_consuming_code(self):
         code, verifier = self._mint_auth_code()

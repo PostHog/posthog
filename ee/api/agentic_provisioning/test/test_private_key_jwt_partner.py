@@ -8,6 +8,7 @@ from django.test import override_settings
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric import rsa
+from parameterized import parameterized
 
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
@@ -147,7 +148,9 @@ class TestPrivateKeyJwtPartner(ProvisioningTestBase):
         )
         assert retry.status_code == 200, retry.json()
 
-    def test_full_flow_from_account_request_to_resource(self):
+    @parameterized.expand([("non_paying", False), ("paying", True)])
+    def test_full_flow_from_account_request_to_resource(self, _name: str, pays_for_customers: bool) -> None:
+        self.jwt_partner.update_provisioning(pays_for_customers=pays_for_customers)
         verifier, challenge = self._pkce_pair()
         res = self._post(
             ACCOUNT_REQUESTS_URL,

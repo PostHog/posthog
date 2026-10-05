@@ -35,6 +35,19 @@ CLIENT_REGISTRATION_PATH = "/api/agentic/provisioning/client_registration"
 CLIENT_NOT_REGISTERED_MESSAGE = (
     f"No provisioning client is registered for this client_id. Register it at POST {CLIENT_REGISTRATION_PATH}"
 )
+PRIVATE_KEY_REQUIRED_MESSAGE = (
+    "This client must authenticate with private_key_jwt. Publish a jwks_uri and sign a client_assertion "
+    "with its private key."
+)
+
+
+def is_paying_partner_without_private_key(app: OAuthApplication) -> bool:
+    # Whoever can authenticate as a paying partner can create organizations that the partner pays for.
+    # Anyone can send a public client's client_id, and a client secret is sent with every request, where
+    # it can leak. A private key never leaves the partner, so only a signed assertion is accepted.
+    # Checked on every request rather than when the flag is set, because a CIMD refresh demotes a partner
+    # to public once its metadata drops its key.
+    return app.provisioning.pays_for_customers and not app.uses_private_key_jwt_auth
 
 
 class BearerTokenError(Exception):
@@ -89,6 +102,9 @@ class ProvisioningAuthentication(ActivityCredentialMixin, BaseAuthentication):
         if app is None:
             return None
 
+        if is_paying_partner_without_private_key(app):
+            self._reject(request, app, PRIVATE_KEY_REQUIRED_MESSAGE, outcome="private_key_required")
+
         capture_auth_event(app, "success", endpoint=request.path)
         # A public partner is named by a client_id that anyone can send, so only a partner that proved
         # itself with a secret or a signed assertion is recorded by id.
@@ -125,9 +141,11 @@ class ProvisioningAuthentication(ActivityCredentialMixin, BaseAuthentication):
 
         return app
 
-    def _reject(self, request: Request, app: OAuthApplication, reason: str) -> NoReturn:
+    def _reject(
+        self, request: Request, app: OAuthApplication, reason: str, *, outcome: str = "verification_failed"
+    ) -> NoReturn:
         """Fail a partner that was identified but did not prove itself."""
-        capture_auth_event(app, "verification_failed", endpoint=request.path)
+        capture_auth_event(app, outcome, endpoint=request.path)
         raise AuthenticationFailed(reason)
 
     def _identify_assertion_partner(
@@ -228,6 +246,8 @@ class ProvisioningBearerAuthentication(ActivityCredentialMixin, BaseAuthenticati
 
         if not app.provisioning.active:
             raise ProvisioningError("unauthorized", "Partner is deactivated", status=401)
+        if is_paying_partner_without_private_key(app):
+            raise ProvisioningError("unauthorized", PRIVATE_KEY_REQUIRED_MESSAGE, status=401)
         if not app.provisioning.can_provision_resources:
             raise ProvisioningError("forbidden", "Resource provisioning not enabled for this partner", status=403)
 

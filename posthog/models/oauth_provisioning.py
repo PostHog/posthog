@@ -84,7 +84,13 @@ class ProvisioningConfig(BaseModel):
 
     # Staff-only. Billing refuses to move an organization to partner billing once the organization
     # has its own Stripe customer, so the partner's organizations must not start self-serve billing.
-    pays_for_customers: bool = False
+    pays_for_customers: bool = Field(
+        default=False,
+        description=(
+            "The partner pays for the organizations it creates, and those organizations can't set up their "
+            "own billing. A provisioning partner needs private_key_jwt client authentication before it can pay."
+        ),
+    )
 
     # Per-endpoint hourly overrides, keyed by rate-limit endpoint name. An absent key
     # means the tier-derived budget applies; UNLIMITED_OVERRIDE disables the limit.

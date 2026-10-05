@@ -29,6 +29,10 @@ from posthog.models.utils import generate_random_oauth_access_token, generate_ra
 from posthog.scopes import narrow_scopes_to_ceiling, scopes_within_ceiling
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
+from ee.api.agentic_provisioning.authentication import (
+    PRIVATE_KEY_REQUIRED_MESSAGE,
+    is_paying_partner_without_private_key,
+)
 from ee.api.agentic_provisioning.constants import (
     ACCESS_TOKEN_EXPIRY_SECONDS,
     AUTH_CODE_CACHE_PREFIX,
@@ -48,13 +52,18 @@ logger = structlog.get_logger(__name__)
 
 
 def _require_client_authentication(request: Request, oauth_app: OAuthApplication, grant_type: str) -> None:
-    """Make confidential partners prove themselves before their grant is spent.
+    """Make confidential and paying partners prove themselves before their grant is spent.
 
     Public partners keep ``code_verifier`` as their only client authentication, which is what
-    RFC 7636 prescribes and RFC 6749 section 3.2.1 expects. The app is resolved from the grant
-    rather than from a caller-supplied client_id, so a confidential partner cannot reach the
+    RFC 7636 prescribes and RFC 6749 section 3.2.1 expects. A partner that pays for its customers
+    is the exception: it signs with its key whatever its client type. The app is resolved from the
+    grant rather than from a caller-supplied client_id, so a confidential partner cannot reach the
     public path by presenting nothing.
     """
+    if is_paying_partner_without_private_key(oauth_app):
+        capture_provisioning_event("token_exchange", "private_key_required", partner=oauth_app, grant_type=grant_type)
+        raise ProvisioningError("invalid_client", PRIVATE_KEY_REQUIRED_MESSAGE, status=401)
+
     if not oauth_app.requires_client_authentication:
         return
 
