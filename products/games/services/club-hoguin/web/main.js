@@ -630,9 +630,15 @@ function buildToolbar() {
 // ---- Start -------------------------------------------------------------------------------------------------------
 
 let lastFrameAt = performance.now()
+const PANE_FRAME_MS = 50
 
 /** @param {number} now */
 function frame(now) {
+    window.requestAnimationFrame(frame)
+    // A pane shows about 10 pictures a second, so the page draws 20 for it and not 60.
+    if (isPane && now - lastFrameAt < PANE_FRAME_MS - 4) {
+        return
+    }
     const dt = Math.min(0.1, (now - lastFrameAt) / 1000)
     lastFrameAt = now
     if (heldKeys.size > 0 && now - lastKeyWalkAt > KEY_WALK_MS) {
@@ -641,7 +647,6 @@ function frame(now) {
     hogs.update(dt, now / 1000)
     updateLabels()
     town.update(dt, now / 1000)
-    window.requestAnimationFrame(frame)
 }
 
 window.addEventListener('pagehide', () => {

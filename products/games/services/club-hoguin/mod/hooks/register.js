@@ -4,10 +4,17 @@
 
 const PANE = 'club-hoguin'
 const DEFAULT_URL = 'http://localhost:8642'
-// The picture is as wide as the pane. A terminal cell is about twice as tall as it is wide,
-// so a 16:9 picture takes this many rows for each column.
+// The page gets the width of an ordinary browser window, so it lays out as on the web, and a height that
+// the town fills. The terminal scales the picture to the pane.
+const PAGE_WIDTH = 1280
+const PAGE_HEIGHT = 600
+// A terminal cell is about twice as tall as it is wide, so the picture takes this many rows for each column.
+const ROWS_PER_COLUMN = (PAGE_HEIGHT / PAGE_WIDTH) * 0.47
 const MAX_PICTURE_COLUMNS = 160
-const ROWS_PER_COLUMN = (9 / 16) * 0.47
+// Under this width nothing in the town can be read.
+const MIN_PICTURE_COLUMNS = 50
+const TOO_SMALL =
+    'The pane is too small to show the club. Make the terminal wider than 110 columns, or run /hoguin web to open the club in your browser.'
 const AUTO_OPEN_AFTER_MS = 10_000
 // A terminal that cannot draw pictures refuses every new frame. This many refusals in a row is the answer.
 const REFUSED_FRAMES_MEAN_NO_PICTURES = 10
@@ -72,7 +79,14 @@ function startViewer($) {
     let stream
     try {
         stream = $.process.spawn({
-            argv: ['node', $.plugin.root + '/hooks/view.mjs', baseUrl + '/?pane=1', workDir],
+            argv: [
+                'node',
+                $.plugin.root + '/hooks/view.mjs',
+                baseUrl + '/?pane=1',
+                workDir,
+                String(PAGE_WIDTH),
+                String(PAGE_HEIGHT),
+            ],
         })
     } catch (error) {
         current.failed = String(error)
@@ -323,9 +337,25 @@ export function register(on) {
             return next(e)
         }
         const { Box, Text, Button, Image } = $.ui.resolve(e)
-        const columns = Math.max(20, Math.min(MAX_PICTURE_COLUMNS, e.props.bodyColumns))
         if (!viewer || !Image) {
             return Box({ flexDirection: 'column', children: [Text({ dimColor: true, children: ['Waddling in…'] })] })
+        }
+        const key = ({ key: hotkey, label }) =>
+            Button({ key: 'key-' + hotkey, label, hotkey, plain: true, onPress: () => void sendKey($, hotkey) })
+        const phraseKeys = phrases.map((phrase, index) => ({ key: String(index + 1), label: phrase.text }))
+        // The picture takes the width of the pane, or less when the pane is too low for that: a pane above
+        // the prompt is wide and low. The rows the key labels take are an estimate, because they wrap.
+        const width = e.props.bodyColumns
+        const labelCells = (keys) => keys.reduce((sum, { label }) => sum + label.length + 5, 0)
+        const keyRows = Math.ceil(labelCells(KEYS) / width) + Math.ceil(labelCells(phraseKeys) / width)
+        const columns = Math.floor(
+            Math.min(MAX_PICTURE_COLUMNS, width, (e.props.scroll.bodyRows - keyRows) / ROWS_PER_COLUMN)
+        )
+        if (columns < MIN_PICTURE_COLUMNS) {
+            return Box({
+                flexDirection: 'column',
+                children: [Text({ dimColor: true, wrap: 'wrap', children: [TOO_SMALL] })],
+            })
         }
         const picture = viewer.failed
             ? Text({ color: 'red', wrap: 'wrap', children: ["Can't show the club: " + viewer.failed] })
@@ -338,19 +368,12 @@ export function register(on) {
                     alt: NO_PICTURES,
                 })
               : Text({ dimColor: true, children: ['Starting the town… (Chrome opens it without a window)'] })
-        const key = ({ key: hotkey, label }) =>
-            Button({ key: 'key-' + hotkey, label, hotkey, plain: true, onPress: () => void sendKey($, hotkey) })
         return Box({
             flexDirection: 'column',
             children: [
                 picture,
                 Box({ flexDirection: 'row', columnGap: 2, flexWrap: 'wrap', children: KEYS.map(key) }),
-                Box({
-                    flexDirection: 'row',
-                    columnGap: 2,
-                    flexWrap: 'wrap',
-                    children: phrases.map((phrase, index) => key({ key: String(index + 1), label: phrase.text })),
-                }),
+                Box({ flexDirection: 'row', columnGap: 2, flexWrap: 'wrap', children: phraseKeys.map(key) }),
             ],
         })
     })

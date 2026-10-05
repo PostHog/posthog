@@ -1384,28 +1384,43 @@ export function createTown(world, canvas) {
         camera.aspect = width / height
         camera.updateProjectionMatrix()
         // The toolbar covers the bottom of the stage, so the town stays above it.
-        // In a pane there is no toolbar to leave room for.
-        const bottom = document.body.classList.contains('pane') ? -0.97 : -1 + Math.min(0.3, 130 / height)
-        let near = 20
-        let far = 260
-        for (let pass = 0; pass < 22; pass++) {
-            const distance = (near + far) / 2
+        // A pane has no toolbar: there the town sits in the middle of the frame, with no empty band under it.
+        const isPane = document.body.classList.contains('pane')
+        const top = 0.97
+        const bottom = isPane ? -0.97 : -1 + Math.min(0.3, 130 / height)
+        // How far the camera is moved along its own up axis, in town units.
+        let lift = 0
+        const place = (/** @type {number} */ distance) => {
             camera.position.copy(focus).addScaledVector(fromFocus, distance)
             camera.lookAt(focus)
+            camera.translateY(lift)
             camera.updateMatrixWorld()
-            const fits = mustSee.every((point) => {
-                const projected = point.clone().project(camera)
-                return Math.abs(projected.x) <= 0.985 && projected.y <= 0.97 && projected.y >= bottom
-            })
-            if (fits) {
-                far = distance
-            } else {
-                near = distance
+        }
+        let far = 260
+        for (let round = 0; round < (isPane ? 3 : 1); round++) {
+            let near = 20
+            far = 260
+            for (let pass = 0; pass < 22; pass++) {
+                const distance = (near + far) / 2
+                place(distance)
+                const fits = mustSee.every((point) => {
+                    const projected = point.clone().project(camera)
+                    return Math.abs(projected.x) <= 0.985 && projected.y <= top && projected.y >= bottom
+                })
+                if (fits) {
+                    far = distance
+                } else {
+                    near = distance
+                }
+            }
+            place(far)
+            if (isPane) {
+                const heights = mustSee.map((point) => point.clone().project(camera).y)
+                const middle = (Math.min(...heights) + Math.max(...heights)) / 2
+                lift += (middle - (top + bottom) / 2) * far * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))
             }
         }
-        camera.position.copy(focus).addScaledVector(fromFocus, far)
-        camera.lookAt(focus)
-        camera.updateMatrixWorld()
+        place(far)
         // The fog starts behind the town, so it softens only the trees and mountains in the distance.
         scene.fog.near = far + 26
         scene.fog.far = far + 170

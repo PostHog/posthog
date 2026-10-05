@@ -3,18 +3,18 @@
 // It starts the Chrome on the machine without a window, opens the club in it, and asks Chrome for a picture
 // of the page as it changes (the DevTools screencast). Each picture goes to a PNG file that the terminal
 // reads and draws in the pane, and the mod sends key presses here over a Unix socket, which go to the page.
-// Usage: node view.mjs <club url> <work dir>
+// Usage: node view.mjs <club url> <work dir> <page width> <page height>
 import { spawn } from 'node:child_process'
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
 
-const [url, workDir] = process.argv.slice(2)
-const FRAME_EVERY_MS = 66
+const [url, workDir, width, height] = process.argv.slice(2)
+// The pane page draws 20 frames a second.
+const SCREENCAST_EVERY_NTH = 2
 const KEY_HELD_MS = 260
-// The size of an ordinary browser window, so the page lays out as it does on the web. The terminal scales it.
-const VIEW_WIDTH = 1280
-const VIEW_HEIGHT = 720
+const VIEW_WIDTH = Number(width)
+const VIEW_HEIGHT = Number(height)
 
 const CHROME_CANDIDATES = [
     process.env.CLUB_HOGUIN_CHROME,
@@ -151,16 +151,11 @@ async function main() {
         mobile: false,
     })
 
-    // Frames: Chrome sends one when the page changed; at most one in FRAME_EVERY_MS reaches the pane.
+    // Frames: Chrome encodes one picture for every SCREENCAST_EVERY_NTH frame the page draws, about 10 a second.
+    // Encoding every frame kept a whole processor core busy for pictures nobody saw.
     let frameNumber = 0
-    let lastFrameAt = 0
     devtools.on('Page.screencastFrame', (frame) => {
         devtools.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => undefined)
-        const now = Date.now()
-        if (now - lastFrameAt < FRAME_EVERY_MS) {
-            return
-        }
-        lastFrameAt = now
         frameNumber += 1
         const path = join(workDir, `frame-${frameNumber % 3}.png`)
         writeFileSync(path + '.tmp', Buffer.from(frame.data, 'base64'))
@@ -171,7 +166,7 @@ async function main() {
         format: 'png',
         maxWidth: VIEW_WIDTH,
         maxHeight: VIEW_HEIGHT,
-        everyNthFrame: 1,
+        everyNthFrame: SCREENCAST_EVERY_NTH,
     })
 
     // Keys: a press holds the key down on the page until the presses stop, like a terminal's auto-repeat.

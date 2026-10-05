@@ -108,10 +108,11 @@ test('/hoguin shows the club page in the pane and sends the keys to it', async (
     expect(spawns).toHaveLength(1)
     expect(spawns[0][1]).toMatch(/hooks\/view\.mjs$/)
     expect(spawns[0][2]).toBe('http://club.test/?pane=1')
+    expect(spawns[0].slice(4)).toEqual(['1280', '600'])
 
     const ui = await $.ui.mount(PANE)
     // The picture is as wide as the pane (80 columns here) and keeps the shape of the page.
-    expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ columns: 80, rows: 21 })
+    expect((await ui.find({ type: 'Image' }))?.props).toMatchObject({ columns: 80, rows: 18 })
     expect(await ui.find({ type: 'Button', text: 'Hi hogs! 👋' })).toBeDefined()
     await ui.press({ key: 'key-w' })
     await ui.press({ key: 'key-1' })
@@ -240,4 +241,21 @@ test('a club that cannot be reached shows the reason in the pane', async ($, on)
 
     const ui = await $.ui.mount(PANE)
     expect(await ui.find({ type: 'Text', text: /Can't reach Club Hoguin at http:\/\/club\.test/ })).toBeDefined()
+})
+
+test('a wide, low pane gets a picture that fits its height, and a tiny one says to widen the terminal', async ($, on) => {
+    setUp(on)
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+    await $.command.run({ command: 'hoguin', args: '' })
+    const pane = (bodyColumns: number, bodyRows: number): typeof PANE =>
+        ({ ...PANE, props: { ...PANE.props, bodyColumns, scroll: { offset: 0, bodyRows } } }) as typeof PANE
+
+    // 140 columns would need 31 rows. With 20 rows, 2 of them for the keys, the picture is 18 rows.
+    const low = await $.ui.mount(pane(140, 20))
+    expect((await low.find({ type: 'Image' }))?.props).toMatchObject({ columns: 81, rows: 18 })
+    await low.unmount()
+
+    const tiny = await $.ui.mount(pane(140, 10))
+    expect(await tiny.find({ type: 'Image' })).toBeUndefined()
+    expect(await tiny.find({ type: 'Text', text: /too small to show the club/ })).toBeDefined()
 })
