@@ -294,16 +294,24 @@ return {1}
 
 // Gives granted tokens back to buckets that still exist. Reads cap the pool at capacity, so
 // the pool may go over it here. A bucket that expired meanwhile already reads as full.
-//   KEYS[i] = bucket hash key
-//   ARGV[i] = tokens to give back to KEYS[i]
+// The marker makes a replayed return (ioredis resends unanswered commands on reconnect) a no-op.
+//   KEYS[1..n-1] = bucket hash keys
+//   KEYS[n]      = return marker key
+//   ARGV[i]      = tokens to give back to KEYS[i]
+//   ARGV[n]      = marker TTL seconds
 const RETURN_CLAIM_LUA = `
-for i = 1, #KEYS do
+if not redis.call('set', KEYS[#KEYS], 1, 'NX', 'EX', ARGV[#ARGV]) then
+    return 0
+end
+for i = 1, #KEYS - 1 do
     if redis.call('hexists', KEYS[i], 'pool') == 1 then
         redis.call('hincrbyfloat', KEYS[i], 'pool', ARGV[i])
     end
 end
 return 1
 `
+
+const RETURN_MARKER_TTL_SECONDS = 3600
 
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */
@@ -566,10 +574,12 @@ export class RateLimiterService {
 
     /**
      * Give the tokens of a granted claimAllOrNothing back, for a caller whose action did not
-     * happen. Errors are logged and swallowed: the tokens stay spent, which only makes the
-     * limit stricter. The same-slot rule of claimAllOrNothing applies to the keys.
+     * happen. `claimId` names the grant: a claim comes back at most once. Errors are logged
+     * and swallowed: the tokens stay spent, which only makes the limit stricter.
+     * The return marker key extends the first bucket key, so the same-slot rule of
+     * claimAllOrNothing covers it when that key carries the shared `{...}` hash tag.
      */
-    public async returnClaim(buckets: Pick<ClaimRequest, 'key' | 'requested'>[]): Promise<void> {
+    public async returnClaim(claimId: string, buckets: Pick<ClaimRequest, 'key' | 'requested'>[]): Promise<void> {
         const keys = buckets.map((bucket) => bucket.key)
         try {
             await this.valkey.useClient(
@@ -577,9 +587,11 @@ export class RateLimiterService {
                 (client) =>
                     client.eval(
                         RETURN_CLAIM_LUA,
-                        buckets.length,
+                        buckets.length + 1,
                         ...keys,
-                        ...buckets.map((bucket) => String(bucket.requested))
+                        `${keys[0]}/returned/${claimId}`,
+                        ...buckets.map((bucket) => String(bucket.requested)),
+                        String(RETURN_MARKER_TTL_SECONDS)
                     )
             )
         } catch (err) {

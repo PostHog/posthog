@@ -1,4 +1,4 @@
-import { createHash } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { type DefaultTreeAdapterMap, defaultTreeAdapter, parse, serialize } from 'parse5'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
@@ -36,7 +36,7 @@ function emptyRouteSettings(config: SandboxEmailSenderConfig): string[] {
         .map((setting) => ROUTE_SETTING_NAMES[setting])
 }
 
-export type SandboxDailyCapGrant = { type: 'granted'; buckets: ClaimRequest[] }
+export type SandboxDailyCapGrant = { type: 'granted'; claimId: string; buckets: ClaimRequest[] }
 
 export type SandboxDailyCapClaim =
     | SandboxDailyCapGrant
@@ -199,7 +199,7 @@ export class SandboxEmailSender {
         ]
         const claim = await this.dailyCapLimiter.claimAllOrNothing(buckets)
         if (claim.granted) {
-            return { type: 'granted', buckets }
+            return { type: 'granted', claimId: randomUUID(), buckets }
         }
         if (claim.deniedIndexes === null) {
             return { type: 'check_failed' }
@@ -211,7 +211,7 @@ export class SandboxEmailSender {
     }
 
     public async returnDailyCaps(grant: SandboxDailyCapGrant): Promise<void> {
-        await this.dailyCapLimiter?.returnClaim(grant.buckets)
+        await this.dailyCapLimiter?.returnClaim(grant.claimId, grant.buckets)
     }
 
     public async withIdentificationFooter(

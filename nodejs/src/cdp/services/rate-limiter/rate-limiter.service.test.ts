@@ -413,4 +413,18 @@ describe('RateLimiterService', () => {
             expect([first.reserved, second.reserved, third.reserved]).toEqual([true, false, false])
         })
     })
+
+    describe('returnClaim', () => {
+        it('gives a claim back once, even when the return is replayed', async () => {
+            const bucket = { key: `${KEY}/return`, requested: 1, capacity: 2, refillPerSecond: 0 }
+            expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: true })
+            expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: true })
+
+            await limiter.returnClaim('claim-1', [bucket])
+            await limiter.returnClaim('claim-1', [bucket])
+
+            expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: true })
+            expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
+        })
+    })
 })
