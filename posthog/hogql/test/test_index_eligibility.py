@@ -681,7 +681,10 @@ class TestIndexEligibilityAnalysis(BaseTest):
         assert usage.fix is not None
 
     def test_metadata_marks_only_the_literal_a_quickfix_rewrites(self) -> None:
-        query = "select count() from events where properties.$browser_version = 120"
+        # Bounded on timestamp, so the only warning is the one the quickfix rewrites.
+        query = (
+            "select count() from events where properties.$browser_version = 120 and timestamp > now() - interval 7 day"
+        )
         columns: MaterializedColumnsByTable = {
             "events": {("$browser_version", "properties"): _materialized("$browser_version", bloom=True)}
         }
@@ -718,3 +721,17 @@ class TestIndexEligibilityAnalysis(BaseTest):
 
         assert response.isUsingIndices == QueryIndexUsage.UNDECISIVE
         assert response.index_usage == []
+
+    def test_metadata_reports_an_events_scan_with_no_time_range(self) -> None:
+        response = self._metadata("select count() from events where event = '$pageview'")
+
+        assert response.unpruned_scans is not None
+        [scan] = response.unpruned_scans
+        assert scan.table_name == "events"
+        assert scan.partition_key == "toYYYYMM(timestamp)"
+        assert scan.fix
+
+    def test_metadata_reports_no_scan_once_the_time_range_is_bounded(self) -> None:
+        response = self._metadata("select count() from events where timestamp > now() - interval 7 day")
+
+        assert response.unpruned_scans == []

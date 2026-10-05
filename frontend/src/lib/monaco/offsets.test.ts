@@ -30,6 +30,16 @@ describe('characterOffsetToUtf16', () => {
         expect(text.slice(utf16Offset)).toBe(characters.slice(characterOffset).join(''))
     })
 
+    it('lands an insertion after a table reference rather than inside it', () => {
+        // A "no time range" fix inserts after `events`. The parser reports that end as 39 characters,
+        // and Monaco holds 40 units, so the unconverted offset would split the word.
+        const query = "SELECT countIf(event = '🎉') FROM events"
+        const utf16Offset = characterOffsetToUtf16(query, 39)
+
+        expect(query.slice(0, utf16Offset)).toBe(query)
+        expect(query.slice(0, 39)).not.toBe(query)
+    })
+
     it('clamps an offset past the end of the text', () => {
         expect(characterOffsetToUtf16('abc', 99)).toBe(3)
     })

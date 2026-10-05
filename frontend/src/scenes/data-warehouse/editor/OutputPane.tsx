@@ -634,7 +634,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         metadataLoading,
         indexReportStale,
     } = useValues(sqlEditorLogic)
-    const { setSourceQuery, applyIndexQuickfix, fixIndexUsageWithAI } = useActions(sqlEditorLogic)
+    const { setSourceQuery, applyQueryFix, applyIndexQuickfix, fixIndexUsageWithAI } = useActions(sqlEditorLogic)
     const { responseLoading: fixWithAILoading } = useValues(fixSQLErrorsLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -958,8 +958,10 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         <div className="OutputPane flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
             <QueryIndexUsageBar
                 predicates={metadata?.index_usage ?? []}
+                scans={metadata?.unpruned_scans ?? []}
                 refreshing={metadataLoading}
                 stale={indexReportStale}
+                onApplyFix={applyQueryFix}
                 onApplyQuickfix={applyIndexQuickfix}
                 onFixWithAI={fixIndexUsageWithAI}
                 fixWithAILoading={fixWithAILoading}

@@ -5722,14 +5722,13 @@ class HogQLAutocompleteResponse(BaseModel):
     )
 
 
-class HogQLNotice(BaseModel):
+class HogQLFixEdit(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    end: int | None = None
-    fix: str | None = None
-    message: str
-    start: int | None = None
+    end: int
+    start: int
+    text: str
 
 
 class HogQLPropertyFilter(BaseModel):
@@ -18296,6 +18295,25 @@ class HBOSDetectorConfig(BaseModel):
     )
 
 
+class HogQLFixAction(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    edits: list[HogQLFixEdit] = Field(..., description="Applied together as a single undoable edit.")
+    title: str = Field(..., description="Shown as the quick-fix title.")
+
+
+class HogQLNotice(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end: int | None = None
+    fix: str | None = None
+    fix_action: HogQLFixAction | None = None
+    message: str
+    start: int | None = None
+
+
 class IQRDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -20470,23 +20488,6 @@ class QueryResponseAlternative6(BaseModel):
             " access."
         ),
     )
-
-
-class QueryResponseAlternative9(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    ch_table_names: list[str] | None = None
-    errors: list[HogQLNotice]
-    index_usage: list[PredicateIndexUsage] | None = Field(
-        default=None, description="One entry per property filter, in query order."
-    )
-    isUsingIndices: QueryIndexUsage | None = None
-    isValid: bool | None = None
-    notices: list[HogQLNotice]
-    query: str | None = None
-    table_names: list[str] | None = None
-    warnings: list[HogQLNotice]
 
 
 class QueryResponseAlternative11(BaseModel):
@@ -25273,6 +25274,28 @@ class TraceSpansSymbolStatsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class UnprunedTableScan(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    end: int | None = None
+    fix: str = Field(
+        ...,
+        description=("Advice naming a predicate that would bound the partition key. Prose, not replacement text."),
+    )
+    fix_action: HogQLFixAction | None = Field(
+        default=None,
+        description=("Absent when the query shape has no unambiguous place to write the bound."),
+    )
+    message: str
+    partition_key: str = Field(
+        ...,
+        description=("Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`."),
+    )
+    start: int | None = None
+    table_name: str
+
+
 class UsageMetricsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -27629,6 +27652,10 @@ class HogQLMetadataResponse(BaseModel):
     notices: list[HogQLNotice]
     query: str | None = None
     table_names: list[str] | None = None
+    unpruned_scans: list[UnprunedTableScan] | None = Field(
+        default=None,
+        description=("One entry per table scan with no bound on its partition key. Empty when every scan is bounded."),
+    )
     warnings: list[HogQLNotice]
 
 
@@ -28766,6 +28793,27 @@ class QueryResponseAlternative8(BaseModel):
             " the user can't access."
         ),
     )
+
+
+class QueryResponseAlternative9(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    ch_table_names: list[str] | None = None
+    errors: list[HogQLNotice]
+    index_usage: list[PredicateIndexUsage] | None = Field(
+        default=None, description="One entry per property filter, in query order."
+    )
+    isUsingIndices: QueryIndexUsage | None = None
+    isValid: bool | None = None
+    notices: list[HogQLNotice]
+    query: str | None = None
+    table_names: list[str] | None = None
+    unpruned_scans: list[UnprunedTableScan] | None = Field(
+        default=None,
+        description=("One entry per table scan with no bound on its partition key. Empty when every scan is bounded."),
+    )
+    warnings: list[HogQLNotice]
 
 
 class QueryResponseAlternative17(BaseModel):

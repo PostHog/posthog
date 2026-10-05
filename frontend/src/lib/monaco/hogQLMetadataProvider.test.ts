@@ -20,24 +20,18 @@ describe('hogQLMetadataProvider', () => {
     const codeActionsAt = (
         markers: ModelMarker[],
         activeMarker: ModelMarker,
-        { metadataLoading = false, modelText = SCRIPT }: { metadataLoading?: boolean; modelText?: string } = {}
+        { metadataLoading = false, markersAreStale = false } = {}
     ): languagesCodeAction[] => {
-        const starts = lineStarts(modelText)
+        const starts = lineStarts(SCRIPT)
         const model = {
             uri: 'inmemory://model/1',
             codeEditorLogic: {
                 isMounted: () => true,
-                props: { metadataQueryOffset: SECOND_STATEMENT_OFFSET },
-                values: {
-                    modelMarkers: markers,
-                    metadataLoading,
-                    // The metadata query covered the second statement.
-                    metadata: [SCRIPT.slice(SECOND_STATEMENT_OFFSET), {}],
-                },
+                values: { modelMarkers: markers, metadataLoading, markersAreStale },
             },
             getOffsetAt: ({ lineNumber, column }: { lineNumber: number; column: number }) =>
                 starts[lineNumber - 1] + column - 1,
-            getValue: () => modelText,
+            getValue: () => SCRIPT,
             getVersionId: () => MODEL_VERSION,
         }
         const result = hogQLMetadataProvider().provideCodeActions?.(
@@ -54,15 +48,11 @@ describe('hogQLMetadataProvider', () => {
         edit?: { edits: { versionId?: number }[] }
     }
 
-    // `event = 'pageview'` sits in the second statement. Its statement-relative offsets are small,
-    // while its line and column point past the first statement.
+    // `event = 'pageview'` sits in the second statement, so its line and column point past the first.
     const taxonomyMarker = (): ModelMarker =>
         ({
             message: "Event 'pageview' was not found in this project taxonomy.",
             hogQLFix: "'$pageview'",
-            // Relative to the second statement, which is what the metadata query covered.
-            start: SCRIPT.indexOf("'pageview'") - SECOND_STATEMENT_OFFSET,
-            end: SCRIPT.indexOf("'pageview'") - SECOND_STATEMENT_OFFSET + "'pageview'".length,
             startLineNumber: 2,
             startColumn: SCRIPT.indexOf("'pageview'") - SECOND_STATEMENT_OFFSET + 1,
             endLineNumber: 2,
@@ -79,16 +69,21 @@ describe('hogQLMetadataProvider', () => {
         expect(actions[0].edit?.edits[0].versionId).toEqual(MODEL_VERSION)
     })
 
-    // Typing before the analyzed statement shifts the text under the stored marker range, and a
-    // refresh in flight means the stored ranges are about to be replaced. Either way the offered
-    // edit would land on the wrong text.
-    it.each([
-        ['metadata is still loading', { metadataLoading: true }],
-        ['the model text has moved on from the analyzed text', { modelText: ` ${SCRIPT}` }],
-    ])('offers nothing when %s', (_, options) => {
+    it('offers nothing while the metadata reload is in flight', () => {
         const marker = taxonomyMarker()
 
-        const actions = codeActionsAt([marker], marker, options)
+        // The markers still describe the previous query text, so their ranges may be stale.
+        const actions = codeActionsAt([marker], marker, { metadataLoading: true })
+
+        expect(actions).toEqual([])
+    })
+
+    it('offers nothing when the markers describe text the editor has moved past', () => {
+        const marker = taxonomyMarker()
+
+        // A failed reload keeps the previous markers while metadataLoading returns to false. Monaco
+        // applies a code action's edits directly, so the provider is the only place to stop them.
+        const actions = codeActionsAt([marker], marker, { markersAreStale: true })
 
         expect(actions).toEqual([])
     })
