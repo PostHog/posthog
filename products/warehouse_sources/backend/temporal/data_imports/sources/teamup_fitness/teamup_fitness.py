@@ -28,7 +28,7 @@ def build_config(
     if settings.sort:
         params["sort"] = settings.sort
 
-    return {
+    rest_config: RESTAPIConfig = {
         "client": {
             "base_url": f"https://goteamup.com/api/{api_version}/",
             "auth": {"type": "bearer", "token": config.m2m_token},
@@ -58,6 +58,7 @@ def build_config(
             }
         ],
     }
+    return rest_config
 
 
 def validate_credentials(config: TeamupFitnessSourceConfig, team_id: int, api_version: str) -> None:
