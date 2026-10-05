@@ -27,6 +27,14 @@ class DeletePersonsMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     DELETE_PERSONS_MODE_HARD: _ClassVar[DeletePersonsMode]
     DELETE_PERSONS_MODE_TOMBSTONE: _ClassVar[DeletePersonsMode]
 
+class VersionFloorOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    VERSION_FLOOR_OUTCOME_UNSPECIFIED: _ClassVar[VersionFloorOutcome]
+    VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED: _ClassVar[VersionFloorOutcome]
+    VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED: _ClassVar[VersionFloorOutcome]
+    VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR: _ClassVar[VersionFloorOutcome]
+    VERSION_FLOOR_OUTCOME_LIVE: _ClassVar[VersionFloorOutcome]
+
 class LifecycleOpType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     LIFECYCLE_OP_TYPE_UNSPECIFIED: _ClassVar[LifecycleOpType]
@@ -42,6 +50,11 @@ class ReleaseOutcome(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
 DELETE_PERSONS_MODE_UNSPECIFIED: DeletePersonsMode
 DELETE_PERSONS_MODE_HARD: DeletePersonsMode
 DELETE_PERSONS_MODE_TOMBSTONE: DeletePersonsMode
+VERSION_FLOOR_OUTCOME_UNSPECIFIED: VersionFloorOutcome
+VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED: VersionFloorOutcome
+VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED: VersionFloorOutcome
+VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR: VersionFloorOutcome
+VERSION_FLOOR_OUTCOME_LIVE: VersionFloorOutcome
 LIFECYCLE_OP_TYPE_UNSPECIFIED: LifecycleOpType
 LIFECYCLE_OP_TYPE_DELETE: LifecycleOpType
 LIFECYCLE_OP_TYPE_MERGE: LifecycleOpType
@@ -654,6 +667,45 @@ class SetPersonVersionFloorResponse(_message.Message):
     UPDATED_FIELD_NUMBER: _ClassVar[int]
     updated: bool
     def __init__(self, updated: bool = ...) -> None: ...
+
+class PersonVersionFloor(_message.Message):
+    __slots__ = ("person_uuid", "min_version")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    MIN_VERSION_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    min_version: int
+    def __init__(self, person_uuid: _Optional[str] = ..., min_version: _Optional[int] = ...) -> None: ...
+
+class EnsurePersonVersionFloorsRequest(_message.Message):
+    __slots__ = ("team_id", "floors")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    FLOORS_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    floors: _containers.RepeatedCompositeFieldContainer[PersonVersionFloor]
+    def __init__(
+        self, team_id: _Optional[int] = ..., floors: _Optional[_Iterable[_Union[PersonVersionFloor, _Mapping]]] = ...
+    ) -> None: ...
+
+class PersonVersionFloorResult(_message.Message):
+    __slots__ = ("person_uuid", "outcome", "version")
+    PERSON_UUID_FIELD_NUMBER: _ClassVar[int]
+    OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    VERSION_FIELD_NUMBER: _ClassVar[int]
+    person_uuid: str
+    outcome: VersionFloorOutcome
+    version: int
+    def __init__(
+        self,
+        person_uuid: _Optional[str] = ...,
+        outcome: _Optional[_Union[VersionFloorOutcome, str]] = ...,
+        version: _Optional[int] = ...,
+    ) -> None: ...
+
+class EnsurePersonVersionFloorsResponse(_message.Message):
+    __slots__ = ("results",)
+    RESULTS_FIELD_NUMBER: _ClassVar[int]
+    results: _containers.RepeatedCompositeFieldContainer[PersonVersionFloorResult]
+    def __init__(self, results: _Optional[_Iterable[_Union[PersonVersionFloorResult, _Mapping]]] = ...) -> None: ...
 
 class FencePersonRequest(_message.Message):
     __slots__ = ("team_id", "person_id", "op_id", "op_type")

@@ -104,4 +104,9 @@ from personhog.types.v1.person_pb2 import (
     SplitPersonRequest,
     SplitPersonResponse,
     SplitResult,
+    VersionFloorOutcome,
+    PersonVersionFloor,
+    EnsurePersonVersionFloorsRequest,
+    EnsurePersonVersionFloorsResponse,
+    PersonVersionFloorResult,
 )
