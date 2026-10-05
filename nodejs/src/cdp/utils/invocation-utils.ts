@@ -93,6 +93,7 @@ export async function buildHogFunctionInvocations(
             const globalsWithSource = {
                 ...triggerGlobals,
                 source: {
+                    id: hogFunction.id,
                     name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
                     url: `${triggerGlobals.project.url}/functions/${hogFunction.id}/configuration/`,
                 },

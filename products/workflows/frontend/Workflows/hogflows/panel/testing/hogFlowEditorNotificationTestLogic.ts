@@ -460,7 +460,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
                 }
 
                 actions.setSampleGlobalsError(null)
-                const globals = createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow.name)
+                const globals = createGlobalsFromResponse(event, person, values.workflow.team_id, values.workflow)
                 actions.loadSamplePersonByDistinctIdSuccess(globals)
             } catch (error: any) {
                 actions.setSampleGlobalsError(`Failed to load person: ${error.message || 'Unknown error'}`)
@@ -503,12 +503,7 @@ export const hogFlowEditorNotificationTestLogic = kea<hogFlowEditorNotificationT
         loadSamplePersonsFailure: () => {
             // Only create example person if loading fails
             if (!values.sampleGlobals) {
-                const exampleGlobals = createExampleEvent(
-                    values.workflow.team_id,
-                    values.workflow.name,
-                    '$pageview',
-                    ''
-                )
+                const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow, '$pageview', '')
                 actions.setSampleGlobals(JSON.stringify(exampleGlobals, null, 2))
             }
         },

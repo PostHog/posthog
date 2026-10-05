@@ -120,6 +120,7 @@ Inputs are keyed by the template's input schema, each wrapped in `{value: ...}`:
 
 - **Wrap values in `{value: ...}`.** A flat string won't enable templating.
 - Templating uses **single-curly** `{person.x}` / `{event.x}` inside the value string. Liquid-style `{{ ... }}` is rejected on hog-templated fields ("Placeholders are not allowed in this context") — the only fields that accept Liquid are ones whose input schema declares `templating: liquid` (the email input on `function_email` does; most others don't).
+- Every step can also read the workflow that runs it: `{source.id}` is the workflow id, `{source.workflow_name}` its current name, `{source.name}` is `<workflow name> - <step template name>`, and `{source.url}` links to the step in the editor.
 - **Dictionary input values are template strings too** — write booleans/numbers as single-expression templates: `"{true}"`, `"{42}"`, which evaluate to the typed value.
 - Required inputs must be present, or create fails with "This field is required".
 

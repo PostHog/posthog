@@ -65,8 +65,10 @@ export function buildSampleGlobals(
             url: 'https://example.com/project/1',
         },
         source: {
-            name: 'Example step',
-            url: 'https://example.com/project/1/workflows/1',
+            id: '0192f0e1-5555-5555-5555-555555555555',
+            name: 'Example workflow - Example step',
+            url: 'https://example.com/project/1/workflows/0192f0e1-5555-5555-5555-555555555555/workflow',
+            workflow_name: 'Example workflow',
         },
     }
 

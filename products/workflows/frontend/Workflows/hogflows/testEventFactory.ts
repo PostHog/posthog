@@ -9,11 +9,23 @@ import {
     isSlackMessageTriggerConfig,
 } from './registry/triggers/slackTriggerFilters'
 
+export type ExampleWorkflow = { id?: string; name?: string | null }
+
+// Mirrors the `source` the worker attaches to every step invocation (buildHogFunctionInvocation).
+export const createExampleSource = (
+    workflow?: ExampleWorkflow | null
+): NonNullable<CyclotronJobInvocationGlobals['source']> => ({
+    id: workflow?.id ?? '',
+    name: workflow?.name ?? 'Unnamed',
+    url: window.location.href.split('#')[0],
+    workflow_name: workflow?.name ?? '',
+})
+
 // A pure, kea-free factory for a synthetic test event/person - kept out of hogFlowEditorTestLogic
 // so callers that only need example data don't pull in the workflow editor's kea logic graph.
 export const createExampleEvent = (
     teamId?: number,
-    workflowName?: string | null,
+    workflow?: ExampleWorkflow | null,
     eventName: string = '$pageview',
     email: string = 'example@posthog.com'
 ): CyclotronJobInvocationGlobals => {
@@ -49,10 +61,7 @@ export const createExampleEvent = (
             name: 'Default project',
             url: projectUrl,
         },
-        source: {
-            name: workflowName ?? 'Unnamed',
-            url: window.location.href.split('#')[0],
-        },
+        source: createExampleSource(workflow),
     }
 }
 
@@ -65,7 +74,7 @@ export const createExampleEvent = (
 // filter added through `additional` (e.g. on `text` or `subtype`) - those still need manual edits.
 export const createExampleSlackMessageEvent = (
     teamId?: number,
-    workflowName?: string | null,
+    workflow?: ExampleWorkflow | null,
     filters: Partial<SlackTriggerFilters> = {}
 ): CyclotronJobInvocationGlobals => {
     const resolvedTeamId = teamId || 1
@@ -126,10 +135,7 @@ export const createExampleSlackMessageEvent = (
             name: 'Default project',
             url: projectUrl,
         },
-        source: {
-            name: workflowName ?? 'Unnamed',
-            url: window.location.href.split('#')[0],
-        },
+        source: createExampleSource(workflow),
     }
 }
 
@@ -139,11 +145,11 @@ export const createExampleSlackMessageEvent = (
 export const createExampleEventForTrigger = (
     triggerConfig: unknown,
     teamId?: number,
-    workflowName?: string | null
+    workflow?: ExampleWorkflow | null
 ): CyclotronJobInvocationGlobals => {
     if (isSlackMessageTriggerConfig(triggerConfig)) {
         const decoded = decodeSlackFilters(triggerConfig.filters.properties)
-        return createExampleSlackMessageEvent(teamId, workflowName, decoded)
+        return createExampleSlackMessageEvent(teamId, workflow, decoded)
     }
-    return createExampleEvent(teamId, workflowName)
+    return createExampleEvent(teamId, workflow)
 }

@@ -98,14 +98,17 @@ export class HogFlowFunctionsService {
     ): Promise<CyclotronJobInvocationHogFunction> {
         const teamId = invocation.hogFlow.team_id
         const projectUrl = `${this.siteUrl}/project/${teamId}`
+        const actionId = invocation.state.currentAction?.id
 
         const globalsWithSource: HogFunctionInvocationGlobals = {
             ...globals,
             // Include workflow-level variables
             variables: invocation.state.variables,
             source: {
+                id: invocation.hogFlow.id,
                 name: hogFunction.name ?? `Hog flow: ${invocation.hogFlow.id}`,
-                url: `${projectUrl}/workflows/${invocation.hogFlow.id}/workflow?node=${hogFunction.id}`,
+                url: `${projectUrl}/workflows/${invocation.hogFlow.id}/workflow${actionId ? `?node=${encodeURIComponent(actionId)}` : ''}`,
+                workflow_name: invocation.hogFlow.name,
             },
             project: {
                 id: hogFunction.team_id,

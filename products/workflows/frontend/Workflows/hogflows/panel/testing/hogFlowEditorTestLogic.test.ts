@@ -147,12 +147,12 @@ describe('hogFlowEditorTestLogic', () => {
                 [event, { id: 'p1', properties: {} }, ['2021-01-01', 0, 'org-1', '{}', '2021-01-02']],
                 groupTypes
             )
-            const globals = createGlobalsFromResponse(event, { id: 'p1', properties: {} }, 1, 'wf', groups)
+            const globals = createGlobalsFromResponse(event, { id: 'p1', properties: {} }, 1, { name: 'wf' }, groups)
             expect(globals.groups?.organization?.id).toEqual('org-1')
         })
 
         it('defaults groups to an empty object', () => {
-            const globals = createGlobalsFromResponse(event, undefined, 1, 'wf')
+            const globals = createGlobalsFromResponse(event, undefined, 1, { name: 'wf' })
             expect(globals.groups).toEqual({})
         })
     })
@@ -177,7 +177,7 @@ describe('hogFlowEditorTestLogic', () => {
                     },
                 },
                 1,
-                'wf'
+                { name: 'wf' }
             )
 
             expect(globals.event.event).toEqual('$slack_message_received')
@@ -213,7 +213,7 @@ describe('hogFlowEditorTestLogic', () => {
                     filters: { source: 'internal-events', events: [{ id: '$slack_message_received', type: 'events' }] },
                 },
                 1,
-                'wf'
+                { name: 'wf' }
             )
 
             expect(globals.event.event).toEqual('$slack_message_received')
@@ -254,17 +254,18 @@ describe('hogFlowEditorTestLogic', () => {
                     },
                 },
                 1,
-                'wf'
+                { name: 'wf' }
             )
 
             assertion(globals.event.properties)
         })
 
         it('returns the standard example event for event triggers', () => {
-            const globals = createExampleEventForTrigger({ type: 'event', filters: {} }, 1, 'wf')
+            const globals = createExampleEventForTrigger({ type: 'event', filters: {} }, 1, { id: 'wf-id', name: 'wf' })
 
             expect(globals.event.event).toEqual('$pageview')
             expect(globals.person).not.toBeUndefined()
+            expect(globals.source).toMatchObject({ id: 'wf-id', workflow_name: 'wf' })
         })
     })
 

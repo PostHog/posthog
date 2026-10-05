@@ -431,7 +431,7 @@ export const hogFlowOutputMappingLogic = kea<hogFlowOutputMappingLogicType>([
                 actions.setTestResultData(null)
 
                 try {
-                    const sampleGlobals = values.sampleGlobals ?? createExampleEvent(workflow.team_id, workflow.name)
+                    const sampleGlobals = values.sampleGlobals ?? createExampleEvent(workflow.team_id, workflow)
 
                     const variableDefaults =
                         workflow.variables?.reduce(
