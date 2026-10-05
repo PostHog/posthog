@@ -30,7 +30,6 @@ import { engineeringAnalyticsEmptyState } from 'products/engineering_analytics/f
 import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyState/errorTrackingEmptyState'
 import { experimentsEmptyState } from 'products/experiments/frontend/emptyState/experimentsEmptyState'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
-import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptyState'
 import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
@@ -186,10 +185,6 @@ export const BusinessKnowledgeNeedsSetup: ProductEmptyStateStory = productEmptyS
 
 export const EndpointsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(endpointsEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/endpoints/': [200, emptyEntityList] } },
-})
-
-export const LinksNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(linksEmptyState, 'needs-setup', {
-    mocks: { get: { '/api/projects/:team_id/links/': [200, emptyEntityList] } },
 })
 
 export const ProductToursNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(

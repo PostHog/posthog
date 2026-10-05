@@ -73,6 +73,7 @@ from products.replay_vision.backend.temporal.network_tool import (
     dispatch_network_tool,
     network_tool,
 )
+from products.replay_vision.backend.temporal.pii_check import keep_unrequested_pii_out
 from products.replay_vision.backend.temporal.scanners import scanner_from_snapshot
 from products.replay_vision.backend.temporal.scanners.base import (
     STEP_CORE,
@@ -97,6 +98,7 @@ from products.replay_vision.backend.temporal.types import (
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerSnapshot,
+    SessionIdentity,
 )
 from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 
@@ -323,7 +325,16 @@ async def run_scan(
         network_index=network_index,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
     )
-    finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
+    # Before citations resolve, so a rewrite keeps the `(t N)` markers the segment parser reads.
+    checked = await keep_unrequested_pii_out(
+        outcome.finalized,
+        team_id=team_id,
+        question=getattr(scanner, "prompt", "") or "",
+        identity_values=_identity_values(llm_inputs.identity),
+        scanner_type=snapshot.scanner_type.value,
+        trace_id=trace_id if trace_id is not None else str(uuid4()),
+    )
+    finalized = _resolve_citations(checked, scanner, duration_ms, video_clock)
     finalized = finalized.model_copy(
         update={"key_moment_ms": _key_moment_session_ms(outcome.key_moment_video_s, duration_ms, video_clock)}
     )
@@ -336,6 +347,12 @@ async def run_scan(
         # Read off `outcome.signals`, which is still on the video clock; `signals` above is not.
         signal_video_spans=[(s.start_time, s.end_time) for s in outcome.signals],
     )
+
+
+def _identity_values(identity: SessionIdentity) -> list[str]:
+    """The values `<session_identity>` lets a scanner name when its question asks who the session belongs to."""
+    values = [identity.person_email, identity.person_name, identity.person_organization]
+    return [value for value in [*values, *(group.name for group in identity.groups)] if value]
 
 
 def _scan_trace_id(inputs: CallScannerProviderInputs) -> str:

@@ -4539,38 +4539,6 @@ export namespace Schemas {
     }
 
     /**
-     * Schema for a single active breakpoint
-     */
-    export interface ActiveBreakpoint {
-      /** Unique identifier for the breakpoint */
-      id: string;
-      /**
-         * Repository identifier (e.g., 'PostHog/posthog')
-         * @nullable
-         */
-      repository?: string | null;
-      /** File path where the breakpoint is set */
-      filename: string;
-      /** Line number of the breakpoint */
-      line_number: number;
-      /** Whether the breakpoint is enabled */
-      enabled: boolean;
-      /**
-         * Optional condition for the breakpoint
-         * @nullable
-         */
-      condition?: string | null;
-    }
-
-    /**
-     * Response schema for active breakpoints endpoint
-     */
-    export interface ActiveBreakpointsResponse {
-      /** List of active breakpoints */
-      breakpoints: ActiveBreakpoint[];
-    }
-
-    /**
      * * `not_started` - not_started
      * * `queued` - queued
      * * `in_progress` - in_progress
@@ -7283,6 +7251,13 @@ export namespace Schemas {
       Yes: 'yes',
     } as const;
 
+    export interface HogQLMetadataColumn {
+      /** Output column name, in the same order as the SELECT list. */
+      name: string;
+      /** Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative. */
+      type: string;
+    }
+
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
@@ -7291,6 +7266,8 @@ export namespace Schemas {
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
+      /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+      output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];
@@ -17833,45 +17810,6 @@ export namespace Schemas {
     export interface BreakdownValue {
       count: number;
       value: string;
-    }
-
-    /**
-     * Local variables at the time of the hit
-     */
-    export type BreakpointHitVariables = { [key: string]: unknown };
-
-    /**
-     * Schema for a single breakpoint hit event
-     */
-    export interface BreakpointHit {
-      /** Unique identifier for the hit event */
-      id: string;
-      /** Line number where the breakpoint was hit */
-      lineNumber: number;
-      /** Name of the function where breakpoint was hit */
-      functionName: string;
-      /** When the breakpoint was hit */
-      timestamp: string;
-      /** Local variables at the time of the hit */
-      variables: BreakpointHitVariables;
-      /** Stack trace at the time of the hit */
-      stackTrace: unknown[];
-      /** ID of the breakpoint that was hit */
-      breakpoint_id: string;
-      /** Filename where the breakpoint was hit */
-      filename: string;
-    }
-
-    /**
-     * Response schema for breakpoint hits endpoint
-     */
-    export interface BreakpointHitsResponse {
-      /** List of breakpoint hit events */
-      results: BreakpointHit[];
-      /** Number of results returned */
-      count: number;
-      /** Whether there are more results available */
-      has_more: boolean;
     }
 
     export interface BriefAnchors {
@@ -36975,8 +36913,44 @@ export namespace Schemas {
          * @maxItems 10
          */
       links?: ReportLinkWrite[];
-      /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. */
+      /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why. */
       supersedes_implementation?: boolean;
+      /** Optional new actionability call, for when new evidence changed your judgment. Replaces the report's actionability decision and re-runs autostart: `immediately_actionable` can open a draft PR, `requires_human_input` and `not_actionable` stop autostart from opening one. The report's inbox status does not change. Send it with `actionability_explanation`, and with `already_addressed` when the issue is handled, since the three replace the decision as one unit.
+       *
+       * * `immediately_actionable` - immediately_actionable
+       * * `requires_human_input` - requires_human_input
+       * * `not_actionable` - not_actionable */
+      actionability?: ActionabilityEnum | null;
+      /**
+         * 2-3 sentence evidence-grounded justification for `actionability`. Required when you set it.
+         * @nullable
+         */
+      actionability_explanation?: string | null;
+      /**
+         * Whether the issue is already handled: fixed, or with a fix in flight. Part of the actionability decision, so it requires `actionability` and `actionability_explanation` too; omitted means false. Set it when a fix lands or starts, so autostart does not open a duplicate PR.
+         * @nullable
+         */
+      already_addressed?: boolean | null;
+      /** Optional new priority (`P0`-`P4`), for when the issue escalated or eased. Replaces the report's priority and re-runs autostart, which needs a priority to open a draft PR. Requires `priority_explanation`.
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      priority?: AutonomyPriorityEnum | null;
+      /**
+         * 2-3 sentence justification for `priority`. Required when `priority` is set.
+         * @nullable
+         */
+      priority_explanation?: string | null;
+    }
+
+    export interface EditReportWarning {
+      /** The request field the edit did not apply. */
+      field: string;
+      /** Why the field was not applied. The rest of the edit landed. */
+      message: string;
     }
 
     export interface EditReportResponse {
@@ -37020,6 +36994,10 @@ export namespace Schemas {
       content_revision_count: number;
       /** Whether the edit recorded that the report's pull request should be replaced. False when you did not ask for it, when the edit changed no content, or when the report has already been rewritten too many times. */
       supersedes_implementation: boolean;
+      /** Which work decisions the edit replaced (`actionability`, `priority`). Empty when you set none, or re-sent the decisions the report already held. */
+      decision_fields_set: string[];
+      /** Request fields the edit did not apply, each with the reason. Empty when every field applied. */
+      warnings: EditReportWarning[];
       /** Whether your note raised the report's corroboration count instead of landing as its own entry. Only notes marked corroboration_only can collapse; free-form notes remain in the work log. */
       corroboration_collapsed: boolean;
     }
@@ -44446,7 +44424,7 @@ export namespace Schemas {
        * * `failed` - Failed
        * * `ineligible` - Ineligible */
       readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned / pii_detected. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
@@ -56212,6 +56190,8 @@ export namespace Schemas {
       filters?: HogQLFilters | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
+      /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
+      includeOutputTypes?: boolean | null;
       /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
       indexUsage?: boolean | null;
       kind?: 'HogQLMetadata';
@@ -59123,37 +59103,6 @@ export namespace Schemas {
       teams: LinearTeam[];
     }
 
-    export interface Link {
-      readonly id: string;
-      /**
-         * Destination the short link redirects to.
-         * @maxLength 2048
-         */
-      redirect_url: string;
-      /**
-         * Domain the short link is hosted on. Only phog.gg is accepted.
-         * @maxLength 255
-         */
-      short_link_domain: string;
-      /**
-         * The unique code/path that identifies the short link, e.g. 'abc123'
-         * @maxLength 255
-         */
-      short_code: string;
-      /**
-         * Free-form note about what the link is for.
-         * @nullable
-         */
-      description?: string | null;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-      /** User who created the link. Null when that user was deleted. */
-      readonly created_by: UserBasic | null;
-      /** Folder path to file the link under in the project tree. */
-      _create_in_folder?: string;
-    }
-
     /**
      * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
      * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
@@ -59200,23 +59149,6 @@ export namespace Schemas {
        * * `Running` - Running
        * * `Starting` - Starting */
       status: BatchExportRunStatusEnum;
-    }
-
-    export interface LiveDebuggerBreakpoint {
-      readonly id: string;
-      /** @nullable */
-      repository?: string | null;
-      filename: string;
-      /**
-         * @minimum 0
-         * @maximum 2147483647
-         */
-      line_number: number;
-      enabled?: boolean;
-      /** @nullable */
-      condition?: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
     }
 
     export interface LlmEvalReportSignalExtra {
@@ -62826,6 +62758,12 @@ export namespace Schemas {
       n_features: number;
       /** The numeric feature column names (excludes distinct_id, __label, __fold). */
       feature_cols: string[];
+      /** Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql over the whole inference population on every cadence, so a slow query here is slow there too. */
+      elapsed_s: number;
+      /** Rows ClickHouse read to materialize the matrix. */
+      rows_read: number;
+      /** Advice on the cost of features_sql. A hint does not block the materialization or the upload, but a champion whose features.sql cannot score today's population in time is not promoted. */
+      hints: string[];
     }
 
     /**
@@ -65539,6 +65477,29 @@ export namespace Schemas {
       Number9: 9,
     } as const;
 
+    export interface OrganizationMemberNoticeAction {
+      /**
+         * Text on the button shown next to the notice.
+         * @maxLength 40
+         */
+      label: string;
+      /**
+         * Link the button opens in a new tab. Must use http or https.
+         * @maxLength 2000
+         */
+      url: string;
+    }
+
+    export interface OrganizationMemberNotice {
+      /**
+         * HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.
+         * @maxLength 1000
+         */
+      message: string;
+      /** Optional link button shown on the right of the banner. */
+      action?: OrganizationMemberNoticeAction | null;
+    }
+
     export interface Organization {
       readonly id: string;
       /** @maxLength 64 */
@@ -65583,6 +65544,8 @@ export namespace Schemas {
          * @nullable
          */
       read_only_mcp_access?: boolean | null;
+      /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+      member_notice?: OrganizationMemberNotice | null;
       readonly member_count: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -67474,15 +67437,6 @@ export namespace Schemas {
       results: LegalDocumentDTO[];
     }
 
-    export interface PaginatedLinkList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: Link[];
-    }
-
     export interface PaginatedListOutputList {
       count: number;
       /** @nullable */
@@ -67490,15 +67444,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ListOutput[];
-    }
-
-    export interface PaginatedLiveDebuggerBreakpointList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: LiveDebuggerBreakpoint[];
     }
 
     export interface PaginatedLogsAlertConfigurationList {
@@ -77878,54 +77823,6 @@ export namespace Schemas {
       version_description?: string;
     }
 
-    export interface PatchedLink {
-      readonly id?: string;
-      /**
-         * Destination the short link redirects to.
-         * @maxLength 2048
-         */
-      redirect_url?: string;
-      /**
-         * Domain the short link is hosted on. Only phog.gg is accepted.
-         * @maxLength 255
-         */
-      short_link_domain?: string;
-      /**
-         * The unique code/path that identifies the short link, e.g. 'abc123'
-         * @maxLength 255
-         */
-      short_code?: string;
-      /**
-         * Free-form note about what the link is for.
-         * @nullable
-         */
-      description?: string | null;
-      readonly created_at?: string;
-      /** @nullable */
-      readonly updated_at?: string | null;
-      /** User who created the link. Null when that user was deleted. */
-      readonly created_by?: UserBasic | null;
-      /** Folder path to file the link under in the project tree. */
-      _create_in_folder?: string;
-    }
-
-    export interface PatchedLiveDebuggerBreakpoint {
-      readonly id?: string;
-      /** @nullable */
-      repository?: string | null;
-      filename?: string;
-      /**
-         * @minimum 0
-         * @maximum 2147483647
-         */
-      line_number?: number;
-      enabled?: boolean;
-      /** @nullable */
-      condition?: string | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-    }
-
     export interface PatchedLogsAlertConfiguration {
       /** Unique identifier for this alert. */
       readonly id?: string;
@@ -78560,6 +78457,8 @@ export namespace Schemas {
          * @nullable
          */
       read_only_mcp_access?: boolean | null;
+      /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+      member_notice?: OrganizationMemberNotice | null;
       readonly member_count?: number;
       /** @nullable */
       is_ai_data_processing_approved?: boolean | null;
@@ -86622,6 +86521,8 @@ export namespace Schemas {
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
+      /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+      output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];
@@ -119555,60 +119456,6 @@ export namespace Schemas {
     export type JsSnippetVersionRetrieve200 = { [key: string]: unknown };
 
     export type JsSnippetVersionPartialUpdate200 = { [key: string]: unknown };
-
-    export type LinksListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type LiveDebuggerBreakpointsListParams = {
-    filename?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    repository?: string;
-    };
-
-    export type LiveDebuggerBreakpointsActiveRetrieveParams = {
-    /**
-     * Only return enabled breakpoints
-     */
-    enabled?: boolean;
-    /**
-     * Filter breakpoints for a specific file
-     */
-    filename?: string;
-    /**
-     * Filter breakpoints for a specific repository (e.g., 'PostHog/posthog')
-     */
-    repository?: string;
-    };
-
-    export type LiveDebuggerBreakpointsBreakpointHitsRetrieveParams = {
-    /**
-     * Filter hits for specific breakpoints (repeat parameter for multiple IDs, e.g., ?breakpoint_ids=uuid1&breakpoint_ids=uuid2)
-     */
-    breakpoint_ids?: string;
-    /**
-     * Number of hits to return (default: 100, max: 1000)
-     */
-    limit?: number;
-    /**
-     * Pagination offset for retrieving additional results (default: 0)
-     */
-    offset?: number;
-    };
 
     export type LlmAnalyticsClusteringJobsListParams = {
     /**

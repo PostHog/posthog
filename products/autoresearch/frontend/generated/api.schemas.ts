@@ -1122,6 +1122,12 @@ export interface MaterializeFeaturesResponseApi {
     n_features: number
     /** The numeric feature column names (excludes distinct_id, __label, __fold). */
     feature_cols: string[]
+    /** Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql over the whole inference population on every cadence, so a slow query here is slow there too. */
+    elapsed_s: number
+    /** Rows ClickHouse read to materialize the matrix. */
+    rows_read: number
+    /** Advice on the cost of features_sql. A hint does not block the materialization or the upload, but a champion whose features.sql cannot score today's population in time is not promoted. */
+    hints: string[]
 }
 
 /**

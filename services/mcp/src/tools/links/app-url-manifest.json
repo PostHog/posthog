@@ -1059,21 +1059,6 @@
         "params": [],
         "scope": "project"
     },
-    "link": {
-        "template": "/link/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "links": {
-        "template": "/links",
-        "params": [],
-        "scope": "project"
-    },
-    "liveDebugger": {
-        "template": "/live-debugger",
-        "params": [],
-        "scope": "project"
-    },
     "login": {
         "template": "/login",
         "params": [],
