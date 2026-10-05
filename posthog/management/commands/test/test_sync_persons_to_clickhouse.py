@@ -147,6 +147,36 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(ch_persons, [(UUID(uuid), self.team.pk, "{}", False, 6, True)])
 
+    @parameterized.expand([("persons",), ("distinct_ids",)])
+    def test_deletes_fail_when_kafka_leaves_messages_undelivered(self, path):
+        if path == "persons":
+            create_person(uuid=str(uuid4()), team_id=self.team.pk, version=5, properties={})
+        else:
+            person_uuid = uuid4()
+            with persons_db_connection(writer=True, autocommit=True) as conn:
+                person_id = insert_seed_person(conn, team_id=self.team.pk, properties={}, version=0, uuid=person_uuid)
+                insert_seed_distinct_id(
+                    conn, team_id=self.team.pk, person_id=person_id, distinct_id="test-id", version=7
+                )
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE posthog_persondistinctid SET is_deleted = true WHERE team_id = %s AND distinct_id = %s",
+                        [self.team.pk, "test-id"],
+                    )
+            create_person_distinct_id(
+                team_id=self.team.pk, distinct_id="test-id", person_id=str(person_uuid), is_deleted=False, version=3
+            )
+
+        with (
+            fake_personhog_client(),
+            mock.patch(f"{SYNC_MODULE}.flush_all_producers", return_value=2),
+            pytest.raises(SystemExit),
+        ):
+            if path == "persons":
+                run_person_sync(self.team.pk, live_run=True, deletes=True, force=True)
+            else:
+                run_distinct_id_sync(self.team.pk, live_run=True, deletes=True)
+
     def test_deletes_refuse_a_large_share_of_persons_missing_from_postgres(self):
         uuid = create_person(uuid=str(uuid4()), team_id=self.team.pk, version=5, properties={"abc": 123})
 

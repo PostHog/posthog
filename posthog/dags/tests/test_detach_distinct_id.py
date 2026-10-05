@@ -107,7 +107,7 @@ class TestTombstoneDistinctIdRow:
     def test_tombstones_the_row_and_returns_the_stamped_version(self, row):
         cursor = _make_cursor(fetchone_values=[row])
 
-        version = _tombstone_distinct_id_row(cursor, PDI_ID, min_version=1)
+        version = _tombstone_distinct_id_row(cursor, PDI_ID, person_pk=PERSON_PK, min_version=1)
 
         assert version == PDI_VERSION + 1
         sql = cursor.execute.call_args.args[0]
@@ -120,7 +120,7 @@ class TestTombstoneDistinctIdRow:
         cursor = _make_cursor(fetchone_values=[None])
 
         with pytest.raises(RuntimeError, match="disappeared"):
-            _tombstone_distinct_id_row(cursor, PDI_ID, min_version=1)
+            _tombstone_distinct_id_row(cursor, PDI_ID, person_pk=PERSON_PK, min_version=1)
 
 
 class TestPublishDeletionToKafka:
@@ -470,6 +470,40 @@ class TestDetachDistinctIdIntegration:
             {"team_id": team.id, "distinct_id": pdi_detach.distinct_id},
         )
         assert override == [(UUID(override_target), expected_version)]
+
+    def test_fails_without_tombstoning_when_the_distinct_id_moves_after_the_lookup(
+        self, team, person_with_two_distinct_ids
+    ):
+        person, _pdi_keep, pdi_detach = person_with_two_distinct_ids
+        with self._get_persons_conn() as conn, conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO posthog_person (team_id, uuid, properties, is_identified, version, created_at, properties_last_updated_at, properties_last_operation) "
+                "VALUES (%s, %s, '{}', false, 0, NOW(), '{}', '{}') RETURNING id",
+                [team.id, str(uuid_module.uuid4())],
+            )
+            other_person_id = cursor.fetchone()[0]
+
+        def move_then_read(team_id: int, distinct_id: str) -> int:
+            with self._get_persons_conn() as conn, conn.cursor() as cursor:
+                cursor.execute(
+                    "UPDATE posthog_persondistinctid SET person_id = %s WHERE id = %s", [other_person_id, pdi_detach.id]
+                )
+            return 0
+
+        producer = MagicMock()
+        with (
+            patch("posthog.dags.detach_distinct_id._clickhouse_max_version", side_effect=move_then_read),
+            self._get_persons_conn() as conn,
+        ):
+            result = detach_distinct_id_job.execute_in_process(
+                run_config=self._run_config(team.id, str(person.uuid), dry_run=False),
+                resources={"persons_database": conn, "kafka_producer": producer},
+                raise_on_error=False,
+            )
+
+        assert not result.success
+        assert self._pdi_state(pdi_detach.id) == (False, pdi_detach.version)
+        producer.produce.assert_not_called()
 
     @patch("posthog.dags.detach_distinct_id.sync_execute")
     def test_fails_on_person_id_mismatch(self, mock_sync_execute, team, person_with_two_distinct_ids):

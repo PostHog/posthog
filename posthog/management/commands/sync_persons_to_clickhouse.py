@@ -172,6 +172,7 @@ def _tombstone_persons_above_clickhouse(team_id: int, floors: list[PersonVersion
     failure leaves no committed tombstone unpublished.
     """
     skipped_live = 0
+    undelivered = 0
     try:
         for i in range(0, len(floors), PERSONHOG_BATCH_SIZE):
             for result in ensure_person_version_floors(team_id, floors[i : i + PERSONHOG_BATCH_SIZE]):
@@ -181,9 +182,17 @@ def _tombstone_persons_above_clickhouse(team_id: int, floors: list[PersonVersion
                     continue
                 _publish_person_tombstone(team_id, result.uuid, result.version)
     finally:
-        flush_all_producers(5 * 60)
+        undelivered = flush_all_producers(5 * 60)
+    _exit_if_undelivered(undelivered)
     if skipped_live:
         logger.warning(f"Skipped {skipped_live} persons that the Postgres primary holds live")
+
+
+def _exit_if_undelivered(undelivered: int) -> None:
+    # Postgres already holds the versions these messages carry, so a rerun republishes them.
+    if undelivered:
+        logger.error(f"{undelivered} Kafka messages were not delivered; rerun the command to republish them")
+        exit(1)
 
 
 def _publish_person_tombstone(team_id: int, uuid: UUID, version: int) -> None:
@@ -241,6 +250,7 @@ def _tombstone_distinct_ids_above_clickhouse(
     published only when the primary still holds it.
     """
     distinct_ids = list(ch_versions)
+    undelivered = 0
     try:
         for i in range(0, len(distinct_ids), PERSONHOG_BATCH_SIZE):
             batch = distinct_ids[i : i + PERSONHOG_BATCH_SIZE]
@@ -267,7 +277,8 @@ def _tombstone_distinct_ids_above_clickhouse(
                     is_deleted=row.is_deleted,
                 )
     finally:
-        flush_all_producers(5 * 60)
+        undelivered = flush_all_producers(5 * 60)
+    _exit_if_undelivered(undelivered)
 
 
 def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):

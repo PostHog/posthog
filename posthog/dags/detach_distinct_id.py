@@ -138,21 +138,24 @@ def _clickhouse_max_version(team_id: int, distinct_id: str) -> int:
 def _tombstone_distinct_id_row(
     cursor: psycopg2.extensions.cursor,
     pdi_id: int,
+    person_pk: int,
     min_version: int,
 ) -> int:
-    """Tombstone the row at ``min_version`` or above and return the version it was stamped with."""
+    """Tombstone the row at ``min_version`` or above while it still belongs to ``person_pk``; return its version."""
     cursor.execute(
         """
         UPDATE posthog_persondistinctid
         SET is_deleted = true, version = GREATEST(COALESCE(version, 0) + 1, %s)
-        WHERE id = %s AND is_deleted = false
+        WHERE id = %s AND person_id = %s AND is_deleted = false
         RETURNING version
         """,
-        [min_version, pdi_id],
+        [min_version, pdi_id, person_pk],
     )
     row = cursor.fetchone()
     if row is None:
-        raise RuntimeError(f"posthog_persondistinctid id={pdi_id} disappeared between lookup and tombstone")
+        raise RuntimeError(
+            f"posthog_persondistinctid id={pdi_id} disappeared or moved off person {person_pk} between lookup and tombstone"
+        )
     return row["version"] if isinstance(row, dict) else row[0]
 
 
@@ -255,7 +258,9 @@ def detach_distinct_id_op(
             return
 
         ch_max_version = _clickhouse_max_version(config.team_id, config.distinct_id)
-        version = _tombstone_distinct_id_row(cursor, info["pdi_id"], min_version=ch_max_version + 1)
+        version = _tombstone_distinct_id_row(
+            cursor, info["pdi_id"], person_pk=info["person_pk"], min_version=ch_max_version + 1
+        )
         persons_database.commit()
         log.info(
             f"Tombstoned posthog_persondistinctid id={info['pdi_id']} "
