@@ -1426,9 +1426,11 @@ def latest_structured_output_for_source(
             continue
         try:
             payload = json.loads(output) if isinstance(output, str) else output
-        except json.JSONDecodeError:
+            verified = isinstance(payload, dict) and is_signed_structured_output(str(run_id), payload, signature)
+        except (json.JSONDecodeError, RecursionError):
+            # The writer canonicalizes the same way, so the channel never signed a payload nested past the recursion limit.
             continue
-        if isinstance(payload, dict) and is_signed_structured_output(str(run_id), payload, signature):
+        if verified:
             return ScoutStructuredRecord(
                 payload=payload, recorded_at=run_start, skill_name=skill_name, run_id=str(run_id)
             )

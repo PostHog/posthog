@@ -6,6 +6,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 from django.apps import apps
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from products.signals.backend.facade.api import latest_structured_output_for_source
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.structured_output_signature import (
@@ -78,11 +80,17 @@ class TestLatestStructuredOutputForSource(ClickhouseTestMixin, APIBaseTest):
         assert (record.run_id, record.skill_name) == (str(second.id), analysis.skill_name)
         assert latest_structured_output_for_source(self.team.id, _SOURCE_PRODUCT, "scanner-c", tag=_TAG) is None
 
-    def test_skips_a_malformed_record_and_returns_an_older_valid_one(self) -> None:
+    @parameterized.expand(
+        [
+            ("not_json", "{not json"),
+            ("nested_past_the_recursion_limit", '{"a":' + "[" * 1200 + "]" * 1200 + "}"),
+        ]
+    )
+    def test_skips_a_malformed_record_and_returns_an_older_valid_one(self, _name: str, output: str) -> None:
         analysis = self._scout("signals-scout-analysis", source_id="scanner-a", tags=[_TAG])
         first, second = self._run(analysis), self._run(analysis)
         self._record(analysis.skill_name, str(first.id), {"scanner_version": 1}, at=first.created_at)
-        self._record(analysis.skill_name, str(second.id), "{not json", at=second.created_at)
+        self._record(analysis.skill_name, str(second.id), output, at=second.created_at, signature="forged")
         flush_persons_and_events()
 
         record = latest_structured_output_for_source(self.team.id, _SOURCE_PRODUCT, "scanner-a", tag=_TAG)
