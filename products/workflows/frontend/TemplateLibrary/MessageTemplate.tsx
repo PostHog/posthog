@@ -122,6 +122,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     data-attr="cancel-message-template"
                                     type="secondary"
                                     onClick={() => resetTemplate(originalTemplate)}
+                                    disabledReason={isTemplateSubmitting ? 'Wait for the save to finish' : undefined}
                                     size="small"
                                 >
                                     Discard changes
