@@ -24,6 +24,9 @@ export function BroadcastContentStep(): JSX.Element {
 
     const hasSenders = !!integrations?.some((integration) => integration.kind === 'email')
     const senderUnverified = !!selectedSender && selectedSender.config?.verified !== true
+    // A deleted sender would otherwise show as its bare id, so the picker shows nothing chosen instead.
+    const senderMissing = !!email.from?.integrationId && !!integrations && !selectedSender
+    const editorValue = senderMissing ? { ...email, from: { ...email.from, integrationId: undefined } } : email
 
     // Closing the modal after Continue also keeps the sender it created or verified.
     const closeSenderSetup = (integrationId?: number): void => {
@@ -94,7 +97,7 @@ export function BroadcastContentStep(): JSX.Element {
                 type="native_email"
                 templating="liquid"
                 liveChanges
-                value={email as unknown as EmailTemplate}
+                value={editorValue as unknown as EmailTemplate}
                 defaultValue={DEFAULT_BROADCAST_EMAIL as unknown as EmailTemplate}
                 onChange={(value) => setEmail(value as unknown as BroadcastEmailValue)}
                 variables={buildSampleGlobals({ type: 'batch' }, null)}
