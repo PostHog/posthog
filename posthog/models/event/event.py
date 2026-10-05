@@ -26,27 +26,30 @@ class SelectorPart:
     direct_descendant = False
     unique_order = 0
 
-    def __init__(self, tag: str, direct_descendant: bool, escape_slashes: bool):
+    def __init__(self, tag: str, direct_descendant: bool, escape_slashes: bool, legacy_attribute_tag: bool = False):
         self.direct_descendant = direct_descendant
         self.data: dict[str, Union[str, list]] = {}
         self.ch_attributes: dict[str, Union[str, list]] = {}  # attributes for CH
 
         result = re.search(SELECTOR_ATTRIBUTE_REGEX, tag)
-        pairs = self._attribute_pairs(tag, result)
-        self.confine_to_element = bool(pairs)
+        pairs = self._attribute_pairs(tag, result, legacy_attribute_tag)
+        # The legacy parse keeps only the letters just before the "[", so .btn[x="1"] reads as
+        # tag btn with no class. selector_to_expr still matches it, so that no count drops.
+        prefix = (result[1] if legacy_attribute_tag else tag[: result.end(1)]) if result else tag
+        self.confine_to_element = bool(pairs) or (result is not None and prefix != result[1])
         if result and pairs:
             for key, value in pairs.items():
                 self.data[f"attributes__attr__{key}"] = value
                 self.ch_attributes[key] = value
-            tag = result[1]
+            tag = prefix
         if result and "[id=" in tag:
             self.data["attr_id"] = result[3]
             self.ch_attributes["attr_id"] = result[3]
-            tag = result[1]
+            tag = prefix
         if result and "[" in tag:
             self.data[f"attributes__attr__{result[2]}"] = result[3]
             self.ch_attributes[result[2]] = result[3]
-            tag = result[1]
+            tag = prefix
         if ":nth-child(" in tag:
             parts = tag.split(":nth-child(")
             self.data["nth_child"] = parts[1].replace(")", "")
@@ -89,13 +92,18 @@ class SelectorPart:
         return {"where": where, "params": params}
 
     @staticmethod
-    def _attribute_pairs(tag: str, result: Optional[re.Match[str]]) -> dict[str, str]:
+    def _attribute_pairs(tag: str, result: Optional[re.Match[str]], legacy_attribute_tag: bool) -> dict[str, str]:
         # The greedy SELECTOR_ATTRIBUTE_REGEX folds [a="1"][b="2"], or a value with a nested
         # quote, into one key that contains a quote. The chain escapes quotes inside keys and
         # values, so that key can never match. Only those parts are parsed again, which means
         # a selector that matches events today compiles exactly as before.
-        # A prefix like .btn or :nth-child(2) before the tag letters is not parsed here.
-        if not result or tag[: result.start(1)] or "[id=" in tag or not re.search(r"[\"']", result[2]):
+        # The legacy parse drops a prefix like .btn or :nth-child(2) before the tag letters.
+        if (
+            not result
+            or (legacy_attribute_tag and tag[: result.start(1)])
+            or "[id=" in tag
+            or not re.search(r"[\"']", result[2])
+        ):
             return {}
         # Fall back unless the pairs run to the end of the part, so a trailing .class or a
         # repeated key never turns into a match that ignores it.
@@ -114,7 +122,7 @@ class SelectorPart:
 class Selector:
     parts: list[SelectorPart] = []
 
-    def __init__(self, selector: str, escape_slashes=True):
+    def __init__(self, selector: str, escape_slashes=True, legacy_attribute_tag: bool = False):
         self.parts = []
         # Sometimes people manually add *, just remove them as they don't do anything
         selector = selector.replace("> * > ", "").replace("> *", "").replace("\\:", ":").strip()
@@ -125,7 +133,7 @@ class Selector:
             if tag == ">" or tag == "":
                 continue
             direct_descendant = index > 0 and tags[index - 1] == ">"
-            part = SelectorPart(tag, direct_descendant, escape_slashes)
+            part = SelectorPart(tag, direct_descendant, escape_slashes, legacy_attribute_tag)
             part.unique_order = len([p for p in self.parts if p.data == part.data])
             self.parts.append(copy.deepcopy(part))
 
