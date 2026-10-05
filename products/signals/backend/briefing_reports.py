@@ -463,7 +463,7 @@ def _trimmed(text: str | None, limit: int) -> str:
 
 
 _MARKDOWN_HEADING_LINE = re.compile(r"^ {0,3}#{1,6}(?:[ \t].*)?$", re.MULTILINE)
-# A `chart:` link alone in its paragraph places a chart in the report body. Plain text has no chart to
+# A paragraph of only `chart:` links places charts in the report body. Plain text has no chart to
 # place, so that paragraph goes. Inside a sentence the label is part of the prose, so the label stays.
 # Load-bearing: the label and destination classes exclude `[`. Without that, a summary of unclosed
 # brackets makes each start position rescan the rest of the text, which costs seconds per summary.
@@ -481,7 +481,7 @@ def summary_lead(summary: str | None, limit: int) -> str:
     sections = _MARKDOWN_HEADING_LINE.split(summary or "")
     lead = next((section for section in sections if section.strip()), "")
     paragraphs = _MARKDOWN_PARAGRAPH_BREAK.split(lead)
-    lead = "\n\n".join(p for p in paragraphs if not _MARKDOWN_CHART_LINK.fullmatch(p.strip()))
+    lead = "\n\n".join(p for p in paragraphs if _MARKDOWN_CHART_LINK.sub("", p).strip())
     lead = _MARKDOWN_LINK.sub(r"\1", lead)
     return _trimmed(_MARKDOWN_EMPHASIS.sub("", lead), limit)
 

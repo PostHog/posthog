@@ -318,6 +318,11 @@ class TestSummaryLead(SimpleTestCase):
                 "Leaks **typed text**.\n\n  [Page leaves](chart:page-leaves)  \n\nSee the form.",
                 "Leaks typed text. See the form.",
             ),
+            (
+                "drops a paragraph of several chart links",
+                "Signups fell.\n\n[Daily](chart:daily)\n[Weekly](chart:weekly)\n\nMore.",
+                "Signups fell. More.",
+            ),
             ("leaves a malformed chart link", "The [delay](chart:a rose.", "The [delay](chart:a rose."),
             ("no summary", None, ""),
         ]
