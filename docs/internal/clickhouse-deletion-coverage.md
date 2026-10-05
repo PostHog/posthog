@@ -66,6 +66,7 @@ The rest are bound to a single handle and refuse rather than skip when a target 
 
 - Property removal. It fans out one chain of copy, delete, reingest and verify ops per table and shard of one cluster.
   Each op runs its SQL on a host of its own shard.
+  Each copy records the maximum `inserted_at` it observed for that target. The copy, pre-delete count, mutation and verification reuse that bound, so a later row stays outside the destructive set.
 - The deferred queue fill. Both halves of its `INSERT` are host-local: the source table it reads and the `adhoc_events_deletion` queue it writes.
 
 ### Getting the dictionaries onto the second cluster

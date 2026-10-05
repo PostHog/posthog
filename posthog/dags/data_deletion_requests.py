@@ -1009,13 +1009,17 @@ _COPIED, _DELETE_STARTED, _DELETED, _REINGESTED, _VERIFIED = (
 _LONG_QUERY_SETTINGS = {"max_execution_time": 86400}
 
 
+def _datetime64_str(value: datetime) -> str:
+    value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return value.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
 def _marker_str(deletion_request: DeletionRequestContext) -> str:
-    marker = deletion_request.inserted_at_marker
-    if marker is None:
+    if deletion_request.inserted_at_marker is None:
         raise dagster.Failure(description="property_removal_marker missing; load_property_removal_request must set it")
     # clickhouse-driver serializes a Python datetime with second precision, which truncates the
     # marker. A string with microseconds, cast in SQL, keeps the full precision.
-    return marker.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+    return _datetime64_str(deletion_request.inserted_at_marker)
 
 
 def _compile_predicate(deletion_request: DeletionRequestContext, target: PropertyRemovalTarget) -> tuple[str, dict]:
@@ -1070,6 +1074,20 @@ def _shard_predicate(
         json_schema=target.json_schema,
     )
     return _ShardPredicate(sql=sql, params=params, mat_cols=mat_cols + person_mat_cols)
+
+
+def _with_copied_inserted_at_bound(predicate: _ShardPredicate, copied_inserted_at_max: str | None) -> _ShardPredicate:
+    params = dict(predicate.params)
+    if copied_inserted_at_max is None:
+        inserted_at_sql = "inserted_at IS NULL"
+    else:
+        inserted_at_sql = "(inserted_at IS NULL OR inserted_at <= toDateTime64(%(copied_inserted_at_max)s, 6, 'UTC'))"
+        params["copied_inserted_at_max"] = copied_inserted_at_max
+    return _ShardPredicate(
+        sql=f"{predicate.sql} AND {inserted_at_sql}",
+        params=params,
+        mat_cols=predicate.mat_cols,
+    )
 
 
 @frozen
@@ -1223,6 +1241,11 @@ def _copy_property_removal_target(
 
     _sync_replica(client, target, log)
     predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
+    inserted_at_sql = f"SELECT maxOrNull(inserted_at) FROM {db}.{target.table} WHERE {predicate.sql}"
+    log("max-inserted-at", inserted_at_sql)
+    [[inserted_at_max]] = client.execute(inserted_at_sql, predicate.params, settings=_LONG_QUERY_SETTINGS)
+    copied_inserted_at_max = _datetime64_str(inserted_at_max) if inserted_at_max is not None else None
+    predicate = _with_copied_inserted_at_bound(predicate, copied_inserted_at_max)
     cleaned = _cleaned_select_list(client, deletion_request, target, predicate.mat_cols, marker_str)
 
     count_sql = (
@@ -1260,7 +1283,12 @@ def _copy_property_removal_target(
     if months and client.execute(residual_sql, _presence_params(deletion_request))[0][0]:
         raise dagster.Failure(description=f"[{target.mapping_key}] staged copy still carries target properties")
 
-    payload = {"rows": sum(months.values()), "months": months, "columns": cleaned.columns}
+    payload = {
+        "rows": sum(months.values()),
+        "months": months,
+        "columns": cleaned.columns,
+        "inserted_at_max": copied_inserted_at_max,
+    }
     staging.finish_step(client, _COPIED, payload)
     return payload
 
@@ -1330,6 +1358,7 @@ def delete_property_removal_shard(
 
         _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
+        predicate = _with_copied_inserted_at_bound(predicate, copied["inserted_at_max"])
         count_sql = (
             f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid) "
             f"FROM {db}.{target.table} WHERE {predicate.sql} GROUP BY month"
@@ -1516,6 +1545,7 @@ def verify_property_removal_shard(
 
         _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target, marker_str, hogql_compiled, log)
+        predicate = _with_copied_inserted_at_bound(predicate, copied["inserted_at_max"])
         remaining = client.execute(
             f"SELECT count() FROM {db}.{target.table} WHERE {predicate.sql}",
             predicate.params,

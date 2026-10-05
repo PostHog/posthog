@@ -2174,8 +2174,8 @@ def test_reexecuting_after_partial_delete_restores_every_row(cluster: Clickhouse
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("change", ["extra_original", "extra_original_after_delete_started"])
-def test_delete_refuses_when_originals_differ_from_the_staged_copy(cluster: ClickhouseCluster, change: str):
+@pytest.mark.parametrize("change", ["extra_original", "extra_original_after_delete_started", "newer_original"])
+def test_delete_guards_against_source_changes_after_copy(cluster: ClickhouseCluster, change: str):
     marker = timezone.now()
     now = datetime.now()
     props = json.dumps({"secret": "value", "keep": "yes"})
@@ -2193,7 +2193,9 @@ def test_delete_refuses_when_originals_differ_from_the_staged_copy(cluster: Clic
     if change == "extra_original_after_delete_started":
         cluster.any_host(lambda client: staging.finish_step(client, "delete_started", {"rows": 5})).result()
 
-    # An original the copy never saw, inside the marker bound. Deleting it would lose it.
+    unseen_inserted_at = marker - timedelta(minutes=30) if change == "newer_original" else marker - timedelta(hours=1)
+    # An original the copy never saw, inside the request marker bound. A row newer than the copy's
+    # inserted_at cutoff is outside its destructive set; an older row must make the delete refuse.
     unseen = (
         PROP_TEAM_ID,
         "$pageview",
@@ -2201,10 +2203,17 @@ def test_delete_refuses_when_originals_differ_from_the_staged_copy(cluster: Clic
         "user-1",
         now - timedelta(hours=1),
         props,
-        marker - timedelta(hours=1),
+        unseen_inserted_at,
     )
     cluster.any_host(partial(_insert_events_with_properties_and_inserted_at, [unseen])).result()
     expected = 6
+
+    if change == "newer_original":
+        delete_property_removal_shard(build_op_context(), cluster, target, ctx)
+        props_after = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+        assert len(props_after) == 1
+        assert "secret" in props_after[0]
+        return
 
     refusal = "not in the staged copy" if change == "extra_original_after_delete_started" else "differ from the staged"
     with pytest.raises(dagster.Failure, match=refusal):
