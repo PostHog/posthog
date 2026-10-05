@@ -272,6 +272,7 @@ API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
     // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
     batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
+    messaging_preference: 'OAuth-hidden: offered on project secret API keys.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
     wizard_run: 'OAuth-hidden: pasteable into a PAT but not advertised.',
@@ -296,6 +297,8 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'loop:write',
     'experiment:read',
     'offline_evaluation_ingestion:write',
+    'messaging_preference:read',
+    'messaging_preference:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -392,6 +395,7 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
+    { value: 'messaging_preferences', label: 'Messaging preference updates', scopes: ['messaging_preference:write'] },
 ]
 
 // The product areas that the scope pickers use to group objects, in display order. Each grantable
@@ -561,7 +565,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
     },
     {
         label: 'Internal tools',
-        objects: ['batch_import_support', 'query_performance', 'wizard_session', 'wizard_run'],
+        objects: ['batch_import_support', 'messaging_preference', 'query_performance', 'wizard_session', 'wizard_run'],
     },
 ]
 

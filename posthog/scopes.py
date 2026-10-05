@@ -97,6 +97,7 @@ APIScopeObject = Literal[
     "mcp_builtin_agent",
     "mcp_analytics",
     "mcp_registry",
+    "messaging_preference",
     "metrics",
     "notebook",
     "offline_evaluation_ingestion",
@@ -234,6 +235,9 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
         # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
         "batch_import_support",
+        # Built for project secret keys. Personal keys and OAuth clients keep using hog_flow
+        # for the messaging preference endpoints.
+        "messaging_preference",
     }
 )
 
@@ -269,6 +273,8 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
     ("offline_evaluation_ingestion", "write"),
+    ("messaging_preference", "read"),
+    ("messaging_preference", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
