@@ -5097,6 +5097,18 @@ class TestValidateCredentialsErrorMapping:
                 "Your database provider rejected the connection because PostHog's IP address isn't on its IP "
                 "allow list. Add PostHog's IP addresses to that allow list, then try again.",
             ),
+            (
+                'connection failed: connection to server at "203.0.113.20", port 5432 failed: '
+                "FATAL:  (EAUTHQUERY) user not found in the database",
+                "Your database doesn't have a user with the username you entered. Check the user for this "
+                "source and try again.",
+            ),
+            (
+                'connection failed: connection to server at "203.0.113.20", port 5432 failed: '
+                "FATAL:  (EAUTHQUERY) unsupported or invalid secret format",
+                "Your connection pooler can't check this user's password because of how your database "
+                "stores it. Reset the user's password in your database, then try again.",
+            ),
             # A proxy/pooler in front of some providers rejects bad credentials during its own
             # database-identification step, wrapping the rejection in its own sentence instead of
             # libpq's "password authentication failed for user".
