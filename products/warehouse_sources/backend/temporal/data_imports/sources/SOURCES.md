@@ -271,6 +271,7 @@ the row lists both.
 | docusign                         | HTTP                        | requests                                                        | ✅                          |
 | dodopayments                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | doit                             | HTTP                        | requests                                                        | ✅                          |
+| donorbox                         | HTTP                        | requests                                                        | ✅                          |
 | doppler                          | HTTP                        | requests                                                        | ✅                          |
 | dovetail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | drata                            | HTTP                        | requests                                                        | ✅                          |
@@ -1045,7 +1046,6 @@ doesn't conflict with concurrent PRs.
 - display_video_360
 - dokploy
 - dolibarr
-- donorbox
 - doorloop
 - doppler
 - dragonboat
