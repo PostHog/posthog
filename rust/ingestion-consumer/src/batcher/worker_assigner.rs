@@ -3,14 +3,6 @@ use std::collections::HashMap;
 use crate::routing::{Router, WorkerLoad};
 use crate::worker_registry::WorkerId;
 
-#[derive(Clone, Debug, Default)]
-pub struct WorkerPool {
-    pub healthy: Vec<WorkerId>,
-    /// Candidates for fresh requests: the aperture ring slice when narrowing
-    /// applies, otherwise the healthy pool.
-    pub candidates: Vec<WorkerId>,
-}
-
 pub struct WorkerAssigner {
     router: Router,
     max_requests_per_worker: usize,

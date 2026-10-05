@@ -14,7 +14,8 @@ use super::in_flight::{InFlightRequest, InFlightRequests, KeyOutcome, RequestId}
 use super::key_queues::{KeyQueues, KeyRun, Settled};
 use super::packer::{purge_request, PackTargets, PackedRequest, Packer};
 use super::request_class::RequestClass;
-use super::worker_assigner::{WorkerAssigner, WorkerPool};
+use super::worker_assigner::WorkerAssigner;
+use super::worker_pool::WorkerPool;
 use crate::routing::Router;
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;

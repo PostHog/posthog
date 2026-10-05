@@ -22,6 +22,7 @@ pub mod request_class;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod worker_assigner;
+pub mod worker_pool;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
