@@ -6,6 +6,7 @@ from requests import HTTPError
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
     EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
@@ -95,15 +96,13 @@ def sevenshifts_source(
             else (watermark - timedelta(seconds=1)).isoformat()
         )
 
-    resource_config: EndpointResource = {
-        "name": endpoint,
-        "endpoint": {
-            "path": f"{company_path(config.company_id)}/{endpoint}",
-            "params": params,
-            "data_selector": "data",
-            "data_selector_required": True,
-        },
+    endpoint_config: Endpoint = {
+        "path": f"{company_path(config.company_id)}/{endpoint}",
+        "params": params,
+        "data_selector": "data",
+        "data_selector_required": True,
     }
+    resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
