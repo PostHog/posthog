@@ -23,6 +23,7 @@ import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks
 import { AppContext, PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
 
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
+import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 import { clearApiCache, infiniteListLogic } from './infiniteListLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -127,6 +128,16 @@ describe('infiniteListLogic', () => {
 
         completeDashboardLoad()
         await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
+    })
+
+    it('serves the Experiments group, which nothing else mounts a logic for', () => {
+        const experimentsList = logicWith({
+            listGroupType: TaxonomicFilterGroupType.Experiments,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Experiments],
+        })
+
+        expect(experimentsLogic.isMounted()).toBe(true)
+        expect(experimentsList.values.rawLocalItems).toEqual([])
     })
 
     it.each([
