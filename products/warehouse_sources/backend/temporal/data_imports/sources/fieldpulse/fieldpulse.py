@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
     PaginatorConfig,
 )
@@ -124,15 +125,13 @@ def fieldpulse_source(
         "session": _session(api_key),
         "request_timeout": REQUEST_TIMEOUT,
     }
-    resource_config: EndpointResource = {
-        "name": endpoint,
-        "endpoint": {
-            "path": path,
-            "params": params,
-            "data_selector": "response",
-            "data_selector_required": True,
-        },
+    endpoint_config: Endpoint = {
+        "path": path,
+        "params": params,
+        "data_selector": "response",
+        "data_selector_required": True,
     }
+    resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
     config: RESTAPIConfig = {"client": client_config, "resources": [resource_config]}
     resource = rest_api_resource(
         config,
