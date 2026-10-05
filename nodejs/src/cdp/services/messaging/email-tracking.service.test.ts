@@ -752,11 +752,16 @@ describe('EmailTrackingService', () => {
             capture.mockRestore()
         })
 
-        const postDelivery = async (configurationSet: string, isTest: boolean): Promise<supertest.Response> => {
-            const trackingCode = signer.generate(
+        const postDelivery = async (
+            configurationSet: string,
+            isTest: boolean,
+            signedCode = true
+        ): Promise<supertest.Response> => {
+            const signedTrackingCode = signer.generate(
                 { functionId: 'function-id', id: 'invocation-id', teamId: team.id },
                 isTest
             )
+            const [unsignedTrackingCode] = signedTrackingCode.split('.')
             const sesRecord = {
                 eventType: 'Delivery',
                 mail: {
@@ -764,8 +769,11 @@ describe('EmailTrackingService', () => {
                     source: 'sandbox@example.com',
                     messageId: 'ses-message-id',
                     destination: ['member@example.com'],
-                    headers: [{ name: TRACKING_CODE_HEADER_NAME, value: trackingCode }],
-                    tags: { 'ses:configuration-set': [configurationSet] },
+                    headers: signedCode ? [{ name: TRACKING_CODE_HEADER_NAME, value: signedTrackingCode }] : [],
+                    tags: {
+                        'ses:configuration-set': [configurationSet],
+                        ...(signedCode ? {} : { ph_id: [unsignedTrackingCode] }),
+                    },
                 },
                 delivery: {
                     timestamp: '2024-01-01T00:00:01.000Z',
@@ -803,8 +811,11 @@ describe('EmailTrackingService', () => {
             }
         )
 
-        it('captures no delivered event for a delivery on another configuration set', async () => {
-            const res = await postDelivery('posthog-messaging-tracked', false)
+        it.each([
+            ['a delivery on another configuration set', 'posthog-messaging-tracked', true],
+            ['a sandbox delivery whose tracking code is not signed', sandboxConfigurationSet, false],
+        ])('captures no delivered event for %s', async (_name, configurationSet, signedCode) => {
+            const res = await postDelivery(configurationSet, false, signedCode)
 
             expect(res.status).toBe(200)
             expect(capture).not.toHaveBeenCalled()
