@@ -4043,7 +4043,7 @@ Note: learn.hex.tech renders the reference client-side from Docusaurus; the oper
 
 ## HiBob — **thin**
 
-Today (7): `candidates`, `employee_employment`, `employee_lifecycle`, `employee_salaries`, `employees`, `tasks`, `time_off_calendars`
+Today (10): `applications`, `candidates`, `employee_employment`, `employee_lifecycle`, `employee_salaries`, `employees`, `named_lists`, `tasks`, `time_off_calendars`, `time_off_request_changes`
 
 Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 
@@ -4051,11 +4051,11 @@ Diffed against: <https://apidocs.hibob.com/reference/get_tasks>
 - [x] `GET /bulk/people/lifecycle` — employee lifecycle state transitions (hire, promotion, termination) — the core HR history table (high)
 - [x] `GET /bulk/people/employment` — employment history rows per employee (contract, manager, site changes) rather than only current state (high)
 - [x] `GET /bulk/people/salaries` — compensation history, the headline HR analytics dataset (high)
-- [ ] `GET /timeoff/requests/changes` — time off request event stream plus GET /timeoff/employees/{id}/balance for balances (high)
-- [ ] `POST /attendance/entries/search` — clock in/out entries; also /attendance/daily-breakdown/search and /attendance/summaries/search for rollups (high)
-- [ ] `GET /company/named-lists` — lookup table resolving the list-value field ids stored on every employee record (high)
+- [x] `GET /timeoff/requests/changes` — time off request event stream plus GET /timeoff/employees/{id}/balance for balances (high). Added as `time_off_request_changes`, a full refresh of the last 180 days because the API rejects a `since` older than six months and rows carry no per-change timestamp. The balance endpoint is skipped: it is a point lookup per employee, policy type, and date, not a collection.
+- [ ] `POST /attendance/entries/search` — clock in/out entries; also /attendance/daily-breakdown/search and /attendance/summaries/search for rollups (high). Skipped: the Public API only exposes entries in running (unsubmitted) timesheet cycles, so no stable history can be synced. Each search also needs an employee filter and a date range of at most 33 days, and the module is a paid add-on.
+- [x] `GET /company/named-lists` — lookup table resolving the list-value field ids stored on every employee record (high). Added as `named_lists`, one row per list item (nested children flattened with `parentId`), archived items included.
 - [x] `POST /hiring/candidates/search` — recruiting pipeline entities, unreachable today (high)
-- [ ] `POST /hiring/applications/search` — application rows joining candidates to job openings — the recruiting funnel fact table (high)
+- [x] `POST /hiring/applications/search` — application rows joining candidates to job openings — the recruiting funnel fact table (high). Added as `applications`.
 - [ ] `GET /job-catalog/job-roles and /job-catalog/job-families` — lookup tables resolving role and family ids carried on employee records (high)
 - [ ] `GET /payroll/history` — payroll runs over time, plus POST /people/actual-payments/search (medium)
 - [ ] `POST /goals/goals/search` — goals and key results with progress, including /goals/goals/key-results/search (medium)
@@ -4273,20 +4273,20 @@ Note: Endpoint count is a wildly misleading measure of this API's size: of ~800 
 
 ## Inflowinventory — gaps
 
-Today (9): `categories`, `customers`, `locations`, `manufacturing_orders`, `products`, `purchase_orders`, `sales_orders`, `stock_transfers`, `vendors`
+Today (14): `categories`, `customers`, `locations`, `manufacturing_orders`, `product_cost_adjustments`, `products`, `purchase_orders`, `sales_orders`, `stock_adjustments`, `stock_counts`, `stock_transfers`, `tax_codes`, `taxing_schemes`, `vendors`
 
 Diffed against: <https://cloudapi.inflowinventory.com/docs/api/swagger.json>
 
-- [ ] `/{companyId}/stock-adjustments` — inventory write-offs and corrections - the transaction table that explains why on-hand quantities move outside of orders (high)
+- [x] `/{companyId}/stock-adjustments` — inventory write-offs and corrections - the transaction table that explains why on-hand quantities move outside of orders (high). Added as `stock_adjustments` (header rows only; per-product `lines` need `include=lines`, not requested yet).
 - [x] `/{companyId}/stock-transfers` — inter-location inventory movements, required for any multi-warehouse stock analysis (high)
 - [x] `/{companyId}/manufacturing-orders` — production/assembly orders - the third order type alongside the sales and purchase orders already synced (high)
 - [x] `/{companyId}/locations` — lookup resolving the locationId carried on orders, transfers and product quantities (high)
 - [x] `/{companyId}/categories` — lookup resolving product categoryId - the primary breakdown dimension for any sales or inventory report (high)
-- [ ] `/{companyId}/stock-counts` — physical count cycles and their variances, for shrinkage and count-accuracy reporting (medium)
-- [ ] `/{companyId}/product-cost-adjustments` — cost basis changes over time, needed for correct COGS and margin on historical orders (medium)
+- [x] `/{companyId}/stock-counts` — physical count cycles and their variances, for shrinkage and count-accuracy reporting (medium). Added as `stock_counts` (header rows only; per-product counts and variances live in `sheets`, which needs `include=sheets`, not requested yet).
+- [x] `/{companyId}/product-cost-adjustments` — cost basis changes over time, needed for correct COGS and margin on historical orders (medium)
 - [ ] `/{companyId}/product-groups (+ /{productGroupId}/quantities/{locationId})` — product grouping lookup plus per-location on-hand quantities, the current-stock view products alone does not give (medium)
 - [ ] `/{companyId}/adjustment-reasons` — lookup resolving the reason code on each stock adjustment - without it adjustments cannot be categorized (medium)
-- [ ] `/{companyId}/tax-codes and /{companyId}/taxing-schemes` — lookups resolving tax IDs on order lines, needed to reconcile order totals (medium)
+- [x] `/{companyId}/tax-codes and /{companyId}/taxing-schemes` — lookups resolving tax IDs on order lines, needed to reconcile order totals (medium)
 - [ ] `/{companyId}/currencies` — lookup with exchange rates, required to normalize multi-currency order totals (medium)
 - [ ] `/{companyId}/team-members` — lookup resolving the user IDs that created or own orders, for per-rep performance reporting (medium)
 
@@ -4318,10 +4318,10 @@ Diffed against: <https://api.insightly.com/v3.1/swagger/docs/v3.1>
 - [x] `/OpportunityLineItem` — line-item revenue detail behind each opportunity; the deal header alone cannot break revenue down by product (high)
 - [x] `/Opportunities/{id}/StateHistory` — won/lost/abandoned state transition history - the only source for sales-cycle and stage-velocity analysis (pair with /OpportunityStateReasons) (high)
 - [x] `/LeadSources` — lookup resolving LEAD_SOURCE_ID on Leads - the core attribution dimension (high)
-- [ ] `/LeadStatuses` — lookup resolving LEAD_STATUS_ID on Leads, needed for any lead funnel (high)
-- [ ] `/Ticket` — Insightly Service tickets, an entire product area with no table today (high)
-- [ ] `/Quotation and /QuotationLineItem` — quotes and their line items, the pre-close revenue pipeline (medium)
-- [ ] `/Product, /Pricebook, /PricebookEntry` — lookups resolving PRODUCT_ID and PRICEBOOK_ENTRY_ID on opportunity and quotation line items (medium)
+- [x] `/LeadStatuses` — lookup resolving LEAD_STATUS_ID on Leads, needed for any lead funnel (high). Added as `LeadStatuses`, including the converted status.
+- [x] `/Ticket` — Insightly Service tickets, an entire product area with no table today (high). Added as `Ticket`.
+- [x] `/Quotation and /QuotationLineItem` — quotes and their line items, the pre-close revenue pipeline (medium). Added as `Quotation` and `QuotationLineItem`.
+- [x] `/Product, /Pricebook, /PricebookEntry` — lookups resolving PRODUCT_ID and PRICEBOOK_ENTRY_ID on opportunity and quotation line items (medium). Added as `Product`, `Pricebook`, and `PricebookEntry`.
 - [ ] `/Milestones` — project milestones and their completion dates, the delivery-tracking grain under Projects (medium)
 - [ ] `/OpportunityCategories, /ProjectCategories, /TaskCategories` — lookups resolving the CATEGORY_ID already present on the synced opportunities, projects and tasks (medium)
 - [ ] `/Teams and /TeamMembers` — team membership for rolling per-rep opportunity and task metrics up to teams (medium)
@@ -4444,23 +4444,23 @@ Note: IP2WHOIS's Domain WHOIS product is literally one endpoint: GET https://api
 
 ## Iterable — **thin**
 
-Today (5): `campaigns`, `channels`, `lists`, `message_types`, `templates`
+Today (7 + Export API): `campaigns`, `campaign_metrics`, `channels`, `lists`, `list_users`, `message_types`, `templates`, plus one Export API table per `dataTypeName` (`email_send`, `email_open`, ..., `users`)
 
 Diffed against: <https://api.iterable.com/api-docs>
 
-- [ ] `GET /api/campaigns/metrics` — the headline campaign performance metrics (sends, opens, clicks, bounces, unsubs) — none of it is synced today (high)
-- [ ] `GET /api/export/userEvents and /api/export/data.json` — the actual message events (emailSend/Open/Click/Bounce, push, SMS, purchases, custom events) and the users table — the core analytical dataset (high)
-- [ ] `GET /api/lists/getUsers` — list membership junction resolving the lists we already sync to users (high)
+- [x] `GET /api/campaigns/metrics` — the headline campaign performance metrics (sends, opens, clicks, bounces, unsubs) — none of it is synced today (high). Added as `campaign_metrics` (lifetime totals, batched over `campaigns`).
+- [x] `GET /api/export/userEvents and /api/export/data.json` — the actual message events (emailSend/Open/Click/Bounce, push, SMS, purchases, custom events) and the users table — the core analytical dataset (high). `/api/export/data.json` added as one table per `dataTypeName` (`email_send`, `email_open`, ..., `custom_event`, `purchase`, `users`), with append sync on `createdAt` / `profileUpdatedAt`. `/api/export/userEvents` skipped: it needs an `email` or `userId` per call, and the same events are in the `data.json` tables.
+- [x] `GET /api/lists/getUsers` — list membership junction resolving the lists we already sync to users (high). Added as `list_users` (fan-out over `lists`).
 - [ ] `GET /api/journeys` — lookup resolving workflow/journey IDs that appear on campaigns and events (medium)
 - [ ] `GET /api/experiments, /api/experiments/metrics, /api/experiments/{id}/variants` — A/B test definitions and per-variant results for campaigns we sync (medium)
 - [ ] `GET /api/catalogs and /api/catalogs/{catalogName}/items` — catalog item lookup used for personalization and recommendations (medium)
-- [ ] `GET /api/users/getSentMessages` — per-user message history for cohort-level send analysis (medium)
+- [ ] `GET /api/users/getSentMessages` — per-user message history for cohort-level send analysis (medium) — skipped: it needs an `email` or `userId` per call, so a table would cost one request per user, and the same sends are in the `email_send`, `push_send` and `sms_send` export tables.
 - [ ] `GET /api/campaigns/recurring/{id}/childCampaigns` — lookup linking recurring parent campaigns to their child sends (medium)
 - [ ] `GET /api/metadata and /api/metadata/{table}` — key-value metadata tables used as lookups in templates (low)
 - [ ] `GET /api/snippets` — reusable template snippets referenced by templates we sync (low)
 - [ ] `GET /api/embedded-messaging/messages` — embedded message inventory for the embedded channel (low)
 
-Note: Swagger JSON is public and unauthenticated at https://api.iterable.com/api-docs (52 GET paths). The source's own products/warehouse_sources/backend/temporal/data_imports/sources/iterable/api_inventory.md explicitly defers the Export API (async jobId polling, NDJSON streaming, ~4 req/min limit) — that deferral is why the source is 5 config tables with zero metrics or events. EU keys need api.eu.iterable.com.
+Note: Swagger JSON is public and unauthenticated at https://api.iterable.com/api-docs (52 GET paths). The Export API tables use the synchronous `/api/export/data.json` NDJSON stream in 30-day windows, paced for its ~4 req/min limit, rather than the async jobId flow. EU keys need api.eu.iterable.com.
 
 ## JamfPro — **thin**
 
