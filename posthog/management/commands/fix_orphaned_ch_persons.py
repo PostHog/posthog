@@ -100,8 +100,7 @@ def _log_result(team_id: int, result: OrphanRepairResult) -> None:
         orphaned_persons=len(result.orphaned_person_uuids),
         tombstoned_persons=result.tombstoned_persons,
         republished_persons=result.republished_persons,
-        tombstoned_mappings=result.tombstoned_mappings,
-        skipped_reassigned_mappings=result.skipped_reassigned_mappings,
+        skipped_live_persons=result.skipped_live_persons,
         reverse_drift_mappings=len(result.reverse_drift_mappings),
     )
     if result.reverse_drift_mappings:
