@@ -303,6 +303,7 @@
     "devDependencies": {
         "@babel/parser": "^7.24.0",
         "@babel/traverse": "^7.24.0",
+        "@jest/test-sequencer": "^29.7.0",
         "@parcel/packager-ts": "catalog:",
         "@parcel/transformer-typescript-types": "catalog:",
         "@posthog/openapi-codegen": "workspace:*",

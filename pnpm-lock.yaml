@@ -1305,6 +1305,9 @@ importers:
       '@babel/traverse':
         specifier: ^7.24.0
         version: 7.26.4
+      '@jest/test-sequencer':
+        specifier: ^29.7.0
+        version: 29.7.0
       '@parcel/packager-ts':
         specifier: 'catalog:'
         version: 2.16.4(@parcel/core@2.16.4)

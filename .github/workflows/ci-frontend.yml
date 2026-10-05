@@ -426,19 +426,19 @@ jobs:
                       exit 0
                   fi
 
-                  # Selective mode uses two shards because a widely imported source file
-                  # can make --findRelatedTests approach a full suite. --findRelatedTests
+                  # Selective mode keeps the full four-shard fanout. --findRelatedTests
                   # walks jest's import graph from these files and runs the matching
-                  # *.test.* files.
+                  # *.test.* files, and a widely imported source file reaches most of
+                  # the suite, so fewer shards only make the narrowed run take longer.
                   SELECTED_COUNT=$(echo "$CHANGED_FILES" | wc -w | tr -d ' ')
                   {
                       echo "mode=selective"
-                      echo 'matrix={"include":[{"segment":"app","chunk":1,"shard_count":2},{"segment":"app","chunk":2,"shard_count":2}]}'
+                      echo 'matrix={"include":[{"segment":"app","chunk":1,"shard_count":4},{"segment":"app","chunk":2,"shard_count":4},{"segment":"app","chunk":3,"shard_count":4},{"segment":"app","chunk":4,"shard_count":4}]}'
                       echo "should_run=true"
                       echo "changed_files=$CHANGED_FILES"
                       echo "changed_file_count=$changed_count"
                       echo "selected_file_count=$SELECTED_COUNT"
-                      echo "shard_count=2"
+                      echo "shard_count=4"
                       echo "full_run_reason_category="
                       echo "full_run_reason_detail="
                   } >> "$GITHUB_OUTPUT"
@@ -866,8 +866,8 @@ jobs:
 
     jest:
         runs-on: ubuntu-24.04
-        # PRs run two selective shards over the tests reachable from the changed
-        # files. The merge queue runs the full four-shard fanout.
+        # PRs run four selective shards over the tests reachable from the changed
+        # files. The merge queue runs the same four shards over the whole suite.
         timeout-minutes: 20
         needs: [changes, select-jest-tests]
         # A status function is required because select-jest-tests is skipped on the
