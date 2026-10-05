@@ -64,6 +64,16 @@ class ExperimentPromptContext:
 
 
 @frozen
+class SessionAttribution:
+    """One person's attribution in an experiment's exposed population, as the analysis buckets it."""
+
+    variant: str
+    # The person's earliest exposure in the experiment window. A session that ended before this
+    # predates the exposure, so surfaces comparing variants must not count it.
+    first_exposure_time: datetime | None
+
+
+@frozen
 class ExperimentStatus:
     """The lifecycle facts a replay surface reads to decide whether an experiment is still worth watching."""
 

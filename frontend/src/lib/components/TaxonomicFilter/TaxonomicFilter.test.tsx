@@ -1764,6 +1764,29 @@ describe('TaxonomicFilter', () => {
         })
     })
 
+    it('sends endpoint filters with the remote attribute request', async () => {
+        const requests: URLSearchParams[] = []
+        const captureRequest = (info: MockResolverInfo): [number, unknown] => {
+            requests.push(new URL(info.request.url).searchParams)
+            return [200, { results: [], count: 0 }]
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team/metrics/attributes': captureRequest,
+                '/api/environments/:team/metrics/attributes': captureRequest,
+            },
+        })
+
+        renderFilter({
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.MetricAttributes],
+            endpointFilters: { metricName: 'http_requests', dateFrom: '2026-01-01T00:00:00Z' },
+        })
+
+        await waitFor(() => expect(requests.length).toBeGreaterThan(0))
+        expect(requests[0].get('metricName')).toBe('http_requests')
+        expect(requests[0].get('dateFrom')).toBe('2026-01-01T00:00:00Z')
+    })
+
     describe('excludedOperators', () => {
         const seedRecents = (): void => {
             const recentLogic = recentTaxonomicFiltersLogic.build()

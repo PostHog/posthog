@@ -12,7 +12,7 @@
 //! `*-targeting-*`); exact keys (no `*`) match by string equality.
 
 use crate::api::instance_setting::{constance_key, fetch_instance_setting_raw_value};
-use crate::api::types::{FlagDetails, FlagsResponse};
+use crate::api::types::{FlagDetails, FlagDetailsV3, FlagsResponse};
 use crate::config::BodyLogTeams;
 use crate::metrics::consts::FLAG_BODY_LOG_REFRESH_TOTAL;
 use arc_swap::ArcSwap;
@@ -217,12 +217,17 @@ impl BodyLogger {
     /// those bytes means opted-in teams using gzip don't pay for a second
     /// decompress, and base64-wrapped bodies are logged as the JSON they
     /// actually parsed as — not as the raw base64 string.
+    ///
+    /// Set `serves_v3` when the client receives the `/flags?v=3` record. Each
+    /// logged flag is then that v3 record, because the internal record cannot
+    /// show its typed `value` or its rule fields.
     pub fn log_response(
         &self,
         request_id: Uuid,
         team_id: Option<TeamId>,
         decoded_body: Option<Bytes>,
         response: &FlagsResponse,
+        serves_v3: bool,
     ) {
         let (Some(team_id), Some(decoded)) = (team_id, decoded_body) else {
             return;
@@ -234,7 +239,8 @@ impl BodyLogger {
         let (truncated, request_truncated, request_original_size_bytes) =
             truncate_body(&decoded, self.request_max_bytes);
         let request_body = String::from_utf8_lossy(truncated);
-        let (response_flags_body, total, logged) = serialize_filtered_response(response, &patterns);
+        let (response_flags_body, total, logged) =
+            serialize_filtered_response(response, &patterns, serves_v3);
 
         // Override the default target (module path) with a stable, semantic
         // identifier. Keeps the `feature_flags::` prefix so `RUST_LOG` filters
@@ -299,39 +305,60 @@ pub(crate) fn truncate_body(body: &[u8], max_bytes: usize) -> (&[u8], bool, usiz
 /// `response_flags_body` to document the omission at the use site.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct LoggedResponse<'a> {
+struct LoggedResponse<'a, F> {
     errors_while_computing_flags: bool,
-    flags: HashMap<&'a String, &'a FlagDetails>,
+    flags: HashMap<&'a String, F>,
     #[serde(skip_serializing_if = "Option::is_none")]
     quota_limited: &'a Option<Vec<String>>,
     request_id: Uuid,
     evaluated_at: i64,
 }
 
+impl<'a, F> LoggedResponse<'a, F> {
+    fn new(response: &'a FlagsResponse, flags: HashMap<&'a String, F>) -> Self {
+        Self {
+            errors_while_computing_flags: response.errors_while_computing_flags,
+            flags,
+            quota_limited: &response.quota_limited,
+            request_id: response.request_id,
+            evaluated_at: response.evaluated_at,
+        }
+    }
+}
+
 /// Serialize the response with `flags` filtered to keys matching `patterns`.
+/// With `serves_v3`, each flag is serialized as its v3 record.
 /// Returns the JSON string plus `(total_flags, logged_flags)` counts.
 fn serialize_filtered_response(
     response: &FlagsResponse,
     patterns: &TeamPatterns,
+    serves_v3: bool,
 ) -> (String, usize, usize) {
     let total = response.flags.len();
 
-    let flags: HashMap<&String, &FlagDetails> = response
+    let filtered = response
         .flags
         .iter()
-        .filter(|(key, _)| patterns.matches(key))
-        .collect();
-    let logged = flags.len();
-
-    let payload = LoggedResponse {
-        errors_while_computing_flags: response.errors_while_computing_flags,
-        flags,
-        quota_limited: &response.quota_limited,
-        request_id: response.request_id,
-        evaluated_at: response.evaluated_at,
+        .filter(|(key, _)| patterns.matches(key));
+    let (serialized, logged) = if serves_v3 {
+        let flags: HashMap<&String, FlagDetailsV3> = filtered
+            .map(|(key, flag)| (key, FlagDetailsV3::from(flag.clone())))
+            .collect();
+        let logged = flags.len();
+        (
+            serde_json::to_string(&LoggedResponse::new(response, flags)),
+            logged,
+        )
+    } else {
+        let flags: HashMap<&String, &FlagDetails> = filtered.collect();
+        let logged = flags.len();
+        (
+            serde_json::to_string(&LoggedResponse::new(response, flags)),
+            logged,
+        )
     };
 
-    let body = match serde_json::to_string(&payload) {
+    let body = match serialized {
         Ok(s) => s,
         Err(e) => {
             warn!(error = %e, "flags_body_log response serialize failed, emitting sentinel");
@@ -345,8 +372,10 @@ fn serialize_filtered_response(
 mod tests {
     use super::*;
     use crate::api::types::{
-        FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagsResponse,
+        ConfigOutcome, FlagDetails, FlagDetailsMetadata, FlagEvaluationReason, FlagsResponse,
     };
+    use crate::flags::evaluate_v2::Evaluation;
+    use serde_json::Value;
     use std::collections::HashMap;
     use uuid::Uuid;
 
@@ -369,6 +398,7 @@ mod tests {
                 has_experiment: false,
             },
             conditions: None,
+            config_outcome: Default::default(),
         }
     }
 
@@ -455,7 +485,7 @@ mod tests {
     fn serialize_filtered_response_passes_all_when_wildcard() {
         let resp = make_response(&["a", "b", "c"]);
         let patterns = TeamPatterns::new(vec!["*".into()]);
-        let (_body, total, logged) = serialize_filtered_response(&resp, &patterns);
+        let (_body, total, logged) = serialize_filtered_response(&resp, &patterns, false);
         assert_eq!(total, 3);
         assert_eq!(logged, 3);
     }
@@ -464,7 +494,7 @@ mod tests {
     fn serialize_filtered_response_filters_to_matching() {
         let resp = make_response(&["my-feature", "checkout-foo", "other"]);
         let patterns = TeamPatterns::new(vec!["my-feature".into(), "checkout-*".into()]);
-        let (_body, total, logged) = serialize_filtered_response(&resp, &patterns);
+        let (_body, total, logged) = serialize_filtered_response(&resp, &patterns, false);
         assert_eq!(total, 3);
         assert_eq!(logged, 2);
     }
@@ -473,7 +503,7 @@ mod tests {
     fn serialize_filtered_response_zero_when_no_match() {
         let resp = make_response(&["a", "b"]);
         let patterns = TeamPatterns::new(vec!["nothing-matches-*".into()]);
-        let (_body, total, logged) = serialize_filtered_response(&resp, &patterns);
+        let (_body, total, logged) = serialize_filtered_response(&resp, &patterns, false);
         assert_eq!(total, 2);
         assert_eq!(logged, 0);
     }
@@ -642,6 +672,7 @@ mod tests {
                 Some(42),
                 Some(Bytes::from_static(b"{\"token\":\"phc_abc\"}")),
                 &resp,
+                false,
             );
         });
 
@@ -673,7 +704,13 @@ mod tests {
         let resp = make_response(&["a"]);
 
         let captured = capture_log_response(|_| {
-            logger.log_response(Uuid::nil(), Some(42), Some(Bytes::from_static(b"x")), &resp);
+            logger.log_response(
+                Uuid::nil(),
+                Some(42),
+                Some(Bytes::from_static(b"x")),
+                &resp,
+                false,
+            );
         });
 
         assert!(
@@ -690,7 +727,13 @@ mod tests {
         let resp = make_response(&["a"]);
 
         let captured = capture_log_response(|_| {
-            logger.log_response(Uuid::nil(), None, Some(Bytes::from_static(b"x")), &resp);
+            logger.log_response(
+                Uuid::nil(),
+                None,
+                Some(Bytes::from_static(b"x")),
+                &resp,
+                false,
+            );
         });
 
         assert!(
@@ -712,6 +755,7 @@ mod tests {
                 Some(42),
                 Some(Bytes::from_static(b"{}")),
                 &resp,
+                false,
             );
         });
 
@@ -741,6 +785,7 @@ mod tests {
                 Some(42),
                 Some(Bytes::from_static(b"{}")),
                 &resp,
+                false,
             );
         });
 
@@ -763,12 +808,36 @@ mod tests {
     fn serialize_filtered_response_filters_correct_keys() {
         let resp = make_response(&["my-feature", "checkout-foo", "other"]);
         let patterns = TeamPatterns::new(vec!["my-feature".into(), "checkout-*".into()]);
-        let (body, total, logged) = serialize_filtered_response(&resp, &patterns);
+        let (body, total, logged) = serialize_filtered_response(&resp, &patterns, false);
         assert_eq!(total, 3);
         assert_eq!(logged, 2);
         assert!(body.contains("\"my-feature\""));
         assert!(body.contains("\"checkout-foo\""));
         assert!(!body.contains("\"other\""));
+    }
+
+    #[test]
+    fn serialize_filtered_response_logs_v3_record_when_served() {
+        let mut resp = make_response(&["null-default", "other"]);
+        let flag = resp.flags.get_mut("null-default").unwrap();
+        flag.enabled = false;
+        flag.config_outcome =
+            ConfigOutcome::V2(Some(Evaluation::NoRuleMatch { value: None }.into()));
+        let patterns = TeamPatterns::new(vec!["null-default".into()]);
+
+        let (v2_body, _, _) = serialize_filtered_response(&resp, &patterns, false);
+        let v2_flag = &serde_json::from_str::<Value>(&v2_body).unwrap()["flags"]["null-default"];
+        assert_eq!(v2_flag["enabled"], Value::Bool(false));
+
+        let (v3_body, total, logged) = serialize_filtered_response(&resp, &patterns, true);
+        assert_eq!((total, logged), (2, 1));
+        let v3_flags = &serde_json::from_str::<Value>(&v3_body).unwrap()["flags"];
+        assert!(v3_flags.get("other").is_none());
+        let v3_flag = &v3_flags["null-default"];
+        assert_eq!(v3_flag.get("value"), Some(&Value::Null));
+        assert_eq!(v3_flag["reason"]["code"], "no_rule_match");
+        assert_eq!(v3_flag["metadata"]["config_version"], 2);
+        assert!(v3_flag.get("enabled").is_none());
     }
 
     #[test]

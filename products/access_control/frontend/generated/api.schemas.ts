@@ -142,6 +142,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `tagger` - tagger
  * * `ticket` - ticket
  * * `task` - task
+ * * `today` - today
  * * `toolbar` - toolbar
  * * `tracing` - tracing
  * * `field_note` - field_note
@@ -260,6 +261,7 @@ export const ScopeObjectEnumApi = {
     Tagger: 'tagger',
     Ticket: 'ticket',
     Task: 'task',
+    Today: 'today',
     Toolbar: 'toolbar',
     Tracing: 'tracing',
     FieldNote: 'field_note',
@@ -401,6 +403,7 @@ export interface ProjectAccessSourceApi {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -562,6 +565,7 @@ export interface AccessControlObjectRuleApi {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -622,6 +626,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `action` - action
  * * `activity_log` - activity_log
  * * `ai_observability_clusters` - ai_observability_clusters
+ * * `business_knowledge` - business_knowledge
  * * `customer_analytics` - customer_analytics
  * * `customer_journey` - customer_journey
  * * `customer_task` - customer_task
@@ -679,6 +684,7 @@ export const RuleResourceEnumApi = {
     Action: 'action',
     ActivityLog: 'activity_log',
     AiObservabilityClusters: 'ai_observability_clusters',
+    BusinessKnowledge: 'business_knowledge',
     CustomerAnalytics: 'customer_analytics',
     CustomerJourney: 'customer_journey',
     CustomerTask: 'customer_task',
@@ -741,6 +747,7 @@ export interface AccessControlRuleRequestApi {
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
+     * * `business_knowledge` - business_knowledge
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -945,6 +952,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -997,6 +1005,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
+     * * `business_knowledge` - business_knowledge
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task
@@ -1208,6 +1217,7 @@ export interface ResolvedAccessApi {
      * * `tagger` - tagger
      * * `ticket` - ticket
      * * `task` - task
+     * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
      * * `field_note` - field_note
@@ -1304,6 +1314,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
+     * * `business_knowledge` - business_knowledge
      * * `customer_analytics` - customer_analytics
      * * `customer_journey` - customer_journey
      * * `customer_task` - customer_task

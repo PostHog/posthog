@@ -110,6 +110,7 @@ from posthog.schema_enums import (
     ErrorTrackingQueryIssueSeverity as ErrorTrackingQueryIssueSeverity,
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
+    EventMatchScope as EventMatchScope,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
     ExperimentMetricType as ExperimentMetricType,
@@ -1726,6 +1727,20 @@ class HogCompileResponse(BaseModel):
     )
     bytecode: list
     locals: list
+
+
+class HogQLMetadataColumn(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    name: str = Field(..., description="Output column name, in the same order as the SELECT list.")
+    type: str = Field(
+        ...,
+        description=(
+            "Inferred runtime type, including nullability. Unknown means inference"
+            " could not determine the type; execution remains authoritative."
+        ),
+    )
 
 
 class HogQLVariable(BaseModel):
@@ -4671,27 +4686,31 @@ class AssistantTrendsFilter(BaseModel):
         description=(
             "Visualization type. Available values: `ActionsLineGraph` - time-series"
             " line chart; most common option, as it shows change over time."
-            " `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series"
-            " area chart. `ActionsLineGraphCumulative` - cumulative time-series line"
-            " chart; good for cumulative metrics. `Metric` - single large number with a"
-            " change pill and a sparkline. Use for a period summary or an explicit"
-            ' current-versus-previous-period comparison ("how many X in the last 30'
-            ' days", "what\'s our conversion rate this month", "how does this month'
-            ' compare to last"). Do not use for a question about change over time, a'
-            " cadence, or a pattern. Use `ActionsLineGraph` so the person can inspect"
-            " each interval. Set `compareFilter.compare` to `true` to compare the"
-            " current period with the previous period. Without it, the pill compares"
-            " the first interval with the last interval. Configure the display with the"
-            " `metric*` fields below. Single series, no breakdown. `BoldNumber` -"
-            " single large number with no change or sparkline. Use instead of `Metric`"
-            " only when a trend is meaningless, such as an all-time total or a fixed"
-            " ratio. You CANNOT use this with breakdown or if the insight has more than"
-            " one series. `ActionsBarValue` - total value (NOT time-series) bar chart;"
-            " good for categorical data. `ActionsPie` - total value pie chart; good for"
-            " visualizing proportions. `ActionsTable` - total value table; good when"
-            " using breakdown to list users or other entities. `WorldMap` - total value"
-            " world map; use when breaking down by country name using property"
-            " `$geoip_country_name`, and only then."
+            " `ActionsBar` - time-series bar chart with one bar per interval and"
+            " breakdown values stacked in each bar. Do not use it to compare breakdown"
+            " values or series as totals. Use `ActionsBarValue` for that."
+            " `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative`"
+            " - cumulative time-series line chart; good for cumulative metrics."
+            " `Metric` - single large number with a change pill and a sparkline. Use"
+            " for a period summary or an explicit current-versus-previous-period"
+            ' comparison ("how many X in the last 30 days", "what\'s our conversion'
+            ' rate this month", "how does this month compare to last"). Do not use for'
+            " a question about change over time, a cadence, or a pattern. Use"
+            " `ActionsLineGraph` so the person can inspect each interval. Set"
+            " `compareFilter.compare` to `true` to compare the current period with the"
+            " previous period. Without it, the pill compares the first interval with"
+            " the last interval. Configure the display with the `metric*` fields below."
+            " Single series, no breakdown. `BoldNumber` - single large number with no"
+            " change or sparkline. Use instead of `Metric` only when a trend is"
+            " meaningless, such as an all-time total or a fixed ratio. You CANNOT use"
+            " this with breakdown or if the insight has more than one series."
+            " `ActionsBarValue` - total value (NOT time-series) bar chart with one bar"
+            ' per breakdown value or series; good for categorical data such as "top'
+            ' pages" or "failures by reason". `ActionsPie` - total value pie chart;'
+            " good for visualizing proportions. `ActionsTable` - total value table;"
+            " good when using breakdown to list users or other entities. `WorldMap` -"
+            " total value world map; use when breaking down by country name using"
+            " property `$geoip_country_name`, and only then."
         ),
     )
     formulaNodes: list[TrendsFormulaNode] | None = Field(
@@ -5568,6 +5587,10 @@ class FileSystemImport(BaseModel):
         description="Match this with the a base scene key or a specific one",
     )
     sceneKeys: list[str] | None = Field(default=None, description="List of all scenes exported by the app")
+    searchKeywords: list[str] | None = Field(
+        default=None,
+        description=("Other terms that find this item in search, for example the names of its tabs or common synonyms"),
+    )
     shortcut: bool | None = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: list[Tag] | None = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
     type: str | None = Field(
@@ -5783,6 +5806,15 @@ class HogQLQueryModifiers(BaseModel):
             " divergences without failing the request. The `rust_py_*` modes drive the"
             " same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast`"
             " dataclass instances directly via PyO3, skipping the JSON round-trip."
+        ),
+    )
+    personIdPushdown: bool | None = Field(
+        default=None,
+        description=(
+            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate"
+            " into the joined persons subquery, so the latest-version lookup only reads"
+            " persons that the outer query's left-table filters can reach. Applies only"
+            " to a persons join from the query's own FROM table."
         ),
     )
     personsArgMaxVersion: PersonsArgMaxVersion | None = None
@@ -20470,6 +20502,13 @@ class QueryResponseAlternative9(BaseModel):
     isUsingIndices: QueryIndexUsage | None = None
     isValid: bool | None = None
     notices: list[HogQLNotice]
+    output_columns: list[HogQLMetadataColumn] | None = Field(
+        default=None,
+        description=(
+            "Best-effort output schema, without executing the query. Only included when"
+            " includeOutputTypes is requested and inference succeeds."
+        ),
+    )
     query: str | None = None
     table_names: list[str] | None = None
     warnings: list[HogQLNotice]
@@ -27613,6 +27652,13 @@ class HogQLMetadataResponse(BaseModel):
     isUsingIndices: QueryIndexUsage | None = None
     isValid: bool | None = None
     notices: list[HogQLNotice]
+    output_columns: list[HogQLMetadataColumn] | None = Field(
+        default=None,
+        description=(
+            "Best-effort output schema, without executing the query. Only included when"
+            " includeOutputTypes is requested and inference succeeds."
+        ),
+    )
     query: str | None = None
     table_names: list[str] | None = None
     warnings: list[HogQLNotice]
@@ -28526,6 +28572,14 @@ class MetricsHistogramQuery(BaseModel):
     interval: str | None = Field(default=None, description="Bucket size; auto-picked from the range when omitted")
     kind: Literal["MetricsHistogramQuery"] = "MetricsHistogramQuery"
     metricName: str
+    metricType: MetricsOtelType | None = Field(
+        default=None,
+        description=(
+            "Pins the OTel type, as on a MetricsQuery clause: one name can exist as"
+            " more than one type, and the heatmap must grid only the distribution"
+            " series."
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MetricsHistogramQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -28557,10 +28611,18 @@ class MetricsQuery(BaseModel):
         default=None,
         description=(
             "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6,"
-            " day, week; auto-picked from the range when omitted"
+            " day, week; auto-picked from the range when omitted. Coarsened when the"
+            " range would need more than 10,000 buckets."
         ),
     )
     kind: Literal["MetricsQuery"] = "MetricsQuery"
+    minInterval: str | None = Field(
+        default=None,
+        description=(
+            "Finest bucket size the query may use, from the same set as `interval`;"
+            " raises a finer interval or auto pick"
+        ),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MetricsQueryResponse | None = None
     tags: QueryLogTags | None = None
@@ -28918,6 +28980,18 @@ class RecordingsQuery(BaseModel):
     date_from: str | None = "-3d"
     date_to: str | None = None
     distinct_ids: list[str] | None = None
+    event_match_scope: EventMatchScope | None = Field(
+        default=EventMatchScope.SESSION,
+        description=(
+            "Where a filter that is evaluated against events must match. 'session'"
+            " (default) matches an event anywhere in the session, including before the"
+            " recording started or after it ended. 'recording' only matches events from"
+            " one minute before the recording starts until one minute after it ends."
+            " This applies to every filter the events table answers: events, actions,"
+            " event properties, and, when the project resolves them on events, person,"
+            " group, and cohort properties."
+        ),
+    )
     events: list[dict[str, Any]] | None = None
     experiment_exposure: RecordingsQueryExperimentExposureFilter | None = Field(
         default=None,
@@ -32933,6 +33007,13 @@ class HogQLMetadata(BaseModel):
         ),
     )
     globals: dict[str, Any] | None = Field(default=None, description="Extra globals for the query")
+    includeOutputTypes: bool | None = Field(
+        default=None,
+        description=(
+            "Infer output column names and types without executing the query. Adds a"
+            " type-resolution pass, so callers must opt in."
+        ),
+    )
     indexUsage: bool | None = Field(
         default=None,
         description=(

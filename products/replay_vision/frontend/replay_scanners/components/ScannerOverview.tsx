@@ -12,6 +12,7 @@ import { type AffectedCohortQualifier, type ObservationVerdictValue, replayScann
 import { ReplayScannerTab, replayScannerSceneLogic } from '../replayScannerSceneLogic'
 import { scannerOverviewLogic } from '../scannerOverviewLogic'
 import { ScannerType } from '../types'
+import { RootCausePrompt } from './RootCausePrompt'
 import { ScannerInsightsChart } from './ScannerInsightsChart'
 import { ScannerOverviewFilters } from './ScannerOverviewFilters'
 import { ScannerScoutCard } from './ScannerScoutCard'
@@ -395,6 +396,7 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
         <>
             <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
             {typeOverview && <div className="border-t pt-4">{typeOverview}</div>}
+            <RootCausePrompt scannerId={scannerId} />
         </>
     )
 
