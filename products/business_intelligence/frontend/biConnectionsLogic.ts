@@ -48,8 +48,8 @@ export interface biConnectionsLogicActions {
     resetConfig: () => {
         value: true
     } // biEditorLogic
-    setDataSource: (source: import('~/queries/schema/schema-business-intelligence').BIDataSource) => {
-        source: import('~/queries/schema/schema-business-intelligence').BIDataSource
+    setDataSource: (source: import('~/queries/schema').BIDataSource) => {
+        source: import('~/queries/schema').BIDataSource
     } // biEditorLogic
     hydrateTableFields: (tableNames: string[]) => {
         tableNames: string[]

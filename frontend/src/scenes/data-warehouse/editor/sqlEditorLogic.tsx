@@ -3176,7 +3176,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         return
                     }
                     actions._setSuggestionPayload(null)
-                    actions.createTab(savedQuery.source.query, view, insight, undefined, undefined, tab.biEditorState)
+                    actions.createTab(
+                        savedQuery.source.query,
+                        view,
+                        insight,
+                        undefined,
+                        undefined,
+                        savedQuery.source.biConfig ? undefined : tab.biEditorState
+                    )
                     actions.setSourceQuery(savedQuery)
                     applyUndoableModelEdit(props.monaco, values.activeTab?.uri, savedQuery.source.query)
                     actions.syncUrlWithQuery()

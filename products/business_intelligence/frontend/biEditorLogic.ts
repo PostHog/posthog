@@ -416,7 +416,7 @@ export interface biEditorLogicActions {
         chartType: ChartDisplayType | null
     }
     setLimit: (limit: BIQueryLimit) => {
-        limit: 100 | 1000 | 10000 | 50000
+        limit: BIQueryLimit
     }
     setShowMeOpen: (showMeOpen: boolean) => {
         showMeOpen: boolean

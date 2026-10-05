@@ -376,9 +376,25 @@ describe('sqlEditorLogic', () => {
                                       source: { table: 'events' },
                                   },
                               ],
-                          },
+                          } satisfies BIConfig,
                       }
                     : undefined
+            const worksheetQuery = hashParams ? buildBIQuery(hashParams.bi)!.node : undefined
+            const restoredQuery = worksheetQuery?.source.query ?? savedQuery
+            if (worksheetQuery) {
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/insights/': [
+                            200,
+                            { results: [{ ...MOCK_INSIGHT, query: worksheetQuery }] },
+                        ],
+                        '/api/:scope/:team_id/warehouse_saved_queries/:id/': [
+                            200,
+                            { ...MOCK_VIEW, query: worksheetQuery.source },
+                        ],
+                    },
+                })
+            }
             await expectLogic(logic, () => router.actions.push(editorUrl, searchParams, hashParams))
                 .toDispatchActions(['createTab', 'setQueryInput'])
                 .toFinishAllListeners()
@@ -391,13 +407,13 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.isSourceQueryLastRun).toBe(false)
             await expectLogic(logic, () => {
                 logic.actions.discardChanges()
-                expect(logic.values.queryInput).toEqual(savedQuery)
+                expect(logic.values.queryInput).toEqual(restoredQuery)
                 expect(logic.values.hasEditorChanges).toBe(false)
             })
                 .toFinishAllListeners()
-                .toMatchValues({ queryInput: savedQuery, hasEditorChanges: false })
+                .toMatchValues({ queryInput: restoredQuery, hasEditorChanges: false })
             expect(logic.values.activeTab?.biEditorState).toEqual(biEditorState)
-            expect(router.values.hashParams.q).toEqual(savedQuery)
+            expect(router.values.hashParams.q).toEqual(restoredQuery)
             expect(logic.values.activeTab?.view?.id ?? logic.values.activeTab?.insight?.short_id).toEqual(
                 searchParams.open_view ?? searchParams.open_insight
             )
@@ -408,7 +424,7 @@ describe('sqlEditorLogic', () => {
             await expectLogic(logic, () => router.actions.push(editorUrl, searchParams))
                 .toDispatchActions(['createTab', 'setQueryInput'])
                 .toFinishAllListeners()
-                .toMatchValues({ queryInput: savedQuery, hasEditorChanges: false })
+                .toMatchValues({ queryInput: restoredQuery, hasEditorChanges: false })
         })
 
         it.each([false, true])('refreshes a discarded draft without overwriting new edits (%s)', async (editAgain) => {
@@ -2478,7 +2494,7 @@ describe('sqlEditorLogic', () => {
         })
 
         it.each(['insight', 'view'] as const)(
-            'restores and discards config-only edits to a saved BI %s',
+            'restores and discards chart and shelf edits to a saved BI %s',
             async (target) => {
                 const node = buildBIQuery(config)!.node
                 const insight = { ...MOCK_INSIGHT, query: node }
@@ -2505,6 +2521,12 @@ describe('sqlEditorLogic', () => {
                 if (target === 'view') {
                     expect(logic.values.changesToSave).toBe(true)
                 }
+                await expectLogic(logic, () => logic.actions.discardChanges()).toFinishAllListeners()
+                expect(biLogic.values.config).toEqual(config)
+                expect(logic.values.hasEditorChanges).toBe(false)
+
+                biLogic.actions.removeFieldFromShelf('rows', 0)
+                expect(logic.values.hasEditorChanges).toBe(true)
                 await expectLogic(logic, () => logic.actions.discardChanges()).toFinishAllListeners()
                 expect(biLogic.values.config).toEqual(config)
                 expect(logic.values.hasEditorChanges).toBe(false)
