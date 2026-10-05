@@ -89,6 +89,14 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     return logic.lock_insight_for_evaluation(team_id=team_id, insight_id=insight_id)
 
 
+def viewable_insight_ids(
+    *, team_id: int, insight_ids: Collection[int], user_access_control: UserAccessControl
+) -> set[int]:
+    """The insights among these that the caller has viewer access to."""
+    insights = Insight.objects.filter(team_id=team_id, id__in=insight_ids)
+    return set(user_access_control.filter_queryset_by_access_level(insights).values_list("id", flat=True))
+
+
 def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:
     """Mark an insight as viewed now, moving the timestamp if this viewer already has a row.
 

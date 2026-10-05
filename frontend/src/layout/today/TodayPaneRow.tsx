@@ -6,6 +6,8 @@ interface TodayPaneRowProps {
     value: string
     label: string
     meta?: string
+    /** A short marker after the label, such as a count. */
+    badge?: JSX.Element | null
     icon?: JSX.Element | null
     to: string
     active?: boolean
@@ -18,6 +20,7 @@ export function TodayPaneRow({
     value,
     label,
     meta,
+    badge,
     icon,
     to,
     active = false,
@@ -40,6 +43,7 @@ export function TodayPaneRow({
                     </span>
                 )}
                 <span className="min-w-0 flex-1 truncate">{label}</span>
+                {badge}
                 {meta && (
                     <span
                         className={cn(

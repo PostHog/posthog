@@ -144,15 +144,20 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert deleted.id not in visible_ids
         assert unknown.id not in visible_ids
 
-    def test_create_lists_and_filters_by_channel(self):
+    def test_create_lists_and_filters_by_channel_and_pin(self):
         canvas_id = self._create_canvas()
         with team_scope(self.team.id):
             other_channel = Channel.objects.create(team=self.team, name="other")
         other_id = self._create_canvas(name="Other", channel_id=str(other_channel.id))
+        with team_scope(self.team.id):
+            Canvas.objects.filter(id=other_id).update(pinned_at=timezone.now())
 
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/?channel={self.channel.id}")
         ids = [row["id"] for row in response.json()["results"]]
         assert ids == [canvas_id]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/?pinned=true")
+        assert [row["id"] for row in response.json()["results"]] == [other_id]
 
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
         assert {row["id"] for row in response.json()["results"]} == {canvas_id, other_id}

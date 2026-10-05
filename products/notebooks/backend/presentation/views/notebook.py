@@ -53,6 +53,7 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
+from products.alerts.backend.facade.api import notebook_alert_investigations
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.analytics import (
@@ -251,10 +252,42 @@ _PARENT_RESOURCE_SCHEMA = {
 }
 
 
+class NotebookAlertInvestigationSerializer(serializers.Serializer):
+    alert_id = serializers.UUIDField(help_text="ID of the alert whose firing the investigation agent looked into.")
+    alert_name = serializers.CharField(allow_null=True, help_text="Name of that alert.")
+
+
+ALERT_INVESTIGATIONS_CONTEXT_KEY = "alert_investigations"
+
+
+class NotebookMinimalListSerializer(serializers.ListSerializer):
+    """Looks up the alert behind each notebook of a page once, instead of with one query per row."""
+
+    def to_representation(self, data: Any) -> Any:
+        notebooks = list(data)
+        # `child` is only None before `many=True` binds one, which cannot happen during rendering.
+        assert isinstance(self.child, NotebookMinimalSerializer)
+        user_access_control = self.child.user_access_control
+        self.child.context[ALERT_INVESTIGATIONS_CONTEXT_KEY] = (
+            notebook_alert_investigations(
+                self.child.context["team_id"], [notebook.id for notebook in notebooks], user_access_control
+            )
+            if user_access_control
+            else {}
+        )
+        return super().to_representation(notebooks)
+
+
 class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    alert_investigation = serializers.SerializerMethodField(
+        help_text=(
+            "The alert this notebook investigates, when the alert investigation agent wrote it. "
+            "`null` for every other notebook."
+        ),
+    )
 
     class Meta:
         model = Notebook
@@ -268,13 +301,23 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
             "last_modified_at",
             "last_modified_by",
             "user_access_level",
+            "alert_investigation",
             "_create_in_folder",
         ]
         read_only_fields = fields
         extra_kwargs = _NOTEBOOK_FIELD_HELP_TEXTS
+        list_serializer_class = NotebookMinimalListSerializer
+
+    @extend_schema_field(NotebookAlertInvestigationSerializer(allow_null=True))
+    def get_alert_investigation(self, notebook: Notebook) -> dict[str, Any] | None:
+        investigation = self.context.get(ALERT_INVESTIGATIONS_CONTEXT_KEY, {}).get(notebook.id)
+        if investigation is None:
+            return None
+        return {"alert_id": investigation.alert_id, "alert_name": investigation.alert_name}
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    alert_investigation = None  # type: ignore[assignment]
     variables = NotebookVariableSerializer(
         many=True,
         required=False,

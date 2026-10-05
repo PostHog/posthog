@@ -22,6 +22,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.alerts.backend.facade.contracts import NotebookAlertInvestigation
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.judge.contract import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -40,6 +41,7 @@ from products.alerts.backend.llm_detector_limits import (
     llm_detector_access_error,
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.product_analytics.backend.facade.api import viewable_insight_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -74,6 +76,39 @@ def insight_ids_with_alerts(insight_ids: Collection[int]) -> set[int]:
     # ids to ids and returns no row data.
     # nosemgrep: idor-lookup-without-team
     return set(AlertConfiguration.objects.filter(insight_id__in=insight_ids).values_list("insight_id", flat=True))
+
+
+def notebook_alert_investigations(
+    team_id: int, notebook_ids: Collection[uuid.UUID], user_access_control: UserAccessControl
+) -> dict[uuid.UUID, NotebookAlertInvestigation]:
+    """The alert that each of these notebooks investigates, for the alerts the caller can see.
+
+    Notebooks the agent did not write are left out. So are alerts on an insight the caller cannot view,
+    because the alerts API hides those alerts from that caller too.
+    """
+    investigations: dict[uuid.UUID, NotebookAlertInvestigation] = {}
+    rows = list(
+        AlertCheck.objects.filter(investigation_notebook__team_id=team_id, investigation_notebook_id__in=notebook_ids)
+        .order_by("-created_at")
+        .values_list(
+            "investigation_notebook_id",
+            "alert_configuration_id",
+            "alert_configuration__name",
+            "alert_configuration__insight_id",
+        )
+    )
+    viewable = viewable_insight_ids(
+        team_id=team_id,
+        insight_ids={insight_id for *_, insight_id in rows},
+        user_access_control=user_access_control,
+    )
+    for notebook_id, alert_id, alert_name, insight_id in rows:
+        # Rows come newest first, so a notebook that more than one check links to names its latest alert.
+        if insight_id in viewable:
+            investigations.setdefault(
+                notebook_id, NotebookAlertInvestigation(alert_id=alert_id, alert_name=alert_name or None)
+            )
+    return investigations
 
 
 def delete_insight_alerts(insight_ids: Collection[int]) -> None:

@@ -617,6 +617,16 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+export interface NotebookAlertInvestigationApi {
+    /** ID of the alert whose firing the investigation agent looked into. */
+    alert_id: string
+    /**
+     * Name of that alert.
+     * @nullable
+     */
+    alert_name: string | null
+}
+
 export interface NotebookMinimalApi {
     /** UUID of the notebook. */
     readonly id: string
@@ -638,6 +648,8 @@ export interface NotebookMinimalApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** The alert this notebook investigates, when the alert investigation agent wrote it. `null` for every other notebook. */
+    readonly alert_investigation: NotebookAlertInvestigationApi | null
     _create_in_folder?: string
 }
 

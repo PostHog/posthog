@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { IconGridMasonry } from '@posthog/icons'
-import { Button, Spinner } from '@posthog/quill'
+import { Badge, Button, Spinner } from '@posthog/quill'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
@@ -30,6 +30,7 @@ export function TodayViewsSidebar(): JSX.Element {
         recentViews,
         recentReady,
         recentItems,
+        recentSections,
         recentHasMore,
         recentViewsLoading,
         recentUnavailable,
@@ -152,21 +153,38 @@ export function TodayViewsSidebar(): JSX.Element {
                                     {retryButton('xs')}
                                 </div>
                             )}
-                            {recentItems.map((item) => {
-                                const building = buildingViewIds.includes(item.id)
-                                return (
-                                    <TodayPaneRow
-                                        key={`${item.type}-${item.id}`}
-                                        value={`view:${item.type}-${item.id}`}
-                                        label={item.name}
-                                        icon={building ? <Spinner /> : <ViewTypeIcon type={item.type} />}
-                                        meta={building ? 'Building' : shortTimeAgo(item.timestamp)}
-                                        to={item.href}
-                                        active={path === removeProjectIdIfPresent(item.href)}
-                                        dataAttr={`today-views-recent-${item.type}`}
-                                    />
-                                )
-                            })}
+                            {recentSections.map((section) => (
+                                <Fragment key={section.key}>
+                                    {section.label && (
+                                        <TodayPaneGroupLabel first={false}>{section.label}</TodayPaneGroupLabel>
+                                    )}
+                                    {section.rows.map(({ item, count }) => {
+                                        const building = buildingViewIds.includes(item.id)
+                                        return (
+                                            <TodayPaneRow
+                                                key={`${item.type}-${item.id}`}
+                                                value={`view:${item.type}-${item.id}`}
+                                                label={item.name}
+                                                badge={
+                                                    count > 1 ? (
+                                                        <Badge aria-label={`${count} investigations`}>{count}</Badge>
+                                                    ) : null
+                                                }
+                                                icon={building ? <Spinner /> : <ViewTypeIcon type={item.type} />}
+                                                meta={building ? 'Building' : shortTimeAgo(item.timestamp)}
+                                                to={item.href}
+                                                active={path === removeProjectIdIfPresent(item.href)}
+                                                // pinned: data-attr values feed autocapture insights.
+                                                dataAttr={
+                                                    count > 1
+                                                        ? 'today-views-recent-investigations'
+                                                        : `today-views-recent-${item.type}`
+                                                }
+                                            />
+                                        )
+                                    })}
+                                </Fragment>
+                            ))}
                             {recentHasMore && (
                                 <div className="TodayPane__state" aria-busy>
                                     <Spinner />

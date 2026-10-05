@@ -60,6 +60,10 @@ export interface ViewItem {
     createdByUuid: string | null
     /** The run building a canvas that has no version yet. Null once it has one, and for other types. */
     firstBuildTaskId: string | null
+    /** Pinned to the top of its list. Notebooks cannot be pinned. */
+    pinned: boolean
+    /** The alert a notebook investigates, when the alert investigation agent wrote it. Null for other views. */
+    alertInvestigation: { alertId: string; alertName: string | null } | null
 }
 
 export function canvasToView(canvas: CanvasApi, spaceNames: Record<string, string>): ViewItem {
@@ -74,6 +78,8 @@ export function canvasToView(canvas: CanvasApi, spaceNames: Record<string, strin
         spaceName: spaceNames[canvas.channel] ?? null,
         createdByUuid: canvas.created_by?.uuid ?? null,
         firstBuildTaskId: canvas.current_version_id ? null : (canvas.generation_task_id ?? null),
+        pinned: canvas.pinned,
+        alertInvestigation: null,
     }
 }
 
@@ -89,6 +95,10 @@ export function notebookToView(notebook: NotebookMinimalApi): ViewItem {
         spaceName: null,
         createdByUuid: notebook.created_by?.uuid ?? null,
         firstBuildTaskId: null,
+        pinned: false,
+        alertInvestigation: notebook.alert_investigation
+            ? { alertId: notebook.alert_investigation.alert_id, alertName: notebook.alert_investigation.alert_name }
+            : null,
     }
 }
 
@@ -105,6 +115,8 @@ export function dashboardToView(dashboard: DashboardBasicApi): ViewItem {
         spaceName: null,
         createdByUuid: dashboard.created_by?.uuid ?? null,
         firstBuildTaskId: null,
+        pinned: dashboard.pinned,
+        alertInvestigation: null,
     }
 }
 

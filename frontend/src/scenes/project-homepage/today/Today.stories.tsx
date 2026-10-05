@@ -264,8 +264,22 @@ const VIEW_CANVASES = [
     },
 ].map((canvas) => ({ description: '', pinned: false, created_by: USER, created_at: canvas.updated_at, ...canvas }))
 
+const SIGNUPS_ALERT = { alert_id: 'alert-signups', alert_name: 'Weekly signups' }
+
 const NOTEBOOKS = [
+    {
+        short_id: 'nb-3',
+        title: 'Investigation: Weekly signups',
+        last_modified_at: '2026-09-28T15:00:00Z',
+        alert_investigation: SIGNUPS_ALERT,
+    },
     { short_id: 'nb-1', title: 'Trial drop-off investigation', last_modified_at: '2026-09-28T12:30:00Z' },
+    {
+        short_id: 'nb-4',
+        title: 'Investigation: Weekly signups',
+        last_modified_at: '2026-09-27T11:00:00Z',
+        alert_investigation: SIGNUPS_ALERT,
+    },
     { short_id: 'nb-2', title: 'Q3 pricing research notes', last_modified_at: '2026-09-20T10:00:00Z' },
 ].map((notebook) => ({
     id: notebook.short_id,
@@ -273,6 +287,7 @@ const NOTEBOOKS = [
     created_at: notebook.last_modified_at,
     created_by: USER,
     last_modified_by: USER,
+    alert_investigation: null,
     ...notebook,
 }))
 

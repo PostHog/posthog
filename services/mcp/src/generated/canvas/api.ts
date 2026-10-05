@@ -36,6 +36,7 @@ export const CanvasesListQueryParams = () => zod.object({
         .describe(
             'Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.'
         ),
+    pinned: zod.boolean().optional().describe('Only return canvases pinned to their channel.'),
     search: zod
         .string()
         .optional()

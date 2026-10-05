@@ -34,6 +34,7 @@ from products.alerts.backend.presentation.views.alert import AlertSerializer
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
 from products.cdp.backend.facade.models import HogFunction
+from products.notebooks.backend.facade.api import create_notebook
 from products.product_analytics.backend.facade.models import Insight
 
 TEST_DESTINATION_DELIVERY = AlertDelivery(
@@ -108,6 +109,38 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             "query": self.trends_insight_query(trendsFilter={"display": "BoldNumber"}),
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
+
+    @parameterized.expand([("insight_viewer", True), ("no_insight_access", False)])
+    def test_notebooks_list_marks_alert_investigations_the_caller_can_see(
+        self, _name: str, can_view_insight: bool
+    ) -> None:
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight_id=self.insight["id"],
+            name="Signups drop",
+            condition={"type": AlertConditionType.ABSOLUTE_VALUE},
+            config={"type": "TrendsAlertConfig", "series_index": 0},
+            calculation_interval=AlertCalculationInterval.DAILY,
+        )
+        investigation = create_notebook(self.team.id, title="investigation", content=None, created_by_id=self.user.id)
+        create_notebook(self.team.id, title="notes", content=None, created_by_id=self.user.id)
+        AlertCheck.objects.create(alert_configuration=alert, investigation_notebook_id=investigation.id)
+
+        # Hide every insight from the caller and leave the notebook list itself visible.
+        with mock.patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            side_effect=lambda queryset, *args, **kwargs: (
+                queryset if can_view_insight or queryset.model is not Insight else queryset.none()
+            ),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/notebooks/")
+
+        assert response.status_code == status.HTTP_200_OK
+        rows = {row["title"]: row["alert_investigation"] for row in response.json()["results"]}
+        assert rows == {
+            "investigation": {"alert_id": str(alert.id), "alert_name": "Signups drop"} if can_view_insight else None,
+            "notes": None,
+        }
 
     def test_create_and_delete_alert(self) -> None:
         creation_request = {
