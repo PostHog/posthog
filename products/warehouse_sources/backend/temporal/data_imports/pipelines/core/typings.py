@@ -16,7 +16,9 @@ class PipelineResult(TypedDict):
     It is a runtime value, not a pure property of `ExternalDataJob.pipeline_version`, for one
     reason: a fresh v3 extraction that produced zero batches never notifies the load consumer, so
     the consumer cannot finalize a run it will never hear about — the workflow must. A zero-batch
-    continuation instead appends a final marker to the earlier attempt's queued batches. The other producer of True,
+    continuation instead appends a final marker to the earlier attempt's queued batches. A queue run
+    (`always_final_marker`) sends a final marker row when it has no batch, so the consumer hears
+    about every such run and PipelineV3 always reports True for it. The other producer of True,
     `import_data_sync`'s terminal-retry skip, is a run some other party already finalized, where
     True likewise means "workflow: hands off".
     Making this a pure version property requires an empty-final-batch queue message so the

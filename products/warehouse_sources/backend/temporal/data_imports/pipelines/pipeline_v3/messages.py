@@ -55,6 +55,9 @@ class ExportSignalMessage:
     # None on a message queued before the producer recorded it, which readers treat as unknown
     # rather than as none. Resolved once per run, because the consumer reads it per batch.
     external_destination_ids: Optional[list[str]] = None
+    # A final row without data: the run staged no batch for this job, and the loader only
+    # finalizes it. `s3_path` is empty.
+    marker_only: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -92,4 +95,5 @@ class ExportSignalMessage:
             cdc_table_mode=data.get("cdc_table_mode"),
             destination_ids=data.get("destination_ids") or [],
             external_destination_ids=data.get("external_destination_ids"),
+            marker_only=data.get("marker_only", False),
         )
