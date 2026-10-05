@@ -10,6 +10,23 @@ function isMinifiedBootModuleEvaluationError(error: unknown): boolean {
     return name === 'TypeError' && typeof message === 'string' && /^[A-Za-z_$] is not a function$/.test(message)
 }
 
+function extractUrlFromError(error: unknown): string | null {
+    if (!error || typeof error !== 'object') {
+        return null
+    }
+    if ('url' in error && typeof (error as any).url === 'string') {
+        return (error as any).url
+    }
+    const message = (error as any).message
+    if (typeof message === 'string') {
+        const match = message.match(/https?:\/\/[^\s"']+/)
+        if (match) {
+            return match[0]
+        }
+    }
+    return null
+}
+
 /**
  * Re-attempts a dynamic `import()` on a transient chunk-load failure before giving up.
  *
@@ -35,6 +52,16 @@ export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs 
         if (retries <= 0) {
             throw error
         }
+
+        const url = extractUrlFromError(error)
+        if (url) {
+            try {
+                await fetch(url, { cache: 'reload' })
+            } catch (e) {
+                // Ignore errors from the cache-clearing fetch
+            }
+        }
+
         await new Promise<void>((resolve) => setTimeout(resolve, baseDelayMs))
         return retryImport(factory, retries - 1, baseDelayMs * 2)
     }
