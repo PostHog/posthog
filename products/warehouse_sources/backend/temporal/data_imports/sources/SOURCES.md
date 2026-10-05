@@ -510,6 +510,7 @@ the row lists both.
 | meteostat                        | HTTP                        | requests                                                        | ✅                          |
 | metorial                         | HTTP                        | requests                                                        | ✅                          |
 | metronome                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| mezmo                            | HTTP                        | requests                                                        | ✅                          |
 | microsoft_clarity                | HTTP                        | requests                                                        | ✅                          |
 | mighty_networks                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mintlify                         | HTTP                        | requests                                                        | ✅                          |
@@ -1240,7 +1241,6 @@ doesn't conflict with concurrent PRs.
 - metricool
 - metriport
 - mews
-- mezmo
 - microsoft_365_usage_reports
 - microsoft_advertising
 - microsoft_dataverse
