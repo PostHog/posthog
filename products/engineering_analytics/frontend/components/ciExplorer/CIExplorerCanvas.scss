@@ -106,6 +106,9 @@
         box-sizing: border-box;
         width: 300px;
         height: 98px;
+
+        // React Flow turns pointer events off for everything in its viewport that is not one of its nodes.
+        pointer-events: auto;
         background: var(--color-bg-surface-primary);
         border: calc(1px * var(--i0)) solid var(--color-border-primary);
         border-radius: 8px;
