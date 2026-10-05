@@ -97,7 +97,7 @@ def test_flag_lookup_tools_match_mcp_names_the_parser_normalizes(tool: str) -> N
 
 
 def _declared_tools() -> dict[str, Any]:
-    # tools.yaml may omit annotations (GET, DELETE and PATCH default), so read the generated
+    # tools.yaml may omit annotations (only GET and DELETE default), so read the generated
     # definitions, which hold the resolved values for every enabled tool.
     generated = json.loads(
         (Path(settings.BASE_DIR) / "services/mcp/schema/generated-tool-definitions.json").read_text()

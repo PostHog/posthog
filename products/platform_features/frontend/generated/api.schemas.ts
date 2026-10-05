@@ -7,6 +7,11 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface InternalFeedbackResponseApi {
+    /** True when the feedback reached Slack. */
+    success: boolean
+}
+
 /**
  * * `1` - member
  * * `8` - administrator
@@ -1228,6 +1233,26 @@ export interface PatchedPinnedSceneTabsApi {
     tabs?: PinnedSceneTabApi[]
     /** Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default. */
     homepage?: PinnedSceneTabApi | null
+}
+
+export type InternalFeedbackCreateBody = {
+    /**
+     * What the person wants to tell the developers.
+     * @maxLength 4000
+     */
+    comment: string
+    /**
+     * URL of the page the feedback is about.
+     * @maxLength 2000
+     */
+    page_url: string
+    /**
+     * CSS selector of the element the person selected. Empty for feedback about the whole page.
+     * @maxLength 1000
+     */
+    element_identifier?: string
+    /** JPEG screenshot of the page, with the selected element outlined when there is one. */
+    screenshot?: Blob
 }
 
 export type ListParams = {
