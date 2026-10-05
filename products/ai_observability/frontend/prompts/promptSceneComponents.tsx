@@ -513,13 +513,18 @@ function PromptDiffView(): JSX.Element {
 }
 
 export function PromptRelatedTraces(): JSX.Element {
-    const { prompt, relatedTracesQuery, viewAllTracesUrl, analyticsScope } = useValues(llmPromptLogic)
+    const { prompt, relatedTracesQuery, viewAllTracesUrl, analyticsScope, snippetLanguage } = useValues(llmPromptLogic)
     const { setRelatedTracesQuery } = useActions(llmPromptLogic)
     const tracesQueryContext = useTracesQueryContext()
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
     }
+
+    const linkSnippet =
+        snippetLanguage === 'node'
+            ? 'posthogProperties: { $ai_prompt_name: result.name, $ai_prompt_version: result.version }'
+            : 'posthog_properties={"$ai_prompt_name": result.name, "$ai_prompt_version": result.version}'
 
     return (
         <div className="mt-6" data-attr="llma-prompt-related-traces-section">
@@ -554,7 +559,18 @@ export function PromptRelatedTraces(): JSX.Element {
                 <DataTable
                     query={relatedTracesQuery}
                     setQuery={setRelatedTracesQuery}
-                    context={tracesQueryContext}
+                    context={{
+                        ...tracesQueryContext,
+                        emptyStateHeading: 'No traces are linked to this prompt yet',
+                        emptyStateDetail: (
+                            <>
+                                {analyticsScope === PromptAnalyticsScope.Selected
+                                    ? 'No LLM events in this date range send this prompt name and version.'
+                                    : 'No LLM events in this date range send this prompt name.'}{' '}
+                                To link them, add these properties to your LLM calls: <code>{linkSnippet}</code>
+                            </>
+                        ),
+                    }}
                     uniqueKey="prompt-related-traces"
                     attachTo={llmPromptLogic}
                 />
@@ -733,6 +749,11 @@ export function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
 
                 <PromptAnalyticsScopeControls analyticsScope={analyticsScope} setAnalyticsScope={setAnalyticsScope} />
             </div>
+            <LemonBanner type="info" className="mb-4">
+                These charts count requests that fetch this prompt on its own. A request that fetches a list of prompts
+                records one event with no prompt names, so it does not show here. To see where this prompt is used,
+                check Related traces below.
+            </LemonBanner>
             <Query query={promptUsageTrendQuery} />
 
             <div className="mb-4 mt-6">
