@@ -130,6 +130,7 @@ class TestOnboardingSessionIdempotency(TestCase):
             self.assertEqual(kwargs["client_provenance"], TaskClientProvenance.POSTHOG_DESKTOP)
             self.assertEqual(kwargs["model"], expected_model)
             self.assertTrue(kwargs["title_manually_set"])
+            self.assertFalse(kwargs["attach_github"])
             self.assertIn("Use the canonical `posthog:exec` tool", kwargs["description"])
             self.assertIn("use `docs-search` before answering", kwargs["description"])
             self.assertIn("without first running `docs-search`", kwargs["description"])
