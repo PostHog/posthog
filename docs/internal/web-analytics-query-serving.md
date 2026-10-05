@@ -200,6 +200,10 @@ Explicit column options in a shared URL take precedence over saved preferences, 
 Changing tabs or dashboard filters preserves those column options in the URL.
 Reset to defaults clears the custom selection, sorting, and pins for later visits.
 
+### Conversion recordings
+
+See [Marketing analytics conversion recordings](../../products/marketing_analytics/conversion-recordings.md) for row selection, session attribution, and replay behavior.
+
 ## Marketing metric chart
 
 The standalone metric chart receives prepared series, ISO date labels, a selected breakdown key, and callbacks.

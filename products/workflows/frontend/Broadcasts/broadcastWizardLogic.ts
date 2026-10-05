@@ -47,6 +47,7 @@ import {
     parseRRuleToState,
     stateToRRule,
 } from '../Workflows/hogflows/steps/components/rrule-helpers'
+import type { UtmTagValues } from '../Workflows/hogflows/steps/components/UtmTagFields'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
 import {
@@ -119,12 +120,16 @@ export interface BroadcastEmailSettings {
     messageCategoryId: string | null
     messageCategoryType: string | null
     trackingEnabled: boolean
+    utmTagsEnabled: boolean
+    utmParams: UtmTagValues
 }
 
 export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
     messageCategoryId: null,
     messageCategoryType: null,
     trackingEnabled: true,
+    utmTagsEnabled: false,
+    utmParams: {},
 }
 
 function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null {
@@ -136,6 +141,8 @@ function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null
         messageCategoryId: config.message_category_id ?? null,
         messageCategoryType: config.message_category_type ?? null,
         trackingEnabled: config.tracking_enabled !== false,
+        utmTagsEnabled: config.utm_tags_enabled === true,
+        utmParams: config.utm_params ?? {},
     }
 }
 
@@ -147,6 +154,8 @@ function emailSettingsConfig(settings: BroadcastEmailSettings | undefined): Reco
         message_category_id: settings.messageCategoryId ?? undefined,
         message_category_type: settings.messageCategoryType ?? undefined,
         tracking_enabled: settings.trackingEnabled,
+        utm_tags_enabled: settings.utmTagsEnabled,
+        utm_params: settings.utmParams,
     }
 }
 
@@ -1439,9 +1448,16 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.setStep('recipients')
                     actions.showSavedDraftUrl()
                     lemonToast.error(
-                        `This audience is above the project's batch limit of ${humanFriendlyNumber(
+                        `This project can send a broadcast to up to ${humanFriendlyNumber(
                             blastRadius.limit
-                        )}. Add filters to narrow it, then launch again.`
+                        )} people right now. Add filters to narrow the audience, then launch again.`,
+                        {
+                            button: {
+                                label: 'See sending limits',
+                                action: () => router.actions.push(urls.workflows('reputation')),
+                                dataAttr: 'broadcast-launch-limit-see-sending-limits',
+                            },
+                        }
                     )
                     return
                 }
