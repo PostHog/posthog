@@ -36,12 +36,12 @@ If the user has specific sessions in front of them and a one-off question, they 
 
 ## Step 2: Pick the type from the answer shape
 
-| Answer shape                                     | Type         | Design rule                                                                                                                       |
-| ------------------------------------------------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| Yes or no, with proof                            | `monitor`    | Set `allow_inconclusive: true` when many matched sessions never reach the flow in question. Yes only when the proof is on screen. |
-| One label from a short list                      | `classifier` | Keep 5 to 9 tags. Always include an escape tag. Set `multi_label: false` unless one session truly carries several jobs.           |
-| A number on a rubric                             | `scorer`     | Use when the distribution matters more than any single observation. Define both ends of the scale in the prompt.                  |
-| A fixed set of labeled lines about one recording | `summarizer` | Name the lines in the prompt (for example Journey, Friction, Outcome, Evidence). Never ask for free prose.                        |
+| Answer shape                                     | Type         | Design rule                                                                                                                           |
+| ------------------------------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Yes or no, with proof                            | `monitor`    | Set `allow_inconclusive: true` when many matched sessions never reach the flow in question. Yes only when the proof is on screen.     |
+| One label from a short list                      | `classifier` | Keep 5 to 9 tags. Always include an escape tag. `multi_label` defaults to true; set it false unless one session carries several jobs. |
+| A number on a rubric                             | `scorer`     | Use when the distribution matters more than any single observation. Define both ends of the scale in the prompt.                      |
+| A fixed set of labeled lines about one recording | `summarizer` | Name the lines in the prompt (for example Journey, Friction, Outcome, Evidence). Never ask for free prose.                            |
 
 `scanner_type` is locked after creation. Get this right before the create call.
 
@@ -57,7 +57,7 @@ Build the query from the project's real data. Call `read-data-schema` with `{"qu
 
 A query has one required part and two optional parts:
 
-1. **The premise clause, required.** One high-intent event or URL that proves the person used the surface in question. Examples: a filter change, a saved object, an export, a survey submission, a wizard step. This clause establishes what the prompt may assume.
+1. **The premise clause, required.** One predicate that proves the person used the surface in question, built from verified events or URLs, with explicit AND or OR where the premise needs more than one. Examples: a filter change, a saved object, an export, a survey submission, a wizard step. This clause establishes what the prompt may assume.
 2. **A minimum active duration, optional.** Use a `having_predicates` entry on `active_seconds`. Add it when brief visits cannot answer the question. Leave it out when short sessions are the point, for example a render check or a drop-off question.
 3. **An employee and test-account exclusion, optional.** Use `filter_test_accounts: true` and, where the project supports it, a person-property filter on the email domain. Leave it out when internal sessions are the population, for example a dogfood scanner.
 
@@ -82,7 +82,7 @@ Write the prompt in eight parts, in this order:
 
 Patterns that hold up in production:
 
-- **Verify the premise first.** "This session was selected because X and Y both happened. FIRST verify they are related. If not, output UNRELATED and one sentence on what actually happened, then stop."
+- **Verify the premise first.** "This session was selected because X and Y both happened. FIRST verify they are related. If not, stop." The stop differs by type: a monitor answers inconclusive, a classifier picks its escape tag, a summarizer outputs UNRELATED and one sentence on what actually happened.
 - **Both halves on screen.** "Only report a finding if you can see BOTH the claim the product made AND the behavior that contradicted it."
 - **Evidence, unmet job, smallest test, alternative explanation.** For opportunity findings, require all four parts. The fourth part forces the model to argue against itself.
 - **Boring is expected.** "Most sessions contain no such defect. That is the expected outcome. Return inconclusive rather than stretching an ordinary error to fit the pattern." Write this sentence into every monitor.
@@ -114,7 +114,7 @@ Do not polish the prompt before it runs. The first batch shows how the prompt ac
 3. Read each observation beside its recording. Look for four failures: overclaims, missed proof, weak labels, and instructions the model read literally.
 4. Rate each observation in the Calibration tab. Add a sentence when the scanner got the premise wrong.
 5. Call `vision-scanners-prompt-suggestions-generate` to draft prompt edits from that feedback. Read them with `vision-scanners-prompt-suggestions-current`. Apply one with `vision-scanners-prompt-suggestions-apply` only when the user agrees, or clear it with `vision-scanners-prompt-suggestions-dismiss`.
-6. Add the cross-observation step. Create a scout from the scanner's Scouts tab. Its templates (daily digest, trend watch, new issue watch, start from scratch) only prefill free-text instructions, so edit the instructions and set a schedule. The scout compares observations. The scanner never does.
+6. Add the cross-observation step. Create a scout from the scanner's Scouts tab. Every template ships a full brief and a schedule; only `scratch` has placeholders to fill. The scout compares observations. The scanner never does.
 
 Return to Step 3 before Step 4 when the observations are mostly "no" or "inconclusive". A weak query is the usual cause, not a weak prompt.
 
@@ -135,4 +135,4 @@ These are PostHog's own scanners over PostHog's own product. Use the shapes, not
 - `allow_inconclusive` is off by default. A monitor without it must answer yes or no. That is fine when the query guarantees every session reaches the flow. When it does not, the model stretches ordinary sessions into findings.
 - A prompt that names a tag missing from the tag list is a silent bug. With freeform tags on, the model invents the tag and nobody notices.
 - Prompt edits bump `scanner_version`. Past observations keep the old prompt, so compare calibration ratings within one version.
-- One observation per scanner per session. Re-running a scanner on a session it already observed is a no-op. Test a prompt edit on fresh sessions.
+- One succeeded observation per scanner per session. Re-running on one is a no-op. Failed and ineligible observations do re-run, on demand or with `vision-scanners-observations-retry-create`. Test a prompt edit on fresh sessions.
