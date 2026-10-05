@@ -25,6 +25,9 @@ CAPTURE = "posthog.taxonomic_search_intent.event_match.capture_exception"
 SEEN_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
+# The last candidate is asked in a different request from Autocapture, so it survives Autocapture's request failing.
+LATE_EVENT_LABEL = CORE_EVENT_CANDIDATES[list(CORE_EVENT_CANDIDATES)[-1]].label
+
 LABEL_BY_INSTRUCTIONS = {
     _question(candidate).instructions: candidate.label for candidate in CORE_EVENT_CANDIDATES.values()
 }
@@ -80,16 +83,22 @@ class TestMatchCoreEvents(BaseTest):
 
     @parameterized.expand(
         [
-            ("nothing_above_threshold", {"Autocapture": 0.6}, EventMatchOutcome.NOTHING_LIKELY),
-            ("likely_but_never_seen", {"Screen": 0.85}, EventMatchOutcome.NOT_INGESTED),
-            ("likely_and_seen", {"Screen": 0.85, "Autocapture": 0.95}, EventMatchOutcome.MATCHED),
+            ("nothing_above_threshold", {"Autocapture": 0.6}, None, EventMatchOutcome.NOTHING_LIKELY),
+            ("likely_but_never_seen", {"Screen": 0.85}, None, EventMatchOutcome.NOT_INGESTED),
+            ("likely_and_seen", {"Screen": 0.85, "Autocapture": 0.95}, None, EventMatchOutcome.MATCHED),
+            ("failed_chunk_and_nothing_likely", {}, "Autocapture", EventMatchOutcome.PARTIAL),
+            ("failed_chunk_and_never_seen", {LATE_EVENT_LABEL: 0.9}, "Autocapture", EventMatchOutcome.PARTIAL),
         ]
     )
     def test_names_the_step_that_decided_the_answer(
-        self, _name: str, beliefs: dict[str, float], outcome: EventMatchOutcome
+        self, _name: str, beliefs: dict[str, float], failing_label: str | None, outcome: EventMatchOutcome
     ) -> None:
-        with patch(BUILD_CLIENT, return_value=_model_that_believes(beliefs)):
-            assert match_core_events(self._search("browser capture")).outcome == outcome
+        with patch(BUILD_CLIENT, return_value=_model_that_believes(beliefs, failing_label)), patch(CAPTURE):
+            answer = match_core_events(self._search("browser capture"))
+
+        assert answer.outcome == outcome
+        if outcome != EventMatchOutcome.MATCHED:
+            assert answer.matches == []
 
     def test_the_model_reads_placeholders_instead_of_values(self) -> None:
         client = _model_that_believes({})
@@ -173,22 +182,6 @@ class TestMatchCoreEvents(BaseTest):
         assert capture.call_count == 2
         # A partial answer is not cached, so the second search asks every request again.
         assert client.decide.call_count == 2 * requests_per_search
-
-    def test_reports_partial_when_a_failed_chunk_leaves_no_match_above_threshold(self) -> None:
-        client = _model_that_believes({}, failing_label="Autocapture")
-        with patch(BUILD_CLIENT, return_value=client), patch(CAPTURE):
-            answer = match_core_events(self._search("browser capture"))
-
-        assert answer == EventMatchAnswer(matches=[], outcome=EventMatchOutcome.PARTIAL)
-
-    def test_reports_partial_when_a_failed_chunk_leaves_only_not_ingested_matches(self) -> None:
-        # Not created as an EventDefinition, so it reads as not ingested regardless of the chunk failure.
-        late_event = list(CORE_EVENT_CANDIDATES)[-1]
-        client = _model_that_believes({CORE_EVENT_CANDIDATES[late_event].label: 0.9}, failing_label="Autocapture")
-        with patch(BUILD_CLIENT, return_value=client), patch(CAPTURE):
-            answer = match_core_events(self._search("browser capture"))
-
-        assert answer == EventMatchAnswer(matches=[], outcome=EventMatchOutcome.PARTIAL)
 
     def test_a_partial_answer_fails_when_every_event_must_be_answered(self) -> None:
         client = _model_that_believes({"Autocapture": 0.95}, failing_label="Autocapture")
