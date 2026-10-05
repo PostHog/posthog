@@ -71,7 +71,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workload_report im
 LOGGER = get_logger(__name__)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class RepartitionActivityInputs:
     team_id: int
     schema_id: str
@@ -365,6 +365,14 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         if pending is None:
             logger.debug("repartition: pre-extraction measurement found no repartition needed")
             return
+
+    if swap is None and schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH:
+        # The marker snapshot predates the job fetch and Delta-log work above. A heartbeat-timed-out
+        # predecessor can stage a swap in that window, making temp the only intact copy; deferring
+        # from the stale snapshot would purge that temp and erase its recovery marker.
+        schema.refresh_from_db(fields=["sync_type_config"])
+        swap = schema.repartition_swap
+        pending = schema.repartition_pending or pending
 
     # A pending marker carrying only bookkeeping (an attempt count written when nothing was queued)
     # has no keys to rebuild a target from, and `from_dict` would raise before the rewrite even

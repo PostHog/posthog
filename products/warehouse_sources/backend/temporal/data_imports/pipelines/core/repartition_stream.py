@@ -218,10 +218,11 @@ def storage_filesystem(table_uri: str, storage_options: dict[str, str], **kwargs
 class SourceReader:
     """Reads source files as tables aligned to the live table's schema, in plan order.
 
-    A small file is fetched whole in one request and decoded on a worker thread, a few files
-    ahead, under a cap on the bytes fetched and not yet consumed. Over-fragmented tables are made of
-    such files, and reading them one at a time pays one round trip per file. A large file is read by
-    row group, in batches sized from the byte budget, and is never prefetched.
+    A small file is fetched whole on a worker thread, a few files ahead, under a cap on the bytes
+    fetched and not yet consumed. Decoding stays on the consumer so prefetched files cannot retain
+    whole decoded tables. Over-fragmented tables are made of such files, and reading them one at a
+    time pays one round trip per file. A large file is read by row group, in batches sized from the
+    byte budget, and is never prefetched.
     """
 
     def __init__(
@@ -261,7 +262,7 @@ class SourceReader:
     def iter_sources(self, sources: Sequence[SourceFile]) -> Generator[tuple[SourceFile, Iterator[pa.Table]]]:
         """Each source with an iterator over its tables, in order. Consume each before the next."""
         pool = ThreadPoolExecutor(max_workers=self._read_threads, thread_name_prefix="repartition-read")
-        pending: deque[tuple[SourceFile, Future[list[pa.Table]] | None]] = deque()
+        pending: deque[tuple[SourceFile, Future[bytes] | None]] = deque()
         in_flight = 0
         position = 0
         try:
@@ -273,33 +274,36 @@ class SourceReader:
                     elif pending and in_flight + source.size > self._prefetch_bytes:
                         break
                     else:
-                        pending.append((source, pool.submit(self._read_small, source)))
+                        pending.append((source, pool.submit(self._fetch_small, source)))
                         in_flight += source.size
                     position += 1
                 source, future = pending.popleft()
                 if future is None:
                     yield source, self.iter_tables(source)
                 else:
-                    tables = future.result()
+                    data = future.result()
                     in_flight -= source.size
-                    yield source, iter(tables)
+                    yield source, self._iter_buffer(data, source)
         finally:
             pool.shutdown(wait=True, cancel_futures=True)
 
     def iter_tables(self, source: SourceFile) -> Iterator[pa.Table]:
         with self._filesystem.open_input_file(source.path) as handle:
-            parquet = pq.ParquetFile(handle, pre_buffer=True)
-            batch_rows = self.batch_rows_for(parquet.metadata)
-            for batch in parquet.iter_batches(batch_size=batch_rows):
-                if batch.num_rows == 0:
-                    continue
-                yield self._conform(pa.Table.from_batches([batch]), source)
+            yield from self._iter_parquet(pq.ParquetFile(handle, pre_buffer=True), source)
 
-    def _read_small(self, source: SourceFile) -> list[pa.Table]:
+    def _fetch_small(self, source: SourceFile) -> bytes:
         with self._filesystem.open_input_file(source.path) as handle:
-            data = handle.read()
-        table = pq.ParquetFile(pa.BufferReader(data)).read(use_threads=False)
-        return [self._conform(table, source)] if table.num_rows else []
+            return handle.read()
+
+    def _iter_buffer(self, data: bytes, source: SourceFile) -> Iterator[pa.Table]:
+        yield from self._iter_parquet(pq.ParquetFile(pa.BufferReader(data)), source)
+
+    def _iter_parquet(self, parquet: pq.ParquetFile, source: SourceFile) -> Iterator[pa.Table]:
+        batch_rows = self.batch_rows_for(parquet.metadata)
+        for batch in parquet.iter_batches(batch_size=batch_rows, use_threads=False):
+            if batch.num_rows == 0:
+                continue
+            yield self._conform(pa.Table.from_batches([batch]), source)
 
     def _conform(self, table: pa.Table, source: SourceFile) -> pa.Table:
         conformed = conform_to_schema(table, self._schema, source.partition_values)
@@ -565,7 +569,8 @@ def _partition_dir(value: str | None) -> str:
         return f"{PARTITION_KEY}=__HIVE_DEFAULT_PARTITION__"
     if _SAFE_PARTITION_DIR.match(value):
         return f"{PARTITION_KEY}={value}"
-    return f"{PARTITION_KEY}=__h{hashlib.md5(value.encode('utf-8')).hexdigest()[:16]}"
+    digest = hashlib.md5(value.encode("utf-8"), usedforsecurity=False).hexdigest()
+    return f"{PARTITION_KEY}=__h{digest[:16]}"
 
 
 def split_by_partition(table: pa.Table) -> Iterator[tuple[str | None, pa.Table]]:

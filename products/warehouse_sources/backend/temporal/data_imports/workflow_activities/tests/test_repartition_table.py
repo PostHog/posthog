@@ -1154,14 +1154,21 @@ class TestMaybeFlagPreExtraction:
 
 class TestFullRefreshDeferral:
     @pytest.mark.parametrize(
-        "sync_type, swap, expect_deferred",
+        "sync_type, swap, swap_after_refresh, expect_deferred",
         [
-            ("full_refresh", None, True),
-            ("incremental", None, False),
-            ("append", None, False),
-            ("full_refresh", {"state": "ready", "temp_uri": TEMP_URI}, False),
+            ("full_refresh", None, None, True),
+            ("incremental", None, None, False),
+            ("append", None, None, False),
+            ("full_refresh", {"state": "ready", "temp_uri": TEMP_URI}, None, False),
+            ("full_refresh", None, {"state": "ready", "temp_uri": TEMP_URI}, False),
         ],
-        ids=["full_refresh_defers", "incremental_rewrites", "append_rewrites", "staged_swap_still_completes"],
+        ids=[
+            "full_refresh_defers",
+            "incremental_rewrites",
+            "append_rewrites",
+            "staged_swap_still_completes",
+            "swap_staged_during_evaluation_still_completes",
+        ],
     )
     @patch(f"{MODULE}.capture_repartition_event")
     @patch(f"{MODULE}.HeartbeaterSync")
@@ -1181,6 +1188,7 @@ class TestFullRefreshDeferral:
         mock_capture: MagicMock,
         sync_type: str,
         swap: dict | None,
+        swap_after_refresh: dict | None,
         expect_deferred: bool,
     ) -> None:
         # The next full refresh deletes the table and writes it again, so a rewrite only copies rows
@@ -1188,6 +1196,10 @@ class TestFullRefreshDeferral:
         mock_schema_model.SyncType.FULL_REFRESH = "full_refresh"
         schema = _schema(name="contacts", s3_folder_name="contacts", swap=swap)
         schema.sync_type = sync_type
+        if swap_after_refresh is not None:
+            schema.refresh_from_db.side_effect = lambda **_kwargs: setattr(
+                schema, "repartition_swap", swap_after_refresh
+            )
         mock_schema_model.objects.select_related.return_value.get.return_value = schema
         mock_repartition.return_value = {"outcome": "completed"}
         mock_defer.return_value = {"outcome": "deferred", "reason": "full_refresh_rewrites_the_table"}

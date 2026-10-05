@@ -7,6 +7,7 @@ import decimal
 import datetime
 import itertools
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
@@ -42,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_stream import (
     SOURCE_FILES_METADATA_KEY,
+    SourceFile,
     SourceReader,
     StreamBudget,
     TempTableCommitter,
@@ -945,8 +947,10 @@ class TestRewriteIntoTemp:
         assert rows_written == len(rows) - partial
         final = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
         assert final.num_rows == len(rows)
-        assert sorted(final.column("id").to_pylist()) == [row[0] for row in rows]
-        assert copied_source_files(temp_uri, {}) == {f.path for f in repartition_module.plan_source_files(live)}
+        assert sorted(cast(list[int], final.column("id").to_pylist())) == [row[0] for row in rows]
+        assert copied_source_files(temp_uri, {}) == frozenset(
+            f.path for f in repartition_module.plan_source_files(live)
+        )
 
     def test_a_temp_without_source_file_records_cannot_be_resumed(self, tmp_path):
         # An older rewrite appended rows with plain writes. Its temp says how many rows it holds but
@@ -1168,6 +1172,26 @@ class TestStreamingRewrite:
     so its memory follows the byte budget, not the table. These cases pin the limits and the data
     the limits must not change."""
 
+    def test_prefetched_small_file_is_decoded_in_batches(self, tmp_path):
+        path = str(tmp_path / "small.parquet")
+        table = pa.table({"id": [1, 2, 3, 4, 5]})
+        pq.write_table(table, path)
+        source = SourceFile(path=path, size=os.path.getsize(path), num_records=5, partition_values={})
+        reader = SourceReader(
+            filesystem=pa.fs.LocalFileSystem(),
+            schema=table.schema,
+            batch_bytes=1024,
+            max_batch_rows=2,
+            prefetch_bytes=1024 * 1024,
+        )
+
+        [(read_source, tables)] = reader.iter_sources([source])
+        batches = list(tables)
+
+        assert read_source is source
+        assert [batch.num_rows for batch in batches] == [2, 2, 1]
+        assert pa.concat_tables(batches).equals(table)
+
     @staticmethod
     def _day_target() -> RepartitionTarget:
         return RepartitionTarget(
@@ -1228,11 +1252,12 @@ class TestStreamingRewrite:
         temp = deltalake.DeltaTable(temp_uri)
         table = temp.to_pyarrow_table()
         assert rows_written == table.num_rows == len(rows)
-        assert sorted(table.column("id").to_pylist()) == [row[0] for row in rows]
+        assert sorted(cast(list[int], table.column("id").to_pylist())) == [row[0] for row in rows]
         expected_keys = {created.strftime("%Y-%m-%d") for _, created in rows}
         assert set(table.column(PARTITION_KEY).to_pylist()) == expected_keys
         # Every row sits in the partition its own timestamp maps to.
         for created, key in zip(table.column("created_at").to_pylist(), table.column(PARTITION_KEY).to_pylist()):
+            assert isinstance(created, datetime.datetime)
             assert created.strftime("%Y-%m-%d") == key
 
     def test_files_written_before_a_column_was_added_read_as_nulls(self, tmp_path):
@@ -1306,7 +1331,7 @@ class TestStreamingRewrite:
         rebuilt = deltalake.DeltaTable(temp_uri).to_pyarrow_table()
         assert resolved.partition_mode == "md5"
         assert rows_written == rebuilt.num_rows == rows
-        assert sorted(rebuilt.column("id").to_pylist()) == sorted(f"key-{i}" for i in range(rows))
+        assert sorted(cast(list[str], rebuilt.column("id").to_pylist())) == sorted(f"key-{i}" for i in range(rows))
         assert len(set(rebuilt.column(PARTITION_KEY).to_pylist())) <= partition_count
 
 
@@ -1457,6 +1482,7 @@ class TestAddActionStats:
             if expectation == "omitted":
                 assert ours is None
             elif expectation == "exact":
+                assert callable(true_value)
                 assert _typed(ours, data_type) == true_value(present)
                 assert _typed(theirs, data_type) != true_value(present)
             elif key == "nullCount" or ours is None or theirs is None:
@@ -1556,7 +1582,8 @@ class TestAddActionStats:
                     if value is not None and i not in nan_rows and holds(value, bound)
                 )
                 read = delta.to_pyarrow_table(filters=[(column, op, bound)])
-                assert sorted(set(read.column("id").to_pylist()) - nan_rows) == expected, (column, op, bound)
+                read_ids = set(cast(list[int], read.column("id").to_pylist()))
+                assert sorted(read_ids - nan_rows) == expected, (column, op, bound)
 
     @pytest.mark.parametrize(
         "column",
@@ -1584,7 +1611,8 @@ class TestAddActionStats:
                 )
                 sql = f"SELECT id FROM t WHERE {column} {op} {self._sql_literal(bound, data_type)}"
                 read = pa.table(query.execute(sql).read_all())
-                assert sorted(set(read.column("id").to_pylist()) - nan_rows) == expected, sql
+                read_ids = set(cast(list[int], read.column("id").to_pylist()))
+                assert sorted(read_ids - nan_rows) == expected, sql
 
     @pytest.mark.parametrize("key", ["id", "s", "dec", "dec_big", "ts", "tz"])
     def test_a_stats_pruned_upsert_at_each_file_bound_updates_instead_of_inserting(self, key, tmp_path):
@@ -2673,12 +2701,15 @@ class TestRewriteCheckpointResume:
             )
 
         assert result["outcome"] == "completed"
+        assert swap.await_args is not None
         swapped = swap.await_args.kwargs["temp_uri"]
         assert (swapped == prior_temp) is expect_resume
         rebuilt = deltalake.DeltaTable(swapped).to_pyarrow_table()
         live_now = moved.to_pyarrow_table()
         assert rebuilt.num_rows == live_now.num_rows
-        assert sorted(rebuilt.column("id").to_pylist()) == sorted(live_now.column("id").to_pylist())
+        assert sorted(cast(list[int], rebuilt.column("id").to_pylist())) == sorted(
+            cast(list[int], live_now.column("id").to_pylist())
+        )
 
     def test_refuses_to_restart_a_table_one_budget_already_failed_to_cover(self, tmp_path):
         # The discarded checkpoint above is only harmless while a restart can finish. Once a full
