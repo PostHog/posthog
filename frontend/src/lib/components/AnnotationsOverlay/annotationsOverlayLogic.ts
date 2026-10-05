@@ -50,6 +50,52 @@ export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: Interva
     return date.startOf(getGroupingUnit(intervalUnit)).format('YYYY-MM-DD HH:mm:ssZZ')
 }
 
+const MINUTE_MS = 60 * 1000
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
+
+/** Charts without a query interval (e.g. SQL insights) get it from the smallest gap between data points.
+ *  The smallest gap ignores missing buckets, and the thresholds allow for DST and uneven month lengths. */
+function inferIntervalFromDates(dates: string[], timezone: string): IntervalType {
+    let smallestGapMs = Infinity
+    let previousMs: number | null = null
+    for (const date of dates) {
+        const ms = parseDateInTimezone(date, timezone).valueOf()
+        if (Number.isNaN(ms)) {
+            continue
+        }
+        if (previousMs !== null && ms > previousMs) {
+            smallestGapMs = Math.min(smallestGapMs, ms - previousMs)
+        }
+        previousMs = ms
+    }
+    if (smallestGapMs === Infinity) {
+        return 'day'
+    }
+    if (smallestGapMs >= 360 * DAY_MS) {
+        return 'year'
+    }
+    if (smallestGapMs >= 85 * DAY_MS) {
+        return 'quarter'
+    }
+    if (smallestGapMs >= 27 * DAY_MS) {
+        return 'month'
+    }
+    if (smallestGapMs >= 6 * DAY_MS) {
+        return 'week'
+    }
+    if (smallestGapMs >= 20 * HOUR_MS) {
+        return 'day'
+    }
+    if (smallestGapMs >= 50 * MINUTE_MS) {
+        return 'hour'
+    }
+    if (smallestGapMs >= 50 * 1000) {
+        return 'minute'
+    }
+    return 'second'
+}
+
 function hasPersonPropertyFiltersOrBreakdown(
     properties: AnyPropertyFilter[] | PropertyGroupFilter | null | undefined,
     breakdownFilter: BreakdownFilter | null | undefined
@@ -143,7 +189,7 @@ export interface annotationsOverlayLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
         annotationsOverlayProps: (arg: any) => AnnotationsOverlayLogicProps
-        intervalUnit: (interval: IntervalType | null | undefined) => IntervalType
+        intervalUnit: (interval: IntervalType | null | undefined, timezone: string, arg: string[]) => IntervalType
         groupingUnit: (intervalUnit: IntervalType) => IntervalType
         tickPositions: (
             ticks: {
@@ -252,7 +298,11 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             () => [(_, props) => props],
             (props: AnnotationsOverlayLogicProps): AnnotationsOverlayLogicProps => props,
         ],
-        intervalUnit: [(s) => [s.interval], (interval: IntervalType | null | undefined) => interval || 'day'],
+        intervalUnit: [
+            (s) => [s.interval, s.timezone, (_, props: AnnotationsOverlayLogicProps) => props.dates],
+            (interval: IntervalType | null | undefined, timezone: string, dates: string[]): IntervalType =>
+                interval || inferIntervalFromDates(dates, timezone),
+        ],
         groupingUnit: [
             (s) => [s.intervalUnit],
             (intervalUnit: IntervalType): IntervalType => getGroupingUnit(intervalUnit),
