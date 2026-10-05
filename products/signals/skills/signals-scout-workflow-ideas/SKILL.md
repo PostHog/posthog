@@ -126,6 +126,8 @@ These three are always measured the same way, so ideas compare across runs and p
 
 `baseline_conversion_rate` is the share of `reach_people` who reached the goal at any point after the trigger within the window, with no message.
 It deliberately includes people who convert after `delay_hours`: they would get the first message and convert anyway, so the baseline is the rate a workflow has to beat, not the rate of the audience it messages.
+When coverage is `partial`, the people the existing workflow or tool already messages are not unmessaged.
+Leave them out of the baseline when the project records who it messaged (the other tool's send event, or `$workflows_email_sent`), and when it does not, say in `why_now` that the baseline already includes that message.
 Pick `delay_hours` from the data: look at how long the people who do convert take, and wait long enough that most of them are already gone.
 `estimated_monthly_sends` is `reachable_people` scaled to 30 days, times `message_count`.
 
