@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.twitter_ads.settings import (
     API_VERSION,
     ENTITY_TABLES,
+    MAX_STATS_BACKFILL_DAYS,
     MISSING_APP,
     MISSING_INTEGRATION,
     PARTITION_KEYS,
@@ -145,11 +146,13 @@ class TwitterAdsClient:
         entity_ids = sorted(row["id"] for row in entities)
         if not entity_ids:
             return
-        start = (
-            date.fromisoformat(str(incremental_since)[:10])
-            if incremental_since is not None
-            else datetime.fromisoformat(account["created_at"].replace("Z", "+00:00")).astimezone(timezone).date()
-        )
+        if incremental_since is not None:
+            start = date.fromisoformat(str(incremental_since)[:10])
+        else:
+            created_at = (
+                datetime.fromisoformat(account["created_at"].replace("Z", "+00:00")).astimezone(timezone).date()
+            )
+            start = max(created_at, account_now.date() - timedelta(days=MAX_STATS_BACKFILL_DAYS))
         if state.next_date:
             start = date.fromisoformat(state.next_date)
         end = date.fromisoformat(state.end_date) if state.end_date else account_now.date()
