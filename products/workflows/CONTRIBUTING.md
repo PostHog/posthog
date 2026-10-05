@@ -242,6 +242,17 @@ Async functions are registered via side-effect imports. Add your file to:
 
 If you skip this step, your async function will never be available to Hog code.
 
+## Backend: a native step that calls Django
+
+The AI decision step (`ai_decision`) runs no Hog. Its handler in `nodejs/src/cdp/services/hogflows/actions/ai_decision/` renders the step's context, calls a workflows route in Django, and branches on the reply. Follow it when a native step needs something only Django can do.
+
+- **Auth.** Mint a fresh scoped service JWT per call (`ScopedServiceJwt`) with its own purpose and secret on both sides. The `team_id` claim comes from the invocation, never from step config.
+- **One call, no inline retries.** Make one `internalFetch` call with a timeout longer than Django's own upstream timeout. Don't use `callInternalApi`: it retries inline and blocks the consumer loop.
+- **Status codes are retry instructions.** A 200 is final: an answer, or a failure envelope whose message goes to the run log. A 429 or 503 means "later": return `scheduledAt` so the executor parks the person, the way a `delay` does. Keep the retry bounds in the step's `currentAction` state, and fail the step once they run out.
+- **Quiet reschedules.** Set `currentAction.routingOnlyReschedule` before returning `scheduledAt`, so a retry doesn't write the "Workflow will pause until..." and "Resuming..." pair into the run log.
+- **Test runs.** A native step isn't mocked for you. The handler reads `testRun` from its options. Mocked, it validates and renders like a live run but makes no call. Real, it calls once and doesn't reschedule.
+- **Parity.** Validate the step config in Node the way the Django serializer does. `products/workflows/backend/tests/api/ai_decision_config_cases.json` is the shared cases table: the Django serializer tests and the Node handler tests both run every case.
+
 ## Frontend: adding a custom input type
 
 The input configuration UI (`CyclotronJobInputs`) supports product-specific input types via a lazy renderer registry.

@@ -7,6 +7,7 @@ The contract for `actions` and `edges`. The stored workflow is loose JSON, but *
 - Node (action) shape
 - Action types and their `config`
 - Edges
+- AI decisions (`ai_decision`)
 - `function*` inputs
 - Duration strings (`delay_duration`, `max_wait_duration`)
 - Waiting until a date (`delay_until`)
@@ -51,6 +52,7 @@ Use **only** these `type` values — they are the complete supported set. An unk
 | `function_email`         | `{ "template_id?": "template-email", "template_uuid?": "<saved template UUID>", "inputs": {"email": {"value": {...}}}, "message_category_type?": <"marketing" / "transactional">, "tracking_enabled?": <bool> }`. `template_id` is the **literal** `template-email`; omit it and the server infers it from the step type. Reference a saved library template (from `workflows-list-email-templates`) by putting its UUID in `template_uuid`, never in `template_id` — a UUID sent as `template_id` is moved into `template_uuid` automatically. When `template_uuid` is set and the value has no body keys (`subject`/`text`/`html`/`design`), the server copies the template's body into `inputs.email.value` at save (a snapshot — later template edits don't propagate); you still supply `from` and `to`. Set `from` to `{integrationId: <sender id>}` for one sender. To rotate across up to 10 senders, also set `integrationIds: [<sender id>, ...]`; keep `integrationId` as the first sender for compatibility. Workflow runs using the same sender list resolve to the same sender, including across multiple email steps. If you author any body key inline, your body wins and `template_uuid` is provenance only. `tracking_enabled` defaults to true; when false, no open pixel is injected and links are not rewritten, so opens/clicks are not recorded for this step (delivery/bounce/unsubscribe still are). |
 | `function_sms`           | `{ "template_id?": "template-twilio", "inputs": { ... }, "message_category_type?": "..." }`. `template_id` is the **literal** `template-twilio`; omit it and the server infers it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `function_push`          | `{ "template_id?": "template-native-push", "inputs": { ... }, "message_category_type?": <"marketing" / "transactional"> }`. `template_id` is the **literal** `template-native-push`; omit it and the server infers it. Sends a mobile push notification via FCM/APNs. Its `inputs` are richer than email's — `title`, `body`, and a `channels` list of the FCM/APNs integration ids to send through — so retrieve the `template-native-push` `inputs_schema` (as with `function`) for the exact keys, and use the project's push integration ids for `channels`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `ai_decision`            | `{ "question": "...", "answer_type": <"yes_no" / "pick_one">, "options?": [{"name": "...", "description?": "..."}], "yes_means?": "", "no_means?": "", "yes_threshold?": 50, "unsure_enabled?": false, "min_pick_probability?": 60, "no_threshold?": 20, "inputs": {"context": {"value": {"<field>": "<hog template>"}}} }`. Asks a hosted AI model a question and branches on the answer. Uses AI credits. See `ai_decision` below.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `exit`                   | `{ "reason?": "Done" }`. Usually one terminal exit node.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 ### Branch and wait condition filters (the `filters` wrapper is mandatory)
@@ -109,6 +111,57 @@ Property conditions used in trigger/action `filters`, branch conditions, and con
 - **Every non-exit node needs a reachable next action** via an outgoing edge, or execution fails with "No next action found".
 - A `conditional_branch` with N conditions typically has N `branch` edges (`index: 0..N-1`) plus one `continue` edge for the no-match path.
 - A `wait_until_condition` needs a `branch` edge at `index: 0` (resolution) **and** a `continue` edge (timeout). Without the `index: 0` branch it only ever advances on timeout, never on the event/condition firing.
+- An `ai_decision` needs one `branch` edge per answer, one more for Unsure when `unsure_enabled` is on, and a `continue` edge for "If the decision fails". See below for the indexes.
+
+## AI decisions (`ai_decision`)
+
+An `ai_decision` asks a hosted AI model a question about the person or event and sends each answer down its own path. Each person who reaches the step uses one AI decision from the organization's AI credits. The step is behind a feature flag, and the organization must approve AI data processing.
+
+```json
+{
+  "id": "decide_track",
+  "name": "Pick an onboarding track",
+  "type": "ai_decision",
+  "config": {
+    "question": "Which onboarding track fits this signup?",
+    "answer_type": "pick_one",
+    "options": [
+      { "name": "Developer", "description": "Wants to integrate through the API or an SDK" },
+      { "name": "Marketer", "description": "Wants campaigns, landing pages, or attribution" },
+      { "name": "Founder", "description": "Evaluates the product for a whole company" }
+    ],
+    "unsure_enabled": true,
+    "min_pick_probability": 60,
+    "inputs": {
+      "context": {
+        "value": { "signup_answer": "{event.properties.signup_answer}", "role": "{person.properties.role}" }
+      }
+    }
+  },
+  "on_error": "continue",
+  "output_variable": { "key": "onboarding_track", "result_path": "answer" }
+}
+```
+
+```json
+[
+  { "from": "decide_track", "to": "developer_email", "type": "branch", "index": 0 },
+  { "from": "decide_track", "to": "marketer_email", "type": "branch", "index": 1 },
+  { "from": "decide_track", "to": "founder_email", "type": "branch", "index": 2 },
+  { "from": "decide_track", "to": "general_email", "type": "branch", "index": 3 },
+  { "from": "decide_track", "to": "general_email", "type": "continue" }
+]
+```
+
+- **Answers.** `yes_no` has two answers: `index: 0` is Yes and `index: 1` is No. `pick_one` has one answer per option, in `options` order, 2 to 16 options with unique names.
+- **Unsure.** With `unsure_enabled`, one more `branch` edge follows the answers (`index: 2` for `yes_no`, `index: N` for N options). A `yes_no` answer is Unsure between `no_threshold` and `yes_threshold`. A `pick_one` answer is Unsure when the top option is below `min_pick_probability`.
+- **Thresholds** are whole percents. `yes_no` answers Yes at or above `yes_threshold` (default 50). With Unsure on, it answers No at or below `no_threshold` (default 20), which must be below `yes_threshold`.
+- **Failures** follow the `continue` edge: out of AI credits, AI data processing not approved, a context over 8 KB, a model that cannot answer, or an AI service that stays busy. Set `on_error: "abort"` to end the run instead. The run log names the cause.
+- **Every answer edge is required**, and so is the Unsure edge when it is on. Several edges may point to the same step, so a step that only labels the person is valid. The `continue` edge is required too, unless the step has no `filters` and `on_error` is `abort`.
+- **Context** is the only templated part: named fields whose values are Hog templates (`{event.properties.x}`, `{person.properties.x}`, `{variables.x}`). The question, options, and meanings are plain text and never templated, so person and event data can't become instructions. Keep the context small: over 8 KB of JSON fails the step.
+- **Result.** `output_variable` can store `answer` (the option name, or `yes`, `no`, or `unsure`), `probability` (the probability the answer rests on, from 0 to 1), `probabilities` (every answer's probability), and `model`. A failed decision stores nothing.
+- **Busy service.** When the AI service is busy, the run waits and asks again, for up to 30 minutes. The run log shows no pause for it.
+- **Testing.** `workflows-test-run` mocks the step by default: no AI credits, the answer named in `mock_answer` (or the first answer), and the rendered context with its size. With `mock_async_functions: false` it asks the model once and uses one AI decision.
 
 ## `function*` inputs
 
@@ -212,6 +265,7 @@ A `delay` waits either a fixed span or until a date carried by the person or the
 - [ ] A `webhook` / `manual` trigger sets `template_id == "template-source-webhook"` (a `tracking_pixel` uses `"template-source-webhook-pixel"`) — these are built-in source templates, not catalog lookups.
 - [ ] That trigger's `inputs.event` / `inputs.distinct_id` match its own type: `{request.body.*}` for `webhook`, `$workflow_triggered` + `{request.body.user_id}` for `manual`, `{request.query.ph_*}` for `tracking_pixel`. The wrong pair saves fine and then fails at trigger time.
 - [ ] Every non-exit node has an outgoing edge; `branch` edges have an `index` matching a condition.
+- [ ] Every `ai_decision` has a `branch` edge for each answer, one for Unsure when it is on, and a `continue` edge.
 - [ ] Every `conditional_branch` / `wait_until_condition` condition is wrapped: `{filters: {properties: [...]}}`, not `{properties: [...]}`.
 - [ ] All durations match `^\d*\.?\d+[dhms]$` and dodge the silent per-unit clamp.
 - [ ] Every `delay` sets exactly one of `delay_duration` and `delay_until`, and no `delay_until` carries hand-written `bytecode`.
