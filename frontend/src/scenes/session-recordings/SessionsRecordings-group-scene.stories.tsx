@@ -188,6 +188,11 @@ export const GroupRecordingTabMultipleAndNotFound: Story = {
 
         return <App />
     },
+    parameters: {
+        testOptions: {
+            snapshotSettleTimeMs: 1000,
+        },
+    },
 }
 
 export const GroupRecordingTabMultipleAndFound: Story = {
