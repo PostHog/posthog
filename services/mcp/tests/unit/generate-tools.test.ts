@@ -2586,3 +2586,66 @@ describe('derived scopes and annotations', () => {
         })
     })
 })
+
+describe('hooks', () => {
+    const spec = makeSpec({
+        paths: {
+            '/api/projects/{project_id}/things/': {
+                get: { operationId: 'things_list', parameters: [], security: [{ PersonalAPIKeyAuth: ['thing:read'] }] },
+            },
+        },
+    })
+
+    function generate(tool: Partial<ToolConfig>): ReturnType<typeof generateCategoryFile> {
+        const category = {
+            ...defaultCategory,
+            tools: { 'thing-list': { operation: 'things_list', enabled: true, ...tool } as ToolConfig },
+        }
+        return generateCategoryFile(category, 'products/things/mcp/tools.yaml', 'things', spec, new Set(), () => ({
+            definitions: {},
+        }))
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it('imports the hooks module and wraps the handler', () => {
+        const { code } = generate({ hooks: 'tool-hooks' })
+
+        expect(code).toContain("import * as thingListHooks from '@/tools/tool-hooks'")
+        expect(code).toContain("import { withToolHooks } from '@/tools/tool-hooks'")
+        expect(code).toMatch(/handler: withToolHooks\(\s*thingListHooks,\s*async \(context: Context/)
+    })
+
+    it('leaves tools without hooks unwrapped', () => {
+        const { code } = generate({})
+
+        expect(code).not.toContain('withToolHooks')
+        expect(code).toContain('handler: async (context: Context')
+    })
+
+    it('fails when the hooks module does not exist', () => {
+        const errors: string[] = []
+        vi.spyOn(console, 'error').mockImplementation((message: string) => {
+            errors.push(message)
+        })
+        vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('exit')
+        }) as never)
+
+        expect(() => generate({ hooks: 'nowhere/missingHooks' })).toThrow('exit')
+        expect(errors.join('\n')).toMatch(/hooks module "nowhere\/missingHooks" not found/)
+    })
+
+    it('rejects hooks combined with confirmed_action', () => {
+        const result = ToolConfigSchema.safeParse({
+            operation: 'things_list',
+            enabled: true,
+            hooks: 'tool-hooks',
+            confirmed_action: {},
+        })
+
+        expect(result.success).toBe(false)
+    })
+})

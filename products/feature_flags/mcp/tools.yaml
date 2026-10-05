@@ -892,6 +892,7 @@ tools:
     update-feature-flag:
         operation: feature_flags_partial_update
         enabled: true
+        hooks: featureFlags/updateFeatureFlagHooks
         scopes:
             - feature_flag:write
         annotations:

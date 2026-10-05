@@ -46,6 +46,7 @@ tools:
     session-recording-get:
         operation: session_recordings_retrieve
         enabled: true
+        hooks: replay/sessionRecordingGetHooks
         scopes:
             - session_recording:read
         annotations:

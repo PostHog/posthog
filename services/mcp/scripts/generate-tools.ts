@@ -37,6 +37,7 @@ const MCP_ROOT = path.resolve(__dirname, '..')
 const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
 const DEFINITIONS_DIR = path.resolve(MCP_ROOT, 'definitions')
 const PRODUCTS_DIR = path.resolve(REPO_ROOT, 'products')
+const TOOLS_SRC_DIR = path.resolve(MCP_ROOT, 'src/tools')
 const GENERATED_DIR = path.resolve(MCP_ROOT, 'src/tools/generated')
 const DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/generated-tool-definitions.json')
 const ALL_DEFINITIONS_JSON_PATH = path.resolve(MCP_ROOT, 'schema/tool-definitions-all.json')
@@ -1072,6 +1073,16 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
 
 // ------------------------------------------------------------------
 // Code generation for a single tool
+
+function hooksVarName(toolName: string): string {
+    return `${toCamelCase(toolName)}Hooks`
+}
+
+/** Emits the handler expression, wrapped with the tool's `hooks:` module when it has one. */
+function renderHandler(config: ToolConfig, toolName: string, handlerFn: string): string {
+    return config.hooks ? `withToolHooks(${hooksVarName(toolName)}, ${handlerFn})` : handlerFn
+}
+
 // ------------------------------------------------------------------
 
 function generateToolCode(
@@ -1345,8 +1356,12 @@ function generateToolCode(
     const toolBody = `{
     name: '${toolName}',
     schema: ${schemaName}(),
-    handler: async (context: Context, ${paramsName}: z.infer<ReturnType<typeof ${schemaName}>>) => {
-${handlerBody}    },
+    handler: ${renderHandler(
+        config,
+        toolName,
+        `async (context: Context, ${paramsName}: z.infer<ReturnType<typeof ${schemaName}>>) => {
+${handlerBody}    }`
+    )},
 }`
 
     const factoryBody = appKey ? `withUiApp('${appKey}', ${toolBody})` : `(${toolBody})`
@@ -1660,8 +1675,12 @@ const ${schemaName} = () => ${baseSchemaExpr}
 const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${customResultType}> => ({
     name: '${toolName}',
     schema: ${schemaName}(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ${schemaName}>>) => {
-${handlerBody}    },
+    handler: ${renderHandler(
+        config,
+        toolName,
+        `async (context: Context, params: z.infer<ReturnType<typeof ${schemaName}>>) => {
+${handlerBody}    }`
+    )},
 })
 `
 
@@ -1788,6 +1807,13 @@ function generateCategoryFile(
             console.error(
                 `Enabled tool "${name}": operationId "${config.operation}" not found in OpenAPI. ` +
                     `The operationId no longer exists. Fix "operation:" in the tool's YAML, or set "enabled: false" / remove the tool.`
+            )
+            process.exit(1)
+        }
+        if (config.hooks && !fs.existsSync(path.join(TOOLS_SRC_DIR, `${config.hooks}.ts`))) {
+            console.error(
+                `Enabled tool "${name}": hooks module "${config.hooks}" not found. ` +
+                    `Expected services/mcp/src/tools/${config.hooks}.ts. Fix "hooks:" in the tool's YAML or create the module.`
             )
             process.exit(1)
         }
@@ -2053,6 +2079,15 @@ function generateCategoryFile(
         toolUtilsImportLine = `import type { ${toolUtilsTypeImports.join(', ')} } from '@/tools/tool-utils'\n`
     }
 
+    const hookedTools = enabledTools.filter(([, toolConfig]) => toolConfig.hooks)
+    const hooksImportLines =
+        hookedTools.length > 0
+            ? `import { withToolHooks } from '@/tools/tool-hooks'\n` +
+              hookedTools
+                  .map(([name, toolConfig]) => `import * as ${hooksVarName(name)} from '@/tools/${toolConfig.hooks}'\n`)
+                  .join('')
+            : ''
+
     const wrapperImportLine =
         enabledWrappers.length > 0 ? `import { createQueryWrapper } from '@/tools/query-wrapper-factory'\n` : ''
 
@@ -2066,7 +2101,7 @@ function generateCategoryFile(
 import { z } from 'zod'
 
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${confirmedActionImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
+${toolUtilsImportLine ? `${toolUtilsImportLine}` : ''}${schemasImportLine}${withUiAppImportLine}${toolInputsImportLine}${castHelpersImportLine}${wrapperImportLine}${hooksImportLines}${confirmedActionImportLine}${orvalImportLine}${schemaRefCode}${toolCodes.join('')}${wrapperSchemasCode}
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${mapEntries}
 }

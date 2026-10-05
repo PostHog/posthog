@@ -356,35 +356,34 @@ Product teams own their definitions and control which operations are exposed as 
    The generated code uses `.extend()` to replace just that field.
    See [supported annotations](https://modelcontextprotocol.io/specification/2025-06-18/schema#toolannotations) for the full list.
 
-   #### Hand-written override of a generated tool
+   #### Hooks for custom request logic
 
    The two overrides above reshape a generated tool's schema.
-   Neither can change what happens before the request goes out.
+   Neither can change what happens around the request.
    `validators` runs as a synchronous `superRefine`, so it cannot await anything;
    `inject_body` supplies static values; `rename_params` only renames.
 
-   When a tool has to read current state before writing, export a hand-written tool under the generated tool's own name.
-   `mergeToolFactories` gives hand-written entries precedence on a name collision, so the hand-written tool replaces the generated one everywhere:
-   the Hono catalog, the CLI, `getToolsFromContext`, and `posthog-connection-call`.
+   When a tool has to read current state before writing, or handle a specific error, set `hooks:` on the tool.
+   The value is a module path relative to `src/tools/`, without the extension:
 
-   `src/tools/featureFlags/updateFeatureFlag.ts` is the reference.
-   It spreads the generated tool so the name, schema and any field codegen adds later carry over, replaces only the handler, and delegates back to the generated handler to make the request:
-
-   ```ts
-   const generated = GENERATED_TOOLS['update-feature-flag']!()
-
-   return {
-     ...generated,
-     handler: async (context, params) => {
-       const existing = await context.api.request({ method: 'GET', path: `...` })
-       return generated.handler(context, { ...params, filters: merge(existing, params.filters) })
-     },
-   }
+   ```yaml
+   update-feature-flag:
+     operation: feature_flags_partial_update
+     enabled: true
+     hooks: featureFlags/updateFeatureFlagHooks
    ```
 
-   Reach for this only when a read-modify-write is genuinely needed.
-   Every override is a name collision that has to stay deliberate, which `tests/unit/tool-name-validation.test.ts` enforces by pinning the set of shadowed names.
-   If a second tool needs the same treatment, add support for a `before_request:` hook to the YAML config instead of a second shadow.
+   The module exports any of these functions:
+
+   - `beforeRequest(context, params)` returns the params the request should use.
+   - `afterResponse(context, params, result)` returns the result to send to the client.
+   - `onError(context, params, error)` returns a result that handles the error, or rethrows it.
+
+   Codegen wraps the generated handler with them, so the name, schema and metadata stay generated.
+   A `beforeRequest` that throws stops the request, and `onError` does not see that error.
+   `hooks` cannot be combined with `confirmed_action`.
+   `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
+   Do not shadow a generated tool with a hand-written tool of the same name.
 
    #### Typed-confirm paradigm for destructive tools
 
