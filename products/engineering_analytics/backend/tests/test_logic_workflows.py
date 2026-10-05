@@ -45,6 +45,7 @@ from products.engineering_analytics.backend.tests._logic_helpers import (
     _job_row,
     _resp,
     _seed_now,
+    _StoredCiRowsMixin,
 )
 
 
@@ -1455,3 +1456,16 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
 
         # A branch with no runs yields no rows.
         assert api.list_workflow_health(team=self.team, date_from="-30d", branch="nope") == []
+
+
+class TestWorkflowEndpointsStored(_StoredCiRowsMixin, TestWorkflowEndpointsWarehouse):
+    STORED_READ_TESTS = (
+        "test_colliding_engine_ids_do_not_pair_recovery_or_reduce_run_counts_0_recovery",
+        "test_colliding_engine_ids_do_not_pair_recovery_or_reduce_run_counts_1_failure",
+        "test_job_aggregates_branch_filter_matches_depot_jobs_through_their_run",
+        "test_job_aggregates_rate_and_queue_time_use_verdicts",
+        "test_repo_overview_headlines_and_series_toggle",
+        "test_workflow_detail_branch_filter",
+        "test_workflow_health_includes_cost_when_jobs_synced",
+        "test_workflow_runner_costs_breaks_down_by_tier",
+    )
