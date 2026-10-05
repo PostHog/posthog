@@ -189,6 +189,22 @@ pub fn extract_cohort_ids_from_flag_filters(flags: &[FeatureFlag]) -> HashSet<Co
         .collect()
 }
 
+/// Computes evaluation metadata for flags read straight from Postgres. On a graph error, it
+/// places every flag in one stage so that the flags still evaluate.
+///
+/// `compute_flag_dependencies` returns no error for flag input, because `remove_all_cycles`
+/// removes every cycle before the stage computation runs. The fallback guards against a later
+/// change to the graph code.
+pub(crate) fn compute_flag_dependencies_or_single_stage(
+    team_id: TeamId,
+    flags: &[FeatureFlag],
+) -> EvaluationMetadata {
+    compute_flag_dependencies(flags).unwrap_or_else(|e| {
+        tracing::warn!(team_id, "Falling back to single-stage flag metadata: {e}");
+        EvaluationMetadata::single_stage(flags)
+    })
+}
+
 /// Compute flag dependency metadata via the shared `DependencyGraph` framework.
 ///
 /// Produces output identical to Python's `_compute_flag_dependencies()`:

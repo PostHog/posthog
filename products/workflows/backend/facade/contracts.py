@@ -1,6 +1,7 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
+from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, Protocol, TypedDict
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -106,6 +107,24 @@ class AccountAudienceProvider(Protocol):
 
 
 @frozen
+class AudienceSize:
+    """How many recipients a batch audience matches, and the most a batch trigger may send to."""
+
+    affected: int
+    total: int
+    limit: int
+    dedupe_key: str | None
+
+
+@frozen
+class AudiencePage:
+    """One cursor-paginated page of a batch audience: person, group or account ids."""
+
+    ids: list[str]
+    has_more: bool
+
+
+@frozen
 class EmailSendingTierLimits:
     """What a trust tier allows: two send-rate caps and a maximum batch audience."""
 
@@ -151,6 +170,54 @@ class EmailSendingSuspensionChange:
 
 
 @frozen
+class EmailSendingAllowance:
+    """A project's sending tier, what it allows, and how much of that it has used."""
+
+    tier: int
+    max_tier: int
+    emails_per_hour: int
+    emails_per_day: int
+    max_batch_audience: int
+    emails_sent_last_hour: int
+    emails_sent_last_day: int
+    enforced: bool
+
+
+class StaffPausedError(Exception):
+    """A customer tried to resume a pause only staff may clear."""
+
+
+# The app metric names the deliverability signals are read from. A Complaint (the recipient's
+# "report spam" relayed through the provider's feedback loop) is recorded as `email_blocked`, and
+# only permanent bounces count as `email_bounced_hard`, matching how AWS counts its bounce rate.
+# See the SES webhook handler in nodejs/src/cdp/services/messaging/helpers/ses.ts.
+SENT_METRIC: Final[str] = "email_sent"
+HARD_BOUNCE_METRIC: Final[str] = "email_bounced_hard"
+COMPLAINT_METRIC: Final[str] = "email_blocked"
+EMAIL_HEALTH_METRIC_NAMES: Final[list[str]] = [SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC]
+
+
+@frozen
+class EmailSendingCounts:
+    sent: int = 0
+    bounced_hard: int = 0
+    complained: int = 0
+
+    def plus(self, counts: Mapping[str, int]) -> "EmailSendingCounts":
+        return EmailSendingCounts(
+            sent=self.sent + counts.get(SENT_METRIC, 0),
+            bounced_hard=self.bounced_hard + counts.get(HARD_BOUNCE_METRIC, 0),
+            complained=self.complained + counts.get(COMPLAINT_METRIC, 0),
+        )
+
+
+@frozen
+class FlowEmailTotals:
+    counts_by_flow: dict[str, EmailSendingCounts]
+    names_by_flow_id: dict[str, str]
+
+
+@frozen
 class WorkflowTemplate:
     """A workflow template stored in the database, owned by one team.
 
@@ -179,6 +246,14 @@ class WorkflowTemplate:
     actions: list[dict[str, Any]] | dict[str, Any]
     abort_action: str | None
     variables: list[dict[str, Any]] | None
+
+
+@frozen
+class FunctionTemplateSchema:
+    """The parts of a cdp function template that a workflow step validates its inputs against."""
+
+    type: str
+    inputs_schema: list[dict[str, Any]] | None
 
 
 # The provider payloads below are TypedDicts, not frozen dataclasses: the email-verify endpoint

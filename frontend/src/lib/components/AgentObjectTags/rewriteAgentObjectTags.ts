@@ -39,6 +39,8 @@ const RE_FENCE_LINE = /^ {0,3}(`{3,}|~{3,})/
 const RE_BACKTICK_RUN = /`+/g
 const RE_LABEL_UNSAFE = /[[\]|]/g
 const RE_BARE_ID = /^[\w$.:-]{1,64}$/
+const RE_STANDALONE_LINK = /^\[([^[\]\n]*)\]\((?:<([^<>\n]*)>|(\S+?))(?:[ \t]+"([^"\n]*)")?\)[ \t]*$/
+const RE_SQL_EDITOR_PATH = /^(?:\/project\/\d+)?\/sql$/
 const RE_PARTIAL_OPEN_TAG = /^<(?:[a-z][\w-]*(?:\s[^>]*)?)?$/
 
 // Only the five entities the desktop composer's XML serializer emits (`escapeXmlAttr`);
@@ -246,6 +248,87 @@ export function objectKindLink(
     return { kind, url: objectUrl(projectBase, kind, objectId) }
 }
 
+function sqlBlock(title: string, url: string | null, sql: string, caption: string): string {
+    const longestRun = Math.max(0, ...Array.from(sql.matchAll(RE_BACKTICK_RUN), (run) => run[0].length))
+    const fence = '`'.repeat(Math.max(3, longestRun + 1))
+    const lines = [`**${link(title, url)}**`, fence, sql, fence]
+    if (caption) {
+        lines.push(`_${caption}_`)
+    }
+    return lines.join('\n')
+}
+
+function hogqlFromQueryNode(raw: string): string | null {
+    let node: unknown
+    try {
+        node = JSON.parse(raw)
+    } catch {
+        return null
+    }
+    for (let depth = 0; depth < 3; depth++) {
+        if (typeof node !== 'object' || node === null) {
+            return null
+        }
+        const record = node as Record<string, unknown>
+        if (record.kind === 'HogQLQuery' && typeof record.query === 'string') {
+            return record.query
+        }
+        node = record.source
+    }
+    return null
+}
+
+function sqlFromEditorUrl(href: string): string | null {
+    let url: URL
+    try {
+        url = new URL(href, window.location.origin)
+    } catch {
+        return null
+    }
+    if (url.origin !== window.location.origin || !RE_SQL_EDITOR_PATH.test(url.pathname)) {
+        return null
+    }
+    const value = url.searchParams.get('open_query')?.trim()
+    if (!value) {
+        return null
+    }
+    return value.startsWith('{') ? (hogqlFromQueryNode(value)?.trim() ?? null) || null : value
+}
+
+function expandStandaloneSqlLinks(text: string): string {
+    if (!text.includes('open_query=')) {
+        return text
+    }
+    const spans = scanCode(text)
+    const lines = text.split('\n')
+    let offset = 0
+    let changed = false
+    const output = lines.map((line, index) => {
+        const lineStart = offset
+        offset += line.length + 1
+        const match = RE_STANDALONE_LINK.exec(line)
+        if (
+            !match ||
+            inSpan(lineStart, spans) ||
+            (index > 0 && lines[index - 1].trim()) ||
+            (index < lines.length - 1 && lines[index + 1].trim())
+        ) {
+            return line
+        }
+        const href = match[2] ?? match[3]
+        const sql = sqlFromEditorUrl(href)
+        if (sql === null) {
+            return line
+        }
+        changed = true
+        const destination = match[2] !== undefined ? `<${href}>` : href
+        const title = safeLabel(match[1]) || OBJECT_KIND_DATA.hogql.kindLabel
+        const url = href.length > MAX_LINK_URL_LENGTH ? null : destination
+        return sqlBlock(title, url, sql, safeLabel(match[4] ?? ''))
+    })
+    return changed ? output.join('\n') : text
+}
+
 function renderHogql(tag: Tag, projectBase: string): string | null {
     // A body written by the desktop composer is XML-escaped, so `&lt;` is a `<` in the SQL.
     const sql = unescapeXml(tag.body).trim()
@@ -260,17 +343,10 @@ function renderHogql(tag: Tag, projectBase: string): string | null {
     }
     const title = safeLabel(tag.attrs['title'] || '') || hogql.kindLabel
     // A backtick run in the SQL at least as long as the fence would close it early
-    // and spill the rest of the query into ordinary markdown.
-    const longestRun = Math.max(0, ...Array.from(sql.matchAll(RE_BACKTICK_RUN), (run) => run[0].length))
-    const fence = '`'.repeat(Math.max(3, longestRun + 1))
-    const lines = [`**${link(title, url)}**`, fence, sql, fence]
-    // Same treatment as every other agent-authored string here: without it the
-    // caption is the one attribute that could smuggle markdown link/image syntax.
-    const caption = safeLabel(tag.attrs['caption'] || '')
-    if (caption) {
-        lines.push(`_${caption}_`)
-    }
-    return lines.join('\n')
+    // and spill the rest of the query into ordinary markdown. Same treatment as every
+    // other agent-authored string here: without it the caption is the one attribute
+    // that could smuggle markdown link/image syntax.
+    return sqlBlock(title, url, sql, safeLabel(tag.attrs['caption'] || ''))
 }
 
 function renderReference(tag: Tag, kind: ObjectKindData, projectBase: string): string | null {
@@ -385,6 +461,7 @@ function heldSuffixStart(text: string, spans: Span[], searchFrom: number): numbe
  * on every render, including on text it already rewrote.
  */
 export function rewriteAgentObjectTags(text: string, projectBase: string): string {
+    text = expandStandaloneSqlLinks(text)
     if (!text.includes('<')) {
         return text
     }

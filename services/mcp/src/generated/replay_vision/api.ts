@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 52 enabled ops
+ * PostHog API - MCP 48 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -503,6 +503,12 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
         ),
+    variant: zod
+        .string()
+        .optional()
+        .describe(
+            'Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -754,12 +760,12 @@ export const VisionScannersCreateBody = () => zod
                 "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
             ),
         scanner_type: zod
-            .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+            .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
             .describe(
-                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             )
             .describe(
-                'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             ),
         goal: zod
             .string()
@@ -925,13 +931,13 @@ export const VisionScannersPartialUpdateBody = () => zod
                 "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas."
             ),
         scanner_type: zod
-            .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+            .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
             .describe(
-                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             )
             .optional()
             .describe(
-                'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                'What the scanner does: monitor, classifier, scorer, or summarizer.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             ),
         goal: zod
             .string()
@@ -1273,7 +1279,9 @@ export const VisionScannersBackfillsCreateBody = () => zod.object({
         .describe('Inclusive lower bound of the historical window to scan.'),
     window_end: zod.iso
         .datetime({ offset: true })
-        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+        .describe(
+            "Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date."
+        ),
     max_total_credits: zod
         .number()
         .min(visionScannersBackfillsCreateBodyMaxTotalCreditsMin)
@@ -1343,7 +1351,9 @@ export const VisionScannersBackfillsEstimateCreateBody = () => zod.object({
         .describe('Inclusive lower bound of the historical window to scan.'),
     window_end: zod.iso
         .datetime({ offset: true })
-        .describe('Exclusive upper bound of the window; clamped server-side to now.'),
+        .describe(
+            "Exclusive upper bound of the window; clamped server-side to now, and for an experiment scanner to the experiment's end date."
+        ),
 })
 
 /**
@@ -1418,6 +1428,12 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .optional()
         .describe(
             'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
+        ),
+    variant: zod
+        .string()
+        .optional()
+        .describe(
+            'Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.'
         ),
     verdict: zod
         .string()
@@ -1497,6 +1513,12 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
         ),
+    variant: zod
+        .string()
+        .optional()
+        .describe(
+            'Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.'
+        ),
     verdict: zod
         .string()
         .optional()
@@ -1574,69 +1596,16 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .describe(
             'Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.'
         ),
+    variant: zod
+        .string()
+        .optional()
+        .describe(
+            'Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.'
+        ),
     verdict: zod
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
-})
-
-/**
- * Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; omit it to apply the full suggested config. Only the current pending suggestion can be applied. Requires session recording edit access.
- */
-export const VisionScannersPromptSuggestionsApplyCreateParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this replay scanner prompt suggestion.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    scanner_id: zod.string(),
-})
-
-export const VisionScannersPromptSuggestionsApplyCreateBody = () => zod.object({
-    config: zod
-        .unknown()
-        .optional()
-        .describe(
-            "The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged."
-        ),
-})
-
-/**
- * Dismiss this suggestion without applying it. Only the current pending suggestion can be dismissed. Requires editor access to the scanner.
- */
-export const VisionScannersPromptSuggestionsDismissCreateParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this replay scanner prompt suggestion.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    scanner_id: zod.string(),
-})
-
-/**
- * The scanner's newest prompt suggestion plus whether it is stale (the ratings changed since it was generated) and how many rated observations are available.
- */
-export const VisionScannersPromptSuggestionsCurrentRetrieveParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    scanner_id: zod.string(),
-})
-
-/**
- * Generate a fresh prompt suggestion from the team's current ratings. The previous pending suggestion becomes history (superseded). Requires at least one rated observation and editor access to the scanner.
- */
-export const VisionScannersPromptSuggestionsGenerateCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-    scanner_id: zod.string(),
 })
 
 /**
@@ -2051,13 +2020,13 @@ export const VisionScannersInlineScanCreateBody = () => zod
                 'What to look for in these sessions, in plain language. The same instruction a saved scanner carries.'
             ),
         scanner_type: zod
-            .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+            .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
             .describe(
-                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+                '\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
             )
             .default(visionScannersInlineScanCreateBodyScannerTypeDefault)
             .describe(
-                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer"
+                "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment"
             ),
         scanner_config: zod
             .unknown()
@@ -2181,10 +2150,10 @@ export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
         .optional()
         .describe('Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.'),
     scanner_type: zod
-        .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
+        .enum(['monitor', 'classifier', 'scorer', 'summarizer', 'experiment'])
         .optional()
         .describe(
-            'Restrict the feed to observations from scanners of this type.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer'
+            'Restrict the feed to observations from scanners of this type.\n\n\* `monitor` - Monitor\n\* `classifier` - Classifier\n\* `scorer` - Scorer\n\* `summarizer` - Summarizer\n\* `experiment` - Experiment'
         ),
     search: zod
         .string()

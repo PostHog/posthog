@@ -1,0 +1,1564 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' blob: https://cdn.jsdelivr.net/npm/@tailwindcss/ https://esm.sh ; style-src 'unsafe-inline' https://esm.sh; font-src data: https://esm.sh; img-src data: blob: https:; worker-src blob:; connect-src https://esm.sh https://cdn.jsdelivr.net/npm/@tailwindcss/ " />
+<script>
+  // The map is assembled here rather than baked into the HTML because
+  // "@posthog/canvas-sdk" is platform-provided rather than CDN-pinned, and the
+  // blob holding it only exists inside this document. Keep this ahead of the
+  // bootstrap module: a map added after module loading starts is ignored.
+  var canvasImportMap = {"imports":{"react":"https://esm.sh/react@19.0.0","react-dom":"https://esm.sh/react-dom@19.0.0?external=react","react-dom/client":"https://esm.sh/react-dom@19.0.0/client?external=react","@posthog/quill":"https://esm.sh/@posthog/quill@0.3.0-beta.18?external=react,react-dom&deps=@base-ui/react@1.6.0","recharts":"https://esm.sh/recharts@2.15.0?external=react,react-dom","lucide-react":"https://esm.sh/lucide-react@1.21.0?external=react","dayjs":"https://esm.sh/dayjs@1.11.13","d3":"https://esm.sh/d3@7.9.0","three":"https://esm.sh/three@0.179.1","framer-motion":"https://esm.sh/framer-motion@12.23.12?external=react,react-dom&deps=motion-dom@12.23.12,motion-utils@12.23.6","zod":"https://esm.sh/zod@3.25.76","@tanstack/react-table":"https://esm.sh/@tanstack/react-table@8.21.3?external=react,react-dom","@tanstack/react-virtual":"https://esm.sh/@tanstack/react-virtual@3.14.9?external=react,react-dom","react-hook-form":"https://esm.sh/react-hook-form@7.85.0?external=react","lodash-es":"https://esm.sh/lodash-es@4.18.1","react-markdown":"https://esm.sh/react-markdown@10.1.0?external=react","papaparse":"https://esm.sh/papaparse@5.6.0","react/jsx-runtime":"https://esm.sh/react@19.0.0/jsx-runtime","react/jsx-dev-runtime":"https://esm.sh/react@19.0.0/jsx-dev-runtime"}};
+  canvasImportMap.imports["@posthog/canvas-sdk"] =
+    URL.createObjectURL(new Blob(["export const ph = globalThis.ph\nexport default globalThis.ph\n\nexport function editable(name, props, params) {\n    const schema = params || {}\n    const values = {}\n    for (const key of Object.keys(schema)) {\n        const value = props ? props[key] : undefined\n        if (value === undefined || typeof value === 'function') {\n            continue\n        }\n        if (value !== null && typeof value === 'object' && !Array.isArray(value)) {\n            continue\n        }\n        values[key] = value\n    }\n    const attributes = {\n        'data-ph-block': name,\n        'data-ph-params': JSON.stringify(schema),\n        'data-ph-props': JSON.stringify(values),\n    }\n    if (props && props['data-ph-src']) {\n        attributes['data-ph-src'] = props['data-ph-src']\n    }\n    if (props && props.blockId) {\n        attributes['data-ph-block-id'] = props.blockId\n    }\n    return attributes\n}\n"], { type: "text/javascript" }));
+  var canvasImportMapTag = document.createElement("script");
+  canvasImportMapTag.type = "importmap";
+  canvasImportMapTag.textContent = JSON.stringify(canvasImportMap);
+  document.head.appendChild(canvasImportMapTag);
+</script>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.3.1"></script>
+<style type="text/tailwindcss">
+@import "tailwindcss";
+/* Drive `dark:` off the `.dark` class the host toggles (not prefers-color-scheme),
+   so the canvas follows the user's PostHog theme even when it differs from the OS. */
+@custom-variant dark (&:where(.dark, .dark *));
+@theme inline {
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chrome: var(--chrome);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-fill-hover: var(--fill-hover);
+  --color-fill-selected: var(--fill-selected);
+  --color-fill-expanded: var(--fill-expanded);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+}
+</style>
+
+<link rel="stylesheet" href="https://esm.sh/@posthog/quill@0.3.0-beta.18/tokens.css" />
+<link rel="stylesheet" href="https://esm.sh/@posthog/quill@0.3.0-beta.18/color-system.css" />
+<link rel="stylesheet" href="https://esm.sh/@posthog/quill@0.3.0-beta.18/base.css" />
+<link rel="stylesheet" href="https://esm.sh/@posthog/quill@0.3.0-beta.18/primitives.css" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  /* Fill the iframe viewport exactly so overflow scrolls on the iframe's own root
+     scroller — the iframe is pinned to its parent's height and never grows it. */
+  html, body { margin: 0; padding: 0; height: 100%; }
+  /* No light default: leaving `color-scheme` alone lets the base canvas inherit
+     the embedder's scheme (the host sets it on the iframe), so the first paint
+     is already dark in a dark app. Once the host's theme message toggles
+     `.dark`, this pins it so form controls and scrollbars match too. */
+  html.dark { color-scheme: dark; }
+  /* Track the theme via Quill's tokens (set on :root / .dark) so the page chrome
+     flips with the host theme. Until those tokens land — the stylesheets are
+     still loading, and `.dark` is only applied once the host's init/set-theme
+     message arrives — stay transparent and inherit, so the host iframe's own
+     themed background shows through. A hard light fallback here flashed white
+     over a dark app every time a preview scrolled into view. */
+  body { font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; color: var(--foreground, inherit); background: var(--background, transparent); }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+    import * as Babel from "https://esm.sh/@babel/standalone@7.26.4";
+    const CHANNEL = "posthog-canvas";
+    const portOnly = new URLSearchParams(location.hash.slice(1)).get("bridge") === "port";
+    let bridgePort = null;
+    let sendToHost = null;
+    let disconnectBridge = null;
+    const post = (msg) => {
+      const message = { channel: CHANNEL, ...msg };
+      if (sendToHost) sendToHost(message);
+      else if (!portOnly) parent.postMessage(message, "*");
+    };
+
+    // --- data shim: the ONLY way canvas code reaches PostHog. No token here. ---
+    const pending = new Map();
+    let reqSeq = 0;
+    // The host caps how many requests run at once and queues the rest. Past
+    // that queue it refuses the request and marks it retryable.
+    const MAX_CALL_RETRIES = 2;
+    const RETRY_BASE_DELAY_MS = 1000;
+    const call = (method, payload, attempt = 0) =>
+      new Promise((resolve, reject) => {
+        const id = String(++reqSeq);
+        pending.set(id, {
+          resolve,
+          reject: (error, retryable) => {
+            if (!retryable || attempt >= MAX_CALL_RETRIES) {
+              reject(error);
+              return;
+            }
+            const delay =
+              RETRY_BASE_DELAY_MS * Math.pow(2, attempt) * (0.5 + Math.random());
+            setTimeout(
+              () => call(method, payload, attempt + 1).then(resolve, reject),
+              delay,
+            );
+          },
+        });
+        post({ type: "data-request", id, method, payload });
+      });
+    // posthog-js runs IN here (the only way replay records the app's DOM). It is
+    // booted by init when analytics config is present; until then capture falls
+    // back to the host-mediated path.
+    let phClient = null;
+    window.ph = {
+      // Run a named, server-stored query — the published tier's model. The host
+      // still rejects it (Phase 3).
+      run: (name, params) => call("run", { name, params: params ?? {} }),
+      // PREFERRED data path: load a SAVED, validated insight by its short id and
+      // render its STORED result from the insights endpoint (not a fresh /query/
+      // run). Pass the date picker's window to re-scope it:
+      // `ph.loadInsight("AbC123", { dateRange: { date_from, date_to } })`.
+      // A SQL insight's `{variables.x}` placeholders are set per call, keyed by
+      // code name: `ph.loadInsight("AbC123", { variables: { product: "surveys" } })`
+      // — so one saved insight serves a whole board. The host REJECTS a variable the
+      // insight doesn't use, rather than quietly falling back to its saved value.
+      // Returns `{ columns, results }` — SAME shape as ph.query: a trends-style
+      // insight returns SERIES OBJECTS, a SQL insight returns ROWS.
+      loadInsight: (shortId, opts) =>
+        call("loadInsight", {
+          shortId,
+          dateRange: opts && opts.dateRange,
+          variables: opts && opts.variables,
+          refresh: opts && opts.refresh,
+        }),
+      // Run a query. Pass a TYPED query node (`{ kind: "TrendsQuery", … }`) for
+      // UI-matching numbers (preferred), or an inline HogQL string (escape hatch).
+      // A built canvas needs `capabilities.posthog.inlineQueries` for this.
+      query: (queryOrHogql, params, opts) =>
+        call(
+          "query",
+          typeof queryOrHogql === "string"
+            ? { hogql: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh }
+            : { query: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh },
+        ),
+      // Send an analytics event. Prefer in-iframe posthog-js (so it shares the
+      // session/replay); otherwise host-mediated (no replay, still captured).
+      capture: (event, properties, distinctId) => {
+        if (phClient) {
+          phClient.capture(event, properties ?? {});
+          return Promise.resolve({ ok: true });
+        }
+        return call("capture", { event, properties: properties ?? {}, distinctId });
+      },
+      // Durable key-value memory, declared in capabilities.posthog.state.
+      // Scope "user" (default) is private to this viewer; "shared" is one
+      // value per canvas, visible to the whole team. Values are JSON, capped
+      // at 64 KB serialized and 256 keys per scope; setting null deletes:
+      // `ph.state.set("board", { columns: 3 }, { scope: "shared" })`.
+      state: {
+        get: (key, opts) => call("stateGet", { key, scope: (opts && opts.scope) || "user" }),
+        set: (key, value, opts) =>
+          call("stateSet", { key, value: value === undefined ? null : value, scope: (opts && opts.scope) || "user" }),
+        list: (opts) => call("stateList", { scope: opts && opts.scope }),
+      },
+      // Write into PostHog as the viewer. Every verb must be declared in
+      // capabilities.posthog.actions; wire invocations to explicit user
+      // gestures (a button), never to load or render:
+      // `ph.actions.invoke("tasks.create", { title, description })`.
+      actions: {
+        invoke: (verb, payload) => call("actionInvoke", { verb, payload: payload ?? {} }),
+      },
+      // Read live third-party data with the viewer's own connection. Every
+      // provider and tool must be declared in capabilities.connectors; the
+      // result is cached per canvas for `refresh` seconds (default 60):
+      // `ph.connectors.call("github", "list_pull_requests", { repository: "app" })`.
+      // A "not_connected" status carries a connect_path; `connect(provider)`
+      // opens that settings page from a click.
+      connectors: {
+        call: (provider, tool, args, options) =>
+          call("connectorCall", { provider, tool, arguments: args ?? {}, refresh: options?.refresh }),
+        connect: (provider) => {
+          if (!navigator.userActivation?.isActive) throw new Error("Connecting a provider requires a user action");
+          post({ type: "navigate", nav: { target: "connect", provider } });
+        },
+      },
+      // Ask the authoring agent for a change; the host shows the exact prompt
+      // and asks the viewer to approve before anything is dispatched:
+      // `ph.agent.request("Make the square blue")`.
+      agent: {
+        request: (prompt) => call("agentRequest", { prompt }),
+      },
+      // Brokered by the host: PostHog and GitHub PR HTTPS URLs, rate-limited, and
+      // ignored while the canvas is unfocused (no auto-opens on load).
+      openExternal: (url) => post({ type: "open-external", url }),
+      // Navigate the host app. Fire-and-forget: the host validates the intent
+      // against its allowlist and routes within the current channel. The canvas
+      // cannot pick the channel or an arbitrary path — only these four targets.
+      navigate: {
+        toTask: (taskId) => post({ type: "navigate", nav: { target: "task", taskId } }),
+        toNewTask: (options) => {
+          if (!navigator.userActivation?.isActive) throw new Error("Opening a task requires a user action");
+          post({ type: "navigate", nav: { target: options ? "compose-task" : "new-task", prompt: options?.prompt, repository: options?.repository } });
+        },
+        toCanvas: (dashboardId) => post({ type: "navigate", nav: { target: "canvas", dashboardId } }),
+        toNewCanvas: () => post({ type: "navigate", nav: { target: "new-canvas" } }),
+      },
+    };
+
+    // Keep target="_blank" anchors working without popup permission. Capture
+    // phase so stopPropagation() can't swallow the click; the open is deferred
+    // a tick so preventDefault() is honored (the native popup attempt is
+    // sandbox-blocked regardless, so we never call preventDefault ourselves).
+    const resolveExternalAnchorUrl = function resolveExternalAnchorUrl(target) {
+	const anchor = target instanceof Element ? target.closest("a[href]") : null;
+	if (!anchor) return null;
+	// HTML matches the _blank keyword ASCII-case-insensitively.
+	if ((anchor.getAttribute("target") ?? "").toLowerCase() !== "_blank") {
+		return null;
+	};
+	// getAttribute, not the .href property: SVG anchors expose SVGAnimatedString
+	// there, and relative hrefs would resolve against the host's base URL.
+	const href = anchor.getAttribute("href") ?? "";
+	try {
+		return new URL(href).href;
+	} catch {
+		return null;
+	}
+};
+    document.addEventListener(
+      "click",
+      (event) => {
+        const url = resolveExternalAnchorUrl(event.target);
+        if (!url) return;
+        setTimeout(() => {
+          if (!event.defaultPrevented) window.ph.openExternal(url);
+        }, 0);
+      },
+      true,
+    );
+
+    const selectionAnchorRect = function commentActionAnchorRect(rects, fallback) {
+	const boxes = [];
+	for (let index = 0; index < rects.length; index++) {
+		const rect = rects[index];
+		if (rect.width > 0 || rect.height > 0) {
+			boxes.push(rect);
+		}
+	};
+	if (boxes.length === 0) {
+		return fallback;
+	};
+	const EPSILON = .5;
+	const area = (box) => box.width * box.height;
+	const encloses = (outer, inner) => area(outer) > area(inner) + 1 && outer.left <= inner.left + EPSILON && outer.right >= inner.right - EPSILON && outer.top <= inner.top + EPSILON && outer.bottom >= inner.bottom - EPSILON;
+	const candidates = boxes.slice().sort((left, right) => {
+		const verticalDistance = right.bottom - left.bottom;
+		return Math.abs(verticalDistance) > EPSILON ? verticalDistance : right.right - left.right;
+	});
+	for (const box of candidates) {
+		if (!boxes.some((other) => other !== box && encloses(box, other))) {
+			return box;
+		}
+	};
+	return candidates[0];
+};
+    let textSelectionPublished = false;
+    const clearTextSelection = () => {
+      if (!textSelectionPublished) return;
+      textSelectionPublished = false;
+      post({ type: "text-selection-cleared" });
+    };
+    let selectionTimer = 0;
+    const reportTextSelection = () => {
+      clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(() => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+        clearTextSelection();
+        return;
+      }
+      const range = selection.getRangeAt(0);
+      if (!document.body.contains(range.startContainer) || !document.body.contains(range.endContainer)) {
+        clearTextSelection();
+        return;
+      }
+      const before = document.createRange();
+      before.selectNodeContents(document.body);
+      before.setEnd(range.startContainer, range.startOffset);
+      const through = document.createRange();
+      through.selectNodeContents(document.body);
+      through.setEnd(range.endContainer, range.endOffset);
+      const text = commentTextIndex().text;
+      const start = before.toString().length;
+      const end = through.toString().length;
+      const quote = text.slice(start, end);
+      if (!quote.trim() || quote.length > 10000) {
+        clearTextSelection();
+        return;
+      }
+      // The END line's rect, so the host anchors the comment action where the
+      // pointer was released rather than at the whole-range bounding box.
+      const rect = selectionAnchorRect(range.getClientRects(), range.getBoundingClientRect());
+      textSelectionPublished = true;
+      post({
+        type: "text-selection",
+        selection: {
+          quote,
+          prefix: text.slice(Math.max(0, start - 32), start),
+          suffix: text.slice(end, end + 32),
+          start,
+          end,
+          rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left },
+        },
+      });
+      }, 80);
+    };
+    // Report the selection only once it settles, so the host's comment action
+    // doesn't chase the cursor mid-drag. The settle callback re-reads the live
+    // selection, which self-corrects clicks that didn't change the selection.
+    const selectionSettleGate = function installSelectionSettleGate(doc, callbacks) {
+	const view = doc.defaultView;
+	let selecting = false;
+	let keyGesture = false;
+	let frame = 0;
+	// Keys that move or extend a selection. "a" only counts with a modifier, so
+	// typing the letter doesn't read as select-all.
+	const isSelectionKey = (event) => {
+		if (event.key === "a" || event.key === "A") {
+			return event.metaKey || event.ctrlKey;
+		};
+		return event.key === "Shift" || event.key === "Home" || event.key === "End" || event.key === "PageUp" || event.key === "PageDown" || event.key.startsWith("Arrow");
+	};
+	const cancelFrame = () => {
+		if (frame && view?.cancelAnimationFrame) {
+			view.cancelAnimationFrame(frame);
+		};
+		frame = 0;
+	};
+	const settle = () => {
+		cancelFrame();
+		const request = view?.requestAnimationFrame;
+		if (!request) {
+			callbacks.onSelectionSettled?.();
+			return;
+		};
+		frame = request.call(view, () => {
+			frame = request.call(view, () => {
+				frame = 0;
+				callbacks.onSelectionSettled?.();
+			});
+		});
+	};
+	const inActionUi = (target) => target instanceof Element && !!target.closest("[data-selection-comment-overlay]");
+	const startGesture = () => {
+		if (selecting) {
+			return;
+		};
+		selecting = true;
+		cancelFrame();
+		callbacks.onGestureStart?.();
+	};
+	const cancelGesture = () => {
+		if (!selecting) {
+			return;
+		};
+		selecting = false;
+		keyGesture = false;
+		cancelFrame();
+		callbacks.onGestureCancel?.();
+	};
+	const onPointerDown = (event) => {
+		// Secondary buttons open menus; they don't select.
+		if (event instanceof MouseEvent && event.button > 0) {
+			return;
+		};
+		if (inActionUi(event.target)) {
+			return;
+		};
+		startGesture();
+	};
+	// Catches drags whose pointerdown we never saw, and keyboard selections.
+	const onSelectStart = (event) => {
+		if (inActionUi(event.target)) {
+			return;
+		};
+		startGesture();
+	};
+	const onPointerUp = (event) => {
+		if (event instanceof MouseEvent && event.button > 0) {
+			return;
+		};
+		if (!selecting) {
+			return;
+		};
+		selecting = false;
+		keyGesture = false;
+		settle();
+	};
+	const onKeyDown = (event) => {
+		if (inActionUi(event.target) || !isSelectionKey(event)) {
+			return;
+		};
+		keyGesture = true;
+		startGesture();
+	};
+	const onKeyUp = () => {
+		if (!selecting || !keyGesture) {
+			return;
+		};
+		selecting = false;
+		keyGesture = false;
+		settle();
+	};
+	const onSelectionChange = () => {
+		if (selecting) {
+			return;
+		};
+		callbacks.onIdleSelectionChange?.();
+	};
+	doc.addEventListener("pointerdown", onPointerDown, true);
+	doc.addEventListener("selectstart", onSelectStart, true);
+	doc.addEventListener("pointerup", onPointerUp, true);
+	doc.addEventListener("pointercancel", cancelGesture, true);
+	doc.addEventListener("keydown", onKeyDown, true);
+	doc.addEventListener("keyup", onKeyUp, true);
+	doc.addEventListener("selectionchange", onSelectionChange);
+	view?.addEventListener("blur", cancelGesture);
+	return () => {
+		cancelFrame();
+		doc.removeEventListener("pointerdown", onPointerDown, true);
+		doc.removeEventListener("selectstart", onSelectStart, true);
+		doc.removeEventListener("pointerup", onPointerUp, true);
+		doc.removeEventListener("pointercancel", cancelGesture, true);
+		doc.removeEventListener("keydown", onKeyDown, true);
+		doc.removeEventListener("keyup", onKeyUp, true);
+		doc.removeEventListener("selectionchange", onSelectionChange);
+		view?.removeEventListener("blur", cancelGesture);
+	};
+};
+    // Dropping the pending report matters: a new drag started within the
+    // debounce window would otherwise publish the previous selection mid-drag.
+    const abortTextSelection = () => {
+      clearTimeout(selectionTimer);
+      clearTextSelection();
+    };
+    selectionSettleGate(document, {
+      onGestureStart: abortTextSelection,
+      onSelectionSettled: reportTextSelection,
+      onIdleSelectionChange: reportTextSelection,
+      onGestureCancel: abortTextSelection,
+    });
+    document.addEventListener("scroll", abortTextSelection, true);
+    const clearNativeTextSelection = () => {
+      window.getSelection()?.removeAllRanges();
+      clearTextSelection();
+    };
+
+    const commentHighlightStyle = document.createElement("style");
+    commentHighlightStyle.textContent = "::highlight(posthog-canvas-comment){background:rgba(250,204,21,.32);color:inherit}::highlight(posthog-canvas-comment-active){background:rgba(250,204,21,.48);color:inherit}";
+    document.head.appendChild(commentHighlightStyle);
+    let currentCommentHighlights = [];
+    let commentRanges = [];
+    let cachedCommentTextIndex = null;
+    const commentTextIndex = () => {
+      if (cachedCommentTextIndex) return cachedCommentTextIndex;
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      const entries = [];
+      let text = "";
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const start = text.length;
+        text += node.data;
+        entries.push({ node, start, end: text.length });
+      }
+      cachedCommentTextIndex = { text, entries };
+      return cachedCommentTextIndex;
+    };
+    const commentRangeAt = (index, start, end) => {
+      const find = (offset) => {
+        let low = 0, high = index.entries.length - 1, match = null;
+        while (low <= high) {
+          const middle = (low + high) >> 1;
+          const entry = index.entries[middle];
+          if (offset < entry.start) high = middle - 1;
+          else if (offset > entry.end) low = middle + 1;
+          else { match = entry; high = middle - 1; }
+        }
+        return match;
+      };
+      const startEntry = find(start), endEntry = find(end);
+      if (!startEntry || !endEntry) return null;
+      const range = document.createRange();
+      range.setStart(startEntry.node, start - startEntry.start);
+      range.setEnd(endEntry.node, end - endEntry.start);
+      return range;
+    };
+    const resolveCommentAnchor = function resolveTextCommentAnchor(text, anchor) {
+	if (text.slice(anchor.start, anchor.end) === anchor.quote) {
+		return {
+			start: anchor.start,
+			end: anchor.end,
+			status: "exact"
+		};
+	};
+	const candidates = [];
+	let from = 0;
+	while (from <= text.length - anchor.quote.length) {
+		const match = text.indexOf(anchor.quote, from);
+		if (match < 0) break;
+		candidates.push(match);
+		from = match + Math.max(anchor.quote.length, 1);
+	};
+	if (candidates.length === 0) return null;
+	if (candidates.length === 1) {
+		const start = candidates[0];
+		return {
+			start,
+			end: start + anchor.quote.length,
+			status: "reanchored"
+		};
+	};
+	const ranked = candidates.map((start) => {
+		const end = start + anchor.quote.length;
+		const prefix = text.slice(Math.max(0, start - anchor.prefix.length), start);
+		const suffix = text.slice(end, end + anchor.suffix.length);
+		let score = 0;
+		if (anchor.prefix && prefix === anchor.prefix) score += 2;
+		if (anchor.suffix && suffix === anchor.suffix) score += 2;
+		return {
+			start,
+			score
+		};
+	}).sort((a, b) => b.score - a.score);
+	if (ranked[0].score === 0 || ranked[0].score === ranked[1].score) return null;
+	return {
+		start: ranked[0].start,
+		end: ranked[0].start + anchor.quote.length,
+		status: "reanchored"
+	};
+};
+    const renderCommentHighlights = (items) => {
+      currentCommentHighlights = items || [];
+      commentRanges = [];
+      if (!window.Highlight || !window.CSS || !CSS.highlights) return;
+      const normal = new Highlight();
+      const active = new Highlight();
+      const index = commentTextIndex();
+      for (const item of currentCommentHighlights) {
+        const resolved = resolveCommentAnchor(index.text, item.anchor);
+        const range = resolved && commentRangeAt(index, resolved.start, resolved.end);
+        if (range) {
+          commentRanges.push({ id: item.id, range });
+          (item.active ? active : normal).add(range);
+        }
+      }
+      CSS.highlights.set("posthog-canvas-comment", normal);
+      CSS.highlights.set("posthog-canvas-comment-active", active);
+    };
+    let commentHighlightTimer = 0;
+    new MutationObserver(() => {
+      cachedCommentTextIndex = null;
+      if (!currentCommentHighlights.length || commentHighlightTimer) return;
+      commentHighlightTimer = setTimeout(() => {
+        commentHighlightTimer = 0;
+        renderCommentHighlights(currentCommentHighlights);
+      }, 2000);
+    }).observe(document.body, { childList: true, characterData: true, subtree: true });
+    const isInteractiveCommentTarget = function isInteractiveCanvasCommentTarget(target) {
+	return target instanceof Element && !!target.closest("a,button,input,select,textarea,[role=button],[contenteditable=true],[onclick]");
+};
+    document.addEventListener("click", (event) => {
+      const selection = window.getSelection();
+      if ((selection && !selection.isCollapsed) || isInteractiveCommentTarget(event.target)) return;
+      for (const item of commentRanges) {
+        for (const rect of item.range.getClientRects()) {
+          if (event.clientX >= rect.left && event.clientX <= rect.right && event.clientY >= rect.top && event.clientY <= rect.bottom) {
+            event.preventDefault();
+            event.stopPropagation();
+            post({ type: "comment-activate", id: item.id, rect: { top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left } });
+            return;
+          }
+        }
+      }
+    }, true);
+
+    // Boot posthog-js with the PUBLIC key the host passed in (never the read
+    // token). Enables session replay so the author/viewer can be watched.
+    const bootAnalytics = async (cfg) => {
+      if (phClient || !cfg) return;
+      try {
+        const mod = await import("https://esm.sh/posthog-js@1.205.0");
+        const posthog = mod.default || mod.posthog || mod;
+        posthog.init(cfg.publicKey, {
+          api_host: cfg.apiHost,
+          // No storage on a null-origin sandbox → memory session; the
+          // usercontent origin (shared tier) persists per-viewer.
+          persistence: cfg.persist ? "localStorage+cookie" : "memory",
+          capture_pageview: false,
+          disable_session_recording: false,
+          loaded: (ph) => {
+            if (cfg.distinctId) ph.identify(cfg.distinctId);
+          },
+        });
+        phClient = posthog;
+        window.posthog = posthog;
+      } catch (err) {
+        reportError(
+          "analytics init failed: " + (err && err.message),
+          err && err.stack,
+        );
+      }
+    };
+
+    // --- theme: mirror the host's light/dark by toggling `.dark` on the root,
+    // exactly as the main app does. Quill's CSS tokens (:root / .dark) and the
+    // `dark:` Tailwind utilities both key off this class, so the whole canvas
+    // flips. Applied on init and on every live `set-theme` frame.
+    const applyTheme = (theme) =>
+      document.documentElement.classList.toggle("dark", theme === "dark");
+
+    window.addEventListener("keydown", (e) => {
+      if (!e.isTrusted || (!e.metaKey && !e.ctrlKey)) return;
+      post({
+        type: "keydown",
+        key: e.key,
+        code: e.code,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+      });
+    });
+
+    // --- error reporting (feeds the host's self-repair loop) ---
+    const reportError = (message, stack) =>
+      post({ type: "error", message: String(message ?? "Unknown error"), stack });
+    window.addEventListener("error", (e) =>
+      reportError(e.message, e.error && e.error.stack),
+    );
+    window.addEventListener("unhandledrejection", (e) =>
+      reportError(
+        (e.reason && e.reason.message) || e.reason,
+        e.reason && e.reason.stack,
+      ),
+    );
+
+    // JSX text and attribute strings never process \uXXXX escapes (they render
+    // verbatim, e.g. "\u00b7" instead of "·"), but generated canvases still
+    // contain them despite the prompt rules — decode at transpile time so both
+    // new and already-saved canvases render the real characters. Escapes inside
+    // JS string/template literals are untouched (Babel already decoded those).
+    const decodeUnicodeEscapes = function decodeJsxUnicodeEscapes(value) {
+	return value.replace(/\\u\{([0-9a-fA-F]{1,6})\}|\\u([0-9a-fA-F]{4})/g, (match, braced, plain) => {
+		try {
+			return String.fromCodePoint(Number.parseInt(braced || plain, 16));
+		} catch {
+			return match;
+		}
+	});
+};
+    const jsxUnicodeEscapesPlugin = () => ({
+      visitor: {
+        JSXText(path) {
+          const decoded = decodeUnicodeEscapes(path.node.value);
+          if (decoded !== path.node.value) {
+            path.node.value = decoded;
+          }
+        },
+        JSXAttribute(path) {
+          const v = path.node.value;
+          if (v && v.type === "StringLiteral") {
+            const decoded = decodeUnicodeEscapes(v.value);
+            if (decoded !== v.value) {
+              v.value = decoded;
+              v.extra = undefined; // drop stale raw so the decoded value is emitted
+            }
+          }
+        },
+      },
+    });
+
+    const compileCanvasProject = function compileCanvasProject(Babel, files, entry, options) {
+	const urls = new Map();
+	const extensions = [
+		"",
+		".tsx",
+		".ts",
+		".jsx",
+		".js",
+		"/index.tsx",
+		"/index.ts"
+	];
+	const normalize = (parts) => {
+		const out = [];
+		for (const part of parts) {
+			if (part === "" || part === ".") continue;
+			if (part === "..") out.pop();
+			else out.push(part);
+		};
+		return out.join("/");
+	};
+	const resolve = (from, specifier) => {
+		const base = from.split("/").slice(0, -1);
+		const joined = normalize([...base, ...specifier.split("/")]);
+		for (const extension of extensions) {
+			const candidate = joined + extension;
+			if (candidate in files) return candidate;
+		};
+		return null;
+	};
+	const blobUrl = (code) => {
+		const cached = options.cache.get(code);
+		if (cached) return cached;
+		const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+		options.cache.set(code, url);
+		return url;
+	};
+	const styleModule = (css) => {
+		const style = document.createElement("style");
+		style.setAttribute("data-canvas-style", "");
+		style.textContent = css;
+		document.head.appendChild(style);
+		return blobUrl("export default null;");
+	};
+	const sourceRangePlugin = (file) => ({ types: t }) => ({ visitor: { JSXElement(path) {
+		const node = path.node;
+		if (typeof node.start !== "number" || typeof node.end !== "number") return;
+		const name = node.openingElement.name;
+		const tag = name.type === "JSXIdentifier" ? name.name : name.property?.name;
+		if (tag === "Fragment") return;
+		const repeated = !!path.findParent((parent) => parent.isCallExpression() && parent.node.callee.type === "MemberExpression" && parent.node.callee.property?.name === "map");
+		const value = `${file}|${node.start}|${node.end}${repeated ? "|r" : ""}`;
+		node.openingElement.attributes.unshift(t.jsxAttribute(t.jsxIdentifier("data-ph-src"), t.stringLiteral(value)));
+	} } });
+	const build = (path, stack) => {
+		const known = urls.get(path);
+		if (known) return known;
+		if (stack.includes(path)) throw new Error(`Circular import: ${[...stack, path].join(" -> ")}`);
+		const source = files[path] ?? "";
+		if (path.endsWith(".css")) {
+			const url = styleModule(source);
+			urls.set(path, url);
+			return url;
+		};
+		if (path.endsWith(".json")) {
+			const url = blobUrl(`export default ${source.trim() || "null"};`);
+			urls.set(path, url);
+			return url;
+		};
+		const rewriteImports = () => ({ visitor: { "ImportDeclaration|ExportNamedDeclaration|ExportAllDeclaration"(nodePath) {
+			const sourceNode = nodePath.node.source;
+			if (!sourceNode || typeof sourceNode.value !== "string") return;
+			if (!sourceNode.value.startsWith(".")) return;
+			const resolved = resolve(path, sourceNode.value);
+			if (!resolved) throw new Error(`Cannot find "${sourceNode.value}" imported from ${path}`);
+			sourceNode.value = build(resolved, [...stack, path]);
+		} } });
+		const plugins = [
+			...options.basePlugins,
+			rewriteImports,
+			...options.editing && !path.startsWith("src/blocks/") ? [sourceRangePlugin(path)] : []
+		];
+		const out = Babel.transform(source, {
+			filename: path.split("/").pop(),
+			plugins,
+			presets: [["react", { runtime: "automatic" }], ["typescript", {
+				isTSX: true,
+				allExtensions: true,
+				onlyRemoveTypeImports: true
+			}]]
+		}).code;
+		const url = blobUrl(out ?? "");
+		urls.set(path, url);
+		return url;
+	};
+	for (const style of Array.from(document.querySelectorAll("style[data-canvas-style]"))) {
+		style.remove();
+	};
+	return build(entry, []);
+};
+    const installCanvasEditing = function installCanvasEditing(post, labels) {
+	const PRIMARY = "#f54e00";
+	let enabled = false;
+	let rev = 0;
+	let hovered = null;
+	let selected = null;
+	let selectedBlockId = null;
+	let selectedSource = null;
+	let dragOrigin = null;
+	let frame = 0;
+	const EASE_OUT = "cubic-bezier(0.23, 1, 0.32, 1)";
+	const EASE_IN_OUT = "cubic-bezier(0.77, 0, 0.175, 1)";
+	const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+	const layer = document.createElement("div");
+	layer.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:2147483646;";
+	const hoverBox = document.createElement("div");
+	const selectBox = document.createElement("div");
+	const label = document.createElement("div");
+	const line = document.createElement("div");
+	hoverBox.style.cssText = `position:fixed;left:0;top:0;border:1px solid rgba(245,78,0,.45);border-radius:8px;opacity:0;transition:opacity 100ms ease;`;
+	selectBox.style.cssText = `position:fixed;left:0;top:0;border:1.5px solid ${PRIMARY};border-radius:10px;opacity:0;box-shadow:0 0 0 3px rgba(245,78,0,.08);transition:opacity 120ms ease;`;
+	label.style.cssText = `position:fixed;left:0;top:0;background:${PRIMARY};color:#fff;font:600 10.5px/18px system-ui,sans-serif;padding:0 7px;border-radius:5px 5px 0 0;opacity:0;white-space:nowrap;transition:opacity 120ms ease;`;
+	line.style.cssText = `position:fixed;left:0;top:0;background:${PRIMARY};border-radius:99px;opacity:0;transition:opacity 120ms ease,transform 110ms ${EASE_OUT};`;
+	const emptyHint = document.createElement("div");
+	emptyHint.textContent = "Drop blocks here, or click one in the panel";
+	emptyHint.style.cssText = "position:fixed;display:flex;align-items:center;justify-content:center;border:1.5px dashed rgba(128,128,128,.35);border-radius:12px;color:rgba(128,128,128,.95);font:500 13px/1.4 system-ui,sans-serif;opacity:0;transition:opacity 160ms;";
+	layer.append(emptyHint, hoverBox, selectBox, label, line);
+	const parseSource = (element) => {
+		const raw = element.getAttribute("data-ph-src");
+		if (!raw) return null;
+		const [file, start, end, flag] = raw.split("|");
+		if (!file) return null;
+		return {
+			file,
+			start: Number(start),
+			end: Number(end),
+			repeated: flag === "r"
+		};
+	};
+	let openBlock = null;
+	const candidateOf = (start) => {
+		let element = start;
+		while (element && element !== document.body) {
+			const blockRoot = element.closest("[data-ph-block]");
+			if (blockRoot instanceof HTMLElement && blockRoot !== openBlock && blockRoot.hasAttribute("data-ph-src")) return blockRoot;
+			const source = parseSource(element);
+			const rect = element.getBoundingClientRect();
+			if (source && !source.repeated && rect.width >= 24 && rect.height >= 12) {
+				return element;
+			};
+			element = element.parentElement;
+		};
+		return null;
+	};
+	const gridSourceOf = (element) => {
+		const parent = element.parentElement;
+		if (!parent || !getComputedStyle(parent).display.includes("grid")) return null;
+		const source = parseSource(parent);
+		if (!source || source.repeated) return null;
+		return {
+			file: source.file,
+			start: source.start,
+			end: source.end
+		};
+	};
+	const fullGridRow = (element) => {
+		const grid = gridSourceOf(element);
+		const parent = element.parentElement;
+		if (!grid || !parent) return null;
+		const columns = getComputedStyle(parent).gridTemplateColumns.split(" ").filter(Boolean).length;
+		if (columns < 2 || columns >= 4 || parent.children.length !== columns) return null;
+		return {
+			...grid,
+			columns
+		};
+	};
+	const describe = (element) => {
+		const source = parseSource(element);
+		const blockType = element.getAttribute("data-ph-block");
+		let props = {};
+		try {
+			props = JSON.parse(element.getAttribute("data-ph-props") ?? "{}");
+		} catch {
+			props = {};
+		};
+		const onlyText = element.children.length === 0 ? element.textContent ?? "" : null;
+		const rawSource = element.getAttribute("data-ph-src");
+		const twins = rawSource ? Array.from(document.querySelectorAll(`[data-ph-src="${CSS.escape(rawSource)}"]`)) : [];
+		const instance = twins.length > 1 ? {
+			index: twins.indexOf(element) + 1,
+			count: twins.length
+		} : null;
+		const shownText = (element.innerText ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+		return {
+			rev,
+			source: source ? {
+				file: source.file,
+				start: source.start,
+				end: source.end
+			} : null,
+			blockType,
+			blockId: element.getAttribute("data-ph-block-id"),
+			props,
+			tag: element.tagName.toLowerCase(),
+			text: onlyText,
+			visibleText: shownText || null,
+			instance,
+			params: element.getAttribute("data-ph-params"),
+			layout: {
+				inGrid: !!element.parentElement && getComputedStyle(element.parentElement).display.includes("grid"),
+				grow: fullGridRow(element),
+				grid: gridSourceOf(element)
+			}
+		};
+	};
+	const place = (box, element, inset = 0) => {
+		if (!element || !element.isConnected) {
+			box.style.opacity = "0";
+			return;
+		};
+		const rect = element.getBoundingClientRect();
+		box.style.transform = `translate3d(${rect.left - inset}px, ${rect.top - inset}px, 0)`;
+		box.style.width = `${rect.width + inset * 2}px`;
+		box.style.height = `${rect.height + inset * 2}px`;
+		box.style.opacity = "1";
+	};
+	const labelFor = (element) => {
+		const block = element.getAttribute("data-ph-block");
+		if (!block) return labels[element.tagName.toLowerCase()] ?? "Element";
+		const spaced = block.replace(/([a-z0-9])([A-Z])/g, "$1 $2");
+		return labels[block] ?? spaced.charAt(0) + spaced.slice(1).toLowerCase();
+	};
+	const paintEmptyHint = () => {
+		const rootElement = document.getElementById("root")?.firstElementChild;
+		const last = rootElement?.lastElementChild;
+		const empty = enabled && !!rootElement && rootElement.children.length <= 1;
+		if (!empty || !rootElement) {
+			emptyHint.style.opacity = "0";
+			return;
+		};
+		const style = getComputedStyle(rootElement);
+		const box = rootElement.getBoundingClientRect();
+		const left = box.left + Number.parseFloat(style.paddingLeft);
+		const width = box.width - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight);
+		const top = (last ? last.getBoundingClientRect().bottom : box.top) + 24;
+		emptyHint.style.left = `${left}px`;
+		emptyHint.style.top = `${top}px`;
+		emptyHint.style.width = `${width}px`;
+		emptyHint.style.height = "180px";
+		emptyHint.style.opacity = "1";
+	};
+	const paint = () => {
+		place(hoverBox, hovered && hovered !== selected ? hovered : null, 3);
+		place(selectBox, selected, 4);
+		if (selected?.isConnected) {
+			const rect = selected.getBoundingClientRect();
+			label.textContent = labelFor(selected);
+			label.style.transform = `translate3d(${rect.left - 4}px, ${rect.top - 22}px, 0)`;
+			label.style.opacity = "1";
+		} else {
+			label.style.opacity = "0";
+		};
+		paintEmptyHint();
+		frame = requestAnimationFrame(paint);
+	};
+	const remember = (element) => {
+		selected = element;
+		selectedBlockId = element?.getAttribute("data-ph-block-id") ?? null;
+		const source = element ? parseSource(element) : null;
+		selectedSource = source ? {
+			key: `${source.file}|${source.start}`,
+			block: element?.getAttribute("data-ph-block") ?? null
+		} : null;
+	};
+	const select = (element) => {
+		remember(element);
+		post({
+			type: "canvas-edit-select",
+			element: element ? describe(element) : null,
+			byPointer: true
+		});
+	};
+	const axisOf = (element) => {
+		const parent = element.parentElement;
+		if (!parent) return "column";
+		const style = getComputedStyle(parent);
+		if (style.display.includes("flex")) return style.flexDirection.startsWith("row") ? "row" : "column";
+		if (style.display.includes("grid")) {
+			const top = element.getBoundingClientRect().top;
+			const siblings = Array.from(parent.children).filter((child) => child !== element);
+			const sameRow = siblings.some((sibling) => Math.abs(sibling.getBoundingClientRect().top - top) < 6);
+			return sameRow ? "row" : "column";
+		};
+		return "column";
+	};
+	const nearestChild = (container, x, y) => {
+		let best = null;
+		let bestDistance = Number.POSITIVE_INFINITY;
+		for (const child of Array.from(container.children)) {
+			const candidate = candidateOf(child);
+			if (!candidate || candidate === container || !container.contains(candidate)) continue;
+			const rect = candidate.getBoundingClientRect();
+			const dx = Math.max(rect.left - x, 0, x - rect.right);
+			const dy = Math.max(rect.top - y, 0, y - rect.bottom);
+			const distance = Math.hypot(dx, dy);
+			if (distance < bestDistance) {
+				best = candidate;
+				bestDistance = distance;
+			}
+		};
+		return best;
+	};
+	const isBox = (element) => {
+		const style = getComputedStyle(element);
+		const bordered = Number.parseFloat(style.borderTopWidth) > 0 && Number.parseFloat(style.borderBottomWidth) > 0;
+		const filled = style.backgroundColor !== "rgba(0, 0, 0, 0)" && style.backgroundColor !== "transparent";
+		return (bordered || filled) && Number.parseFloat(style.borderTopLeftRadius) > 0;
+	};
+	const coarseTarget = (element, root) => {
+		let current = element;
+		while (current && current !== root) {
+			const tall = current.getBoundingClientRect().height >= 100;
+			if (current.hasAttribute("data-ph-block") || tall && isBox(current)) return current;
+			const parent = candidateOf(current.parentElement);
+			if (!parent || parent === current) break;
+			current = parent;
+		};
+		let fallback = element;
+		while (fallback !== root && fallback.getBoundingClientRect().height < 100) {
+			const parent = candidateOf(fallback.parentElement);
+			if (!parent || parent === fallback) break;
+			fallback = parent;
+		};
+		return fallback;
+	};
+	const findDropTarget = (x, y, exclude, coarse) => {
+		let target = candidateOf(document.elementFromPoint(x, y));
+		const root = candidateOf(document.getElementById("root")?.firstElementChild ?? null);
+		if (!target) target = root;
+		if (!target) return null;
+		if (coarse) target = coarseTarget(target, root);
+		const rect = target.getBoundingClientRect();
+		const layout = getComputedStyle(target).display;
+		const arrangesChildren = layout.includes("grid") || layout.includes("flex") || rect.height > 160;
+		const atomic = coarse && target !== root && isBox(target);
+		const isContainer = target === root || !atomic && target.children.length > 1 && !target.hasAttribute("data-ph-block") && arrangesChildren;
+		if (isContainer) {
+			const child = nearestChild(target, x, y);
+			if (child) target = child;
+		};
+		const source = parseSource(target);
+		if (!source) return null;
+		if (exclude) {
+			const [file, start, end] = exclude.split("|");
+			if (source.file === file && source.start >= Number(start) && source.end <= Number(end)) return null;
+		};
+		const box = target.getBoundingClientRect();
+		const axis = axisOf(target);
+		let position;
+		let indicator;
+		const edge = Math.min(64, box.width * .2);
+		if (axis === "column" && box.width > 240 && x < box.left + edge) position = "left";
+		else if (axis === "column" && box.width > 240 && x > box.right - edge) position = "right";
+		else if (axis === "row") position = x < box.left + box.width / 2 ? "before" : "after";
+		else position = y < box.top + box.height / 2 ? "before" : "after";
+		const vertical = axis === "row" || position === "left" || position === "right";
+		if (vertical) {
+			const atStart = position === "before" || position === "left";
+			indicator = {
+				left: atStart ? box.left - 9 : box.right + 7,
+				top: box.top,
+				width: 2,
+				height: box.height
+			};
+		} else {
+			indicator = {
+				left: box.left,
+				top: position === "before" ? box.top - 9 : box.bottom + 7,
+				width: box.width,
+				height: 2
+			};
+		};
+		const grow = position === "before" || position === "after" ? fullGridRow(target) : null;
+		return {
+			rev,
+			target: {
+				file: source.file,
+				start: source.start,
+				end: source.end,
+				place: position,
+				...grow ? { grow } : {}
+			},
+			indicator
+		};
+	};
+	const dropTarget = (x, y, exclude, coarse) => {
+		const rootElement = document.getElementById("root")?.firstElementChild;
+		openBlock = rootElement?.hasAttribute("data-ph-block") ? rootElement : null;
+		try {
+			return findDropTarget(x, y, exclude, coarse);
+		} finally {
+			openBlock = null;
+		}
+	};
+	const showLine = (indicator) => {
+		if (!indicator) {
+			line.style.opacity = "0";
+			return;
+		};
+		const wasHidden = line.style.opacity !== "1";
+		if (wasHidden) line.style.transition = "none";
+		line.style.transform = `translate3d(${indicator.left}px, ${indicator.top}px, 0)`;
+		line.style.width = `${indicator.width}px`;
+		line.style.height = `${indicator.height}px`;
+		if (wasHidden) {
+			void line.offsetWidth;
+			line.style.transition = `opacity 120ms ease, transform 110ms ${EASE_OUT}`;
+		};
+		line.style.opacity = "1";
+	};
+	let forwarding = false;
+	let lifted = null;
+	const drop = () => {
+		if (!lifted) return;
+		lifted.style.removeProperty("opacity");
+		lifted.style.removeProperty("transition");
+		lifted = null;
+	};
+	const onMove = (event) => {
+		if (!enabled || !event.isTrusted) return;
+		const pressed = (event.buttons & 1) === 1;
+		if (forwarding) {
+			if (!pressed) {
+				forwarding = false;
+				drop();
+				post({ type: "canvas-edit-pointer-cancel" });
+				return;
+			};
+			post({
+				type: "canvas-edit-pointer",
+				x: event.clientX,
+				y: event.clientY
+			});
+			return;
+		};
+		if (dragOrigin && !pressed) dragOrigin = null;
+		hovered = candidateOf(event.target);
+		if (dragOrigin && Math.hypot(event.clientX - dragOrigin.x, event.clientY - dragOrigin.y) > 5) {
+			const described = describe(dragOrigin.element);
+			lifted = dragOrigin.element;
+			lifted.style.transition = "opacity 120ms";
+			lifted.style.opacity = "0.35";
+			dragOrigin = null;
+			forwarding = true;
+			hovered = null;
+			post({
+				type: "canvas-edit-drag-start",
+				element: described,
+				x: event.clientX,
+				y: event.clientY
+			});
+		}
+	};
+	const TEXT_TAGS = [
+		"h1",
+		"h2",
+		"h3",
+		"h4",
+		"h5",
+		"h6",
+		"p",
+		"span",
+		"li",
+		"small",
+		"strong",
+		"em",
+		"label",
+		"td",
+		"th",
+		"blockquote",
+		"figcaption"
+	];
+	let editingText = null;
+	const finishText = (commit) => {
+		const current = editingText;
+		if (!current) return;
+		editingText = null;
+		const { element, original } = current;
+		const text = (element.textContent ?? "").replace(/\s+/g, " ").trim();
+		element.removeAttribute("contenteditable");
+		element.style.removeProperty("outline");
+		element.style.removeProperty("cursor");
+		if (!commit || !text || text === original.trim()) {
+			element.textContent = original;
+			return;
+		};
+		post({
+			type: "canvas-edit-text",
+			element: describe(element),
+			text
+		});
+	};
+	const startText = (element) => {
+		const plain = !element.hasAttribute("data-ph-block") && element.children.length === 0 && TEXT_TAGS.includes(element.tagName.toLowerCase());
+		if (!plain) return false;
+		editingText = {
+			element,
+			original: element.textContent ?? ""
+		};
+		element.setAttribute("contenteditable", "plaintext-only");
+		element.style.outline = "none";
+		element.style.cursor = "text";
+		element.focus();
+		const range = document.createRange();
+		range.selectNodeContents(element);
+		const selection = window.getSelection();
+		selection?.removeAllRanges();
+		selection?.addRange(range);
+		return true;
+	};
+	const onTextKey = (event) => {
+		if (!event.isTrusted || !editingText || event.target !== editingText.element) return;
+		if (event.key === "Enter" && !event.shiftKey) {
+			event.preventDefault();
+			finishText(true);
+		} else if (event.key === "Escape") {
+			event.preventDefault();
+			event.stopPropagation();
+			finishText(false);
+		}
+	};
+	const onTextBlur = (event) => {
+		if (event.isTrusted && event.target === editingText?.element) finishText(true);
+	};
+	const onDouble = (event) => {
+		if (!enabled || !event.isTrusted) return;
+		event.preventDefault();
+		event.stopPropagation();
+		const element = candidateOf(event.target);
+		if (element && element !== editingText?.element) startText(element);
+	};
+	const onDown = (event) => {
+		if (!event.isTrusted) return;
+		forwarding = false;
+		if (!enabled || event.button !== 0) return;
+		if (editingText?.element.contains(event.target)) return;
+		const element = candidateOf(event.target);
+		event.preventDefault();
+		event.stopPropagation();
+		if (!element) {
+			select(null);
+			return;
+		};
+		select(element);
+		const isRoot = element === candidateOf(document.getElementById("root")?.firstElementChild ?? null);
+		if (!isRoot) dragOrigin = {
+			x: event.clientX,
+			y: event.clientY,
+			element
+		};
+	};
+	const swallow = (event) => {
+		if (!enabled || !event.isTrusted) return;
+		event.preventDefault();
+		event.stopPropagation();
+	};
+	const onUp = (event) => {
+		if (!event.isTrusted) return;
+		dragOrigin = null;
+		if (!forwarding) return;
+		forwarding = false;
+		post({ type: "canvas-edit-pointer-up" });
+	};
+	const onKey = (event) => {
+		if (!enabled || !event.isTrusted) return;
+		const target = event.target;
+		if (target && (target.isContentEditable || [
+			"INPUT",
+			"TEXTAREA",
+			"SELECT"
+		].includes(target.tagName))) return;
+		if ([
+			"Backspace",
+			"Delete",
+			"Escape"
+		].includes(event.key) || (event.metaKey || event.ctrlKey) && ["d", "z"].includes(event.key.toLowerCase())) {
+			event.preventDefault();
+			post({
+				type: "canvas-edit-key",
+				key: event.key,
+				metaKey: event.metaKey,
+				ctrlKey: event.ctrlKey,
+				shiftKey: event.shiftKey
+			});
+		}
+	};
+	const land = (element) => {
+		const keyframes = reduceMotion() ? [{ opacity: 0 }, { opacity: 1 }] : [{
+			opacity: 0,
+			transform: "scale(0.985)"
+		}, {
+			opacity: 1,
+			transform: "none"
+		}];
+		element.animate(keyframes, {
+			duration: 240,
+			easing: EASE_OUT
+		});
+	};
+	let captured = new Map();
+	const capture = () => {
+		captured = new Map();
+		for (const element of Array.from(document.querySelectorAll("[data-ph-block-id]"))) {
+			const id = element.getAttribute("data-ph-block-id");
+			if (id) captured.set(id, element.getBoundingClientRect());
+		}
+	};
+	const slideIntoPlace = () => {
+		const before = captured;
+		captured = new Map();
+		if (reduceMotion() || before.size === 0) return before;
+		for (const element of Array.from(document.querySelectorAll("[data-ph-block-id]"))) {
+			const id = element.getAttribute("data-ph-block-id");
+			const previous = id ? before.get(id) : undefined;
+			if (!previous) continue;
+			const now = element.getBoundingClientRect();
+			const dx = previous.left - now.left;
+			const dy = previous.top - now.top;
+			const resized = Math.abs(previous.width - now.width) > 2 || Math.abs(previous.height - now.height) > 2;
+			if (resized || Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+			element.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], {
+				duration: 300,
+				easing: EASE_IN_OUT
+			});
+		};
+		return before;
+	};
+	const afterMount = (nextRev, focusBlockId, focusSource, attempt = 0) => {
+		rev = nextRev;
+		hovered = null;
+		const rootElement = candidateOf(document.getElementById("root")?.firstElementChild ?? null);
+		if (!rootElement && attempt < 120) {
+			requestAnimationFrame(() => {
+				if (rev === nextRev) afterMount(nextRev, focusBlockId, focusSource, attempt + 1);
+			});
+			return;
+		};
+		const previousRects = slideIntoPlace();
+		const rootSource = rootElement ? parseSource(rootElement) : null;
+		post({
+			type: "canvas-edit-root",
+			rev,
+			root: rootSource ? {
+				file: rootSource.file,
+				start: rootSource.start,
+				end: rootSource.end
+			} : null
+		});
+		const id = focusBlockId ?? selectedBlockId;
+		const sourceAt = (key) => document.querySelector(`[data-ph-src^="${CSS.escape(`${key}|`)}"]`);
+		const previous = selectedSource ? sourceAt(selectedSource.key) : null;
+		const sameBlock = previous?.getAttribute("data-ph-block") === selectedSource?.block;
+		const bySource = focusSource ? sourceAt(focusSource) : sameBlock ? previous : null;
+		const element = id ? document.querySelector(`[data-ph-block-id="${CSS.escape(id)}"]`) : bySource;
+		if (element instanceof HTMLElement) {
+			remember(element);
+			post({
+				type: "canvas-edit-select",
+				element: describe(element)
+			});
+			const arrived = !!focusBlockId && !focusSource && !previousRects.has(focusBlockId);
+			if (arrived) land(element);
+		} else {
+			remember(null);
+			post({
+				type: "canvas-edit-select",
+				element: null
+			});
+		}
+	};
+	const setEnabled = (next) => {
+		if (next === enabled) return;
+		enabled = next;
+		if (enabled) {
+			document.body.appendChild(layer);
+			document.documentElement.style.cursor = "default";
+			frame = requestAnimationFrame(paint);
+		} else {
+			layer.remove();
+			cancelAnimationFrame(frame);
+			selected = null;
+			hovered = null;
+		}
+	};
+	window.addEventListener("mousemove", onMove, true);
+	window.addEventListener("mousedown", onDown, true);
+	window.addEventListener("mouseup", onUp, true);
+	window.addEventListener("click", swallow, true);
+	window.addEventListener("dblclick", onDouble, true);
+	window.addEventListener("keydown", onTextKey, true);
+	window.addEventListener("blur", onTextBlur, true);
+	window.addEventListener("keydown", onKey, true);
+	document.addEventListener("mouseleave", () => {
+		hovered = null;
+	});
+	return {
+		capture,
+		setEnabled,
+		afterMount,
+		handle(message) {
+			if (message.type === "canvas-edit-drag-move") {
+				const hit = enabled ? dropTarget(Number(message.x), Number(message.y), message.exclude ?? null, message.coarse === true) : null;
+				showLine(hit?.indicator ?? null);
+				post({
+					type: "canvas-edit-drop-target",
+					hit: hit ? {
+						rev: hit.rev,
+						target: hit.target
+					} : null
+				});
+				return true;
+			};
+			if (message.type === "canvas-edit-drag-end") {
+				if (message.final === true) {
+					forwarding = false;
+					dragOrigin = null;
+					drop();
+				};
+				showLine(null);
+				return true;
+			};
+			if (message.type === "canvas-edit-deselect") {
+				remember(null);
+				return true;
+			};
+			return false;
+		}
+	};
+};
+    const editing = installCanvasEditing(post, {"h1":"Heading","h2":"Heading","h3":"Heading","p":"Text","hr":"Divider","header":"Header","main":"Page","section":"Section","Metric":"Number","Trend":"Trend","TopList":"Top list","Funnel":"Funnel","SqlTable":"SQL","Goal":"Goal","Insight":"Saved insight","Retention":"Retention","RecentEvents":"Recent events","DateRange":"Date range","Interval":"Interval","Filters":"Filters","PropertyFilter":"Quick filter","Compare":"Compare","Refresh":"Refresh","Heading":"Heading","Paragraph":"Text","Divider":"Divider","Callout":"Callout"});
+    const moduleCache = new Map();
+
+    let root = null;
+    // mount() is async and is called once per streamed code snapshot, so several
+    // runs overlap on their awaits. Without ordering, a slower EARLIER (partial,
+    // often invalid) snapshot could run root.render last and clobber the latest
+    // good render — the bug where live edits don't appear until you revisit.
+    // A monotonic sequence makes only the newest mount commit its render/error;
+    // superseded runs bail out after each await.
+    let mountSeq = 0;
+    const mount = async (input) => {
+      const seq = ++mountSeq;
+      try {
+        const revoke = !input.files;
+        const url = compileCanvasProject(
+          Babel,
+          input.files || { "canvas.tsx": input.code },
+          input.files ? input.entry || "src/canvas.tsx" : "canvas.tsx",
+          {
+            editing: !!input.editing,
+            basePlugins: [jsxUnicodeEscapesPlugin],
+            cache: revoke ? new Map() : moduleCache,
+          },
+        );
+        let mod;
+        try {
+          mod = await import(url);
+        } finally {
+          if (revoke) URL.revokeObjectURL(url);
+        }
+        if (seq !== mountSeq) return; // a newer snapshot superseded this one
+        const Comp = mod.default;
+        if (typeof Comp !== "function") {
+          throw new Error("Canvas must `export default` a React component.");
+        }
+        const React = await import("react");
+        const { createRoot } = await import("react-dom/client");
+        if (seq !== mountSeq) return;
+        const el = document.getElementById("root");
+        if (!root) root = createRoot(el);
+
+        // Catch render-time throws so one bad render doesn't white-screen the
+        // host; the error is reported and the host keeps showing last-good.
+        class Boundary extends React.Component {
+          constructor(p) { super(p); this.state = { error: null }; }
+          static getDerivedStateFromError(error) { return { error }; }
+          componentDidCatch(error) { reportError(error.message, error.stack); }
+          render() {
+            if (this.state.error) return React.createElement(Committed, { key: "failed", failed: true });
+            return this.props.children;
+          }
+        }
+        if (input.editing) editing.capture();
+        const afterCommit = (failed) => {
+          requestAnimationFrame(() => {
+            if (seq !== mountSeq) return;
+            renderCommentHighlights(currentCommentHighlights);
+            editing.setEnabled(!!input.editing);
+            if (input.editing) editing.afterMount(input.rev || 0, input.focusBlockId || null, input.focusSource || null);
+            if (!failed) post({ type: "rendered" });
+          });
+        };
+        function Committed(props) {
+          React.useLayoutEffect(() => {
+            afterCommit(!!props.failed);
+          }, []);
+          return null;
+        }
+        root.render(
+          React.createElement(
+            Boundary,
+            null,
+            React.createElement(Comp),
+            React.createElement(Committed, { key: seq }),
+          ),
+        );
+      } catch (err) {
+        // Only the latest snapshot reports — a superseded partial's parse error
+        // must not surface as the canvas's error or flicker the host banner.
+        if (seq !== mountSeq) return;
+        let message = err && err.message;
+        // Chrome reports a failed CDN fetch of the code's imports as an opaque
+        // error naming the blob module; name the real dependency instead.
+        if (message && message.indexOf("Failed to fetch dynamically imported module") !== -1) {
+          message = "Couldn't load the canvas libraries from esm.sh. " +
+            "Previewing an unbuilt canvas needs network access to https://esm.sh; " +
+            "published canvases are unaffected.";
+        }
+        reportError(message, err && err.stack);
+      }
+    };
+
+    const receive = (d) => {
+      if (!d || d.channel !== CHANNEL) return;
+      if (editing.handle(d)) return;
+      if (d.type === "init") {
+        applyTheme(d.theme);
+        currentCommentHighlights = d.highlights || [];
+        if (d.analytics) void bootAnalytics(d.analytics);
+        void mount(d);
+      } else if (d.type === "set-theme") {
+        // Re-theme in place — no mount(), so the app keeps all its state.
+        applyTheme(d.theme);
+      } else if (d.type === "set-comment-highlights") {
+        renderCommentHighlights(d.highlights);
+      } else if (d.type === "clear-text-selection") {
+        clearNativeTextSelection();
+      } else if (d.type === "data-response") {
+        const p = pending.get(d.id);
+        if (!p) return;
+        pending.delete(d.id);
+        d.ok
+          ? p.resolve(d.result)
+          : p.reject(new Error(d.error || "data error"), d.retryable === true);
+      }
+    };
+    window.addEventListener("message", (e) => {
+      if (e.source !== parent) return;
+      if (e.data?.channel === CHANNEL && e.data.type === "connect" && e.ports[0] && !bridgePort) {
+        bridgePort = e.ports[0];
+        sendToHost = bridgePort.postMessage.bind(bridgePort);
+        disconnectBridge = bridgePort.close.bind(bridgePort);
+        bridgePort.onmessage = (event) => receive(event.data);
+        post({ type: "ready" });
+      } else if (!portOnly && !bridgePort) {
+        receive(e.data);
+      }
+    });
+    window.addEventListener("pagehide", () => disconnectBridge?.());
+
+    post({ type: "ready" });
+  </script>
+</body>
+</html>

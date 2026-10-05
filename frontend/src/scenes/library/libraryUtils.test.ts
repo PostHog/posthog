@@ -1,6 +1,15 @@
-import { libraryObjectHref, libraryObjectName, libraryTypeForPath } from './libraryUtils'
+import { isLibraryType, libraryObjectHref, libraryObjectName, libraryTypeForPath } from './libraryUtils'
 
 describe('libraryUtils', () => {
+    test.each([
+        ['insight', true],
+        ['feature_flag', true],
+        ['dashboard', false],
+        ['notebook', false],
+        ['task', false],
+    ])('lists %s in Library: %s', (type, listed) => {
+        expect(isLibraryType(type as string)).toBe(listed)
+    })
     test.each([
         ['Unfiled/Insights/Checkout funnel', 'Checkout funnel'],
         ['Unfiled/Insights/Signups a\\/b test', 'Signups a/b test'],
@@ -23,7 +32,7 @@ describe('libraryUtils', () => {
         ['/workflows/abc/workflow', 'workflows'],
         ['/replay/playlists/abc', 'session_recording_playlist'],
         ['/feature_flags', 'feature_flag'],
-        ['/dashboard', 'dashboard'],
+        ['/dashboard', null],
         ['/data-management/actions', 'action'],
         ['/feature_flags/templates', null],
         ['/workflows/library/templates/new', null],

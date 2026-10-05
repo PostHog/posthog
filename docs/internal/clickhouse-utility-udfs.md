@@ -3,8 +3,8 @@
 `JSONCleanPostHogEventProperties` groups `$feature/<key>` event properties into `$feature_flags`.
 Before emitting JSON for insertion, it sorts the keys in `$feature_flags` alphabetically using case-sensitive string order.
 This also applies to existing `$feature_flags` objects, after cleanup resolves duplicates.
-A flag value that is the JSON string `"false"` (a variant named false) is stored as `$false`, so it stays distinct from a flag that was evaluated and switched off (JSON `false`, which the typed map stores as `false`).
-`$false` is a reserved variant key; the flag API rejects it.
+A flag value that is the JSON string `"false"` or `"true"` (a variant named false or true) is stored as `$false` or `$true`, so it stays distinct from a boolean flag (JSON `false` or `true`, which the typed map stores as `false` or `true`).
+`$false` and `$true` are reserved variant keys; the flag API rejects them.
 Flag values and person-property ordering follow the existing cleanup rules.
 
 Invalid scalar and array `$feature_flags` values are replaced with an empty map and retained in
@@ -72,16 +72,16 @@ SELECT JSONCleanPostHogEvent('{"$set":{"score":7},"$feature/demo":"control","pla
 
 ### `JSONCleanPostHogTemporaryProperties(json)`
 
-Accepts a JSON object and retains only the following top-level properties. A dotted key is one flat key, so `$set.foo` is not retained; a key that starts with `$sdk_debug_` is. It uses the event cleaner's null-object-field removal, duplicate handling, and integer protection, without coercing values to declared schema types. Non-object input fails.
+Accepts a JSON object and retains only the following top-level properties. A dotted key is one flat key, so `$set.foo` is not retained; a key that starts with `$sdk_debug_` is, except `$sdk_debug_current_session_duration`. It uses the event cleaner's null-object-field removal, duplicate handling, and integer protection, without coercing values to declared schema types. Non-object input fails.
 
 | Category                      | Allowlist                                                                                                                                        |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Person and group instructions | `$set`, `$set_once`, `$unset`, `$group_set`                                                                                                      |
-| SDK diagnostics               | Every `$sdk_debug_*` property, including session duration                                                                                        |
+| SDK diagnostics               | Every `$sdk_debug_*` property, except `$sdk_debug_current_session_duration`                                                                      |
 | Flag diagnostics              | `$feature_flag_request_id`                                                                                                                       |
 | Replay diagnostics            | `$debug_first_full_snapshot_timestamp`, `$snapshot_max_depth_exceeded`, `$sess_rec_flush_size`                                                   |
 | Replay configuration          | `$session_recording_remote_config`, `$session_recording_network_payload_capture`, `$session_recording_canvas_recording`, `$replay_script_config` |
-| Transport diagnostics         | `$sent_at`, `$lib_rate_limit_remaining_tokens`, `$lib_custom_api_host`                                                                           |
+| Transport diagnostics         | `$lib_rate_limit_remaining_tokens`, `$lib_custom_api_host`                                                                                       |
 
 `$feature_flag_request_id` moves to temporary properties on every event type. `$debug_images` remains in permanent properties. Feature-flag payloads and `$active_feature_flags` are excluded from both outputs. Matching applies only at the root: a custom object's nested `$set` is not a temporary property.
 
@@ -92,8 +92,8 @@ WITH '{"$set":{"score":7},"$sdk_debug_probe":true,"$sdk_debug_current_session_du
 SELECT
     JSONCleanPostHogEventProperties(raw_properties) AS properties,
     JSONCleanPostHogTemporaryProperties(raw_properties) AS temporary_properties;
--- properties: {"custom":"kept"}
--- temporary_properties: {"$set":{"score":7},"$sdk_debug_probe":true,"$sdk_debug_current_session_duration":42,"$feature_flag_request_id":"request-example"}
+-- properties: {"$sdk_debug_current_session_duration":42,"custom":"kept"}
+-- temporary_properties: {"$set":{"score":7},"$sdk_debug_probe":true,"$feature_flag_request_id":"request-example"}
 ```
 
 Both functions use the same executable. The temporary entry point uses `--temporary-properties` with the existing chunk protocol.
@@ -103,11 +103,11 @@ Documents exceeding the shared depth limit produce `{}` in the temporary output;
 Native events retain `temporary_properties` for 60 days after insertion, including historical events; TTL merges clear the column asynchronously.
 On native events, HogQL reads a property in this allowlist from `temporary_properties`: property access such as `properties.$set.email`, filters, `JSONHas`, `JSONLength`, `JSONType`, the `JSONExtract*` functions with the property as their first key, and `JSON_VALUE` with the property as the first member of its path.
 These functions reject a first key computed per row, because such a key can name a moved property.
-Whole-document reads of `properties`, such as `SELECT properties`, do not include these properties, because rebuilding them would serialize `temporary_properties` on every row read.
+A whole-document read of `properties`, such as `SELECT properties`, `toString(properties)`, a batch export or the events API, adds these properties back from `temporary_properties`, so the document matches what the SDK sent for 60 days after insertion. After that the properties are absent from every read.
 `is_temporary_event_property` in `posthog/clickhouse/events_json.py` mirrors the allowlist, so update both together.
 Fresh installations use the updated schema definitions. Existing tables require a manual schema rollout and feature-flag query compatibility before native reads are enabled.
 
-Native-event queries derive `$active_feature_flags` from the `$feature_flags` map, excluding empty and `false` values and restricted flags. `$false` counts as active, and reads of `$feature/<key>`, `$feature_flags.<key>` and the `$feature_flags` map return it as `false`. Whole-document reads of `properties`, and batch exports of the whole `$feature_flags` map, return it as stored; single-flag export fields and filters map it back. Array order follows the stored map rather than the original SDK evaluation order. No separate active-flags column is required.
+Queries on `events_json` derive `$active_feature_flags` from the `$feature_flags` map, excluding empty and `false` values and restricted flags. `$false` and `$true` count as active, and reads of `$feature/<key>`, `$feature_flags.<key>` and the `$feature_flags` map return them as `false` and `true`. A whole-document read of `properties` rebuilds the document the SDK sent: one `$feature/<key>` per map entry, a boolean flag as JSON `true` or `false` and a variant as a string, plus `$active_feature_flags`, and no `$feature_flags` object. A flag sent as a number, object or array comes back as a JSON string, because the map stores every value as text. Restricted flags are left out of both. A JSON function over `properties`, such as `JSONExtractArrayRaw(properties, '$active_feature_flags')`, reads that rebuilt document. Batch exports of the whole `$feature_flags` map return the sentinels as stored; single-flag export fields and filters map them back. Array order follows the stored map rather than the original SDK evaluation order. No separate active-flags column is required.
 
 Feature-flag scalar reads still use JSON string encoding when requested: a `control` variant
 becomes `"control"` through `toJSONString`, and `JSONExtractString` returns `control`.

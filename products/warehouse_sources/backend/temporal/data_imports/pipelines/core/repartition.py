@@ -678,7 +678,7 @@ _DATETIME_KEY_FORMATS: dict[PartitionFormat, str] = {
 # Coarser tiers each partition can merge into, coarsest first. Every tier here contains the finer one
 # whole, so a row's new bucket follows from its old key, except week into month: ISO weeks straddle
 # month boundaries, and how a week's bytes divide between two months is not recoverable from the key.
-# That one is sized by upper bound instead (see `_simulate_datetime_coarsening`) rather than left
+# That one is sized by upper bound instead (see `simulate_datetime_coarsening`) rather than left
 # unreachable, because the finer path's first step is month into week, so without it a table this
 # controller wrongly split could never be merged back.
 _COARSER_DATETIME_TIERS: dict[PartitionFormat, tuple[PartitionFormat, ...]] = {
@@ -718,7 +718,7 @@ def _merged_keys(parsed: datetime, current_format: PartitionFormat, new_format: 
     return [parsed.strftime(_DATETIME_KEY_FORMATS[new_format])]
 
 
-def _simulate_datetime_coarsening(
+def simulate_datetime_coarsening(
     partition_bytes: dict[str | None, int],
     current_format: PartitionFormat,
     new_format: PartitionFormat,
@@ -822,7 +822,7 @@ def select_coarsen_target(
             return None, "datetime_at_coarsest_tier"
         # Coarsest tier first: fewer, larger partitions is the goal, and the size ceiling is what stops it.
         for new_format in candidate_formats:
-            if acceptable(_simulate_datetime_coarsening(partition_bytes, current_format, new_format)):
+            if acceptable(simulate_datetime_coarsening(partition_bytes, current_format, new_format)):
                 return RepartitionTarget(
                     partition_keys=keys,
                     trigger_reason="",

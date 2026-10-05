@@ -19,7 +19,6 @@ import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/ic
 import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { ProductTag } from 'lib/components/ProductTag/ProductTag'
 import { filterSearchItems } from 'lib/components/Search/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -992,13 +991,6 @@ function SearchResults({
                                                                                     {item.productCategory}
                                                                                 </span>
                                                                             )}
-                                                                            {item.tags?.map((tag) => (
-                                                                                <ProductTag
-                                                                                    key={tag}
-                                                                                    tag={tag}
-                                                                                    className="shrink-0"
-                                                                                />
-                                                                            ))}
                                                                             {item.lastViewedAt && (
                                                                                 <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
                                                                                     {formatRelativeTimeShort(

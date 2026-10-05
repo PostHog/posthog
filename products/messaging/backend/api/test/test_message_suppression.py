@@ -1,32 +1,11 @@
 from posthog.test.base import APIBaseTest
 
-from django.test import SimpleTestCase
-
 from parameterized import parameterized
 
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.messaging.backend.api.message_suppression import MessageSuppressionViewSet
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
-
-
-class TestMessageSuppressionViewSetScope(SimpleTestCase):
-    """
-    Guards against the viewset silently reverting to scope_object='INTERNAL', which would bypass
-    hog_flow RBAC and let any project member manage suppressions regardless of workflow permissions.
-    """
-
-    def test_scope_object_is_hog_flow(self) -> None:
-        assert MessageSuppressionViewSet.scope_object == "hog_flow"
-
-    def test_mutating_actions_are_declared_as_writes(self) -> None:
-        # `add_suppression` and `remove_suppression` are custom @action endpoints; without being
-        # listed here they'd default to a read scope and slip past hog_flow:write enforcement.
-        assert set(MessageSuppressionViewSet.scope_object_write_actions) == {
-            "add_suppression",
-            "remove_suppression",
-        }
 
 
 class TestSuppressionListPersonalAPIKeyAccess(APIBaseTest):

@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useId } from 'react'
 
-import { IconDocument, IconGitBranch } from '@posthog/icons'
+import { IconGitBranch } from '@posthog/icons'
 import {
     Badge,
     Card,
@@ -29,34 +29,25 @@ import { TodaySessionRenameInput } from '~/layout/today/TodaySessionRenameInput'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { sessionItem, sessionMenuTarget, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
+import { artifactPreviewKind } from 'products/posthog_ai/frontend/api/taskArtifacts'
+import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
+
 import { TaskListItemApi } from '../generated/api.schemas'
 import { SpaceFeedCardPrompt } from './SpaceFeedCardPrompt'
 import { spaceFeedPreview } from './spaceFeedPreview'
+import { SpaceFeedSelectCheckbox } from './SpaceFeedSelectCheckbox'
 import { spaceFeedStatus } from './spaceFeedStatus'
 import { SpaceFeedStatusIcon } from './SpaceFeedStatusIcon'
+import { spaceSceneLogic } from './spaceSceneLogic'
+import { TaskFileChip } from './TaskFileChip'
 import { TaskFile, VISIBLE_FILE_COUNT, taskFiles } from './taskFiles'
 import { TASK_CHIP_CLASS, TaskPullRequestChip } from './TaskPullRequestChip'
 import { pullRequestLabel, splitPullRequests } from './taskPullRequests'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
-
-function TaskFileChip({ file }: { file: TaskFile }): JSX.Element {
-    return (
-        <Badge
-            render={<LinkPrimitive to={file.url} />}
-            aria-label={`Open ${file.name}`}
-            data-attr="today-file-chip-feed"
-            className={cn(
-                TASK_CHIP_CLASS,
-                'border-border bg-fill-hover text-muted-foreground hover:bg-fill-selected hover:text-foreground'
-            )}
-        >
-            <IconDocument className="size-3 shrink-0" />
-            <span className="max-w-40 min-w-0 truncate">{file.name}</span>
-        </Badge>
-    )
-}
+import { useSpaceFeedBulkSelection } from './useSpaceFeedBulkSelection'
 
 interface SpaceFeedCardProps {
+    spaceId: string
     task: TaskListItemApi
     pinned: boolean
     unread: boolean
@@ -64,7 +55,7 @@ interface SpaceFeedCardProps {
     repository: string | null
 }
 
-export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCardProps): JSX.Element {
+export function SpaceFeedCard({ spaceId, task, pinned, unread, repository }: SpaceFeedCardProps): JSX.Element {
     const { renaming } = useValues(todaySessionMenuLogic)
     const { user } = useValues(userLogic)
     const { pullRequestStates } = useValues(todaySpacesLogic)
@@ -75,16 +66,32 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
     const [mainPullRequest] = item.pullRequests
     const status = spaceFeedStatus(task.latest_run, mainPullRequest && pullRequestStates[mainPullRequest.url])
     const pullRequests = splitPullRequests(item.pullRequests)
-    const files = taskFiles(task.id, task.latest_run?.artifacts)
+    const { reportArtifactChipClicked } = useActions(spaceSceneLogic({ id: spaceId }))
+    const files = taskFiles(task.id, task.latest_run)
+    const fileChip = (taskFile: TaskFile, inOverflow: boolean): JSX.Element => (
+        <TaskFileChip
+            key={taskFile.file.key}
+            taskFile={taskFile}
+            onOpen={() =>
+                reportArtifactChipClicked(artifactPreviewKind(taskFile.file.latest), inOverflow, files.length)
+            }
+        />
+    )
     const hiddenFiles = files.slice(VISIBLE_FILE_COUNT)
     const preview = spaceFeedPreview('description_preview' in task ? task.description_preview : task.description)
     const author = task.created_by
     const authorName = author ? taskUserName(author) : null
+    const source = getOriginProductMeta(item.originProduct ?? undefined)
+    const selection = useSpaceFeedBulkSelection(spaceId)
+    const selected = selection.selectedSessionIds.includes(task.id)
 
     const card = (
         <Card
             size="sm"
-            className="group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition hover:bg-fill-hover hover:ring-1 hover:ring-input"
+            className={cn(
+                'group/card relative my-1.5 gap-0 rounded-xl px-4 pt-3.5 pb-3 transition-colors hover:bg-fill-hover has-focus-visible:ring-2 has-focus-visible:ring-ring',
+                selected && 'bg-primary/10 hover:bg-primary/15'
+            )}
         >
             <div className="flex min-w-0 items-center gap-3">
                 {renaming?.sessionId === task.id && renaming.surface === 'feed' ? (
@@ -97,7 +104,14 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                 ) : (
                     <div className="flex min-w-0 flex-1 items-baseline gap-1.5">
                         {/* Nudged down so the icon sits on the title's baseline, like PostHog Desktop's feed cards. */}
-                        <SpaceFeedStatusIcon item={item} className="translate-y-0.5" />
+                        <SpaceFeedSelectCheckbox
+                            spaceId={spaceId}
+                            sessionId={task.id}
+                            title={item.title || 'Untitled session'}
+                            className="translate-y-0.5"
+                        >
+                            <SpaceFeedStatusIcon item={item} />
+                        </SpaceFeedSelectCheckbox>
                         <LinkPrimitive
                             to={urls.aiTask(task.id)}
                             className="min-w-0 truncate text-sm leading-snug font-semibold text-foreground after:absolute after:inset-0"
@@ -131,8 +145,21 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                 </div>
             </div>
             <SpaceFeedCardPrompt taskId={task.id} prompt={preview} />
-            {(repository || author || item.pullRequests.length > 0 || files.length > 0) && (
+            {(source || repository || author || item.pullRequests.length > 0 || files.length > 0) && (
                 <div className="mt-3 flex min-w-0 flex-wrap items-center gap-1.5">
+                    {source && (
+                        <Badge
+                            // No padding: the chip has no fill, so it lines up with the prompt text above it.
+                            className={cn(
+                                TASK_CHIP_CLASS,
+                                'border-transparent bg-transparent px-0 text-muted-foreground'
+                            )}
+                            data-attr="today-space-feed-source"
+                        >
+                            <span className="flex size-3 shrink-0 [&>svg]:size-full">{source.icon}</span>
+                            {source.label}
+                        </Badge>
+                    )}
                     {repository && (
                         <Badge
                             className={cn(
@@ -178,9 +205,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                             </PopoverContent>
                         </Popover>
                     )}
-                    {files.slice(0, VISIBLE_FILE_COUNT).map((file) => (
-                        <TaskFileChip key={file.name} file={file} />
-                    ))}
+                    {files.slice(0, VISIBLE_FILE_COUNT).map((taskFile) => fileChip(taskFile, false))}
                     {hiddenFiles.length > 0 && (
                         <Popover>
                             <PopoverTrigger
@@ -194,9 +219,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
                                 {`+${hiddenFiles.length} ${hiddenFiles.length === 1 ? 'file' : 'files'}`}
                             </PopoverTrigger>
                             <PopoverContent align="start" className="flex max-w-72 flex-col items-start gap-1">
-                                {hiddenFiles.map((file) => (
-                                    <TaskFileChip key={file.name} file={file} />
-                                ))}
+                                {hiddenFiles.map((taskFile) => fileChip(taskFile, true))}
                             </PopoverContent>
                         </Popover>
                     )}
@@ -223,7 +246,7 @@ export function SpaceFeedCard({ task, pinned, unread, repository }: SpaceFeedCar
     // The dialogs sit outside the right-click area, so a right-click inside one does not reach the card's menu.
     return (
         <>
-            <TodaySessionContextMenu target={menu} surface="feed">
+            <TodaySessionContextMenu target={menu} surface="feed" selection={selection}>
                 {card}
             </TodaySessionContextMenu>
             <TodaySessionDialogs target={menu} />

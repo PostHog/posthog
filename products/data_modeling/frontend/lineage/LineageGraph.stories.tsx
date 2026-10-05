@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
+import type { XYPosition } from '@xyflow/react'
+import { MakeLogicType, actions, kea, path, reducers, useActions, useValues } from 'kea'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
 import { DataModelingEdge, DataModelingNode } from '~/types'
@@ -60,6 +64,60 @@ const GRAPH_EDGES: DataModelingEdge[] = [
     mockEdge('e4', '3', '5'),
     mockEdge('e5', '4', '6'),
 ]
+
+const MOVED_NODE_POSITIONS: Record<string, XYPosition> = { '6': { x: 1500, y: 700 } }
+
+interface DraggableLineageGraphStoryLogicValues {
+    nodePositions: Record<string, XYPosition>
+}
+
+interface DraggableLineageGraphStoryLogicActions {
+    nodeDragStopped: (nodeId: string, position: XYPosition) => { nodeId: string; position: XYPosition }
+    resetNodePositions: () => Record<string, never>
+}
+
+type DraggableLineageGraphStoryLogicType = MakeLogicType<
+    DraggableLineageGraphStoryLogicValues,
+    DraggableLineageGraphStoryLogicActions
+>
+
+const draggableLineageGraphStoryLogic = kea<DraggableLineageGraphStoryLogicType>([
+    path(['products', 'data_modeling', 'lineage', 'draggableLineageGraphStoryLogic']),
+    actions({
+        nodeDragStopped: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
+        resetNodePositions: true,
+    }),
+    reducers({
+        nodePositions: [
+            MOVED_NODE_POSITIONS,
+            {
+                nodeDragStopped: (positions, { nodeId, position }) => ({ ...positions, [nodeId]: position }),
+                resetNodePositions: () => ({}),
+            },
+        ],
+    }),
+])
+
+function DraggableLineageGraphStory({ focusMovedNode = false }: { focusMovedNode?: boolean }): JSX.Element {
+    const { nodePositions } = useValues(draggableLineageGraphStoryLogic)
+    const { nodeDragStopped, resetNodePositions } = useActions(draggableLineageGraphStoryLogic)
+
+    return (
+        <LineageGraph
+            nodes={GRAPH_NODES}
+            edges={GRAPH_EDGES}
+            variant="canvas"
+            interactive
+            nodesDraggable
+            nodePositions={nodePositions}
+            onNodeDragStop={(node, position) => nodeDragStopped(node.id, position)}
+            onResetNodePositions={resetNodePositions}
+            searchFocusRequest={focusMovedNode ? { nodeId: '6', requestId: 1 } : undefined}
+            showControls
+            showMinimap
+        />
+    )
+}
 
 // Pruning the graph rekeys `lineageGraphLogic`, so react-flow unmounts while ELK lays the cone
 // out again. Read the canvas on every poll — a node captured before the relayout is detached,
@@ -151,6 +209,77 @@ export const Canvas: Story = {
     ),
 }
 
+// The minimap is gated on the canvas container instead of the viewport, so a canvas that is narrow
+// inside a wide window must still hide it and leave the zoom controls room. The graph is cut to two
+// nodes because fit-view scales the whole graph into 480px, and nodes that small render text the
+// snapshot cannot compare reliably.
+export const NarrowCanvas: Story = {
+    render: () => (
+        <LineageGraph
+            nodes={GRAPH_NODES.slice(0, 2)}
+            edges={[]}
+            variant="canvas"
+            showControls
+            showMinimap
+            interactive
+        />
+    ),
+    decorators: [
+        (StoryFn) => (
+            <div className="h-[500px] w-[480px]">
+                <StoryFn />
+            </div>
+        ),
+    ],
+}
+
+export const DraggableNodes: Story = {
+    parameters: { featureFlags: [FEATURE_FLAGS.DATA_MODELING_LINEAGE_NODE_DRAGGING] },
+    render: () => <ModelsLineageTab />,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/data_modeling_nodes/': { count: GRAPH_NODES.length, results: GRAPH_NODES },
+                '/api/environments/:team_id/data_modeling_edges/': { count: GRAPH_EDGES.length, results: GRAPH_EDGES },
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const openButton = await canvas.findByLabelText('Open orders in new tab')
+        const nodeCard = canvas.getByText('orders').closest<HTMLElement>('[data-attr="lineage-node"]')
+
+        if (
+            openButton.tagName !== 'A' ||
+            !openButton.getAttribute('href') ||
+            openButton.getAttribute('target') !== '_blank' ||
+            !openButton.classList.contains('nodrag')
+        ) {
+            throw new Error('The explicit node link must open in a new tab')
+        }
+        if (!nodeCard || nodeCard.getAttribute('role') === 'button' || nodeCard.tabIndex >= 0) {
+            throw new Error('A draggable node must not navigate as a card')
+        }
+    },
+}
+
+export const MovedNodeFocus: Story = {
+    render: () => <DraggableLineageGraphStory focusMovedNode />,
+    play: async ({ canvasElement }) => {
+        await expectNodeCentered(canvasElement, '6', 'Search focus must center the moved node, not its ELK position')
+    },
+}
+
+export const ResetMovedNodes: Story = {
+    render: () => <DraggableLineageGraphStory />,
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('monthly_recurring_revenue')
+        fireEvent.click(canvas.getByLabelText('Reset layout'))
+        await expectNodesCentered(canvasElement, 'Reset layout must restore and center the ELK positions')
+    },
+}
+
 export const Loading: Story = {
     parameters: LOADING_PARAMETERS,
     render: () => (
@@ -232,6 +361,16 @@ export const SearchFocus: Story = {
         if (graph.querySelectorAll('.react-flow__node').length !== GRAPH_NODES.length) {
             throw new Error('Plain search must keep the rest of the graph visible')
         }
+
+        fireEvent.change(search, { target: { value: '' } })
+        await expectNodesCentered(canvasElement, 'Clearing search must fit the whole graph')
+        fireEvent.change(search, { target: { value: 'monthly' } })
+        await canvas.findByText('2 results')
+        fireEvent.keyDown(search, { key: 'ArrowDown' })
+        await canvas.findByText('monthly_recurring_revenue, result 2 of 2')
+        fireEvent.keyDown(search, { key: 'Enter' })
+        await expectNodeCentered(canvasElement, '6', 'Repeated search focus must center the requested node')
+
         const previousResult = canvas.getByLabelText('Previous result')
         previousResult.focus()
         fireEvent.click(previousResult)

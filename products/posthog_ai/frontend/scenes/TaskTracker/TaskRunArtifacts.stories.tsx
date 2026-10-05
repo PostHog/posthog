@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { useActions, useValues } from 'kea'
 import { HttpResponse } from 'msw'
 import { ReactNode, useEffect } from 'react'
@@ -11,11 +12,15 @@ import { SceneLayout } from '~/layout/scenes/SceneLayout'
 import { TodayShell } from '~/layout/today/TodayShell'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { mswDecorator } from '~/mocks/browser'
-import TRENDS_LINE_INSIGHT from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import type { MockSignature } from '~/mocks/utils'
 
-import type { TaskRunArtifactResponseApi } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    TaskRunArtifactResponseApi,
+    TaskRunLivingArtifactResponseApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
+import { expect, userEvent } from 'storybook/test'
 
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { TaskDetailPage } from './components/TaskDetailPage'
@@ -200,7 +205,7 @@ const WALKTHROUGH_WEBM_BASE64 =
 function objectReference(
     id: string,
     name: string,
-    objectKind: 'insight' | 'dashboard' | 'flag',
+    objectKind: string,
     objectId: string,
     uploadedAt: string
 ): TaskRunArtifactResponseApi {
@@ -225,20 +230,12 @@ const OBJECT_REFERENCES = [
     objectReference('phref_trial_funnel', 'Trial funnel by step', 'insight', 'aBcD1234', '2026-09-28T18:12:00Z'),
     objectReference('phref_growth', 'Growth review', 'dashboard', '42', '2026-09-28T18:11:00Z'),
     objectReference('phref_flag', 'new-plan-picker', 'flag', '7', '2026-09-28T18:10:00Z'),
+    objectReference('phref_experiment', 'Plan picker layout test', 'experiment', '12', '2026-09-28T18:09:00Z'),
+    objectReference('phref_cohort', 'Trial starters on laptops', 'cohort', '3', '2026-09-28T18:08:00Z'),
+    objectReference('phref_survey', 'Plan picker feedback', 'survey', 'survey-plan-picker', '2026-09-28T18:07:00Z'),
+    // No kind called `note` has a page, so this reference shows the card.
+    objectReference('phref_note', 'Pricing notes', 'note', 'pricing-notes', '2026-09-28T18:06:00Z'),
 ]
-
-const CITED_INSIGHT = { ...TRENDS_LINE_INSIGHT, short_id: 'aBcD1234', name: 'Trial funnel by step' }
-
-// The live insight embed loads the saved insight, then runs its query.
-const INSIGHT_MOCKS = {
-    get: {
-        '/api/environments/:team_id/insights/': { count: 1, results: [CITED_INSIGHT] },
-        '/api/projects/:team_id/insights/': { count: 1, results: [CITED_INSIGHT] },
-    },
-    post: {
-        '/api/environments/:team_id/query/': { results: CITED_INSIGHT.result },
-    },
-}
 
 const VIDEO_ARTIFACT: TaskRunArtifactResponseApi = {
     id: 'artifact-walkthrough',
@@ -259,6 +256,28 @@ const CONTENT_BY_PATH: Record<string, string> = {
     'tasks/artifacts/artifact-summary': SUMMARY_HTML,
     'tasks/artifacts/artifact-csv': WEEKS_CSV,
 }
+
+const EDITED_REPORT_MARKDOWN = `${REPORT_MARKDOWN}
+## Owner
+
+Ada owns the fix. The A/B test starts on Monday.
+`
+
+// A version the agent writes while the story's user edits the report.
+const REPORT_NEWER_VERSION: TaskRunArtifactResponseApi = {
+    id: 'artifact-report-v4',
+    name: REPORT_FILE_NAME,
+    type: 'output',
+    source: 'agent_output',
+    size: 7168,
+    content_type: 'text/markdown',
+    storage_path: 'tasks/artifacts/artifact-report-v4',
+    uploaded_at: '2026-09-28T18:24:00Z',
+    uploaded_by: 'agent',
+}
+
+// The conflict story sets this when it presses Save, so the run read after that holds the newer version.
+let newerReportArrived = false
 
 function mockRun(artifacts: TaskRunArtifactResponseApi[], id = RUN_ID): TaskRun {
     return {
@@ -397,6 +416,7 @@ function taskMocks(
                     headers: { 'Content-Type': 'text/plain' },
                 })
             },
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/artifacts/dismiss/`]: { artifacts },
         },
     }
 }
@@ -421,16 +441,28 @@ function TodayWebLayout({ children }: { children: ReactNode }): JSX.Element {
     )
 }
 
+/** Opens the file in the editor once its text loads, types `draft`, and with `save` presses Save. */
+interface StoryEdit {
+    draft: string
+    save?: boolean
+}
+
 function StoryPage({
     tab = 'artifacts',
     fileName,
     versionId,
+    edit,
+    commentsOpen = false,
 }: {
     tab?: TaskRunTab
     fileName?: string
     versionId?: string
+    edit?: StoryEdit
+    commentsOpen?: boolean
 }): JSX.Element {
-    const { setActiveTab, selectArtifact, selectVersion } = useActions(taskRunArtifactsLogic({ taskId: TASK_ID }))
+    const { setActiveTab, selectArtifact, selectVersion, startEditing, setEditDraft, saveEdit, setCommentsOpen } =
+        useActions(taskRunArtifactsLogic({ taskId: TASK_ID }))
+    const { selectedText, isEditing } = useValues(taskRunArtifactsLogic({ taskId: TASK_ID }))
     useEffect(() => {
         if (fileName) {
             selectArtifact(fileName)
@@ -439,7 +471,20 @@ function StoryPage({
             selectVersion(versionId)
         }
         setActiveTab(tab)
-    }, [tab, fileName, versionId, setActiveTab, selectArtifact, selectVersion])
+        setCommentsOpen(commentsOpen)
+    }, [tab, fileName, versionId, commentsOpen, setActiveTab, selectArtifact, selectVersion, setCommentsOpen])
+    const textLoaded = typeof selectedText?.text === 'string'
+    useEffect(() => {
+        if (!edit || !textLoaded || isEditing) {
+            return
+        }
+        startEditing()
+        setEditDraft(edit.draft)
+        if (edit.save) {
+            newerReportArrived = true
+            saveEdit()
+        }
+    }, [edit, textLoaded, isEditing, startEditing, setEditDraft, saveEdit])
     return (
         <TodayWebLayout>
             <TaskDetailPage taskId={TASK_ID} isMobile={false} />
@@ -480,8 +525,7 @@ export const Video: Story = {
 }
 
 function objectMocks(): ReturnType<typeof taskMocks> {
-    const mocks = taskMocks([...ARTIFACTS, ...OBJECT_REFERENCES])
-    return { get: { ...mocks.get, ...INSIGHT_MOCKS.get }, post: { ...mocks.post, ...INSIGHT_MOCKS.post } }
+    return taskMocks([...ARTIFACTS, ...OBJECT_REFERENCES])
 }
 
 export const PostHogObjects: Story = {
@@ -489,9 +533,9 @@ export const PostHogObjects: Story = {
     render: () => <StoryPage fileName="phref_trial_funnel" />,
 }
 
-export const PostHogObjectWithoutEmbed: Story = {
+export const PostHogObjectWithoutPage: Story = {
     parameters: { msw: { mocks: objectMocks() } },
-    render: () => <StoryPage fileName="phref_flag" />,
+    render: () => <StoryPage fileName="phref_note" />,
 }
 
 export const Versions: Story = {
@@ -516,7 +560,319 @@ export const FlagOff: Story = {
     render: () => <StoryPage tab="conversation" />,
 }
 
+function livingDocument(
+    id: string,
+    name: string,
+    adapter: TaskRunLivingArtifactResponseApi['adapter'],
+    versions: Record<string, unknown>[]
+): TaskRunLivingArtifactResponseApi {
+    return {
+        id,
+        task_id: TASK_ID,
+        run_id: RUN_ID,
+        team_id: 1,
+        name,
+        artifact_type: adapter === 'slack_file' ? 'spreadsheet' : 'document',
+        adapter,
+        status: 'active',
+        location: { kind: adapter },
+        metadata: {},
+        current_version: versions.length,
+        versions,
+        created_at: '2026-09-28T17:58:00Z',
+        updated_at: String(versions[versions.length - 1].created_at),
+    }
+}
+
+const LIVING_DOCUMENTS = [
+    livingDocument('doc-weekly-trials', 'Weekly trial report', 'slack_canvas', [
+        {
+            version: 1,
+            content: REPORT_DRAFT_MARKDOWN,
+            content_type: 'text/markdown',
+            created_at: '2026-09-28T17:58:00Z',
+        },
+        {
+            version: 2,
+            content: REPORT_SECOND_DRAFT_MARKDOWN,
+            content_type: 'text/markdown',
+            created_at: '2026-09-28T18:05:00Z',
+        },
+        { version: 3, content: REPORT_MARKDOWN, content_type: 'text/markdown', created_at: '2026-09-28T18:21:00Z' },
+    ]),
+    livingDocument('doc-trial-sheet', 'trial-starts-by-week.xlsx', 'slack_file', [
+        {
+            version: 1,
+            size: 9216,
+            content_type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            location: { kind: 'slack_file', storage_path: 'tasks/living/doc-trial-sheet/trial-starts-by-week.v1.xlsx' },
+            created_at: '2026-09-28T18:17:00Z',
+        },
+    ]),
+    livingDocument('doc-trial-chart', 'trial-funnel-chart.svg', 'slack_file', [
+        {
+            version: 1,
+            size: 3584,
+            content_type: 'image/svg+xml',
+            location: { kind: 'slack_file', storage_path: 'tasks/living/doc-trial-chart/trial-funnel-chart.v1.svg' },
+            created_at: '2026-09-28T18:12:00Z',
+        },
+        {
+            version: 2,
+            size: 3712,
+            content_type: 'image/svg+xml',
+            location: { kind: 'slack_file', storage_path: 'tasks/living/doc-trial-chart/trial-funnel-chart.v2.svg' },
+            created_at: '2026-09-28T18:19:00Z',
+        },
+    ]),
+]
+
+function livingMocks(): ReturnType<typeof taskMocks> {
+    const mocks = taskMocks([...ARTIFACTS, ...OBJECT_REFERENCES])
+    return {
+        get: {
+            ...mocks.get,
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/living_artifacts/`]: {
+                artifacts: LIVING_DOCUMENTS,
+            },
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/:run_id/living_artifacts/doc-trial-chart/versions/:version/`]:
+                () => new HttpResponse(CHART_SVG, { headers: { 'Content-Type': 'image/svg+xml' } }),
+        },
+        post: mocks.post,
+    }
+}
+
+export const LivingArtifact: Story = {
+    parameters: { msw: { mocks: livingMocks() } },
+    render: () => <StoryPage fileName="living-doc-weekly-trials" />,
+}
+
+export const LivingSlackFile: Story = {
+    parameters: { msw: { mocks: livingMocks() } },
+    render: () => <StoryPage fileName="living-doc-trial-chart" />,
+}
+
+export const EditingMarkdown: Story = {
+    render: () => <StoryPage fileName={REPORT_FILE_NAME} edit={{ draft: EDITED_REPORT_MARKDOWN }} />,
+}
+
+function conflictMocks(): ReturnType<typeof taskMocks> {
+    const mocks = taskMocks(ARTIFACTS)
+    return {
+        get: {
+            ...mocks.get,
+            [`/api/projects/:team_id/tasks/${TASK_ID}/runs/${RUN_ID}/`]: () => [
+                200,
+                mockRun(newerReportArrived ? [REPORT_NEWER_VERSION, ...ARTIFACTS] : ARTIFACTS),
+            ],
+        },
+        post: mocks.post,
+    }
+}
+
+export const SaveConflict: Story = {
+    parameters: { msw: { mocks: conflictMocks() } },
+    beforeEach: () => {
+        newerReportArrived = false
+    },
+    render: () => <StoryPage fileName={REPORT_FILE_NAME} edit={{ draft: EDITED_REPORT_MARKDOWN, save: true }} />,
+}
+
 export const ResumedTask: Story = {
     parameters: { msw: { mocks: taskMocks(ARTIFACTS, { resumed: true }) } },
     render: () => <StoryPage fileName={REPORT_FILE_NAME} />,
+}
+
+const REVIEWER = {
+    id: 2,
+    uuid: 'user-uuid-2',
+    distinct_id: 'user-2',
+    first_name: 'Jamie',
+    last_name: 'Rivera',
+    email: 'jamie@example.com',
+}
+const ANALYST = {
+    id: 3,
+    uuid: 'user-uuid-3',
+    distinct_id: 'user-3',
+    first_name: 'Priya',
+    last_name: 'Shah',
+    email: 'priya@example.com',
+}
+
+function artifactComment(
+    id: string,
+    itemId: string,
+    createdBy: typeof REVIEWER,
+    content: string,
+    createdAt: string,
+    itemContext: Record<string, unknown>,
+    sourceComment: string | null = null
+): Record<string, unknown> {
+    return {
+        id,
+        created_by: createdBy,
+        completed_by: null,
+        slack_thread: null,
+        version: 0,
+        scope: 'task_artifact',
+        item_id: itemId,
+        item_context: { taskId: TASK_ID, ...itemContext },
+        content,
+        created_at: createdAt,
+        completed_at: null,
+        source_comment: sourceComment,
+        deleted: false,
+    }
+}
+
+// The stored offsets are made up, so the highlight has to find its quote by text, as a Desktop comment does.
+const QUOTE = 'The start trial button now sits below the fold'
+const ARTIFACT_COMMENTS = [
+    artifactComment(
+        'comment-quote',
+        'artifact-report',
+        REVIEWER,
+        'Which screen sizes did you check?',
+        '2026-09-28T18:22:00Z',
+        {
+            anchor: { kind: 'text', quote: QUOTE, prefix: '', suffix: '', start: 0, end: QUOTE.length },
+        }
+    ),
+    artifactComment(
+        'comment-quote-reply',
+        'artifact-report',
+        ANALYST,
+        'Every laptop size in the funnel. 1366 × 768 has the most people.',
+        '2026-09-28T18:24:00Z',
+        {},
+        'comment-quote'
+    ),
+    artifactComment(
+        'comment-document',
+        'artifact-report',
+        ANALYST,
+        'Can we share this with the growth team on Monday?',
+        '2026-09-28T18:25:00Z',
+        {
+            anchor: { kind: 'document' },
+        }
+    ),
+    artifactComment(
+        'comment-resolved',
+        'artifact-report',
+        REVIEWER,
+        'Add the week of Sep 7 to the table.',
+        '2026-09-28T18:20:00Z',
+        { anchor: { kind: 'document' } }
+    ),
+    artifactComment(
+        'comment-resolved-state',
+        'artifact-report',
+        ANALYST,
+        'Resolved this thread',
+        '2026-09-28T18:21:00Z',
+        { anchor: { kind: 'document' }, threadState: 'resolved' },
+        'comment-resolved'
+    ),
+    artifactComment(
+        'comment-pin-1',
+        'artifact-chart',
+        REVIEWER,
+        'This bar looks too tall next to the others.',
+        '2026-09-28T18:23:00Z',
+        {
+            anchor: { kind: 'region', x: 0.21, y: 0.2, width: 0.035, height: 0.035 },
+        }
+    ),
+    artifactComment(
+        'comment-pin-2',
+        'artifact-chart',
+        ANALYST,
+        'Label the drop here so people see it at once.',
+        '2026-09-28T18:26:00Z',
+        {
+            anchor: { kind: 'region', x: 0.44, y: 0.56, width: 0.035, height: 0.035 },
+        }
+    ),
+]
+
+function commentMocks(): ReturnType<typeof taskMocks> {
+    const mocks = taskMocks(ARTIFACTS)
+    // New comments are kept for the story's lifetime, so a comment made in the story shows in the list.
+    const comments = [...ARTIFACT_COMMENTS]
+    return {
+        get: {
+            ...mocks.get,
+            '/api/projects/:team_id/comments/': ({ request }: { request: Request }) => {
+                const itemId = new URL(request.url).searchParams.get('item_id')
+                return [200, { results: comments.filter((comment) => comment.item_id === itemId), next: null }]
+            },
+        },
+        post: {
+            ...mocks.post,
+            '/api/projects/:team_id/comments/': async ({ request }: { request: Request }) => {
+                const body = (await request.json()) as Record<string, unknown>
+                const saved = {
+                    ...artifactComment(
+                        `comment-new-${comments.length}`,
+                        String(body.item_id),
+                        REVIEWER,
+                        String(body.content),
+                        '2026-09-28T18:30:00Z',
+                        {}
+                    ),
+                    ...body,
+                }
+                comments.push(saved)
+                return [201, saved]
+            },
+        },
+    }
+}
+
+export const MarkdownComments: Story = {
+    parameters: { msw: { mocks: commentMocks() } },
+    render: () => <StoryPage fileName={REPORT_FILE_NAME} commentsOpen />,
+}
+
+export const ImageCommentPins: Story = {
+    parameters: { msw: { mocks: commentMocks() } },
+    render: () => <StoryPage fileName="trial-starts-by-step.svg" commentsOpen />,
+}
+
+export const MarkdownCommentThread: Story = {
+    parameters: { msw: { mocks: commentMocks() } },
+    render: () => <StoryPage fileName={REPORT_FILE_NAME} />,
+    play: async ({ canvasElement }) => {
+        const highlight = await waitFor(
+            () => {
+                const element = canvasElement.querySelector<HTMLElement>(
+                    '[data-attr="task-artifact-comment-highlight"]'
+                )
+                expect(element).not.toBeNull()
+                return element!
+            },
+            { timeout: 10_000 }
+        )
+        await userEvent.click(highlight)
+    },
+}
+
+export const ImageCommentThread: Story = {
+    parameters: { msw: { mocks: commentMocks() } },
+    render: () => <StoryPage fileName="trial-starts-by-step.svg" />,
+    play: async ({ canvasElement }) => {
+        const pin = await waitFor(
+            () => {
+                const element = canvasElement.querySelector<HTMLElement>(
+                    '[data-attr="task-artifact-comment-pin-marker"]'
+                )
+                expect(element).not.toBeNull()
+                return element!
+            },
+            { timeout: 10_000 }
+        )
+        await userEvent.click(pin)
+    },
 }

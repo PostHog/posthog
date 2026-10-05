@@ -41,6 +41,7 @@
         :disabled,
         [aria-disabled='true'],
         .quill-button--variant-primary,
+        .quill-button--elevated,
         .quill-tabs__trigger,
         .quill-toggle
     ):active {
@@ -428,6 +429,81 @@
     .quill-button--size-icon-lg svg:not([class*='size-']) {
         width: 1rem;
         height: 1rem;
+    }
+
+    /* =========================================================================
+       Elevated — heavy edge + solid bottom ledge for strong CTAs.
+       Two looks only: `primary` (brand fill) and neutral (card fill, any other
+       variant). `--quill-button-edge` colors both the border and the ledge.
+       ========================================================================= */
+    .quill-button--elevated {
+        --quill-button-edge: color-mix(in oklab, var(--foreground) 72%, var(--background));
+        --quill-button-ledge: 2px;
+
+        position: relative;
+        font-weight: 600;
+        background-color: var(--card);
+        border: 1.5px solid var(--quill-button-edge);
+        border-radius: var(--radius-sm);
+        box-shadow: 0 var(--quill-button-ledge) 0 0 var(--quill-button-edge);
+        transition:
+            translate 80ms ease-out,
+            box-shadow 80ms ease-out,
+            background-color 80ms ease-out;
+        translate: 0 0;
+    }
+
+    /* The ledge sits outside the border box; extend the hit area over it so
+       clicking the ledge still presses the button. */
+    .quill-button--elevated::after {
+        position: absolute;
+        inset: 0 0 calc(var(--quill-button-ledge) * -1 - 1.5px);
+        width: auto;
+        height: auto;
+        content: '';
+    }
+
+    .quill-button--elevated:not(:disabled, [aria-disabled='true']):hover {
+        background-color: color-mix(in oklab, var(--card) 94%, var(--foreground));
+    }
+
+    .quill-button--elevated:not(:disabled, [aria-disabled='true']):active {
+        box-shadow: 0 1px 0 0 var(--quill-button-edge);
+        translate: 0 calc(var(--quill-button-ledge) - 1px);
+    }
+
+    .quill-button--elevated:focus-visible {
+        border-color: var(--quill-button-edge);
+        box-shadow:
+            0 var(--quill-button-ledge) 0 0 var(--quill-button-edge),
+            0 calc(var(--quill-button-ledge) + 2px) 0 2px color-mix(in oklab, var(--ring) 30%, transparent),
+            0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    :is(.dark, [theme='dark']) .quill-button--elevated {
+        --quill-button-edge: color-mix(in oklab, var(--foreground) 45%, var(--background));
+    }
+
+    .quill-button--elevated.quill-button--variant-primary {
+        --quill-button-edge: color-mix(in oklab, var(--primary) 62%, black);
+
+        background-color: var(--primary);
+    }
+
+    .quill-button--elevated.quill-button--variant-primary:not(:disabled, [aria-disabled='true']):hover {
+        background-color: color-mix(in oklab, var(--primary) 92%, white);
+    }
+
+    :is(.dark, [theme='dark']) .quill-button--elevated.quill-button--variant-primary {
+        --quill-button-edge: color-mix(in oklab, var(--primary) 55%, black);
+    }
+
+    /* Disabled keeps its ledge and only dims, unlike flat primary: an elevated CTA holds its
+       shape while it waits for input, such as a composer's send button before anything is typed. */
+    .quill-button--elevated:disabled,
+    .quill-button--elevated[aria-disabled='true']:not([data-loading]) {
+        box-shadow: 0 var(--quill-button-ledge) 0 0 var(--quill-button-edge);
+        translate: 0 0;
     }
 
     /* =========================================================================
