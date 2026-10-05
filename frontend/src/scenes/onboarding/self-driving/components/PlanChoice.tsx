@@ -36,6 +36,9 @@ export function PlanChoice({
     // activate call, `paymentEntryModalOpen` covers a new customer once the Stripe modal is up.
     const { isLoading, paymentEntryModalOpen } = useValues(paymentEntryLogic)
     const subscribing = isLoading || paymentEntryModalOpen
+    // A free pick navigates away only after the team write lands, so block the paid button meanwhile.
+    // Otherwise a second click in that window opens the payment modal on top of the free pick.
+    const subscribeDisabledReason = subscribing ? 'Opening payment…' : completing ? 'Starting your free plan…' : null
 
     const included = freePrs(inboxProduct)
     const perPrUsd = pricePerPrUsd(inboxProduct)
@@ -103,7 +106,7 @@ export function PlanChoice({
                         fullWidth
                         center
                         loading={subscribing}
-                        disabledReason={subscribing ? 'Opening payment…' : undefined}
+                        disabledReason={subscribeDisabledReason}
                         disableClientSideRouting
                         onClick={subscribe}
                         data-attr="self-driving-onboarding-subscribe"
