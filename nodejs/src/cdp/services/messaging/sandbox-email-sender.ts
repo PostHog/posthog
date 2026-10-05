@@ -17,8 +17,8 @@ export interface SandboxEmailSenderConfig {
     tenantName: string
     configurationSetName: string
     fromAddress: string
-    dailyTeamCap: number
-    dailyRecipientCap: number
+    dailyTeamCap: string
+    dailyRecipientCap: string
 }
 
 export type SandboxDailyCapClaim =
@@ -39,8 +39,9 @@ function dailyBucket(key: string, requested: number, capacity: number): ClaimReq
     return { key, requested, capacity, refillPerSecond: capacity / SECONDS_PER_DAY, ttlSeconds: DAILY_CAP_TTL_SECONDS }
 }
 
-function isPositiveInteger(value: number): boolean {
-    return Number.isInteger(value) && value > 0
+function parseDailyCap(value: string): number | null {
+    const cap = /^\d+$/.test(value) ? Number(value) : null
+    return cap !== null && Number.isSafeInteger(cap) && cap > 0 ? cap : null
 }
 
 // One `{teamId}` hash tag keeps every bucket of a claim in one Valkey cluster slot.
@@ -134,8 +135,9 @@ export class SandboxEmailSender {
     ) {}
 
     public async claimDailyCaps(teamId: number, recipients: string[]): Promise<SandboxDailyCapClaim> {
-        const { dailyTeamCap, dailyRecipientCap } = this.config
-        if (!this.dailyCapLimiter || !isPositiveInteger(dailyTeamCap) || !isPositiveInteger(dailyRecipientCap)) {
+        const dailyTeamCap = parseDailyCap(this.config.dailyTeamCap)
+        const dailyRecipientCap = parseDailyCap(this.config.dailyRecipientCap)
+        if (!this.dailyCapLimiter || dailyTeamCap === null || dailyRecipientCap === null) {
             logger.error('Sandbox email daily caps are not configured correctly', { teamId })
             return { type: 'check_failed' }
         }

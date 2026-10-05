@@ -412,7 +412,7 @@ const SANDBOX_ADDRESS_BLOCK_COPY: Record<
 
 const SANDBOX_CAP_SKIP_MESSAGES = {
     project_cap_reached:
-        "Skipping send: this project reached the sandbox sender's daily limit. Verify your own domain to send more.",
+        "Skipping send: this email would go over the sandbox sender's daily limit for this project. Verify your own domain to send more.",
     check_failed:
         "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more.",
 } as const
@@ -750,9 +750,6 @@ export class EmailService {
                         from.name,
                         invocation.teamId
                     )
-                    if (!(await this.claimSandboxDailyCaps(result, sandboxRecipients!, isTest))) {
-                        return result
-                    }
                     if (
                         !(await this.sendEmailWithSES(
                             result,
@@ -1426,15 +1423,14 @@ export class EmailService {
             sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
-        if (
-            integration.config.provider === 'sandbox' &&
-            !(await this.checkSandboxRecipients(
-                result,
-                [params.to.email, ...(ccAddresses ?? []), ...(bccAddresses ?? [])],
-                isTest
-            ))
-        ) {
-            return false
+        if (integration.config.provider === 'sandbox') {
+            const sandboxRecipients = [params.to.email, ...(ccAddresses ?? []), ...(bccAddresses ?? [])]
+            if (!(await this.checkSandboxRecipients(result, sandboxRecipients, isTest))) {
+                return false
+            }
+            if (!(await this.claimSandboxDailyCaps(result, sandboxRecipients, isTest))) {
+                return false
+            }
         }
         try {
             const response = await this.sesV2Client.send(new SendEmailCommand(sendEmailParams))
