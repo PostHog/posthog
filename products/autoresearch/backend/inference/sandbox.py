@@ -42,6 +42,7 @@ import math
 import base64
 import binascii
 from dataclasses import field
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
@@ -75,7 +76,14 @@ from products.autoresearch.backend.dataset.labeling import (
     rolling_selection,
 )
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
-from products.autoresearch.backend.query import INTERACTIVE_QUERY, QueryContext, run_hogql
+from products.autoresearch.backend.query import (
+    BATCH_QUERY,
+    INTERACTIVE_QUERY,
+    QueryContext,
+    QueryCost,
+    measure_queries,
+    run_hogql,
+)
 from products.autoresearch.backend.training.artifacts import (
     MAX_ARTIFACT_BYTES,
     ArtifactBundle,
@@ -312,6 +320,33 @@ def score_via_sandbox(
         n_features=len(feature_cols),
         rows_eligible=score_data.eligible,
     )
+
+
+def check_scorability(
+    *, team: Team, pipeline: AutoresearchPipeline, feature_sql: str, user: User | None = None
+) -> QueryCost:
+    """
+    Run ``feature_sql`` against today's inference anchors under the limits a scoring run has,
+    and return what the queries cost. It runs the anchor count and the feature query the
+    scoring cadence runs, but no sandbox, so a champion whose SQL cannot score is found right
+    after its fit and not on every cadence after it.
+
+    Raises SandboxInferenceError when either query fails or the rows do not key the anchors.
+    """
+    acting_user = _resolve_acting_user(team=team, pipeline=pipeline, user=user)
+    today = django_timezone.now().date()
+    cutoff_ts = int(datetime(today.year, today.month, today.day, tzinfo=UTC).timestamp())
+    _, cost = measure_queries(
+        lambda: _materialize_score_data(
+            team=team,
+            pipeline=pipeline,
+            feature_sql=feature_sql,
+            cutoff_ts=cutoff_ts,
+            user=acting_user,
+            query_context=BATCH_QUERY,
+        )
+    )
+    return cost
 
 
 # ── Guards on the bundle and the acting user ──────────────────────────────────────
