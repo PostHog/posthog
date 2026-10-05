@@ -62,13 +62,7 @@ export function InternalFeedbackPopover(): JSX.Element | null {
         >
             <CardHeader>
                 <CardTitle>Send feedback to devs</CardTitle>
-                {target.identifier ? (
-                    <CardDescription className="font-mono truncate" title={target.identifier}>
-                        {target.identifier}
-                    </CardDescription>
-                ) : (
-                    <CardDescription>About this whole page</CardDescription>
-                )}
+                {!target.element && <CardDescription>About this whole page</CardDescription>}
             </CardHeader>
             <CardContent>
                 <Field>
