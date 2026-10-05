@@ -66,7 +66,10 @@ class PropertyDefinition(Taggable, UUIDTModel):
         related_query_name="team",
         db_index=False,
     )
-    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, related_name="+")
+    # No automatic index: the named Meta index on `project` covers project_id.
+    project = models.ForeignKey(
+        "posthog.Project", on_delete=models.CASCADE, null=True, related_name="+", db_index=False
+    )
     name = models.CharField(max_length=400)
     is_numerical = models.BooleanField(
         default=False
