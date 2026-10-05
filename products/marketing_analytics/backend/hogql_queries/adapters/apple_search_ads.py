@@ -62,8 +62,9 @@ class AppleSearchAdsAdapter(MarketingSourceAdapter[HierarchicalNativeAdsConfig])
     def _get_cost_field(self) -> ast.Expr:
         table = self._level_tables().stats_table
         # Apple stores spend as a JSON money object in account currency, including under API v1.
+        # Zero-delivery days have no spend object, and a Nullable currency makes convertCurrency divide by zero.
         return parse_expr(
-            "sum(toFloat(convertCurrency({spend}.currency, {currency}, "
+            "sum(toFloat(convertCurrency(coalesce(nullIf({spend}.currency, ''), {currency}), {currency}, "
             "coalesce(toFloat({spend}.amount), 0), coalesce(toDate({date}), today()))))",
             placeholders={
                 "spend": ast.Field(chain=[table.name, "local_spend"]),
