@@ -618,7 +618,7 @@ def web_ensure_precomputed(
     family = kwargs.pop("family", None)
     modifiers = create_default_modifiers_for_team(team, kwargs.get("modifiers"))
     if runner is not None:
-        # Pin the runner's decision so a flag refresh cannot change INSERT semantics after hashing.
+        # Use the runner's value, which can carry a per-query override, so the INSERT and the job hash match the read.
         modifiers.cookielessTrafficIsRegular = runner.modifiers.cookielessTrafficIsRegular
     kwargs["modifiers"] = modifiers
     if modifiers.cookielessTrafficIsRegular:

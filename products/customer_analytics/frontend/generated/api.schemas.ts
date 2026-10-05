@@ -567,6 +567,138 @@ export interface PaginatedAccountTrackRuleRunViewListApi {
 }
 
 /**
+ * * `private` - Personal
+ * * `team` - Team
+ */
+export type AccountViewVisibilityEnumApi =
+    (typeof AccountViewVisibilityEnumApi)[keyof typeof AccountViewVisibilityEnumApi]
+
+export const AccountViewVisibilityEnumApi = {
+    Private: 'private',
+    Team: 'team',
+} as const
+
+/**
+ * * `doc` - doc
+ */
+export type AccountViewContentTypeEnumApi =
+    (typeof AccountViewContentTypeEnumApi)[keyof typeof AccountViewContentTypeEnumApi]
+
+export const AccountViewContentTypeEnumApi = {
+    Doc: 'doc',
+} as const
+
+/**
+ * * `ph-markdown-notebook` - ph-markdown-notebook
+ */
+export type AccountViewMarkdownNodeTypeEnumApi =
+    (typeof AccountViewMarkdownNodeTypeEnumApi)[keyof typeof AccountViewMarkdownNodeTypeEnumApi]
+
+export const AccountViewMarkdownNodeTypeEnumApi = {
+    PhMarkdownNotebook: 'ph-markdown-notebook',
+} as const
+
+export interface AccountViewMarkdownAttributesApi {
+    /** Stable identifier for this document. */
+    nodeId: string
+    /**
+     * Component-only Markdown stored by the account view editor.
+     * @maxLength 262144
+     */
+    markdown: string
+}
+
+export interface AccountViewMarkdownNodeApi {
+    /** Markdown notebook node type.
+     *
+     * * `ph-markdown-notebook` - ph-markdown-notebook */
+    type: AccountViewMarkdownNodeTypeEnumApi
+    /** Markdown notebook attributes. */
+    attrs: AccountViewMarkdownAttributesApi
+}
+
+export interface AccountViewContentApi {
+    /** Document root type.
+     *
+     * * `doc` - doc */
+    type: AccountViewContentTypeEnumApi
+    /**
+     * The single Markdown notebook node containing the account view components.
+     * @minItems 1
+     * @maxItems 1
+     */
+    content: AccountViewMarkdownNodeApi[]
+}
+
+export interface AccountViewApi {
+    /** Stable account view identifier. */
+    readonly id: string
+    /** Name shown in the account view. */
+    readonly name: string
+    /** Whether the view is personal or available to the project.
+     *
+     * * `private` - Personal
+     * * `team` - Team */
+    readonly visibility: AccountViewVisibilityEnumApi
+    /** Validated Markdown notebook document. */
+    readonly content: AccountViewContentApi
+    /** Searchable component labels extracted from content. */
+    readonly text_content: string
+    /** Optimistic concurrency version. */
+    readonly version: number
+    /**
+     * Creator user ID.
+     * @nullable
+     */
+    readonly created_by: number | null
+    /**
+     * User ID that last changed the view.
+     * @nullable
+     */
+    readonly last_modified_by: number | null
+    /** When the view was created. */
+    readonly created_at: string
+    /** When the view was last changed. */
+    readonly updated_at: string
+    /** Whether the requesting user can edit the view. */
+    readonly can_edit: boolean
+    /** Whether the requesting user can delete the view. */
+    readonly can_delete: boolean
+    /** Whether the requesting user can change the view visibility. */
+    readonly can_change_visibility: boolean
+}
+
+export interface AccountViewCreateApi {
+    /**
+     * View name.
+     * @maxLength 400
+     */
+    name: string
+    /** Initial account view components. */
+    content: AccountViewContentApi
+}
+
+export interface AccountViewUpdateApi {
+    /**
+     * New view name. Omit to keep the current name.
+     * @maxLength 400
+     */
+    name?: string
+    /** Replacement account view components. Omit to keep current content. */
+    content?: AccountViewContentApi
+    /** New visibility. Only the creator or a project admin can change it.
+     *
+     * * `private` - Personal
+     * * `team` - Team */
+    visibility?: AccountViewVisibilityEnumApi
+    /**
+     * Version returned by the last read.
+     * @minimum 1
+     */
+    version: number
+}
+
+/**
  * * `daily` - daily
  * * `weekly` - weekly
  * * `monthly` - monthly
@@ -1268,55 +1400,6 @@ export interface AccountsTableCustomPropertyHistoryColumnApi {
     windowDays: WindowDaysApi
 }
 
-export interface AccountsTableSearchFilterApi {
-    kind?: 'search'
-    query: string
-}
-
-export interface AccountsTableTagsFilterApi {
-    kind?: 'tags'
-    /** Match accounts carrying any of these tag names. */
-    tagNames: string[]
-}
-
-export interface AccountsTableAssignedToFilterApi {
-    kind?: 'assigned_to'
-    /** Match accounts where any listed user actively holds any relationship. */
-    userIds: number[]
-}
-
-export const AccountsTableAssignedFilterApiValue = {
-    kind: 'assigned',
-} as const
-export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
-
-export const AccountsTableUnassignedFilterApiValue = {
-    kind: 'unassigned',
-} as const
-export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
-
-export type AccountsTableRelationshipOperatorApi =
-    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
-
-export const AccountsTableRelationshipOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-} as const
-
-export interface AccountsTableRelationshipFilterApi {
-    definitionId: string
-    kind?: 'relationship'
-    operator: AccountsTableRelationshipOperatorApi
-    userIds?: number[] | null
-}
-
-export interface AccountsTableAccountIdFilterApi {
-    accountId: string
-    kind?: 'account_id'
-}
-
 export type AccountsTableAccountFieldOperatorApi =
     (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
 
@@ -1337,6 +1420,23 @@ export interface AccountsTableAccountFieldFilterApi {
     kind?: 'account_field'
     operator: AccountsTableAccountFieldOperatorApi
     values?: string[] | null
+}
+
+export type AccountsTableRelationshipOperatorApi =
+    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
+
+export const AccountsTableRelationshipOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface AccountsTableRelationshipFilterApi {
+    definitionId: string
+    kind?: 'relationship'
+    operator: AccountsTableRelationshipOperatorApi
+    userIds?: number[] | null
 }
 
 export type AccountsTableCustomPropertyOperatorApi =
@@ -1366,6 +1466,38 @@ export interface AccountsTableCustomPropertyFilterApi {
     operator: AccountsTableCustomPropertyOperatorApi
     /** Values interpreted according to the custom property definition's display type. */
     values?: (string | number | boolean)[] | null
+}
+
+export interface AccountsTableSearchFilterApi {
+    kind?: 'search'
+    query: string
+}
+
+export interface AccountsTableTagsFilterApi {
+    kind?: 'tags'
+    /** Match accounts carrying any of these tag names. */
+    tagNames: string[]
+}
+
+export interface AccountsTableAssignedToFilterApi {
+    kind?: 'assigned_to'
+    /** Match accounts where any listed user actively holds any relationship. */
+    userIds: number[]
+}
+
+export const AccountsTableAssignedFilterApiValue = {
+    kind: 'assigned',
+} as const
+export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
+
+export const AccountsTableUnassignedFilterApiValue = {
+    kind: 'unassigned',
+} as const
+export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
+
+export interface AccountsTableAccountIdFilterApi {
+    accountId: string
+    kind?: 'account_id'
 }
 
 export const AccountsTableCountMetricApiValue = {
@@ -1635,6 +1767,8 @@ export interface HogQLQueryModifiersApi {
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    personIdPushdown?: boolean | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
     personsOnEventsMode?: PersonsOnEventsModeApi | null
@@ -1651,6 +1785,8 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
     usePreaggregatedTableTransforms?: boolean | null
@@ -1919,6 +2055,14 @@ export interface AccountsTableQueryApi {
         | AccountsTableCustomPropertyColumnApi
         | AccountsTableCustomPropertyHistoryColumnApi
     )[]
+    /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
+    filterGroups?:
+        | (
+              | AccountsTableAccountFieldFilterApi
+              | AccountsTableRelationshipFilterApi
+              | AccountsTableCustomPropertyFilterApi
+          )[][]
+        | null
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?:
         | (
@@ -2436,6 +2580,17 @@ export const AnnouncementStatusEnumApi = {
 } as const
 
 /**
+ * * `bot` - SupportHog
+ * * `user` - The person who created it
+ */
+export type AnnouncementSendAsEnumApi = (typeof AnnouncementSendAsEnumApi)[keyof typeof AnnouncementSendAsEnumApi]
+
+export const AnnouncementSendAsEnumApi = {
+    Bot: 'bot',
+    User: 'user',
+} as const
+
+/**
  * * `pending` - Pending
  * * `sent` - Sent
  * * `failed` - Failed
@@ -2486,6 +2641,13 @@ export interface AnnouncementApi {
      * * `partially_failed` - Partially failed
      * * `failed` - Failed */
     readonly status: AnnouncementStatusEnumApi
+    /** Slack identity the message is posted under: 'bot' posts as SupportHog, 'user' posts under the Slack name and avatar of the person sending it (matched by their PostHog email).
+     *
+     * * `bot` - SupportHog
+     * * `user` - The person who created it */
+    send_as?: AnnouncementSendAsEnumApi
+    /** Slack display name the message was posted under when send_as is 'user'; empty otherwise. */
+    readonly sender_display_name: string
     /** Number of channels this announcement targets. */
     readonly total_channels: number
     /** Number of channels the message was successfully delivered to. */
@@ -4396,10 +4558,10 @@ export interface PatchedGroupUsageMetricApi {
  * * `custom_property` - Custom property
  * * `relationship` - Relationship
  */
-export type PinnedAccountPropertyKindEnumApi =
-    (typeof PinnedAccountPropertyKindEnumApi)[keyof typeof PinnedAccountPropertyKindEnumApi]
+export type AccountPropertyPinKindEnumApi =
+    (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
 
-export const PinnedAccountPropertyKindEnumApi = {
+export const AccountPropertyPinKindEnumApi = {
     CustomProperty: 'custom_property',
     Relationship: 'relationship',
 } as const
@@ -4409,7 +4571,7 @@ export interface PinnedAccountPropertyApi {
      *
      * * `custom_property` - Custom property
      * * `relationship` - Relationship */
-    kind: PinnedAccountPropertyKindEnumApi
+    kind: AccountPropertyPinKindEnumApi
     /** Team-scoped custom property or relationship definition UUID. */
     id: string
 }
@@ -4437,11 +4599,25 @@ export interface TaskDigestPreferencesApi {
     cadence: TaskDigestCadenceEnumApi
 }
 
+export interface AccountDetailTabsConfigApi {
+    /** Tab identifiers in the user's preferred order. */
+    ordered_tab_ids: string[]
+    /** Tab identifiers hidden from the tab strip. */
+    hidden_tab_ids: string[]
+    /**
+     * Tab identifier opened by default. Null uses the first available system tab.
+     * @nullable
+     */
+    default_tab_id: string | null
+}
+
 export interface UserCustomerAnalyticsConfigApi {
     /** Account properties pinned in sidebar display order. */
     readonly pinned_properties: readonly PinnedAccountPropertyApi[]
     /** Task digest email preferences. Disabled until the user turns the digest on. */
     readonly task_digest: TaskDigestPreferencesApi
+    /** Personal order, visibility, and default for account tabs. */
+    readonly account_detail_tabs: AccountDetailTabsConfigApi
 }
 
 export interface TaskDigestPreferencesUpdateApi {
@@ -4461,6 +4637,8 @@ export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     pinned_properties?: PinnedAccountPropertyApi[]
     /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
     task_digest?: TaskDigestPreferencesUpdateApi
+    /** Complete personal account tab configuration. Omit to keep it unchanged. */
+    account_detail_tabs?: AccountDetailTabsConfigApi
 }
 
 export type CustomerAnalyticsExternalAccountRetrieveParams = {
@@ -4547,6 +4725,13 @@ export type AccountTrackRulesRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AccountViewsDestroyParams = {
+    /**
+     * Version returned by the last read.
+     */
+    version: number
 }
 
 export type AccountsListParams = {

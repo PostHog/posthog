@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
 
-import { RunLogSkeleton } from 'products/posthog_ai/frontend/api/primitives'
-
+import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
+import { QuillTaskNotRunEmpty } from './QuillTaskNotRunEmpty'
 import { TaskErrorBanner } from './TaskErrorBanner'
 import { TaskRunChat } from './TaskRunChat'
+import { TaskRunLoadingSkeleton } from './TaskRunLoadingSkeleton'
 
 /**
  * Run-log slot state machine. Reads `taskDetailSceneLogic` directly (no prop drilling) and resolves to
@@ -38,9 +39,11 @@ export function TaskRunLog({
         selectedRunError,
         selectedRunNotFound,
         isRunPending,
+        isTaskPending,
         runContinuation,
     } = useValues(logic)
     const { loadTaskRuns, loadSelectedTaskRun, clearContinuationDraft } = useActions(logic)
+    const skin = useThreadSkin()
 
     if (runContinuation && selectedRunId === runContinuation.run.id) {
         return (
@@ -97,10 +100,13 @@ export function TaskRunLog({
     if (selectedRunNotFound) {
         return <NotFound object="task run" className="m-0 py-8" />
     }
-    if (isRunPending) {
-        return <RunLogSkeleton />
+    if (isRunPending || isTaskPending) {
+        return <TaskRunLoadingSkeleton />
     }
     if (runs.length === 0 && !selectedRunId) {
+        if (skin === 'quill') {
+            return <QuillTaskNotRunEmpty taskId={taskId} />
+        }
         return (
             <div className="text-center py-16">
                 <p className="text-muted">This task hasn't been run yet</p>
@@ -116,5 +122,5 @@ export function TaskRunLog({
             </div>
         )
     }
-    return selectedRunId ? <RunLogSkeleton /> : null
+    return selectedRunId ? <TaskRunLoadingSkeleton /> : null
 }

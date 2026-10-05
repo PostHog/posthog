@@ -515,6 +515,7 @@ jobs:
                       selfDriving:
                         - 'products/signals/backend/**'
                         - 'products/signals/skills/**'
+                        - 'products/autoresearch/backend/**'
                         - 'posthog/settings/temporal.py'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
@@ -613,6 +614,7 @@ jobs:
                       # this replaces matched as one prefix.
                       dataWarehouse:
                         - 'posthog/hogql*/**'
+                        - 'products/warehouse_sources_queue/**'
                         - 'posthog/temporal/data_modeling/**'
                         - 'products/customer_analytics/backend/**'
                         - 'products/warehouse_sources/backend/temporal/data_imports/**'
@@ -625,6 +627,7 @@ jobs:
 
                       warehouseSourcesLoad:
                         - 'products/warehouse_sources/backend/**'
+                        - 'products/warehouse_sources_queue/**'
                         - 'posthog/warehouse/**'
                         - 'products/data_warehouse/backend/**'
                         - pyproject.toml

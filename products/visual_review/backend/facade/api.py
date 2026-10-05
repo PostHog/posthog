@@ -41,6 +41,7 @@ from ..logic import (
     history,
     owners,
     quarantine,
+    quarantine_lifts,
     repos,
     run_queries,
     runs,
@@ -49,7 +50,7 @@ from ..logic import (
     toleration,
 )
 from . import contracts
-from .enums import ActorType, RunPurpose, ShiftBandKind
+from .enums import ActorType, QuarantineLiftState, RunPurpose, ShiftBandKind
 
 User = get_user_model()
 
@@ -88,9 +89,11 @@ def _sanitize_run_metadata(metadata: dict | None) -> dict:
 # Re-export exceptions for callers
 RepoNotFoundError = errors.RepoNotFoundError
 RunNotFoundError = errors.RunNotFoundError
+QuarantineLiftRequestNotFoundError = errors.QuarantineLiftRequestNotFoundError
 ArtifactNotFoundError = errors.ArtifactNotFoundError
 GitHubIntegrationNotFoundError = errors.GitHubIntegrationNotFoundError
 GitHubCommitError = errors.GitHubCommitError
+LiftCommitUnknownError = errors.LiftCommitUnknownError
 GitHubRateLimitError = GitHubRateLimitError
 PRSHAMismatchError = errors.PRSHAMismatchError
 StaleRunError = errors.StaleRunError
@@ -248,6 +251,7 @@ def _to_run(
         error_message=run.error_message or None,
         created_at=run.created_at,
         completed_at=run.completed_at,
+        purpose=run.purpose,
         is_stale=run_queries.is_run_stale(run),
         superseded_by_id=run.superseded_by_id,
         approved_by=approved_by,
@@ -607,32 +611,44 @@ def get_run_scope(run_id: UUID, team_id: int) -> contracts.RunScope:
 
 
 def get_run_snapshots(
-    run_id: UUID, team_id: int | None = None, include_quarantined: bool = True
+    run_id: UUID,
+    team_id: int | None = None,
+    include_quarantined: bool = True,
+    exclude_unchanged: bool = False,
+    snapshot_id: UUID | None = None,
+    quarantined_only: bool = False,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> contracts.RunSnapshots:
-    if not include_quarantined and team_id is None:
-        raise ValueError("team_id is required to exclude quarantined snapshots")
-    snapshots = run_queries.get_run_snapshots(run_id, team_id=team_id)
-    if not snapshots:
-        return contracts.RunSnapshots(snapshots=[], quarantined_count=0)
-    repo_id = snapshots[0].run.repo_id
-    run_type = snapshots[0].run.run_type
-    quarantined_identifiers = (
-        {q.identifier for q in quarantine.list_quarantined_identifiers(repo_id, team_id, run_type=run_type)}
-        if team_id is not None
-        else set()
-    )
-    user_ids = {s.reviewed_by_id for s in snapshots if s.reviewed_by_id}
-    user_basic_infos = _fetch_user_basic_infos(user_ids)
-    dtos: list[contracts.Snapshot] = []
+    """One page of a run's snapshots. `limit=None` returns every match from `offset` on.
+
+    Filtering and paging stay in SQL, and only the page becomes DTOs, because each DTO
+    signs a download URL per artifact and a large run holds thousands of rows.
+    `quarantined_only` keeps only the quarantined snapshots and overrides `include_quarantined`.
+    """
+    if (quarantined_only or not include_quarantined) and team_id is None:
+        raise ValueError("team_id is required to filter snapshots by quarantine")
+    run = run_queries.get_run(run_id, team_id=team_id)
+    snapshots = run_queries.run_snapshots(run, exclude_unchanged=exclude_unchanged, snapshot_id=snapshot_id)
+
     quarantined_count = 0
-    for s in snapshots:
-        dto = _to_snapshot(s, repo_id, user_basic_infos)
-        if dto.identifier in quarantined_identifiers:
-            quarantined_count += 1
-            if not include_quarantined:
-                continue
-        dtos.append(dto)
-    return contracts.RunSnapshots(snapshots=dtos, quarantined_count=quarantined_count)
+    if team_id is not None:
+        quarantined = quarantine.active_quarantined_identifiers(run.repo_id, team_id, run.run_type, using=snapshots.db)
+        quarantined_count = snapshots.filter(identifier__in=quarantined).count()
+        if quarantined_only:
+            snapshots = snapshots.filter(identifier__in=quarantined)
+        elif not include_quarantined:
+            snapshots = snapshots.exclude(identifier__in=quarantined)
+
+    total_count = snapshots.count()
+    page = list(snapshots[offset : offset + limit if limit is not None else None])
+    user_ids = {s.reviewed_by_id for s in page if s.reviewed_by_id}
+    user_basic_infos = _fetch_user_basic_infos(user_ids)
+    return contracts.RunSnapshots(
+        snapshots=[_to_snapshot(s, run.repo_id, user_basic_infos) for s in page],
+        quarantined_count=quarantined_count,
+        total_count=total_count,
+    )
 
 
 def _to_history_entry(entry, repo_id: UUID) -> contracts.SnapshotHistoryEntry:
@@ -687,14 +703,19 @@ def get_tolerated_hashes(repo_id: UUID, identifier: str) -> list[contracts.Toler
     ]
 
 
-def complete_run(run_id: UUID, team_id: int | None = None) -> contracts.Run:
+def complete_run(run_id: UUID, team_id: int | None = None, check_run_id: str | None = None) -> contracts.Run:
     """
     Complete a run: detect removals, verify uploads, trigger diff processing.
     """
     if team_id is not None:
         run_queries.get_run(run_id, team_id=team_id)  # validates ownership
     run = runs.complete_run(run_id)
-    return _to_run(run)
+    # After `complete_run`, whose baseline healing saves a whole metadata dict it may have read stale.
+    if check_run_id is not None:
+        runs.record_completing_job(run_id, check_run_id)
+    # A re-run of the completing CI job lands here on a completed run, and the CLI gates on this
+    # number, so it must be the commit status verdict and not the unprefetched default of 0.
+    return _to_run(run, unresolved=gating.count_gating(run))
 
 
 def recompute_run(run_id: UUID, team_id: int | None = None) -> contracts.RecomputeResult:
@@ -855,6 +876,7 @@ def quarantine_identifier(
         source=source,
         user_id=user_id,
         team_id=team_id,
+        notify_owners=input.notify_owners,
     )
     user_basic_infos = _fetch_user_basic_infos({user_id})
     return _to_quarantined_entry(entry, user_basic_infos)
@@ -866,3 +888,62 @@ def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_
 
 def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
     quarantine.expire_quarantine_entry(entry_id=entry_id, team_id=team_id)
+
+
+# --- Quarantine lift on merge ---
+
+
+def _to_quarantine_lift_entry(
+    request, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
+) -> contracts.QuarantineLiftEntry:
+    requested_by = (user_basic_infos or {}).get(request.requested_by_id) if request.requested_by_id else None
+    return contracts.QuarantineLiftEntry(
+        id=request.id,
+        quarantine_id=request.quarantine_id,
+        identifier=request.identifier,
+        run_type=request.run_type,
+        pr_number=request.pr_number,
+        expected_hash=request.expected_hash,
+        state=QuarantineLiftState(request.state),
+        detail=request.detail,
+        source=request.source,
+        created_at=request.created_at,
+        updated_at=request.updated_at,
+        resolved_at=request.resolved_at,
+        source_run_id=request.source_run_id,
+        requested_by=requested_by,
+        merge_commit_sha=request.merge_commit_sha,
+        lifted_at_sha=request.lifted_at_sha,
+    )
+
+
+def request_quarantine_lift_on_merge(
+    run_id: UUID,
+    input: contracts.LiftOnMergeInput,
+    user_id: int,
+    team_id: int,
+    source: ActorType = ActorType.HUMAN,
+) -> contracts.QuarantineLiftEntry:
+    """Lift a quarantined snapshot's quarantine once the run's pull request merges.
+
+    Raises RunNotFoundError for a missing run or snapshot, StaleRunError for a superseded run,
+    and ValueError with a reviewer-readable message for any other refusal.
+    """
+    request = quarantine_lifts.request_lift_on_merge(
+        run_id, input.identifier, team_id=team_id, user_id=user_id, source=source
+    )
+    return _to_quarantine_lift_entry(request, _fetch_user_basic_infos({user_id}))
+
+
+def list_quarantine_lifts_for_run(run_id: UUID, team_id: int) -> list[contracts.QuarantineLiftEntry]:
+    """Every lift request made for the run's pull request, newest first. Empty for a run without one."""
+    run = run_queries.get_run(run_id, team_id=team_id)
+    if run.pr_number is None:
+        return []
+    requests = quarantine_lifts.list_lift_requests_for_pr(run.repo_id, team_id, run.pr_number)
+    user_basic_infos = _fetch_user_basic_infos({r.requested_by_id for r in requests if r.requested_by_id})
+    return [_to_quarantine_lift_entry(r, user_basic_infos) for r in requests]
+
+
+def cancel_quarantine_lift(run_id: UUID, request_id: UUID, team_id: int) -> None:
+    quarantine_lifts.cancel_lift_request(request_id, team_id=team_id, run_id=run_id)

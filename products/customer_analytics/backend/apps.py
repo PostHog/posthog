@@ -7,6 +7,9 @@ class CustomerAnalyticsConfig(AppConfig):
     label = "customer_analytics"
 
     def ready(self) -> None:
+        # The receivers must connect in every process because account views can change outside web requests.
+        from products.customer_analytics.backend import activity_logging, signals  # noqa: F401, PLC0415
+
         self._register_person_property_hooks()
         self._register_account_property_hooks()
         self._register_workflows_account_audience()
