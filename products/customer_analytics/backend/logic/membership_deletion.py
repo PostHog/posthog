@@ -1,7 +1,8 @@
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import replace
 from functools import partial
 from hashlib import sha256
+from itertools import groupby
 
 from django.conf import settings
 
@@ -246,6 +247,10 @@ def removes_account_group_property(cluster: ClickhouseCluster, team_id: int, pro
 
 
 class MembershipReconciliation:
+    class _Query(_RedactedQuery):
+        def __repr__(self) -> str:
+            return Query.__repr__(replace(self, parameters=dict.fromkeys(self.parameters or {}, "[REDACTED]")))
+
     def __init__(self, cluster: ClickhouseCluster, operation_id: str) -> None:
         self.cluster = cluster
         digest = sha256(operation_id.encode()).hexdigest()[:32]
@@ -278,15 +283,70 @@ class MembershipReconciliation:
             placement.cluster.shard_role,
         ).result()
 
+    def _key_pages(self, table: str, team_id: object = None) -> Iterator[dict[str, object]]:
+        row_limit = int(QUERY_SETTINGS["max_rows_in_set"])
+        byte_limit = int(QUERY_SETTINGS["max_bytes_in_set"])
+        page_size = min(1000, row_limit) if row_limit else 1000
+        after: tuple | None = None
+        while True:
+            parameters: dict[str, object] = {"page_size": page_size}
+            filters = []
+            if team_id is not None:
+                filters.append("team_id = %(team_id)s")
+                parameters["team_id"] = team_id
+            if after is not None:
+                filters.append(f"({KEYS}) > %(membership_after)s")
+                parameters["membership_after"] = after
+            where = " WHERE " + " AND ".join(filters) if filters else ""
+            rows = self.cluster.any_host_by_role(
+                self._Query(
+                    f"SELECT {KEYS} FROM {_name(table)}{where} ORDER BY {KEYS} LIMIT %(page_size)s",
+                    parameters,
+                    settings=QUERY_SETTINGS,
+                ),
+                NodeRole.DATA,
+            ).result()
+            if not rows:
+                return
+            for (team, index), keys in groupby(rows, key=lambda row: row[:2]):
+                batch: list[tuple[str, str]] = []
+                batch_bytes = 0
+                previous: tuple[str, str] | None = None
+                for _, _, group_key, distinct_id in keys:
+                    key = (group_key, distinct_id)
+                    if key == previous:
+                        continue
+                    previous = key
+                    # Leave space for the set's string offsets and hash entries. ClickHouse still enforces its limit.
+                    key_bytes = len(group_key.encode()) + len(distinct_id.encode()) + 128
+                    if batch and byte_limit and batch_bytes + key_bytes > byte_limit // 2:
+                        yield {"membership_team_id": team, "membership_index": index, "membership_keys": batch}
+                        batch = []
+                        batch_bytes = 0
+                    batch.append(key)
+                    batch_bytes += key_bytes
+                if batch:
+                    yield {"membership_team_id": team, "membership_index": index, "membership_keys": batch}
+            after = rows[-1]
+
+    @staticmethod
+    def _key_predicate() -> str:
+        return (
+            "team_id = %(membership_team_id)s AND group_type_index = %(membership_index)s "
+            "AND (group_key, distinct_id) IN %(membership_keys)s"
+        )
+
     @staticmethod
     def _event_keys(table: str, json_schema: bool, predicate: str) -> str:
         properties = "toJSONString(properties)" if json_schema else "properties"
         return (
-            "SELECT team_id, toUInt8(group_index) AS group_type_index, "
-            f"JSONExtractString({properties}, concat('$group_', toString(group_index))) AS group_key, "
-            f"distinct_id, timestamp FROM {_name(table)} "
-            f"ARRAY JOIN range({PERSON_GROUP_MEMBERSHIP_MAX_GROUP_TYPE_INDEX + 1}) AS group_index "
-            f"WHERE ({predicate}) AND group_key != ''"
+            "SELECT team_id, toUInt8(%(membership_index)s) AS group_type_index, "
+            f"JSONExtractString({properties}, concat('$group_', toString(%(membership_index)s))) AS group_key, "
+            "distinct_id, timestamp FROM ("
+            f"SELECT team_id, distinct_id, timestamp, properties FROM {_name(table)} "
+            "PREWHERE team_id = %(membership_team_id)s "
+            "AND distinct_id IN arrayMap(key -> key.2, %(membership_keys)s) "
+            f"WHERE ({predicate})) WHERE group_key != '' AND (group_key, distinct_id) IN %(membership_keys)s"
         )
 
     def refuse_unswept_sources(self, sources: Sequence[tuple[str, bool, str, dict[str, object]]]) -> None:
@@ -301,18 +361,18 @@ class MembershipReconciliation:
             if not self.cluster.any_host_by_role(partial(_exists, table=table), NodeRole.DATA).result():
                 continue
             candidates = self._event_keys(table, json_schema, predicate)
-            count = self.cluster.any_host_by_role(
-                Query(
-                    f"SELECT count() FROM {_name(PERSON_GROUP_MEMBERSHIP_TABLE)} WHERE ({KEYS}) GLOBAL IN (SELECT DISTINCT {KEYS} FROM ({candidates}))",
-                    parameters,
-                    settings=QUERY_SETTINGS,
-                ),
-                NodeRole.DATA,
-            ).result()[0][0]
-            if count:
-                raise UnsweepableRowsError(
-                    f"{table} is skipped by this sweep but holds source events for {count} affected membership rows. Enable deletion of that source before retrying."
-                )
+            for page in self._key_pages(PERSON_GROUP_MEMBERSHIP_TABLE, parameters.get("team_id")):
+                if self.cluster.any_host_by_role(
+                    self._Query(
+                        f"SELECT 1 FROM ({candidates}) LIMIT 1",
+                        {**parameters, **page},
+                        settings=QUERY_SETTINGS,
+                    ),
+                    NodeRole.DATA,
+                ).result():
+                    raise UnsweepableRowsError(
+                        f"{table} is skipped by this sweep but holds source events for affected membership rows. Enable deletion of that source before retrying."
+                    )
 
     def stage(self, sources: Sequence[tuple[str, bool, str, dict[str, object]]]) -> None:
         placement = self._placement()
@@ -329,32 +389,23 @@ class MembershipReconciliation:
         self._create(placement)
         for table, json_schema, predicate, parameters in sources:
             candidates = self._event_keys(table, json_schema, predicate)
-            self.cluster.any_host_by_role(
-                Query(
-                    f"INSERT INTO {_name(self.read_table)} ({KEYS}) SELECT DISTINCT {KEYS} FROM {_name(PERSON_GROUP_MEMBERSHIP_TABLE)} "
-                    f"WHERE ({KEYS}) GLOBAL IN (SELECT DISTINCT {KEYS} FROM ({candidates}))",
-                    parameters,
-                    settings=QUERY_SETTINGS,
-                ),
-                NodeRole.DATA,
-            ).result()
+            for page in self._key_pages(PERSON_GROUP_MEMBERSHIP_TABLE, parameters.get("team_id")):
+                self.cluster.any_host_by_role(
+                    self._Query(
+                        f"INSERT INTO {_name(self.read_table)} ({KEYS}) SELECT DISTINCT {KEYS} FROM ({candidates})",
+                        {**parameters, **page},
+                        settings=QUERY_SETTINGS,
+                    ),
+                    NodeRole.DATA,
+                ).result()
         placement.cluster.map_hosts_by_role(
             Query(f"SYSTEM SYNC REPLICA {_name(self.storage_table)}"), placement.cluster.shard_role
         ).result()
 
     def _survivors(self, sources: Sequence[tuple[str, bool]]) -> str:
-        # Filtering by staged distinct IDs before the ARRAY JOIN skips the properties of every other user in the
-        # team. It keeps the full history of each staged ID, so first_seen and last_seen stay correct.
-        staged_ids = (
-            f"(team_id, distinct_id) GLOBAL IN (SELECT DISTINCT team_id, distinct_id FROM {_name(self.read_table)})"
-        )
-        candidates = " UNION ALL ".join(
-            self._event_keys(table, json_schema, staged_ids) for table, json_schema in sources
-        )
-        return (
-            f"SELECT {KEYS}, min(timestamp) AS first_seen, max(timestamp) AS last_seen FROM ({candidates}) "
-            f"WHERE ({KEYS}) GLOBAL IN (SELECT DISTINCT {KEYS} FROM {_name(self.read_table)}) GROUP BY {KEYS}"
-        )
+        # Read each staged ID's full history so deletion-request time bounds do not clip first_seen or last_seen.
+        candidates = " UNION ALL ".join(self._event_keys(table, json_schema, "1") for table, json_schema in sources)
+        return f"SELECT {KEYS}, min(timestamp) AS first_seen, max(timestamp) AS last_seen FROM ({candidates}) GROUP BY {KEYS}"
 
     def reconcile(self, sources: Sequence[tuple[str, bool]]) -> None:
         placement = self._placement()
@@ -367,35 +418,46 @@ class MembershipReconciliation:
             return
         if not sources:
             raise UnsweptRowsError("Membership reconciliation has no surviving event source")
-        predicate = f"({KEYS}) GLOBAL IN (SELECT {KEYS} FROM {_name(self.read_table)})"
-        _delete(placement, predicate, {})
+        predicate = self._key_predicate()
         expected = self._survivors(sources)
-        self.cluster.any_host_by_role(
-            Query(
-                f"INSERT INTO {_name(PERSON_GROUP_MEMBERSHIP_TABLE)} ({KEYS}, first_seen, last_seen) {expected}",
-                settings=QUERY_SETTINGS,
-            ),
-            NodeRole.DATA,
-        ).result()
-        placement.cluster.map_hosts_by_role(
-            Query(f"SYSTEM SYNC REPLICA {_name(SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE)}"), placement.cluster.shard_role
-        ).result()
         actual = (
             f"SELECT {KEYS}, min(first_seen) AS first_seen, max(last_seen) AS last_seen "
             f"FROM {_name(PERSON_GROUP_MEMBERSHIP_TABLE)} WHERE {predicate} GROUP BY {KEYS}"
         )
-        mismatches = self.cluster.any_host_by_role(
-            Query(
-                "SELECT count() FROM ("
-                f"SELECT {KEYS} FROM (SELECT *, 1 AS side FROM ({expected}) "
-                f"UNION ALL SELECT *, -1 AS side FROM ({actual})) GROUP BY {KEYS} "
-                "HAVING sum(side) != 0 OR min(first_seen) != max(first_seen) OR min(last_seen) != max(last_seen))",
-                settings=QUERY_SETTINGS,
-            ),
-            NodeRole.DATA,
-        ).result()[0][0]
-        if mismatches:
-            raise UnsweptRowsError(f"Membership reconciliation: {mismatches} associations differ from surviving events")
+        for page in self._key_pages(self.read_table):
+            _delete(
+                placement,
+                predicate.replace("%(membership_keys)s", "%(distinct_ids)s"),
+                {key: value for key, value in page.items() if key != "membership_keys"}
+                | {"distinct_ids": page["membership_keys"]},
+            )
+            self.cluster.any_host_by_role(
+                self._Query(
+                    f"INSERT INTO {_name(PERSON_GROUP_MEMBERSHIP_TABLE)} ({KEYS}, first_seen, last_seen) {expected}",
+                    page,
+                    settings=QUERY_SETTINGS,
+                ),
+                NodeRole.DATA,
+            ).result()
+            placement.cluster.map_hosts_by_role(
+                Query(f"SYSTEM SYNC REPLICA {_name(SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE)}"),
+                placement.cluster.shard_role,
+            ).result()
+            mismatches = self.cluster.any_host_by_role(
+                self._Query(
+                    "SELECT count() FROM ("
+                    f"SELECT {KEYS} FROM (SELECT *, 1 AS side FROM ({expected}) "
+                    f"UNION ALL SELECT *, -1 AS side FROM ({actual})) GROUP BY {KEYS} "
+                    "HAVING sum(side) != 0 OR min(first_seen) != max(first_seen) OR min(last_seen) != max(last_seen))",
+                    page,
+                    settings=QUERY_SETTINGS,
+                ),
+                NodeRole.DATA,
+            ).result()[0][0]
+            if mismatches:
+                raise UnsweptRowsError(
+                    f"Membership reconciliation: {mismatches} associations differ from surviving events"
+                )
 
     def cleanup(self) -> None:
         placement = self._placement()

@@ -444,6 +444,22 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
         [("event_uuid", "event"), ("person_events", "person"), ("deferred", "deferred"), ("team", "team")]
     )
     def test_async_drain_reconciles_before_marking_verified(self, _name: str, deletion: str) -> None:
+        sync_execute(
+            "INSERT INTO sharded_events (team_id, event, uuid, timestamp, distinct_id, person_id, properties, inserted_at) VALUES",
+            [
+                (
+                    self.team.pk,
+                    "first",
+                    self.event_ids[1],
+                    self.start,
+                    f"untracked-{i}",
+                    str(self.person_a.uuid),
+                    json.dumps({f"$group_{index}": f"untracked-{i}-{index}" for index in range(5)}),
+                    self.start,
+                )
+                for i in range(10)
+            ],
+        )
         if deletion == "deferred":
             request = self._request(["first"])
             request.execution_mode = ExecutionMode.DEFERRED.value
@@ -464,7 +480,6 @@ class TestMembershipDeletion(ClickhouseTestMixin, BaseTest):
             "INSERT INTO person_distinct_id_overrides (distinct_id, person_id, _timestamp, version) VALUES",
             [("watermark", str(uuid4()), datetime.now(UTC) + timedelta(days=1), 1)],
         )
-        # The deleted team's events hold 3 distinct membership keys, and every other case stages 1.
         with patch.dict(QUERY_SETTINGS, {"max_rows_in_set": "2"}):
             result = deletes_job.execute_in_process(
                 run_config={

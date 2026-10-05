@@ -172,10 +172,20 @@ Existing native-JSON property-removal refusal gates still apply.
 Staging uses replicated `membership_deletion_keys_<hash>` storage with a distributed proxy.
 The hash comes from the request ID, or the serialized async drain's fixed operation ID.
 Key lists never enter Temporal or Dagster payloads.
-Queries restrict source reads to affected teams and match membership by staged keys.
-They use synchronous distributed inserts, a 30-minute query limit, and a 2 GiB memory limit.
-Key sets stop at one million entries or 256 MiB and throw on overflow.
-A request that exceeds those bounds fails rather than dropping keys.
+Staging pages actual membership keys in sort-key order before reading source events.
+Each scan selects one stored team and group type and restricts distinct IDs before JSON extraction.
+It does not build a set from every matching event or expand all five group types.
+A team with no stored membership triggers no source scan.
+Reconciliation pages the durable staged keys and reads each page's full surviving history, without the deletion request's time bounds.
+Only bounded key pages enter Python, not event payloads.
+
+Each page contains at most 1,000 keys, or the configured `max_rows_in_set` when that limit is smaller.
+The code also splits pages using a conservative byte estimate.
+Queries keep synchronous distributed inserts, the 30-minute query limit, the 2 GiB memory limit, and the set limits of one million entries or 256 MiB.
+ClickHouse throws if a page still exceeds a limit, including a single oversized key.
+Paging lets a request contain more keys than one set permits without truncation or higher limits.
+These bounds limit key-set cardinality, not total event reads or runtime.
+A large request can require many all-history scans, and production scan cost has not been measured.
 Immediate event removal stages keys before fan-out and reconciles only after all shard deletes pass verification.
 A failed shard can retry without re-running staging.
 Retries keep staged keys after failure, even when source deletion already finished.
