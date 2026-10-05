@@ -114,8 +114,10 @@ def _make_bad_request_error(message: str) -> openai.BadRequestError:
     return openai.BadRequestError(message, response=response, body={"error": {"message": message}})
 
 
-def _content_filter_bad_request_error() -> openai.BadRequestError:
-    body = {"message": "The response was filtered by the content management policy.", "code": "content_filter"}
+def _content_filter_bad_request_error(
+    code: str = "content_filter", message: str = "The response was filtered by the content management policy."
+) -> openai.BadRequestError:
+    body = {"message": message, "code": code}
     request = httpx.Request("POST", "https://example.invalid/v1/chat/completions")
     response = httpx.Response(status_code=400, request=request, json={"error": body})
     return openai.BadRequestError("Error code: 400", response=response, body=body)
@@ -269,6 +271,14 @@ class TestOpenAIAdapterErrorMapping:
         [
             ("finish_reason", openai.ContentFilterFinishReasonError, None),
             ("prompt_rejected_400", _content_filter_bad_request_error, None),
+            (
+                "usage_policy_rejected_400",
+                lambda: _content_filter_bad_request_error(
+                    "invalid_prompt",
+                    "Invalid prompt: your prompt was flagged as potentially violating our usage policy.",
+                ),
+                None,
+            ),
             (
                 "json_fallback_finish_reason",
                 lambda: _make_bad_request_error("Invalid parameter: 'response_format' of type 'json_schema'"),
