@@ -3,6 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { SessionView } from "../sessions/components/SessionView";
+import { PlanContent } from "./PlanContent";
 
 vi.mock("@posthog/di/react", () => ({
   useService: () => ({ maybeRevertBypassMode: vi.fn() }),
@@ -122,5 +123,26 @@ describe("PlanContent fullscreen", () => {
     expect(
       screen.getByRole("button", { name: "Expand to fullscreen" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("PlanContent code blocks", () => {
+  it("highlights fenced code and leaves inline code plain", () => {
+    const { container } = render(
+      <PlanContent
+        id="code-plan"
+        plan={
+          "Edit `utils.ts`:\n\n```ts\nexport function add(a: number, b: number) {\n  return a + b;\n}\n```"
+        }
+      />,
+    );
+
+    const fenced = container.querySelector("pre code");
+    expect(fenced).toHaveTextContent("export function add");
+    expect(fenced?.querySelector("span[style*='color']")).not.toBeNull();
+
+    const inline = screen.getByText("utils.ts");
+    expect(inline.tagName).toBe("CODE");
+    expect(inline.querySelector("span")).toBeNull();
   });
 });
