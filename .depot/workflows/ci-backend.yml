@@ -129,7 +129,8 @@
 #   fallback.
 # - No push trigger: canonical primes the shared schema cache on master, and Depot Cache
 #   serves both engines. The `github.event_name != 'push'` guards stay to mirror canonical.
-#   Trunk merge-queue PRs are excluded because they would repeat a source PR's trial run.
+#   Trunk merge-queue PRs run here only when canonical's router hands them off, which its own
+#   CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT controls apart from source PRs.
 # - Fresh-master cache waiting is canonical-only: it waits on the GitHub Actions
 #   warmer, which cannot signal readiness for Depot's separate cache channel.
 

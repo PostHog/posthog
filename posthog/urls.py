@@ -24,6 +24,7 @@ from posthog.api import (
 )
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.integration_connect import integration_connect_redirect
+from posthog.api.livestream import LivestreamAuthorizationView
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.toolbar_views import authorize_and_redirect
 from posthog.api.sdk_health import sdk_health
@@ -73,7 +74,6 @@ from products.streamlit_apps.backend.presentation.bridge_views import StreamlitB
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
-from products.user_interviews.backend.presentation.webhooks import start_call as user_interviews_start_call
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.workflows.backend.presentation.views import hog_flow, hog_flow_template
 
@@ -97,6 +97,7 @@ from .views import (
 github_app_webhook = build_webhook_view(build_github_provider("posthog"))
 
 urlpatterns = [
+    path("api/livestream/authorize/", LivestreamAuthorizationView.as_view(), name="livestream-authorize"),
     # EU spend must precede both the API router and the API fallback.
     *(
         [
@@ -147,11 +148,6 @@ urlpatterns = [
         name="user_signal_autonomy",
     ),
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
-    path(
-        "api/user_interviews/share/<str:access_token>/start_call/",
-        csrf_exempt(user_interviews_start_call),
-        name="user_interviews_start_call",
-    ),
     path("api/sdk_health/", sdk_health),
     # Conversations serves its widget and channel API from backend/api/, which its routes module
     # may not import (import-linter contract "routes must only import presentation"), so the mount
@@ -303,10 +299,6 @@ urlpatterns = [
     ),
     path(
         "embedded/<str:access_token>",
-        sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
-    ),
-    path(
-        "interview/<str:access_token>",
         sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"}),
     ),
     path("render_query", render_query, name="render_query"),

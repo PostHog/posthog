@@ -2916,6 +2916,46 @@ class TestFacadeShape:
         logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
         assert [f.bodies for f in logic] == ([expected] if expected else [])
 
+    @pytest.mark.parametrize(
+        "module_key, expected_dotted",
+        [
+            ("api.py", "products.my_product.backend.facade.api"),
+            ("destinations/s3.py", "products.my_product.backend.facade.destinations.s3"),
+            ("destinations/__init__.py", "products.my_product.backend.facade.destinations"),
+        ],
+    )
+    def test_a_finding_carries_the_module_path_and_dotted_name(
+        self, tmp_path: Path, module_key: str, expected_dotted: str
+    ) -> None:
+        # A nested module reaches the models with `...`, a flat one with `..`.
+        dots = "." * (module_key.count("/") + 2)
+        backend = _write_shape_product(
+            tmp_path, {module_key: f"from {dots}models import Thing\n\n\ndef get_thing() -> Thing:\n    ...\n"}
+        )
+        findings = facade_shape_findings(backend, "my_product")
+        assert [(f.facade_module, f.dotted_module) for f in findings] == [(module_key, expected_dotted)]
+
+    @pytest.mark.parametrize(
+        "module_key, expected",
+        [
+            ("testing.py", None),
+            ("destinations/testing.py", ("helper",)),
+        ],
+    )
+    def test_name_exemptions_apply_to_top_level_modules_only(
+        self, tmp_path: Path, module_key: str, expected: tuple[str, ...] | None
+    ) -> None:
+        dots = "." * (module_key.count("/") + 2)
+        backend = _write_shape_product(
+            tmp_path,
+            {
+                module_key: f"from {dots}temporal.flows import run_it\n\n__all__ = ['run_it']\n\n\ndef helper():\n    return 1\n"
+            },
+            sources={"temporal/flows.py": "def run_it():\n    ...\n"},
+        )
+        logic = [f for f in facade_shape_findings(backend, "my_product") if f.kind == "logic"]
+        assert [f.bodies for f in logic] == ([expected] if expected else [])
+
 
 class TestFacadeShapeLedgerRows:
     @pytest.mark.parametrize(

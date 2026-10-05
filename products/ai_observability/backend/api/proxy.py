@@ -9,6 +9,7 @@ Endpoints:
 import json
 import uuid
 from collections.abc import Callable, Generator
+from contextlib import closing
 from time import perf_counter
 from typing import Any
 
@@ -223,12 +224,13 @@ class LLMProxyViewSet(viewsets.ViewSet):
         """Creates a generator that handles client disconnects and encodes responses"""
         started = perf_counter()
         try:
-            for chunk in client.stream(request_obj):
-                if not http_request.META.get("SERVER_NAME"):  # Client disconnected
-                    if on_error:
-                        on_error(Exception("Client disconnected"), perf_counter() - started)
-                    return
-                yield chunk.to_sse().encode()
+            with closing(client.stream(request_obj)) as stream:
+                for chunk in stream:
+                    if not http_request.META.get("SERVER_NAME"):  # Client disconnected
+                        if on_error:
+                            on_error(Exception("Client disconnected"), perf_counter() - started)
+                        return
+                    yield chunk.to_sse().encode()
         except ProviderConfigurationError as e:
             if on_error:
                 on_error(e, perf_counter() - started)

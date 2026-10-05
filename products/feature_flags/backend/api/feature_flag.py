@@ -131,8 +131,16 @@ from products.feature_flags.backend.facade import (
     config_writes,
     filters as flag_filters,
 )
-from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format, require_v1_config
+from products.feature_flags.backend.facade.config import (
+    ConfigFormatError,
+    ConfigV1,
+    UnsupportedConfig,
+    decode_config,
+    detect_config_format,
+    require_v1_config,
+)
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
+from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
@@ -2829,15 +2837,15 @@ class FeatureFlagSerializer(
 
     def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all disabled flags that the given flag depends on."""
-        dependency_ids = []
-
-        # Extract flag dependencies from filters
-        filters = flag_to_check.filters or {}
-        for group in filters.get("groups", []):
-            for prop in group.get("properties", []):
-                if prop.get("type") == "flag":
-                    dependency_ids.append(int(prop.get("key")))
-
+        config = decode_config(flag_to_check.filters)
+        if isinstance(config, UnsupportedConfig):
+            # validate() rejected every other unsupported format, so this is a v2 document parse_v2_config
+            # cannot read. Under the row lock _apply_v2_update rejects it through config_writes.validate_stored,
+            # or, when the request also sends filters, _resolve_v2_document validates the replacement.
+            return []
+        # A non-integer flag id raises in v1, as it always did; v2 skips it and leaves the 400 to the validator.
+        invalid_ids: InvalidIds = "raise" if isinstance(config, ConfigV1) else "skip"
+        dependency_ids = references(config, invalid_flag_ids=invalid_ids).flag_ids
         if not dependency_ids:
             return []
 

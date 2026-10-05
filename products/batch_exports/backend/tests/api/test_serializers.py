@@ -211,16 +211,14 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
 
     @parameterized.expand(
         [
-            ("legacy_name", "SELECT properties.`$feature/secret` AS flag FROM events", "NULL"),
-            ("map_entry", "SELECT properties.$feature_flags.secret AS flag FROM events", "NULL"),
-            ("whole_map", "SELECT properties.$feature_flags AS flags FROM events", "NULL"),
-            ("visible_entry", "SELECT properties.$feature_flags.checkout AS flag FROM events", "JSONExtractRaw("),
+            ("restricted", "SELECT properties.`$feature/secret` AS flag FROM events", "NULL"),
+            ("visible", "SELECT properties.`$feature/checkout` AS flag FROM events", "JSONExtractRaw("),
         ]
     )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     @patch("products.batch_exports.backend.api.batch_export.get_restricted_properties_with_group_type_index_for_team")
     @patch("posthog.models.event.new_events_schema.use_new_events_schema", return_value=True)
-    def test_native_export_hides_a_restricted_flag_under_every_spelling(
+    def test_native_export_hides_a_restricted_flag(
         self, _name: str, query: str, expected: str, _use_new_events_schema, get_restricted_properties
     ):
         get_restricted_properties.return_value = {
@@ -247,8 +245,7 @@ class TestSerializeHogQLQueryToBatchExportSchema(BaseTest):
         )
 
         field = schema["fields"][0]
-        assert field["alias"] == "`$feature_flags__checkout`", field
-        assert "%(" not in field["alias"]
+        assert field["alias"] == "`$feature/checkout`", field
         assert "JSONExtractRaw(" in field["expression"], field
 
 

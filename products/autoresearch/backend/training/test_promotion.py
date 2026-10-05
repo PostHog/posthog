@@ -11,6 +11,7 @@ from django.utils import timezone as django_timezone
 from parameterized import parameterized
 
 from posthog.models.scoping import unscoped
+from posthog.models.team import Team
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.autoresearch.backend.models import (
@@ -22,7 +23,9 @@ from products.autoresearch.backend.models import (
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.autoresearch.backend.training.artifacts import ArtifactBundle, InvalidArtifactContent, PartialBundle
 from products.autoresearch.backend.training.promotion import PromotionError, complete_training_run
+from products.autoresearch.backend.training.shadow_set import shadow_set
 from products.autoresearch.backend.training.stub import run_stub_training
+from products.notebooks.backend.facade import api as notebooks_facade
 
 ANCHORED_FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS c FROM {anchors} a GROUP BY a.person_id"
 _DEFAULT_PARAMS = object()
@@ -328,6 +331,23 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
 
         assert not AutoresearchModel.objects.filter(pipeline=self.pipeline).exists()
 
+    @parameterized.expand([("own_team", "own", True), ("other_team", "other", False), ("missing", "none", False)])
+    def test_report_notebook_is_linked_only_when_it_exists_in_the_run_team(self, _name, owner, linked):
+        if owner == "none":
+            short_id = "doesnotexist"
+        else:
+            team_id = self.team.pk if owner == "own" else Team.objects.create(organization=self.organization).pk
+            short_id = notebooks_facade.create_notebook(team_id, title="Report", content=None).short_id
+        run = self._run()
+        self._iteration(run, number=0, holdout=0.8)
+
+        result = complete_training_run(run, report_notebook_short_id=short_id)
+
+        assert result["promoted"] is True
+        run.refresh_from_db()
+        assert run.status == AutoresearchTrainingRun.Status.COMPLETED
+        assert run.summary["report_notebook_short_id"] == (short_id if linked else "")
+
     def test_completion_runs_without_an_ambient_team_scope(self):
         # The TaskRun safety net finalizes a run from a worker thread, where no request has
         # set a scope. Every read in promotion goes through a fail-closed manager.
@@ -355,9 +375,9 @@ class TestCompleteTrainingRun(TeamScopedTestMixin, BaseTest):
         assert result["promoted"] is False
         assert result["role"] == AutoresearchModel.Role.CHALLENGER
         assert self._champion().holdout_score == 0.8
-        # Inference reads the champion only, so fitting the rejected bundle would spend a
-        # sandbox run on an artifact nothing loads.
-        fit.assert_not_called()
+        # The bundle-backed challenger enters the shadow set, so it needs a model.pkl to score.
+        assert fit.call_args.kwargs["model_id"] == result["model_id"]
+        assert result["model_id"] in {str(m.pk) for m in shadow_set(self.pipeline)}
         second.refresh_from_db()
         # The next run reads this summary as the champion it has to beat.
         assert second.summary["champion_model_class"] == "xgboost.XGBClassifier"

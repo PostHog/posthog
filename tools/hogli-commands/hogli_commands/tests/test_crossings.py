@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import os
 import ast
 import textwrap
 from pathlib import Path
@@ -158,7 +159,7 @@ class TestBindingPaths:
 
     def test_unrelated_class_of_the_same_name_is_not_bound(self) -> None:
         candidate = _candidate(
-            "from products.alerts.backend.facade.contracts import AlertConfiguration\nqs = AlertConfiguration(id=1)"
+            "from products.alerts_platform.backend.facade.contracts import AlertConfiguration\nqs = AlertConfiguration(id=1)"
         )
         origins = crossings._origins([candidate], [ALERT])
         assert crossings._bound_names(candidate, origins) == {}

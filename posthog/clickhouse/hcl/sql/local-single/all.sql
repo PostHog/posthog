@@ -1549,7 +1549,8 @@ CREATE TABLE posthog.metrics4_attributes (
   INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
-  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
+  INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
+  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_attributes', '{replica}-{shard}') ORDER BY (team_id, metric_name, attribute_type, time_bucket, attribute_key, attribute_value, service_name, original_expiry_time_bucket) PARTITION BY toDate(original_expiry_time_bucket) TTL original_expiry_time_bucket SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_input (
   uuid String,
@@ -1641,8 +1642,17 @@ CREATE TABLE posthog.metrics4_series (
   INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_timestamp_minmax timestamp TYPE minmax GRANULARITY 1,
-  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_series', '{replica}-{shard}', timestamp) ORDER BY (team_id, metric_name, series_fingerprint, time_bucket) PARTITION BY toStartOfWeek(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+  INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
+  PROJECTION services_by_hour (SELECT
+  team_id,
+  time_bucket,
+  service_name,
+  uniqExact(metric_name),
+  uniq(series_fingerprint),
+  max(timestamp)
+GROUP BY
+  team_id, time_bucket, service_name)
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_series', '{replica}-{shard}', timestamp) ORDER BY (team_id, metric_name, series_fingerprint, time_bucket) PARTITION BY toStartOfWeek(original_expiry_timestamp) TTL original_expiry_timestamp SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics_distributed (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -2470,6 +2480,7 @@ CREATE TABLE posthog.sharded_platform_alert_events (
   consecutive_failures UInt32,
   muted_notification LowCardinality(String),
   occurred_at DateTime64(6, 'UTC'),
+  source_kind LowCardinality(String),
   expires_at Date DEFAULT today() + toIntervalDay(90)
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.platform_alert_events', '{replica}-{shard}') PRIMARY KEY (team_id, configuration_id, alert_id, occurred_at) ORDER BY (team_id, configuration_id, alert_id, occurred_at, evaluation_key) PARTITION BY toYYYYMM(occurred_at) TTL expires_at SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_posthog_document_embeddings_buffer (
@@ -7175,6 +7186,7 @@ CREATE TABLE posthog.platform_alert_events (
   consecutive_failures UInt32,
   muted_notification LowCardinality(String),
   occurred_at DateTime64(6, 'UTC'),
+  source_kind LowCardinality(String),
   expires_at Date DEFAULT today() + toIntervalDay(90)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_platform_alert_events', cityHash64(team_id));
 CREATE TABLE posthog.preaggregation_results (

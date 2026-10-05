@@ -19,7 +19,6 @@ const MAX_PAGES_PER_LOAD = 5
 
 const PLURAL_LABELS: Record<string, string> = {
     session_recording_playlist: 'Replay playlists',
-    user_interview: 'User research',
 }
 
 export interface LibraryObjects {

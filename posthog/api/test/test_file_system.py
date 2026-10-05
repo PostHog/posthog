@@ -31,7 +31,6 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
@@ -221,24 +220,6 @@ FILE_SYSTEM_ACTIVITY_CASES: list[tuple[str, FileSystemActivityCase]] = [
             ),
             ref_getter=lambda instance: str(instance.short_id),
             item_id_getter=lambda instance: str(instance.short_id),
-        ),
-    ),
-    (
-        "link",
-        FileSystemActivityCase(
-            type_string="link",
-            scope="Link",
-            create_instance=lambda test: Link.objects.create(
-                team=test.team,
-                redirect_url="https://posthog.com",
-                short_link_domain="hog.gg",
-                short_code=f"lnk-{uuid4().hex[:8]}",
-                description="File system link",
-                created_by=test.user,
-            ),
-            ref_getter=lambda instance: str(instance.id),
-            item_id_getter=lambda instance: str(instance.id),
-            supports_restore=False,
         ),
     ),
     (
