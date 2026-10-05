@@ -754,6 +754,7 @@ the row lists both.
 | survicate                        | HTTP                        | requests                                                        | ✅                          |
 | svix                             | HTTP                        | requests                                                        | ✅                          |
 | swarmia                          | HTTP                        | requests                                                        | ✅                          |
+| synthesia                        | HTTP                        | requests                                                        | ✅                          |
 | systeme                          | HTTP                        | requests                                                        | ✅                          |
 | taboola                          | HTTP                        | requests                                                        | ✅                          |
 | tailscale                        | HTTP                        | requests                                                        | ✅                          |
@@ -1433,7 +1434,6 @@ doesn't conflict with concurrent PRs.
 - svix
 - swan
 - swonkie
-- synthesia
 - tackle_io
 - talkdesk
 - tana
