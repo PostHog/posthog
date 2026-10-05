@@ -73,6 +73,17 @@ def build(handle: SourceHandle) -> BuiltQuery:
         )
 
     customer_table = customer_schema.table
+
+    # Every customer row is keyed on `id`, and the cohort and distinct-id joins match on it, so a
+    # synced customer table without that column can only produce a view that fails to resolve
+    if "id" not in customer_table.columns:
+        return BuiltQuery(
+            key=str(customer_table.id),
+            prefix=prefix,
+            query=ast.SelectQuery.empty(columns=SCHEMA.fields),
+            test_comments="no_id_column",
+        )
+
     invoice_table = _get_table(schemas, STRIPE_INVOICE_RESOURCE_NAME)
     subscription_table = _get_table(schemas, STRIPE_SUBSCRIPTION_RESOURCE_NAME)
     charge_table = _get_table(schemas, STRIPE_CHARGE_RESOURCE_NAME)

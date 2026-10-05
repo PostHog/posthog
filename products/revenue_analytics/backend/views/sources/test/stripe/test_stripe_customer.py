@@ -113,6 +113,26 @@ class TestCustomerStripeBuilder(StripeSourceBaseTest):
         query_sql = query.query.to_hogql()
         self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
+    def test_build_with_customer_table_without_id_column(self):
+        """Test that build falls back to an empty view when the synced customer table has no `id` column."""
+        self.setup_stripe_external_data_source_with_specific_schemas(
+            [
+                {"name": CUSTOMER_RESOURCE_NAME, "columns": ["created", "name", "email"]},
+                {"name": INVOICE_RESOURCE_NAME},
+            ]
+        )
+        customer_table = self.get_stripe_table_by_schema_name(CUSTOMER_RESOURCE_NAME)
+
+        query = build(self.stripe_handle)
+
+        self.assertQueryContainsFields(query.query, CUSTOMER_SCHEMA)
+        self.assertBuiltQueryStructure(
+            query,
+            str(customer_table.id),
+            f"stripe.{self.external_data_source.prefix}",
+            expected_test_comments="no_id_column",
+        )
+
     def test_build_with_no_source(self):
         """Test that build returns empty when source is None."""
         handle = self.create_stripe_handle_without_source()
