@@ -1384,7 +1384,10 @@ const AssistantTrendsActorsQuery = z.object({
         .optional(),
     day: z
         .string()
-        .describe("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
+        .describe(
+            "Bucket date for one data point, as an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. Omit it to list the persons behind the whole date range instead of one bucket. A source that shows one value per series rather than a time series (`trendsFilter.display` set to `BoldNumber`, `ActionsPie`, `ActionsTable`, and the like) has no buckets, so it takes no day."
+        )
+        .optional(),
     includeRecordings: z.coerce
         .boolean()
         .describe('Whether to include matched session recordings for each actor.')
