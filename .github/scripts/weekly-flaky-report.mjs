@@ -40,6 +40,9 @@ const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
 const QUARANTINE_FILE = '.test_quarantine.json'
 const TRUNK_TABLE = process.env.TRUNK_QUARANTINE_TABLE || 'trunkio.quarantinedtests'
 
+// A HogQL query without a LIMIT returns 100 rows, which is fewer than Trunk quarantines. A page
+// that comes back full may be cut short, and a partial list reads as "not quarantined".
+const QUERY_ROW_LIMIT = 50000
 const TOP_N = 10
 const CANDIDATE_POOL = 40
 const CLUSTER_MIN_TESTS = 5
@@ -172,7 +175,8 @@ async function enrich(items, runHogql = hogql) {
             WHERE f.timestamp >= now() - INTERVAL 7 DAY
                 AND lower(f.repo) = lower({repository})
                 AND f.test_id IN {selectors}
-            GROUP BY f.test_id`,
+            GROUP BY f.test_id
+            LIMIT ${QUERY_ROW_LIMIT}`,
             { repository: GITHUB_REPOSITORY, selectors }
         )
         rows = result.results || []
@@ -234,7 +238,8 @@ const TRUNK_QUARANTINED_QUERY = `
                '') AS cls
         FROM __TRUNK_TABLE__
         WHERE if({runner} = 'pytest', parent = 'pytest', parent != 'pytest')
-    )`
+    )
+    LIMIT ${QUERY_ROW_LIMIT}`
 
 // Uploads off, a missing table, or a query error all degrade to a report without Trunk state,
 // never to a failed run.
@@ -250,6 +255,10 @@ async function fetchTrunkQuarantined(runner, runHogql = hogql, enabled = TRUNK_U
         rows = result.results || []
     } catch (err) {
         console.warn(`Trunk quarantine lookup failed — reporting without Trunk state: ${err.message}`)
+        return null
+    }
+    if (rows.length >= QUERY_ROW_LIMIT) {
+        console.warn(`Trunk quarantine lookup returned a full page — reporting without Trunk state`)
         return null
     }
     const byVariant = new Map()

@@ -382,7 +382,22 @@ describe('weekly flaky report', () => {
                     throw new Error('Unknown table trunkio.quarantinedtests')
                 },
             },
-            { label: 'no rows', enabled: true, available: true, runHogql: async () => ({ results: [] }) },
+            {
+                label: 'no rows',
+                enabled: true,
+                available: true,
+                runHogql: async (query) => {
+                    // Without an explicit limit the query API returns only the first 100 quarantines.
+                    assert.match(query, /LIMIT 50000\s*$/)
+                    return { results: [] }
+                },
+            },
+            {
+                label: 'page is full, so rows may be missing',
+                enabled: true,
+                available: false,
+                runHogql: async () => ({ results: Array.from({ length: 50000 }, () => ['a.py::test', null]) }),
+            },
         ]
 
         for (const { label, enabled, available, runHogql } of cases) {
