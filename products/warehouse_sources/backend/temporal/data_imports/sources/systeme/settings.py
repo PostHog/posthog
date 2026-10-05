@@ -11,11 +11,10 @@ ENDPOINTS = {
     "enrollments": "school/enrollments",
     "communities": "community/communities",
     "memberships": "community/memberships",
-    "subscriptions": "payment/subscriptions",
 }
 
 INCREMENTAL_FIELDS = {"contacts": [incremental_field("registeredAt")]}
-PARTITION_KEYS = {"contacts": "registeredAt", "tags": "createdAt", "subscriptions": "createdAt"}
+PARTITION_KEYS = {"contacts": "registeredAt", "tags": "createdAt"}
 
 AUTH_ERROR = "Systeme.io rejected your API key. Create a new key in your profile settings and reconnect."
 PERMISSION_ERROR = "Your API key cannot access this Systeme.io resource. Check your account permissions and reconnect."

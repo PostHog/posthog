@@ -82,16 +82,4 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "contact": "Contact associated with the membership.",
         },
     },
-    "subscriptions": {
-        "description": "Payment subscriptions with status, lifecycle dates, and price plan details.",
-        "docs_url": "https://developer.systeme.io/reference/api_paymentsubscriptions_get_collection-1",
-        "columns": {
-            "id": "Unique subscription identifier.",
-            "createdAt": "Date and time when the subscription was created.",
-            "status": "Current subscription status.",
-            "completedAt": "Date and time when the subscription was completed.",
-            "cancelledAt": "Date and time when the subscription was canceled.",
-            "pricePlan": "Price plan with amount, currency, and recurring payment options.",
-        },
-    },
 }

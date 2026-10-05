@@ -51,7 +51,6 @@ def rows(response: SourceResponse) -> list[dict[str, Any]]:
         ("enrollments", "school/enrollments"),
         ("communities", "community/communities"),
         ("memberships", "community/memberships"),
-        ("subscriptions", "payment/subscriptions"),
     ],
 )
 def test_pagination_auth_and_terminal_page(requests_mock: Mocker, endpoint: str, path: str) -> None:
@@ -110,7 +109,9 @@ def test_empty_terminal_page_and_resume(requests_mock: Mocker, resume_cursor: in
     state = manager(SystemeResumeConfig(cursor=resume_cursor) if resume_cursor else None)
     assert rows(systeme_source("key", "contacts", 1, "job", state)) == []
     assert requests_mock.call_count == 1
-    assert requests_mock.last_request.qs.get("startingafter") == ([str(resume_cursor)] if resume_cursor else None)
+    last_request = requests_mock.last_request
+    assert last_request is not None
+    assert last_request.qs.get("startingafter") == ([str(resume_cursor)] if resume_cursor else None)
     state.save_state.assert_called_once_with(SystemeResumeConfig(completed=True))
 
 
@@ -158,8 +159,10 @@ def test_validate_credentials_status_and_probe(
     else:
         assert message is None
     assert requests_mock.call_count == 1
-    assert requests_mock.last_request.qs == {"limit": ["10"]}
-    assert requests_mock.last_request.headers["X-API-Key"] == "test-key"
+    last_request = requests_mock.last_request
+    assert last_request is not None
+    assert last_request.qs == {"limit": ["10"]}
+    assert last_request.headers["X-API-Key"] == "test-key"
 
 
 @pytest.mark.parametrize("status", [401, 403, 404, 429, 500])
