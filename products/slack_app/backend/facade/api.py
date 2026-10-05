@@ -41,6 +41,7 @@ from products.slack_app.backend.logic.progress_phases import (
     phase_line_title,
     tool_call_from_acp_update,
 )
+from products.slack_app.backend.logic.run_spend import plan_title_with_spend
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
@@ -62,6 +63,7 @@ __all__ = [
     "phase_for_key",
     "phase_for_tool_call",
     "phase_line_title",
+    "plan_title_with_spend",
     "tool_call_from_acp_update",
     "invalidate_slack_integration_auth_state",
     "slack_artifact_delivery_state_updates",
