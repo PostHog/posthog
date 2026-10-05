@@ -319,7 +319,7 @@ export const FeedbackSubmitSchema = z
             .string()
             .optional()
             .describe(
-                'The PostHog product or area this is about, in free text (e.g. "session replay", "insights", "data warehouse", "feature flags", "docs"). Most useful for product feedback; for MCP feedback the tool name belongs in `details`/`friction_points` instead.'
+                'The PostHog product the feedback concerns. Set it for every feedback type, and name the product, not the tool. Suggested values: product_analytics (trends, funnels, retention, insights, dashboards, cohorts), web_analytics, session_replay, feature_flags, experiments, surveys, error_tracking, logs, data_warehouse (SQL, sources, views), data_pipelines (destinations, batch exports), llm_analytics, revenue_analytics, marketing_analytics, customer_analytics, workflows, notebooks, posthog_ai (PostHog AI, signals, tasks), platform (organizations, projects, billing, access control), mcp (this MCP server as a whole), other.'
             ),
         category: z
             .enum([
