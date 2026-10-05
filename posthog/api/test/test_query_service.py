@@ -1010,6 +1010,7 @@ class TestLanguageServiceRouting(SimpleTestCase):
         assert published_revision[0].startswith("v2:")
         assert client.validate.call_count == 3
         assert build_catalog_mock.call_args.kwargs["database"] is build_schema.return_value.database
+        assert build_schema.call_args.kwargs["include_hidden_tables"] is True
 
     @patch("posthog.api.services.query.build_catalog", return_value={"tableAliases": {"alias": "canonical"}})
     @patch("posthog.api.services.query._build_database_schema_query")

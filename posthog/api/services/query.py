@@ -152,7 +152,10 @@ def _language_service_call(
     def publish_catalog() -> None:
         nonlocal publication_succeeded
         with timings.measure("catalog_schema") if timings is not None else nullcontext():
-            schema_catalog = _build_database_schema_query(team, DatabaseSchemaQuery(), user=user)
+            # Hidden tables still resolve in queries, so the validator must know them too.
+            schema_catalog = _build_database_schema_query(
+                team, DatabaseSchemaQuery(), user=user, include_hidden_tables=True
+            )
         revision = f"{CATALOG_REVISION_PREFIX}{time.time_ns()}"
         with timings.measure("catalog_build") if timings is not None else nullcontext():
             catalog = build_catalog(
@@ -469,7 +472,7 @@ def process_database_schema_query(
 
 
 def _build_database_schema_query(
-    team: Team, query: DatabaseSchemaQuery, *, user: Optional[User] = None
+    team: Team, query: DatabaseSchemaQuery, *, user: Optional[User] = None, include_hidden_tables: bool = False
 ) -> _DatabaseSchemaCatalog:
     try:
         _, database = resolve_database_for_connection(
@@ -484,8 +487,9 @@ def _build_database_schema_query(
         serialized_tables = database.serialize(
             context,
             include_only=set(query.tables) if query.tables else None,
-            include_hidden_posthog_tables=True,
+            include_all_posthog_tables=True,
             include_fields=query.includeFields is not False,
+            include_hidden_tables=include_hidden_tables,
         )
     except (APIException, ExposedHogQLError, ResolutionError, UserAccessControlError):
         # These already carry an actionable message, and the query view maps them to a 4xx.

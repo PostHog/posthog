@@ -439,7 +439,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         ):
             database = Database.create_for(team=self.team)
             context = HogQLContext(team_id=self.team.pk, database=database)
-            serialized = database.serialize(context, include_hidden_posthog_tables=True)
+            serialized = database.serialize(context, include_all_posthog_tables=True)
 
             assert ("posthog.flag_evaluations" in database.get_posthog_table_names(include_hidden=True)) is flag_enabled
             assert ("posthog.flag_evaluations" in serialized) is flag_enabled
@@ -475,8 +475,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(team_id=self.team.pk, database=database)
-        full = database.serialize(context, include_hidden_posthog_tables=True)
-        shallow = database.serialize(context, include_hidden_posthog_tables=True, include_fields=False)
+        full = database.serialize(context, include_all_posthog_tables=True)
+        shallow = database.serialize(context, include_all_posthog_tables=True, include_fields=False)
 
         assert set(shallow.keys()) == set(full.keys())
         assert "warehouse_table" in shallow
@@ -500,23 +500,24 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = Database.create_for(team=self.team, user=self.user)
         context = HogQLContext(team_id=self.team.pk, database=database)
-        full = database.serialize(context, include_hidden_posthog_tables=True)
+        full = database.serialize(context, include_all_posthog_tables=True)
         subset = database.serialize(
-            context, include_only={"events", "warehouse_table"}, include_hidden_posthog_tables=True
+            context, include_only={"events", "warehouse_table"}, include_all_posthog_tables=True
         )
 
         assert set(subset.keys()) == {"events", "warehouse_table"}
         for table_name, subset_table in subset.items():
             assert subset_table == full[table_name], table_name
 
-    def test_serialize_database_skips_hidden_posthog_tables_that_still_resolve(self):
+    def test_serialize_database_skips_hidden_posthog_tables_unless_asked(self):
         database = Database.create_for(team=self.team, user=self.user)
-        serialized = database.serialize(
-            HogQLContext(team_id=self.team.pk, database=database), include_hidden_posthog_tables=True
-        )
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        sidebar = database.serialize(context, include_all_posthog_tables=True)
+        catalog = database.serialize(context, include_all_posthog_tables=True, include_hidden_tables=True)
 
         for hidden_table in ("cohort_membership", "posthog.error_tracking_recent_issue_state"):
-            assert hidden_table not in serialized
+            assert hidden_table not in sidebar
+            assert hidden_table in catalog
             assert database.get_table(hidden_table.split(".")) is not None
 
     def test_apply_schema_scope_removes_lazy_joins_to_hidden_direct_tables(self):
