@@ -112,9 +112,43 @@ rules:
       owners: team-platform-features
     - match: '/posthog/test/activity_logging/'
       owners: team-platform-features
+    - match: '/posthog/api/test/test_playwright_setup.py'
+      owners: team-devex
+    # The guards behind the house patterns: semgrep rules, ratchet baselines, invariant tests,
+    # and the docs that state the rules. A small edit here can quietly reopen what a guard
+    # closed. Busy files that most PRs touch (lib/api.ts, pyproject.toml, the setup receivers
+    # and frozen dataclass baselines) stay out, so that the review requests stay rare.
     - match:
-          - '/posthog/api/test/test_playwright_setup.py'
-          - '/posthog/test/test_startup_import_budget.py'
+          - '/.github/scripts/migration-deletion-allowlist.txt'
+          - '/.semgrep/rules/devex/'
+          - '/.semgrep/rules/security/prefer-codegen-api.*'
+          - '/docs/internal/django-startup-time.md'
+          - '/docs/published/handbook/engineering/type-system.md'
+          - '/ee/urls.py'
+          - '/frontend/src/lib/api-orval-mutator.ts'
+          - '/frontend/src/lib/api-ratchet-baseline.txt'
+          - '/frontend/src/lib/api-stream.ts'
+          - '/posthog/management/commands/analyze_migration_risk.py'
+          - '/posthog/migration_helpers/'
+          - '/posthog/openapi/'
+          - '/posthog/product_urls.py'
+          - '/posthog/settings/nextgensquash.py'
+          - '/posthog/test/repo_invariants/dataclass_secret_field_exemptions.txt'
+          - '/posthog/test/repo_invariants/setup_import_baseline.txt'
+          - '/posthog/test/repo_invariants/test_admin_url_conf.py'
+          - '/posthog/test/repo_invariants/test_dataclass_secret_fields.py'
+          - '/posthog/test/repo_invariants/test_generated_files_are_registered.py'
+          - '/posthog/test/repo_invariants/test_migration_dependencies_share_a_database.py'
+          - '/posthog/test/repo_invariants/test_migration_run_before.py'
+          - '/posthog/test/repo_invariants/test_model_crossing_uses.py'
+          - '/posthog/test/repo_invariants/test_model_enum_defaults.py'
+          - '/posthog/test/repo_invariants/test_squash_partial_fallback.py'
+          - '/posthog/test/repo_invariants/test_startup_import_budget.py'
+          - '/products/README.md'
+          - '/products/architecture.md'
+          - '/products/isolation_baseline.txt'
+          - '/products/model_crossing_uses_baseline.txt'
+          - '/tools/openapi-codegen/'
       owners: team-devex
     - match: '/posthog/management/commands/find_enum_collisions.py'
       owners: team-devex

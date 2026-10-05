@@ -75,7 +75,6 @@ import {
     prefillScannerForExperiment,
     reconcileVariantKey,
 } from './experimentTargeting'
-import { consumeGoalDraftIntent } from './goalDraftIntent'
 import { ReplayScannerTab } from './replayScannerSceneLogic'
 import { clearScannerDraft, readScannerDraft, writeScannerDraft } from './scannerDraft'
 import {
@@ -467,10 +466,12 @@ export interface replayScannerLogicActions {
     }
     draftScannerFromGoal: (
         goal: string,
-        monthlyCreditBudget?: number
+        monthlyCreditBudget?: number,
+        templateKey?: string
     ) => {
         goal: string
         monthlyCreditBudget: number | undefined
+        templateKey: string | undefined
     }
     draftScannerFromGoalFailure: (
         error: string,
@@ -484,12 +485,14 @@ export interface replayScannerLogicActions {
         payload?: {
             goal: string
             monthlyCreditBudget: number | undefined
+            templateKey: string | undefined
         }
     ) => {
         goalDraft: DraftScannerResponseApi | null
         payload?: {
             goal: string
             monthlyCreditBudget: number | undefined
+            templateKey: string | undefined
         }
     }
     loadObservationStats: () => {
@@ -856,7 +859,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
-        draftScannerFromGoal: (goal: string, monthlyCreditBudget?: number) => ({ goal, monthlyCreditBudget }),
+        draftScannerFromGoal: (goal: string, monthlyCreditBudget?: number, templateKey?: string) => ({
+            goal,
+            monthlyCreditBudget,
+            templateKey,
+        }),
         setGoalDraftInput: (goal: string) => ({ goal }),
         setGoalBudgetInput: (budget: number | null) => ({ budget }),
         loadObservations: (background = false) => ({ background }),
@@ -1022,7 +1029,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     // A duplicate name is the one field error the details step can fix, so route back to it.
                     if (error.attr === 'name' && error.detail) {
                         actions.setScannerManualErrors({ name: error.detail })
-                        router.actions.push(urls.replayVisionScannerDetails(props.id))
+                        // From the goal overview, mark the trip so the details step returns there after the fix.
+                        router.actions.push(
+                            scannerStepUrlWithParams(
+                                'details',
+                                props.id,
+                                currentStep === 'overview'
+                                    ? { ...router.values.searchParams, from: 'overview' }
+                                    : router.values.searchParams
+                            )
+                        )
                         lemonToast.error(error.detail)
                         throw error
                     }
@@ -1125,15 +1141,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             '',
             {
                 setGoalDraftInput: (_, { goal }) => goal,
-                // Cleared once a draft or a template pick consumed it, so a stale goal doesn't linger.
-                draftScannerFromGoalSuccess: () => '',
+                // Kept through a successful draft so "Start over" on the review step returns with the goal
+                // still there to edit. A template pick, a discard, or a save ends that goal.
                 startFromTemplate: () => '',
+                discardScannerDraft: () => '',
+                scannerSaved: () => '',
             },
         ],
-        // The monthly credit budget input on the goal-based creation flow. Default 5,000 credits
-        // (~$50): the round anchor the budget question shows, and enough for a real first scanner.
+        // The monthly credit budget input on the goal-based creation flow. The default equals the free
+        // monthly credits (FREE_TIER_MONTHLY_CREDITS in backend/billing.py), so a first scanner fits the
+        // free tier and costs nothing unless the person raises it. Change both values together.
         goalBudgetInput: [
-            5000 as number | null,
+            2500 as number | null,
             {
                 setGoalBudgetInput: (_, { budget }) => budget,
             },
@@ -1720,12 +1739,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         typeof router.values.searchParams.goal === 'string'
                             ? router.values.searchParams.goal.trim()
                             : ''
-                    // Consumed unconditionally on every wizard entry: whichever prefill path wins
-                    // below, a hand-off armed by the nudge must not stay usable for the rest of
-                    // the tab session, where a later ?goal= link would auto-start a draft and
-                    // spend the user's AI allowance without fresh intent.
-                    const handedOffGoal = consumeGoalDraftIntent()?.trim() ?? ''
-                    // Consumed unconditionally for the same reason: a cross-product hand-off must
+                    // Consumed unconditionally on every wizard entry: a cross-product hand-off must
                     // not stay armed for the rest of the tab session and prefill a later,
                     // unrelated wizard visit.
                     const handoff = consumeScannerHandoffIntent()
@@ -1837,17 +1851,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     } finally {
                         cache.restoringDraft = false
                     }
-                    // The goal prefills the AI box; the draft only auto-starts for the in-player
-                    // nudge's sessionStorage hand-off (which carries the goal so the free text
-                    // never enters the URL), and never over a saved draft. A crafted external
-                    // ?goal= link can therefore neither spend the user's AI allowance nor
-                    // overwrite saved work without an explicit click.
-                    const goal = handedOffGoal || goalParam
-                    if (goal && !hasFiltersPrefill) {
-                        actions.setGoalDraftInput(goal)
-                        if (handedOffGoal && !draft) {
-                            actions.draftScannerFromGoal(handedOffGoal)
-                        }
+                    // The goal only prefills the AI box, so a crafted external ?goal= link can neither
+                    // spend the user's AI allowance nor overwrite saved work without an explicit click.
+                    if (goalParam && !hasFiltersPrefill) {
+                        actions.setGoalDraftInput(goalParam)
                     }
                     return
                 }
@@ -1959,10 +1966,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             // Fires on request rather than result, so failed drafts still count as entering the AI path.
-            draftScannerFromGoal: ({ goal, monthlyCreditBudget }) => {
+            draftScannerFromGoal: ({ goal, monthlyCreditBudget, templateKey }) => {
                 posthog.capture('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
-                    template_key: null,
+                    // Set when a goal starter card wrote the goal, so the funnel can split typed goals from one-click ones.
+                    template_key: templateKey ?? null,
                     // The goal is customer text, so only its length is captured.
                     goal_length: goal.trim().length,
                 })
@@ -1975,7 +1983,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             // A successful AI draft seeds the wizard form, then the configure step opens for review.
-            draftScannerFromGoalSuccess: ({ goalDraft }) => {
+            draftScannerFromGoalSuccess: ({ goalDraft, payload }) => {
                 if (!goalDraft) {
                     return
                 }
@@ -2008,6 +2016,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // Applied as form values (not baked into the reset) so the draft persists like hand-edited
                 // input and survives a reload of the configure step.
                 actions.setScannerValues({
+                    // Saved with the scanner, so it keeps the intent it was drafted from.
+                    goal: payload?.goal.trim() || null,
                     name: context ? experimentScannerName(goalDraft.name, context.experiment.name) : goalDraft.name,
                     description: goalDraft.description,
                     scanner_type: goalDraft.scanner_type as ScannerType,
@@ -2057,7 +2067,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             draftScannerFromGoalFailure: ({ errorObject }) => {
-                lemonToast.error(`Couldn't draft a scanner${errorObject?.detail ? `: ${errorObject.detail}` : ''}`)
+                lemonToast.error(errorObject?.detail ?? "Couldn't draft a scanner. Try again in a moment.")
                 // The goal flow moved to the overview skeleton on request; with no draft to show,
                 // send the user back to the questions to try again.
                 if (router.values.location.pathname.endsWith(urls.replayVisionScannerOverview('new'))) {

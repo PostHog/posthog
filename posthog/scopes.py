@@ -6,9 +6,14 @@ from typing import Literal, get_args
 # Not every model needs a scope - it should more be for top-level things
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
-# WARNING: Make sure to keep in sync with the frontend!
-# - frontend/src/lib/scopes.tsx (an `API_SCOPES` row and a group in `API_SCOPE_GROUPS`)
-# - frontend/src/types.ts (`export type APIScopeObject`)
+# A new scope object also needs UI data in frontend/src/lib/scopes.tsx:
+# - a row in `API_SCOPES`, or an entry with a reason in `API_SCOPES_OMITTED_FROM_MODAL`.
+# - a group in `API_SCOPE_GROUPS`.
+# frontend/src/lib/scopes.test.ts fails until both exist.
+#
+# The frontend `APIScopeObject` type needs no edit. `hogli build:openapi` generates it from
+# `GRANTABLE_API_SCOPE_OBJECTS` below, through the `resource` choice fields of the access
+# control serializers.
 #
 # The MCP `OAUTH_SCOPES_SUPPORTED` list at
 # `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
@@ -76,8 +81,8 @@ APIScopeObject = Literal[
     "interactive_run",
     "internal_run",
     "legal_document",
-    "link",
-    "live_debugger",
+    "link",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
+    "live_debugger",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "llm_analytics",
     "ai_observability_clusters",
     "llm_gateway",
@@ -112,6 +117,7 @@ APIScopeObject = Literal[
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
+    "scout_experiment_internal",
     "signal_scout",
     "signal_scout_internal",
     "signal_scout_report",
@@ -120,17 +126,19 @@ APIScopeObject = Literal[
     "stamphog",
     "streamlit_app",
     "subscription",
+    "support_ticket",
     "survey",
     "tagger",
     "ticket",
     "task",
+    "today",
     "toolbar",
     "tracing",
     "field_note",
     "uploaded_media",
     "usage_metric",
     "user",
-    "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
+    "user_interview",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_action",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_alert",
     "visual_review",
@@ -191,6 +199,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # MCP Store uses it to deny the human/member control plane and force the
         # agent through its own explicit gateway grants.
         "mcp_builtin_agent",
+        "scout_experiment_internal",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
@@ -228,6 +237,13 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     }
 )
 
+# Every scope object a person can grant: a personal API key, an OAuth grant or an access
+# control rule can name any of these. The access control API types its resource fields with
+# this list, so the generated frontend enum carries it and the frontend keeps no copy.
+GRANTABLE_API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = tuple(
+    obj for obj in API_SCOPE_OBJECTS if obj not in INTERNAL_API_SCOPE_OBJECTS
+)
+
 # llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
 # ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
@@ -242,6 +258,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Lets a service create customer analytics accounts through the external account POST.
     # Updates on that route stay team-token only.
     ("account", "write"),
+    # Conversations external ticket API reads, mirroring the account scope above so
+    # service integrations don't need the team-wide secret_api_token (#63111).
+    ("support_ticket", "read"),
     # First write-capable PSAK scope: lets a service credential fire a loop via
     # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
     # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
@@ -265,10 +284,7 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
 # Every public `obj:action` scope string. Matches `get_scope_descriptions()`
 # keys; excludes INTERNAL scopes (programmatic-only, never user-facing).
 ALL_SCOPES: frozenset[str] = frozenset(
-    f"{obj}:{action}"
-    for obj in API_SCOPE_OBJECTS
-    if obj not in INTERNAL_API_SCOPE_OBJECTS
-    for action in API_SCOPE_ACTIONS
+    f"{obj}:{action}" for obj in GRANTABLE_API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS
 )
 
 # Privileged scopes only land on `OAuthApplication.scopes` via an admin-driven

@@ -27,12 +27,12 @@ from time import perf_counter
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
-from django.conf import settings
-
+import redis
 import structlog
 from prometheus_client import Counter, Histogram
 
 from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.ph_client import get_feature_flag_or_none
 from posthog.redis import get_client
 
@@ -62,6 +62,12 @@ JEV_INPUT_USD_PER_MILLION = 0.042
 # client's own default; the sweep is background work, so latency is cheap and a timeout loses a
 # whole chunk's judgments.
 JEV_TIMEOUT_SECONDS = 30.0
+# Gateway refusals the batch itself can cause, so a retry fails the same way: a malformed request,
+# a payload past the gateway's limit, unprocessable content. An allowlist, because the two mistakes
+# cost differently: wrongly charging parks rows as judged-with-no-score for the cache entry's life,
+# wrongly not charging re-buys one batch next sweep. Auth and routing refusals, rate limits, server
+# errors, contract breaks reported as 200, and unknown statuses all retry free.
+_BATCH_FAULT_STATUSES = frozenset({400, 413, 422})
 # How far a viewed row drops on the 0-1 probability scale, the same intent as WATCH_SEEN_PENALTY in
 # the weighted ranker: an unviewed peer with comparable evidence comes first, and a very strong seen
 # row still holds its place above weak unseen rows.
@@ -69,8 +75,11 @@ JEV_SEEN_PENALTY = 0.3
 # Below this probability a judged row carries no evidence: it falls to the same recency filler tier
 # as an unjudged row, so its card never claims the model judged it worth watching, and a judged-low
 # row cannot outrank a fresh observation the sweep has not seen yet. Tier membership uses the raw
-# probability; the seen penalty only orders rows inside the evidence tier.
-JEV_WATCHABLE_MIN = 0.5
+# probability; the seen penalty only orders rows inside the evidence tier. JevK5 compresses the
+# scale: it scores sessions with real friction near 0.3 and routine sessions near 0.1, so a higher
+# bar empties the tier. Recalibrate from the judged event's watchability quantiles and top_scored
+# sample, and bump the cache version below with any change here.
+JEV_WATCHABLE_MIN = 0.3
 # One incident can put many near-identical watchable sessions on one scanner, and a pure probability
 # sort would fill the top of the feed with them. Hold each scanner to this share of the evidence
 # tier as it is placed (same intent as WATCH_FEED_MAX_SIGNAL_SHARE in the weighted ranker), with a
@@ -86,7 +95,10 @@ WINDOW_CHUNK_SIZE = MAX_QUESTIONS_PER_REQUEST
 _MAX_TITLE_CHARS = 300
 _MAX_PROSE_CHARS = 1500
 _MAX_TAGS = 20
-_WATCH_RANK_REDIS_PREFIX = "replay-vision:jev-watch-rank:"
+# The judged set records sub-threshold rows without their scores, so a JEV_WATCHABLE_MIN change
+# only reaches rows judged after it. Bump the version with the threshold: the sweep re-judges
+# every window into a fresh cache, and the old keys lapse by TTL.
+_WATCH_RANK_REDIS_PREFIX = "replay-vision:jev-watch-rank:v2:"
 # Judgments are append-only per observation and the sweep prunes entries that leave the window, so
 # a long lifetime is resilience, not staleness: the cache survives a day of failed sweeps before
 # the feed falls back to the recency filler tier and coverage rebuilds at the judging cap per hour.
@@ -158,13 +170,17 @@ class WindowJudgment:
     # from `probabilities` and retry next sweep.
     skipped_no_prose: tuple[str, ...]
     # Rows from chunks that failed for a reason the batch itself caused (an invalid answer, or a
-    # gateway refusal that is not a rate limit), so a retry will fail the same way. The sweep
+    # gateway refusal in _BATCH_FAULT_STATUSES), so a retry will fail the same way. The sweep
     # charges its retry budget only against these: an outage or a misconfigured gateway fails every
     # chunk alike and must not park rows as judged-with-no-score.
     batch_failed_ids: tuple[str, ...]
     model: str | None
     chunks: int
     failed_chunks: int
+    # Failed chunks keyed by exception class name. The Prometheus counter carries the same
+    # breakdown, but prod workers do not ship their metrics into the product; the sweep's
+    # judged event does, so a failing sweep names its error without log or cluster access.
+    chunk_error_types: dict[str, int]
     input_tokens: int
     estimated_cost_usd: float
 
@@ -270,6 +286,7 @@ def judge_scanner_window(
     batch_failed_ids: list[str] = []
     model: str | None = None
     failed_chunks = 0
+    chunk_error_types: dict[str, int] = {}
     input_tokens = 0
     estimated_cost = 0.0
     for chunk in chunks:
@@ -281,13 +298,16 @@ def judge_scanner_window(
             )
         except Exception as error:
             _LATENCY.observe(perf_counter() - started)
-            _CALLS.labels(type(error).__name__).inc()
+            error_type = type(error).__name__
+            _CALLS.labels(error_type).inc()
             failed_chunks += 1
-            # An invalid answer or a non-rate-limit gateway refusal is the batch's own fault; an
-            # unreachable, disabled, misconfigured, rate-limited, or erroring gateway is not, and
-            # its rows must retry free.
-            if isinstance(error, ValueError) or (
-                isinstance(error, DecisionGatewayError) and 400 <= error.status_code < 500 and error.status_code != 429
+            chunk_error_types[error_type] = chunk_error_types.get(error_type, 0) + 1
+            # An invalid answer or a batch-caused gateway refusal charges the retry budget. A
+            # missing gateway config raises a ValueError subclass and must not sneak in through
+            # the invalid-answer check: it fails every chunk alike, so its rows retry free, the
+            # same as an unreachable, disabled, rate-limited, or erroring gateway.
+            if (isinstance(error, ValueError) and not isinstance(error, GatewayNotConfiguredError)) or (
+                isinstance(error, DecisionGatewayError) and error.status_code in _BATCH_FAULT_STATUSES
             ):
                 batch_failed_ids.extend(entry_id for entry_id, _ in chunk)
             # The gateway error body can echo the state, which holds recording-derived prose, so
@@ -296,7 +316,7 @@ def judge_scanner_window(
                 "Jev watch rank chunk failed",
                 team_id=team_id,
                 scanner_id=str(scanner_id),
-                error_type=type(error).__name__,
+                error_type=error_type,
             )
             continue
         _LATENCY.observe(perf_counter() - started)
@@ -315,6 +335,7 @@ def judge_scanner_window(
         model=model,
         chunks=len(chunks),
         failed_chunks=failed_chunks,
+        chunk_error_types=chunk_error_types,
         input_tokens=input_tokens,
         estimated_cost_usd=estimated_cost,
     )
@@ -332,8 +353,16 @@ def _judged_key(team_id: int, scanner_id: UUID | str) -> str:
     return f"{_WATCH_RANK_REDIS_PREFIX}judged:{team_id}:{scanner_id}"
 
 
+# The sweep worker writes this cache and the feed API on the web fleet reads it, so it lives on
+# the shared Redis, like the enqueue claims. The dedicated replay-vision Redis
+# (REPLAY_VISION_REDIS_URL) is mounted only on the replay-vision temporal workers, so a key
+# written there never reaches the feed.
+def _watch_rank_client() -> redis.Redis:
+    return get_client()
+
+
 def refresh_watch_ranks_ttl(team_id: int, scanner_id: UUID) -> None:
-    client = get_client(settings.REPLAY_VISION_REDIS_URL)
+    client = _watch_rank_client()
     client.expire(_watchable_key(team_id, scanner_id), WATCH_RANK_TTL)
     client.expire(_judged_key(team_id, scanner_id), WATCH_RANK_TTL)
 
@@ -346,7 +375,7 @@ def store_watch_ranks(
     attempts: dict[str, int],
     model: str | None,
 ) -> None:
-    client = get_client(settings.REPLAY_VISION_REDIS_URL)
+    client = _watch_rank_client()
     client.setex(
         _watchable_key(team_id, scanner_id),
         WATCH_RANK_TTL,
@@ -385,7 +414,7 @@ def load_judged_state(team_id: int, scanner_id: UUID) -> JudgedState:
     re-buys the scanner's judgments and its next write replaces entries it never saw. A stored
     value that cannot be parsed reads as empty instead, because rewriting it loses nothing.
     """
-    value = get_client(settings.REPLAY_VISION_REDIS_URL).get(_judged_key(team_id, scanner_id))
+    value = _watch_rank_client().get(_judged_key(team_id, scanner_id))
     if not value:
         return JudgedState(ids=set(), attempts={})
     try:
@@ -432,7 +461,7 @@ def load_scanner_watch_ranks(team_id: int, scanner_id: UUID) -> dict[str, float]
     """The sweep's read of one scanner's watchable map. Raises on a Redis read failure, because the
     sweep merges what it loads back into the store, so writing over a map it never saw drops
     entries. The feed reads through `load_watch_ranks`, which fails soft instead."""
-    return _parse_watchable(get_client(settings.REPLAY_VISION_REDIS_URL).get(_watchable_key(team_id, scanner_id)))
+    return _parse_watchable(_watch_rank_client().get(_watchable_key(team_id, scanner_id)))
 
 
 def load_watch_ranks(team_id: int, scanner_ids: list[UUID]) -> dict[str, float]:
@@ -443,9 +472,7 @@ def load_watch_ranks(team_id: int, scanner_ids: list[UUID]) -> dict[str, float]:
         return {}
     probabilities: dict[str, float] = {}
     try:
-        values = get_client(settings.REPLAY_VISION_REDIS_URL).mget(
-            [_watchable_key(team_id, scanner_id) for scanner_id in scanner_ids]
-        )
+        values = _watch_rank_client().mget([_watchable_key(team_id, scanner_id) for scanner_id in scanner_ids])
         for value in values:
             probabilities |= _parse_watchable(value)
     except Exception:

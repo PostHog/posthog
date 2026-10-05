@@ -54,8 +54,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry
     stop_cdc_past_billing_retention,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (
+    AUTO_DROPPED_LAG_REASON,
     SELF_MANAGED_LAG_REASON,
+    broken_for_another_reason,
     clear_recovered_self_managed_lag,
+    clear_slot_loss_markers,
     mark_cdc_broken,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import CDCBufferWriter, purge_buffer_prefix
@@ -67,7 +70,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.legacy_conversion import convert_legacy_cdc_state
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import (
     CDC_EXTRACTION_WORKFLOW_ID_PREFIX,
@@ -102,22 +104,17 @@ SLOT_INVALIDATION_RECOVERY_MESSAGE = (
 )
 
 
-def _merge_pending_reset(
-    config: dict[str, typing.Any], *, clear_deferred_runs: bool, awaiting_slot: bool
-) -> dict[str, typing.Any]:
+def _merge_pending_reset(config: dict[str, typing.Any], *, awaiting_slot: bool) -> None:
     """Merge a reset into the table's pending one. Read under the row lock, so a request's fields survive.
 
-    `clear_deferred_runs` accumulates: a reset that owes the drop keeps owing it until one happens.
     `awaiting_slot` is this reset's own answer, because only the reset that is waiting for a slot
     holds the table back, and slot recovery clears the wait.
     """
     current = config.get(CDC_RESET_PENDING_KEY)
     fields = dict(current) if isinstance(current, dict) else {}
-    fields["clear_deferred_runs"] = clear_deferred_runs or bool(fields.get("clear_deferred_runs"))
     fields["awaiting_slot"] = awaiting_slot
     fields["generation"] = next_reset_generation(fields)
     config[CDC_RESET_PENDING_KEY] = fields
-    return fields
 
 
 # The sweeper's auto-drop must fire below the engine's own retention cap, otherwise the
@@ -194,6 +191,8 @@ class CDCExtractActivity:
         self.cdc_schemas: list[ExternalDataSchema] = []
         self.schema_by_name: dict[str, ExternalDataSchema] = {}
         self.pk_columns_by_table: dict[str, list[str]] = {}
+        # Merge keys that no two source rows can share, the only ones `_split_key_change` splits on.
+        self.split_key_columns: dict[str, list[str]] = {}
         # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
         self.enabled_columns_by_table: dict[str, set[str]] = {}
         self.adapter: typing.Any = None
@@ -506,25 +505,13 @@ class CDCExtractActivity:
         return True
 
     def _prepare_buffer(self) -> None:
-        """Convert leftover legacy state and start pending snapshots in the buffer, before the WAL read."""
-        assert self.source is not None and self.adapter is not None
-        convert_legacy_cdc_state(
-            self.source,
-            self.cdc_schemas,
-            ingest_mode=self.adapter.parse_cdc_config(self.source).ingest_mode,
-            logger=self.log,
-        )
-
+        """Start pending snapshots in the buffer, before the WAL read."""
         for schema in self.cdc_schemas:
             if not captures_to_buffer(schema):
                 # No lane writes this table mode, so the buffer could never deliver its changes.
                 self._schema_log(schema).warning("cdc_table_mode_not_captured", cdc_table_mode=schema.cdc_table_mode)
                 continue
-            # A table with deferred runs gets no buffered snapshot here: its old sync could still hand over
-            # into that buffer without its deferred changes. The reset the conversion staged restarts the
-            # snapshot instead, and holds the table out of capture until the old sync stops. Once that
-            # reset has run, which can be before this read, the table's changes belong in the buffer.
-            if snapshot_can_start_in_buffer(schema) and not (schema.sync_type_config or {}).get("cdc_deferred_runs"):
+            if snapshot_can_start_in_buffer(schema):
                 self._start_snapshot_in_buffer(schema)
             self._buffered_table_names.add(schema.name)
         self.log.info("cdc_buffered_ingress_active", buffered=sorted(self._buffered_table_names))
@@ -591,6 +578,20 @@ class CDCExtractActivity:
                 self._update_schema_sync_type_config(schema, updates={"primary_key_columns": queried_pks[schema.name]})
 
         self.log.info("pk_columns_loaded", tables=list(self.pk_columns_by_table.keys()))
+        enforced_keys = self._query_enforced_unique_keys(list(cdc_table_names))
+        self.split_key_columns = {
+            table: key_columns
+            for table, key_columns in self.pk_columns_by_table.items()
+            if any(unique_columns <= set(key_columns) for unique_columns in enforced_keys.get(table, []))
+        }
+        self.log.info("cdc_key_change_split_tables", tables=sorted(self.split_key_columns))
+        self.reader.set_key_change_columns(
+            {
+                event_name: self.split_key_columns[schema_name]
+                for event_name, schema_name in self._build_event_name_map().items()
+                if schema_name in self.split_key_columns
+            }
+        )
 
         for schema in self.cdc_schemas:
             enabled = schema.enabled_columns
@@ -616,6 +617,24 @@ class CDCExtractActivity:
         defaulting to the source's namespace matches how the tables are resolved when they are added
         to the publication.
         """
+        resolved: dict[str, list[str]] = {}
+        for namespace, relations_by_name in self._catalog_names(table_names).items():
+            queried = self.reader.get_primary_key_columns(namespace, list(relations_by_name))
+            for relation, pk_columns in queried.items():
+                resolved[relations_by_name[relation]] = pk_columns
+        return resolved
+
+    def _query_enforced_unique_keys(self, table_names: list[str]) -> dict[str, list[frozenset[str]]]:
+        """Enforced unique column sets per schema name, see `get_enforced_unique_keys`."""
+        resolved: dict[str, list[frozenset[str]]] = {}
+        for namespace, relations_by_name in self._catalog_names(table_names).items():
+            queried = self.reader.get_enforced_unique_keys(namespace, list(relations_by_name))
+            for relation, unique_keys in queried.items():
+                resolved[relations_by_name[relation]] = unique_keys
+        return resolved
+
+    def _catalog_names(self, table_names: list[str]) -> dict[str, dict[str, str]]:
+        """Group schema names by source namespace, mapping each bare relation name back to its schema name."""
         assert self.source is not None
         default_namespace = (self.source.job_inputs or {}).get("schema", "public")
         names_by_namespace: dict[str, dict[str, str]] = {}
@@ -624,13 +643,7 @@ class CDCExtractActivity:
             if not dot:
                 namespace, relation = default_namespace, name
             names_by_namespace.setdefault(namespace, {})[relation] = name
-
-        resolved: dict[str, list[str]] = {}
-        for namespace, relations_by_name in names_by_namespace.items():
-            queried = self.reader.get_primary_key_columns(namespace, list(relations_by_name))
-            for relation, pk_columns in queried.items():
-                resolved[relations_by_name[relation]] = pk_columns
-        return resolved
+        return names_by_namespace
 
     def _project_event_columns(self, event: ChangeEvent) -> ChangeEvent:
         retained = self.enabled_columns_by_table.get(event.table_name)
@@ -651,6 +664,32 @@ class CDCExtractActivity:
             column_types=event.column_types,
             omitted_columns=filtered_omitted,
         )
+
+    def _split_key_change(self, event: ChangeEvent) -> tuple[ChangeEvent, ...]:
+        """Turn an update that changes the merge key into a delete of the old key and an insert of the new one.
+
+        Merged on its new key alone, the update leaves the old key's row live in the consolidated
+        table and open in the history table. The delete carries only the old key, like a Postgres
+        delete under the default replica identity, so delete enrichment fills the rest of the row.
+        Only tables in `split_key_columns` split; `get_enforced_unique_keys` says why.
+        """
+        if event.previous_values is None:
+            return (event,)
+        # The batcher neither writes the previous values nor counts them toward its flush size.
+        current = dataclasses.replace(event, previous_values=None)
+        key_columns = self.split_key_columns.get(event.table_name, [])
+        if not any(column in event.previous_values for column in key_columns):
+            return (current,)
+        old_key = {column: event.previous_values.get(column, event.columns.get(column)) for column in key_columns}
+        removed = ChangeEvent(
+            operation="D",
+            table_name=event.table_name,
+            position_serialized=event.position_serialized,
+            timestamp=event.timestamp,
+            columns=old_key,
+            column_types=event.column_types,
+        )
+        return (removed, dataclasses.replace(current, operation="I"))
 
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
         default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
@@ -731,8 +770,8 @@ class CDCExtractActivity:
                 if canonical_name != event.table_name:
                     event = dataclasses.replace(event, table_name=canonical_name)
 
-                event = self._project_event_columns(event)
-                self.batcher.add(event)
+                for change in self._split_key_change(event):
+                    self.batcher.add(self._project_event_columns(change))
 
                 # A change in position_serialized proves the previous transaction fully
                 # yielded — all of its events are now buffered or flushed. Record its end LSN
@@ -898,9 +937,7 @@ class CDCExtractActivity:
             return None
         return pending if isinstance(pending, dict) else {}
 
-    def _reset_schema_to_snapshot(
-        self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False, awaiting_slot: bool = False
-    ) -> bool:
+    def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, awaiting_slot: bool = False) -> bool:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch.
 
         Returns False when a sync of the table could still hand over, which leaves the reset pending.
@@ -913,12 +950,7 @@ class CDCExtractActivity:
         self._pause_schema_schedule(schema)
         stopping = cancel_running_sync(schema)
         if stopping is not None or has_queued_batches(schema):
-            self._defer_reset(
-                schema,
-                clear_deferred_runs=clear_deferred_runs,
-                awaiting_slot=awaiting_slot,
-                stopping_workflow_id=stopping,
-            )
+            self._defer_reset(schema, awaiting_slot=awaiting_slot, stopping_workflow_id=stopping)
             return False
         # The re-seeding snapshot starts after this run, so it covers every change this run read.
         # Pending changes go too, because a change from before a TRUNCATE would bring back rows.
@@ -932,9 +964,7 @@ class CDCExtractActivity:
 
         # Pending until the schedule is unpaused, so a failed unpause repeats on the next run.
         def _merge_pending(config: dict[str, typing.Any]) -> None:
-            merged = _merge_pending_reset(config, clear_deferred_runs=clear_deferred_runs, awaiting_slot=awaiting_slot)
-            if merged["clear_deferred_runs"]:
-                config.pop("cdc_deferred_runs", None)
+            _merge_pending_reset(config, awaiting_slot=awaiting_slot)
 
         # reset_pipeline forces the batch import to wipe the table first (handle_reset_or_full_refresh),
         # preventing pre-truncate rows from surviving a TRUNCATE or lost-slot re-snapshot. Later runs
@@ -951,12 +981,7 @@ class CDCExtractActivity:
         return True
 
     def _defer_reset(
-        self,
-        schema: ExternalDataSchema,
-        *,
-        clear_deferred_runs: bool,
-        awaiting_slot: bool,
-        stopping_workflow_id: str | None,
+        self, schema: ExternalDataSchema, *, awaiting_slot: bool, stopping_workflow_id: str | None
     ) -> None:
         """Leave the table out of capture until a later run can reset it."""
         if self.batcher is not None:
@@ -964,7 +989,7 @@ class CDCExtractActivity:
         self._tables_awaiting_reset.add(schema.name)
 
         def _merge_pending(config: dict[str, typing.Any]) -> None:
-            _merge_pending_reset(config, clear_deferred_runs=clear_deferred_runs, awaiting_slot=awaiting_slot)
+            _merge_pending_reset(config, awaiting_slot=awaiting_slot)
 
         self._update_schema_sync_type_config(schema, mutate=_merge_pending)
         self._schema_log(schema).info("cdc_reset_waits_for_running_sync", stopping_workflow_id=stopping_workflow_id)
@@ -1176,7 +1201,7 @@ class CDCExtractActivity:
         # free to start a snapshot before capture has a point to resume from.
         reset_schemas = []
         for schema in self.cdc_schemas:
-            if self._reset_schema_to_snapshot(schema, clear_deferred_runs=True, awaiting_slot=True):
+            if self._reset_schema_to_snapshot(schema, awaiting_slot=True):
                 reset_schemas.append(schema)
             schema.status = ExternalDataSchema.Status.FAILED
             schema.latest_error = SLOT_INVALIDATION_RECOVERY_MESSAGE
@@ -1197,6 +1222,7 @@ class CDCExtractActivity:
             self._release_reset_awaiting_slot(schema)
         for schema in reset_schemas:
             self._unpause_schema_schedule(schema)
+        clear_slot_loss_markers(self.source)
 
         self.log.info("cdc_slot_recovery_complete", schemas_reset=len(self.cdc_schemas))
 
@@ -1635,7 +1661,7 @@ def cleanup_orphan_slots_activity() -> None:
                         # schedule so it stops retrying against a slot that no longer exists.
                         mark_cdc_broken(
                             source,
-                            "auto_dropped_critical_lag",
+                            AUTO_DROPPED_LAG_REASON,
                             f"Change data capture was automatically stopped because replication lag "
                             f"exceeded {critical_threshold_mb} MB and the safety net dropped the "
                             f"replication slot. Use Repair CDC to recreate it and re-sync.",
@@ -1648,17 +1674,20 @@ def cleanup_orphan_slots_activity() -> None:
                 elif cdc_config.management_mode == "self_managed":
                     # Customer owns the slot: surface the broken state but keep the schedule running
                     # and never drop — the lag may recover once they reduce load on the source.
+                    # A marker with another reason stays. The lag marker allows Resume CDC and clears
+                    # itself once the lag drops, which would lift a stop that only Repair CDC may lift.
                     try:
-                        mark_cdc_broken(
-                            source,
-                            SELF_MANAGED_LAG_REASON,
-                            f"Change data capture replication lag exceeded {critical_threshold_mb} MB. "
-                            f"This slot is self-managed, so PostHog did not drop it — reduce load or WAL "
-                            f"retention on the source database, or it may invalidate the slot and "
-                            f"require a full re-sync.",
-                            pause=False,
-                            lag_mb=round(lag_mb, 1),
-                        )
+                        if not broken_for_another_reason(source, SELF_MANAGED_LAG_REASON):
+                            mark_cdc_broken(
+                                source,
+                                SELF_MANAGED_LAG_REASON,
+                                f"Change data capture replication lag exceeded {critical_threshold_mb} MB. "
+                                f"This slot is self-managed, so PostHog did not drop it — reduce load or WAL "
+                                f"retention on the source database, or it may invalidate the slot and "
+                                f"require a full re-sync.",
+                                pause=False,
+                                lag_mb=round(lag_mb, 1),
+                            )
                     except Exception:
                         source_log.exception("failed_to_mark_self_managed_broken")
                         metrics.get_sweeper_source_errors_metric().add(1)

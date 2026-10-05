@@ -16,6 +16,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { CleanQuarantinedSnapshots } from '../components/CleanQuarantinedSnapshots'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
@@ -217,7 +218,9 @@ export function VisualReviewRunScene(): JSX.Element {
         run,
         snapshots,
         snapshotsLoading,
+        deepLinkedSnapshotLoading,
         selectedSnapshot,
+        selectedSnapshotId,
         sortedChangedSnapshots,
         toleratedHashes,
         toleratedHashesLoading,
@@ -225,10 +228,17 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
         showQuarantinedThumbnails,
+        cleanQuarantinedSnapshots,
+        quarantinedRunSnapshotsLoading,
+        quarantinedRunSnapshotsLoadFailed,
         repoFullName,
         isFinalizing,
         isApprovingSnapshot,
         isRecomputing,
+        isRequestingLift,
+        isCancellingLift,
+        selectedLiftRequest,
+        selectedLiftOnMergeDisabledReason,
         isRunInProgress,
         isRunProcessing,
         isReportingOnly,
@@ -243,24 +253,23 @@ export function VisualReviewRunScene(): JSX.Element {
         markAsTolerated,
         quarantineSnapshot,
         unquarantineSnapshot,
+        requestLiftOnMerge,
+        cancelLiftOnMerge,
         recomputeRun,
         markThumbnailFailed,
         toggleQuarantinedThumbnails,
         setAddImagesToComment,
     } = useActions(visualReviewRunSceneLogic)
 
-    // Navigation — use changed snapshots when there are changes, otherwise all snapshots
-    const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
-
-    const quarantinedNavCount = navSnapshots.filter((s: SnapshotApi) =>
+    const quarantinedNavCount = sortedChangedSnapshots.filter((s: SnapshotApi) =>
         quarantinedIdentifierSet.has(s.identifier)
     ).length
     const isHiddenQuarantined = (s: SnapshotApi): boolean =>
         quarantinedIdentifierSet.has(s.identifier) && s.id !== selectedSnapshot?.id
     const visibleNavSnapshots = showQuarantinedThumbnails
-        ? navSnapshots
-        : navSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
-    const hiddenQuarantinedCount = navSnapshots.length - visibleNavSnapshots.length
+        ? sortedChangedSnapshots
+        : sortedChangedSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
+    const hiddenQuarantinedCount = sortedChangedSnapshots.length - visibleNavSnapshots.length
     const showQuarantinedToggle = quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails)
 
     // Navigate over what's actually visible — when quarantined items are hidden, next/previous
@@ -338,7 +347,6 @@ export function VisualReviewRunScene(): JSX.Element {
 
     const initialSnapshotsLoading = snapshotsLoading && snapshots.length === 0
 
-    // Review summary (from loaded snapshots — paginated but covers actionable ones first)
     // Quarantined snapshots don't need review — exclude from pending count
     const reviewPending = snapshots.filter(
         (s: SnapshotApi) =>
@@ -420,8 +428,8 @@ export function VisualReviewRunScene(): JSX.Element {
 
             {isReportingOnly && (
                 <LemonBanner type="info" className="mb-4">
-                    Tracking-only run — this is a push to the default branch, so there's nothing to approve. Visual
-                    changes are recorded for history and reported to GitHub as a non-blocking status.
+                    Tracking-only run, so there's nothing to approve. Default-branch pushes and merge-queue runs record
+                    visual changes for history and report them to GitHub as a non-blocking status.
                 </LemonBanner>
             )}
 
@@ -518,7 +526,7 @@ export function VisualReviewRunScene(): JSX.Element {
                         )}
                     </div>
 
-                    {navSnapshots.length > 0 && (
+                    {sortedChangedSnapshots.length > 0 && (
                         <div className="flex gap-1.5 overflow-x-auto px-3 pb-3">
                             {visibleNavSnapshots.map((snapshot: SnapshotApi) => {
                                 const hasThumbnail = thumbnailBasePath && !failedThumbnails.has(snapshot.identifier)
@@ -543,7 +551,7 @@ export function VisualReviewRunScene(): JSX.Element {
                     )}
 
                     {/* Pagination — below thumbnails, right-aligned */}
-                    {(showQuarantinedToggle || navSnapshots.length > 1) && (
+                    {(showQuarantinedToggle || sortedChangedSnapshots.length > 1) && (
                         <div
                             className={`flex items-center gap-2 px-3 pb-2 ${
                                 showQuarantinedToggle ? 'justify-between' : 'justify-end'
@@ -587,6 +595,16 @@ export function VisualReviewRunScene(): JSX.Element {
                             )}
                         </div>
                     )}
+
+                    {!isReportingOnly && (
+                        <CleanQuarantinedSnapshots
+                            snapshots={cleanQuarantinedSnapshots}
+                            loading={quarantinedRunSnapshotsLoading}
+                            loadFailed={quarantinedRunSnapshotsLoadFailed}
+                            selectedSnapshotId={selectedSnapshotId}
+                            onSelect={setSelectedSnapshotId}
+                        />
+                    )}
                 </div>
 
                 {/* Body: diff viewer */}
@@ -608,10 +626,18 @@ export function VisualReviewRunScene(): JSX.Element {
                                         (!q.expires_at || new Date(q.expires_at) > new Date())
                                 ) ?? null
                             }
-                            onQuarantine={(reason, identifiers, expiresAt, sourceRunId) =>
-                                quarantineSnapshot(reason, identifiers, expiresAt, sourceRunId)
+                            onQuarantine={(reason, identifiers, expiresAt, sourceRunId, notifyOwners) =>
+                                quarantineSnapshot(reason, identifiers, expiresAt, sourceRunId, notifyOwners)
                             }
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
+                            liftRequest={selectedLiftRequest}
+                            liftOnMergeDisabledReason={selectedLiftOnMergeDisabledReason}
+                            isRequestingLift={isRequestingLift}
+                            isCancellingLift={isCancellingLift}
+                            onRequestLiftOnMerge={
+                                isReportingOnly ? undefined : () => requestLiftOnMerge(selectedSnapshot)
+                            }
+                            onCancelLiftOnMerge={cancelLiftOnMerge}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
                             repoId={run.repo_id}
@@ -630,10 +656,15 @@ export function VisualReviewRunScene(): JSX.Element {
                                 (!allChangesResolved ? 'Re-trigger would not change the outcome' : undefined)
                             }
                         />
-                    ) : snapshotsLoading ? (
+                    ) : snapshotsLoading || deepLinkedSnapshotLoading ? (
                         <div className="space-y-3 py-4">
                             <LemonSkeleton className="h-6 w-1/4" />
                             <LemonSkeleton className="h-48 w-full" />
+                        </div>
+                    ) : selectedSnapshotId ? (
+                        <div className="text-center text-muted py-8">
+                            Couldn't load this snapshot. It may not belong to this run. Pick a snapshot from the list
+                            above, or reload the page.
                         </div>
                     ) : sortedChangedSnapshots.length > 0 ? (
                         <div className="text-center text-muted py-8">Select a snapshot to view details</div>

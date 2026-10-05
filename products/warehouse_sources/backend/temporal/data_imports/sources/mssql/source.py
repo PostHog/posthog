@@ -36,16 +36,30 @@ _FIREWALL_BLOCKED_ERROR = (
     "try again. New rules can take a few minutes to take effect."
 )
 
+# The two connect-time conditions the sync path maps below, reached through the connect form
+# instead. Both need the network cause named, not just the two values: FreeTDS reports a wrong host
+# or port and a server it cannot reach at all in the same words.
+_SERVER_UNREACHABLE_VALIDATION_ERROR = (
+    "Could not reach your SQL Server on the host and port given. Check the host and port are "
+    "correct, and that PostHog's IP addresses are allowed through your firewall."
+)
+
+_CONNECTION_TIMED_OUT_ERROR = (
+    "Connection timed out. Check that your server is reachable from the public internet and that "
+    "PostHog's IP addresses are allowed through your firewall. For a server that can't be exposed "
+    "publicly, use the SSH tunnel option."
+)
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
     # sources use and match the stable prefix, not the volatile "'<username>'." that follows it.
     "Login failed for user": "Invalid user or password",
-    "Adaptive Server is unavailable or does not exist": "Could not connect to SQL server - check server host and port",
+    "Adaptive Server is unavailable or does not exist": _SERVER_UNREACHABLE_VALIDATION_ERROR,
     # Azure SQL error 40615 — the server-level firewall rejected the connecting client IP. The full
     # message echoes the server name and client IP, so match the stable, distinctive phrase instead.
     "is not allowed to access the server": _FIREWALL_BLOCKED_ERROR,
-    "connection timed out": "Could not connect to SQL server - check server firewall settings",
+    "connection timed out": _CONNECTION_TIMED_OUT_ERROR,
 }
 
 _MSSQL_IMPLEMENTATION = MSSQLImplementation()
@@ -89,7 +103,10 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # connection attempt. On a managed instance this is a persistent connectivity issue
             # (security group doesn't allow PostHog's IPs, the instance is stopped, or the
             # hostname is wrong), not a momentary blip, so retrying the job won't recover it.
-            "Adaptive Server is unavailable or does not exist": "Could not reach your SQL Server. Check that the server is running and reachable, and that PostHog's IP addresses are allowed through its firewall / security group.",
+            "Adaptive Server is unavailable or does not exist": (
+                "PostHog couldn't reach your SQL Server. Check that it's running and that PostHog's IP addresses "
+                "are allowed through your firewall, then re-enable the sync."
+            ),
             # SQL Server error 18456 — the login was rejected (wrong username/password, or the login
             # is disabled). Deterministic until the customer fixes the credentials, so retrying just
             # replays the same rejection; surface the same actionable wording as the validation path

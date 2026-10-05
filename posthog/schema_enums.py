@@ -470,8 +470,6 @@ class AssistantTool(StrEnum):
     SEARCH_SESSION_RECORDINGS = "search_session_recordings"
     CREATE_AI_TRACE_PARSER = "create_ai_trace_parser"
     FIX_HOGQL_QUERY = "fix_hogql_query"
-    ANALYZE_USER_INTERVIEWS = "analyze_user_interviews"
-    CREATE_USER_INTERVIEW_TOPIC = "create_user_interview_topic"
     CREATE_HOG_TRANSFORMATION_FUNCTION = "create_hog_transformation_function"
     CREATE_HOG_FUNCTION_FILTERS = "create_hog_function_filters"
     CREATE_HOG_FUNCTION_INPUTS = "create_hog_function_inputs"
@@ -953,6 +951,11 @@ class CustomChannelOperator(StrEnum):
     NOT_REGEX = "not_regex"
 
 
+class Kind(StrEnum):
+    CUSTOM_PROPERTY = "custom_property"
+    RELATIONSHIP = "relationship"
+
+
 class DataColorToken(StrEnum):
     PRESET_1 = "preset-1"
     PRESET_2 = "preset-2"
@@ -1257,12 +1260,12 @@ class MultipleVariantHandling(StrEnum):
     FIRST_SEEN = "first_seen"
 
 
-class Kind(StrEnum):
+class Kind1(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
 
 
-class Kind1(StrEnum):
+class Kind2(StrEnum):
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
     ACTIONS_NODE = "ActionsNode"
 
@@ -1272,7 +1275,7 @@ class StartHandling(StrEnum):
     LAST_SEEN = "last_seen"
 
 
-class Kind2(StrEnum):
+class Kind3(StrEnum):
     EVENTS_NODE = "EventsNode"
     ACTIONS_NODE = "ActionsNode"
     EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
@@ -1381,7 +1384,6 @@ class FileSystemIconType(StrEnum):
     SESSION_PROFILE = "session_profile"
     SURVEY = "survey"
     PRODUCT_TOUR = "product_tour"
-    USER_INTERVIEW = "user_interview"
     EARLY_ACCESS_FEATURE = "early_access_feature"
     EXPERIMENT = "experiment"
     FEATURE_FLAG = "feature_flag"
@@ -1391,8 +1393,6 @@ class FileSystemIconType(StrEnum):
     DATA_PIPELINE_METADATA = "data_pipeline_metadata"
     DATA_WAREHOUSE = "data_warehouse"
     TASK = "task"
-    LINK = "link"
-    LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
     TRACING = "tracing"
     METRICS = "metrics"
@@ -1768,6 +1768,7 @@ class IntegrationKind(StrEnum):
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
     YOUTUBE_ANALYTICS = "youtube-analytics"
+    TWITTER_ADS = "twitter-ads"
 
 
 class IntervalType(StrEnum):
@@ -2457,8 +2458,6 @@ class ProductKey(StrEnum):
     HISTORY = "history"
     INGESTION_WARNINGS = "ingestion_warnings"
     INTEGRATIONS = "integrations"
-    LINKS = "links"
-    LIVE_DEBUGGER = "live_debugger"
     LLM_CLUSTERS = "llm_clusters"
     LLM_DATASETS = "llm_datasets"
     LLM_EVALUATIONS = "llm_evaluations"
@@ -2497,7 +2496,6 @@ class ProductKey(StrEnum):
     TOOLBAR = "toolbar"
     TRACING = "tracing"
     METRICS = "metrics"
-    USER_INTERVIEWS = "user_interviews"
     VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
@@ -2651,6 +2649,11 @@ class RecordingOrder(StrEnum):
 class RecordingOrderDirection(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
+
+
+class EventMatchScope(StrEnum):
+    RECORDING = "recording"
+    SESSION = "session"
 
 
 class HideViewedRecordings(Enum):

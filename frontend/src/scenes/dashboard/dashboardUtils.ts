@@ -8,6 +8,7 @@ import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
+import posthog from 'lib/posthog-typed'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
@@ -200,6 +201,9 @@ export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
 export const AUTO_PREVIEW_TILE_LIMIT: number = 22
 
+// The backend labels every transient capacity failure with this code, whatever its message: PostHog's
+// own per-org concurrency limit, and ClickHouse refusing the query because the cluster is busy.
+const RATE_LIMITED_ERROR_CODE = 'rate_limited'
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 // A refresh that was rejected (concurrency limit, server-side calculation error) still resolves with an
@@ -324,6 +328,17 @@ export async function getInsightWithRetry(
     }
 
     let attempt = 0
+    let rateLimitedAttempts = 0
+
+    const captureRecovery = (result: InsightModel | null): void => {
+        if (rateLimitedAttempts > 0 && result?.result != null && !result.query_status?.error) {
+            posthog.capture('dashboard tile recovered from capacity error', {
+                insight_short_id: insight.short_id,
+                dashboard_id: dashboardId,
+                attempts: rateLimitedAttempts,
+            })
+        }
+    }
 
     while (attempt < maxAttempts) {
         try {
@@ -341,8 +356,12 @@ export async function getInsightWithRetry(
             const legacyInsight: InsightModel | null = await getJSONOrNull(insightResponse)
             const result = legacyInsight !== null ? getQueryBasedInsightModel(legacyInsight) : null
 
-            if (result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE) {
+            if (
+                result?.query_status?.error_code === RATE_LIMITED_ERROR_CODE ||
+                result?.query_status?.error_message === RATE_LIMIT_ERROR_MESSAGE
+            ) {
                 attempt++
+                rateLimitedAttempts++
 
                 if (attempt >= maxAttempts) {
                     // We've exhausted all attempts, so we need to try the async endpoint.
@@ -380,7 +399,13 @@ export async function getInsightWithRetry(
                                 const legacyInsight: InsightModel | null = await getJSONOrNull(refreshedInsightResponse)
                                 if (legacyInsight) {
                                     const queryBasedInsight = getQueryBasedInsightModel(legacyInsight)
-                                    return { ...queryBasedInsight, query_status: finalStatus }
+                                    captureRecovery(queryBasedInsight)
+                                    return {
+                                        ...queryBasedInsight,
+                                        query_status: queryBasedInsight.query_status?.error
+                                            ? queryBasedInsight.query_status
+                                            : finalStatus,
+                                    }
                                 }
                             }
                         }
@@ -412,6 +437,7 @@ export async function getInsightWithRetry(
                 continue // Retry
             }
 
+            captureRecovery(result)
             return result
         } catch (e: any) {
             if (shouldCancelQuery(e)) {

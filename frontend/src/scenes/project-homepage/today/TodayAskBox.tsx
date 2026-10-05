@@ -1,48 +1,43 @@
 import { useActions } from 'kea'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
-import { IconArrowRight } from '@posthog/icons'
+import { Composer, QuillComposerLayout, QuillComposerSendButton } from 'products/posthog_ai/frontend/api/primitives'
 
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { todayLogic } from './todayLogic'
 
-/** Sends the question to PostHog AI, which answers in a new tab. */
+/** Sends the question to PostHog AI with the briefing as context. PostHog AI answers in a new chat under Spaces. */
 export function TodayAskBox(): JSX.Element {
-    const { askSidePanelMax } = useActions(maxGlobalLogic)
+    const { askAi } = useActions(todayLogic)
     const [question, setQuestion] = useState('')
-    const [sentQuestion, setSentQuestion] = useState<string | null>(null)
+    const groupRef = useRef<HTMLDivElement>(null)
+    const textAreaRef = useRef<HTMLTextAreaElement>(null)
 
     return (
-        <>
-            <form
-                className="TodayAsk"
-                onSubmit={(event) => {
-                    event.preventDefault()
+        <div className="TodayAsk" data-quill>
+            <Composer.Root
+                value={question}
+                onChange={setQuestion}
+                onSubmit={() => {
                     const trimmed = question.trim()
                     if (trimmed) {
-                        askSidePanelMax(trimmed)
-                        setSentQuestion(trimmed)
+                        askAi(trimmed, 'ask_box')
                         setQuestion('')
                     }
                 }}
+                textAreaRef={textAreaRef}
             >
-                <input
-                    value={question}
-                    onChange={(event) => setQuestion(event.target.value)}
-                    placeholder="What would you like to know?"
-                    aria-label="Ask PostHog AI"
-                    data-attr="today-ask-input"
+                <QuillComposerLayout
+                    groupRef={groupRef}
+                    textAreaRef={textAreaRef}
+                    field={
+                        <Composer.Field>
+                            <Composer.Placeholder>What would you like to know?</Composer.Placeholder>
+                            <Composer.Textarea aria-label="Ask PostHog AI" data-attr="today-ask-input" />
+                        </Composer.Field>
+                    }
+                    send={<QuillComposerSendButton data-attr="today-ask-send" />}
                 />
-                <button
-                    type="submit"
-                    className="TodaySend"
-                    aria-label="Send question"
-                    disabled={!question.trim()}
-                    data-attr="today-ask-send"
-                >
-                    <IconArrowRight />
-                </button>
-            </form>
-            {sentQuestion && <div className="TodayAsk__sent">{`Asked PostHog AI: “${sentQuestion}”`}</div>}
-        </>
+            </Composer.Root>
+        </div>
     )
 }

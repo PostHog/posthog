@@ -12,7 +12,7 @@ be in memory when the generator resumes.
 from __future__ import annotations
 
 import datetime as dt
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Callable, Mapping
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 from django.db import transaction
@@ -23,6 +23,7 @@ import psycopg
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+from botocore.exceptions import ClientError
 from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
@@ -174,11 +175,21 @@ _CONSUMED_MTIME_MARGIN = dt.timedelta(minutes=5)
 
 # When a run listed the buffer, kept on that run's own job. Proof only once the job completes.
 BUFFER_LISTED_AT_KEY = "cdc_buffer_listed_at"
-# When capture moved the table's legacy source onto the buffer, kept in the table's sync_type_config.
-LEGACY_CONVERTED_AT_KEY = "cdc_legacy_converted_at"
+# File name to ETag of the files at the highest position that listing saw, kept beside it.
+BUFFER_LISTED_TAIL_KEY = "cdc_buffer_listed_tail"
 
 
-def read_completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | None:
+@frozen
+class ListingProof:
+    """A buffer listing by a run that went on to complete every table it writes."""
+
+    listed_at: dt.datetime
+    # File name to ETag of the files at the highest position the listing saw. A file still carrying
+    # that ETag holds exactly what the run read.
+    tail: Mapping[str, str]
+
+
+def read_completed_listing_proof(schema: ExternalDataSchema) -> ListingProof | None:
     """When the buffer was last listed by a run that went on to complete every table it writes.
 
     Completion is what proves consumption: it means the generator drained every listed file and
@@ -219,11 +230,12 @@ def read_completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | No
         if stamped.tzinfo is None:
             continue
         if _companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []):
-            return stamped
+            tail = (snapshot or {}).get(BUFFER_LISTED_TAIL_KEY)
+            return ListingProof(listed_at=stamped, tail=tail if isinstance(tail, dict) else {})
     return None
 
 
-async def completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | None:
+async def completed_listing_proof(schema: ExternalDataSchema) -> ListingProof | None:
     """`read_completed_listing_proof`, off the event loop."""
     return await database_sync_to_async_pool(db_read_with_retry)(lambda: read_completed_listing_proof(schema))
 
@@ -245,11 +257,6 @@ def buffer_may_have_expired_unread(schema: ExternalDataSchema, now: dt.datetime)
     if schema.last_synced_at is None:
         return False
     cutoff = now - BUFFER_FILE_RETENTION
-    # The conversion empties the buffer at a position the legacy lane had already delivered, so the
-    # table is current from then on, though no run has listed the buffer yet.
-    converted_at = (schema.sync_type_config or {}).get(LEGACY_CONVERTED_AT_KEY)
-    if converted_at is not None and dt.datetime.fromisoformat(converted_at) >= cutoff:
-        return False
     # Every completion moves it, so nothing has drained since the cutoff either.
     if schema.last_synced_at < cutoff:
         return True
@@ -299,7 +306,7 @@ def clear_listing(job_id: str, team_id: int) -> None:
         stamped = dict(job.schema_snapshot or {}) if job is not None else {}
         if job is None or not stamped.get(BUFFER_LISTED_AT_KEY):
             return
-        snapshot = {k: v for k, v in stamped.items() if k != BUFFER_LISTED_AT_KEY}
+        snapshot = {k: v for k, v in stamped.items() if k not in (BUFFER_LISTED_AT_KEY, BUFFER_LISTED_TAIL_KEY)}
         ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
 
 
@@ -456,6 +463,26 @@ class _BufferFile:
     span: BufferFileSpan
     key: str
     modified: dt.datetime | None
+    etag: str | None
+
+    @property
+    def name(self) -> str:
+        return self.key.rsplit("/", 1)[-1]
+
+
+# Past this many files at one position the tail is not recorded, and those files go by the mtime
+# rule a run later. A transaction split across that many files is rare, and the tail is stored on
+# every job that lists it.
+_MAX_TAIL_FILES = 100
+
+
+def _listing_tail(files: list[_BufferFile]) -> dict[str, str]:
+    """Name to ETag of the files at the highest position listed, which the next run's floor sits on."""
+    if not files:
+        return {}
+    top = max(file.span.end_seq for file in files)
+    tail = {file.name: file.etag for file in files if file.span.end_seq == top and file.etag}
+    return tail if len(tail) <= _MAX_TAIL_FILES else {}
 
 
 class ReplayFilter:
@@ -645,14 +672,14 @@ class CDCSourceManager:
         logger: FilteringBoundLogger,
         *,
         deletion_floor: int | None = None,
-        proof_time: dt.datetime | None = None,
+        proof: ListingProof | None = None,
     ) -> None:
         self._inputs = inputs
         self._logger = logger
         self._deletion_floor = deletion_floor
-        self._proof_time = proof_time
+        self._proof = proof
 
-    def _is_consumed(self, end_seq: int, modified: dt.datetime | None) -> bool:
+    def _is_consumed(self, file: _BufferFile) -> bool:
         """Whether every table this schema feeds already holds this file's rows.
 
         Strictly below the floor is position-proof: the lowest-placed lane holds a commit above it,
@@ -661,18 +688,58 @@ class CDCSourceManager:
         AT the floor, position alone cannot tell a consumed file from the unread tail of a
         transaction split across files — they all carry one commit position. A file that already
         existed when a run listed the buffer, and that run then COMPLETED, was read and written by
-        it. The margin absorbs clock skew between S3 and our own clock.
+        it. The listing's ETag proves that at once. Without one, the file's mtime has to predate the
+        listing by a margin that absorbs clock skew between S3 and our own clock, which a file written
+        just before a frequent run's listing does not meet until a later run.
         """
         floor = self._deletion_floor
+        end_seq = file.span.end_seq
         if floor is None or end_seq > floor:
             return False
         if end_seq < floor:
             return True
-        if modified is None or modified.tzinfo is None or self._proof_time is None:
+        proof = self._proof
+        if proof is None:
             return False
-        return modified < self._proof_time - _CONSUMED_MTIME_MARGIN
+        if file.name in proof.tail:
+            # A different ETag means capture rewrote the file after that listing, so the run never read it.
+            return file.etag is not None and proof.tail[file.name] == file.etag
+        modified = file.modified
+        if modified is None or modified.tzinfo is None:
+            return False
+        return modified < proof.listed_at - _CONSUMED_MTIME_MARGIN
 
-    async def stamp_listing(self, listed_at: dt.datetime) -> None:
+    async def _delete_unless_replaced(self, s3: Any, file: _BufferFile) -> bool:
+        """Delete a consumed file unless capture replaced it after the listing. Returns whether it went.
+
+        Below the floor any content is settled, because a capture retry only re-emits changes every lane
+        already holds. At the floor the proof covers the listed bytes, and a retry can replace them with
+        unread rows of the same transaction while this run reads earlier files. So the delete is
+        conditioned on the listed ETag, and a file that no longer matches is kept and read.
+        S3 and SeaweedFS list every object with its ETag, so a listing without one keeps the file.
+        """
+        if self._deletion_floor is None or file.span.end_seq < self._deletion_floor:
+            await s3._rm(file.key)
+            return True
+        if file.etag is None:
+            return False
+        bucket, key, _ = s3.split_path(file.key)
+        s3.invalidate_cache(file.key)
+        client = await s3.get_s3(bucket)
+        try:
+            await client.delete_object(Bucket=bucket, Key=key, IfMatch=f'"{file.etag}"')
+        except ClientError as error:
+            # 409 means a write to the same key was in flight, so the file is read like any other replacement.
+            if error.response.get("Error", {}).get("Code") in (
+                "PreconditionFailed",
+                "ConditionalRequestConflict",
+                "NoSuchKey",
+            ):
+                return False
+            raise
+        return True
+
+    async def stamp_listing(self, listed_at: dt.datetime, tail: Mapping[str, str]) -> None:
         """Record on this run's own job that it listed the buffer, before any file is read.
 
         Kept on the job rather than beside the schema's settings: it describes one run, and it is
@@ -690,6 +757,7 @@ class CDCSourceManager:
                 )
                 snapshot = dict(job.schema_snapshot or {})
                 snapshot[BUFFER_LISTED_AT_KEY] = listed_at.isoformat()
+                snapshot[BUFFER_LISTED_TAIL_KEY] = dict(tail)
                 ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
 
         await database_sync_to_async_pool(db_read_with_retry)(_stamp)
@@ -723,8 +791,14 @@ class CDCSourceManager:
             if parsed is None:
                 continue
             modified = entry.get("LastModified")
+            etag = entry.get("ETag")
             files.append(
-                _BufferFile(span=parsed, key=key, modified=modified if isinstance(modified, dt.datetime) else None)
+                _BufferFile(
+                    span=parsed,
+                    key=key,
+                    modified=modified if isinstance(modified, dt.datetime) else None,
+                    etag=etag.strip('"') if isinstance(etag, str) and etag else None,
+                )
             )
 
         files.sort(key=lambda f: (f.span.start_seq, f.span.end_seq, f.span.file_index))
@@ -748,14 +822,14 @@ class CDCSourceManager:
         """
         listed_at = dt.datetime.now(tz=dt.UTC)
         files = await self._list_buffer_files()
-        await self.stamp_listing(listed_at)
+        tail = _listing_tail(files)
+        await self.stamp_listing(listed_at, tail)
         batch: TableBatcher[str] = TableBatcher(row_limit=batch_row_limit, byte_limit=batch_byte_limit)
 
         async with aget_s3_client() as s3:
             for file in files:
                 # The only place a buffer file is deleted — see `_is_consumed` for the proof.
-                if self._is_consumed(file.span.end_seq, file.modified):
-                    await s3._rm(file.key)
+                if self._is_consumed(file) and await self._delete_unless_replaced(s3, file):
                     continue
 
                 try:
@@ -766,6 +840,10 @@ class CDCSourceManager:
                     # A concurrent run, or a retry of this activity, can have deleted the file
                     # between the listing and this open — the listing is a snapshot, not a lease.
                     await self._logger.adebug("cdc_buffer_file_already_consumed", key=file.key)
+                    # This run never read the file, and a capture retry can write the same bytes
+                    # under the same name, so its ETag must not prove the rewrite read.
+                    if tail.pop(file.name, None) is not None:
+                        await self.stamp_listing(listed_at, tail)
                     continue
 
                 if table.num_rows == 0:

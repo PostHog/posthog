@@ -1,6 +1,7 @@
 import sys
 import time
 import asyncio
+import contextlib
 from typing import TYPE_CHECKING, Any, Generic, Literal
 
 import pyarrow as pa
@@ -37,6 +38,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     run_post_load_operations,
     supports_partial_data_loading,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point import (
+    PipelineSafePointHandler,
+    source_items_are_framework_output,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
@@ -67,6 +72,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     ResumableSourceManager,
     resolve_resume_manager,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceResponse,
@@ -170,6 +176,19 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(models.source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
+    def _activate_safe_point(self, items: Any) -> contextlib.ExitStack:
+        scope = contextlib.ExitStack()
+        if self._resumable_source_manager is not None:
+            handler = PipelineSafePointHandler(
+                shutdown_monitor=self._shutdown_monitor,
+                resumable_source_manager=self._resumable_source_manager,
+                has_unwritten_rows=lambda: self._batcher.should_yield(include_incomplete_chunk=True),
+            )
+            scope.enter_context(
+                activate_safe_point(handler, covers_framework_checkpoints=source_items_are_framework_output(items))
+            )
+        return scope
+
     async def _commit_resume_state(self) -> None:
         if self._resumable_source_manager is not None:
             await asyncio.to_thread(self._resumable_source_manager.commit)
@@ -229,9 +248,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             # `_post_run_operations`) cleans up before adding more small files. Skipped
             # cheaply when the table is healthy; see DeltaMaintenance.run_scheduled.
             if not is_first_ever_sync:
-                await DeltaMaintenance(self._delta_table_ref).run_scheduled(
-                    self._schema, partition_count_fallback=self._resource.partition_count
-                )
+                await DeltaMaintenance(self._delta_table_ref).run_scheduled(self._schema)
 
             async def write_remaining_rows() -> None:
                 nonlocal chunk_index, row_count
@@ -249,9 +266,11 @@ class PipelineNonDLT(Generic[ResumableData]):
                 # Every yielded row is written now, so whatever the source staged last is safe.
                 await self._commit_resume_state()
 
+            items = self._resource.items()
+            safe_point_scope = self._activate_safe_point(items)
             awaiting_source = True
             try:
-                async for item in async_iterate(self._resource.items()):
+                async for item in async_iterate(items):
                     awaiting_source = False
                     py_table = None
 
@@ -305,9 +324,10 @@ class PipelineNonDLT(Generic[ResumableData]):
                     except Exception:
                         await self._logger.aexception("Failed to write the rows buffered before the source error")
                 raise
+            finally:
+                safe_point_scope.close()
 
             await write_remaining_rows()
-
             await self._persist_observed_columns()
 
             prepared_queryable_folder = await self._post_run_operations(row_count=row_count)
@@ -317,6 +337,11 @@ class PipelineNonDLT(Generic[ResumableData]):
             result = PipelineResult(should_trigger_cdp_producer=await self._sinks.cdp_producer.should_run())
             if isinstance(prepared_queryable_folder, str):
                 result["prepared_queryable_folder"] = prepared_queryable_folder
+            if self._resource.on_complete is not None:
+                try:
+                    await asyncio.to_thread(self._resource.on_complete)
+                except Exception:
+                    await self._logger.aexception("Failed to clean up completed source state")
             return result
         finally:
             # Help reduce the memory footprint of each job. This is best-effort cleanup of

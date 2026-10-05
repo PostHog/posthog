@@ -1,10 +1,5 @@
-import math
 from collections.abc import Mapping
-from datetime import UTC, datetime
-from email.utils import parsedate_to_datetime
 from urllib.parse import urlsplit
-
-from django.conf import settings
 
 import httpx
 
@@ -23,13 +18,16 @@ from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import has_authority_bypass_chars, validate_url_and_pin_ips
 
 from products.ai_observability.backend.llm.errors import (
+    RESPONSE_LIMIT_MESSAGE,
     AuthenticationError,
     ContextWindowExceededError,
     LLMError,
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
+    ProviderRequestRejectedError,
     RateLimitError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
 )
@@ -44,24 +42,18 @@ def system_one_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
     if not host or host == "typesafe.ai" or host.endswith(".typesafe.ai"):
         return False
     team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-    # Customer connections use their own provider account or deployment, never PostHog's gateway.
-    if (
-        host in {"ai-gateway.us.posthog.com", "ai-gateway.eu.posthog.com"}
-        and str(team.organization_id) not in settings.POSTHOG_INTERNAL_ORG_IDS
-    ):
-        return False
     return (
         get_feature_flag_or_none(
             "llm-analytics-system-one-evaluations",
             str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
             send_feature_flag_events=False,
         )
         is True
     )
 
 
-class SystemOneRequestRejectedError(LLMError):
+class SystemOneRequestRejectedError(ProviderRequestRejectedError):
     pass
 
 
@@ -69,20 +61,9 @@ class SystemOneEndpointBlockedError(LLMError):
     pass
 
 
-class SystemOneRateLimitError(RateLimitError):
+class SystemOneRateLimitError(RetryableRateLimitError):
     def __init__(self, retry_after: str | None) -> None:
-        super().__init__("The System One endpoint is temporarily unavailable. Try again later.")
-        self.retry_after: float | None = None
-        if retry_after:
-            try:
-                delay = float(retry_after)
-            except ValueError:
-                try:
-                    delay = (parsedate_to_datetime(retry_after) - datetime.now(UTC)).total_seconds()
-                except (ValueError, TypeError, OverflowError):
-                    return
-            if math.isfinite(delay):
-                self.retry_after = max(1, min(delay, 60))
+        super().__init__("The System One endpoint is temporarily unavailable. Try again later.", retry_after)
 
 
 class SystemOneClient:
@@ -126,7 +107,10 @@ class SystemOneClient:
             if not verdict.allowed:
                 raise SSRFBlockedError(verdict.reason)
             with tagged_http_client(
-                timeout=timeout, pin=(base_url, verdict.pinned_ips), follow_redirects=False
+                pin=(base_url, verdict.pinned_ips),
+                timeout=timeout,
+                total_timeout=timeout,
+                follow_redirects=False,
             ) as client:
                 response = client.post(
                     f"{base_url}/systemone",
@@ -135,6 +119,8 @@ class SystemOneClient:
                 )
         except SSRFBlockedError as error:
             raise SystemOneEndpointBlockedError("This endpoint is not allowed. Use a public HTTPS endpoint.") from error
+        except httpx.DecodingError as error:
+            raise SystemOneRequestRejectedError(RESPONSE_LIMIT_MESSAGE) from error
         except httpx.RequestError as error:
             raise ProviderConnectionError("Could not reach the System One endpoint. Try again.") from error
 

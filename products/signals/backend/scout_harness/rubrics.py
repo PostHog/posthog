@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import Literal
 from uuid import UUID, uuid4
 
 from django.core.exceptions import ValidationError
@@ -21,6 +22,7 @@ logger = structlog.get_logger(__name__)
 RUBRIC_TEAM_ID = 2
 MAX_CRITERIA = 30
 MAX_SUGGESTIONS = 10
+MAX_GENERATION_CONTEXT_LENGTH = 2000
 GENERATION_TIMEOUT = timedelta(minutes=30)
 
 
@@ -34,6 +36,46 @@ class ScoutRubricGenerationStatus(models.TextChoices):
     RUNNING = "running", "Running"
     COMPLETED = "completed", "Completed"
     FAILED = "failed", "Failed"
+
+
+class ScoutRubricReportChannel(models.TextChoices):
+    NONE = "none", "None"
+    EMIT = "emit", "Emit"
+    EDIT = "edit", "Edit"
+    BOTH = "both", "Both"
+
+
+class ScoutRubricReferenceText(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    path: str
+    content_type: str
+    content: str
+
+
+class ScoutRubricReferenceLimits(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    omitted_files: int = Field(ge=0)
+    truncated_files: tuple[str, ...]
+
+
+class ScoutRubricReferenceContext(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    schema_version: Literal[1] = 1
+    skill_id: str
+    skill_name: str
+    skill_version: int
+    description: str
+    instructions: str
+    instructions_truncated: bool
+    report_channel: ScoutRubricReportChannel
+    report_disposition_instructions: str
+    reference_files: tuple[str, ...]
+    reference_files_truncated: bool
+    reference_texts: tuple[ScoutRubricReferenceText, ...]
+    reference_limits: ScoutRubricReferenceLimits
 
 
 class ScoutRubricCriterion(BaseModel):
@@ -68,18 +110,22 @@ class ScoutRubricGeneration(BaseModel):
     id: str
     status: ScoutRubricGenerationStatus
     requested_at: datetime
+    context: str = Field(default="", max_length=MAX_GENERATION_CONTEXT_LENGTH)
     completed_at: datetime | None = None
     task_id: str | None = None
     task_run_id: str | None = None
     error: str | None = None
     suggestions: list[ScoutRubricCriterion] = Field(default_factory=list)
     summary: str = ""
+    reference_context: ScoutRubricReferenceContext | None = None
 
 
 class ScoutRubricState(BaseModel):
     revision: int = 0
     criteria: list[ScoutRubricCriterion] = Field(default_factory=list)
     generation: ScoutRubricGeneration | None = None
+    reference_context: ScoutRubricReferenceContext | None = None
+    reference_generation_id: str | None = None
 
 
 @frozen
@@ -189,13 +235,29 @@ def visible_rubric_state(config: SignalScoutConfig) -> ScoutRubricState:
 
 
 def save_rubric(
-    team_id: int, config_id: str, *, revision: int, criteria: list[ScoutRubricCriterion]
+    team_id: int,
+    config_id: str,
+    *,
+    revision: int,
+    criteria: list[ScoutRubricCriterion],
+    adopt_generation_id: str | None = None,
 ) -> SignalScoutConfig:
     with transaction.atomic():
         config = SignalScoutConfig.objects.for_team(team_id).select_for_update().get(id=config_id)
         state = read_rubric_state(config)
         if state.revision != revision:
             raise Conflict("These rubrics changed since you opened them. Reload before saving.")
+        if adopt_generation_id is not None:
+            generation = state.generation
+            if (
+                generation is None
+                or generation.id != adopt_generation_id
+                or generation.status != ScoutRubricGenerationStatus.COMPLETED
+                or generation.reference_context is None
+            ):
+                raise Conflict("These suggestions are no longer available for adoption. Reload or generate them again.")
+            state.reference_context = generation.reference_context
+            state.reference_generation_id = generation.id
         state.revision += 1
         state.criteria = criteria
         config.rubrics = state.model_dump(mode="json")
@@ -203,7 +265,7 @@ def save_rubric(
     return config
 
 
-def reserve_generation(team_id: int, config_id: str) -> ScoutRubricReservation:
+def reserve_generation(team_id: int, config_id: str, *, context: str = "") -> ScoutRubricReservation:
     with transaction.atomic():
         config = SignalScoutConfig.objects.for_team(team_id).select_for_update().get(id=config_id)
         state = read_rubric_state(config)
@@ -219,7 +281,10 @@ def reserve_generation(team_id: int, config_id: str) -> ScoutRubricReservation:
         ):
             return ScoutRubricReservation(config=config, created=False)
         state.generation = ScoutRubricGeneration(
-            id=str(uuid4()), status=ScoutRubricGenerationStatus.QUEUED, requested_at=timezone.now()
+            id=str(uuid4()),
+            status=ScoutRubricGenerationStatus.QUEUED,
+            requested_at=timezone.now(),
+            context=context.strip(),
         )
         config.rubrics = state.model_dump(mode="json")
         config.save(update_fields=["rubrics", "updated_at"])
@@ -237,6 +302,10 @@ def update_generation(team_id: int, config_id: str, generation: ScoutRubricGener
             state.generation is None
             or state.generation.id != generation.id
             or state.generation.status not in (ScoutRubricGenerationStatus.QUEUED, ScoutRubricGenerationStatus.RUNNING)
+            or (
+                state.generation.reference_context is not None
+                and state.generation.reference_context != generation.reference_context
+            )
         ):
             return False
         # A worker finishing late must not replace a newer draft or a user's saved criteria.
@@ -303,18 +372,25 @@ def get_scout_rubric(team_id: int, config_id: str) -> ScoutRubricDocument:
 
 
 def save_scout_rubric(
-    team_id: int, config_id: str, *, revision: int, criteria: list[ScoutRubricCriterion]
+    team_id: int,
+    config_id: str,
+    *,
+    revision: int,
+    criteria: list[ScoutRubricCriterion],
+    adopt_generation_id: str | None = None,
 ) -> ScoutRubricDocument:
-    return _to_document(save_rubric(team_id, config_id, revision=revision, criteria=criteria))
+    return _to_document(
+        save_rubric(team_id, config_id, revision=revision, criteria=criteria, adopt_generation_id=adopt_generation_id)
+    )
 
 
-def generate_scout_rubric(team_id: int, config_id: str, *, user_id: int) -> ScoutRubricDocument:
+def generate_scout_rubric(team_id: int, config_id: str, *, user_id: int, context: str = "") -> ScoutRubricDocument:
     from products.signals.backend.scout_chat import (  # noqa: PLC0415 - keeps HTTP-only dependencies out of background rubric imports
         consume_daily_attempt,
         refund_daily_attempt,
     )
 
-    reservation = reserve_generation(team_id, config_id)
+    reservation = reserve_generation(team_id, config_id, context=context)
     if not reservation.created:
         return _to_document(reservation.config)
     generation = read_rubric_state(reservation.config).generation

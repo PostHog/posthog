@@ -174,7 +174,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.organization_membership.save()
 
     @parameterized.expand([("create",), ("update",), ("validate",), ("prevalidate",)])
-    def test_system_one_customer_project_cannot_use_posthog_gateway_or_disabled_feature(self, operation: str) -> None:
+    def test_system_one_connection_requires_enabled_feature(self, operation: str) -> None:
         gateway_url = "https://ai-gateway.us.posthog.com/v1"
         key = LLMProviderKey.objects.create(
             team=self.team,
@@ -188,9 +188,9 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
             self.settings(POSTHOG_INTERNAL_ORG_IDS=[]),
             patch(
                 "products.ai_observability.backend.llm.system_one.get_feature_flag_or_none",
-                return_value=operation != "prevalidate",
+                return_value=False,
             ),
-            patch("httpx.HTTPTransport.handle_request") as request,
+            patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
         ):
             if operation == "create":
                 response = self.client.post(
@@ -209,7 +209,8 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
                 response = self.client.post(f"{base_url}provider_keys/{key.id}/validate/")
             else:
                 response = self.client.post(
-                    f"{base_url}provider_key_validations/", {"provider": "system_one", "api_key": "example-token"}
+                    f"{base_url}provider_key_validations/",
+                    {"provider": "system_one", "api_key": "example-token", "base_url": gateway_url},
                 )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.data)
         request.assert_not_called()
@@ -260,7 +261,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         mock_validate.assert_called_once_with(provider, "sk-test-key-12345", team_id=self.team.id, **expected_config)
 
     @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")})
-    @patch("httpx.HTTPTransport.handle_request")
+    @patch("httpx.AsyncHTTPTransport.handle_async_request")
     @patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=True)
     def test_custom_system_one_connection_round_trip(self, _flag: Mock, request: Mock, _dns: Mock) -> None:
         body = json.dumps(
@@ -273,7 +274,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         response_status = 200
 
         def respond(*_args: object, **_kwargs: object) -> httpx.Response:
-            return httpx.Response(response_status, content=body)
+            return httpx.Response(response_status, stream=httpx.ByteStream(body))
 
         request.side_effect = respond
         url = f"/api/environments/{self.team.id}/llm_analytics/provider_keys/"

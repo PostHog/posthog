@@ -328,7 +328,6 @@
     --color-product-logs-dark: rgb(240 92 161);
     --color-product-marketing-analytics-light: rgb(214 37 123);
     --color-product-marketing-analytics-dark: rgb(240 92 161);
-    --color-product-live-debugger-light: rgb(76 14 200);
     --color-product-feature-flags-light: rgb(48 171 198);
     --color-product-experiments-light: rgb(182 42 217);
     --color-product-error-tracking-light: rgb(211 148 24);
@@ -356,8 +355,6 @@
     --color-product-ai-gateway-dark: rgb(129 140 248);
     --color-product-mcp-analytics-light: rgb(150 76 229);
     --color-product-mcp-analytics-dark: rgb(181 124 249);
-    --color-product-links-light: rgb(143 7 255);
-    --color-product-links-dark: rgb(178 92 255);
     --color-product-notebooks-light: rgb(239 68 68);
     --color-product-notebooks-dark: rgb(252 165 165);
     --color-product-tracing-light: rgb(6 182 212);
@@ -366,8 +363,6 @@
     --color-product-metrics-dark: rgb(251 146 60);
     --color-product-revenue-analytics-light: rgb(52 175 102);
     --color-product-revenue-analytics-dark: rgb(54 196 111);
-    --color-product-user-interviews-light: rgb(0 140 255);
-    --color-product-user-interviews-dark: rgb(77 171 255);
     --color-product-dashboards-light: rgb(255 139 7);
     --color-product-dashboards-dark: rgb(255 168 71);
     --color-product-early-access-features-light: rgb(39 171 151);
@@ -445,7 +440,6 @@
     --color-product-identity-matching-dark: rgb(45 212 191);
     --color-product-managed-viewsets-light: rgb(202 138 4);
     --color-product-managed-viewsets-dark: rgb(250 204 21);
-    --color-product-live-debugger-dark: rgb(139 92 246);
 
     // Generic brand color assignments
     // Change these to change the brand colors
@@ -741,6 +735,10 @@
     // sit above --z-modal. Pinned tooltips dismiss on outside pointer-down, so they can't linger
     // over a modal opened after pinning.
     --z-chart-tooltip: var(--z-graph-tooltip);
+
+    // A popover that holds a chart sits one layer under chart tooltips, which portal to the body,
+    // so the chart's tooltip shows on top of it. It stays above --z-modal.
+    --z-popover-with-chart: calc(var(--z-graph-tooltip) - 1);
 
     // 1161 and 1162 are reserved to be set from code
     // 1166 through 1169 are reserved to be set from code

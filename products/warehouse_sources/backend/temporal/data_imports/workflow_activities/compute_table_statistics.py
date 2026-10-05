@@ -52,7 +52,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.d
 
 logger = structlog.get_logger(__name__)
 
-STATISTICS_FEATURE_FLAG = "data-warehouse-column-statistics"
 # Cap profiling to once a day per table — an hourly-syncing table doesn't need re-profiling every hour,
 # and Delta-log stats only move materially over longer windows. Env-overridable for ops.
 MIN_RECOMPUTE_INTERVAL = timedelta(hours=int(os.getenv("WAREHOUSE_STATS_MIN_RECOMPUTE_INTERVAL_HOURS", "24")))
@@ -78,26 +77,6 @@ class ComputeTableStatisticsInputs:
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {"team_id": self.team_id, "schema_id": str(self.schema_id)}
-
-
-def statistics_enabled(team: Team) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                STATISTICS_FEATURE_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        capture_exception(e)
-        return False
 
 
 def capture_statistics_event(team: Team, event: str, properties: dict[str, Any]) -> None:
@@ -496,8 +475,8 @@ def _get_team(team_id: int) -> Team:
 
 def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str, Any]:
     """Compute and persist per-column statistics for one warehouse table. Safe to re-run."""
-    # Lazy: DeltaTableRef drags deltalake/pyarrow/dlt — keep them off the flag-check import path that
-    # create_external_data_job_model_activity uses (it only imports statistics_enabled).
+    # Lazy: DeltaTableRef drags deltalake/pyarrow/dlt — keep them off the import path of modules that
+    # only need this module's workflow and input types.
     from asgiref.sync import async_to_sync  # noqa: PLC0415
 
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (  # noqa: PLC0415
@@ -520,10 +499,6 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
 
     def emit_completed(status: str, **props: Any) -> None:
         capture_statistics_event(team, EVENT_COMPLETED, {"status": status, **event_props, **props})
-
-    if not statistics_enabled(team):
-        emit_completed("skipped", reason="flag_disabled")
-        return {"status": "skipped", "reason": "flag_disabled"}
 
     schema = (
         ExternalDataSchema.objects.select_related("source", "table")
@@ -573,7 +548,7 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
 
     delta_version = delta_table.version()
     stored_version = _most_recent_computed_version(existing, columns)
-    # Delta versions are only monotonic within one incarnation (see vacuum_if_stale's identical
+    # Delta versions are only monotonic within one incarnation (see decide_vacuum's identical
     # caveat): reset_table() purges the log and restarts numbering at 0 for full-refresh/reset tables,
     # so a stored version ahead of the table's current one means the table was recreated since the
     # last computation. Treat that stored version as stale rather than a match, or a table whose

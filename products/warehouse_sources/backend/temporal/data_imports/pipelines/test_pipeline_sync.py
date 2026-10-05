@@ -12,6 +12,8 @@ from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
+from posthog.models import Team
+
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -106,13 +108,21 @@ class TestResolveTableAndFolderNames:
 
 
 class TestRefreshCumulativeRowCount:
-    def test_updates_row_count_on_success(self) -> None:
+    @parameterized.expand(
+        [
+            ("counts_the_files_without_a_log_count", None, 42, True),
+            ("uses_the_log_count", 40_000_000, 40_000_000, False),
+            ("uses_a_log_count_of_zero", 0, 0, False),
+        ]
+    )
+    def test_updates_row_count(self, _name: str, live_row_count: int | None, expected: int, counts_files: bool) -> None:
         table = MagicMock(row_count=1)
         table.get_count.return_value = 42
 
-        _refresh_cumulative_row_count(table, MagicMock(), "orders (schema-1)")
+        _refresh_cumulative_row_count(table, MagicMock(), "orders (schema-1)", live_row_count)
 
-        assert table.row_count == 42
+        assert table.row_count == expected
+        assert table.get_count.called is counts_files
 
     def test_keeps_previous_row_count_when_get_count_fails(self) -> None:
         # get_count() raises when both the chdb and ClickHouse-cluster reads of the S3 dataset
@@ -407,10 +417,18 @@ class TestValidateSchemaAndUpdateTable:
         assert not table.columns
         assert table.created_via == DataWarehouseTableCreatedVia.SOURCE
 
-    def _linked_table(self, team, schema, job, *, queryable_folder: str) -> DataWarehouseTable:
+    def _linked_table(
+        self,
+        team: Team,
+        schema: ExternalDataSchema,
+        job: ExternalDataJob,
+        *,
+        queryable_folder: str,
+        storage_name: str | None = None,
+    ) -> DataWarehouseTable:
         names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
         table = DataWarehouseTable.objects.create(
-            name=build_table_name(job.pipeline, names.table_storage_name),
+            name=build_table_name(job.pipeline, storage_name or names.table_storage_name),
             format=DataWarehouseTableFormat.DeltaS3Wrapper,
             url_pattern="s3://bucket/orders_v1/*.parquet",
             team=team,
@@ -447,6 +465,57 @@ class TestValidateSchemaAndUpdateTable:
         assert table.queryable_folder == "s3://bucket/orders_v2"
         # A reported 0 must not zero a table that was just republished.
         assert table.row_count == 150
+
+    def test_a_schema_linked_to_its_cdc_companion_gets_its_own_table(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        companion = self._linked_table(
+            team, schema, job, queryable_folder="orders_cdc__query_a", storage_name="orders_cdc"
+        )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders__query_a",
+            )
+
+        schema.refresh_from_db()
+        companion.refresh_from_db()
+        assert schema.table is not None
+        assert (schema.table.name, schema.table.queryable_folder) == (
+            build_table_name(job.pipeline, "orders"),
+            "orders__query_a",
+        )
+        assert companion.queryable_folder == "orders_cdc__query_a"
+
+    def test_a_schema_whose_own_table_has_the_companion_name_keeps_it(self, team: Team) -> None:
+        schema, job = self._schema_and_job(team)
+        schema.s3_folder_name = "orders_cdc"
+        schema.save()
+        own_table = self._linked_table(team, schema, job, queryable_folder="orders_cdc__query_a")
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=150),
+        ):
+            async_to_sync(validate_schema_and_update_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                row_count=10,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders_cdc__query_b",
+            )
+
+        schema.refresh_from_db()
+        assert schema.table_id == own_table.id
+        assert DataWarehouseTable.objects.filter(team=team, deleted=False).count() == 1
 
     @pytest.mark.parametrize(
         ("recorded_active", "expect_restart"),
@@ -792,7 +861,6 @@ class TestSetInitialSyncComplete(BaseTest):
             sync_type="cdc",
             config={"cdc_mode": "snapshot", "cdc_snapshot_lane": "buffer"},
             initial_sync_complete=False,
-            job_inputs={"cdc_ingest_mode": "buffered"},
         )
 
         with patch(
@@ -822,7 +890,6 @@ class TestSnapshotHandoverHoldsTheRowLock(NonAtomicBaseTest):
             connection_id=str(uuid.uuid4()),
             status="Completed",
             source_type="Postgres",
-            job_inputs={"cdc_ingest_mode": "buffered"},
         )
         schema = ExternalDataSchema.objects.create(
             team_id=self.team.pk,

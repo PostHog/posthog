@@ -606,6 +606,7 @@ describe('marketingAnalyticsLogic', () => {
         await expectLogic(logic, () => logic.actions.setDates('-30d', null)).toFinishAllListeners()
         expect(router.values.searchParams).not.toHaveProperty('view')
         expect(router.values.searchParams).not.toHaveProperty('breakdown')
+        expect(new URLSearchParams(router.values.location.search).get('date_to')).toBe('')
 
         const filters: WebAnalyticsPropertyFilters = [
             {
@@ -633,6 +634,7 @@ describe('marketingAnalyticsLogic', () => {
         logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Channel)
         await expectLogic(logic).toFinishAllListeners()
         expect(router.values.searchParams).toMatchObject({ view: 'overview', breakdown: 'channel' })
+        expect(new URLSearchParams(router.values.location.search).get('date_to')).toBe('')
 
         await expectLogic(logic, () =>
             router.actions.push(urls.marketingAnalyticsApp(), { view: 'retention', breakdown: 'source' })
@@ -697,6 +699,24 @@ describe('marketingAnalyticsLogic', () => {
             })
         }
     )
+
+    it.each([
+        ['?date_from=-7d&date_to=', { dateFrom: '-7d', dateTo: null }],
+        ['?date_from=-7d&date_to=&tab=setup&section=sources', { dateFrom: '-7d', dateTo: null }],
+        ['?date_from=-7d&date_to=-1d', { dateFrom: '-7d', dateTo: '-1d' }],
+        ['', { dateFrom: '-30d', dateTo: '2026-08-31' }],
+    ])('hydrates the date range from "%s" over a saved range', async (search, expected) => {
+        localStorage.setItem(
+            `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic.dateFilter`,
+            JSON.stringify({ dateFrom: '-30d', dateTo: '2026-08-31', interval: 'day' })
+        )
+        router.actions.push(`${urls.marketingAnalyticsApp()}${search}`)
+
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({ dateFilter: expect.objectContaining(expected) })
+    })
 
     it.each([
         ['AppleSearchAds', FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS],

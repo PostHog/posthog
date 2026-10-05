@@ -394,11 +394,13 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "ExternalDataSchema": {
         "should_sync": "enabled",
         "full_refresh_interval_days": "full refresh interval (days)",
+        "full_refresh_time_of_day": "full refresh time (UTC)",
     },
     "SignalScoutConfig": {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
         "pause_reason": "pause reason",
+        "managed_by": "managed by",
         "auto_pause_exempt": "never pause for inactivity",
         "write_scopes": "write access",
     },
@@ -448,7 +450,6 @@ replay_scanner_machine_fields = [
     "sweep_read_bytes_by_hour",
     "fast_read_bytes_by_hour",
     "deep_read_bytes_by_hour",
-    "feedback_themes",
     "estimated_monthly_observations",
     "estimated_at",
     "estimate_attempted_at",
@@ -625,7 +626,13 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "AccountView": ["version"],
     # The reverse relations are listed because the diff reads each one in full; a scanner's
     # observations run to millions of rows, and its alerts carry their own audit trail.
-    "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
+    "ReplayScanner": [
+        *replay_scanner_machine_fields,
+        "observations",
+        "backfills",
+        "learned_rulesets",
+        "alerts",
+    ],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     # The pointer names the tagged object, which a row never changes, and content_type and team
@@ -815,7 +822,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "id",
         "secret_api_token",
         "secret_api_token_backup",
-        "_old_api_token",
     ],
     "Project": ["id", "created_at"],
     "DataWarehouseExpression": ["deleted_at"],
@@ -932,8 +938,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
         # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
         "facet_settings",
-        # Same fail-closed manager, on the WorkflowProposal relation a user can resolve.
-        "resolved_workflow_proposals",
     ],
     "AlertConfiguration": [
         "last_checked_at",
@@ -1183,7 +1187,9 @@ def dict_changes_between(
     previous = previous or {}
     new = new or {}
 
-    fields = set(list(previous.keys()) + list(new.keys()))
+    # Callers pass a model's `__dict__`, which also holds private attributes set by signal
+    # handlers (for example a snapshot of the old API token). They are not fields, and can be secrets.
+    fields = {field for field in [*previous.keys(), *new.keys()] if not str(field).startswith("_")}
     if use_field_exclusions:
         fields = fields - set(field_exclusions.get(model_type, [])) - set(common_field_exclusions)
 

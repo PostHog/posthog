@@ -1,7 +1,9 @@
 # serializer version: 1
 # name: TestEventsQueryRunner.test_absolute_date_range[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                                               and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                                                    and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(events.properties.`$feature_flags`), mapValues(events.properties.`$feature_flags`)), if(empty(events.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), events.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(events.temporary_properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
@@ -22,7 +24,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_not_returned_for_aggregation_query[new_events_schema]
@@ -45,7 +48,8 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_not_returned_for_non_timestamp_order[new_events_schema]
@@ -72,12 +76,13 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc[new_events_schema.1]
   '''
-  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.idx, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.idx), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx))))) AS idx,
+  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
@@ -99,12 +104,13 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc[new_events_schema.2]
   '''
-  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.idx, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.idx), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx))))) AS idx,
+  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
@@ -126,12 +132,13 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_asc[new_events_schema]
   '''
-  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.idx, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.idx), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx))))) AS idx,
+  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
@@ -153,12 +160,13 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc[new_events_schema.1]
   '''
-  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.idx, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.idx), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx))))) AS idx,
+  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
@@ -180,12 +188,13 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc[new_events_schema.2]
   '''
-  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.idx, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.idx), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx))))) AS idx,
+  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
@@ -207,12 +216,13 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_pagination_multi_page_desc[new_events_schema]
   '''
-  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.idx, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.idx), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.idx, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx))))) AS idx,
+  SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^idx)), if(isNull(nullIf(toString(events.properties.idx), '')), NULL, if(and(in(ascii(toString(events.properties.idx)), tuple(91, 123)), in(ascii(toJSONString(events.properties.idx)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.idx), '[]'), '{}'), toString(events.properties.idx)))) AS idx,
          toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
@@ -234,12 +244,15 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_cursor_with_star_select[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                                               and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                                                    and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(events.properties.`$feature_flags`), mapValues(events.properties.`$feature_flags`)), if(empty(events.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), events.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(events.temporary_properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
@@ -260,12 +273,15 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_element_chain_property_filter[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                                               and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                                                    and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(events.properties.`$feature_flags`), mapValues(events.properties.`$feature_flags`)), if(empty(events.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), events.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(events.temporary_properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
@@ -286,19 +302,22 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                                               and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                                                    and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(events.properties.`$feature_flags`), mapValues(events.properties.`$feature_flags`)), if(empty(events.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), events.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(events.temporary_properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
                                                        FROM events_json AS events
-                                                       WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^some_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^some_prop)), if(isNull(nullIf(toString(events.properties.some_prop), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.some_prop, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.some_prop, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.some_prop), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.some_prop, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.some_prop, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.some_prop, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.some_prop), '[]'), '{}'), toString(events.properties.some_prop))))), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
+                                                       WHERE and(equals(events.team_id, 99999), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^some_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^some_prop)), if(isNull(nullIf(toString(events.properties.some_prop), '')), NULL, if(and(in(ascii(toString(events.properties.some_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.some_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.some_prop), '[]'), '{}'), toString(events.properties.some_prop)))), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
                                                        ORDER BY toTimeZone(events.timestamp, 'UTC') ASC, events.uuid ASC
-                                                       LIMIT 101)), and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^some_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^some_prop)), if(isNull(nullIf(toString(events.properties.some_prop), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.some_prop, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.some_prop, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.some_prop), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.some_prop, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.some_prop, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.some_prop, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.some_prop), '[]'), '{}'), toString(events.properties.some_prop))))), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
+                                                       LIMIT 101)), and(ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^some_prop)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^some_prop)), if(isNull(nullIf(toString(events.properties.some_prop), '')), NULL, if(and(in(ascii(toString(events.properties.some_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.some_prop)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.some_prop), '[]'), '{}'), toString(events.properties.some_prop)))), 'a'), 0), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
   ORDER BY toTimeZone(events.timestamp, 'UTC') ASC, events.uuid ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
@@ -312,12 +331,15 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table_multiple_order_by[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                                               and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                                                    and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(events.properties.`$feature_flags`), mapValues(events.properties.`$feature_flags`)), if(empty(events.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), events.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(events.temporary_properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
@@ -339,12 +361,15 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table_order_by_event[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                                               and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                                                    and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(events.properties.`$feature_flags`), mapValues(events.properties.`$feature_flags`)), if(empty(events.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), events.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(events.temporary_properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
@@ -365,20 +390,23 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---
 # name: TestEventsQueryRunner.test_presorted_events_table_order_by_property[new_events_schema]
   '''
-  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> kv.2 != '[]', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
+  SELECT tuple(events.uuid, events.event, JSONStripEmptyStringsAndNulls(concat('{', arrayStringConcat(arrayConcat(arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), arrayFilter(kv -> not (kv.2 = '[]'
+                                                                                                                                                                                               and kv.1 in ('$exception_functions', '$exception_list', '$exception_sources', '$exception_types', '$exception_values', '$mcp_listed_tool_names'))
+                                                                                                                                                                                    and kv.1 != '$feature_flags', JSONExtractKeysAndValuesRaw(toJSONString(events.properties)))), arrayConcat(arrayMap((key, value) -> concat(toJSONString(concat('$feature/', key)), ':', if(value in ('true', 'false'), value, toJSONString(multiIf(value = '$false', 'false', value = '$true', 'true', value)))), mapKeys(events.properties.`$feature_flags`), mapValues(events.properties.`$feature_flags`)), if(empty(events.properties.`$feature_flags`), [], [concat('"$active_feature_flags":', toJSONString(mapKeys(mapFilter((key, value) -> value not in ('', 'false'), events.properties.`$feature_flags`))))])), arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), JSONExtractKeysAndValuesRaw(toJSONString(events.temporary_properties)))), ','), '}')), toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), globalIn(events.uuid,
                                                       (SELECT events.uuid AS uuid
                                                        FROM events_json AS events
                                                        WHERE and(equals(events.team_id, 99999), equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC')))
-                                                       ORDER BY if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^priority)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^priority)), if(isNull(nullIf(toString(events.properties.priority), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.priority, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.priority, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.priority), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.priority, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.priority, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.priority, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.priority), '[]'), '{}'), toString(events.properties.priority))))) ASC
+                                                       ORDER BY if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^priority)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^priority)), if(isNull(nullIf(toString(events.properties.priority), '')), NULL, if(and(in(ascii(toString(events.properties.priority)), tuple(91, 123)), in(ascii(toJSONString(events.properties.priority)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.priority), '[]'), '{}'), toString(events.properties.priority)))) ASC
                                                        LIMIT 101)), and(equals(events.event, '$pageview'), less(events.timestamp, toDateTime64('2021-01-21 00:00:05.000000', 6, 'UTC')), greater(events.timestamp, toDateTime64('2021-01-14 00:00:00.000000', 6, 'UTC'))))
-  ORDER BY if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^priority)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^priority)), if(isNull(nullIf(toString(events.properties.priority), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.priority, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.priority, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.priority), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.priority, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.priority, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.priority, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.priority), '[]'), '{}'), toString(events.properties.priority))))) ASC
+  ORDER BY if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^priority)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^priority)), if(isNull(nullIf(toString(events.properties.priority), '')), NULL, if(and(in(ascii(toString(events.properties.priority)), tuple(91, 123)), in(ascii(toJSONString(events.properties.priority)), tuple(91, 123))), nullIf(nullIf(toJSONString(events.properties.priority), '[]'), '{}'), toString(events.properties.priority)))) ASC
   LIMIT 101
   OFFSET 0 SETTINGS readonly=2,
                     max_execution_time=60,
@@ -391,6 +419,7 @@
                     optimize_rewrite_aggregate_function_with_if=0,
                     optimize_min_inequality_conjunction_chain_length=4294967295,
                     allow_experimental_join_condition=1,
-                    use_hive_partitioning=0
+                    use_hive_partitioning=0,
+                    json_type_escape_dots_in_keys=1
   '''
 # ---

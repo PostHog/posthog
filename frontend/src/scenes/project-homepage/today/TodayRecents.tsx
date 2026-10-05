@@ -3,38 +3,44 @@ import { Fragment } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
-import { baseObjectType, libraryObjectName } from 'scenes/library/libraryUtils'
 
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
-import { fileSystemTypes } from '~/products'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { todayLogic } from './todayLogic'
 
-/** The type's name for use mid-sentence: "feature flag", but "SQL insight" keeps its acronym. */
-function typeNameInProse(entry: FileSystemEntry): string | null {
-    const name = (fileSystemTypes as Record<string, { name: string }>)[baseObjectType(entry.type)]?.name
-    if (!name) {
-        return null
-    }
-    return /^[A-Z]{2}/.test(name) ? name : name.charAt(0).toLowerCase() + name.slice(1)
-}
-
 function RecentObject({ entry }: { entry: FileSystemEntry }): JSX.Element {
-    const typeName = typeNameInProse(entry)
+    const { recentObjectPreviews } = useValues(todayLogic)
+    const preview = recentObjectPreviews[entry.id]
     const link = (
         <Link to={entry.href} subtle className="TodayReportLink" data-attr="today-home-recent-object">
-            {libraryObjectName(entry)}
+            {preview?.name ?? entry.path}
         </Link>
     )
-    return typeName ? (
+    const iconAndLink = (
+        <>
+            <span className="TodayRecentIcon" aria-hidden>
+                {iconForType(entry.type as FileSystemIconType | undefined)}
+            </span>
+            {preview ? (
+                <TodayPreviewTrigger payload={preview} inline>
+                    {link}
+                </TodayPreviewTrigger>
+            ) : (
+                link
+            )}
+        </>
+    )
+    return preview?.typeName ? (
         <>
             <span>the </span>
-            {link}
-            <span>{` ${typeName}`}</span>
+            {iconAndLink}
+            <span>{` ${preview.typeName}`}</span>
         </>
     ) : (
-        link
+        iconAndLink
     )
 }
 
@@ -63,7 +69,10 @@ export function TodayRecents(): JSX.Element {
     )
 
     return (
-        <section className="TodayHome__recents" aria-label="Recent">
+        <section
+            className="TodayHome__recents group/colorful-product-icons colorful-product-icons-true"
+            aria-label="Recent"
+        >
             <div className="TodayHome__recentsLabel Today__label">Recent</div>
             {!recentsHasLoaded ? (
                 <p>Finding what you looked at last…</p>

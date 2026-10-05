@@ -21,6 +21,9 @@ from tenacity import RetryCallState, retry, retry_if_exception_type
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import (
+    reach_framework_safe_point,
+)
 
 from .auth import auth_secret_values
 from .exceptions import IgnoreResponseException
@@ -212,6 +215,10 @@ _RATE_LIMIT_RESET_HEADERS: tuple[tuple[str, Callable[[str], Optional[float]]], .
     # Sentry signals its rate-limit window with a UNIX epoch timestamp rather than ``Retry-After``,
     # and Sentry's flat / fan-out endpoints (e.g. ``project_users``) sync through this client too.
     ("X-Sentry-Rate-Limit-Reset", _seconds_from_epoch_reset),
+    # X (Twitter) answers 429 with this UNIX epoch reset and no ``Retry-After``. Its windows are 15
+    # minutes wide and some endpoints allow only a handful of requests per window, so a backfill
+    # that falls back to exponential backoff spends its whole attempt budget inside one window.
+    ("x-rate-limit-reset", _seconds_from_epoch_reset),
     # The common ``X-RateLimit-*`` convention, spelled with a UNIX epoch reset and no
     # ``Retry-After`` — SendGrid answers every 429 this way, and its Email Activity endpoint is
     # capped at 6 requests/minute, so without honoring the reset a message-activity backfill
@@ -475,6 +482,12 @@ class RESTClient:
 
             if resume_hook is not None:
                 resume_hook(paginator.get_resume_state() if paginator is not None and paginator.has_next_page else None)
+                reach_framework_safe_point()
+
+            # Direct Resource traversal has consumed the page before execution resumes here, so this
+            # is safe even when a dependent resource routes its resume hook only to the child.
+            if resume_hook is None:
+                reach_framework_safe_point()
 
             if paginator is None or not paginator.has_next_page:
                 break

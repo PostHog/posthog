@@ -120,16 +120,51 @@ class TestNumericEvaluationSerializer(SimpleTestCase):
 
 
 class TestModelConfigurationSerializer(SimpleTestCase):
-    def test_numeric_evaluation_rejects_system_one_connection(self) -> None:
+    @parameterized.expand([("boolean", {}), ("categorical", {}), ("numeric", {"min": 0, "max": 10})])
+    def test_system_one_supports_evaluation_output_types(
+        self, output_type: str, output_config: dict[str, float]
+    ) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Score quality"},
+            output_type=output_type,
+            output_config=output_config,
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True)
+        data = {"model_configuration": {"provider": "system_one", "model": "custom-model"}}
+        with patch.object(serializer, "_validate_chat_model"):
+            self.assertEqual(serializer.validate(data), data)
+
+    @parameterized.expand([({},), ({"min": 0},), ({"max": 10},), ({"min": 1, "max": 1},)])
+    def test_system_one_requires_numeric_bounds_on_model_change(self, output_config: dict[str, float]) -> None:
         evaluation = Evaluation(
             evaluation_type="llm_judge",
             evaluation_config={"prompt": "Score quality"},
             output_type="numeric",
-            output_config={},
+            output_config=output_config,
         )
         serializer = EvaluationSerializer(instance=evaluation, partial=True)
-        with self.assertRaisesMessage(ValidationError, "Select a model that supports this evaluation output type"):
+        with (
+            patch.object(serializer, "_validate_chat_model"),
+            self.assertRaisesMessage(ValidationError, "minimum score below the maximum"),
+        ):
             serializer.validate({"model_configuration": {"provider": "system_one", "model": "custom-model"}})
+
+    @parameterized.expand([("system_one", False), ("openai", True)])
+    def test_clearing_numeric_bounds_depends_on_provider(self, provider: str, valid: bool) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Score quality"},
+            output_type="numeric",
+            output_config={"min": 0, "max": 10},
+            model_configuration=LLMModelConfiguration(provider=provider, model="custom-model"),
+        )
+        serializer = EvaluationSerializer(instance=evaluation, data={"output_config": {"max": None}}, partial=True)
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+        if valid:
+            self.assertEqual(serializer.validated_data["output_config"]["min"], 0)
+        else:
+            self.assertIn("output_config", serializer.errors)
 
     @parameterized.expand(
         [
@@ -1432,6 +1467,53 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.data["conditions"][0]["rollout_percentage"], 50)
         self.assertEqual(len(response.data["conditions"][0]["properties"]), 1)
         self.assertEqual(response.data["conditions"][0]["properties"][0]["key"], "$ai_model_name")
+
+    @parameterized.expand(
+        [
+            ("select_query", "(select 1)"),
+            ("global_the_runtime_does_not_have", "$virt_is_bot"),
+        ]
+    )
+    def test_condition_that_fails_to_compile_is_rejected(self, _name, hogql_key):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Broken filter",
+                "evaluation_type": "llm_judge",
+                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
+                "evaluation_config": {"prompt": "Evaluate this"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [
+                    {"id": "cond-1", "rollout_percentage": 100, "properties": []},
+                    {"id": "cond-2", "rollout_percentage": 100, "properties": [{"type": "hogql", "key": hogql_key}]},
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("Condition set 2", str(response.data))
+        self.assertFalse(Evaluation.objects.filter(team=self.team, name="Broken filter").exists())
+
+    def test_patch_that_adds_a_condition_that_fails_to_compile_is_rejected(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Working filter",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+            {"conditions": [{"id": "cond-1", "properties": [{"type": "hogql", "key": "(select 1)"}]}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.conditions[0]["properties"], [])
 
     def test_unknown_condition_keys_are_dropped_and_rollout_percentage_defaults_to_100(self):
         # Regression: callers (notably MCP) previously sent `sampling_rate` instead of

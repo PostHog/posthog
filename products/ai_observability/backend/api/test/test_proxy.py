@@ -1,11 +1,17 @@
+import asyncio
+from collections.abc import AsyncGenerator, AsyncIterator
 from types import SimpleNamespace
 from typing import cast
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest import TestCase
 from unittest.mock import patch
 
+from django.http import StreamingHttpResponse
+
+import httpx
 from parameterized import parameterized
 from rest_framework.request import Request
 
@@ -22,6 +28,8 @@ from products.ai_observability.backend.api.proxy import LLMProxyCompletionSerial
 from products.ai_observability.backend.llm import (
     PLAYGROUND_MODEL_IDS,
     PROVIDERS,
+    Client,
+    CompletionRequest,
     get_default_models,
     get_playground_models,
 )
@@ -29,6 +37,55 @@ from products.ai_observability.backend.models.provider_keys import LLMProviderKe
 
 PLAYGROUND_THROTTLES = (LLMProxyBurstRateThrottle, LLMProxySustainedRateThrottle, LLMProxyDailyRateThrottle)
 BYOK_THROTTLES = (LLMProxyBYOKBurstRateThrottle, LLMProxyBYOKSustainedRateThrottle, LLMProxyBYOKDailyRateThrottle)
+
+
+class TestPlaygroundStreamCleanup:
+    async def test_disconnect_closes_bounded_provider_stream(self) -> None:
+        class Body(httpx.AsyncByteStream):
+            closed = False
+
+            async def __aiter__(self) -> AsyncIterator[bytes]:
+                yield b'data: {"id":"fixture","choices":[{"index":0,"delta":{"content":"hello"}}]}\n\n'
+                yield b"data: [DONE]\n\n"
+
+            async def aclose(self) -> None:
+                self.closed = True
+
+        body = Body()
+        client = Client(
+            provider_key=LLMProviderKey(
+                provider="openai_compatible",
+                encrypted_config={"api_key": "test-key", "base_url": "https://8.8.8.8/v1"},
+            ),
+            capture_analytics=False,
+        )
+        request = CompletionRequest(model="some-model", provider="openai_compatible", messages=[])
+        view = LLMProxyViewSet()
+        stream = view._create_stream_generator(client, request, SimpleNamespace(META={"SERVER_NAME": "test"}))
+        with (
+            patch("products.ai_observability.backend.api.proxy.SERVER_GATEWAY_INTERFACE", "ASGI"),
+            patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=httpx.Response(200, stream=body)),
+        ):
+            response = await asyncio.to_thread(view._create_streaming_response, stream)
+            assert isinstance(response, StreamingHttpResponse)
+            iterator = cast(AsyncGenerator[bytes], aiter(response._iterator))  # type: ignore[attr-defined]
+            first_chunk = asyncio.Event()
+
+            async def consume() -> None:
+                try:
+                    assert b"hello" in await anext(iterator)
+                    first_chunk.set()
+                    await asyncio.Event().wait()
+                finally:
+                    await iterator.aclose()
+
+            task = asyncio.create_task(consume())
+            await asyncio.wait_for(first_chunk.wait(), 5)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert body.closed
 
 
 class TestLLMProxyThrottles(APIBaseTest):
