@@ -4188,10 +4188,10 @@ Today (8): `actions`, `activities`, `advisors`, `candidates`, `employers`, `job_
 
 Diffed against: <https://docs.huntr.co>
 
-- [ ] `/org/events` — the job state transition log (JOB_CREATED, JOB_MOVED, JOB_OFFER_DATE_SET, interview dates) - the pipeline history behind jobs we already sync (high)
-- [ ] `/org/activity-categories` — lookup resolving the category ID on every activity row we already sync (high)
-- [ ] `/org/tags` — lookup resolving tag IDs applied across members, jobs and candidates (high)
-- [ ] `/org/candidates/{id}/action-metrics` — per-candidate activity metrics - the engagement measure for candidates we already sync (high)
+- [ ] `/org/events` — the job state transition log (JOB_CREATED, JOB_MOVED, JOB_OFFER_DATE_SET, interview dates) - the pipeline history behind jobs we already sync (high) — skipped: deprecated by Huntr in favor of `/org/actions` and `/org/activities`, which we already sync
+- [x] `/org/activity-categories` — lookup resolving the category ID on every activity row we already sync (high). Added as `activity_categories`.
+- [x] `/org/tags` — lookup resolving tag IDs applied across members, jobs and candidates (high). Added as `tags`.
+- [x] `/org/candidates/{id}/action-metrics` — per-candidate activity metrics - the engagement measure for candidates we already sync (high). Added as `candidate_action_metrics` (fan-out over `candidates`, one row per candidate and action type).
 - [ ] `/org/goals` — goal definitions and targets that member progress is measured against (medium)
 - [ ] `/org/member-groups` — cohort/group membership for the members table, the main breakdown dimension (medium)
 - [ ] `/org/member-fields (and /org/members/{id}/member-fields)` — custom field definitions plus per-member values, the org's own segmentation attributes (medium)
@@ -4313,10 +4313,10 @@ Today (11): `Contacts`, `Emails`, `Events`, `Leads`, `Notes`, `Opportunities`, `
 
 Diffed against: <https://api.insightly.com/v3.1/swagger/docs/v3.1>
 
-- [ ] `/PipelineStages` — lookup resolving PIPELINE_STAGE_ID on Opportunities and Projects - Pipelines is synced but its stages are not, so no funnel breakdown is possible (high)
-- [ ] `/OpportunityLineItem` — line-item revenue detail behind each opportunity; the deal header alone cannot break revenue down by product (high)
-- [ ] `/Opportunities/{id}/StateHistory` — won/lost/abandoned state transition history - the only source for sales-cycle and stage-velocity analysis (pair with /OpportunityStateReasons) (high)
-- [ ] `/LeadSources` — lookup resolving LEAD_SOURCE_ID on Leads - the core attribution dimension (high)
+- [x] `/PipelineStages` — lookup resolving PIPELINE_STAGE_ID on Opportunities and Projects - Pipelines is synced but its stages are not, so no funnel breakdown is possible (high)
+- [x] `/OpportunityLineItem` — line-item revenue detail behind each opportunity; the deal header alone cannot break revenue down by product (high)
+- [x] `/Opportunities/{id}/StateHistory` — won/lost/abandoned state transition history - the only source for sales-cycle and stage-velocity analysis (pair with /OpportunityStateReasons) (high)
+- [x] `/LeadSources` — lookup resolving LEAD_SOURCE_ID on Leads - the core attribution dimension (high)
 - [ ] `/LeadStatuses` — lookup resolving LEAD_STATUS_ID on Leads, needed for any lead funnel (high)
 - [ ] `/Ticket` — Insightly Service tickets, an entire product area with no table today (high)
 - [ ] `/Quotation and /QuotationLineItem` — quotes and their line items, the pre-close revenue pipeline (medium)
@@ -4355,10 +4355,10 @@ Today (10): `accounts`, `campaign_analytics`, `campaign_daily_analytics`, `campa
 
 Diffed against: <https://developer.instantly.ai/api-reference/openapi.json>
 
-- [ ] `GET /api/v2/campaigns/analytics/steps` — per-sequence-step send/open/reply breakdown; the dimension that explains campaign performance (high)
-- [ ] `GET /api/v2/accounts/analytics/daily` — daily per-sending-account volume and deliverability; we sync accounts but no account time series (high)
-- [ ] `GET /api/v2/custom-tag-mappings` — junction resolving the custom_tags we already sync to campaigns/accounts/leads (high)
-- [ ] `GET /api/v2/subsequences` — follow-up sequences attached to campaigns; missing branch of the campaign tree (medium)
+- [x] `GET /api/v2/campaigns/analytics/steps` — per-sequence-step send/open/reply breakdown; the dimension that explains campaign performance (high)
+- [x] `GET /api/v2/accounts/analytics/daily` — daily per-sending-account volume and deliverability; we sync accounts but no account time series (high)
+- [x] `GET /api/v2/custom-tag-mappings` — junction resolving the custom_tags we already sync to campaigns/accounts/leads (high)
+- [x] `GET /api/v2/subsequences` — follow-up sequences attached to campaigns; missing branch of the campaign tree (medium)
 - [ ] `GET /api/v2/block-lists-entries` — suppression list explaining why leads were never contacted (medium)
 - [ ] `POST /api/v2/accounts/warmup-analytics` — read-shaped per-account warmup health scores (medium)
 - [ ] `GET /api/v2/inbox-placement-analytics + /inbox-placement-reports` — inbox vs spam placement results per deliverability test (medium)
