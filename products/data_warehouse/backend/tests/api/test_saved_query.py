@@ -3,7 +3,7 @@ from datetime import timedelta
 from typing import Any, cast
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest import mock
 from unittest.mock import AsyncMock, patch
 
@@ -2644,6 +2644,34 @@ class TestSavedQueryNameValidation(SimpleTestCase):
         assert error.exception.messages == [
             "The system namespace is reserved for built-in tables. Choose a different view name."
         ]
+
+
+class TestSavedQueryModelsNamespaceGuard(BaseTest):
+    @parameterized.expand(
+        [
+            ("endpoint_nested", "models.revenue", DataWarehouseSavedQuery.Origin.ENDPOINT),
+            ("authored_root", "models", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),
+        ]
+    )
+    def test_legacy_query_with_reserved_name_can_be_updated(self, _case: str, name: str, origin: str) -> None:
+        [saved_query] = DataWarehouseSavedQuery.objects.bulk_create(
+            [DataWarehouseSavedQuery(team=self.team, name=name, origin=origin, query={"kind": "HogQLQuery"})]
+        )
+
+        saved_query.latest_error = "Materialization failed"
+        saved_query.save(update_fields=["latest_error"])
+
+        saved_query.refresh_from_db()
+        assert saved_query.latest_error == "Materialization failed"
+
+    def test_existing_endpoint_query_cannot_be_renamed_into_reserved_namespace(self) -> None:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="revenue", origin=DataWarehouseSavedQuery.Origin.ENDPOINT
+        )
+
+        saved_query.name = "models.revenue"
+        with self.assertRaises(ValidationError):
+            saved_query.save()
 
 
 class TestMaterializeRequestBody(SimpleTestCase):

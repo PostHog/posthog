@@ -198,11 +198,19 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     def _validate_models_namespace(self) -> None:
         if self.name == "models":
-            raise ValidationError({"name": "The models namespace needs a model name, for example models.revenue."})
-        if is_reserved_models_name(self.name) and self.origin in {self.Origin.ENDPOINT, self.Origin.MANAGED_VIEWSET}:
-            raise ValidationError(
-                {"name": "The models namespace is reserved for data models. Choose a different name."}
-            )
+            message = "The models namespace needs a model name, for example models.revenue."
+        elif is_reserved_models_name(self.name) and self.origin in {self.Origin.ENDPOINT, self.Origin.MANAGED_VIEWSET}:
+            message = "The models namespace is reserved for data models. Choose a different name."
+        else:
+            return
+        # A query saved with this name before the reservation existed must stay editable. Materialization
+        # and other system writes call save() on it without changing the name.
+        if (
+            not self._state.adding
+            and type(self).objects.filter(pk=self.pk, team_id=self.team_id, name=self.name).exists()
+        ):
+            return
+        raise ValidationError({"name": message})
 
     def clean(self) -> None:
         super().clean()
