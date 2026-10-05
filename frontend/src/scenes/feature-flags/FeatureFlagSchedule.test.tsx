@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { MOCK_DEFAULT_PROJECT, MOCK_GROUP_TYPES } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
@@ -8,9 +8,13 @@ import { BindLogic, Provider } from 'kea'
 import { dayjs } from 'lib/dayjs'
 
 import { useMocks } from '~/mocks/jest'
+import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import {
+    AnyPropertyFilter,
     FeatureFlagType,
+    PropertyFilterType,
+    PropertyOperator,
     RecurrenceInterval,
     ScheduledChangeOperationType,
     ScheduledChangeRequestState,
@@ -33,12 +37,25 @@ const MULTIVARIATE_FILTERS: FeatureFlagType['filters']['multivariate'] = {
     ],
 }
 
+const PERSON_FILTER: AnyPropertyFilter = {
+    key: 'email',
+    value: 'a',
+    type: PropertyFilterType.Person,
+    operator: PropertyOperator.Exact,
+}
+
 function buildFeatureFlag({
     active,
     rolloutPercentage,
+    aggregationGroupTypeIndex,
+    flagAggregationGroupTypeIndex,
+    properties = [],
 }: {
     active: boolean
     rolloutPercentage: number | null
+    aggregationGroupTypeIndex?: number | null
+    flagAggregationGroupTypeIndex?: number | null
+    properties?: AnyPropertyFilter[]
 }): FeatureFlagType {
     return {
         ...NEW_FLAG,
@@ -46,10 +63,27 @@ function buildFeatureFlag({
         active,
         filters: {
             ...NEW_FLAG.filters,
-            groups: [{ properties: [], rollout_percentage: rolloutPercentage, variant: null }],
+            aggregation_group_type_index: flagAggregationGroupTypeIndex,
+            groups: [
+                {
+                    properties,
+                    rollout_percentage: rolloutPercentage,
+                    variant: null,
+                    aggregation_group_type_index: aggregationGroupTypeIndex,
+                },
+            ],
             multivariate: MULTIVARIATE_FILTERS,
         },
     }
+}
+
+/** Where the step line begins: the start point of its leftmost segment. */
+function stepLineStart(timeline: Element): { x: number; y: number } {
+    const starts = [...timeline.querySelectorAll('path')].map((path) => {
+        const [, x, y] = path.getAttribute('d')!.split(' ')
+        return { x: Number(x), y: Number(y) }
+    })
+    return starts.reduce((leftmost, point) => (point.x < leftmost.x ? point : leftmost))
 }
 
 describe('FeatureFlagSchedule', () => {
@@ -159,6 +193,86 @@ describe('FeatureFlagSchedule', () => {
         expect(screen.getByText(new RegExp(expectedText))).toBeInTheDocument()
     })
 
+    // A staged ramp on a flag that already serves everyone changes nothing when it fires.
+    const conditionAddCases: {
+        name: string
+        currentRollout: number
+        currentGroupTypeIndex?: number | null
+        scheduledRollout: number
+        expectWarning: boolean
+    }[] = [
+        { name: 'below the current rollout', currentRollout: 100, scheduledRollout: 25, expectWarning: true },
+        { name: 'level with the current rollout', currentRollout: 40, scheduledRollout: 40, expectWarning: true },
+        { name: 'above the current rollout', currentRollout: 40, scheduledRollout: 60, expectWarning: false },
+        { name: 'left at the form default', currentRollout: 100, scheduledRollout: 0, expectWarning: false },
+        {
+            // The existing condition targets a group type, so its 100% is a share of groups and
+            // says nothing about the users the scheduled condition reaches.
+            name: 'covered only by a condition on another aggregation target',
+            currentRollout: 100,
+            currentGroupTypeIndex: 0,
+            scheduledRollout: 25,
+            expectWarning: false,
+        },
+    ]
+
+    it.each(conditionAddCases)(
+        'condition add $name: warns=$expectWarning',
+        ({ currentRollout, currentGroupTypeIndex, scheduledRollout, expectWarning }) => {
+            renderSchedule(
+                buildFeatureFlag({
+                    active: true,
+                    rolloutPercentage: currentRollout,
+                    aggregationGroupTypeIndex: currentGroupTypeIndex,
+                }),
+                ScheduledChangeOperationType.AddReleaseCondition
+            )
+
+            act(() => {
+                featureFlagLogic(logicProps).actions.setSchedulePayload(
+                    {
+                        groups: [{ properties: [], rollout_percentage: scheduledRollout, variant: null }],
+                        multivariate: null,
+                    },
+                    null
+                )
+            })
+
+            const warning = screen.queryByText(/This flag already serves/)
+            expect(!!warning).toEqual(expectWarning)
+        }
+    )
+
+    // The measured rollout follows the aggregation target, so a flag that buckets on a group type
+    // serves a share of groups. Naming users there overstates who the flag reaches.
+    it.each([
+        { name: 'persons', flagAggregationGroupTypeIndex: undefined, expectedTarget: 'users' },
+        { name: 'a group type', flagAggregationGroupTypeIndex: 0, expectedTarget: 'organizations' },
+    ])(
+        'condition add warning on a flag aggregating on $name counts $expectedTarget',
+        ({ flagAggregationGroupTypeIndex, expectedTarget }) => {
+            renderSchedule(
+                buildFeatureFlag({ active: true, rolloutPercentage: 100, flagAggregationGroupTypeIndex }),
+                ScheduledChangeOperationType.AddReleaseCondition
+            )
+
+            act(() => {
+                groupsModel.actions.loadAllGroupTypesSuccess(MOCK_GROUP_TYPES)
+                featureFlagLogic(logicProps).actions.setSchedulePayload(
+                    {
+                        groups: [{ properties: [], rollout_percentage: 25, variant: null }],
+                        multivariate: null,
+                    },
+                    null
+                )
+            })
+
+            expect(screen.getByText(/This flag already serves/)).toHaveTextContent(
+                `This flag already serves 100% of all ${expectedTarget},`
+            )
+        }
+    )
+
     // useMocks trips the hooks naming lint inside named helpers, so each test registers
     // its own mock before calling this.
     const renderWithSchedules = (): void => {
@@ -170,6 +284,15 @@ describe('FeatureFlagSchedule', () => {
             featureFlagLogic(logicProps).actions.loadScheduledChanges()
         })
     }
+
+    const addConditionChange = (rolloutPercentage: number, daysFromNow: number): ScheduledChangeType =>
+        makeScheduledChange({
+            scheduled_at: dayjs().add(daysFromNow, 'day').toISOString(),
+            payload: {
+                operation: ScheduledChangeOperationType.AddReleaseCondition,
+                value: { groups: [{ properties: [], rollout_percentage: rolloutPercentage, variant: null }] },
+            },
+        })
 
     const schedulesMock = (
         schedules: ScheduledChangeType[]
@@ -213,6 +336,30 @@ describe('FeatureFlagSchedule', () => {
         fireEvent.click(document.querySelector('[data-attr="feature-flag-close-schedule-form"]')!)
         expect(screen.queryByText(formHint)).not.toBeInTheDocument()
         expect(document.querySelector('[data-attr="feature-flag-open-schedule-form"]')).toBeInTheDocument()
+    })
+
+    it('opens the step line at the first scheduled level when only a targeted condition covers the flag', async () => {
+        // A 100% condition narrowed to a segment reaches a share of that segment, and the flag says
+        // nothing about how large it is. Counting it as the level the flag serves today draws the
+        // line at 100% and drops it to the first scheduled step, a loss of reach that never happens.
+        useMocks({
+            get: schedulesMock([addConditionChange(25, 30), addConditionChange(50, 60)]),
+        })
+        renderWithSchedules()
+        await screen.findByText('What happens next')
+        // The mount loads a flag of its own, so set the targeted condition after that settles.
+        act(() => {
+            featureFlagLogic(logicProps).actions.setFeatureFlag(
+                buildFeatureFlag({ active: true, rolloutPercentage: 100, properties: [PERSON_FILTER] })
+            )
+        })
+
+        const timeline = document.querySelector('[data-attr="feature-flag-schedule-timeline"]')!
+        const firstMark = timeline.querySelector('circle')!
+        expect(stepLineStart(timeline)).toEqual({
+            x: Number(firstMark.getAttribute('cx')),
+            y: Number(firstMark.getAttribute('cy')),
+        })
     })
 
     describe('approval visibility', () => {
