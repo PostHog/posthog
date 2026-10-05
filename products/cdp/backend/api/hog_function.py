@@ -41,7 +41,7 @@ from posthog.cdp.validation import (
     masked_secret_input_keys,
     reserved_functions_used,
 )
-from posthog.event_usage import AGENT_EVENT_SOURCES, get_event_source, report_user_action
+from posthog.event_usage import AGENT_EVENT_SOURCES, get_event_source
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -97,11 +97,6 @@ tracer = trace.get_tracer(__name__)
 # always apply to the live row. The draft blob is a full snapshot of these fields so publish is a
 # plain copy, not a merge.
 DRAFT_CONTENT_FIELDS = ("hog", "inputs_schema", "inputs", "filters", "mappings", "masking")
-
-# Kept in sync with the trigger events the frontend checks before it captures `error_tracking_alert_created`.
-ERROR_TRACKING_ALERT_TRIGGER_EVENTS = frozenset(
-    {"$error_tracking_issue_created", "$error_tracking_issue_reopened", "$error_tracking_issue_spiking"}
-)
 
 # Compiled from the config fields above during validation, so they follow whichever row the config
 # lands on and must never be written live by a draft-routed edit.
@@ -1328,34 +1323,6 @@ class HogFunctionViewSet(
             serializer.instance,
             name=serializer.instance.name,
             detail_type=humanize_hog_function_type(serializer.instance.type),
-        )
-        self._report_error_tracking_alert_created(serializer.instance)
-
-    def _report_error_tracking_alert_created(self, hog_function: HogFunction) -> None:
-        # Server-side so alerts created through MCP or the API are counted, with `source` set to the surface.
-        # The frontend `error_tracking_alert_created` event only sees the web app.
-        trigger_event = next(
-            (
-                event.get("id")
-                for event in (hog_function.filters or {}).get("events", [])
-                if event.get("id") in ERROR_TRACKING_ALERT_TRIGGER_EVENTS
-            ),
-            None,
-        )
-        if trigger_event is None:
-            return
-        report_user_action(
-            cast(User, self.request.user),
-            "error_tracking_alert_changed",
-            {
-                "action": "create",
-                "hog_function_id": str(hog_function.id),
-                "trigger_event": trigger_event,
-                "template_id": hog_function.template_id,
-                "enabled": hog_function.enabled,
-            },
-            team=self.team,
-            request=self.request,
         )
 
     @staticmethod

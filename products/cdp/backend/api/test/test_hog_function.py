@@ -743,49 +743,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         assert filtered_actual_activities == expected_activities
 
-    @parameterized.expand(
-        [
-            ("error_tracking_trigger", "$error_tracking_issue_created", True),
-            ("other_trigger", "$pageview", False),
-        ]
-    )
-    def test_create_reports_error_tracking_alert_with_request_surface(
-        self, _name: str, trigger_event: str, expect_event: bool
-    ) -> None:
-        with patch("posthog.event_usage.posthoganalytics.capture") as mock_capture:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_functions/",
-                data={
-                    "type": "destination",
-                    "name": "Alert",
-                    "hog": "fetch(inputs.url);",
-                    "inputs": {},
-                    "filters": {"events": [{"id": trigger_event, "type": "events"}]},
-                },
-                format="json",
-                headers={"X-Posthog-Client": "mcp"},
-            )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-
-        alert_events = [
-            call.kwargs["properties"]
-            for call in mock_capture.call_args_list
-            if call.kwargs.get("event") == "error_tracking_alert_changed"
-        ]
-        if not expect_event:
-            assert alert_events == []
-            return
-        assert alert_events == [
-            {
-                **alert_events[0],
-                "action": "create",
-                "source": "mcp",
-                "hog_function_id": response.json()["id"],
-                "trigger_event": trigger_event,
-                "enabled": False,
-            }
-        ]
-
     def test_creates_with_template_id(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
