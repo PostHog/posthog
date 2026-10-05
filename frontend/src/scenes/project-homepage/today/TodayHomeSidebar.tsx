@@ -18,6 +18,7 @@ import { todayLogic } from './todayLogic'
 import { TodayMoreReports } from './TodayMoreReports'
 import { TodayNavItem } from './TodayNavItem'
 import { TodayReportNavItem } from './TodayReportNavItem'
+import { TodayReportResolveButton } from './TodayReportResolveButton'
 
 function PersonalBriefingNavItems(): JSX.Element {
     const { briefingItems, reportPreviews, hoveredItemKey } = useValues(todayLogic)
@@ -46,6 +47,7 @@ function PersonalBriefingNavItems(): JSX.Element {
                         dataAttr="today-nav-item"
                         onClick={() => itemOpened(item, 'sidebar')}
                         onHoverChange={(hovered) => setHoveredItemKey(hovered ? item.key : null)}
+                        action={preview ? <TodayReportResolveButton card={preview.card} state={item.state} /> : null}
                     />
                 )
                 return preview ? (
