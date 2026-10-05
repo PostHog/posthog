@@ -90,6 +90,34 @@ class JobsTable:
         return cls(rows=table, duplicates=table)
 
 
+COLUMNS = (
+    "id",
+    "run_id",
+    "run_attempt",
+    "name",
+    "workflow_name",
+    "head_sha",
+    "head_branch",
+    "status",
+    "conclusion",
+    "labels",
+    "runner_name",
+    "created_at",
+    "created_at_raw",
+    "started_at",
+    "completed_at",
+    "duration_seconds",
+    "queue_seconds",
+    "provisioning_seconds",
+    "is_rerun_copy",
+    "ci_engine",
+    "native_run_id",
+    "native_workflow_run_id",
+    "native_job_id",
+    "native_attempt_id",
+)
+
+
 def build_query(table: JobsTable, *, created_floor: bool = False) -> str:
     # The floor must live in its OWN innermost SELECT on the raw string column, like the runs
     # builder's: the parsing SELECT below aliases parseDateTimeBestEffort(created_at) AS created_at,
