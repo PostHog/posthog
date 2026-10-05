@@ -489,23 +489,32 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                     actions.setApiError(PAYMENT_ORGANIZATION_ERROR)
                     return
                 }
+                // Two overlapping requests make billing create two Stripe customers, and the second one fails.
+                if (cache.authorizationInFlight) {
+                    return
+                }
+                cache.authorizationInFlight = true
                 actions.setClientSecret(null)
                 actions.setLoading(true)
                 actions.clearErrors()
-                await runPaymentStep(
-                    () => billingActivateAuthorizeCreate({ organization_id: organizationId }),
-                    (response) => {
-                        actions.setClientSecret(response.clientSecret || null)
-                        actions.setLoading(false)
-                    },
-                    (error) => {
-                        posthog.captureException(
-                            new Error('payment entry api error - initiate authorization error', { cause: error })
-                        )
-                        actions.setApiError('Failed to initialize payment')
-                        actions.setLoading(false)
-                    }
-                )
+                try {
+                    await runPaymentStep(
+                        () => billingActivateAuthorizeCreate({ organization_id: organizationId }),
+                        (response) => {
+                            actions.setClientSecret(response.clientSecret || null)
+                            actions.setLoading(false)
+                        },
+                        (error) => {
+                            posthog.captureException(
+                                new Error('payment entry api error - initiate authorization error', { cause: error })
+                            )
+                            actions.setApiError('Failed to initialize payment')
+                            actions.setLoading(false)
+                        }
+                    )
+                } finally {
+                    cache.authorizationInFlight = false
+                }
             },
             confirmPayment: async ({ stripe, elements }) => {
                 const returnUrl = values.stripeReturnUrl
