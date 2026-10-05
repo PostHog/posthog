@@ -52,6 +52,13 @@ def manager() -> MagicMock:
     return result
 
 
+def test_builds_resumable_source_manager(inputs: SourceInputs) -> None:
+    manager = MercadoPagoSource().get_resumable_source_manager(inputs)
+
+    assert manager._inputs is inputs
+    assert manager._data_class is MercadoPagoResumeConfig
+
+
 @pytest.mark.parametrize(
     ("name", "path"),
     [
