@@ -27,6 +27,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.serpstat.s
 CONFIG = SerpstatSourceConfig(api_key="example-token+/", project_id="123", project_region_id="456")
 
 
+def request_json(request: PreparedRequest) -> dict[str, Any]:
+    assert request.body is not None
+    return json.loads(request.body)
+
+
 @pytest.fixture
 def transport() -> Iterator[tuple[list[PreparedRequest], list[tuple[int, dict[str, Any]]]]]:
     sent: list[PreparedRequest] = []
@@ -125,11 +130,12 @@ def test_request_and_rows(
     assert len(sent) == 1
     request = sent[0]
     assert request.method == "POST"
+    assert request.url is not None
     assert urlsplit(request.url).path == "/v4/"
     assert parse_qs(urlsplit(request.url).query) == {"token": [CONFIG.api_key]}
     assert "Authorization" not in request.headers
     assert request.headers["Content-Type"] == "application/json"
-    assert json.loads(request.body) == {"id": "posthog", "method": method, "params": params}
+    assert request_json(request) == {"id": "posthog", "method": method, "params": params}
     manager.save_state.assert_not_called()
 
 
@@ -154,7 +160,7 @@ def test_pagination_resume_and_caps(
     manager.can_resume.return_value = start_page != 1
     manager.load_state.return_value = SerpstatResumeConfig(page=start_page, date_to="2026-01-02")
     list(serpstat_resource(CONFIG, endpoint, 1, "test-job", "v4", manager))
-    assert [json.loads(request.body)["params"]["page"] for request in sent] == (
+    assert [request_json(request)["params"]["page"] for request in sent] == (
         [start_page] if terminal == "cap" else [start_page, start_page + 1]
     )
     assert manager.save_state.call_count == (0 if terminal == "cap" else 1)
@@ -179,7 +185,7 @@ def test_positions_resume_keeps_original_date_window(
     manager.load_state.return_value = SerpstatResumeConfig(page=2, date_to="2025-01-01")
     list(serpstat_resource(CONFIG, "project_positions", 1, "test-job", "v4", manager))
     for request in sent:
-        params = json.loads(request.body)["params"]
+        params = request_json(request)["params"]
         assert params["date_from"] == "2024-12-26"
         assert params["date_to"] == "2025-01-01"
     manager.save_state.assert_called_once_with(SerpstatResumeConfig(page=3, date_to="2025-01-01"))
@@ -258,4 +264,4 @@ def test_credential_check_stops_after_one_free_page(
     responses.append((200, {"result": {"data": [{"project_id": "123"}], "summary_info": {"page_total": 50}}}))
     list(serpstat_resource(CONFIG, "projects", 1, "", "v4", credential_check=True))
     assert len(sent) == 1
-    assert json.loads(sent[0].body)["params"] == {"page": 1, "size": 20}
+    assert request_json(sent[0])["params"] == {"page": 1, "size": 20}

@@ -63,10 +63,13 @@ AUTH_ERROR = "Serpstat authentication failed. Check your API token and API acces
 QUOTA_ERROR = "Serpstat API credits are exhausted. Add credits or wait for your allowance to reset."
 REQUEST_ERROR = "Serpstat rejected the request. Check your project ID, region ID, and API access."
 
-RESPONSE_ACTIONS: list[ResponseAction] = [
+_RATE_LIMIT_RESPONSE_ACTIONS: list[ResponseAction] = [
     {"content": message, "action": "retry", "message": "Serpstat request rate exceeded. Try again later."}
     for message in ("Query frequency exceeded", "Too many queries")
-] + [
+]
+
+RESPONSE_ACTIONS: list[ResponseAction] = [
+    *_RATE_LIMIT_RESPONSE_ACTIONS,
     {"json_field": "error.code", "json_values": [429, -429], "action": "retry"},
     {"json_field": "error.code", "json_values": [500, -32603], "action": "retry"},
     {"status_code": 401, "action": "raise", "message": AUTH_ERROR},

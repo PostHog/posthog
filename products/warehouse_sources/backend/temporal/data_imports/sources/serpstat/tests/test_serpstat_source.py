@@ -22,6 +22,7 @@ def test_invalid_ids_do_not_call_api(field: str, value: str) -> None:
     with patch(RESOURCE) as resource:
         valid, error = SerpstatSource().validate_credentials(config, 1)
     assert not valid
+    assert error is not None
     assert "positive integer" in error
     resource.assert_not_called()
 
