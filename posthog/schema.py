@@ -5573,6 +5573,10 @@ class FileSystemImport(BaseModel):
         description="Match this with the a base scene key or a specific one",
     )
     sceneKeys: list[str] | None = Field(default=None, description="List of all scenes exported by the app")
+    searchKeywords: list[str] | None = Field(
+        default=None,
+        description=("Other terms that find this item in search, for example the names of its tabs or common synonyms"),
+    )
     shortcut: bool | None = Field(default=None, description="Whether this is a shortcut or the actual item")
     tags: list[Tag] | None = Field(default=None, description="Tag for the product 'beta' / 'alpha'")
     type: str | None = Field(

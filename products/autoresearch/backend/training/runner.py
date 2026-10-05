@@ -38,8 +38,14 @@ from posthog.models.user import User
 from products.actions.backend.models.action import Action
 from products.autoresearch.backend.access import has_report_notebook_access
 from products.autoresearch.backend.dataset.labeling import TrainingSample, build_target_condition
+from products.autoresearch.backend.inference.failures import UnscorableChampion, find_unscorable_champion
 from products.autoresearch.backend.inference.sandbox import _resolve_acting_user, measure_training_sample
-from products.autoresearch.backend.models import AutoresearchPipeline, AutoresearchSuggestion, AutoresearchTrainingRun
+from products.autoresearch.backend.models import (
+    AutoresearchModel,
+    AutoresearchPipeline,
+    AutoresearchSuggestion,
+    AutoresearchTrainingRun,
+)
 from products.tasks.backend.facade import (
     api as tasks_facade,
     cancellation as tasks_cancellation,
@@ -204,6 +210,7 @@ def build_agent_description(
     pending_suggestions: list[AutoresearchSuggestion] | None = None,
     training_sample: TrainingSample | None = None,
     report_notebook: bool = False,
+    unscorable_champion: UnscorableChampion | None = None,
 ) -> str:
     """Build the Claude Code agent prompt for the autoresearch training loop."""
     pop_clause = ""
@@ -227,6 +234,7 @@ def build_agent_description(
         )
 
     sample_clause = _describe_training_sample(training_sample)
+    unscorable_clause = _describe_unscorable_champion(unscorable_champion)
 
     today_iso = date.today().isoformat()
     min_iters = min(3, iteration_budget)
@@ -302,7 +310,7 @@ def build_agent_description(
            in `dead_ends`. In each iteration's `agent_description`, cite which prior learning you are
            building on or deliberately avoiding.
 
-        If no champion exists you are establishing the baseline — aim for AUC > 0.6.
+        If no champion exists you are establishing the baseline — aim for AUC > 0.6.{unscorable_clause}
 
         ## How labeling works (read this carefully — it shapes everything below)
 
@@ -704,6 +712,29 @@ def _cancel_dispatched_task_run(task_run_id: UUID, task_id: UUID, *, team_id: in
 # ── Main entry point ──────────────────────────────────────────────────────────
 
 
+def _describe_unscorable_champion(unscorable: UnscorableChampion | None) -> str:
+    if unscorable is None:
+        return ""
+    # Indented to the brief's level, because the brief is dedented after this text goes in.
+    return textwrap.indent(
+        textwrap.dedent(f"""
+
+            **The current champion cannot score.** Its scheduled scoring runs fail with
+            `{unscorable.failure_kind}` since {unscorable.onset.isoformat()}. Its `holdout_score` is not
+            the bar for this run: any candidate whose `features.sql` scores today's inference population
+            replaces it. Do not reuse its `features.sql` as it is. Find what makes it fail first.
+            `limit_exceeded` means a query hit a memory, time, rows or bytes limit. `query_failed` means
+            the query is not valid for today's data. `model_load_failed` means `predict.py` could not
+            load or run the fitted model."""),
+        " " * 8,
+    )
+
+
+def _unscorable_champion_for_brief(pipeline: AutoresearchPipeline) -> UnscorableChampion | None:
+    champion = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
+    return find_unscorable_champion(champion)
+
+
 def _training_sample_for_brief(pipeline: AutoresearchPipeline) -> TrainingSample | None:
     """
     The training sample, for the brief only. Materialization measures it again, so a count that
@@ -788,6 +819,7 @@ def run_training(
             pending_suggestions=pending_suggestions or None,
             training_sample=_training_sample_for_brief(pipeline),
             report_notebook=report_notebook,
+            unscorable_champion=_unscorable_champion_for_brief(pipeline),
         )
 
         title = f"[autoresearch] {pipeline.name}: learn to predict '{pipeline.target_event}'"
