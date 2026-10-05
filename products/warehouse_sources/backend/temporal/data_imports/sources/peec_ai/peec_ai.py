@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
     EndpointResource,
     RESTAPIConfig,
 )
@@ -88,10 +89,8 @@ def peec_ai_source(
             end_date = resume.end_date or end_date
         params.update(start_date=start_date, end_date=end_date)
 
-    resource_config: EndpointResource = {
-        "name": endpoint,
-        "endpoint": {"path": definition["path"], "data_selector": "data", "params": params},
-    }
+    endpoint_config: Endpoint = {"path": definition["path"], "data_selector": "data", "params": params}
+    resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": f"{BASE_URL}/{api_version}/",
