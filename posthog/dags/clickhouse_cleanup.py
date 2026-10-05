@@ -728,9 +728,8 @@ def recheck_revived_persons(name: str) -> dagster.OpDefinition:
 
     The checkpoints sit at phase boundaries rather than inside the mutation, because a mutation
     over an unpartitioned table runs long and re-checking mid-flight cannot retract work already
-    applied. A person revived inside that window has already lost its distinct id rows;
-    reset_deleted_person_distinct_ids and the sync_person_distinct_ids workflow republish them
-    from Postgres.
+    applied. A person revived inside that window has already lost its distinct id rows, which a
+    republish from Postgres restores.
     """
 
     @dagster.op(name=name)
