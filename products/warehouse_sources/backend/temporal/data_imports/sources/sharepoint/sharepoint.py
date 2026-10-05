@@ -241,7 +241,7 @@ def _walk_child_collection(
 
 def _list_sites(client: SharePointClient, site_paths: list[str], logger: FilteringBoundLogger) -> list[dict[str, Any]]:
     if site_paths:
-        return [client.get(path) for path in site_paths]
+        return [site for path in site_paths if not _is_personal_site(site := client.get(path))]
 
     sites: list[dict[str, Any]] = []
     for page in _walk_collection(client, "/sites/getAllSites", None, None, lambda _: None, logger):
@@ -266,8 +266,9 @@ def _iter_sites(
     resume: Optional[SharePointResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     if site_paths:
-        sites = [client.get(path) for path in site_paths]
-        yield [_normalize(site, SharePointEndpoint.SITES) for site in sites]
+        sites = _list_sites(client, site_paths, logger)
+        if sites:
+            yield [_normalize(site, SharePointEndpoint.SITES) for site in sites]
         return
 
     def stage(next_url: str) -> None:

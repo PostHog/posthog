@@ -158,6 +158,19 @@ class TestSharePointRows:
 
         assert [row["id"] for row in rows] == [SITE_A, SITE_B]
 
+    @pytest.mark.parametrize("endpoint", ["sites", "drives"])
+    def test_explicit_personal_site_is_skipped(self, endpoint: str) -> None:
+        site_url = "https://contoso-my.sharepoint.com/personal/user"
+        routes: dict[str, Route] = {
+            _g("/sites/contoso-my.sharepoint.com:/personal/user:"): {
+                "id": "personal-1",
+                "webUrl": site_url,
+                "isPersonalSite": True,
+            }
+        }
+
+        assert _rows(endpoint, _session(routes), site_urls=site_url) == []
+
     def test_next_link_outside_graph_is_refused(self) -> None:
         routes: dict[str, Route] = {
             _g("/sites/getAllSites"): {"value": [{"id": SITE_A}], "@odata.nextLink": "https://evil.example.com/next"}
