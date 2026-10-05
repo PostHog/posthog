@@ -1,6 +1,8 @@
 import uuid
 import typing
 import asyncio
+import contextlib
+import contextvars
 import dataclasses
 
 from django.conf import settings
@@ -10,6 +12,7 @@ import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+import redis.exceptions
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
@@ -33,6 +36,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
+from posthog.redis import get_async_client
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
@@ -91,6 +95,11 @@ MB_100_IN_BYTES = 100 * 1000 * 1000
 # events-to-S3 join chains to work around a ClickHouse bug, not for cost. The materialization query
 # itself is printed from the untouched AST.
 DESCRIBE_QUERY_SETTINGS = {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
+
+# Longer than the activity's 20-minute start-to-close timeout, so a live writer never loses the
+# lock. A worker that dies mid-write releases it when it expires.
+TABLE_WRITE_LOCK_TIMEOUT_SECONDS = 25 * 60
+TABLE_WRITE_LOCK_WAIT_SECONDS = 5 * 60
 
 _LOCAL_COMPARE_OPS = {
     ast.CompareOperationOp.GlobalIn: ast.CompareOperationOp.In,
@@ -637,6 +646,32 @@ def _transform_unsigned_integers(batch: pa.RecordBatch) -> pa.RecordBatch:
     return pa.RecordBatch.from_arrays(columns, schema=signed_schema)
 
 
+_T = typing.TypeVar("_T")
+
+# The storage calls of the run that holds the table write lock. A thread keeps running after its
+# awaiting task is cancelled, so the lock waits for these before it lets the next writer in.
+_in_flight_storage_calls: contextvars.ContextVar[set[asyncio.Task[typing.Any]] | None] = contextvars.ContextVar(
+    "in_flight_storage_calls", default=None
+)
+
+
+def _retrieve_result(task: asyncio.Task[typing.Any]) -> None:
+    # A cancelled caller never awaits the task, so asyncio would log its error as never retrieved.
+    if not task.cancelled():
+        task.exception()
+
+
+async def _storage_call(func: typing.Callable[..., _T], /, *args: typing.Any, **kwargs: typing.Any) -> _T:
+    """Run a blocking call that reads or writes the table in a thread, tracked by the table write lock."""
+    task = asyncio.ensure_future(asyncio.to_thread(func, *args, **kwargs))
+    in_flight = _in_flight_storage_calls.get()
+    if in_flight is not None:
+        in_flight.add(task)
+        task.add_done_callback(in_flight.discard)
+    task.add_done_callback(_retrieve_result)
+    return await asyncio.shield(task)
+
+
 async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, logger: FilteringBoundLogger) -> str:
     """Write a single empty parquet file under ``table_uri`` so a zero-row materialization
     is still queryable.
@@ -654,7 +689,7 @@ async def _write_empty_parquet_for_zero_rows(table_uri: str, schema: pa.Schema, 
         with s3.open(file_uri, "wb") as f:
             f.write(parquet_bytes)
 
-    await asyncio.to_thread(_upload)
+    await _storage_call(_upload)
     await logger.ainfo(f"Wrote empty parquet for zero-row materialization: uri={file_uri} bytes={len(parquet_bytes)}")
     return file_uri
 
@@ -1011,6 +1046,54 @@ def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
     return plan.reason
 
 
+class TableWriteLockTimeoutError(Exception):
+    """Another run still writes the same Delta table. The activity retry waits for it again."""
+
+
+@contextlib.asynccontextmanager
+async def _table_write_lock(table_uri: str, logger: FilteringBoundLogger) -> typing.AsyncIterator[None]:
+    """Let one run at a time write a view's Delta table.
+
+    A rebuild deletes the table folder and writes a new log. A second run on the same table (a
+    manual run next to a scheduled one, or an attempt that Temporal retried while the old attempt
+    still writes) removes the log under the first run's open handle, and the first run's next
+    commit fails with "Invalid table version". Both runs then fail and the view stays stale.
+    """
+    lock = get_async_client().lock(
+        f"data_modeling:table_write:{table_uri}",
+        timeout=TABLE_WRITE_LOCK_TIMEOUT_SECONDS,
+        blocking_timeout=TABLE_WRITE_LOCK_WAIT_SECONDS,
+        sleep=1,
+    )
+    try:
+        acquired = await lock.acquire()
+    except redis.exceptions.RedisError as error:
+        # Redis is a guard here, not a dependency: without it the write runs as it did before.
+        await logger.awarning(f"Could not take the table write lock, writing without it: {error}")
+        capture_exception(error)
+        acquired = None
+    if acquired is None:
+        yield
+        return
+    if not acquired:
+        raise TableWriteLockTimeoutError(
+            f"Another run still writes this table after {TABLE_WRITE_LOCK_WAIT_SECONDS} seconds: uri={table_uri}"
+        )
+    in_flight: set[asyncio.Task[typing.Any]] = set()
+    token = _in_flight_storage_calls.set(in_flight)
+    try:
+        yield
+    finally:
+        _in_flight_storage_calls.reset(token)
+        if in_flight:
+            # Only a second cancellation stops this wait. The lock then stays held and expires.
+            await asyncio.shield(asyncio.wait(set(in_flight)))
+        try:
+            await lock.release()
+        except redis.exceptions.RedisError as error:
+            await logger.awarning(f"Could not release the table write lock: {error}")
+
+
 async def _materialize_fully(
     objects: MatviewInputObjects,
     plan: WritePlan,
@@ -1027,7 +1110,7 @@ async def _materialize_fully(
     s3 = get_s3_client()
     try:
         # non-blocking delete returns control to the event loop so heartbeats continue
-        await asyncio.to_thread(s3.delete, table_uri, recursive=True)
+        await _storage_call(s3.delete, table_uri, recursive=True)
         await logger.adebug(f"Table recursively deleted: uri={table_uri}")
     except FileNotFoundError:
         await logger.adebug(f"Skipping deletion because table not found: uri={table_uri}")
@@ -1062,7 +1145,7 @@ async def _materialize_fully(
         batch_index += 1
         if delta_table is None:
             pa_schema = batch.schema
-            await asyncio.to_thread(
+            await _storage_call(
                 deltalake.write_deltalake,
                 table_or_uri=table_uri,
                 data=batch,
@@ -1072,7 +1155,7 @@ async def _materialize_fully(
             )
             delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
         else:
-            await asyncio.to_thread(
+            await _storage_call(
                 deltalake.write_deltalake,
                 table_or_uri=delta_table,
                 data=batch,
@@ -1093,7 +1176,7 @@ async def _materialize_fully(
     file_uris: list[str] = []
     if delta_table is not None:
         await logger.ainfo("Compacting delta table")
-        await asyncio.to_thread(delta_table.optimize.compact)
+        await _storage_call(delta_table.optimize.compact)
         await _vacuum(delta_table, logger)
         file_uris = delta_table.file_uris()
         if not file_uris and row_count == 0 and pa_schema is not None:
@@ -1164,7 +1247,7 @@ async def _materialize_incrementally(
             await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=True)
             batch_index += 1
 
-            stats = await asyncio.to_thread(
+            stats = await _storage_call(
                 upsert_batch,
                 table_uri,
                 storage_options,
@@ -1201,7 +1284,7 @@ async def _materialize_incrementally(
     file_uris = delta_table.file_uris()
     if len(file_uris) > INCREMENTAL_COMPACT_FILE_THRESHOLD:
         await logger.ainfo(f"Compacting delta table ({len(file_uris)} files)")
-        await asyncio.to_thread(delta_table.optimize.compact)
+        await _storage_call(delta_table.optimize.compact)
     await _vacuum(delta_table, logger)
 
     # Re-listed after maintenance: compaction rewrites files, so the pre-compaction list would
@@ -1217,7 +1300,7 @@ async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogge
     inflate every later publish copy and folder-size read.
     """
     await logger.ainfo("Vacuuming delta table")
-    await asyncio.to_thread(
+    await _storage_call(
         delta_table.vacuum,
         retention_hours=DELTA_TABLE_RETENTION_HOURS,
         enforce_retention_duration=False,
@@ -1329,28 +1412,29 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
 
             try:
-                if plan.incremental:
-                    row_count, file_uris = await _materialize_incrementally(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
-                else:
-                    row_count, file_uris = await _materialize_fully(
-                        objects,
-                        plan,
-                        hogql_query,
-                        table_uri,
-                        storage_options,
-                        logger,
-                        cdp_sink,
-                        person_property_sink,
-                    )
+                async with _table_write_lock(table_uri, logger):
+                    if plan.incremental:
+                        row_count, file_uris = await _materialize_incrementally(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
+                    else:
+                        row_count, file_uris = await _materialize_fully(
+                            objects,
+                            plan,
+                            hogql_query,
+                            table_uri,
+                            storage_options,
+                            logger,
+                            cdp_sink,
+                            person_property_sink,
+                        )
             except (Exception, asyncio.CancelledError):
                 # A retry stages from scratch and a terminal failure produces nothing, so whatever
                 # this attempt wrote is only ever waste.
