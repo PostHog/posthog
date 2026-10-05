@@ -676,7 +676,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/humanitix/humanitix.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/humanitix/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/huntr/huntr.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/huntr/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hyperspell/hyperspell.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hyperspell/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/imagga/settings.py
