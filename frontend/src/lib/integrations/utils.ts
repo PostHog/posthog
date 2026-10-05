@@ -1,6 +1,6 @@
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { IntegrationKind } from '~/types'
+import { IntegrationKind, IntegrationType } from '~/types'
 
 import IconApple from 'public/services/apple_search_ads.png'
 import IconAwsS3 from 'public/services/aws-s3.png'
@@ -137,6 +137,11 @@ export const ICONS: Record<IntegrationKind, any> = {
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark
 // surface, so invert them in dark mode (`dark:invert`) wherever the integration icon is rendered.
 export const DARK_MODE_INVERT_ICON_KINDS = new Set<IntegrationKind>(['apns', 'github'])
+
+export const isSandboxEmailSender = (integration: IntegrationType): boolean =>
+    integration.kind === 'email' && integration.config?.provider === 'sandbox'
+
+export const SANDBOX_EMAIL_SENDER_NOTE = 'Delivers only to verified members of your organization.'
 
 export const getIntegrationNameFromKind = (kind: string): string => {
     switch (kind) {
