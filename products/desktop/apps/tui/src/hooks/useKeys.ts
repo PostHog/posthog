@@ -5,7 +5,7 @@ import { type ActionsLine, actionsSheet, canRun } from "../actions";
 import { readClipboardImage } from "../clipboard";
 import { type Composer, isAppKey, isTyping } from "../composer";
 import { messageOf } from "../errors";
-import { droppedImage } from "../images";
+import { droppedImage, droppedPath } from "../images";
 import {
   activeWorkspace,
   closeFocused,
@@ -50,6 +50,7 @@ export function useKeys({
   onModalKey,
   scrollPane,
   control,
+  paneAtDrop,
   notice: { flashNotice, clearNotice },
 }: {
   runsLocally: (paneId: string, taskId: string | null) => boolean;
@@ -62,6 +63,7 @@ export function useKeys({
   onModalKey: (paneId: string, modal: OpenModal, key: SheetKey) => void;
   scrollPane: (paneId: string, lines: number) => void;
   control: ((taskId: string, runId: string) => PiControl) | undefined;
+  paneAtDrop: () => string | undefined;
   notice: Notice;
 }): Keys {
   const { exit } = useApp();
@@ -186,9 +188,16 @@ export function useKeys({
       search.onKey(sequence);
       return;
     }
-    const paneId = workspace.focusedPaneId;
+    // A dropped file goes to the pane under the pointer, which takes focus, like a click would.
+    const dropPane = droppedPath(sequence) ? paneAtDrop() : undefined;
+    const paneId = dropPane ?? workspace.focusedPaneId;
+    if (
+      dropPane &&
+      (dropPane !== workspace.focusedPaneId || layout.focus === "sidebar")
+    )
+      setLayout((current) => focusPane(current, dropPane));
     // Typing from the sidebar carries on in the selected chat's composer.
-    if (layout.focus === "sidebar") {
+    if (layout.focus === "sidebar" && !dropPane) {
       if (!isTyping(sequence)) return;
       setNavigating(true);
       setLayout((current) => focusPane(current, paneId));

@@ -70,6 +70,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 - **The commit hook runs `biome check --write --unsafe`.** Its exhaustive-deps fix once added a whole task object to a `useEffect` and re-subscribed every 10 seconds. Key effects on ids, or call changing functions through a ref.
 - **`MouseInput` sits between the terminal and Ink.** It strips mouse reports and hands raw keys to the app, which splits them with pi's `StdinBuffer`. App keys (`isAppKey`) go to Ink handlers, and everything else goes to the focused composer or an open sheet.
 - **pi components pad for a full screen.** `ChatView` trims their blank edges, strips OSC 133 marks, and spaces blocks itself.
+- **A dropped file arrives as a paste of its path, with no position.** Ghostty reports the pointer a few milliseconds before the paste, so `paneAtDrop` sends the path to the pane under it. Terminals with kitty's OSC 72 drag-and-drop protocol report the drop point itself; the TUI does not use it yet.
 - **Local Docker sandboxes need the agent-server bundle linked**, or the pi capability probe fails. See `products/tasks/backend/sandbox/images/Dockerfile.sandbox-local`.
 
 ## Open ends

@@ -228,6 +228,18 @@ export function App({
   const runsLocally = (paneId: string, taskId: string | null): boolean =>
     isLocal(taskId) || (!taskId && placeFor(paneId) === "local");
 
+  const { boxes, paneAtDrop, ...pointer } = usePointer({
+    rows: sidebar.rows,
+    activate: sidebar.activate,
+    setNavigating: sidebar.setNavigating,
+    setLayout,
+    chatIn,
+    chats: allChats,
+    scrollPane,
+    repaint,
+    flashNotice,
+  });
+
   const { onKey, setOffer, setTurn, pickerFor } = useKeys({
     runsLocally,
     layout,
@@ -239,19 +251,8 @@ export function App({
     onModalKey,
     scrollPane,
     control,
+    paneAtDrop,
     notice,
-  });
-
-  const { boxes, ...pointer } = usePointer({
-    rows: sidebar.rows,
-    activate: sidebar.activate,
-    setNavigating: sidebar.setNavigating,
-    setLayout,
-    chatIn,
-    chats: allChats,
-    scrollPane,
-    repaint,
-    flashNotice,
   });
   useTerminalInput(mouse, { ...pointer, onKey });
   latestSubmit.current = onSubmit;
