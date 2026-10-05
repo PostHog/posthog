@@ -240,6 +240,68 @@ describe('BI editor query generation', () => {
         expect(result?.query).toContain('count(*) AS count')
     })
 
+    it.each([
+        { chartType: ChartDisplayType.ActionsBar, rows: [], columns: [timestampField, browserField], values: [] },
+        { chartType: ChartDisplayType.ActionsStackedBar, rows: [browserField], columns: [timestampField], values: [] },
+        { chartType: ChartDisplayType.ActionsLineGraph, rows: [timestampField, browserField], columns: [], values: [] },
+        { chartType: ChartDisplayType.ActionsAreaGraph, rows: [timestampField], columns: [browserField], values: [] },
+        {
+            chartType: ChartDisplayType.Auto,
+            rows: [browserField],
+            columns: [timestampField],
+            values: [{ field: revenueField, aggregation: 'sum' as const }],
+        },
+    ])('maps two dimensions to an axis and a breakdown for $chartType', ({ chartType, rows, columns, values }) => {
+        const result = buildBIQuery({
+            ...DEFAULT_BI_CONFIG,
+            source: { table: 'events' },
+            chartType,
+            rows: rows.map((field) => (field === timestampField ? { ...field, dateBucket: 'day' } : field)),
+            columns: columns.map((field) => (field === timestampField ? { ...field, dateBucket: 'day' } : field)),
+            values,
+        })!
+
+        const settings = result.node.chartSettings!
+        expect(result.query).toContain(`toStartOfDay(timestamp) AS ${settings.xAxis!.column}`)
+        expect(result.query).toContain(`properties.$browser AS ${settings.seriesBreakdownColumn}`)
+        expect(settings.xAxis!.column).not.toBe(settings.seriesBreakdownColumn)
+        expect(settings.yAxis).toEqual([{ column: values.length ? 'sum_revenue' : 'count' }])
+        expect(result.node.display).toBe(chartType)
+    })
+
+    it('keeps a numeric column dimension on the x-axis instead of treating it as a measure', () => {
+        const result = buildBIQuery({
+            ...DEFAULT_BI_CONFIG,
+            source: { table: 'events' },
+            chartType: ChartDisplayType.ActionsStackedBar,
+            rows: [browserField],
+            columns: [revenueField],
+        })!
+
+        expect(result.node.chartSettings).toEqual({
+            xAxis: { column: 'bi_column_revenue' },
+            xAxisLabel: 'revenue',
+            yAxis: [{ column: 'count' }],
+            seriesBreakdownColumn: 'bi_row_browser',
+            showLegend: true,
+        })
+        expect(result.query).toContain('properties.revenue AS bi_column_revenue')
+    })
+
+    it.each(['rows', 'columns'] as const)('disambiguates colliding dimension aliases on %s', (shelf) => {
+        const result = buildBIQuery({
+            ...DEFAULT_BI_CONFIG,
+            source: { table: 'events' },
+            chartType: ChartDisplayType.ActionsStackedBar,
+            [shelf]: [{ ...eventField, name: 'browser_2' }, browserField],
+        })!
+
+        const { xAxis, seriesBreakdownColumn } = result.node.chartSettings!
+        expect(xAxis!.column).not.toBe(seriesBreakdownColumn)
+        expect(result.query).toContain(`event AS ${xAxis!.column}`)
+        expect(result.query).toContain(`properties.$browser AS ${seriesBreakdownColumn}`)
+    })
+
     it.each([100, 1000, 10000, 50000] as const)(
         'maps every BI row and column dimension to pivot table axes with limit %i',
         (limit) => {
@@ -424,18 +486,18 @@ describe('BI editor query generation', () => {
         expect(createDefaultDateFilter(source)).toBeNull()
     })
 
-    it('generates a relative date condition for the last 7 days', () => {
+    it('bounds the default last 7 days condition at the current time', () => {
         const result = buildBIQuery({
             source: { table: 'events' },
             chartType: ChartDisplayType.Auto,
             rows: [],
             columns: [],
             values: [],
-            filters: [{ field: timestampField, operator: 'last_7_days', value: '' }],
+            filters: [createDefaultDateFilter({ table: 'events' })!],
             limit: 100,
         })
 
-        expect(result?.query).toContain('timestamp >= now() - INTERVAL 7 DAY')
+        expect(result?.query).toContain('(timestamp >= now() - INTERVAL 7 DAY AND timestamp < now())')
     })
 
     test.each([

@@ -104,6 +104,7 @@ describe('Tool schema snapshots', () => {
             'experiment-setup-context': true,
             'scout-trials': true,
             'signals-report-checks-replace': true,
+            'ai-observability-offline-evaluations': true,
         }
         const tools = [...(await getToolsFromContext(context, { featureFlags }))].sort((a, b) =>
             a.name.localeCompare(b.name)

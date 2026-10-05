@@ -267,14 +267,10 @@ export const API_SCOPES: APIScope[] = [
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
 // Scope objects deliberately absent from the key-creation modal above, each with the reason.
-// Every grantable scope object in `ScopeObjectEnumApi` must be either offered in `API_SCOPES` or listed here —
+// Every scope object in `ScopeObjectEnumApi` must be either offered in `API_SCOPES` or listed here,
+// except the OAuth-hidden ones in `OAUTH_SCOPES_HIDDEN` (lib/oauthScopes.generated), which no picker shows.
 // scopes.test.ts enforces that partition so a newly added backend scope can't silently go missing.
 export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
-    // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
-    batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
-    query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
-    wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
-    wizard_run: 'OAuth-hidden: pasteable into a PAT but not advertised.',
     // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
     // the granular scopes are offered instead, so keep the umbrella out of the modal.
     warehouse_objects: 'Umbrella resource: grant warehouse_view/warehouse_table instead.',
@@ -394,10 +390,9 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
 ]
 
-// The product areas that the scope pickers use to group objects, in display order. Each grantable
-// scope object in `ScopeObjectEnumApi` is in exactly one group, and scopes.test.ts fails until a new
-// object has a group. OAuth-hidden objects go in the last group, "Internal tools". The pickers do not
-// show those objects, so a person never sees that group.
+// The product areas that the scope pickers use to group objects, in display order. Each scope object
+// in `ScopeObjectEnumApi` is in exactly one group, except the OAuth-hidden ones, which no picker shows.
+// scopes.test.ts fails until a new object has a group.
 export type APIScopeGroup = {
     label: string
     objects: APIScopeObject[]
@@ -558,10 +553,6 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'file_system',
             'file_system_shortcut',
         ],
-    },
-    {
-        label: 'Internal tools',
-        objects: ['batch_import_support', 'query_performance', 'wizard_session', 'wizard_run'],
     },
 ]
 
