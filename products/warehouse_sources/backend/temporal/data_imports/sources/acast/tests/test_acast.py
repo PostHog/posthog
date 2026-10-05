@@ -1,6 +1,7 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from http import HTTPStatus
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -14,6 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.acast.acas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.acast.source import AcastSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+
+
+def items(response: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], response.items())
 
 
 def response(body: object, status: int = 200) -> Response:
@@ -42,7 +48,7 @@ def test_shows_full_refresh_stops_after_one_response(http_session: MagicMock, ro
     http_session.send.side_effect = [response(rows)]
 
     result = acast_source("fake-acast-key", "shows", 1, "job-1")
-    assert [row for batch in result.items() for row in batch] == rows
+    assert [row for batch in items(result) for row in batch] == rows
     http_session.send.assert_called_once()
     request = http_session.send.call_args.args[0]
     assert request.method == "GET"
@@ -60,7 +66,7 @@ def test_episode_fanout_keeps_parent_keys_and_continues_after_empty_show(http_se
     ]
 
     result = acast_source("fake-acast-key", "episodes", 1, "job-1")
-    rows = [row for batch in result.items() for row in batch]
+    rows = [row for batch in items(result) for row in batch]
 
     assert rows == [
         {"_id": "episode-1", "title": "First episode", "Markers": [], "show_id": "show-1"},
@@ -81,7 +87,7 @@ def test_episode_fanout_keeps_parent_keys_and_continues_after_empty_show(http_se
 def test_episodes_with_no_shows_make_no_child_requests(http_session: MagicMock) -> None:
     http_session.send.side_effect = [response([])]
 
-    assert list(acast_source("fake-acast-key", "episodes", 1, "job-1").items()) == []
+    assert list(items(acast_source("fake-acast-key", "episodes", 1, "job-1"))) == []
     http_session.send.assert_called_once()
 
 
@@ -120,7 +126,7 @@ def test_sync_errors_are_not_retried_and_auth_errors_match_user_messages(http_se
     http_session.send.side_effect = [response({"statusCode": status}, status)]
 
     with pytest.raises(HTTPError) as error:
-        list(acast_source("fake-acast-key", "shows", 1, "job-1").items())
+        list(items(acast_source("fake-acast-key", "shows", 1, "job-1")))
 
     http_session.send.assert_called_once()
     matches = [
@@ -144,7 +150,7 @@ def test_transient_errors_use_framework_retries(http_session: MagicMock, status:
     http_session.send.side_effect = [failed_response, response([{"_id": "show-1"}])]
 
     with patch("time.sleep"):
-        rows = [row for batch in acast_source("fake-acast-key", "shows", 1, "job-1").items() for row in batch]
+        rows = [row for batch in items(acast_source("fake-acast-key", "shows", 1, "job-1")) for row in batch]
 
     assert rows == [{"_id": "show-1"}]
     assert http_session.send.call_count == 2
@@ -154,7 +160,7 @@ def test_unexpected_response_shape_fails_instead_of_importing_an_error(http_sess
     http_session.send.side_effect = [response({"error": "Unexpected response"})]
 
     with pytest.raises(ValueError, match="Required a list response body"):
-        list(acast_source("fake-acast-key", "shows", 1, "job-1").items())
+        list(items(acast_source("fake-acast-key", "shows", 1, "job-1")))
 
 
 def test_unknown_table_fails_before_making_requests(http_session: MagicMock) -> None:

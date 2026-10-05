@@ -1,3 +1,6 @@
+from collections.abc import Iterable
+from typing import Any, cast
+
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.acast.settings import (
@@ -8,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.acast.sett
     PRIMARY_KEYS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resources,
 )
@@ -20,7 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 
 def acast_source(api_key: str, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
     endpoint_config = schema_for_resource(ENDPOINTS, endpoint)
-    resources = [ENDPOINTS["shows"], endpoint_config] if endpoint == "episodes" else [endpoint_config]
+    resources: list[str | EndpointResource] = (
+        [ENDPOINTS["shows"], endpoint_config] if endpoint == "episodes" else [endpoint_config]
+    )
     config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
@@ -53,7 +59,8 @@ def acast_source(api_key: str, endpoint: str, team_id: int, job_id: str) -> Sour
 
 def validate_credentials(api_key: str, team_id: int) -> tuple[bool, str | None]:
     try:
-        next(iter(acast_source(api_key, "shows", team_id, "").items()), None)
+        items = cast(Iterable[Any], acast_source(api_key, "shows", team_id, "").items())
+        next(iter(items), None)
     except HTTPError as error:
         if error.response is not None:
             if error.response.status_code == 401:
