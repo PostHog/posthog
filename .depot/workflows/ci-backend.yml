@@ -404,7 +404,9 @@ jobs:
             timing_scripts: ${{ fromJSON(toJSON(steps.filter.outputs)).timing_scripts }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
-            migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            # Added and modified files only. A squash retirement deletes thousands of
+            # migrations, and a step env string over 128 KiB fails the spawn (E2BIG).
+            migrations_review_files: ${{ steps.filter.outputs.migrations_review_files }}
             migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             # What the replay gate in check-migrations keys off. A ClickHouse or
             # async-migration change does not pay for a replay of a history the Django
@@ -643,6 +645,10 @@ jobs:
                         # depot strips canonical's separate persons-migration job
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
+                      migrations_review:
+                        - added|modified: 'posthog/migrations/*.py'
+                        - added|modified: 'products/*/backend/migrations/*.py'
+                        - added|modified: 'products/*/migrations/*.py'
                       # Any migration file in any app (broader than `migrations` above,
                       # which omits ee/ and posthog sub-package dirs). Gates the
                       # deleted-migration check in repo-checks.
@@ -2052,7 +2058,7 @@ jobs:
               if: github.event_name == 'pull_request' && needs.changes.outputs.migrations == 'true'
               env:
                   CI_REPORT_TOKEN: ${{ steps.ci-report.outputs.available == 'true' && steps.ci-report-app-token.outputs.token || '' }}
-                  CHANGED_FILES: ${{ needs.changes.outputs.migrations_files }}
+                  CHANGED_FILES: ${{ needs.changes.outputs.migrations_review_files }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
                   # The PR checkout above uses the PR branch, which on unrebased PRs
@@ -2438,8 +2444,6 @@ jobs:
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
               if: github.event_name != 'push'
-              env:
-                  MIGRATIONS_FILES: ${{ needs.changes.outputs.migrations_files }}
               run: |
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
