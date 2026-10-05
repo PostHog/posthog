@@ -1283,6 +1283,88 @@ def set_scout_report_repository(
     return True
 
 
+def _latest_status_artefact_content(
+    report_id: str, artefact_type: str, model: type[ActionabilityAssessment] | type[PriorityAssessment]
+) -> ActionabilityAssessment | PriorityAssessment | None:
+    row = (
+        SignalReportArtefact.objects.filter(report_id=report_id, type=artefact_type)
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    if row is None:
+        return None
+    try:
+        return model.model_validate_json(row.content)
+    except ValidationError:
+        return None
+
+
+def set_scout_report_decision(
+    *,
+    team_id: int,
+    report_id: str,
+    actionability: ActionabilityAssessment | None,
+    priority: PriorityAssessment | None,
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+) -> list[str]:
+    """Replace an existing report's `actionability_judgment` and/or `priority_judgment` status
+    artefacts (latest-wins) — the `edit_report` work-decision path. Returns the names of the
+    decisions that changed (`actionability`, `priority`).
+
+    These are the artefacts auto-start reads to decide whether a report opens a draft PR, so a scout
+    whose judgment changed (new evidence, an escalated incident, a fix that landed) corrects them in
+    place instead of leaving the report routed on a stale call. The report's status does not move:
+    an edit must never be a way to take down a report someone else authored.
+
+    Team-scoped fail-closed: a `report_id` the team doesn't own raises. Each change is attributed to
+    the scout's task and logged as a work-log note, so the decision stays auditable. The appends opt
+    out of the model's autostart re-eval hook; the caller fires auto-start after the edit commits.
+    """
+    _validate_report_id(report_id)
+    changed: list[str] = []
+    with transaction.atomic():
+        # The lock is the team-scoped gate and serializes this against a concurrent decision write.
+        if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        # Compared under the lock: `edit_report` is non-idempotent, and a re-send must not log a
+        # second note or re-run auto-start for a decision that did not move.
+        if actionability is not None and actionability != _latest_status_artefact_content(
+            report_id, SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, ActionabilityAssessment
+        ):
+            SignalReportArtefact.append_status(
+                team_id=team_id, report_id=report_id, content=actionability, attribution=attribution
+            )
+            addressed = "already addressed" if actionability.already_addressed else "not yet addressed"
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=NoteArtefact(
+                    note=f"Set actionability: {actionability.actionability.value} ({addressed})", author=author
+                ),
+                attribution=attribution,
+            )
+            changed.append("actionability")
+        if priority is not None and priority != _latest_status_artefact_content(
+            report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, PriorityAssessment
+        ):
+            SignalReportArtefact.append_status(
+                team_id=team_id, report_id=report_id, content=priority, attribution=attribution
+            )
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=NoteArtefact(note=f"Set priority: {priority.priority.value}", author=author),
+                attribution=attribution,
+            )
+            changed.append("priority")
+    logger.info(
+        "signals_scout.edit_report: decision set",
+        extra={"team_id": team_id, "report_id": report_id, "fields": changed},
+    )
+    return changed
+
+
 def set_scout_report_inferred_repository(
     *,
     team_id: int,
