@@ -60,6 +60,10 @@ describe('JavaScript snippet', () => {
         expect(posthog._i).toHaveLength(3)
     })
 
+    it('has no "<" directly before a letter, so Liquid and HTML parsers do not read it as a tag', () => {
+        expect(snippetFunctions(['capture'])).not.toMatch(/<[a-zA-Z]/)
+    })
+
     it('initializes when Array.prototype.toString is read-only', () => {
         const insertedScripts: ScriptElement[] = []
         const snippetWindow: { posthog?: SnippetStub } = {}
