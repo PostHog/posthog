@@ -39,6 +39,7 @@ from products.autoresearch.backend.models import (
 )
 from products.autoresearch.backend.training import artifacts
 from products.autoresearch.backend.training.recipe_validation import RecipeValidationError, validate_model_class
+from products.autoresearch.backend.training.shadow_set import FITTED_METRIC_KEY, shadow_set
 from products.notebooks.backend.facade import api as notebooks_facade
 
 logger = structlog.get_logger(__name__)
@@ -360,14 +361,15 @@ def _activate_pipeline(pipeline: AutoresearchPipeline) -> None:
     pipeline.save(update_fields=["status", "updated_at"])
 
 
-def _schedule_champion_fit(
+def _schedule_model_fit(
     *, pipeline: AutoresearchPipeline, prefix: str, training_run: AutoresearchTrainingRun, model_id: str
 ) -> None:
-    """The train run produces the serving artifact: fit the champion and persist model.pkl so
+    """The train run produces the serving artifact: fit the model and persist model.pkl so
     predict runs are pure inference. Deferred to on_commit, because the sandbox and the
     object-storage write are side effects that must not run inside the atomic block, and the
-    fit only makes sense once the row is durably committed. A failure leaves the champion
-    without a model.pkl, and every scoring run then fails until a later promotion fits one.
+    fit only makes sense once the row is durably committed. A failed champion fit leaves the
+    champion without a model.pkl, and every scoring run then fails until a later promotion
+    fits one. A failed challenger fit keeps the challenger out of the shadow set.
     The fit labels at the run's anchor instant, so it sees the anchor set the agent scored."""
     training_run_id = str(training_run.id)
     anchor_ts = training_run.anchor_ts
@@ -380,10 +382,19 @@ def _schedule_champion_fit(
             fit_champion_model(
                 team=pipeline.team, pipeline=pipeline, prefix=prefix, anchor_ts=anchor_ts, model_id=model_id
             )
+            _mark_fitted(team_id=pipeline.team_id, model_id=model_id)
         except Exception:
-            logger.exception("autoresearch_champion_fit_failed", training_run_id=training_run_id, prefix=prefix)
+            logger.exception("autoresearch_model_fit_failed", training_run_id=training_run_id, prefix=prefix)
 
     transaction.on_commit(_fit_after_commit)
+
+
+def _mark_fitted(*, team_id: int, model_id: str) -> None:
+    model = AutoresearchModel.objects.for_team(team_id).filter(pk=model_id).first()
+    if model is None:
+        return
+    model.metrics = {**(model.metrics or {}), FITTED_METRIC_KEY: True}
+    model.save(update_fields=["metrics", "updated_at"])
 
 
 @transaction.atomic
@@ -498,12 +509,14 @@ def _finalize_under_lock(
 
     if promoted:
         _activate_pipeline(pipeline)
-        # A rejected challenger is not fitted: inference reads the champion only, and no path
-        # promotes a challenger row later, so its fit would cost a sandbox run for nothing.
-        if artifact_prefix:
-            _schedule_champion_fit(
-                pipeline=pipeline, prefix=artifact_prefix, training_run=training_run, model_id=str(model.pk)
-            )
+    # A challenger is fitted only when it enters the shadow set, because nothing else loads
+    # its model.pkl.
+    if artifact_prefix and (
+        promoted or any(member.pk == model.pk for member in shadow_set(pipeline, now=now, pending_fit=model.pk))
+    ):
+        _schedule_model_fit(
+            pipeline=pipeline, prefix=artifact_prefix, training_run=training_run, model_id=str(model.pk)
+        )
 
     return {
         "promoted": promoted,

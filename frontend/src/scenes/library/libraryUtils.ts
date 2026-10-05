@@ -4,7 +4,7 @@ import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/p
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 // These file system types are working pages rather than saved objects, so they belong to Tools.
-export const TOOL_FILE_SYSTEM_TYPES = new Set(['endpoints', 'live_debugger', 'task'])
+export const TOOL_FILE_SYSTEM_TYPES = new Set(['endpoints', 'task'])
 // These file system types are views people open and read, so they belong to Views, next to canvases.
 export const VIEW_FILE_SYSTEM_TYPES = new Set(['dashboard', 'notebook'])
 

@@ -23,7 +23,7 @@ import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSection'
+import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -128,6 +128,7 @@ export function QueryWindow({
     const { vimModeEnabled, vimrc, editorSettingsMenuKey } = useValues(sqlEditorVimLogic)
     const { setVimModeEnabled, openVimrcModal, setEditorSettingsMenuOpen } = useActions(sqlEditorVimLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
+    const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
     const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
     const showBIEditor = biModeFeatureEnabled && mode === SQLEditorMode.FullScene && editorView === BIEditorView.BI
@@ -291,7 +292,10 @@ export function QueryWindow({
                         {mode === SQLEditorMode.FullScene && biModeFeatureEnabled ? (
                             <LemonSegmentedButton
                                 value={editorView}
-                                onChange={setEditorView}
+                                onChange={(view) => {
+                                    setEditorView(view)
+                                    setDatabaseTreeCollapsed(view === BIEditorView.BI)
+                                }}
                                 options={[
                                     { value: BIEditorView.SQL, label: 'SQL' },
                                     { value: BIEditorView.BI, label: 'BI' },

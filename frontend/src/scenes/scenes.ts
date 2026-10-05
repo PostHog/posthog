@@ -253,15 +253,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.InviteSignup]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
     [Scene.Coupons]: { name: 'Coupons', organizationBased: true, layout: 'app-container' },
-    [Scene.Link]: { projectBased: true },
-    [Scene.Links]: { projectBased: true, name: 'Links' },
     [Scene.LiveEvents]: {
         projectBased: true,
         name: 'Live events',
         description: 'Real-time events from your app or website.',
         iconType: 'live',
     },
-    [Scene.LiveDebugger]: { projectBased: true, name: 'Live debugger' },
     [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA', layout: 'plain' },
     [Scene.Login]: { onlyUnauthenticated: true, layout: 'plain' },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
@@ -339,6 +336,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Views]: {
         projectBased: true,
         name: 'Views',
+    },
+    [Scene.ViewsNew]: {
+        projectBased: true,
+        name: 'New view',
+    },
+    [Scene.Tools]: {
+        projectBased: true,
+        name: 'Tools',
     },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
@@ -683,7 +688,6 @@ export const redirects: Record<
     '/instance/query_performance': urls.experimentsStaffTools(),
     '/me/settings': urls.settings('user'),
     '/new': urls.newTab(),
-    '/live-debugger': urls.liveDebugger(),
     // Only billing, confirm-creation and create-project have an `/organization*` scene. Every other
     // path here is guessed or bookmarked, matched no route, and rendered the 404 screen.
     '/organization': urls.settings('organization'),
@@ -844,6 +848,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.library()]: [Scene.Library, 'library'],
     [urls.library(':objectType')]: [Scene.Library, 'libraryObjectType'],
     [urls.views()]: [Scene.Views, 'views'],
+    [urls.viewsNew()]: [Scene.ViewsNew, 'viewsNew'],
+    [urls.tools()]: [Scene.Tools, 'tools'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
@@ -916,9 +922,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
-    [urls.liveDebugger()]: [Scene.LiveDebugger, 'liveDebugger'],
-    [urls.links()]: [Scene.Links, 'links'],
-    [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],

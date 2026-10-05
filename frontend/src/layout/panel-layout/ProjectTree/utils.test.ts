@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
 
 import { productsItemName } from '../navbar/tabs/productsCatalog'
@@ -203,6 +203,22 @@ describe('project tree utils', () => {
             expect(matchesRefType(undefined, 'dashboard')).toBe(false)
         })
     })
+
+    it.each(['trends', 'funnels', 'retention', 'paths', 'lifecycle', 'stickiness', 'hog', undefined, 'unknown'])(
+        'renders a saved insight with type %s using its insight icon',
+        (insightType) => {
+            const [node] = convertFileSystemEntryToTreeDataItem({
+                imports: [{ id: 'report', path: 'Report', type: 'insight', meta: { insight_type: insightType } }],
+                folderStates: {},
+                checkedItems: {},
+                root: 'project://',
+            })
+            const expectedType = insightType && insightType !== 'unknown' ? `insight/${insightType}` : 'insight'
+            expect(renderToStaticMarkup(node.icon as JSX.Element)).toEqual(
+                renderToStaticMarkup(iconForType(expectedType as FileSystemIconType))
+            )
+        }
+    )
 
     describe('starred products', () => {
         it.each(catalogProducts.map((item) => [item.path, item]))(

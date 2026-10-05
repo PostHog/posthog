@@ -495,6 +495,9 @@ describe('SesWebhookHandler', () => {
         // Hard bounces emit both the catch-all metric and the AWS-comparable hard-only one
         expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_bounced', 'email_bounced_hard'])
         expect(result.metrics?.[0].distinctId).toBe('user-123')
+        // Without this the engagement event says only "bounced", and a sender cannot tell a dead
+        // address from a full mailbox.
+        expect(result.metrics?.[0].properties).toMatchObject({ $bounce_type: 'hard' })
         expect(result.hardBounceRecipients).toEqual([
             { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad' },
         ])
@@ -521,6 +524,8 @@ describe('SesWebhookHandler', () => {
         // Transient bounces must NOT emit email_bounced_hard — AWS's account rate excludes them
         expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_bounced', 'email_bounced_transient'])
         expect(result.metrics?.[0].distinctId).toBe('user-123')
+        // A transient bounce reported as hard would read as a dead address and understate recovery.
+        expect(result.metrics?.[0].properties).toMatchObject({ $bounce_type: 'soft' })
         expect(result.hardBounceRecipients).toEqual([])
         expect(result.transientBounceRecipients).toEqual([
             { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'temp' },

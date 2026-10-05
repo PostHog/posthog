@@ -1,15 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { HogQLDropdown } from 'lib/components/HogQLDropdown/HogQLDropdown'
-import { dayjs } from 'lib/dayjs'
-import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
+
+import { BIFilterValueInput } from 'products/data_warehouse/frontend/bi/BIFilterValueInput'
 
 import { biEditorLogic } from '../biEditorLogic'
 import { DATE_BUCKET_OPTIONS, FILTER_OPERATOR_OPTIONS } from '../biEditorOptions'
-import { isDateTimeBIField } from '../biEditorTypes'
+import { isDateTimeBIField, isNumericBIField } from '../biEditorTypes'
 
 export function BIFilterEditor({ index, onDone }: { index: number; onDone: () => void }): JSX.Element | null {
     const { config } = useValues(biEditorLogic)
@@ -19,7 +19,7 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
         setFieldExpression,
         setFilterCustomExpression,
         setFilterOperator,
-        setFilterValue,
+        updateFilter,
     } = useActions(biEditorLogic)
     const filter = config.filters[index]
     if (!filter) {
@@ -28,8 +28,6 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
 
     const { field } = filter
     const needsValue = !['last_7_days', 'is_set', 'is_not_set', 'custom'].includes(filter.operator)
-    const includesTime = field.type === 'datetime'
-    const selectedDate = filter.value && dayjs(filter.value).isValid() ? dayjs(filter.value) : null
 
     return (
         <div className="flex w-80 flex-col gap-3 p-1">
@@ -64,15 +62,16 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
                 <LemonLabel>Condition</LemonLabel>
                 <LemonSelect
                     value={filter.operator}
-                    options={FILTER_OPERATOR_OPTIONS.map((option) => ({
-                        ...option,
-                        disabledReason:
-                            option.value === 'last_7_days' && !isDateTimeBIField(field)
-                                ? 'Choose a date or date-time field'
-                                : undefined,
-                    }))}
+                    options={FILTER_OPERATOR_OPTIONS.filter(
+                        (option) =>
+                            option.value === filter.operator ||
+                            ((option.value !== 'last_7_days' || isDateTimeBIField(field)) &&
+                                (option.value !== 'between' || isDateTimeBIField(field) || isNumericBIField(field)))
+                    )}
                     onChange={(operator) => setFilterOperator(index, operator)}
                     size="small"
+                    aria-label={`${field.name} filter condition`}
+                    data-attr="bi-filter-condition"
                 />
             </div>
             {filter.operator === 'custom' ? (
@@ -98,35 +97,15 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
             ) : needsValue ? (
                 <div className="flex flex-col gap-1">
                     <LemonLabel>Value</LemonLabel>
-                    {isDateTimeBIField(field) ? (
-                        <LemonCalendarSelectInput
-                            value={selectedDate}
-                            onChange={(date) =>
-                                setFilterValue(
-                                    index,
-                                    date?.format(includesTime ? 'YYYY-MM-DD HH:mm:ss' : 'YYYY-MM-DD') ?? ''
-                                )
-                            }
-                            granularity={includesTime ? 'minute' : 'day'}
-                            format={includesTime ? 'MMM D, YYYY HH:mm' : 'MMM D, YYYY'}
-                            use24HourFormat
-                            clearable
-                            placeholder={includesTime ? 'Select date and time' : 'Select date'}
-                            buttonProps={{ size: 'small', 'aria-label': `${field.name} filter date` }}
-                        />
-                    ) : (
-                        <LemonInput
-                            value={filter.value}
-                            onChange={(value) => setFilterValue(index, value)}
-                            onPressEnter={onDone}
-                            placeholder="Value"
-                            aria-label={`${field.name} filter value`}
-                            size="small"
-                            autoFocus
-                        />
-                    )}
+                    <BIFilterValueInput index={index} />
                 </div>
             ) : null}
+            <LemonCheckbox
+                checked={filter.enabled !== false}
+                onChange={(enabled) => updateFilter(index, { enabled })}
+                label="Apply filter"
+                size="small"
+            />
             <div className="flex justify-between gap-2">
                 <LemonButton
                     type="tertiary"

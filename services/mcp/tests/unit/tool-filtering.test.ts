@@ -532,6 +532,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
     const SERVER_MINT_ONLY_SCOPES = new Set([
         'context_layer_internal:write',
+        'hog_flow_proposal:write',
         'internal_run:read',
         'loop_context_internal:write',
         'signal_scout_internal:read',
@@ -892,6 +893,13 @@ describe('Tool Filtering - Read-Only Mode', () => {
 })
 
 describe('Tool Filtering - Feature Flags', () => {
+    it.each([undefined, false, true])('gates private trial tools on scout-trials: %s', (enabled) => {
+        const tools = getToolsForFeatures({ featureFlags: { 'scout-trials': enabled } })
+        expect(tools).toContain('scout-runs-list')
+        expect(tools.includes('scout-trial-create')).toBe(enabled === true)
+        expect(tools.includes('scout-trial-get')).toBe(enabled === true)
+    })
+
     const baseAnnotations = {
         destructiveHint: false,
         idempotentHint: true,
@@ -1015,6 +1023,7 @@ describe('Tool Filtering - Feature Flags', () => {
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
+            'scout-trials',
             'self-optimising-workflows',
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
@@ -1030,7 +1039,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'llm-analytics-datasets',
                 'tracing',
                 'visual-review',
-                'user-interviews',
                 'customer-analytics-csp',
                 'customer-analytics-feature-requests',
                 'customer-analytics-customer-tasks',
@@ -1068,7 +1076,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'today-rail-nav',
             ])
         )
-        expect(flags).toHaveLength(39)
+        expect(flags).toHaveLength(38)
     })
 
     it('every loops tool is gated on the loops flag', () => {

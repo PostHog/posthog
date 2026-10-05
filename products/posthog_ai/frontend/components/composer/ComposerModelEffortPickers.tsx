@@ -38,6 +38,7 @@ import { useThreadSkin } from '../../hooks/useThreadSkin'
 import { ModelCostChip } from '../ModelCostChip'
 import { ModelCostFooter } from '../ModelCostFooter'
 import type { ThreadSkin } from '../quill/quillThreadContext'
+import { ComposerModelEffortSheet } from './ComposerModelEffortSheet'
 import { ComposerReasoningSlider } from './ComposerReasoningSlider'
 
 // Separates model and effort in a slider stop key; never appears in a model id or an effort.
@@ -86,6 +87,7 @@ export interface ComposerModelEffortPickersProps {
     onOpenDefaultSettings?: () => void
     /** Who pays for a run on the Codex harness. Shown only while Codex is selected; omit to hide the row. */
     codexBilling?: ComposerCodexBilling
+    phoneSheet?: boolean
 }
 
 interface PickerSectionProps {
@@ -148,6 +150,7 @@ export function ComposerModelEffortPickers({
     onResetToDefault,
     onOpenDefaultSettings,
     codexBilling,
+    phoneSheet = false,
 }: ComposerModelEffortPickersProps): JSX.Element {
     const chrome = PICKER_CHROME[useThreadSkin()]
     const [open, setOpen] = useState(false)
@@ -220,6 +223,36 @@ export function ComposerModelEffortPickers({
     const selectAndClose = (apply: () => void): void => {
         pendingChangeRef.current = apply
         setOpen(false)
+    }
+
+    if (phoneSheet) {
+        return (
+            <ComposerModelEffortSheet
+                modelLabel={modelLabel}
+                selectedModel={selectedModel}
+                selectedEffort={selectedEffort}
+                selectedAdapter={selectedAdapter}
+                adapters={adapters}
+                adapterModels={adapterModels}
+                effortOptions={effortOptions}
+                showsAnyCost={showsAnyCost}
+                harnessDisabled={(adapter) =>
+                    isDefaultModelLoading || (!!lockedRuntimeAdapter && adapter !== lockedRuntimeAdapter)
+                }
+                billing={billing}
+                billingLabels={BILLING_LABELS}
+                onModelChange={onModelChange}
+                onEffortChange={onEffortChange}
+                onAdapterChange={selectAdapter}
+                resetDisabled={Boolean(onResetToDefault) && isDefaultSelection}
+                onReset={
+                    showReset
+                        ? (onResetToDefault ?? (() => selectStop(stops[Math.floor((stops.length - 1) / 2)])))
+                        : undefined
+                }
+                onOpenDefaultSettings={onOpenDefaultSettings}
+            />
+        )
     }
 
     return (
