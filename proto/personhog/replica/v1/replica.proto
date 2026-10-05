@@ -76,7 +76,9 @@ service PersonHogReplica {
   rpc SetPersonDistinctIdVersionFloor(personhog.types.v1.SetPersonDistinctIdVersionFloorRequest) returns (personhog.types.v1.SetPersonDistinctIdVersionFloorResponse);
   rpc SetPersonVersionFloor(personhog.types.v1.SetPersonVersionFloorRequest) returns (personhog.types.v1.SetPersonVersionFloorResponse);
 
-  // ClickHouse cleanup version heads (replica reads)
+  // ClickHouse cleanup version heads (replica reads) and floors
+  // (temporary: same routing caveat as deletes above)
   rpc GetPersonVersionHeads(personhog.types.v1.GetPersonVersionHeadsRequest) returns (personhog.types.v1.GetPersonVersionHeadsResponse);
   rpc GetDistinctIdVersionHeads(personhog.types.v1.GetDistinctIdVersionHeadsRequest) returns (personhog.types.v1.GetDistinctIdVersionHeadsResponse);
+  rpc EnsurePersonVersionFloors(personhog.types.v1.EnsurePersonVersionFloorsRequest) returns (personhog.types.v1.EnsurePersonVersionFloorsResponse);
 }

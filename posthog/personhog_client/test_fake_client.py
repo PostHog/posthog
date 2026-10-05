@@ -696,6 +696,15 @@ class TestFakePersonHogClientVersionRpcs:
             team_id=self.OTHER_TEAM_ID, person_id=4, uuid="elsewhere", version=1, distinct_ids=["elsewhere-did"]
         )
 
+    def _ensure_persons(self, *floors: tuple[str, int]) -> list[person_pb2.PersonVersionFloorResult]:
+        response = self.client.ensure_person_version_floors(
+            person_pb2.EnsurePersonVersionFloorsRequest(
+                team_id=self.TEAM_ID,
+                floors=[person_pb2.PersonVersionFloor(person_uuid=u, min_version=m) for u, m in floors],
+            )
+        )
+        return list(response.results)
+
     def _distinct_id_head(self, distinct_id: str) -> person_pb2.DistinctIdVersionHead | None:
         response = self.client.get_distinct_id_version_heads(
             person_pb2.GetDistinctIdVersionHeadsRequest(team_id=self.TEAM_ID, distinct_ids=[distinct_id])
@@ -720,14 +729,50 @@ class TestFakePersonHogClientVersionRpcs:
         assert self._distinct_id_head("missing") is None
         assert self._distinct_id_head("elsewhere-did") is None
 
+    def test_ensure_person_floors_classifies_each_row_and_raises_only_tombstones_below_the_floor(self):
+        live = person_pb2.VERSION_FLOOR_OUTCOME_LIVE
+        raised = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_RAISED
+        at_floor = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_AT_FLOOR
+        inserted = person_pb2.VERSION_FLOOR_OUTCOME_TOMBSTONE_INSERTED
+        floors = (("live", 5), ("tomb-low", 5), ("tomb-high", 5), ("missing", 5), ("elsewhere", 5))
+
+        result = person_pb2.PersonVersionFloorResult
+        assert self._ensure_persons(*floors) == [
+            result(person_uuid="live", outcome=live, version=2),
+            result(person_uuid="tomb-low", outcome=raised, version=5),
+            result(person_uuid="tomb-high", outcome=at_floor, version=9),
+            result(person_uuid="missing", outcome=inserted, version=5),
+            result(person_uuid="elsewhere", outcome=inserted, version=5),
+        ]
+        live_person = self.client.stored_person(self.TEAM_ID, "live")
+        assert live_person is not None and (live_person.is_deleted, live_person.version) == (False, 2)
+        missing = self.client.stored_person(self.TEAM_ID, "missing")
+        assert missing is not None and missing.is_deleted
+        other_team = self.client.stored_person(self.OTHER_TEAM_ID, "elsewhere")
+        assert other_team is not None and other_team.version == 1
+        # Once every row is at its floor, a repeat changes nothing.
+        assert [r.outcome for r in self._ensure_persons(*floors)] == [
+            live,
+            at_floor,
+            at_floor,
+            at_floor,
+            at_floor,
+        ]
+
     @pytest.mark.parametrize(
-        "rpc,keys,error",
+        "rpc,keys,min_version,error",
         [
-            ("person_heads", [f"k-{i}" for i in range(251)], "Maximum 250"),
-            ("distinct_id_heads", [f"k-{i}" for i in range(251)], "Maximum 250"),
+            *(
+                (rpc, keys, 0, error)
+                for rpc in ("ensure_persons",)
+                for keys, error in (([f"k-{i}" for i in range(251)], "Maximum 250"), (["k", "k"], "Duplicate key"))
+            ),
+            ("ensure_persons", ["k"], -1, "must not be negative"),
+            ("person_heads", [f"k-{i}" for i in range(251)], 0, "Maximum 250"),
+            ("distinct_id_heads", [f"k-{i}" for i in range(251)], 0, "Maximum 250"),
         ],
     )
-    def test_rejects_batches_the_replica_rejects(self, rpc, keys, error):
+    def test_rejects_batches_the_replica_rejects(self, rpc, keys, min_version, error):
         calls = {
             "person_heads": lambda: self.client.get_person_version_heads(
                 person_pb2.GetPersonVersionHeadsRequest(team_id=self.TEAM_ID, person_uuids=keys)
@@ -735,6 +780,7 @@ class TestFakePersonHogClientVersionRpcs:
             "distinct_id_heads": lambda: self.client.get_distinct_id_version_heads(
                 person_pb2.GetDistinctIdVersionHeadsRequest(team_id=self.TEAM_ID, distinct_ids=keys)
             ),
+            "ensure_persons": lambda: self._ensure_persons(*((k, min_version) for k in keys)),
         }
         with pytest.raises(ValueError, match=error):
             calls[rpc]()

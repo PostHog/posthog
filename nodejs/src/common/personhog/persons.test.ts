@@ -86,6 +86,7 @@ const SERVICE_DEFAULTS: ServiceImpl<typeof PersonHogService> = {
     setPersonVersionFloor: () => ({ updated: false }),
     getPersonVersionHeads: () => ({ heads: [] }),
     getDistinctIdVersionHeads: () => ({ heads: [] }),
+    ensurePersonVersionFloors: () => ({ results: [] }),
     fencePerson: () => ({}),
     fencePersons: () => ({}),
     releaseFence: () => ({}),
