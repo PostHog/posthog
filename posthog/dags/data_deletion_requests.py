@@ -582,7 +582,7 @@ def _refuse_property_removal_unsweepable(
     """Gate a property-removal request against every one of ``targets`` the rewrite cannot complete.
 
     That is a target the rewrite does not fully clean, and a target the request's HogQL predicate
-    excludes, which ``_property_rewrite_scopes`` leaves out of the sweep.
+    excludes, which ``_property_rewrite_targets`` leaves out of the sweep.
     """
 
     def predicate_for(target: DeletionTarget) -> tuple[str, dict] | NotCounted:
