@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import sys
+import json
 import textwrap
 import importlib.util
+from contextlib import nullcontext
 from pathlib import Path
+from urllib.error import URLError
 
 import pytest
 
@@ -135,6 +138,54 @@ def test_status_requires_min_size_and_steps_up_with_ratio(
     body = "".join("+x = 1\n" for _ in range(code_lines)) + "".join("+# c\n" for _ in range(comment_lines))
     report = check_comment_density.analyze(diff_for("posthog/a.py", body))
     assert report.status == expected_status
+
+
+def test_capture_measurement_sends_exact_share_and_pr_number(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("POSTHOG_DEVEX_PROJECT_API_TOKEN", "test-token")
+    monkeypatch.setenv("PR_NUMBER", "123")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/example")
+    monkeypatch.setenv("BASE_SHA", "base")
+    monkeypatch.setenv("HEAD_SHA", "head")
+    requests = []
+    monkeypatch.setattr(
+        check_comment_density, "urlopen", lambda request, timeout: (requests.append(request), nullcontext())[1]
+    )
+
+    report = check_comment_density.analyze(diff_for("posthog/a.py", "+# reason\n+x = 1\n+x = 2\n"))
+    check_comment_density.capture_measurement(report)
+
+    assert len(requests) == 1
+    payload = json.loads(requests[0].data)
+    assert payload["event"] == "ci_pr_comment_density_measured"
+    assert payload["properties"] == {
+        "repository": "example/example",
+        "pr_number": 123,
+        "comment_percentage": 100 * (1 / 3),
+        "added_lines": 3,
+        "comment_lines": 1,
+        "$insert_id": "comment-density:example/example:123:base:head",
+    }
+
+
+def test_capture_measurement_skips_missing_token_and_ignores_network_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("PR_NUMBER", "123")
+    monkeypatch.delenv("POSTHOG_DEVEX_PROJECT_API_TOKEN", raising=False)
+    monkeypatch.setattr(check_comment_density, "urlopen", lambda *args, **kwargs: pytest.fail("capture without token"))
+    check_comment_density.capture_measurement(check_comment_density.Report())
+
+    monkeypatch.setenv("POSTHOG_DEVEX_PROJECT_API_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/example")
+    monkeypatch.setenv("BASE_SHA", "base")
+    monkeypatch.setenv("HEAD_SHA", "head")
+
+    def fail_capture(*args: object, **kwargs: object) -> None:
+        raise URLError("network unavailable")
+
+    monkeypatch.setattr(check_comment_density, "urlopen", fail_capture)
+    check_comment_density.capture_measurement(check_comment_density.Report())
+    assert "Could not capture comment density" in capsys.readouterr().err
 
 
 def test_render_body_lists_comment_heavy_files_first() -> None:
