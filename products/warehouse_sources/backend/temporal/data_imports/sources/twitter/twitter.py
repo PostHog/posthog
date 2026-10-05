@@ -115,13 +115,13 @@ def validate_credentials(bearer_token: str, username: str) -> tuple[bool, str | 
     if response.status_code == 401:
         return False, "X rejected that bearer token. Generate a new one in the X developer portal and try again."
     if response.status_code == 403:
-        # Unlike a scoped API, X gates whole endpoints on the project's access level, and user
+        # Unlike a scoped API, X gates whole endpoints on the project's API access, and user
         # lookup is the lowest rung. A 403 here means no table in this source can ever sync, so it
         # is reported at source-create rather than deferred to a per-table probe.
         return (
             False,
-            "That token's X API access level can't read user lookups. Attach the app to a project "
-            "on the Basic tier or higher, then try again.",
+            "That token's X app cannot read user lookups. Check the app is attached to a project, "
+            "and that the project has API credits, then try again.",
         )
     if response.status_code != 200:
         return False, f"X returned HTTP {response.status_code} for the handle @{handle}."
@@ -133,11 +133,11 @@ def validate_credentials(bearer_token: str, username: str) -> tuple[bool, str | 
 
 
 def endpoint_permissions(bearer_token: str, username: str, endpoints: list[str]) -> dict[str, str | None]:
-    """Report which tables this token's access level can actually read.
+    """Report which tables this token's X app can actually read.
 
-    X serves each endpoint only above a given access level, so a token that lists posts fine still
-    403s on followers. Probing up front lets the schema picker say which tables to leave off
-    instead of letting them fail on their first sync.
+    X gates endpoints per app rather than per scope, so a token that lists posts fine still 403s on
+    followers. Probing up front lets the schema picker say which tables to leave off instead of
+    letting them fail on their first sync.
     """
     session = _session(bearer_token)
     results: dict[str, str | None] = {}
@@ -168,7 +168,7 @@ def endpoint_permissions(bearer_token: str, username: str, endpoints: list[str])
             continue
 
         if response.status_code == 403:
-            results[name] = "Your X API access level doesn't include this endpoint."
+            results[name] = "Your X app's API access doesn't cover this endpoint."
         elif response.status_code == 401:
             results[name] = "X rejected the bearer token."
         else:

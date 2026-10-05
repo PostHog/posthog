@@ -49,7 +49,7 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.x.com": "X rejected the bearer token. Generate a new one in the X developer portal and reconnect the source.",
-            "403 Client Error: Forbidden for url: https://api.x.com": "Your X API access level doesn't include this endpoint. Raise the project's access tier, or stop syncing this table.",
+            "403 Client Error: Forbidden for url: https://api.x.com": "Your X app cannot read this endpoint. Check the project's API access and credit balance in the X developer portal, or stop syncing this table.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -117,8 +117,8 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
             caption=(
                 "Sync one X account's profile, posts, mentions and audience. Create an app in the "
                 "[X developer portal](https://developer.x.com/en/portal/dashboard), attach it to a project, "
-                "then copy the app's **Bearer Token**. The free access level cannot read these endpoints, "
-                "so the project needs Basic or higher."
+                "then copy the app's **Bearer Token**. X charges per post read, so the project also needs "
+                "API credits."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/twitter",
             iconPath="/static/services/twitter.png",

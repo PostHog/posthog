@@ -124,7 +124,7 @@ class TestValidateCredentials:
         [
             (200, {"data": {"id": "1"}}, True, None),
             (401, {"title": "Unauthorized"}, False, "rejected that bearer token"),
-            (403, {"title": "Forbidden"}, False, "access level"),
+            (403, {"title": "Forbidden"}, False, "API credits"),
             (500, {}, False, "HTTP 500"),
             # X answers an unknown handle with 200 and an `errors` array, not a 404.
             (200, {"errors": [{"title": "Not Found Error"}]}, False, "no account with the handle"),
@@ -153,7 +153,7 @@ class TestValidateCredentials:
 
 
 class TestEndpointPermissions:
-    def test_reports_the_tables_the_access_level_blocks(self) -> None:
+    def test_reports_the_tables_the_app_cannot_read(self) -> None:
         responses = {
             "/2/users/by/username/posthog": _json_response({"data": {"id": "7"}}),
             "/2/users/by": _json_response({"data": [{"id": "7"}]}),
@@ -170,7 +170,7 @@ class TestEndpointPermissions:
 
         assert result["Profile"] is None
         assert result["Posts"] is None
-        assert result["Followers"] is not None and "access level" in result["Followers"]
+        assert result["Followers"] is not None and "API access" in result["Followers"]
 
     def test_reports_nothing_when_the_handle_will_not_resolve(self) -> None:
         with patch(_DIRECT_SESSION_TARGET) as MockSession:
