@@ -1,3 +1,6 @@
+import asyncio
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any, Literal
 
@@ -18,6 +21,7 @@ from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttri
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.event_usage import EventSource, get_event_source, groups
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -65,6 +69,53 @@ def get_full_video_exports_limit_for_organization(organization: Organization | N
 
 
 logger = structlog.get_logger(__name__)
+
+# An API caller waits on its export so that the response can carry the content. The wait stays
+# well under the web request timeout, and each team can hold only a few waiting requests, so a
+# burst of exports cannot occupy every web worker. An export past either bound keeps running and
+# the caller polls the asset for the result.
+BLOCKING_EXPORT_WAIT_TIMEOUT = timedelta(seconds=60)
+BLOCKING_EXPORTS_PER_TEAM = 5
+
+_blocking_exports_limiter = RateLimit(
+    max_concurrency=BLOCKING_EXPORTS_PER_TEAM,
+    limit_name="exports_blocking_per_team",
+    # Stable because use() exports it as a metric label. The team goes into the Redis key instead.
+    get_task_name=lambda *args, **kwargs: "exports:blocking:per-team",
+    get_task_key=lambda *args, **kwargs: f"exports:blocking:per-team:{kwargs['team_id']}",
+    get_task_id=lambda *args, **kwargs: kwargs["task_id"],
+    # The TTL frees a slot that a dead worker did not release, so it must outlast the wait.
+    ttl=int(BLOCKING_EXPORT_WAIT_TIMEOUT.total_seconds()) * 2,
+    # The limit protects web workers, not ClickHouse, so the ClickHouse kill switch and the
+    # per-team throttle bypass do not apply.
+    apply_clickhouse_kill_switch=False,
+    allow_team_bypass=False,
+)
+
+
+@contextmanager
+def _blocking_export_slot(team_id: int, asset_id: int) -> Iterator[bool]:
+    """Yield whether the request may wait on the export, and release the slot afterwards."""
+    slot: ConcurrencySlot | None = None
+    may_wait = True
+    try:
+        slot = _blocking_exports_limiter.use(team_id=team_id, task_id=str(asset_id))
+    except ConcurrencyLimitExceeded:
+        may_wait = False
+        logger.info("export_blocking_wait_limit_reached", team_id=team_id, asset_id=asset_id)
+    except Exception as e:
+        # A limiter failure must not break exports, so the request waits without a slot.
+        logger.warning("export_blocking_slot_unavailable", team_id=team_id, asset_id=asset_id, error=str(e))
+
+    try:
+        yield may_wait
+    finally:
+        if slot is not None:
+            try:
+                _blocking_exports_limiter.release(slot)
+            except Exception as e:
+                # The TTL frees the slot when this release fails.
+                logger.warning("export_blocking_slot_release_failed", team_id=team_id, asset_id=asset_id, error=str(e))
 
 
 class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -417,6 +468,45 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             return str(context["filename"])
         return "an export"
 
+    def _run_export_workflow(
+        self, instance: ExportedAsset, workflow_inputs: ExportAssetWorkflowInputs, wait: bool
+    ) -> None:
+        async def _run() -> None:
+            client = await async_connect()
+            handle = await client.start_workflow(
+                ExportAssetWorkflow.run,
+                workflow_inputs,
+                id=f"export-asset-{instance.id}",
+                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+                execution_timeout=timedelta(minutes=35),
+            )
+            if wait:
+                # A timeout cancels only this wait. The workflow keeps running and stores the content on the asset.
+                await asyncio.wait_for(handle.result(), timeout=BLOCKING_EXPORT_WAIT_TIMEOUT.total_seconds())
+
+        try:
+            async_to_sync(_run)()
+        except TimeoutError:
+            logger.info("export_workflow_wait_timed_out", asset_id=instance.id)
+            return
+        except Exception as e:
+            # Swallow workflow failures so the API always returns a 201 with the
+            # ExportedAsset record. export_asset_direct populates the exception
+            # field before re-raising, so callers (frontend toast, sharing
+            # endpoint) can inspect the failure on the asset itself.
+            logger.info(
+                "export_workflow_failed_gracefully",
+                asset_id=instance.id,
+                error=str(e),
+            )
+            return
+
+        logger.info(
+            "export_workflow_completed" if wait else "export_workflow_dispatched",
+            asset_id=instance.id,
+        )
+
     def _start_export_workflow(
         self, instance: ExportedAsset, team: Team, user: User | None, force_async: bool = False
     ) -> None:
@@ -447,36 +537,12 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             ),
         )
 
-        async def _run():
-            client = await async_connect()
-            method = client.start_workflow if force_async else client.execute_workflow
-            await method(
-                ExportAssetWorkflow.run,
-                workflow_inputs,
-                id=f"export-asset-{instance.id}",
-                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-                id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
-                execution_timeout=timedelta(minutes=35),
-            )
-
-        try:
-            async_to_sync(_run)()
-        except Exception as e:
-            # Swallow workflow failures so the API always returns a 201 with the
-            # ExportedAsset record. export_asset_direct populates the exception
-            # field before re-raising, so callers (frontend toast, sharing
-            # endpoint) can inspect the failure on the asset itself.
-            logger.info(
-                "export_workflow_failed_gracefully",
-                asset_id=instance.id,
-                error=str(e),
-            )
+        if force_async:
+            self._run_export_workflow(instance, workflow_inputs, wait=False)
             return
 
-        logger.info(
-            "export_workflow_dispatched" if force_async else "export_workflow_completed",
-            asset_id=instance.id,
-        )
+        with _blocking_export_slot(team_id=team.id, asset_id=instance.id) as may_wait:
+            self._run_export_workflow(instance, workflow_inputs, wait=may_wait)
 
 
 class ExportedAssetCreateSerializer(ExportedAssetSerializer):
