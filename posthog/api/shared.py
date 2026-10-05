@@ -288,6 +288,9 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
     """
 
     membership_level = serializers.SerializerMethodField()
+    has_other_owner = serializers.SerializerMethodField(
+        help_text="Whether the organization has an owner other than the requesting user. An owner can only leave or lower their own level when this is true."
+    )
 
     class Meta:
         model = Organization
@@ -297,6 +300,7 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
             "slug",
             "logo_media_id",
             "membership_level",
+            "has_other_owner",
             "members_can_use_personal_api_keys",
             "is_active",
             "is_not_active_reason",
@@ -307,12 +311,22 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
         level = self._membership_levels_by_org.get(organization.id)
         return OrganizationMembership.Level(level) if level is not None else None
 
+    def get_has_other_owner(self, organization: Organization) -> bool:
+        return organization.id in self._org_ids_with_other_owner
+
     @cached_property
     def _membership_levels_by_org(self) -> dict[UUID, int]:
         return dict(
             OrganizationMembership.objects.filter(user=self.context["request"].user).values_list(
                 "organization_id", "level"
             )
+        )
+
+    @cached_property
+    def _org_ids_with_other_owner(self) -> set[UUID]:
+        return OrganizationMembership.org_ids_with_other_owner(
+            user_id=self.context["request"].user.id,
+            organization_ids=self._membership_levels_by_org.keys(),
         )
 
     @tracer.start_as_current_span("organization_basic_serializer.to_representation")

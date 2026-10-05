@@ -113,6 +113,8 @@ export interface OrganizationApi {
     /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
     member_notice?: OrganizationMemberNoticeApi | null
     readonly member_count: number
+    /** Whether the organization has an owner other than the requesting user. An owner can only leave or lower their own level when this is true. */
+    readonly has_other_owner: boolean
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
     /**
@@ -223,6 +225,8 @@ export interface PatchedOrganizationApi {
     /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
     member_notice?: OrganizationMemberNoticeApi | null
     readonly member_count?: number
+    /** Whether the organization has an owner other than the requesting user. An owner can only leave or lower their own level when this is true. */
+    readonly has_other_owner?: boolean
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
     /**

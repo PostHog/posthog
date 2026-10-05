@@ -1,5 +1,6 @@
 from typing import Any, cast
 
+from django.db import transaction
 from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 
@@ -128,17 +129,26 @@ class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.M
     def update(self, instance: OrganizationMembership, validated_data: dict[str, object]) -> OrganizationMembership:
         updated_membership = instance
         raise_errors_on_nested_writes("update", self, validated_data)
-        requesting_membership: OrganizationMembership = OrganizationMembership.objects.get(
-            organization=updated_membership.organization,
-            user=self.context["request"].user,
-        )
-        for attr, value in validated_data.items():
-            if attr == "level":
-                requesting_membership.validate_update(
-                    updated_membership, cast(OrganizationMembership.Level | None, value)
+        with transaction.atomic():
+            if "level" in validated_data:
+                # Every level rule compares the two memberships' levels, and this request read
+                # them before it held the lock. Re-read them under it, locking before any row read
+                # so every owner transition takes its locks in one order. `instance` stays the
+                # write and response object, carrying the annotations and prefetches of the view.
+                OrganizationMembership.lock_owner_transitions(updated_membership.organization_id)
+                membership_being_updated = OrganizationMembership.objects.select_for_update().get(
+                    pk=updated_membership.pk
                 )
-            setattr(updated_membership, attr, value)
-        updated_membership.save()
+                requesting_membership = OrganizationMembership.objects.select_for_update().get(
+                    organization_id=membership_being_updated.organization_id,
+                    user=self.context["request"].user,
+                )
+                requesting_membership.validate_update(
+                    membership_being_updated, cast(OrganizationMembership.Level, validated_data["level"])
+                )
+            for attr, value in validated_data.items():
+                setattr(updated_membership, attr, value)
+            updated_membership.save()
         return updated_membership
 
 
@@ -310,24 +320,31 @@ class OrganizationMemberViewSet(
         requesting_user = cast(User, self.request.user)
         removed_user = cast(User, instance.user)
 
-        is_self_removal = requesting_user.id == removed_user.id
+        properties = {
+            "removed_member_id": removed_user.distinct_id,
+            "removed_by_id": requesting_user.distinct_id,
+            "organization_id": instance.organization_id,
+            "organization_name": instance.organization.name,
+            "removal_type": "self_removal" if requesting_user.id == removed_user.id else "removed_by_other",
+            "removed_email": removed_user.email,
+            "removed_user_id": removed_user.id,
+        }
 
-        posthoganalytics.capture(
-            distinct_id=str(requesting_user.distinct_id),
-            event="organization member removed",
-            properties={
-                "removed_member_id": removed_user.distinct_id,
-                "removed_by_id": requesting_user.distinct_id,
-                "organization_id": instance.organization_id,
-                "organization_name": instance.organization.name,
-                "removal_type": "self_removal" if is_self_removal else "removed_by_other",
-                "removed_email": removed_user.email,
-                "removed_user_id": removed_user.id,
-            },
-            groups=groups(instance.organization),
-        )
+        def capture(event: str) -> None:
+            posthoganalytics.capture(
+                distinct_id=str(requesting_user.distinct_id),
+                event=event,
+                properties=properties,
+                groups=groups(instance.organization),
+            )
 
-        instance.user.leave(organization=instance.organization)
+        try:
+            removed_user.leave(organization=instance.organization)
+        except exceptions.ValidationError:
+            capture("organization member removal blocked")
+            raise
+
+        capture("organization member removed")
 
     @extend_schema(responses=OrganizationMemberGithubLoginSerializer)
     @action(detail=True, methods=["get"], url_path="github_login", required_scopes=["organization_member:read"])
