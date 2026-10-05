@@ -16,6 +16,7 @@
 
 pub mod in_flight;
 pub mod key_queues;
+pub mod machine;
 pub mod packer;
 pub mod request_class;
 #[cfg(test)]
