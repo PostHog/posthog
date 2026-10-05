@@ -42,6 +42,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
             scopes=["*"],
         )
         self.sample_hogql_query = {
+            "biConfig": None,
             "connectionId": None,
             "explain": None,
             "filters": None,
@@ -339,6 +340,7 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual("Updated description", response_data["description"])
         self.assertFalse(response_data["is_active"])
         want_query = {
+            "biConfig": None,
             "connectionId": None,
             "explain": None,
             "filters": None,
