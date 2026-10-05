@@ -32,6 +32,7 @@ import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
+import { SandboxEmailSender } from './sandbox-email-sender'
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -351,7 +352,8 @@ export class EmailService {
         private recipientsManager: RecipientsManagerService,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
-        private teamEmailRateLimiter: RateLimiterService | null = null
+        private teamEmailRateLimiter: RateLimiterService | null = null,
+        private sandboxSender: SandboxEmailSender | null = null
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -388,11 +390,13 @@ export class EmailService {
         const params = invocation.queueParameters
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
         const integration = await this.integrationManager.get(integrationId)
+        const isSandbox = integration?.config.provider === 'sandbox'
 
         let success: boolean = false
         let throttled: boolean = false
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
+        let deliveryParams = params
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -476,7 +480,28 @@ export class EmailService {
                 )
             }
 
+            if (isSandbox && !this.sandboxSender?.config.enabled) {
+                addLog(
+                    'info',
+                    'Skipping send: the sandbox sender is unavailable right now. Verify your own domain to keep sending.'
+                )
+                result.skipped = true
+                result.invocation.state.vmState?.stack.push({ success: false })
+                await this.sandboxSender?.capture(invocation.teamId, isTest, {
+                    type: 'blocked',
+                    reason: 'switch_off',
+                    blockedRecipientCount: 0,
+                })
+                return result
+            }
             const from = this.resolveFromSender(integration, params.from, addLog)
+
+            if (isSandbox && (params.from.email || params.from.name || params.replyTo)) {
+                addLog(
+                    'info',
+                    'Ignoring custom sender and Reply-To settings: the sandbox sender uses a fixed identity.'
+                )
+            }
 
             // Single choke point for the suppression check — every send path lands here regardless
             // of whether the invocation came from a workflow action or an email destination hog
@@ -501,7 +526,7 @@ export class EmailService {
 
             // Like suppression, the tracking decision lives at this choke point so every send path
             // (workflow action or email destination hog function) resolves it the same way.
-            trackingEnabled = await this.resolveTrackingEnabled(result.invocation, params)
+            trackingEnabled = !isSandbox && (await this.resolveTrackingEnabled(result.invocation, params))
 
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
             // suspended or suppressed send never spends a token. Test sends bypass it. When the
@@ -552,7 +577,7 @@ export class EmailService {
             // own quota, so a send with many copies must spend that many tokens.
             const capRecipients =
                 1 + extractEmailsFromAddressList(params.cc).length + extractEmailsFromAddressList(params.bcc).length
-            const capDelay = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
+            const capDelay = isSandbox ? null : await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
             if (capDelay) {
                 result.finished = false
                 // Re-attach the email payload before rescheduling, for the same reason as the
@@ -575,8 +600,21 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, params, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, params, from, trackingEnabled, isTest)
+                    await this.sendEmailWithSES(result, params, from, trackingEnabled, integration, isTest)
                     break
+                case 'sandbox': {
+                    deliveryParams = await this.sandboxSender!.withIdentificationFooter(
+                        params,
+                        from.name,
+                        invocation.teamId
+                    )
+                    await this.sendEmailWithSES(result, deliveryParams, from, trackingEnabled, integration, isTest)
+                    await this.sandboxSender!.capture(invocation.teamId, isTest, {
+                        type: 'sent',
+                        recipientCount: capRecipients,
+                    })
+                    break
+                }
 
                 case 'unsupported':
                     throw new Error('Email delivery mode not supported')
@@ -587,7 +625,7 @@ export class EmailService {
             // "View email" chip, so suppressing it for skipped captures keeps the chip
             // from 404-ing on click.
             if (!isTest && this.messageAssetsService) {
-                assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
+                assetRow = this.messageAssetsService.buildRowForEmail(invocation, deliveryParams)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
@@ -609,6 +647,9 @@ export class EmailService {
         }
 
         if (throttled) {
+            if (isSandbox) {
+                result.invocation.queueParameters = params
+            }
             // On throttle, skip both the VM-state push and the business-metric
             // emit. The eventual successful retry will produce `email_sent` and
             // push the success bit to the VM stack — pushing them now would
@@ -642,6 +683,16 @@ export class EmailService {
                     instance_id: invocation.state.actionId || invocation.id,
                     metric_kind: 'email',
                     metric_name: 'email_untracked',
+                    count: 1,
+                })
+            }
+            if (success && isSandbox) {
+                result.metrics.push({
+                    team_id: invocation.teamId,
+                    app_source_id: invocation.parentRunId ?? invocation.functionId,
+                    instance_id: invocation.state.actionId || invocation.id,
+                    metric_kind: 'email',
+                    metric_name: 'email_sandbox_sent',
                     count: 1,
                 })
             }
@@ -900,6 +951,23 @@ export class EmailService {
         return this.sesConfig.sesTrackedConfigurationSet
     }
 
+    private sesRouteFor(
+        integration: IntegrationType,
+        invocation: CyclotronJobInvocationHogFunction,
+        trackingEnabled: boolean
+    ): { tenantName: string; configurationSetName: string } {
+        if (integration.config.provider === 'sandbox' && this.sandboxSender) {
+            return {
+                tenantName: this.sandboxSender.config.tenantName,
+                configurationSetName: this.sandboxSender.config.configurationSetName,
+            }
+        }
+        return {
+            tenantName: `team-${invocation.teamId}`,
+            configurationSetName: this.resolveConfigurationSetName(trackingEnabled, invocation),
+        }
+    }
+
     private resolveFromSender(
         integration: IntegrationType,
         from: CyclotronInvocationQueueParametersEmailType['from'],
@@ -911,6 +979,10 @@ export class EmailService {
 
         if (!integration.config.email || !integration.config.name) {
             throw new Error('The selected email integration is not configured correctly')
+        }
+
+        if (integration.config.provider === 'sandbox') {
+            return { email: this.sandboxSender?.config.fromAddress ?? '', name: integration.config.name }
         }
 
         // Overrides arrive already rendered by the templating engine, so a template that
@@ -1012,6 +1084,7 @@ export class EmailService {
         params: CyclotronInvocationQueueParametersEmailType,
         from: { email: string; name: string },
         trackingEnabled: boolean,
+        integration: IntegrationType,
         isTest = false
     ): Promise<void> {
         if (!this.sesV2Client) {
@@ -1027,6 +1100,7 @@ export class EmailService {
             isTest
         )
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
+        const route = this.sesRouteFor(integration, result.invocation, trackingEnabled)
 
         const htmlBody = params.html
             ? {
@@ -1065,7 +1139,7 @@ export class EmailService {
                     },
                 },
             },
-            ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
+            ConfigurationSetName: route.configurationSetName,
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
@@ -1082,7 +1156,7 @@ export class EmailService {
         // this class only shield our internal metrics, a separate concern from SES-side
         // attribution; test volume is far below the representative volume AWS needs for a
         // reputation finding.
-        sendEmailParams.TenantName = `team-${result.invocation.teamId}`
+        sendEmailParams.TenantName = route.tenantName
 
         // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
         // 256-char-bounded the way SES tag values are, so they safely carry the signed code
@@ -1092,12 +1166,13 @@ export class EmailService {
 
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {
-            const unsubscribeHeaders = !isTransactionalEmail
-                ? this.generateUnsubscribeHeaders({
-                      team_id: result.invocation.teamId,
-                      identifier: params.to.email,
-                  })
-                : []
+            const unsubscribeHeaders =
+                !isTransactionalEmail && integration.config.provider !== 'sandbox'
+                    ? this.generateUnsubscribeHeaders({
+                          team_id: result.invocation.teamId,
+                          identifier: params.to.email,
+                      })
+                    : []
             sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
         }
 
