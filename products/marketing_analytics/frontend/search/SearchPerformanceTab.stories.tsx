@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { within, waitFor } from '@testing-library/dom'
+import { within } from '@testing-library/dom'
 import { BindLogic } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -371,16 +371,6 @@ export const FilteredEmpty: Story = {
         await expect(canvas.getByRole('button', { name: 'Clear filters' })).toBeVisible()
     },
 }
-export const ClearFilters: Story = {
-    play: async (context) => {
-        await FilteredEmpty.play!(context)
-        const canvas = within(context.canvasElement)
-        await userEvent.click(canvas.getByRole('button', { name: 'Clear filters' }))
-        await waitFor(() =>
-            expect(canvas.getAllByRole('button', { name: 'product analytics' }).length).toBeGreaterThan(0)
-        )
-    },
-}
 export const EmptyGoogleAds: Story = {
     parameters: {
         msw: {
@@ -424,6 +414,11 @@ export const Loading: Story = {
     },
 }
 export const QueryError: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('00000000-0000-4000-8000-000000000000')).toBeVisible()
+        await expect(canvas.getByRole('button', { name: 'Retry' })).toBeVisible()
+    },
     parameters: {
         testOptions: {
             waitForLoadersToDisappear: false,

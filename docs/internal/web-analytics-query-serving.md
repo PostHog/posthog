@@ -91,6 +91,9 @@ Conversions retain the ad platform's attribution, while CTR, CPC and CPA use the
 Comparison includes keywords present in either period and applies the top-100 limit after matching the periods.
 The query type tag is `marketing_analytics_search_query`.
 
+Source connection links use `returnLabel=Marketing analytics`, including search setup suggestions and details.
+The `warehouse source connect completed` event records this label after the creation API succeeds, so connections started here can be attributed to Marketing analytics.
+
 ## Per-runner dispatch
 
 ### WebOverviewQuery (`web_overview.py`)
@@ -214,6 +217,7 @@ Conversion goal property filters accept event, person, session and cohort filter
 
 Marketing Analytics query errors show a query ID when the request has one.
 Use that ID to find the failed request in the query log.
+Search performance uses the same error banner, including in query and landing-page details.
 The error's query ID takes precedence over the current request ID; a previous successful response is not a source for the error ID.
 Errors outside the query path, such as configuration failures, may have no query ID.
 

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
@@ -15,6 +15,7 @@ import {
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
+import { MarketingQueryError } from '../dashboard/MarketingQueryError'
 import { ChangeValueCell } from '../dashboard/tables/ChangeValueCell'
 import { SEARCH_PLATFORM_LABELS, SearchMetrics } from './searchPerformance'
 
@@ -38,7 +39,7 @@ export function SearchPerformanceTable({
         key: queryKey,
         dataNodeCollectionId: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     })
-    const { response, responseLoading, responseError } = useValues(logic)
+    const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
     const { loadData } = useActions(logic)
     const rows = (response as MarketingAnalyticsSearchQueryResponse | undefined)?.results ?? []
     const hasPaidSources = query.sources.some((source) => source.sourceType !== 'GoogleSearchConsole')
@@ -56,9 +57,12 @@ export function SearchPerformanceTable({
 
     if (responseError && !responseLoading) {
         return (
-            <LemonBanner type="error" action={{ children: 'Try again', onClick: () => loadData('force_async') }}>
-                Could not load search performance. Try again or check your source's sync status.
-            </LemonBanner>
+            <MarketingQueryError
+                message="Could not load search performance. Try again or check your source's sync status."
+                queryId={responseErrorObject?.queryId ?? queryId}
+                onRetry={() => loadData('force_async')}
+                loading={responseLoading}
+            />
         )
     }
     return (
