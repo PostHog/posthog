@@ -173,6 +173,10 @@ class HubspotSource(ResumableSource[HubspotSourceConfig | HubspotSourceOldConfig
             # documented rate-limit wording so this self-recovering condition doesn't get tracked
             # as noise once Temporal's activity retry picks it back up.
             "You have reached your rate limit.",
+            # auth.hubspot_refresh_access_token also raises this verbatim (same retry budget as
+            # above) while HubSpot migrates a portal between data centers; the portal becomes
+            # reachable again once the migration finishes, so it's self-recovering rather than a bug.
+            "Migration in progress",
         }
 
     # TODO: clean up hubspot job inputs to not have two auth config options
