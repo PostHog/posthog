@@ -196,6 +196,8 @@
       'deltaSumTimestampIf',
       'groupArraySample',
       'groupArraySampleIf',
+      'groupArraySorted',
+      'groupArraySortedIf',
       'groupBitmap',
       'groupBitmapAnd',
       'groupBitmapAndIf',
