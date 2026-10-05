@@ -66,6 +66,10 @@ class WorkflowBatchJob:
     created_by: "User | None"
 
 
+class WorkflowBatchJobNotFound(Exception):
+    pass
+
+
 @dataclass(frozen=True)
 class HogFlowReference:
     id: str
