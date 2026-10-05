@@ -6,7 +6,9 @@ All parameters go inside `query` — top-level fields are rejected:
 { "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
 ```
 
-This is the fastest way to understand what a log stream is _saying_ without reading raw rows: one call summarizes millions of lines into at most 200 templates.
+This is the fastest way to understand what a log stream is _saying_ without reading raw rows: one call summarizes millions of lines into templates.
+
+The response is bounded for you, because one template can be a whole stack trace or a serialized query. You get the 20 highest-volume pattern groups, each held inside 400 characters. `omitted_pattern_count` says how many groups that left out, and every bound reports itself per pattern (see "Reading the response"). Raise `limit` for more groups, or set `maxPatternChars` to 0 to read whole templates.
 
 # When to use
 
@@ -34,6 +36,14 @@ This is the fastest way to understand what a log stream is _saying_ without read
 - `services` — up to 4 service names the pattern was seen in.
 - `match_regex` — a regex over raw log bodies that matches this pattern's lines, pre-validated against the raw bodies of the pattern's own sampled rows. Always null on the stored-pattern path, which pivots with `match_patterns` instead, and null on the mining path when no trustworthy regex could be compiled. For JSON logs the pattern is mined from the extracted message field, so the regex may be unanchored, because the message is a substring of the raw line. It still targets the raw stored body.
 - `match_literal` — longest literal run of the template, a plain-text fallback when `match_regex` is null. Also null on the stored-pattern path.
+
+The bound fields say what the response left out, so you never read a cut template as the whole one:
+
+- `returned_pattern_count` / `omitted_pattern_count` — groups in `patterns`, and mined groups the `limit` bound dropped. The dropped ones are always the lowest-volume.
+- `pattern_truncated` — the template was cut and ends in a marker saying so. Its match fields still target the pattern's whole lines.
+- `match_patterns_omitted` — canonical members dropped from the pivot. The returned members stay exact, so a filter on them reads their lines and no others, but it covers part of the group.
+- `match_regex_omitted` — the regex was over budget and is withheld rather than shortened, because a cut regex matches nothing. Pivot on `match_literal`, or re-run with `maxPatternChars` set to 0.
+- `match_literal_truncated` — the literal was cut to a prefix. An icontains filter on the prefix still matches every line of the pattern, plus any other line that contains the prefix.
 
 Mining samples the window (`sampled: true` when it did): counts are estimates, and rare patterns (below roughly 1 in `scanned_count` of the volume) may be missing entirely. Narrow the `dateRange` or filters to mine a finer-grained sample.
 
@@ -72,6 +82,14 @@ Full-text search over log bodies applied before mining. Useful to mine only the 
 
 Property filters applied before mining. Same format as `query-logs` filters.
 
+## query.limit
+
+Highest-volume pattern groups to return. Defaults to 20 over MCP, and is held down to the miner's own cap of 200. Raise it when `omitted_pattern_count` is nonzero and the long tail matters.
+
+## query.maxPatternChars
+
+Character budget for each group's template and match predicates. Defaults to 400 over MCP. Pass 0 for whole templates, which is the right call for one pattern you have already picked, not for a first survey of the stream. A nonzero budget must be 80 or greater, because a smaller one cannot carry the cut marker.
+
 # Examples
 
 ## What is this stream saying? (last hour, everything)
@@ -87,6 +105,20 @@ Property filters applied before mining. Same format as `query-logs` filters.
   "query": {
     "severityLevels": ["error", "fatal"],
     "dateRange": { "date_from": "2024-01-15T09:00:00Z", "date_to": "2024-01-15T11:00:00Z" }
+  }
+}
+```
+
+## Read one pattern's whole template
+
+```json
+{
+  "query": {
+    "serviceNames": ["api"],
+    "searchTerm": "payment provider timeout",
+    "limit": 3,
+    "maxPatternChars": 0,
+    "dateRange": { "date_from": "-1h" }
   }
 }
 ```

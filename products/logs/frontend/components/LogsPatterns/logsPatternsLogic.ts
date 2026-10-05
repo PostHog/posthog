@@ -65,6 +65,8 @@ export function precedingDateRange(utcDateRange: { date_from?: string | null; da
 
 const EMPTY_RESPONSE: _LogsPatternsResponseApi = {
     patterns: [],
+    returned_pattern_count: 0,
+    omitted_pattern_count: 0,
     scanned_count: 0,
     total_count: 0,
     sampled: false,

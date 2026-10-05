@@ -1969,7 +1969,7 @@ export interface PatchedLogsMetricRuleApi {
     readonly updated_at?: string | null
 }
 
-export interface _LogsPatternsBodyApi {
+export interface _LogsPatternsBoundedBodyApi {
     /** Date range to mine patterns from. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels before mining. */
@@ -1984,11 +1984,21 @@ export interface _LogsPatternsBodyApi {
     personId?: string
     /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
     sessionId?: string
+    /**
+     * Highest-volume pattern groups to return, held down to the miner's own cap of 200. Defaults to that cap, or to 20 for a request the MCP server proxied. `omitted_pattern_count` reports the groups this left out.
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Character budget for each pattern group's template and match predicates. One template can be a whole stack trace, so a budget keeps a response readable. Zero returns whole templates. Defaults to zero, or to 400 for a request the MCP server proxied. Must be 80 or greater when nonzero, because a smaller budget cannot carry the cut marker.
+     * @minimum 0
+     */
+    maxPatternChars?: number
 }
 
 export interface _LogsPatternsRequestApi {
     /** The patterns query to execute. */
-    query: _LogsPatternsBodyApi
+    query: _LogsPatternsBoundedBodyApi
 }
 
 /**
@@ -2027,6 +2037,161 @@ export interface _LogPatternExampleApi {
     /** ISO 8601 timestamp of the sampled line. */
     timestamp: string
 }
+
+/**
+ * Occurrences keyed by lowercased severity ("trace" through "fatal"). Never extrapolated, because severity dominance is a proportion that scaling would not change. Sample counts when `sampled` is true, counts over every matching row otherwise.
+ */
+export type _LogBoundedPatternApiSeverityCounts = { [key: string]: number }
+
+export interface _LogBoundedPatternApi {
+    /** Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, <TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and <JSON:keys> for a JSON body reduced to its key set. */
+    pattern: string
+    /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — prefer `estimated_count` for display. */
+    count: number
+    /** Estimated occurrences across the full window, extrapolated from the sample (`count / scanned_count * total_count`). Equals `count` when the window was not sampled. */
+    estimated_count: number
+    /** Share of the log volume this pattern represents (0–100). Measured over the sample when `sampled` is true, over every matching row otherwise. */
+    volume_share_pct: number
+    /** Occurrences at severity "error" or "fatal". A sample count when `sampled` is true, so prefer `estimated_error_count` for display. */
+    error_count: number
+    /** Estimated error/fatal occurrences across the full window, extrapolated from the sample. Equals `error_count` when the window was not sampled. */
+    estimated_error_count: number
+    /** ISO 8601 timestamp of the earliest occurrence. Taken from the sample when `sampled` is true, from every matching row otherwise. */
+    first_seen: string
+    /** ISO 8601 timestamp of the latest occurrence. Taken from the sample when `sampled` is true, from every matching row otherwise. */
+    last_seen: string
+    /** Up to 10 distinct sampled log lines that produced this pattern, with severity, service, and timestamp for display. */
+    examples: _LogPatternExampleApi[]
+    /** Up to 4 distinct service names this pattern was observed in. */
+    services: string[]
+    /** Occurrences per time bucket, aligned index-for-index with the response's `sparkline_buckets`. When `sampled` is true these are extrapolated like `estimated_count` and show the volume shape over the window rather than exact tallies. Otherwise they are exact per-bucket counts. */
+    sparkline: number[]
+    /** Occurrences keyed by lowercased severity ("trace" through "fatal"). Never extrapolated, because severity dominance is a proportion that scaling would not change. Sample counts when `sampled` is true, counts over every matching row otherwise. */
+    severity_counts: _LogBoundedPatternApiSeverityCounts
+    /**
+     * RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from the template and validated against the raw bodies of the pattern's own sampled rows before being offered. Null when the template lacks literal content or validation failed. Never trust an unvalidated predicate. Use with the message/regex log property filter.
+     * @nullable
+     */
+    match_regex: string | null
+    /**
+     * Longest literal run in the template, for plain-text (icontains) filtering when `match_regex` is null. Null when the template has no usable literal content.
+     * @nullable
+     */
+    match_literal: string | null
+    /** Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining. */
+    match_patterns?: string[]
+    /**
+     * Version required by match_patterns. Null for body mining.
+     * @nullable
+     */
+    pattern_version?: number | null
+    /** True when `maxPatternChars` cut the template, which then ends in a marker saying so. The match fields still target the pattern's whole lines; re-run with `maxPatternChars=0` to read the template itself. */
+    pattern_truncated: boolean
+    /** Canonical members left out of `match_patterns` by `maxPatternChars`. The returned members are exact, so a pivot on them reads their lines and no others, but it covers part of the group rather than all of it. Zero means the pivot is complete. */
+    match_patterns_omitted: number
+    /** True when `match_regex` was dropped for exceeding `maxPatternChars`. A cut regex would match nothing, so it is withheld rather than shortened. Pivot on `match_literal` instead, or re-run with `maxPatternChars=0`. */
+    match_regex_omitted: boolean
+    /** True when `maxPatternChars` shortened `match_literal`. The prefix is still a literal run of every line of the pattern, so an icontains filter on it still matches them, together with any other line that contains the prefix. */
+    match_literal_truncated: boolean
+}
+
+export interface _LogsPatternsSparklineBucketApi {
+    /** Bucket start (ISO 8601, inclusive). */
+    start: string
+    /** Bucket end (ISO 8601, exclusive). */
+    end: string
+}
+
+export interface _LogsPatternsResponseApi {
+    /** Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.
+     *
+     * * `stored_patterns` - stored_patterns
+     * * `body_mining` - body_mining */
+    source?: LogsPatternsSourceEnumApi
+    /**
+     * Stored pattern version used. Null for body mining.
+     * @nullable
+     */
+    pattern_version?: number | null
+    /** Why body mining was used. Null for stored-pattern aggregation.
+     *
+     * * `flag_disabled` - flag_disabled
+     * * `insufficient_version_coverage` - insufficient_version_coverage
+     * * `empty_window` - empty_window
+     * * `comparison` - comparison */
+    fallback_reason?: FallbackReasonEnumApi | null
+    /**
+     * Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.
+     * @nullable
+     */
+    pattern_coverage_pct?: number | null
+    /**
+     * Exact rows represented by the returned stored-pattern groups. Null for body mining.
+     * @nullable
+     */
+    represented_count?: number | null
+    /**
+     * Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.
+     * @nullable
+     */
+    remainder_count?: number | null
+    /** Pattern groups ordered by count. Stored-pattern counts are exact; body-mining counts describe the sample. */
+    patterns: _LogBoundedPatternApi[]
+    /** Pattern groups in `patterns`, after the `limit` bound. */
+    returned_pattern_count: number
+    /** Mined pattern groups the `limit` bound left out, always the lowest-volume ones. Raise `limit` to see them, or narrow the window, services, or filters to mine a finer sample. */
+    omitted_pattern_count: number
+    /** Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation. */
+    scanned_count: number
+    /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
+    total_count: number
+    /** True when the window held more rows than the sample cap, so patterns were mined from a deterministic, evenly-distributed sample rather than every matching row. */
+    sampled: boolean
+    /** Share of the window's log rows that were eligible for sampling (0–100). Below 100, the scan was bounded to evenly-spaced time slices across the window to keep the query within its execution budget; rows outside the slices could not appear in the sample. */
+    sample_coverage_pct: number
+    /** Time buckets that every pattern's `sparkline` aligns to. When the scan was bounded to time slices, the buckets are the slices themselves (evenly spaced, gaps between them were never eligible for sampling); otherwise they divide the window uniformly. */
+    sparkline_buckets: _LogsPatternsSparklineBucketApi[]
+}
+
+export interface _LogsPatternsBodyApi {
+    /** Date range to mine patterns from. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels before mining. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Restrict mining to these service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies before mining. */
+    searchTerm?: string
+    /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+    filterGroup?: _LogPropertyFilterApi[]
+    /** Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
+    /** Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes. */
+    sessionId?: string
+}
+
+export interface _LogsPatternsDiffRequestApi {
+    /** The patterns query for the current (foreground) window: date range plus any severity/service/search/property filters. The same filters are applied to the baseline window. */
+    query: _LogsPatternsBodyApi
+    /** Baseline window to compare against. Omit to default to the current window shifted back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an explicit range to compare against a specific period, e.g. pre-deploy or pre-incident. */
+    baselineDateRange?: _DateRangeApi
+}
+
+/**
+ * * `new` - new
+ * * `rate_shift` - rate_shift
+ * * `gone` - gone
+ * * `unchanged` - unchanged
+ */
+export type _LogPatternDiffEntryClassificationEnumApi =
+    (typeof _LogPatternDiffEntryClassificationEnumApi)[keyof typeof _LogPatternDiffEntryClassificationEnumApi]
+
+export const _LogPatternDiffEntryClassificationEnumApi = {
+    New: 'new',
+    RateShift: 'rate_shift',
+    Gone: 'gone',
+    Unchanged: 'unchanged',
+} as const
 
 /**
  * Occurrences keyed by lowercased severity ("trace" through "fatal"). Never extrapolated, because severity dominance is a proportion that scaling would not change. Sample counts when `sampled` is true, counts over every matching row otherwise.
@@ -2076,83 +2241,6 @@ export interface _LogPatternApi {
      */
     pattern_version?: number | null
 }
-
-export interface _LogsPatternsSparklineBucketApi {
-    /** Bucket start (ISO 8601, inclusive). */
-    start: string
-    /** Bucket end (ISO 8601, exclusive). */
-    end: string
-}
-
-export interface _LogsPatternsResponseApi {
-    /** Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.
-     *
-     * * `stored_patterns` - stored_patterns
-     * * `body_mining` - body_mining */
-    source?: LogsPatternsSourceEnumApi
-    /**
-     * Stored pattern version used. Null for body mining.
-     * @nullable
-     */
-    pattern_version?: number | null
-    /** Why body mining was used. Null for stored-pattern aggregation.
-     *
-     * * `flag_disabled` - flag_disabled
-     * * `insufficient_version_coverage` - insufficient_version_coverage
-     * * `empty_window` - empty_window
-     * * `comparison` - comparison */
-    fallback_reason?: FallbackReasonEnumApi | null
-    /**
-     * Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.
-     * @nullable
-     */
-    pattern_coverage_pct?: number | null
-    /**
-     * Exact rows represented by the returned stored-pattern groups. Null for body mining.
-     * @nullable
-     */
-    represented_count?: number | null
-    /**
-     * Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.
-     * @nullable
-     */
-    remainder_count?: number | null
-    /** Pattern groups ordered by count. Stored-pattern counts are exact; body-mining counts describe the sample. */
-    patterns: _LogPatternApi[]
-    /** Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation. */
-    scanned_count: number
-    /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
-    total_count: number
-    /** True when the window held more rows than the sample cap, so patterns were mined from a deterministic, evenly-distributed sample rather than every matching row. */
-    sampled: boolean
-    /** Share of the window's log rows that were eligible for sampling (0–100). Below 100, the scan was bounded to evenly-spaced time slices across the window to keep the query within its execution budget; rows outside the slices could not appear in the sample. */
-    sample_coverage_pct: number
-    /** Time buckets that every pattern's `sparkline` aligns to. When the scan was bounded to time slices, the buckets are the slices themselves (evenly spaced, gaps between them were never eligible for sampling); otherwise they divide the window uniformly. */
-    sparkline_buckets: _LogsPatternsSparklineBucketApi[]
-}
-
-export interface _LogsPatternsDiffRequestApi {
-    /** The patterns query for the current (foreground) window: date range plus any severity/service/search/property filters. The same filters are applied to the baseline window. */
-    query: _LogsPatternsBodyApi
-    /** Baseline window to compare against. Omit to default to the current window shifted back exactly one week, which absorbs daily and weekly log-volume cycles. Pass an explicit range to compare against a specific period, e.g. pre-deploy or pre-incident. */
-    baselineDateRange?: _DateRangeApi
-}
-
-/**
- * * `new` - new
- * * `rate_shift` - rate_shift
- * * `gone` - gone
- * * `unchanged` - unchanged
- */
-export type _LogPatternDiffEntryClassificationEnumApi =
-    (typeof _LogPatternDiffEntryClassificationEnumApi)[keyof typeof _LogPatternDiffEntryClassificationEnumApi]
-
-export const _LogPatternDiffEntryClassificationEnumApi = {
-    New: 'new',
-    RateShift: 'rate_shift',
-    Gone: 'gone',
-    Unchanged: 'unchanged',
-} as const
 
 export interface _LogPatternDiffEntryApi {
     /** "new": appears only in the current window and clears the novelty floor (at least ~1% volume share, or any error/fatal occurrences). "rate_shift": present in both windows with the per-second rate changed by at least 2x either way, backed by enough samples on both sides to trust the estimates. "gone": cleared the floor in the baseline but absent from the current window. "unchanged" means "no confident claim", not "provably identical" — sampled mining cannot prove a below-floor template is genuinely new or gone.

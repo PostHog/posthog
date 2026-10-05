@@ -1325,6 +1325,8 @@ export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const logsPatternsCreateBodyQueryOneMaxPatternCharsMin = 0
+
 export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -1418,6 +1420,20 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     "Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes."
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .optional()
+                .describe(
+                    "Highest-volume pattern groups to return, held down to the miner's own cap of 200. Defaults to that cap, or to 20 for a request the MCP server proxied. `omitted_pattern_count` reports the groups this left out."
+                ),
+            maxPatternChars: zod
+                .number()
+                .min(logsPatternsCreateBodyQueryOneMaxPatternCharsMin)
+                .optional()
+                .describe(
+                    "Character budget for each pattern group's template and match predicates. One template can be a whole stack trace, so a budget keeps a response readable. Zero returns whole templates. Defaults to zero, or to 400 for a request the MCP server proxied. Must be 80 or greater when nonzero, because a smaller budget cannot carry the cut marker."
                 ),
         })
         .describe('The patterns query to execute.'),
