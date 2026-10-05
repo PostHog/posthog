@@ -30,6 +30,15 @@ class TestCrossProjectDashboardActivityLogging(BaseTest):
         assert log.organization_id == self.organization.id
         assert log.team_id is None
 
+    def test_soft_deleting_a_dashboard_logs_a_delete(self):
+        dashboard = CrossProjectDashboard.objects.create(
+            organization=self.organization, name="Overview", created_by=self.user
+        )
+        api.delete_dashboard(organization_id=self.organization.id, dashboard_id=dashboard.id, user=self.user)
+
+        log = ActivityLog.objects.filter(scope="CrossProjectDashboard", item_id=str(dashboard.id)).latest("created_at")
+        assert log.activity == "deleted"
+
     def test_tile_changes_log_on_the_dashboard_but_layout_moves_do_not(self):
         dashboard = CrossProjectDashboard.objects.create(
             organization=self.organization, name="Overview", created_by=self.user

@@ -30,6 +30,9 @@ def handle_cross_project_dashboard_change(
     instance = after_update or before_update
     if instance is None:
         return
+    # Dashboards are soft-deleted, so the flip of `deleted` is the delete or the restore.
+    if before_update is not None and after_update is not None and before_update.deleted != after_update.deleted:
+        activity = "deleted" if after_update.deleted else "restored"
     log_activity(
         organization_id=instance.organization_id,
         team_id=None,
