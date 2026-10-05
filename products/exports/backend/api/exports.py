@@ -17,6 +17,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
+from rest_framework.throttling import BaseThrottle
 from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -27,6 +28,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import Organization
+from posthog.rate_limit import ExportCreateBurstRateThrottle, ExportCreateSustainedRateThrottle
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
@@ -582,6 +584,11 @@ class ExportedAssetViewSet(
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
         return ExportedAssetCreateSerializer if self.action == "create" else ExportedAssetSerializer
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        if self.action == "create":
+            return [ExportCreateBurstRateThrottle(), ExportCreateSustainedRateThrottle(), *super().get_throttles()]
+        return super().get_throttles()
 
     def safely_get_queryset(self, queryset):
         """List shows only exports created by the current user."""

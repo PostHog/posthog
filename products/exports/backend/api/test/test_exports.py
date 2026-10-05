@@ -29,6 +29,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import ExportCreateBurstRateThrottle
 from posthog.settings import (
     HOGQL_INCREASED_MAX_EXECUTION_TIME,
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -1951,6 +1952,25 @@ class TestExports(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         mock_handle.result.assert_awaited_once()
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
+    def test_export_create_is_throttled_per_team_and_list_is_not(self, _mock_start, _enabled) -> None:
+        with patch.object(ExportCreateBurstRateThrottle, "rate", "2/minute"):
+            responses = [
+                self.client.post(
+                    f"/api/projects/{self.team.id}/exports",
+                    {"export_format": "text/csv", "insight": self.insight.id},
+                )
+                for _ in range(3)
+            ]
+            list_response = self.client.get(f"/api/projects/{self.team.id}/exports")
+
+        self.assertEqual(
+            [response.status_code for response in responses],
+            [status.HTTP_201_CREATED, status.HTTP_201_CREATED, status.HTTP_429_TOO_MANY_REQUESTS],
+        )
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
 
 
 class TestExportHeatmapSSRFValidation(APIBaseTest):
