@@ -25,6 +25,7 @@ import zipfile
 import argparse
 import tempfile
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TypedDict, cast
@@ -34,10 +35,11 @@ REPO = "PostHog/posthog"
 WORKFLOW_NAME = "Backend CI on Depot"
 GATE_JOB_KEY = "ci-backend.yml:django_tests"
 GATE_CONCLUSIONS = {"finished": "success", "failed": "failure", "cancelled": "cancelled"}
-ENDED = frozenset({"finished", "failed", "cancelled"})
+ENDED = frozenset(GATE_CONCLUSIONS)
 # Short enough that the alerter's read of GATE_RUNS_LISTED runs ends inside its step timeout.
 CLI_TIMEOUT_SECONDS = 10
 DOWNLOAD_TIMEOUT_SECONDS = 120
+PARALLEL_CLI_CALLS = 8
 # The Depot CLI returns at most 200 workflows, which is 8 days of hourly runs.
 MAX_LISTED = 200
 # The alerter resolves an incident when no listed run is a settled failure, so the window has
@@ -134,7 +136,8 @@ def download(run_id: str, patterns: list[str], directory: Path) -> int:
         a for a in newest_per_name(artifacts(run_id)) if any(fnmatch.fnmatchcase(a["name"], p) for p in patterns)
     ]
     with tempfile.TemporaryDirectory() as scratch:
-        for artifact in matching:
+
+        def fetch(artifact: Artifact) -> None:
             archive = Path(scratch) / f"{artifact['artifact_id']}.zip"
             depot(
                 "artifacts",
@@ -148,6 +151,10 @@ def download(run_id: str, patterns: list[str], directory: Path) -> int:
             target.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(archive) as bundle:
                 bundle.extractall(target)
+
+        # One CLI call per artifact, and an hourly refresh downloads several hundred.
+        with ThreadPoolExecutor(max_workers=PARALLEL_CLI_CALLS) as pool:
+            list(pool.map(fetch, matching))
     return len(matching)
 
 
@@ -195,7 +202,8 @@ def main() -> int:
         return 0
     if args.command == "gate-runs":
         listed = scheduled_workflows(["queued", "running", *sorted(ENDED)], GATE_RUNS_LISTED)
-        json.dump([gate_run(workflow) for workflow in listed], sys.stdout)
+        with ThreadPoolExecutor(max_workers=PARALLEL_CLI_CALLS) as pool:
+            json.dump(list(pool.map(gate_run, listed)), sys.stdout)
         return 0
     count = download(args.run_id, args.pattern, args.dir)
     sys.stderr.write(f"Downloaded {count} artifacts matching {args.pattern} from run {args.run_id}\n")

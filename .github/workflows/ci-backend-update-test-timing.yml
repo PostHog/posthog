@@ -458,13 +458,13 @@ jobs:
                   # Only the hourly runs on Depot CI that take the events_json rows record. A
                   # successful one carries every shard's recording, because a shard that wrote
                   # none fails.
-                  python3 "$RUNNER_TEMP/depot_scheduled_runs.py" find \
-                      --prefix events-schema-record- --max-age-days 2 | while read -r id sha; do
+                  read -r id sha < <(python3 "$RUNNER_TEMP/depot_scheduled_runs.py" find \
+                      --prefix events-schema-record- --max-age-days 2) || true
+                  if [ -n "${id:-}" ]; then
                       echo "Using run $id at $sha"
                       echo "run_id=$id" >> "$GITHUB_OUTPUT"
                       echo "revision=$sha" >> "$GITHUB_OUTPUT"
-                  done
-                  if ! grep -q '^run_id=' "$GITHUB_OUTPUT"; then
+                  else
                       echo "::error::No recent successful scheduled Backend CI run has events_json recordings, so the prune manifest stays as it is"
                       exit 1
                   fi

@@ -501,7 +501,7 @@ A lane that stops producing runs is invisible to the master-red alerter: it read
 Add every converted workflow to `SCHEDULED_GATING_WORKFLOWS` in `ci-alerts-devex.yml` in the same change, or its failures stop paging altogether.
 
 Backend CI's hourly run is the one test suite whose cron is on Depot CI: `.depot/workflows/ci-backend.yml` has the `schedule` trigger and `.github/workflows/ci-backend.yml` has none.
-GitHub has no runs or artifacts for it, so its readers go through `.github/scripts/depot_scheduled_runs.py`: the alerter lists it under `DEPOT_SCHEDULED_GATING_WORKFLOWS`, and `ci-backend-update-test-timing.yml` finds and downloads its artifacts from Depot.
+GitHub has no runs or artifacts for it, so its readers go through `.github/scripts/depot_scheduled_runs.py`: the alerter names it in `DEPOT_SCHEDULED_GATING_WORKFLOW`, and `ci-backend-update-test-timing.yml` finds and downloads its artifacts from Depot.
 
 ## Backwards-compat with unrebased PRs
 

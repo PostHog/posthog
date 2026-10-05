@@ -862,7 +862,7 @@ describe('ci-alerts-devex', () => {
             const { slack, outputs } = await run(github, {
                 env: {
                     GATING_WORKFLOWS: 'ci-backend.yml',
-                    DEPOT_SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml',
+                    DEPOT_SCHEDULED_GATING_WORKFLOW: 'ci-backend.yml',
                     DEPOT_SCHEDULED_RUNS_FILE: runsFile,
                 },
                 history: depotRuns ? [] : [activeAnchor({ workflows: ['Backend CI (scheduled)'] })],

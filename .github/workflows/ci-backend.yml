@@ -4625,7 +4625,7 @@ jobs:
         # Runs on every attempt: a re-run passing what an earlier attempt failed is the same-commit
         # flake proof the test-health queue reads, and the shards a re-run re-executed upload under
         # attempt-suffixed artifact names so only they are emitted for the new attempt.
-        # Scheduled master runs and all in-repo PRs. Skip forks (no secrets access)
+        # Manual master runs and all in-repo PRs. Skip forks (no secrets access)
         # and master pushes (their matrices are skipped, so there are no traces).
         # Both matrices skipped also means no JUnit was uploaded, so there are no
         # traces to emit. This job sits on the tail of the run, so skipping it takes

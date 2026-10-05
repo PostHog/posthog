@@ -5,6 +5,8 @@ from typing import Any
 
 import pytest
 
+import ci_backend_relay
+
 SCRIPT_PATH = Path(__file__).with_name("depot_scheduled_runs.py")
 SPEC = importlib.util.spec_from_file_location("depot_scheduled_runs", SCRIPT_PATH)
 assert SPEC is not None
@@ -47,6 +49,11 @@ def test_gate_run_reports_the_gate_verdict(
 
     assert (run["status"], run["conclusion"]) == expected
     assert run["head_sha"] == "abc"
+
+
+def test_names_the_workflow_and_gate_job_the_relay_reads() -> None:
+    assert script.WORKFLOW_NAME == ci_backend_relay.DEPOT_WORKFLOW
+    assert script.GATE_JOB_KEY == ci_backend_relay.GATE_JOB_KEY
 
 
 def test_download_keeps_the_newest_artifact_per_name() -> None:
