@@ -55,9 +55,9 @@ class InfisicalSource(ResumableSource[InfisicalSourceConfig, InfisicalResumeConf
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Infisical",
             releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Connect an Infisical machine identity to pull your organization's audit logs, projects, identities, memberships, roles, groups, and secret scanning findings into the PostHog Data warehouse. Secret values are never synced.
+            caption="""Connect an Infisical machine identity to pull your organization's audit logs, projects, environments, identities, memberships, roles, groups, secret syncs, and secret scanning findings into the PostHog Data warehouse. Secret values are never synced.
 
-In Infisical, create a machine identity under **Organization settings > Access control > Identities**, add a **Universal Auth** method to it, and grant it read permissions for the data you want to sync (audit logs, projects, identities, memberships, roles, groups, and secret scanning findings). Note that audit log access and secret scanning are plan-gated on Infisical Cloud.
+In Infisical, create a machine identity under **Organization settings > Access control > Identities**, add a **Universal Auth** method to it, and grant it read permissions for the data you want to sync (audit logs, projects, environments, identities, memberships, roles, groups, secret syncs, and secret scanning findings). Note that audit log access and secret scanning are plan-gated on Infisical Cloud.
 
 - **Base URL**: `https://app.infisical.com` (US cloud), `https://eu.infisical.com` (EU cloud), or your self-hosted URL.
 - **Organization ID**: found in your Infisical URL after `/org/`, or in organization settings.

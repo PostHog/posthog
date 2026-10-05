@@ -298,12 +298,17 @@ export interface BIDataPaneFields {
     measures: BIField[]
 }
 
-export function getBIDataPaneFields(table: DatabaseSchemaTable | undefined, source: BIDataSource): BIDataPaneFields {
+export function getBIDataPaneFields(
+    table: Pick<DatabaseSchemaTable, 'fields'> | undefined,
+    source: BIDataSource,
+    path: string[] = []
+): BIDataPaneFields {
     const fields = Object.values(table?.fields ?? {})
         .filter((field) => DATA_PANE_FIELD_TYPES.has(field.type))
         .map((field): BIField => {
-            const expression = escapeDottedHogQLIdentifier(field.name)
-            return { id: getBIFieldId(source, expression), name: field.name, expression, type: field.type, source }
+            const name = [...path, field.name].join('.')
+            const expression = escapeDottedHogQLIdentifier(name)
+            return { id: getBIFieldId(source, expression), name, expression, type: field.type, source }
         })
         .sort((first, second) => first.name.localeCompare(second.name))
 
@@ -733,7 +738,7 @@ function filterExpression(filter: BIFilter): string | null {
         return `${field} IS NULL`
     }
     if (filter.operator === 'last_7_days') {
-        return `${field} >= now() - INTERVAL 7 DAY`
+        return `(${field} >= now() - INTERVAL 7 DAY AND ${field} < now())`
     }
     // Strip leading zeroes so decimal input cannot become an octal HogQL literal.
     const literal = (value: string): string =>
@@ -825,12 +830,15 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
         ...configuredValues.map(({ expression }) => expression),
         ...config.filters.map((filter) => filter.customExpression || fieldExpression(filter.field)),
     ]
-    const usedAliases = new Set([
-        ...rowDimensions.map(({ alias }) => alias),
-        ...columnDimensions.map(({ alias }) => alias),
-        'bi_rows',
-        'bi_columns',
-    ])
+    const usedAliases = new Set(['bi_rows', 'bi_columns'])
+    for (const dimension of [...rowDimensions, ...columnDimensions]) {
+        const preferred = dimension.alias
+        let suffix = 2
+        while (usedAliases.has(dimension.alias)) {
+            dimension.alias = `${preferred}_${suffix++}`
+        }
+        usedAliases.add(dimension.alias)
+    }
     const reservedAliases = new Set(configuredValues.map(({ value }, index) => aggregationAlias(value, index)))
     configuredValues.forEach((configuredValue, index) => {
         const preferred = aggregationAlias(configuredValue.value, index)
@@ -992,13 +1000,24 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
     const dimensions = [...rowDimensions, ...columnDimensions]
     const dimensionExpressions = dimensions.map(({ field }) => fieldExpression(field))
     const isPivotTable = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
+    const hasSeriesBreakdown =
+        dimensions.length === 2 &&
+        [
+            ChartDisplayType.Auto,
+            ChartDisplayType.ActionsBar,
+            ChartDisplayType.ActionsStackedBar,
+            ChartDisplayType.ActionsLineGraph,
+            ChartDisplayType.ActionsAreaGraph,
+        ].includes(config.chartType)
     const pivotRowAxis = isPivotTable ? pivotAxis('row', rowDimensions) : null
     const pivotColumnAxis = isPivotTable ? pivotAxis('column', columnDimensions) : null
     const dimensionSelectExpressions = isPivotTable
         ? [pivotRowAxis, pivotColumnAxis]
               .filter((axis): axis is BIPivotAxis => axis !== null)
               .map(({ alias, expression }) => `${expression} AS ${alias}`)
-        : dimensionExpressions
+        : dimensions.map(({ field, alias }) =>
+              hasSeriesBreakdown ? `${fieldExpression(field)} AS ${alias}` : fieldExpression(field)
+          )
     const valueExpressions =
         configuredValues.length > 0
             ? configuredValues.map(
@@ -1036,6 +1055,23 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
 
     const query = queryParts.join('\n')
 
+    const chartDimensions = [...columnDimensions, ...rowDimensions]
+    const xDimension = chartDimensions.find(({ field }) => isDateTimeBIField(field)) ?? chartDimensions[0]
+    const breakdownDimension = chartDimensions.find((dimension) => dimension !== xDimension)
+    const seriesSettings =
+        hasSeriesBreakdown && xDimension && breakdownDimension
+            ? {
+                  xAxis: { column: xDimension.alias },
+                  xAxisLabel: getBIFieldPillLabel(xDimension.field),
+                  yAxis:
+                      configuredValues.length > 0
+                          ? configuredValues.map(({ alias }) => ({ column: alias }))
+                          : [{ column: 'count' }],
+                  seriesBreakdownColumn: breakdownDimension.alias,
+                  showLegend: true,
+              }
+            : undefined
+
     const pivotTableSettings = isPivotTable
         ? {
               heatmap: {
@@ -1058,7 +1094,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
                 connectionId: config.source.connectionId,
             },
             display: config.chartType,
-            ...(pivotTableSettings ? { chartSettings: pivotTableSettings } : {}),
+            ...(pivotTableSettings || seriesSettings ? { chartSettings: pivotTableSettings ?? seriesSettings } : {}),
         },
     }
 }
