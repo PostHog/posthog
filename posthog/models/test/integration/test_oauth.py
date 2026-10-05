@@ -1214,7 +1214,9 @@ class TestOauthIntegrationModel(BaseTest):
     def test_stripe_refresh_retry_after_lost_response_replays_the_same_request(self, mock_post, mock_reload):
         rotated = MagicMock(status_code=200)
         rotated.json.return_value = {"access_token": "REFRESHED", "refresh_token": "ROTATED"}
-        mock_post.side_effect = [requests.exceptions.ReadTimeout(), rotated, rotated]
+        rotated_again = MagicMock(status_code=200)
+        rotated_again.json.return_value = {"access_token": "REFRESHED_AGAIN", "refresh_token": "ROTATED_AGAIN"}
+        mock_post.side_effect = [requests.exceptions.ReadTimeout(), rotated, rotated_again]
 
         integration = self.create_integration(kind="stripe")
 
@@ -1227,7 +1229,7 @@ class TestOauthIntegrationModel(BaseTest):
         assert lost == retried
         assert next_rotation != retried
         assert "REFRESH" not in lost
-        assert Integration.objects.get(id=integration.id).sensitive_config["refresh_token"] == "ROTATED"
+        assert Integration.objects.get(id=integration.id).sensitive_config["refresh_token"] == "ROTATED_AGAIN"
 
     @patch("posthog.models.integration.oauth.requests.post")
     def test_stripe_oauth_does_not_persist_is_sandbox(self, mock_post):
