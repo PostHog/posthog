@@ -16,3 +16,10 @@ export const useFeatureFlag = (flag: keyof typeof FEATURE_FLAGS, match?: string)
 
     return !!featureFlags[FEATURE_FLAGS[flag]]
 }
+
+/** The flag value once it is final, or `null` while the /flags response can still turn the flag on. */
+export const useResolvedFeatureFlag = (flag: keyof typeof FEATURE_FLAGS): boolean | null => {
+    const enabled = useFeatureFlag(flag)
+    const { receivedServerFeatureFlags } = useValues(featureFlagLogic)
+    return enabled || receivedServerFeatureFlags ? enabled : null
+}

@@ -13,6 +13,7 @@ import { MenuSeparator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 import { getProjectSwitchTargetUrl } from 'lib/utils/kea-router'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { isKnownRoute } from 'scenes/scenes'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
@@ -117,7 +118,8 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                     location.pathname,
                     item.team.id,
                     currentTeam?.project_id,
-                    item.team.project_id
+                    item.team.project_id,
+                    isKnownRoute
                 )
                 closeProjectSwitcher()
                 window.location.href = targetUrl

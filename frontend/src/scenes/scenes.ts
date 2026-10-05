@@ -623,6 +623,8 @@ export const redirects: Record<
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
+    // A session profile lives at /sessions/:id, but the session list lives under Activity.
+    '/sessions': urls.activity(ActivityTab.ExploreSessions),
     '/activity/explore': (_params, searchParams, hashParams) =>
         combineUrl(urls.activity(ActivityTab.ExploreEvents), searchParams, hashParams).url,
     '/annotations': () => urls.annotations(),
@@ -945,4 +947,24 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.organizationPendingDeletion()]: [Scene.OrganizationPendingDeletion, 'organizationPendingDeletion'],
     [urls.projectPendingDeletion()]: [Scene.ProjectPendingDeletion, 'projectPendingDeletion'],
     ...productRoutes,
+}
+
+function pathSegments(path: string): string[] {
+    return path.split(/[?#]/)[0].split('/').filter(Boolean)
+}
+
+let knownRouteSegments: string[][] | null = null
+
+/** Whether a path without a project id matches a scene route or a redirect, rather than the 404 catch-all. */
+export function isKnownRoute(path: string): boolean {
+    knownRouteSegments ??= [...Object.keys(redirects), ...Object.keys(routes)].map(pathSegments)
+    const segments = pathSegments(path)
+    return knownRouteSegments.some((parts) => {
+        const wildcard = parts[parts.length - 1] === '*'
+        const fixedLength = wildcard ? parts.length - 1 : parts.length
+        if (wildcard ? segments.length <= fixedLength : segments.length !== fixedLength) {
+            return false
+        }
+        return parts.slice(0, fixedLength).every((part, index) => part.startsWith(':') || part === segments[index])
+    })
 }

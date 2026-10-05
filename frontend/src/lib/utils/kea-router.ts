@@ -156,7 +156,8 @@ export function getProjectSwitchTargetUrl(
     currentPath: string,
     newTeamId: number,
     currentProjectId?: number | null,
-    newProjectId?: number | null
+    newProjectId?: number | null,
+    isKnownRoute: (path: string) => boolean = () => true
 ): string {
     // Remove project ID and flag ID from the path
     let route = removeProjectIdIfPresent(currentPath)
@@ -182,8 +183,9 @@ export function getProjectSwitchTargetUrl(
         if (currentProjectId && newProjectId && currentProjectId === newProjectId) {
             return `/project/${newTeamId}${route}`
         }
-        // Otherwise, go to the parent resource
-        return `/project/${newTeamId}/${pathParts[1]}`
+        // Otherwise, go to the parent resource, or to the project root when the parent has no page
+        const parentPath = `/${pathParts[1]}`
+        return isKnownRoute(parentPath) ? `/project/${newTeamId}${parentPath}` : `/project/${newTeamId}`
     }
 
     // Default: keep the same route structure but with new project ID

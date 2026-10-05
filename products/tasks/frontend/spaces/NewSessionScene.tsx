@@ -12,7 +12,7 @@ import {
 } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useResolvedFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -28,16 +28,16 @@ export const scene: SceneExport = {
 }
 
 export function NewSessionScene(): JSX.Element {
-    const enabled = useFeatureFlag('TODAY_RAIL_NAV')
+    const enabled = useResolvedFeatureFlag('TODAY_RAIL_NAV')
     const { space, spaceGroups, sortedSpaces, spacesLoading, spacesUnavailable, composerRepositoryConfig } =
         useValues(newSessionSceneLogic)
     const { pickSpace, sessionStarted, loadSpaces } = useActions(newSessionSceneLogic)
 
-    if (!enabled) {
+    if (enabled === false) {
         return <NotFound object="page" />
     }
 
-    const resolving = !space && spacesLoading
+    const resolving = enabled === null || (!space && spacesLoading)
     const failed = !space && spacesUnavailable
 
     return (
