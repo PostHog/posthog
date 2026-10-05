@@ -324,6 +324,10 @@ def is_reserved_system_name(name: str) -> bool:
     return name == "system" or name.startswith("system.")
 
 
+def is_reserved_models_name(name: str) -> bool:
+    return name == "models" or name.startswith("models.")
+
+
 def _revenue_trigger_prefixes(handles: list[SourceHandle]) -> set[str]:
     """Lowercased first segments of the dotted names the handles' views will get."""
     return {"revenue_analytics" if handle.type == "events" else handle.type.lower() for handle in handles}
@@ -2369,7 +2373,11 @@ class Database(BaseModel):
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             for saved_query in sources.saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
-                    if is_reserved_system_name(saved_query.name):
+                    if is_reserved_system_name(saved_query.name) or (
+                        is_reserved_models_name(saved_query.name)
+                        and saved_query.origin
+                        in {DataWarehouseSavedQuery.Origin.ENDPOINT, DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET}
+                    ):
                         continue
                     if (
                         sources.is_hogql_warehouse_access_control_enabled
@@ -2390,7 +2398,9 @@ class Database(BaseModel):
                 try:
                     for endpoint_saved_query in sources.endpoint_saved_queries:
                         with timings.measure(f"endpoint_saved_query_{endpoint_saved_query.name}"):
-                            if is_reserved_system_name(endpoint_saved_query.name):
+                            if is_reserved_system_name(endpoint_saved_query.name) or is_reserved_models_name(
+                                endpoint_saved_query.name
+                            ):
                                 continue
                             # Endpoint-origin saved queries are a separate list, so they're checked too
                             if (
@@ -2455,6 +2465,8 @@ class Database(BaseModel):
             with timings.measure("build_tables", emit_span=True):
                 sync_warnings_now = datetime.now(UTC)
                 for table in sources.warehouse_tables:
+                    if is_reserved_models_name(table.name):
+                        continue
                     if (
                         not database._is_direct_query()
                         and table.external_data_source

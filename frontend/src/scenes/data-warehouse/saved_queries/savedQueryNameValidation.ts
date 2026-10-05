@@ -1,5 +1,5 @@
 // Must stay in sync with validate_saved_query_name in
-// products/data_warehouse/backend/models/datawarehouse_saved_query.py — the `.`
+// products/data_modeling/backend/models/datawarehouse_saved_query.py — the `.`
 // is load-bearing and drives HogQL namespace nesting (see
 // posthog/hogql/database/database.py splitting saved query names on `.`).
 export const SAVED_QUERY_NAME_REGEX = /^[A-Za-z_$][A-Za-z0-9_.$]*$/

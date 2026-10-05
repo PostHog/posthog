@@ -6,6 +6,12 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
+## Model namespace reservation
+
+The HogQL schema reserves `models` and `models.*` for authored data models. Warehouse tables, endpoint saved queries, and managed viewsets with these names are excluded from the schema. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
+
+This reservation does not add qualified names to existing models or require a namespace on new models.
+
 ## SQL editor drafts
 
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
