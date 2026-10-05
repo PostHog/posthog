@@ -240,24 +240,20 @@ class TestScheduledRecalculationLogic(BaseTest):
             ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(created_at=stale)
         assert recent_recalculation_skip(experiment, self.team.id) is None
 
-    def test_recent_completed_run_skips(self):
-        experiment = self._experiment()
-        with team_scope(self.team.id, canonical=True):
-            ExperimentMetricsRecalculation.objects.create(
-                team=self.team,
-                experiment=experiment,
-                status=ExperimentMetricsRecalculation.Status.COMPLETED,
-                completed_at=timezone.now() - timedelta(minutes=10),
-            )
-        decision = recent_recalculation_skip(experiment, self.team.id)
-        assert decision is not None
-        assert decision.reason == SKIP_RECENT_RUN
-        assert decision.detail["minutes_since_completion"] == 10
-
-    def test_a_recent_run_on_a_stale_window_does_not_skip(self):
-        # heal_latest_run and metric_config_change reuse the previous window, so a run can finish
-        # minutes ago and still hold yesterday's data. Skipping on completed_at alone would leave
-        # the page a day behind until the next slot.
+    @parameterized.expand(
+        [
+            # heal_latest_run and metric_config_change reuse the previous window, so a run can
+            # finish minutes ago and still hold yesterday's data. Skipping on completed_at alone
+            # would leave the page a day behind until the next slot.
+            ("stale_window", timedelta(days=1), False),
+            ("fresh_window", timedelta(minutes=10), True),
+            # A run that resolved no window gives nothing to judge staleness by, so it still skips.
+            ("no_window", None, True),
+        ]
+    )
+    def test_a_recent_run_skips_only_on_a_recent_window(
+        self, _name: str, query_to_age: timedelta | None, expected_skip: bool
+    ):
         experiment = self._experiment()
         with team_scope(self.team.id, canonical=True):
             ExperimentMetricsRecalculation.objects.create(
@@ -266,9 +262,13 @@ class TestScheduledRecalculationLogic(BaseTest):
                 status=ExperimentMetricsRecalculation.Status.COMPLETED,
                 trigger=ExperimentMetricsRecalculation.Trigger.HEAL_LATEST_RUN,
                 completed_at=timezone.now() - timedelta(minutes=10),
-                query_to=timezone.now() - timedelta(days=1),
+                query_to=None if query_to_age is None else timezone.now() - query_to_age,
             )
-        assert recent_recalculation_skip(experiment, self.team.id) is None
+        decision = recent_recalculation_skip(experiment, self.team.id)
+        assert (decision is not None) is expected_skip
+        if decision is not None:
+            assert decision.reason == SKIP_RECENT_RUN
+            assert decision.detail["minutes_since_completion"] == 10
 
     def test_old_completed_run_does_not_skip(self):
         experiment = self._experiment()
