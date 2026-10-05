@@ -36,8 +36,10 @@ function emptyRouteSettings(config: SandboxEmailSenderConfig): string[] {
         .map((setting) => ROUTE_SETTING_NAMES[setting])
 }
 
+export type SandboxDailyCapGrant = { type: 'granted'; buckets: ClaimRequest[] }
+
 export type SandboxDailyCapClaim =
-    | { type: 'granted' }
+    | SandboxDailyCapGrant
     | { type: 'project_cap_reached' }
     | { type: 'recipient_cap_reached'; addresses: string[] }
     | { type: 'check_failed' }
@@ -189,14 +191,15 @@ export class SandboxEmailSender {
             return { type: 'check_failed' }
         }
         const addresses = distinctAddresses(recipients)
-        const claim = await this.dailyCapLimiter.claimAllOrNothing([
+        const buckets = [
             dailyBucket(`${dailyCapKeyPrefix(teamId)}/team`, recipients.length, dailyTeamCap),
             ...addresses.map((address) =>
                 dailyBucket(`${dailyCapKeyPrefix(teamId)}/recipient/${addressDigest(address)}`, 1, dailyRecipientCap)
             ),
-        ])
+        ]
+        const claim = await this.dailyCapLimiter.claimAllOrNothing(buckets)
         if (claim.granted) {
-            return { type: 'granted' }
+            return { type: 'granted', buckets }
         }
         if (claim.deniedIndexes === null) {
             return { type: 'check_failed' }
@@ -205,6 +208,10 @@ export class SandboxEmailSender {
             return { type: 'project_cap_reached' }
         }
         return { type: 'recipient_cap_reached', addresses: claim.deniedIndexes.map((index) => addresses[index - 1]) }
+    }
+
+    public async returnDailyCaps(grant: SandboxDailyCapGrant): Promise<void> {
+        await this.dailyCapLimiter?.returnClaim(grant.buckets)
     }
 
     public async withIdentificationFooter(

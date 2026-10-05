@@ -292,6 +292,19 @@ end
 return {1}
 `
 
+// Gives granted tokens back to buckets that still exist. Reads cap the pool at capacity, so
+// the pool may go over it here. A bucket that expired meanwhile already reads as full.
+//   KEYS[i] = bucket hash key
+//   ARGV[i] = tokens to give back to KEYS[i]
+const RETURN_CLAIM_LUA = `
+for i = 1, #KEYS do
+    if redis.call('hexists', KEYS[i], 'pool') == 1 then
+        redis.call('hincrbyfloat', KEYS[i], 'pool', ARGV[i])
+    end
+end
+return 1
+`
+
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */
     name: string
@@ -548,6 +561,32 @@ export class RateLimiterService {
             return { granted: false, deniedIndex: null, retryAfterMs: null, reserved: false }
         } finally {
             endTimer()
+        }
+    }
+
+    /**
+     * Give the tokens of a granted claimAllOrNothing back, for a caller whose action did not
+     * happen. Errors are logged and swallowed: the tokens stay spent, which only makes the
+     * limit stricter. The same-slot rule of claimAllOrNothing applies to the keys.
+     */
+    public async returnClaim(buckets: Pick<ClaimRequest, 'key' | 'requested'>[]): Promise<void> {
+        const keys = buckets.map((bucket) => bucket.key)
+        try {
+            await this.valkey.useClient(
+                { name: `rate-limiter:${this.config.name}:returnClaim`, timeout: 1000 },
+                (client) =>
+                    client.eval(
+                        RETURN_CLAIM_LUA,
+                        buckets.length,
+                        ...keys,
+                        ...buckets.map((bucket) => String(bucket.requested))
+                    )
+            )
+        } catch (err) {
+            logger.warn('🪙', `RateLimiterService(${this.config.name}) claim return threw`, {
+                keys,
+                error: String(err),
+            })
         }
     }
 }

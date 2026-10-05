@@ -1652,6 +1652,25 @@ describe('EmailService', () => {
                     }
                 )
 
+                it.each([false, true])(
+                    'spends the daily caps once for a send that SES throttles before accepting it (isTest=%s)',
+                    async (isTest) => {
+                        service = createSandboxService(true, { dailyTeamCap: '2', dailyRecipientCap: '1' })
+                        sendEmailSpy.mockRejectedValueOnce(new ThrottlingException('Rate exceeded'))
+
+                        const throttled = await send(isTest, { cc: memberEmail('cc') })
+                        expect(throttled.finished).toBe(false)
+                        expectSent(await service.executeSendEmail(throttled.invocation, isTest))
+                        expectSkipped(
+                            await send(isTest, { to: { email: memberEmail('bcc') } }),
+                            isTest,
+                            TEAM_CAP_REACHED,
+                            { reason: 'cap_reached', blocked_recipient_count: 1 }
+                        )
+                        expect(sendEmailSpy).toHaveBeenCalledTimes(2)
+                    }
+                )
+
                 it.each([
                     [
                         'the limiter is unreachable',

@@ -33,7 +33,7 @@ import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
-import { SandboxEmailSender } from './sandbox-email-sender'
+import { SandboxDailyCapGrant, SandboxEmailSender } from './sandbox-email-sender'
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -1040,11 +1040,11 @@ export class EmailService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         recipients: string[],
         isTest: boolean
-    ): Promise<boolean> {
+    ): Promise<SandboxDailyCapGrant | null> {
         const teamId = result.invocation.teamId
         const claim = await this.sandboxSender!.claimDailyCaps(teamId, recipients)
         if (claim.type === 'granted') {
-            return true
+            return claim
         }
         result.skipped = true
         result.invocation.state.vmState?.stack.push({ success: false })
@@ -1058,7 +1058,7 @@ export class EmailService {
             reason: claim.type === 'check_failed' ? 'check_failed' : 'cap_reached',
             blockedRecipientCount: claim.type === 'recipient_cap_reached' ? claim.addresses.length : recipients.length,
         })
-        return false
+        return null
     }
 
     private async passesSandboxPauseGate(
@@ -1451,12 +1451,14 @@ export class EmailService {
             sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
+        let dailyCapGrant: SandboxDailyCapGrant | null = null
         if (integration.config.provider === 'sandbox') {
             const sandboxRecipients = [params.to.email, ...(ccAddresses ?? []), ...(bccAddresses ?? [])]
             if (!(await this.checkSandboxRecipients(result, sandboxRecipients, isTest))) {
                 return false
             }
-            if (!(await this.claimSandboxDailyCaps(result, sandboxRecipients, isTest))) {
+            dailyCapGrant = await this.claimSandboxDailyCaps(result, sandboxRecipients, isTest)
+            if (!dailyCapGrant) {
                 return false
             }
         }
@@ -1468,6 +1470,9 @@ export class EmailService {
         } catch (error: unknown) {
             if (isSesThrottleError(error)) {
                 sesThrottleResponsesTotal.inc({ error_code: error.name })
+                if (dailyCapGrant) {
+                    await this.sandboxSender!.returnDailyCaps(dailyCapGrant)
+                }
                 throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
             }
             const message = error instanceof Error ? error.message : String(error)
