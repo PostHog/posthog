@@ -516,7 +516,6 @@ body.pane .masthead,
 body.pane .footnote,
 body.pane .toolbar,
 body.pane .hint,
-body.pane .log,
 body.pane .brand {
     display: none;
 }

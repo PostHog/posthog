@@ -72,14 +72,14 @@ Load it for one session with:
 CLUB_HOGUIN_URL=http://localhost:8642 claude --plugin-dir products/games/services/club-hoguin/mod
 ```
 
-- `/hoguin` opens or closes the club in a pane. In a terminal that can draw pictures (Ghostty, kitty, iTerm2, WezTerm) the pane shows the web page itself: the mod opens it in the Chrome on your machine without a window and draws what Chrome sees, about 10 times a second. Set `CLUB_HOGUIN_CHROME` to the browser binary when it is not in a usual place. `/hoguin map` switches to a map of text characters, and `/hoguin picture` back.
+- `/hoguin` opens or closes the club in a pane. The pane shows the web page itself: the mod opens it in the Chrome on your machine without a window and draws what Chrome sees, about 10 times a second. Set `CLUB_HOGUIN_CHROME` to the browser binary when it is not in a usual place.
+- The pane needs a terminal that draws pictures: Ghostty, iTerm2, kitty, or WezTerm. Anywhere else (macOS Terminal.app, the desktop app) `/hoguin` opens nothing and says so.
 - `/hoguin web` opens the club in your browser.
-- In a terminal that cannot draw pictures (macOS Terminal.app), `/hoguin` opens nothing and says so. `/hoguin map` still opens the text map there.
 - When Claude works for more than 10 seconds, the pane opens by itself, and it closes when Claude is done.
   `/hoguin auto off` turns this off.
-- In the pane, `w` `a` `s` `d` walk, `e` uses the closest object, and `1` to `9` send a phrase. In the picture the keys go to the page, so everything the page can do with a key works.
+- In the pane, `w` `a` `s` `d` walk, `e` uses the closest object, and `1` to `9` send a phrase. The keys go to the page.
 
-The mod and the page in Chrome send only "joined", moves, phrases, emotes, uses, and "left" to the server.
+The mod itself sends nothing to the club. The page in Chrome sends only "joined", moves, phrases, emotes, uses, and "left".
 It never sends the prompt, the transcript, or anything about the task.
 
 The mod talks to the club at `CLUB_HOGUIN_URL` from the environment of `claude`, and without it at `http://localhost:8642`.
@@ -96,8 +96,7 @@ The server moves every hedgehog 20 times a second and removes a hedgehog after 2
 Every change in the town is an event with a number: a hedgehog joins, leaves, starts a walk, says a phrase, sends an emote, or uses an object.
 A client takes one snapshot and then only the events after the last number it saw, so the traffic grows with what people do, not with the number of players.
 The web client reads the events from `GET /api/stream`, a server-sent event stream.
-The Claude Code mod polls `GET /api/events?since=N`, because a mod cannot hold a connection open.
-A walk event carries the path and the start time, and every client works out where the hedgehog is from those, with the same calculation as the server (`src/walk.ts`, `web/walk.js`, `mod/hooks/walk.js`).
+A walk event carries the path and the start time, and every client works out where the hedgehog is from those, with the same calculation as the server (`src/walk.ts`, `web/walk.js`).
 
 One network address can have 10 hedgehogs in the town at a time, so one client cannot take every place.
 One address can send 300 requests a second. After that the server answers `429` until the address slows down.
@@ -109,7 +108,6 @@ Set `TRUSTED_PROXY_HOPS` to the number of proxies, and the server reads the clie
 | `GET /api/world`  |                              | The size of the town, the objects, the phrases, the map                    |
 | `POST /api/join`  | `{ client, skin? }`          | Joins the town and returns a token                                         |
 | `GET /api/state`  |                              | A snapshot: the hedgehogs, the town log, the objects, and the event number |
-| `GET /api/events` | `?since=N`                   | The events after N, or a snapshot when they are gone                       |
 | `GET /api/stream` | `?token=…&since=N`           | The same, as a server-sent event stream                                    |
 | `POST /api/move`  | `{ x, y }` or `{ objectId }` | Walks to a point, or walks to an object and uses it                        |
 | `POST /api/say`   | `{ phraseId }`               | Says a preset phrase                                                       |

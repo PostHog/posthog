@@ -1,5 +1,3 @@
-// @ts-expect-error The mod copy of the walk calculation is plain JavaScript.
-import { positionAt as positionAtInMod } from '../mod/hooks/walk.js'
 // @ts-expect-error The browser copy of the walk calculation is plain JavaScript.
 import { positionAt as positionAtInBrowser } from '../web/walk.js'
 import { OBJECTS, SPAWN, WALK_SPEED } from './content'
@@ -103,7 +101,7 @@ describe('World', () => {
             world.touch(token, now)
             world.tick(now)
             const server = world.snapshot(token, now).you!
-            for (const replay of [positionAt, positionAtInBrowser, positionAtInMod]) {
+            for (const replay of [positionAt, positionAtInBrowser]) {
                 const client = replay(walk, WALK_SPEED, now)
                 expect(Math.hypot(client.x - server.x, client.y - server.y)).toBeLessThan(0.02)
                 expect(client.moving).toBe(server.moving)
@@ -145,7 +143,7 @@ describe('World', () => {
         expect(world.eventsSince(1, 0)!.events).toMatchObject([{ kind: 'look', skin: 'robohog', hat: null }])
     })
 
-    it('keeps polling hedgehogs and removes idle ones', () => {
+    it('keeps hedgehogs that send requests and removes idle ones', () => {
         const world = makeWorld()
         const active = join(world)
         const idle = join(world)

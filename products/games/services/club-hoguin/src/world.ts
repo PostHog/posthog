@@ -90,7 +90,7 @@ export interface PlayerView {
     client: ClientKind
     x: number
     y: number
-    // The points the hedgehog still walks through, in order. Clients move the hedgehog along them between polls.
+    // The points the hedgehog still walks through, in order. Clients move the hedgehog along them by themselves.
     path: Point[]
     facing: Facing
     moving: boolean
@@ -432,7 +432,7 @@ export class World {
         }
     }
 
-    // Every authenticated request counts as a heartbeat, so a polling client never goes idle.
+    // Every authenticated request counts as a heartbeat. An open event stream sends one every 10 seconds.
     touch(token: string, now: number): { id: string; client: ClientKind } | null {
         const player = this.players.get(token)
         if (!player) {

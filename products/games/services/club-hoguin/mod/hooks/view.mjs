@@ -111,7 +111,17 @@ class Devtools {
 }
 
 async function main() {
+    // Without this check a club that is down shows as Chrome's own error page.
+    const origin = new URL(url).origin
+    const isUp = await fetch(origin + '/healthz', { signal: AbortSignal.timeout(5000) })
+        .then((response) => response.ok)
+        .catch(() => false)
+    if (!isUp) {
+        throw new Error(`Can't reach Club Hoguin at ${origin}. Set CLUB_HOGUIN_URL to the address of a running club.`)
+    }
     mkdirSync(workDir, { recursive: true })
+    // The frames and the Chrome profile are of no use after the pane closes, however this process ends.
+    process.on('exit', () => rmSync(workDir, { recursive: true, force: true }))
     const { child, browserUrl } = await startChrome()
     const port = new URL(browserUrl).port
     let page

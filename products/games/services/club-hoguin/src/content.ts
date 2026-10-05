@@ -34,7 +34,6 @@ export interface WorldObject {
     product: string
     // What a hedgehog does here. Clients show it before the hedgehog uses the object.
     hint: string
-    glyph: string
     color: string
     // The ground the object covers.
     footprint: Rect
@@ -48,7 +47,6 @@ export const OBJECTS: readonly WorldObject[] = [
         name: 'Feature flag lighthouse',
         product: 'Feature flags',
         hint: 'Pull the lever to flip night-mode for everyone',
-        glyph: 'F',
         color: '#F9BD2B',
         footprint: { x: 2, y: 1, w: 4.5, h: 3.5 },
         stand: { x: 6.4, y: 5.7 },
@@ -58,7 +56,6 @@ export const OBJECTS: readonly WorldObject[] = [
         name: 'Replay cinema',
         product: 'Session replay',
         hint: 'Put a session replay on the big screen, like PostHog replays what a user did',
-        glyph: 'R',
         color: '#1D4AFF',
         footprint: { x: 8.5, y: 0.5, w: 10, h: 4 },
         stand: { x: 13.5, y: 5.7 },
@@ -68,7 +65,6 @@ export const OBJECTS: readonly WorldObject[] = [
         name: 'Door A',
         product: 'Experiments',
         hint: 'Walk through door A to vote for it in the experiment',
-        glyph: 'A',
         color: '#30ABC6',
         footprint: { x: 22.3, y: 3.5, w: 2, h: 1 },
         stand: { x: 23.3, y: 5.5 },
@@ -78,7 +74,6 @@ export const OBJECTS: readonly WorldObject[] = [
         name: 'Door B',
         product: 'Experiments',
         hint: 'Walk through door B to vote for it in the experiment',
-        glyph: 'B',
         color: '#F54E00',
         footprint: { x: 25.7, y: 3.5, w: 2, h: 1 },
         stand: { x: 26.7, y: 5.5 },
@@ -88,7 +83,6 @@ export const OBJECTS: readonly WorldObject[] = [
         name: "Max's desk",
         product: 'PostHog AI',
         hint: 'Ask Max for a joke',
-        glyph: 'M',
         color: '#B62AD9',
         footprint: { x: 32, y: 1, w: 6, h: 3.5 },
         stand: { x: 35, y: 5.7 },
@@ -98,7 +92,6 @@ export const OBJECTS: readonly WorldObject[] = [
         name: 'Bug jar',
         product: 'Error tracking',
         hint: 'Catch a bug and put it in the jar',
-        glyph: 'E',
         color: '#F54E00',
         footprint: { x: 4, y: 14.5, w: 2.6, h: 2.2 },
         stand: { x: 5.3, y: 18 },
@@ -108,7 +101,6 @@ export const OBJECTS: readonly WorldObject[] = [
         name: 'Alerts lighthouse',
         product: 'Alerts',
         hint: 'Pull the alarm to flip fire-mode for everyone',
-        glyph: 'H',
         color: '#F54E00',
         footprint: { x: 9, y: 14.5, w: 3.5, h: 3 },
         stand: { x: 11.1, y: 18.6 },
@@ -118,7 +110,6 @@ export const OBJECTS: readonly WorldObject[] = [
         name: 'Ship it button',
         product: 'Product analytics',
         hint: 'Press the button to ship to production',
-        glyph: 'S',
         color: '#2BA84A',
         footprint: { x: 32, y: 13.5, w: 4, h: 3.2 },
         stand: { x: 34, y: 18 },
@@ -167,41 +158,6 @@ export function isInsideRect(rect: Rect, x: number, y: number, margin = 0): bool
         x >= rect.x - margin && x <= rect.x + rect.w + margin && y >= rect.y - margin && y <= rect.y + rect.h + margin
     )
 }
-
-// A map of text characters for clients that draw in a terminal. A terminal cell is about twice as tall
-// as it is wide, so one character covers 1 unit from west to east and 2 units from north to south.
-export const TEXT_MAP_UNITS_PER_ROW = 2
-export const WALL = '#'
-export const WATER = '~'
-export const FIRE = '^'
-
-function textMapCell(x: number, y: number): string {
-    if (isInsideRect(LAB_FOOTPRINT, x, y)) {
-        const door = OBJECTS.find(
-            ({ id, footprint }) => id.startsWith('door-') && x >= footprint.x && x <= footprint.x + footprint.w
-        )
-        return door ? door.glyph : WALL
-    }
-    const object = OBJECTS.find(({ footprint }) => isInsideRect(footprint, x, y))
-    if (object) {
-        return object.glyph
-    }
-    if (x < WALK_BOUNDS.minX || x > WALK_BOUNDS.maxX || y < WALK_BOUNDS.minY - 1 || y > WALK_BOUNDS.maxY) {
-        return WALL
-    }
-    if (isInsideEllipse(POND, x, y)) {
-        return WATER
-    }
-    return isInsideEllipse(CAMPFIRE, x, y) ? FIRE : '.'
-}
-
-export const TEXT_MAP_ROWS: readonly string[] = Array.from(
-    { length: WORLD_DEPTH / TEXT_MAP_UNITS_PER_ROW },
-    (_row, row) =>
-        Array.from({ length: WORLD_WIDTH }, (_column, column) =>
-            textMapCell(column + 0.5, row * TEXT_MAP_UNITS_PER_ROW + TEXT_MAP_UNITS_PER_ROW / 2)
-        ).join('')
-)
 
 export interface Phrase {
     id: string

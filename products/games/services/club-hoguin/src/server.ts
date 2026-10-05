@@ -14,8 +14,6 @@ import {
     POND,
     SKINS,
     SPAWN,
-    TEXT_MAP_ROWS,
-    TEXT_MAP_UNITS_PER_ROW,
     WALK_BOUNDS,
     WALK_SPEED,
     WORLD_DEPTH,
@@ -92,8 +90,8 @@ function acceptsGzip(request: IncomingMessage): boolean {
     return /\bgzip\b/.test(String(request.headers['accept-encoding'] ?? ''))
 }
 
-// Clients poll the state many times a second, and the state of a full town is tens of kilobytes of JSON.
-// Level 1 is fast, and JSON with many alike rows gets small at any level.
+// The snapshot of a full town is tens of kilobytes of JSON. Level 1 is fast, and JSON with many alike rows
+// gets small at any level.
 function sendJson(request: IncomingMessage, response: ServerResponse, status: number, payload: unknown): void {
     const body = Buffer.from(JSON.stringify(payload))
     const isCompressed = body.length >= MIN_GZIP_BYTES && acceptsGzip(request)
@@ -197,7 +195,6 @@ export function createClubHoguinServer({
         pokeReach: LIMITS.pokeReach,
         limits: LIMITS,
         significanceVotes: EXPERIMENT_SIGNIFICANCE_VOTES,
-        textMap: { rows: TEXT_MAP_ROWS, unitsPerRow: TEXT_MAP_UNITS_PER_ROW },
     })
 
     function requirePlayer(request: IncomingMessage): { token: string; id: string; client: ClientKind } {
@@ -239,16 +236,6 @@ export function createClubHoguinServer({
                 fail('unknown_player')
             }
             sendJson(request, response, 200, world.snapshot(token, now()))
-            return
-        }
-        if (pathname === '/api/events' && method === 'GET') {
-            const token = readToken(request)
-            if (token && !world.touch(token, now())) {
-                fail('unknown_player')
-            }
-            const since = Number(url.searchParams.get('since'))
-            const events = Number.isFinite(since) ? world.eventsSince(since, now()) : null
-            sendJson(request, response, 200, events ?? { resync: true, snapshot: world.snapshot(token, now()) })
             return
         }
         if (pathname === '/api/stream' && method === 'GET') {

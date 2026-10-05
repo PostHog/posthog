@@ -12,7 +12,7 @@ import { World } from './world.ts'
 
 const TICK_MS = 50
 const PRUNE_MS = 30_000
-// A web client polls up to 10 times a second, and one address can hold 10 hedgehogs.
+// One address can hold 10 hedgehogs, and each may send 10 actions a second. An office shares one address.
 const REQUESTS_PER_SECOND_PER_ADDRESS = 300
 const SHUTDOWN_GRACE_MS = 3_000
 

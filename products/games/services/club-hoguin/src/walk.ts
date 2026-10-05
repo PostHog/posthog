@@ -1,6 +1,6 @@
 // Where a hedgehog is at a moment of a walk. The server and both clients run this same calculation,
 // so a client that knows the walk event never needs the position from the server.
-// The copies for the clients are web/walk.js and mod/hooks/walk.js, and a test keeps the three alike.
+// The copy for the browser is web/walk.js, and a test keeps the two alike.
 
 export interface Walk {
     from: { x: number; y: number }

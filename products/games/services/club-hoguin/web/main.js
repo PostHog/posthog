@@ -1,4 +1,4 @@
-// The browser client for Club Hoguin. It polls the room state, draws Hog Town, and sends what the player does.
+// The browser client for Club Hoguin. It reads the event stream, draws Hog Town, and sends what the player does.
 import { createHogs, loadSprites } from '/hogs.js'
 import { THREE } from '/kit.js'
 import { createTown } from '/town.js'

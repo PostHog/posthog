@@ -1,57 +1,28 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-const WORLD = {
-    width: 6,
-    depth: 8,
-    textMap: { rows: ['######', '#S...#', '#....#', '######'], unitsPerRow: 2 },
-    objects: [{ id: 'ship', name: 'Ship it button', glyph: 'S', color: '#2BA84A' }],
-    phrases: [{ id: 'hi', text: 'Hi hogs! 👋' }],
-    skins: ['default'],
-    walkSpeed: 7,
-    limits: { bubbleMs: 6000 },
-}
-
-const YOU = {
-    id: 'p1',
-    name: 'Test Hog',
-    skin: 'default',
-    client: 'mod',
-    x: 4.4,
-    y: 3,
-    path: [],
-    facing: 'left',
-    moving: false,
-    bubble: null,
-}
-
-const STATE = {
-    you: YOU,
-    players: [YOU, { ...YOU, id: 'p2', name: 'Other Hog', client: 'web', x: 3.2, y: 5 }],
-    feed: [{ id: 1, at: 0, text: 'Test Hog waddled in' }],
-    objects: { lightsOn: true, doorA: 0, doorB: 0, bugsCaught: 0, deploys: 0 },
-    online: 2,
-    seq: 1,
-    at: 0,
-}
-
 const PANE = {
     plugin: 'club-hoguin',
     component: 'Pane',
     requestId: 'club-hoguin',
+    surface: 'terminal',
     viewport: { columns: 160, rows: 50 },
     props: {
         title: 'Club Hoguin',
         isFocused: true,
-        bodyColumns: 60,
+        bodyColumns: 80,
         placement: 'inline',
         scroll: { offset: 0, bodyRows: 30 },
         view: {},
     },
 } as const
 
-type Call = { method: string; path: string; body: unknown }
+const SOCKET = '/tmp/view.sock'
+const NEEDS_PICTURES = /needs a terminal that draws pictures/
+
+type Fetch = { url: string; socketPath?: string; body?: unknown }
 type Club = {
-    calls: Call[]
+    fetches: Fetch[]
+    spawns: string[][]
     panes: { opened: string[]; closed: string[] }
     toasts: string[]
     clock: ReturnType<typeof mock.clock>
@@ -64,29 +35,37 @@ function setUp(
         placed = true,
         openGate = Promise.resolve(),
         env = { CLUB_HOGUIN_URL: 'http://club.test/' } as Record<string, string>,
-        tools = [] as unknown[],
-        picture = false,
+        // What the viewer process prints. By default: where its socket is, and one frame.
+        viewerLines = [`socket ${SOCKET}`, 'frame 1 /tmp/frame-1.png'],
+        blitDenied = false,
     } = {}
 ): Club {
-    const calls: Call[] = []
+    const fetches: Fetch[] = []
+    const spawns: string[][] = []
     const panes: { opened: string[]; closed: string[] } = { opened: [], closed: [] }
     const toasts: string[] = []
     const opened: string[][] = []
+    let stopViewer = (): void => undefined
+    const viewerStopped = new Promise<void>((resolve) => (stopViewer = resolve))
     on('http.fetch', ($: unknown, e: any) => {
-        const path = new URL(e.url).pathname
-        calls.push({ method: e.init?.method ?? 'GET', path, body: e.init?.body ? JSON.parse(e.init.body) : undefined })
-        const data =
-            path === '/api/world'
-                ? WORLD
-                : path === '/api/join'
-                  ? { id: 'p1', token: 'secret', name: 'Test Hog', skin: 'default' }
-                  : path === '/api/state'
-                    ? STATE
-                    : path === '/api/events'
-                      ? { seq: 1, at: 0, events: [] }
-                      : { ok: true }
+        fetches.push({
+            url: e.url,
+            socketPath: e.init?.socketPath,
+            body: e.init?.body ? JSON.parse(e.init.body) : undefined,
+        })
+        if (e.url === 'http://view/quit') {
+            stopViewer()
+        }
+        const data = e.url.endsWith('/api/world') ? { phrases: [{ id: 'hi', text: 'Hi hogs! 👋' }] } : {}
         return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(data) } }
     })
+    on('process.spawn', async function* ($: unknown, e: any) {
+        spawns.push(e.argv)
+        yield { stream: 'stdout', text: viewerLines.map((line) => line + '\n').join('') }
+        await viewerStopped
+        return { value: { code: 0, signal: null } }
+    })
+    on('ui.blit', () => ({ value: blitDenied ? { deny: 'this terminal draws the alt' } : {} }))
     on('ui.open', async ($: unknown, e: any) => {
         await openGate
         panes.opened.push(e.id)
@@ -107,51 +86,46 @@ function setUp(
     on('session.start', () => ({ cwd: '/work' }))
     on('turn.start', ($: unknown, e: any) => ({ turnId: e.turnId }))
     on('turn.complete', () => ({ text: '' }))
-    on('tool.list', () => ({ value: tools }))
     on('process.run', ($: unknown, e: any) => {
         opened.push(e.argv)
         return { value: { exitCode: 0, stdout: '', stderr: '' } }
     })
-    // The tests draw the text map. The picture needs Chrome, which the test environment has not.
-    mock.store(on, { showPicture: picture })
+    mock.store(on, {})
     mock.env(on, env)
     const clock = mock.clock(on)
-    return { calls, panes, toasts, clock, opened }
+    return { fetches, spawns, panes, toasts, clock, opened }
 }
 
-const posts = (calls: Call[], path: string): unknown[] =>
-    calls.filter((call) => call.method === 'POST' && call.path === path).map((call) => call.body)
+const toViewer = (fetches: Fetch[], path: string): Fetch[] =>
+    fetches.filter((fetch) => fetch.url === 'http://view' + path)
 
-test('/hoguin joins the club, draws the room, and sends preset phrases and moves', async ($, on) => {
-    const { calls, panes } = setUp(on)
+test('/hoguin shows the club page in the pane and sends the keys to it', async ($, on) => {
+    const { fetches, spawns, panes } = setUp(on)
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
 
     await $.command.run({ command: 'hoguin', args: '' })
     expect(panes.opened).toEqual(['club-hoguin'])
-    expect(posts(calls, '/api/join')).toEqual([{ client: 'mod' }])
+    expect(spawns).toHaveLength(1)
+    expect(spawns[0][1]).toMatch(/hooks\/view\.mjs$/)
+    expect(spawns[0][2]).toBe('http://club.test/?pane=1')
 
-    for (const surface of ['terminal', 'desktop'] as const) {
-        const ui = await $.ui.mount({ ...PANE, surface })
-        expect(await ui.find({ type: 'Text', text: /2 here · you are Test Hog/ })).toBeDefined()
-        expect(
-            await ui.find(surface === 'terminal' ? { type: 'Raster' } : { type: 'Text', text: '█S..@█' })
-        ).toBeDefined()
-        await ui.unmount()
-    }
-
-    const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-    await ui.press({ key: 'say-hi' })
-    await ui.press({ key: 'up' })
-    expect(posts(calls, '/api/say')).toEqual([{ phraseId: 'hi' }])
-    expect(posts(calls, '/api/move')).toEqual([{ x: 4.4, y: 0 }])
+    const ui = await $.ui.mount(PANE)
+    expect(await ui.find({ type: 'Image' })).toBeDefined()
+    expect(await ui.find({ type: 'Button', text: 'Hi hogs! 👋' })).toBeDefined()
+    await ui.press({ key: 'key-w' })
+    await ui.press({ key: 'key-1' })
+    expect(toViewer(fetches, '/key')).toEqual([
+        { url: 'http://view/key', socketPath: SOCKET, body: { key: 'w' } },
+        { url: 'http://view/key', socketPath: SOCKET, body: { key: '1' } },
+    ])
 
     await $.command.run({ command: 'hoguin', args: '' })
-    expect(posts(calls, '/api/leave')).toEqual([{}])
+    expect(toViewer(fetches, '/quit')).toHaveLength(1)
     expect(panes.closed).toEqual(['club-hoguin'])
 })
 
 test('a long turn opens the club and the end of the turn closes it', async ($, on) => {
-    const { calls, panes, toasts, clock } = setUp(on)
+    const { fetches, spawns, panes, toasts, clock } = setUp(on)
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
 
     await $.turn.start({ text: 'refactor everything', turnId: 't1' })
@@ -160,16 +134,16 @@ test('a long turn opens the club and the end of the turn closes it', async ($, o
 
     await clock.advance(1_000)
     expect(panes.opened).toEqual(['club-hoguin'])
-    expect(posts(calls, '/api/join')).toEqual([{ client: 'mod' }])
+    expect(spawns).toHaveLength(1)
 
     await $.turn.complete({ turnId: 't1', answer: 'done', durationMs: 12_000, isAborted: false, usage: null })
-    expect(posts(calls, '/api/leave')).toEqual([{}])
+    expect(toViewer(fetches, '/quit')).toHaveLength(1)
     expect(panes.closed).toEqual(['club-hoguin'])
     expect(toasts).toEqual(['Claude is done. Back to work! 🦔'])
 })
 
 test('a turn that ends within 10 seconds never opens the club', async ($, on) => {
-    const { calls, panes, clock } = setUp(on)
+    const { spawns, panes, clock } = setUp(on)
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
 
     await $.turn.start({ text: 'quick question', turnId: 't1' })
@@ -178,25 +152,25 @@ test('a turn that ends within 10 seconds never opens the club', async ($, on) =>
     await clock.advance(60_000)
 
     expect(panes.opened).toEqual([])
-    expect(posts(calls, '/api/join')).toEqual([])
+    expect(spawns).toEqual([])
 })
 
-test('a terminal too narrow for the pane gets a hint instead of a hidden hedgehog', async ($, on) => {
-    const { calls, panes, toasts, clock } = setUp(on, { placed: false })
+test('a terminal too narrow for the pane gets a hint and no Chrome', async ($, on) => {
+    const { spawns, panes, toasts, clock } = setUp(on, { placed: false })
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
 
     await $.turn.start({ text: 'refactor everything', turnId: 't1' })
     await clock.advance(10_000)
 
     expect(panes.closed).toEqual(['club-hoguin'])
-    expect(posts(calls, '/api/join')).toEqual([])
+    expect(spawns).toEqual([])
     expect(toasts).toEqual(['Claude is busy. Run /hoguin to hang out in Club Hoguin while you wait.'])
 })
 
-test('a turn that ends while the pane still opens leaves no pane and no hedgehog', async ($, on) => {
+test('a turn that ends while the pane still opens leaves no pane and no Chrome', async ($, on) => {
     let finishOpening = (): void => undefined
     const openGate = new Promise<void>((resolve) => (finishOpening = resolve))
-    const { calls, panes, clock } = setUp(on, { openGate })
+    const { spawns, panes, clock } = setUp(on, { openGate })
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
 
     await $.turn.start({ text: 'refactor everything', turnId: 't1' })
@@ -206,7 +180,7 @@ test('a turn that ends while the pane still opens leaves no pane and no hedgehog
     await clock.advance(1_000)
 
     expect(panes.closed).toEqual(['club-hoguin'])
-    expect(posts(calls, '/api/join')).toEqual([])
+    expect(spawns).toEqual([])
 })
 
 test('/hoguin web opens the club in the browser', async ($, on) => {
@@ -219,18 +193,50 @@ test('/hoguin web opens the club in the browser', async ($, on) => {
     expect(result.text).toContain('http://club.test/')
 })
 
-test('in a terminal that cannot draw pictures, the club stays closed and says where it works', async ($, on) => {
-    const { calls, panes, clock } = setUp(on, {
-        env: { CLUB_HOGUIN_URL: 'http://club.test/', TERM_PROGRAM: 'Apple_Terminal' },
-        picture: true,
+for (const [place, surface, termProgram] of [
+    ['macOS Terminal.app', 'terminal', 'Apple_Terminal'],
+    ['the desktop app', 'desktop', 'ghostty'],
+] as const) {
+    test(`in ${place} the club stays closed and says where it works`, async ($, on) => {
+        const { spawns, panes, clock } = setUp(on, {
+            env: { CLUB_HOGUIN_URL: 'http://club.test/', TERM_PROGRAM: termProgram },
+        })
+        await $.session.start({ surface, isInteractive: true, cwd: '/work' })
+
+        const result = await $.command.run({ command: 'hoguin', args: '' })
+        await $.turn.start({ text: 'refactor everything', turnId: 't1' })
+        await clock.advance(60_000)
+
+        expect(result.text).toMatch(NEEDS_PICTURES)
+        expect(panes.opened).toEqual([])
+        expect(spawns).toEqual([])
+    })
+}
+
+test('a terminal that refuses every frame closes the pane, stops Chrome, and says where it works', async ($, on) => {
+    const frames = Array.from({ length: 12 }, (_, index) => `frame ${index + 1} /tmp/frame-${index % 3}.png`)
+    const { fetches, panes, toasts, clock } = setUp(on, {
+        viewerLines: [`socket ${SOCKET}`, ...frames],
+        blitDenied: true,
     })
     await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
 
-    const result = await $.command.run({ command: 'hoguin', args: '' })
-    await $.turn.start({ text: 'refactor everything', turnId: 't1' })
-    await clock.advance(60_000)
+    await $.command.run({ command: 'hoguin', args: '' })
+    await clock.advance(1_000)
 
-    expect(result.text).toContain("can't draw pictures")
-    expect(panes.opened).toEqual([])
-    expect(posts(calls, '/api/join')).toEqual([])
+    expect(panes.closed).toEqual(['club-hoguin'])
+    expect(toViewer(fetches, '/quit')).toHaveLength(1)
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0]).toMatch(NEEDS_PICTURES)
+    expect((await $.command.run({ command: 'hoguin', args: '' })).text).toMatch(NEEDS_PICTURES)
+})
+
+test('a club that cannot be reached shows the reason in the pane', async ($, on) => {
+    setUp(on, { viewerLines: ["error Can't reach Club Hoguin at http://club.test"] })
+    await $.session.start({ surface: 'terminal', isInteractive: true, cwd: '/work' })
+
+    await $.command.run({ command: 'hoguin', args: '' })
+
+    const ui = await $.ui.mount(PANE)
+    expect(await ui.find({ type: 'Text', text: /Can't reach Club Hoguin at http:\/\/club\.test/ })).toBeDefined()
 })

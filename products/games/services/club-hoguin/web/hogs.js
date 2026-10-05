@@ -1,4 +1,4 @@
-// The hedgehogs: pixel sprites that stand upright in the town and walk smoothly between polls.
+// The hedgehogs: pixel sprites that stand upright in the town and walk along the paths the events give them.
 import { THREE } from '/kit.js'
 import { positionAt } from '/walk.js'
 
