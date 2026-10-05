@@ -2,7 +2,7 @@ import json
 import uuid
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from ipaddress import ip_address
+from ipaddress import IPv4Address, IPv6Address, ip_address
 from typing import Any, cast
 
 import pytest
@@ -664,6 +664,56 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
 
     if encoding == "gzip":
         assert "uncompressed responses no larger than 1 MiB" in result["reasoning"]
+
+
+def _call_openai_compatible_judge(resolved_ips: set[IPv4Address | IPv6Address]) -> EvaluationActivityResult:
+    key = MagicMock(
+        provider="openai_compatible",
+        encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
+    )
+    with (
+        patch("posthog.security.url_validation.resolve_host_ips", return_value=resolved_ips),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai_compatible", model="example-judge-v1", provider_key=key, is_byok=True
+        )
+        return call_llm_judge(
+            evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt="Hello!",
+            allows_na=False,
+        )
+
+
+def test_endpoint_on_a_disallowed_address_is_a_terminal_user_error() -> None:
+    result = _call_openai_compatible_judge({ip_address("10.0.0.1")})
+
+    assert result["skip_reason"] == "endpoint_blocked"
+    assert result["terminal_user_error"] is True
+    assert result["provider_key_state"] == "error"
+    assert "Base URL must be a public https:// URL" in result["reasoning"]
+
+
+@pytest.mark.parametrize("attempt", [1, 2])
+def test_endpoint_host_that_does_not_resolve_is_retried(attempt: int) -> None:
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=attempt)
+
+    with pytest.raises(TransientJudgeError):
+        env.run(_call_openai_compatible_judge, set())
+
+
+def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> None:
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=3)
+
+    result = env.run(_call_openai_compatible_judge, set())
+
+    assert result["skip_reason"] == "host_unresolved"
+    assert "Could not resolve the base URL host" in result["reasoning"]
+    assert "terminal_user_error" not in result
+    assert "provider_key_state" not in result
 
 
 @pytest.mark.parametrize(
