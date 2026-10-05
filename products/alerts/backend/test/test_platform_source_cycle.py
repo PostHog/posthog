@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsFilter, TrendsQuery
 
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
@@ -18,7 +19,12 @@ from posthog.tasks.alerts.utils import AlertEvaluationResult
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
-from products.alerts.backend.platform_source_cycle import INFLIGHT_KEY, evaluate_insight_check, plan_insight_batch
+from products.alerts.backend.platform_source_cycle import (
+    CAPACITY_REJECTED,
+    INFLIGHT_KEY,
+    evaluate_insight_check,
+    plan_insight_batch,
+)
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
@@ -135,6 +141,23 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         query.assert_not_called()
         assert outcome is not None and outcome.disable
+
+    @parameterized.expand(
+        [
+            ("too_many_queries", ClickHouseAtCapacity()),
+            ("cluster_memory_full", ClickHouseClusterMemoryLimitExceeded()),
+        ]
+    )
+    def test_a_check_clickhouse_refuses_for_load_leaves_the_alert_as_it_was(self, _name: str, error: Exception) -> None:
+        outcome, _ = self._evaluate(self._copy(self._alert()), result=error)
+
+        assert outcome is not None
+        assert (outcome.kind, outcome.new_state, outcome.error_message, outcome.disable) == (
+            AlertEventKind.CHECK,
+            "not_firing",
+            CAPACITY_REJECTED,
+            False,
+        )
 
     def test_an_alert_production_cannot_evaluate_as_configured_errors_and_is_disabled(self) -> None:
         outcome, _ = self._evaluate(self._copy(self._alert()), result=AlertExtractionError("bad query shape"))

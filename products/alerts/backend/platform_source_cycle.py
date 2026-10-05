@@ -16,14 +16,14 @@ same set of checks.
 
 import time
 from dataclasses import replace
-from datetime import datetime
+from datetime import UTC, datetime
 
 from django.conf import settings
 
 import structlog
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked
 from posthog.tasks.alerts.utils import skip_because_of_weekend
@@ -57,12 +57,22 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
     increment_checks_skipped,
     increment_state_transition,
+    record_scheduler_lag,
     safe_record,
 )
 
 logger = structlog.get_logger(__name__)
 
 INFLIGHT_KEY = "alerts:platform:insight:evaluations:inflight"
+
+# Every query the parallel run sends starts with this, so its ClickHouse cost can be read apart from
+# production's in `query_log`. Production's other tags are kept, so workload management treats both
+# the same way.
+QUERY_ID_PREFIX = "alerts-platform-insight:"
+
+# The history row's error for a check ClickHouse refused for load. Stable, because a comparison
+# matches on it to set those checks aside.
+CAPACITY_REJECTED = "ClickHouse refused the query for capacity"
 
 # Real-time and 15-minute alerts are the most expensive cadences and the ones production holds to a
 # tighter budget, so the parallel run leaves them out until it agrees with production elsewhere.
@@ -125,7 +135,15 @@ def evaluate_insight_check(
     """
     try:
         checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=[configuration_id])
-        return _decide(checks[0], cutoff, evaluation_id=evaluation_id) if checks else None
+        if not checks:
+            return None
+        if checks[0].next_check_at is not None:
+            # Wall clock rather than the tick: a check can wait in the pool and the worker queue,
+            # and that wait is the lag a backlog shows up as.
+            lag_ms = int((datetime.now(UTC) - checks[0].next_check_at).total_seconds() * 1000)
+            if lag_ms > 0:
+                safe_record(record_scheduler_lag, SourceKind.INSIGHT.value, lag_ms)
+        return _decide(checks[0], cutoff, evaluation_id=evaluation_id)
     finally:
         release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
 
@@ -175,7 +193,7 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
     # production's and its cost is grouped the same way in the query log.
     tag_queries(
         team_id=alert.team_id,
-        client_query_id=evaluation_id,
+        client_query_id=f"{QUERY_ID_PREFIX}{evaluation_id}",
         alert_config_id=str(alert.id),
         product=Product.PRODUCT_ANALYTICS,
         feature=Feature.ALERTING,
@@ -185,14 +203,6 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
     started_at = time.monotonic()
     try:
         result = check_alert_for_insight(alert, evaluation_id=evaluation_id)
-    except CH_TRANSIENT_ERRORS as error:
-        return _verdict(
-            check,
-            snapshot,
-            CheckInput(threshold_breached=False, error_message=str(error), is_transient_error=True),
-            now=now,
-            skip=SkipReason.QUERY_FAILED,
-        )
     except AlertExtractionError as error:
         return _recorded(
             check,
@@ -206,11 +216,18 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
             disable=True,
         )
     except Exception as error:
-        logger.exception("Platform insight check failed", check_id=str(check.id), error=str(error))
+        if classify_query_error(error) == QueryErrorCategory.RATE_LIMITED:
+            return _skipped(check, snapshot, now=now, skip=SkipReason.CAPACITY, error_message=CAPACITY_REJECTED)
+        if not isinstance(error, CH_TRANSIENT_ERRORS):
+            logger.exception("Platform insight check failed", check_id=str(check.id), error=str(error))
         return _verdict(
             check,
             snapshot,
-            CheckInput(threshold_breached=False, error_message=str(error)),
+            CheckInput(
+                threshold_breached=False,
+                error_message=str(error),
+                is_transient_error=isinstance(error, CH_TRANSIENT_ERRORS),
+            ),
             now=now,
             skip=SkipReason.QUERY_FAILED,
         )
@@ -255,11 +272,17 @@ def _verdict(
 
 
 def _skipped(
-    check: PlatformAlertCheckInput, snapshot: AlertSnapshot, *, now: datetime, disable: bool = False
+    check: PlatformAlertCheckInput,
+    snapshot: AlertSnapshot,
+    *,
+    now: datetime,
+    skip: SkipReason = SkipReason.SOURCE_RULE,
+    error_message: str | None = None,
+    disable: bool = False,
 ) -> PlatformAlertOutcome:
-    """A check that runs no query. Recorded all the same, so its schedule advances."""
+    """A check that reached no verdict. Recorded all the same, so its schedule advances."""
     unchanged = ControlPlaneOutcome(new_state=snapshot.state, consecutive_failures=snapshot.consecutive_failures)
-    return _recorded(check, snapshot, unchanged, now=now, skip=SkipReason.SOURCE_RULE, disable=disable)
+    return _recorded(check, snapshot, unchanged, now=now, skip=skip, error_message=error_message, disable=disable)
 
 
 def _recorded(
