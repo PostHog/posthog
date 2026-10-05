@@ -1308,6 +1308,10 @@ class RepoOverview:
     # changes show up as their own delta instead of hiding inside the total.
     merge_queue_billable_minutes: float | None
     merge_queue_billable_minutes_prev: float | None
+    # The slice of billable_minutes that ran on the Depot CI engine, broken out because it is
+    # accounted separately from GitHub Actions runner minutes.
+    depot_ci_billable_minutes: float | None
+    depot_ci_billable_minutes_prev: float | None
     # Merge-queue landing stats, over merged PRs with at least one corroborated gate run
     # (logic/merge_queue.py). All authors, bots included: these measure the queue's mechanics,
     # not author behavior.

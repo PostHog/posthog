@@ -255,6 +255,24 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         # included: the merge population that triggered the spend) while the median keeps the
         # locked bots/drafts-excluded recipe, plus job-backed billable minutes, with every
         # chart series empty. The default call keeps the series for the UI.
+        depot_started, depot_completed = _ago_with_duration(2, 120)
+        self._create_depot_table(
+            [
+                _depot_attempt_row(
+                    ref="refs/heads/master",
+                    sha="sha-depot",
+                    workflow_name="CI",
+                    workflow_status="finished",
+                    workflow_created_at=depot_started,
+                    workflow_started_at=depot_started,
+                    workflow_finished_at=depot_completed,
+                    job_key="ci.yml:lint",
+                    attempt_status="finished",
+                    attempt_started_at=depot_started,
+                    attempt_finished_at=depot_completed,
+                )
+            ]
+        )
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
@@ -301,14 +319,17 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert overview.merged_pr_count == 2  # 80 and 81; 82 merged long before the window
         assert overview.merged_pr_count_prev == 0
         assert overview.median_open_to_merge_seconds == pytest.approx(8 * 86400)  # bot PR 81 excluded
-        assert overview.run_count == 10
-        assert overview.success_rate == pytest.approx(0.5)  # 3 successes of 6 conclusive runs
+        assert overview.run_count == 11
+        assert overview.success_rate == pytest.approx(4 / 7)  # 4 successes of 7 conclusive runs
         assert overview.rerun_cycles == 1
-        assert overview.billable_minutes == pytest.approx(4.0)  # two 120s jobs on a billable tier
-        assert overview.estimated_cost_usd == pytest.approx(0.032)  # 4 min x $0.004 x 2 (4-core)
-        assert overview.cost_per_merge_usd == pytest.approx(0.016)  # the window's cost over its 2 merges
+        assert overview.billable_minutes == pytest.approx(6.0)  # three 120s jobs on a billable tier
+        # 4 min x $0.004 x 2 (4-core) on GitHub Actions, plus 2 min x $0.004 on the default Depot CI sandbox
+        assert overview.estimated_cost_usd == pytest.approx(0.040)
+        assert overview.cost_per_merge_usd == pytest.approx(0.020)  # the window's cost over its 2 merges
         assert overview.merge_queue_billable_minutes == pytest.approx(2.0)  # only the trunk-merge/** job
         assert overview.merge_queue_billable_minutes_prev is None  # no prev-window jobs, like billable_minutes_prev
+        assert overview.depot_ci_billable_minutes == pytest.approx(2.0)  # only the Depot CI attempt
+        assert overview.depot_ci_billable_minutes_prev is None
         assert overview.median_ready_to_merge_seconds is None  # issue events unsynced: not observed, never zero
         assert overview.cost_series == []
         assert overview.time_to_green_series == []
@@ -325,7 +346,7 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         observed_pass_rates = [
             bucket.success_rate for bucket in with_series.success_rate_series if bucket.success_rate is not None
         ]
-        assert observed_pass_rates == [pytest.approx(0.5)]
+        assert observed_pass_rates == [pytest.approx(4 / 7)]
 
     def test_time_to_green_measures_push_rounds_not_runs(self) -> None:
         # A per-run median would read this fixture as ~5 min. The round definition asks a different
