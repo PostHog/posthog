@@ -16,6 +16,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.posthog_client import EXPECTED_CONTROL_FLOW_ERROR_TYPES, is_expected_activity_failure
 
 from products.ai_observability.backend.llm.errors import (
+    ContentFilteredError,
     OutputTokenLimitError,
     ProviderRequestRejectedError,
     StructuredOutputParseError,
@@ -820,6 +821,7 @@ class TestSkippedResultsStayOutOfErrorTracking:
         [
             (OutputTokenLimitError("The model reached its output token limit."), "parse_error"),
             (StructuredOutputParseError("The reply did not match the schema."), "parse_error"),
+            (ContentFilteredError("The request was rejected by the content filter."), "parse_error"),
             (ProviderRequestRejectedError("The response exceeds the limit."), "request_rejected"),
         ],
     )

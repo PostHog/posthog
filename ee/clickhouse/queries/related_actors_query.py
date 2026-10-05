@@ -1,6 +1,6 @@
 from datetime import timedelta
 from functools import cached_property
-from typing import Optional, Union, cast
+from typing import Any, Optional, Union, cast
 
 from django.utils.timezone import now
 
@@ -54,13 +54,7 @@ class RelatedActorsQuery:
         results: list[SerializedActor] = []
         results.extend(self._query_related_people())
 
-        from posthog.models.group_type_mapping import get_group_types_for_project
-
-        group_type_indexes = [
-            m["group_type_index"]
-            for m in get_group_types_for_project(self.team.project_id)
-            if m["group_type_index"] != self.group_type_index
-        ]
+        group_type_indexes = [index for index in self._group_types if index != self.group_type_index]
 
         results.extend(self._query_related_groups(group_type_indexes=group_type_indexes))
         return results
@@ -73,16 +67,23 @@ class RelatedActorsQuery:
         with personhog_caller_tag("persons/related-actors"):
             return get_serialized_people(self.team, person_ids)
 
+    @cached_property
+    def _group_types(self) -> dict[int, dict[str, Any]]:
+        from posthog.models.group_type_mapping import get_group_types_for_project
+
+        return {m["group_type_index"]: m for m in get_group_types_for_project(self.team.project_id)}
+
     def _group_key_field(self, group_index: int) -> ast.Expr:
-        # Read the group key from the raw event JSON rather than the `$group_N` field: the latter is
-        # zeroed for events older than the GroupTypeMapping.created_at, but the legacy raw query
-        # matched all events regardless, so we go to the JSON to preserve that behavior.
-        # JSONExtractString returns a non-nullable String (empty when missing), matching the
-        # materialized column's type so tuple/IN comparisons stay non-nullable.
-        return ast.Call(
-            name="JSONExtractString",
-            args=[ast.Field(chain=["events", "properties"]), ast.Constant(value=f"$group_{group_index}")],
-        )
+        # Read the group key column, not the JSON in `properties`. On the native-JSON events table a
+        # JSON read rebuilds the whole property sub-object per row, and for heavy actors that goes
+        # over the ClickHouse memory limit.
+        # When the GroupTypeMapping has a created_at, HogQL zeroes `$group_N` for older events and
+        # keeps the raw column as `_$group_N_raw`. The legacy raw query matched all events, so we
+        # read the raw column to keep that behavior.
+        mapping = self._group_types.get(group_index)
+        if mapping and mapping["created_at"]:
+            return ast.Field(chain=["events", f"_$group_{group_index}_raw"])
+        return ast.Field(chain=["events", f"$group_{group_index}"])
 
     def _query_related_people_ids(self) -> list:
         # Resolve distinct_ids seen on events for this group, then map them to persons via
