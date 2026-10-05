@@ -54,6 +54,33 @@ class UnregisteredSource(Exception):
     """The configuration model has no `source_kind` for this source."""
 
 
+def _refuse_unregistered(source: SourceKind) -> None:
+    """Two SourceKind enums exist and have already drifted. An unregistered source would otherwise
+    read as one that made no checks, which is the answer a comparison must never give."""
+    if source.value not in PlatformAlertConfiguration.SourceKind.values:
+        raise UnregisteredSource(f"{source.value} is not a source_kind the configuration model accepts")
+
+
+def teams_with_configurations(source: SourceKind) -> list[int]:
+    """The teams a sweep is worth running for, in one query.
+
+    A team with no configuration for this source has no checks either, and asking per team costs a
+    Postgres round trip each to learn it. Cross-team on purpose: this reads which tenants exist
+    rather than any tenant's data, and every read after it is scoped to one team.
+
+    Not filtered on `enabled`, because a configuration disabled today still has history in a
+    window that predates the change.
+    """
+    _refuse_unregistered(source)
+    return list(
+        PlatformAlertConfiguration.objects.unscoped()
+        .filter(source_kind=source.value)
+        .values_list("team_id", flat=True)
+        .distinct()
+        .order_by("team_id")
+    )
+
+
 def read_platform_checks(
     *,
     team_id: int,
@@ -66,10 +93,7 @@ def read_platform_checks(
     A window wider than the shorter of the two retentions is not available: the platform's rows
     expire on a 90-day ClickHouse TTL, and each source ages its own history on its own schedule.
     """
-    if source.value not in PlatformAlertConfiguration.SourceKind.values:
-        # Two SourceKind enums exist and have already drifted. Without this an unregistered source
-        # reads as a source that made no checks, which is the answer a comparison must never give.
-        raise UnregisteredSource(f"{source.value} is not a source_kind the configuration model accepts")
+    _refuse_unregistered(source)
 
     legacy_ids: dict[UUID, UUID | None] = dict(
         PlatformAlertConfiguration.objects.for_team(team_id)

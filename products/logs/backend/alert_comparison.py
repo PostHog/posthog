@@ -54,7 +54,7 @@ MAX_EVENTS_PER_WINDOW = 5000
 MAX_EVENTS_PER_BATCH = 100_000
 
 _TOGGLE_KINDS = frozenset({LogsAlertEvent.Kind.ENABLE, LogsAlertEvent.Kind.DISABLE})
-_CHAIN_FIELDS = ("id", "alert_id", "kind", "created_at", "state_before")
+_CHAIN_FIELDS = ("id", "alert_id", "kind", "created_at", "state_before", "state_after")
 
 
 def _mute_gates_notification_only(check: PlatformCheck, verdict: SourceVerdict) -> bool:
@@ -139,9 +139,9 @@ class LogsCorrespondence(SourceCorrespondence):
     ) -> dict[UUID, list[LogsAlertEvent]]:
         """Every transition each alert made after `since`, oldest first, keyed by alert.
 
-        Bounded by the window being compared rather than by wall-clock time, plus the one later
-        transition that dates the state a check at the end of the window was in. Reading to the
-        present instead would spend the per-alert bound on transitions no check asks about.
+        Bounded by the window being compared rather than by wall-clock time, plus the few later
+        transitions a check at the end of the window is dated by. Reading to the present instead
+        would spend the per-alert bound on transitions no check asks about.
 
         An alert whose chain could not be read whole is left out, so a caller cannot read a
         truncated chain as a complete one.
@@ -174,25 +174,29 @@ class LogsCorrespondence(SourceCorrespondence):
         complete = {alert_id: chain for alert_id, chain in chains.items() if alert_id not in incomplete}
         for chain in complete.values():
             chain.reverse()
-        for row in self._first_after(list(complete), team_ids, until):
+        for row in self._first_of_each_kind_and_state_after(list(complete), team_ids, until):
             complete[row.alert_id].append(row)
-        # `enabled` is dated by the first toggle after a check, which can sit past that first row.
-        # Without it an alert disabled after the window reads as disabled throughout it, and every
-        # check in the window becomes a disagreement.
-        for row in self._first_after(list(complete), team_ids, until, kinds=_TOGGLE_KINDS):
-            chain = complete[row.alert_id]
-            if not chain or chain[-1].id != row.id:
-                chain.append(row)
+        for chain in complete.values():
+            # Only the rows past the window arrive out of order, and they all follow the window's rows.
+            chain.sort(key=lambda row: row.created_at)
         return complete
 
-    def _first_after(
-        self, alert_ids: list[UUID], team_ids: set[int], moment: datetime, *, kinds: frozenset | None = None
+    def _first_of_each_kind_and_state_after(
+        self, alert_ids: list[UUID], team_ids: set[int], moment: datetime
     ) -> QuerySet[LogsAlertEvent]:
-        """The earliest transition each alert made after `moment`, optionally of certain kinds."""
-        rows = self._events(alert_ids, team_ids).filter(created_at__gt=moment)
-        if kinds is not None:
-            rows = rows.filter(kind__in=kinds)
-        return rows.order_by("alert_id", "created_at").distinct("alert_id")
+        """Each alert's earliest transition after `moment` of every kind and resulting state.
+
+        A check is dated by the next transition of any kind, `enabled` by the next toggle, and
+        `caught_up_at` by the next move into the check's state. Each of those is the earliest row
+        of some (kind, state) pair, so one read answers all three. The pairs are few: a handful of
+        kinds times a handful of states.
+        """
+        return (
+            self._events(alert_ids, team_ids)
+            .filter(created_at__gt=moment)
+            .order_by("alert_id", "kind", "state_after", "created_at")
+            .distinct("alert_id", "kind", "state_after")
+        )
 
     def _events(self, alert_ids: list[UUID], team_ids: set[int]) -> QuerySet[LogsAlertEvent]:
         return LogsAlertEvent.objects.filter(
@@ -203,7 +207,7 @@ class LogsCorrespondence(SourceCorrespondence):
 
 
 def _unknown(detail: str) -> SourceVerdict:
-    return SourceVerdict(coverage=SourceCoverage.UNKNOWN, state=None, detail=detail)
+    return SourceVerdict(caught_up_at=None, coverage=SourceCoverage.UNKNOWN, state=None, detail=detail)
 
 
 def _verdict_at(
@@ -225,6 +229,8 @@ def _verdict_at(
     # rather than the check. None means the state still holds.
     observed_at = boundary.created_at if boundary is not None else None
     evidence_id = str(boundary.id) if boundary is not None else None
+    # The first transition *into* the state this check decided, not merely the next one.
+    caught_up = next((event for event in after if event.state_after == check.state), None)
 
     def verdict(coverage: SourceCoverage, *, suppressed_by: SuppressionReason | None = None) -> SourceVerdict:
         return SourceVerdict(
@@ -232,6 +238,7 @@ def _verdict_at(
             state=state,
             suppressed_by=suppressed_by,
             observed_at=observed_at,
+            caught_up_at=caught_up.created_at if caught_up is not None else None,
             evidence_id=evidence_id,
         )
 
