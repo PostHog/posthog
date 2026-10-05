@@ -104,7 +104,6 @@ export const manifest: ProductManifest = {
                 'mail',
                 'drip campaign',
                 'campaigns',
-                'marketing',
                 'marketing automation',
                 'automation',
                 'journeys',

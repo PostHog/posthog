@@ -3022,7 +3022,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'mail',
             'drip campaign',
             'campaigns',
-            'marketing',
             'marketing automation',
             'automation',
             'journeys',
