@@ -9,11 +9,20 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 from django.utils.timezone import now
 
+from parameterized import parameterized
+from personhog.types.v1 import person_pb2
+
 from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models.person import Person
 from posthog.models.person.divergence import (
     DivergentPerson,
+    PersonDivergenceKind,
+    PersonRef,
+    RepairAction,
+    RepairOutcome,
+    RepairSummary,
+    repair_persons,
     scan_hidden_persons,
     scan_stale_persons,
     scan_swept_persons,
@@ -23,6 +32,7 @@ from posthog.models.person.util import (
     tombstone_persons_in_postgres,
 )
 from posthog.models.signals import mute_selected_signals
+from posthog.personhog_client.fake_client import get_active_fake
 from posthog.test.persons import add_distinct_id, create_person
 
 PG_PROPERTIES = {"email": "postgres@example.com"}
@@ -101,6 +111,51 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         sync_execute(f"DELETE FROM {staging} WHERE 1", settings={"lightweight_deletes_sync": 2})
         sync_execute(f"ALTER TABLE person ATTACH PARTITION tuple() FROM {staging}")
 
+    def _ch_person(self, person_uuid: UUID | str) -> tuple[int, int, dict[str, Any]]:
+        [[deleted, version, properties]] = sync_execute(
+            """
+            SELECT argMax(is_deleted, version), max(version), argMax(properties, version)
+            FROM person WHERE team_id = %(team_id)s AND id = %(person_uuid)s
+            """,
+            {"team_id": self.team.pk, "person_uuid": str(person_uuid)},
+        )
+        return int(deleted), int(version), json.loads(properties)
+
+    def _pg_version(self, person: Person) -> int:
+        stored = get_active_fake().stored_person(self.team.pk, str(person.uuid))
+        assert stored is not None
+        return stored.version
+
+    def _repair(self, *person_uuids: UUID | str, apply: bool = True) -> tuple[RepairSummary, list[RepairAction]]:
+        actions: list[RepairAction] = []
+        summary = repair_persons(
+            [PersonRef(team_id=self.team.pk, person_uuid=str(u)) for u in person_uuids],
+            apply=apply,
+            on_action=actions.append,
+            log=lambda _: None,
+        )
+        return summary, actions
+
+    def _action(
+        self,
+        person_uuid: UUID | str,
+        outcome: RepairOutcome,
+        *,
+        kind: PersonDivergenceKind | None = None,
+        pg_version: int | None = None,
+        ch_max_version: int | None = None,
+        target_version: int | None = None,
+    ) -> RepairAction:
+        return RepairAction(
+            team_id=self.team.pk,
+            person_uuid=str(person_uuid),
+            kind=kind,
+            pg_version=pg_version,
+            ch_max_version=ch_max_version,
+            target_version=target_version,
+            outcome=outcome,
+        )
+
     # ── Scans ────────────────────────────────────────────────────────
 
     def _team_scan_range(self) -> dict[str, int]:
@@ -176,6 +231,184 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             )
         ]
         assert (summary.candidates, summary.divergent) == (2, 1)
+
+    # ── Repair ───────────────────────────────────────────────────────
+
+    def _divergent_person(self, case: str) -> Person:
+        if case == "hidden":
+            person = self._pg_person(version=3)
+            self._ch_person_row(person.uuid, 3)
+            self._ch_person_row(person.uuid, 103, deleted=True)
+        elif case == "hidden_after_an_undelivered_publish":
+            person = self._pg_person(version=104)
+            self._ch_person_row(person.uuid, 103, deleted=True)
+        elif case == "stale":
+            person = self._pg_person(version=5)
+            self._ch_person_row(person.uuid, 10)
+            self._ch_person_row(person.uuid, 5)
+        elif case == "swept":
+            person = self._pg_person(version=3)
+            self._swept_rows({person.uuid: [(103, True, 2), (4, False, 1)]})
+        elif case == "behind":
+            person = self._pg_person(version=7)
+            self._ch_person_row(person.uuid, 5)
+        else:
+            person = self._pg_person(version=3)
+        return person
+
+    @parameterized.expand(
+        [
+            ("hidden", "hidden", 3, 103, 104),
+            ("hidden_after_an_undelivered_publish", "hidden", 104, 103, 104),
+            ("stale", "stale", 5, 10, 11),
+            ("swept", "swept", 3, 103, 104),
+            ("behind", "behind", 7, 5, 7),
+            ("absent", "absent", 3, None, 3),
+        ]
+    )
+    def test_republishes_a_divergent_person_live_one_version_above_clickhouse(
+        self, case: str, kind: PersonDivergenceKind, pg_version: int, ch_max_version: int | None, target_version: int
+    ) -> None:
+        person = self._divergent_person(case)
+
+        summary, actions = self._repair(person.uuid)
+
+        assert actions == [
+            self._action(
+                person.uuid,
+                "repaired",
+                kind=kind,
+                pg_version=pg_version,
+                ch_max_version=ch_max_version,
+                target_version=target_version,
+            )
+        ]
+        assert (summary.persons, summary.undelivered) == (1, 0)
+        assert self._pg_version(person) == target_version
+        assert self._ch_person(person.uuid) == (0, target_version, PG_PROPERTIES)
+
+    @parameterized.expand([("dry_run", False), ("apply", True)])
+    def test_repairs_a_hidden_person_only_when_applied(self, _name: str, apply: bool) -> None:
+        person = self._pg_person(version=3)
+        self._ch_person_row(person.uuid, 3)
+        self._ch_person_row(person.uuid, 103, deleted=True)
+
+        summary, actions = self._repair(person.uuid, apply=apply)
+
+        outcome: RepairOutcome = "repaired" if apply else "would_repair"
+        assert actions == [
+            self._action(person.uuid, outcome, kind="hidden", pg_version=3, ch_max_version=103, target_version=104),
+        ]
+        assert summary.applied is apply
+        if apply:
+            assert self._pg_version(person) == 104
+            assert self._ch_person(person.uuid) == (0, 104, PG_PROPERTIES)
+        else:
+            get_active_fake().assert_not_called("set_person_version_floor")
+            assert self._pg_version(person) == 3
+            assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
+
+    @parameterized.expand([("dry_run", False, []), ("apply", True, [1.0])])
+    def test_throttles_on_each_divergent_row_written(self, _name: str, apply: bool, sleeps: list[float]) -> None:
+        person = self._pg_person(version=3)
+        self._ch_person_row(person.uuid, 103, deleted=True)
+        other = self._pg_person(version=3)
+        self._ch_person_row(other.uuid, 103, deleted=True)
+
+        with patch("posthog.models.person.divergence.time") as clock:
+            clock.monotonic.return_value = 0.0
+            repair_persons(
+                [PersonRef(team_id=self.team.pk, person_uuid=str(p.uuid)) for p in (person, other)],
+                apply=apply,
+                max_writes_per_second=1,
+                on_action=lambda _: None,
+                log=lambda _: None,
+            )
+
+        assert [c.args[0] for c in clock.sleep.call_args_list] == sleeps
+
+    def test_publishes_the_properties_postgres_holds_after_the_raise(self) -> None:
+        person = self._divergent_person("hidden")
+        fake = get_active_fake()
+        raise_floor = fake.set_person_version_floor
+        updated = {"email": "updated@example.com"}
+
+        def ingestion_update_then_raise(
+            request: person_pb2.SetPersonVersionFloorRequest, timeout: float | None = None
+        ) -> person_pb2.SetPersonVersionFloorResponse:
+            stored = fake.stored_person(self.team.pk, str(person.uuid))
+            assert stored is not None
+            stored.properties = json.dumps(updated).encode()
+            stored.version += 1
+            return raise_floor(request, timeout)
+
+        with patch.object(fake, "set_person_version_floor", side_effect=ingestion_update_then_raise):
+            self._repair(person.uuid)
+
+        assert self._ch_person(person.uuid) == (0, 104, updated)
+
+    def test_skips_publishing_when_the_reread_misses_the_raise(self) -> None:
+        person = self._divergent_person("hidden")
+        fake = get_active_fake()
+
+        with patch.object(
+            fake, "set_person_version_floor", return_value=person_pb2.SetPersonVersionFloorResponse(updated=True)
+        ):
+            _, actions = self._repair(person.uuid)
+
+        assert [a.outcome for a in actions] == ["skipped_reread_lagging"]
+        assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
+
+    def _skipped_person(self, case: str) -> UUID:
+        if case == "in_sync":
+            person = self._pg_person(version=3)
+            self._ch_person_row(person.uuid, 3)
+            return person.uuid
+        if case == "tombstoned_in_postgres":
+            person = self._pg_person(version=3)
+            tombstone_persons_in_postgres(self.team.pk, [person.uuid])
+            self._ch_person_row(person.uuid, 103, deleted=True)
+            return person.uuid
+        absent = uuid4()
+        self._ch_person_row(absent, 103, deleted=True)
+        return absent
+
+    @parameterized.expand(
+        [
+            ("in_sync", ["skipped_not_divergent"]),
+            ("tombstoned_in_postgres", ["skipped_not_live"]),
+            ("absent_from_postgres", ["skipped_not_live"]),
+        ]
+    )
+    def test_leaves_a_person_alone_unless_it_is_live_in_postgres_and_divergent(
+        self, case: str, outcomes: list[str]
+    ) -> None:
+        person_uuid = self._skipped_person(case)
+        before = self._ch_person(person_uuid)
+
+        _, actions = self._repair(person_uuid)
+
+        assert [a.outcome for a in actions] == outcomes
+        get_active_fake().assert_not_called("set_person_version_floor")
+        assert self._ch_person(person_uuid) == before
+
+    def test_skips_a_person_the_primary_tombstoned_while_the_replica_still_shows_it_live(self) -> None:
+        person = self._pg_person(version=3)
+        self._ch_person_row(person.uuid, 103, deleted=True)
+        fake = get_active_fake()
+        replica_view = person_pb2.Person()
+        stored = fake.stored_person(self.team.pk, str(person.uuid))
+        assert stored is not None
+        replica_view.CopyFrom(stored)
+        tombstone_persons_in_postgres(self.team.pk, [person.uuid])
+
+        with patch.object(
+            fake, "get_persons_by_uuids", return_value=person_pb2.PersonsResponse(persons=[replica_view])
+        ):
+            _, actions = self._repair(person.uuid)
+
+        assert [a.outcome for a in actions] == ["skipped_tombstoned"]
+        assert self._ch_person(person.uuid)[:2] == (1, 103)
 
 
 class TestScanTeamRanges(SimpleTestCase):
