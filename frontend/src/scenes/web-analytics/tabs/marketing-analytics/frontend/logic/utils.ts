@@ -33,6 +33,7 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
 export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
     AmazonAds: FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
     RoktAds: FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS,
+    TwitterAds: FEATURE_FLAGS.MARKETING_ANALYTICS_TWITTER_ADS,
     AppleSearchAds: FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
     OpenAIAds: FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
 }
@@ -75,6 +76,7 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
     PinterestAds: 'Pinterest Ads',
     AmazonAds: 'Amazon Ads',
     RoktAds: 'Rokt Ads',
+    TwitterAds: 'X Ads',
     AppleSearchAds: 'Apple Ads',
     OpenAIAds: 'OpenAI Ads',
 }
@@ -386,6 +388,30 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             }
             if (column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
                 return buildConversionExpr('sales14d', table)
+            }
+            return null
+        },
+    },
+    TwitterAds: {
+        idField: 'entity_id',
+        timestampField: 'date',
+        columnMappings: {
+            cost: 'billed_charge_local_micro',
+            costNeedsDivision: true,
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: '0',
+            reportedConversionValue: '0',
+            currencyColumn: 'currency',
+            currencyTimestampColumn: 'date',
+            missingCurrencyMessage: 'X Ads currency is missing. Fully resync campaign_stats, then try again.',
+        },
+        specialConversionLogic: (_table, column) => {
+            if (
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversion ||
+                column === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue
+            ) {
+                return { math: HogQLMathType.HogQL, math_hogql: '0' }
             }
             return null
         },

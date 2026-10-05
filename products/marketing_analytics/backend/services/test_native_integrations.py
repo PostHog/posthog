@@ -166,6 +166,7 @@ class TestNativeSourceFeatureFlags:
             for source, flag in [
                 ("AmazonAds", "marketing-analytics-amazon-ads"),
                 ("RoktAds", "marketing-analytics-rokt-ads"),
+                ("TwitterAds", "marketing-analytics-twitter-ads"),
                 ("AppleSearchAds", "marketing-analytics-apple-ads"),
                 ("OpenAIAds", "marketing-analytics-openai-ads"),
             ]

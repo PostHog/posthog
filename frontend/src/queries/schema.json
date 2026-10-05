@@ -37037,6 +37037,78 @@
                         "primarySource"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "adsetStatsTableName": {
+                            "const": "line_item_stats",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "line_items",
+                            "type": "string"
+                        },
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "twitter",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "x",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "twitter_ads",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "x_ads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 4,
+                            "minItems": 4,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "twitter",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "TwitterAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "defaultSources",
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName"
+                    ],
+                    "type": "object"
                 }
             ]
         },
@@ -38952,7 +39024,8 @@
                 "AppleSearchAds",
                 "OpenAIAds",
                 "AmazonAds",
-                "RoktAds"
+                "RoktAds",
+                "TwitterAds"
             ],
             "type": "string"
         },
@@ -55873,6 +55946,10 @@
             ],
             "required": ["kind"],
             "type": "object"
+        },
+        "TwitterAdsDefaultSources": {
+            "enum": ["twitter", "x", "twitter_ads", "x_ads"],
+            "type": "string"
         },
         "UIVisibilityConfig": {
             "additionalProperties": false,

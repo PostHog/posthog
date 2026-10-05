@@ -8506,6 +8506,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'OpenAIAds',
     'AmazonAds',
     'RoktAds',
+    'TwitterAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -8705,6 +8706,17 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         defaultSources: ['amazon', 'amazon_ads'] as const,
         primarySource: 'amazon',
     },
+    TwitterAds: {
+        sourceType: 'TwitterAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_stats',
+        defaultSources: ['twitter', 'x', 'twitter_ads', 'x_ads'] as const,
+        primarySource: 'twitter',
+        adsetTableName: 'line_items' as const,
+        adsetStatsTableName: 'line_item_stats' as const,
+    },
     RoktAds: {
         sourceType: 'RoktAds' as const,
         nameField: 'campaign_name',
@@ -8719,6 +8731,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
 
 export type AmazonAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['AmazonAds']['defaultSources'][number]
+export type TwitterAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['TwitterAds']['defaultSources'][number]
 export type RoktAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RoktAds']['defaultSources'][number]
 export type AppleSearchAdsDefaultSources =
     (typeof MARKETING_INTEGRATION_CONFIGS)['AppleSearchAds']['defaultSources'][number]
