@@ -171,6 +171,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
                 name="single_for_internal_metrics",
             )
         ]
+        indexes = [models.Index(fields=["updated_at"], name="posthog_org_updated_at_idx")]
 
     class PluginsAccessLevel(models.IntegerChoices):
         # None means the organization can't use plugins at all. They're hidden. Cloud default.
