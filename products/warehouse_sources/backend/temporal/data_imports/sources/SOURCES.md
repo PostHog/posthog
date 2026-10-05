@@ -360,6 +360,7 @@ the row lists both.
 | gnews                            | HTTP                        | requests                                                        | ✅                          |
 | gocardless                       | HTTP                        | requests                                                        | ✅                          |
 | goldcast                         | HTTP                        | requests                                                        | ✅                          |
+| gologin                          | HTTP                        | requests                                                        | ✅                          |
 | gong                             | HTTP                        | requests                                                        | ✅                          |
 | google_ads                       | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_analytics                 | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
@@ -1135,7 +1136,6 @@ doesn't conflict with concurrent PRs.
 - gnews
 - gojiberry
 - goldcast
-- gologin
 - google_ad_manager
 - google_adsense
 - google_analytics
