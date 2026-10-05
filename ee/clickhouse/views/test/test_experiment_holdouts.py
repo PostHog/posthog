@@ -472,6 +472,35 @@ class TestExperimentHoldoutApprovals(APILicensedTest):
 
     @parameterized.expand(
         [
+            ("update_without_approvals_scope", "update", ["experiment_holdout:write"], False),
+            ("update_with_approvals_scope", "update", ["experiment_holdout:write", "approvals:read"], True),
+            ("delete_without_approvals_scope", "delete", ["experiment_holdout:write"], False),
+            ("delete_with_approvals_scope", "delete", ["experiment_holdout:write", "approvals:read"], True),
+        ]
+    )
+    def test_approval_conflict_shows_change_request_details_only_with_approvals_scope(
+        self, _name, operation, scopes, sees_details
+    ):
+        self._create_policy(f"experiment_holdout.{operation}")
+        headers = {"authorization": f"Bearer {self.create_personal_api_key_with_scopes(scopes)}"}
+        url = f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}/"
+        body = {"filters": [{"properties": [], "rollout_percentage": 40, "variant": "holdout"}]}
+
+        for expected_code in ("approval_required", "change_request_pending"):
+            if operation == "delete":
+                response = self.client.delete(url, headers=headers)
+            else:
+                response = self.client.patch(url, body, format="json", headers=headers)
+
+            assert response.status_code == status.HTTP_409_CONFLICT, response.content
+            data = response.json()
+            assert data["code"] == expected_code
+            assert data["change_request_id"] == str(self._change_request(f"experiment_holdout.{operation}").id)
+            detail_keys = {"change_request", "existing_change_request", "required_approvers"} & data.keys()
+            assert bool(detail_keys) is sees_details
+
+    @parameterized.expand(
+        [
             ("update", "experiment_holdout.update", {}),
             ("delete", "experiment_holdout.delete", {}),
             (
