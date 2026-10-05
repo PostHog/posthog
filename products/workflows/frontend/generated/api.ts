@@ -43,6 +43,7 @@ import type {
     HogFlowsProposalsListParams,
     HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
+    HogFlowsSearchListParams,
     HogInvocationCancelRequestApi,
     HogInvocationCancelResponseApi,
     HogInvocationRerunRequestApi,
@@ -53,6 +54,7 @@ import type {
     MessageAssetApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowRevisionBasicListApi,
+    PaginatedHogFlowSearchResultListApi,
     PaginatedHogFlowTemplateListApi,
     PaginatedWorkflowProposalListApi,
     PatchedHogFlowActionEmailUpdateApi,
@@ -1287,6 +1289,37 @@ export const hogFlowsReputationRetrieve = async (
     options?: RequestInit
 ): Promise<TeamEmailReputationResponseApi> => {
     return apiMutator<TeamEmailReputationResponseApi>(getHogFlowsReputationRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsSearchListUrl = (projectId: string, params: HogFlowsSearchListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/search/`
+}
+
+/**
+ * Workflows whose name, description or step content matches the search term, most recently updated first, the same order as the list. Takes the list's filters. Each row lists the steps that matched. Rows carry metadata only, not the step graph.
+ * @summary Search workflows
+ */
+export const hogFlowsSearchList = async (
+    projectId: string,
+    params: HogFlowsSearchListParams,
+    options?: RequestInit
+): Promise<PaginatedHogFlowSearchResultListApi> => {
+    return apiMutator<PaginatedHogFlowSearchResultListApi>(getHogFlowsSearchListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

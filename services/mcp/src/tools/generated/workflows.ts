@@ -5,7 +5,7 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/workflows/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const BroadcastsCreateSchema = () => {
@@ -510,6 +510,96 @@ const workflowsRestoreRevision = (): ToolBase<ReturnType<typeof WorkflowsRestore
     },
 })
 
+const WorkflowsSearchSchema = () => {
+    const HogFlowsSearchListQueryParams = orvalSchemas.HogFlowsSearchListQueryParams()
+    return HogFlowsSearchListQueryParams.extend({
+        fields: z
+            .array(
+                z.enum([
+                    'id',
+                    'name',
+                    'status',
+                    'updated_at',
+                    'matched_fields',
+                    'matched_step_count',
+                    'matched_steps',
+                    'matched_steps_truncated',
+                ])
+            )
+            .min(1)
+            .optional()
+            .describe(
+                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+            ),
+    })
+}
+
+const workflowsSearch = (): ToolBase<
+    ReturnType<typeof WorkflowsSearchSchema>,
+    WithPostHogUrl<Schemas.PaginatedHogFlowSearchResultList>
+> => ({
+    name: 'workflows-search',
+    schema: WorkflowsSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsSearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedHogFlowSearchResultList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/search/`,
+            query: {
+                broadcast_eligible: params.broadcast_eligible,
+                broadcast_status: params.broadcast_status,
+                created_at: params.created_at,
+                created_by: params.created_by,
+                excerpt_chars: params.excerpt_chars,
+                id: params.id,
+                limit: params.limit,
+                max_matched_steps: params.max_matched_steps,
+                offset: params.offset,
+                optimization_enabled: params.optimization_enabled,
+                origin_product: params.origin_product,
+                output: params.output,
+                q: params.q,
+                status: params.status,
+                trigger: params.trigger,
+                type: params.type,
+                updated_at: params.updated_at,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(
+                    item,
+                    params.fields?.length
+                        ? params.fields
+                        : [
+                              'id',
+                              'name',
+                              'status',
+                              'updated_at',
+                              'matched_fields',
+                              'matched_step_count',
+                              'matched_steps',
+                              'matched_steps_truncated',
+                          ]
+                )
+            ),
+        } as typeof result
+        return await withPostHogUrl(
+            context,
+            {
+                ...filtered,
+                results: await Promise.all(
+                    (filtered.results ?? []).map((item) =>
+                        withPostHogUrl(context, item, `/workflows/${item.id}/workflow`)
+                    )
+                ),
+            },
+            '/workflows'
+        )
+    },
+})
+
 const WorkflowsStatsSchema = () => {
     const HogFlowsMetricsRetrieveParams = orvalSchemas.HogFlowsMetricsRetrieveParams()
     const HogFlowsMetricsRetrieveQueryParams = orvalSchemas.HogFlowsMetricsRetrieveQueryParams()
@@ -747,6 +837,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
     'workflows-restore-revision': workflowsRestoreRevision,
+    'workflows-search': workflowsSearch,
     'workflows-stats': workflowsStats,
     'workflows-suggest': workflowsSuggest,
     'workflows-test-run': workflowsTestRun,

@@ -20,6 +20,20 @@ from products.workflows.backend.facade.contracts import (
     WorkflowTaskDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.models.hog_flow.search_text import (
+    DEFAULT_EXCERPT_CHARS,
+    DEFAULT_MAX_MATCHED_STEPS,
+    MAX_EXCERPT_CHARS,
+    MAX_MATCHED_STEPS,
+    MAX_SEARCH_TERM_LENGTH,
+    SEARCH_TEXT_SEPARATOR,
+    SearchResultShape,
+    StepMatches,
+    find_step_matches,
+    matched_metadata_fields,
+    search_pattern,
+    step_regex,
+)
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
@@ -41,16 +55,28 @@ from products.workflows.backend.utils.email_sending_tiers import (
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 __all__ = [
+    "DEFAULT_EXCERPT_CHARS",
+    "DEFAULT_MAX_MATCHED_STEPS",
+    "MAX_EXCERPT_CHARS",
+    "MAX_MATCHED_STEPS",
+    "MAX_SEARCH_TERM_LENGTH",
     "MIN_EMAIL_SENDING_TIER",
+    "SEARCH_TEXT_SEPARATOR",
+    "SearchResultShape",
+    "StepMatches",
     "compute_next_occurrences",
     "create_batch_job",
     "ensure_workflows_config",
     "filter_hog_flow_references_by_access_level",
+    "find_step_matches",
     "get_email_sending_state",
     "get_email_sending_tier_limits",
     "get_hog_flows_referencing_template_input_keys",
+    "matched_metadata_fields",
     "max_email_sending_tier",
+    "search_pattern",
     "set_email_sending_tier",
+    "step_regex",
     "suspend_email_sending",
     "unsuspend_email_sending",
     "validate_rrule",
