@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class InvoicedEndpointConfig:
     path: str
     # Invoiced object IDs are unique per resource within an account (integers for documents,
