@@ -1609,6 +1609,10 @@ export interface LoopRunViewedProperties {
   is_manual_run: boolean;
 }
 
+export interface LoopNotFoundViewedProperties {
+  loop_id: string;
+}
+
 export interface LoopLinkCopiedProperties {
   loop_id: string;
   visibility: "personal" | "team";
@@ -1873,6 +1877,7 @@ export const ANALYTICS_EVENTS = {
   // Loops events
   LOOP_LIST_VIEWED: "Loop list viewed",
   LOOP_VIEWED: "Loop viewed",
+  LOOP_NOT_FOUND_VIEWED: "Loop not found viewed",
   LOOP_CREATED: "Loop created",
   LOOP_UPDATED: "Loop updated",
   LOOP_DELETED: "Loop deleted",
@@ -2101,6 +2106,7 @@ export type EventPropertyMap = {
   // Loops events
   [ANALYTICS_EVENTS.LOOP_LIST_VIEWED]: LoopListViewedProperties;
   [ANALYTICS_EVENTS.LOOP_VIEWED]: LoopViewedProperties;
+  [ANALYTICS_EVENTS.LOOP_NOT_FOUND_VIEWED]: LoopNotFoundViewedProperties;
   [ANALYTICS_EVENTS.LOOP_CREATED]: LoopSavedProperties;
   [ANALYTICS_EVENTS.LOOP_UPDATED]: LoopSavedProperties;
   [ANALYTICS_EVENTS.LOOP_DELETED]: LoopDeletedProperties;
