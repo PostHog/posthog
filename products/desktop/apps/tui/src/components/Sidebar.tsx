@@ -31,7 +31,8 @@ export function IndicatorGlyph({
   indicator: Indicator | null;
   local: boolean;
 }): ReactElement {
-  if (indicator === "working") return <Spinner />;
+  // In PostHog blue, so a working chat stands out even in a dimmed sidebar on a dark background.
+  if (indicator === "working") return <Spinner color={posthogBlue()} />;
   return indicator ? (
     <Text color={INDICATOR_COLORS[indicator]}>{local ? "■" : "●"}</Text>
   ) : (
