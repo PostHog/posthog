@@ -88,6 +88,7 @@ jobs:
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
                       POSTHOG_UI_APPS_TOKEN=sTMFPsFhdP1Ssg
+                      POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=https://us.i.posthog.com
 
     deploy:
         name: Trigger MCP deployment

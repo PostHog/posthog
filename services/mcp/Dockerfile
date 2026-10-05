@@ -54,7 +54,9 @@ COPY tools/openapi-codegen/ tools/openapi-codegen/
 COPY products/ products/
 WORKDIR /code/services/mcp
 ARG POSTHOG_UI_APPS_TOKEN
-ENV POSTHOG_UI_APPS_TOKEN=${POSTHOG_UI_APPS_TOKEN}
+ARG POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
+ENV POSTHOG_UI_APPS_TOKEN=${POSTHOG_UI_APPS_TOKEN} \
+    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=${POSTHOG_MCP_APPS_ANALYTICS_BASE_URL}
 RUN pnpm exec tsx scripts/build-hono.ts && pnpm run build:ui-apps
 
 #
@@ -74,8 +76,10 @@ COPY --from=build --chown=node:node /code/services/mcp/dist/hono-server.mjs.map 
 # UI app static assets — served at `/ui-apps/<app>/...` by `serveStatic` in app.ts.
 COPY --from=build --chown=node:node /code/services/mcp/public/ ./public/
 
+ARG POSTHOG_MCP_APPS_ANALYTICS_BASE_URL
 ENV NODE_ENV=production \
-    PORT=3001
+    PORT=3001 \
+    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL=${POSTHOG_MCP_APPS_ANALYTICS_BASE_URL}
 
 EXPOSE 3001
 
