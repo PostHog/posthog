@@ -126,7 +126,7 @@ def semantic_scholar_source(
             },
         },
     }
-    resources: list[EndpointResource] = [papers]
+    resources: list[str | EndpointResource] = [papers]
     if inputs.schema_name != "papers":
         resources.append(
             {

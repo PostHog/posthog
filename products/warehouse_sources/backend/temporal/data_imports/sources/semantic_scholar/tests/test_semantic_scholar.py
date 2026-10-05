@@ -1,4 +1,5 @@
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -8,7 +9,7 @@ import responses
 from requests.exceptions import HTTPError, Timeout
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.semanticscholar import (
     SemanticScholarSourceConfig,
 )
@@ -54,6 +55,10 @@ def make_manager(state: dict[str, Any] | None = None) -> MagicMock:
     return manager
 
 
+def items(response: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], response.items())
+
+
 @pytest.mark.parametrize("incremental", [False, True])
 @pytest.mark.parametrize("resume_token", [None, "saved-token"])
 @responses.activate
@@ -62,7 +67,7 @@ def test_bulk_pagination_auth_and_full_refresh(incremental: bool, resume_token: 
     responses.get(f"{BASE_URL}/paper/search/bulk", json={"total": 2, "data": [{"paperId": "b"}]})
     manager = make_manager({"cursor": resume_token} if resume_token else None)
     result = SemanticScholarSource().source_for_pipeline(CONFIG, manager, make_inputs("papers", incremental))
-    assert list(result.items()) == [[{"paperId": "a"}], [{"paperId": "b"}]]
+    assert list(items(result)) == [[{"paperId": "a"}], [{"paperId": "b"}]]
     requests = [call.request for call in responses.calls]
     params = [parse_qs(urlsplit(request.url).query) for request in requests]
     assert [param.get("token") for param in params] == [[resume_token] if resume_token else None, ["next-token"]]
@@ -88,7 +93,7 @@ def test_edges_paginate_each_parent_and_keep_distinct_keys(endpoint: str, relate
     responses.get(f"{BASE_URL}/paper/b/{endpoint}", json={"data": [{related_field: {"paperId": "shared"}}]})
     manager = make_manager()
     result = semantic_scholar_source(CONFIG, make_inputs(endpoint), manager, "v1")
-    rows = [row for page in result.items() for row in page]
+    rows = [row for page in items(result) for row in page]
     assert [(row["paper_id"], row["related_paper_id"]) for row in rows] == [("a", "shared"), ("b", "shared")]
     assert all("_papers_paperId" not in row for row in rows)
     params = [parse_qs(urlsplit(call.request.url).query) for call in responses.calls]
@@ -114,7 +119,7 @@ def test_resume_skips_completed_parents_and_restores_child_offset(endpoint: str)
         {"completed": [f"paper/a/{endpoint}"], "current": f"paper/b/{endpoint}", "child_state": {"cursor": 1000}}
     )
     result = semantic_scholar_source(CONFIG, make_inputs(endpoint), manager, "v1")
-    rows = [row for page in result.items() for row in page]
+    rows = [row for page in items(result) for row in page]
     assert [(row["paper_id"], row["related_paper_id"]) for row in rows] == [("b", "c")]
     assert len(responses.calls) == 2
     assert parse_qs(urlsplit(responses.calls[1].request.url).query)["offset"] == ["1000"]
@@ -125,7 +130,7 @@ def test_resume_skips_completed_parents_and_restores_child_offset(endpoint: str)
 def test_empty_search_stops_without_child_requests(endpoint: str) -> None:
     responses.get(f"{BASE_URL}/paper/search/bulk", json={"total": 0, "data": []})
     result = semantic_scholar_source(CONFIG, make_inputs(endpoint), make_manager(), "v1")
-    assert list(result.items()) == []
+    assert list(items(result)) == []
     assert len(responses.calls) == 1
 
 
@@ -134,7 +139,7 @@ def test_bulk_limit_fails_before_yielding_partial_results() -> None:
     responses.get(f"{BASE_URL}/paper/search/bulk", json={"total": 10_000_001, "data": [{"paperId": "a"}]})
     result = semantic_scholar_source(CONFIG, make_inputs("papers"), make_manager(), "v1")
     with pytest.raises(ValueError, match=LIMIT_ERROR):
-        list(result.items())
+        list(items(result))
 
 
 @pytest.mark.parametrize(("status", "message"), [(401, AUTH_ERROR), (403, AUTH_ERROR), (400, QUERY_ERROR)])
@@ -143,7 +148,7 @@ def test_auth_and_query_errors_are_not_retryable(status: int, message: str) -> N
     responses.get(f"{BASE_URL}/paper/search/bulk", json={"message": "rejected"}, status=status)
     result = semantic_scholar_source(CONFIG, make_inputs("papers"), make_manager(), "v1")
     with pytest.raises(HTTPError) as error:
-        list(result.items())
+        list(items(result))
     mapping = SemanticScholarSource().get_non_retryable_errors()
     assert next(value for key, value in mapping.items() if key in str(error.value)) == message
     assert len(responses.calls) == 1
@@ -193,5 +198,5 @@ def test_rate_limit_retries_same_page() -> None:
     )
     responses.get(f"{BASE_URL}/paper/search/bulk", json={"data": [{"paperId": "a"}]})
     result = semantic_scholar_source(CONFIG, make_inputs("papers"), make_manager(), "v1")
-    assert list(result.items()) == [[{"paperId": "a"}]]
+    assert list(items(result)) == [[{"paperId": "a"}]]
     assert responses.calls[0].request.url == responses.calls[1].request.url
