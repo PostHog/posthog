@@ -426,5 +426,19 @@ describe('RateLimiterService', () => {
             expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
         })
+
+        it('ignores a return that reaches Valkey after its window', async () => {
+            const bucket = { key: `${KEY}/late-return`, requested: 1, capacity: 1, refillPerSecond: 0 }
+            expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: true })
+
+            const issuedLongAgo = jest.spyOn(Date, 'now').mockReturnValue(Date.now() - 60 * 60 * 1000)
+            try {
+                await limiter.returnClaim('claim-1', [bucket])
+            } finally {
+                issuedLongAgo.mockRestore()
+            }
+
+            expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
+        })
     })
 })

@@ -294,16 +294,24 @@ return {1}
 
 // Gives granted tokens back to buckets that still exist. Reads cap the pool at capacity, so
 // the pool may go over it here. A bucket that expired meanwhile already reads as full.
-// The marker makes a replayed return (ioredis resends unanswered commands on reconnect) a no-op.
+// ioredis resends unanswered commands when it reconnects, so a return can arrive twice or
+// late: the marker makes a second arrival a no-op, and the deadline drops a late one.
 //   KEYS[1..n-1] = bucket hash keys
 //   KEYS[n]      = return marker key
 //   ARGV[i]      = tokens to give back to KEYS[i]
-//   ARGV[n]      = marker TTL seconds
+//   ARGV[n]      = deadline, epoch ms
+//   ARGV[n+1]    = marker TTL ms, longer than the time left until the deadline
 const RETURN_CLAIM_LUA = `
-if not redis.call('set', KEYS[#KEYS], 1, 'NX', 'EX', ARGV[#ARGV]) then
+local time = redis.call('TIME')
+local now = tonumber(time[1]) * 1000 + math.floor(tonumber(time[2]) / 1000)
+local buckets = #KEYS - 1
+if now > tonumber(ARGV[buckets + 1]) then
     return 0
 end
-for i = 1, #KEYS - 1 do
+if not redis.call('set', KEYS[#KEYS], 1, 'NX', 'PX', ARGV[buckets + 2]) then
+    return 0
+end
+for i = 1, buckets do
     if redis.call('hexists', KEYS[i], 'pool') == 1 then
         redis.call('hincrbyfloat', KEYS[i], 'pool', ARGV[i])
     end
@@ -311,7 +319,7 @@ end
 return 1
 `
 
-const RETURN_MARKER_TTL_SECONDS = 3600
+const RETURN_WINDOW_MS = 5 * 60 * 1000
 
 export interface RateLimiterConfig {
     /** Logical name for metrics/logging only (e.g. 'ses'). */
@@ -574,8 +582,9 @@ export class RateLimiterService {
 
     /**
      * Give the tokens of a granted claimAllOrNothing back, for a caller whose action did not
-     * happen. `claimId` names the grant: a claim comes back at most once. Errors are logged
-     * and swallowed: the tokens stay spent, which only makes the limit stricter.
+     * happen. `claimId` names the grant: a claim comes back at most once, and only within a
+     * few minutes of this call. Errors are logged and swallowed: the tokens stay spent, which
+     * only makes the limit stricter.
      * The return marker key extends the first bucket key, so the same-slot rule of
      * claimAllOrNothing covers it when that key carries the shared `{...}` hash tag.
      */
@@ -591,7 +600,8 @@ export class RateLimiterService {
                         ...keys,
                         `${keys[0]}/returned/${claimId}`,
                         ...buckets.map((bucket) => String(bucket.requested)),
-                        String(RETURN_MARKER_TTL_SECONDS)
+                        String(Date.now() + RETURN_WINDOW_MS),
+                        String(2 * RETURN_WINDOW_MS)
                     )
             )
         } catch (err) {
