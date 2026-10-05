@@ -11,6 +11,7 @@ from django.db import transaction
 from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
+from django.http import Http404
 from django.http.response import HttpResponseBase
 from django.utils.timezone import now
 
@@ -38,7 +39,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.event_usage import report_user_action
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.permissions import is_scout_sandbox_request
+from posthog.permissions import is_scout_sandbox_request, is_service_auth
 from posthog.rate_limit import ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -947,6 +948,8 @@ class ReplayObservationViewSet(
 
     # Upper bound on ids materialized for filtered prev/next computation (see `_observation_neighbors`).
     NEIGHBOR_SCAN_LIMIT = 5000
+    # Upper bound on the ids a not-found retrieve names as likely matches (see `_not_found_detail`).
+    NOT_FOUND_SUGGESTION_LIMIT = 3
 
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]
@@ -1003,7 +1006,10 @@ class ReplayObservationViewSet(
         return super().filter_queryset(queryset)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        observation = self.get_object()
+        try:
+            observation = self.get_object()
+        except Http404:
+            raise NotFound(self._not_found_detail(str(kwargs.get("pk", ""))))
         context = {**self.get_serializer_context(), "neighbors": self._observation_neighbors(observation)}
         response = Response(self.get_serializer(observation, context=context).data)
         # Viewed step of the created → viewed → rated funnel. In-flight observations are excluded
@@ -1021,6 +1027,43 @@ class ReplayObservationViewSet(
                 request=request,
             )
         return response
+
+    def _not_found_detail(self, observation_id: str) -> str:
+        """Tell the caller how to recover, instead of a bare 404.
+
+        Agents copy ids out of list rows where `id` and `session_id` are both UUIDv7 and a scan batch
+        shares a long prefix, so a mistyped id usually keeps its creation millisecond. Name the readable
+        observations from that millisecond so the caller can pick the one it meant.
+        """
+        try:
+            parsed: uuid.UUID | None = uuid.UUID(observation_id)
+        except ValueError:
+            parsed = None
+        if parsed is None or parsed.version != 7:
+            return (
+                "This is not an observation id. Observation ids are UUIDs. "
+                "Pass the `id` of a row from the observation list unchanged."
+            )
+        # The first 48 bits of a UUIDv7 are its creation time in milliseconds.
+        millisecond = parsed.int >> 80
+        same_millisecond = self.get_queryset().filter(
+            id__gte=uuid.UUID(int=millisecond << 80), id__lte=uuid.UUID(int=((millisecond + 1) << 80) - 1)
+        )
+        # A detail read skips the list's access filter and checks the one object instead, so apply the
+        # list's filter here: never name a row the caller could not list.
+        if not is_service_auth(self.request):
+            same_millisecond = self.user_access_control.filter_queryset_by_access_level(same_millisecond)
+        candidates = list(same_millisecond.values_list("id", flat=True)[: self.NOT_FOUND_SUGGESTION_LIMIT])
+        if candidates:
+            return (
+                "No observation has this id. Observations created in the same millisecond: "
+                f"{', '.join(str(candidate) for candidate in candidates)}. "
+                "Copy the `id` column of the row you want, not its `session_id`."
+            )
+        return (
+            "No observation has this id. A retry replaces an observation with a new id, and deleting a scanner "
+            "deletes its observations. List the observations again and pass a row's `id` unchanged."
+        )
 
     def _observation_neighbors(self, observation: ReplayObservation) -> dict[str, uuid.UUID | None]:
         # Neighbors honor the same filters and ordering as the scanner's list endpoint, so prev/next
