@@ -24,7 +24,10 @@
 //!   `expected_version` optimistic-lock check is meaningful.
 //! - The matcher runs without the persons DB deadline (`PERSONS_DB_DEADLINE_MS`). Django
 //!   leaves a person whose evaluation errors out of the cohort and still reports the run
-//!   as a success, so a slow persons query must finish rather than time out.
+//!   as a success, so a slow persons query must finish rather than time out. The group type
+//!   mapping lookup is the exception. This endpoint shares `GroupTypeCacheManager` with
+//!   live `/flags`, so that lookup still fails with `client_timeout` at the cache's 5s
+//!   shared fetch cap.
 //!
 //! The paged scan walks `posthog_person.id` ascending across a live table, so the run sees
 //! a moving snapshot rather than a point-in-time one: persons inserted above the current
