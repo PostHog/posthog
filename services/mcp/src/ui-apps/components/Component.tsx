@@ -48,6 +48,8 @@ interface DataPayload {
         | RetentionResult
         | PathsResult
         | HogQLResult
+    /** Saved insight from `insight-query`; its `query` keeps the wrapper node that `query` drops */
+    insight?: { query?: unknown }
     _posthogUrl?: string
 }
 
@@ -58,7 +60,9 @@ export interface ComponentProps {
 export function Component({ data }: ComponentProps): ReactElement {
     const payload = data as DataPayload
     const visualizationType = inferVisualizationType(data)
-    const { queryKind, querySourceKind, display, funnelVizType } = insightQueryProperties(payload?.query)
+    const { queryKind, querySourceKind, display, funnelVizType } = insightQueryProperties(
+        payload?.insight?.query ?? payload?.query
+    )
 
     useEffect(() => {
         captureInsightViewed({

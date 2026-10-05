@@ -136,7 +136,8 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     }))
     const { slopeAvailable, effectiveType } = resolveChartView(chartType, labels.length)
     const handleChartTypeChange = (next: ChartType): void => {
-        captureInsightDisplayChanged({ from: displayForChartType(effectiveType), to: displayForChartType(next) })
+        const from = effectiveType === defaultChartType(displayType) ? displayType : displayForChartType(effectiveType)
+        captureInsightDisplayChanged({ from, to: displayForChartType(next) })
         setChartType(next)
     }
     const chartTypeOptions = slopeAvailable ? [...CHART_TYPE_OPTIONS, SLOPE_TYPE_OPTION] : CHART_TYPE_OPTIONS

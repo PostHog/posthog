@@ -73,6 +73,10 @@ export function identifyUser(distinctId: string, toolName?: string, mcpClientNam
         return
     }
 
+    if (mcpClientName) {
+        client.register({ $mcp_client_name: mcpClientName })
+    }
+
     if (currentDistinctId === distinctId) {
         log('User already identified', { distinctId })
         return
@@ -84,9 +88,6 @@ export function identifyUser(distinctId: string, toolName?: string, mcpClientNam
 
     if (toolName) {
         client.register({ $mcp_tool_name: toolName })
-    }
-    if (mcpClientName) {
-        client.register({ $mcp_client_name: mcpClientName })
     }
 }
 

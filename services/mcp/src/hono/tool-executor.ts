@@ -824,7 +824,11 @@ export class ToolExecutor {
         state: ResolvedState,
         analyticsMeta?: ToolCallAnalyticsMeta
     ): Promise<unknown> {
-        const renderUiTool = createRenderUiTool(state.allTools, state.context)
+        const renderUiTool = createRenderUiTool(
+            state.allTools,
+            state.context,
+            getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName
+        )
         if (!renderUiTool) {
             return {
                 content: [{ type: 'text', text: 'render-ui is not available — no tool has a UI app' }],
