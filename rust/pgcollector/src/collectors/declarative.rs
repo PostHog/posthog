@@ -80,6 +80,10 @@ impl SqlCollector {
                 .cmp(&a.aurora)
                 .then(b.min_pg_version.cmp(&a.min_pg_version))
         });
+        spec.query = crate::tags::tagged(&spec.name, &spec.query);
+        for v in &mut spec.variants {
+            v.query = crate::tags::tagged(&spec.name, &v.query);
+        }
         if spec.kind != Kind::Gauge {
             anyhow::ensure!(
                 !spec.key.is_empty(),
@@ -258,4 +262,30 @@ pub fn row_to_values(r: &tokio_postgres::Row) -> Result<Row> {
         out.insert(col.name().to_string(), v.unwrap_or(Value::Null));
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every variant needs the tag too: a version variant is what most servers run.
+    #[test]
+    fn each_query_carries_a_tag_the_parser_reads_back() {
+        let c = SqlCollector::from_str(
+            "name: table_stats\ninterval: 10m\nscope: database\nkind: gauge\n\
+             query: SELECT 1\n\
+             variants:\n  - min_pg_version: 130000\n    query: SELECT 2\n",
+            "test",
+        )
+        .unwrap();
+        for (sql, expected) in [
+            (c.query_for(120000, false), "SELECT 1"),
+            (c.query_for(130000, false), "SELECT 2"),
+        ] {
+            let got = crate::tags::extract(sql);
+            assert_eq!(got.tags["service"], "pgcollector");
+            assert_eq!(got.tags["operation"], "table_stats");
+            assert_eq!(got.sql.trim(), expected);
+        }
+    }
 }

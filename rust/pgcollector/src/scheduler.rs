@@ -95,12 +95,21 @@ async fn run_server(
     {
         let caps = pg::capabilities(&probe).await.unwrap_or_default();
         let sysid: Option<i64> = probe
-            .query_one("SELECT system_identifier FROM pg_control_system()", &[])
+            .query_one(
+                &crate::tags::tagged(
+                    "server_identity",
+                    "SELECT system_identifier FROM pg_control_system()",
+                ),
+                &[],
+            )
             .await
             .ok()
             .map(|r| r.get(0));
         let version_str: String = probe
-            .query_one("SELECT version()", &[])
+            .query_one(
+                &crate::tags::tagged("server_identity", "SELECT version()"),
+                &[],
+            )
             .await
             .map(|r| r.get(0))
             .unwrap_or_default();

@@ -422,7 +422,10 @@ async fn log_sampling(conn: &tokio_postgres::Client) -> LogSampling {
             // reset_val, not setting: this session quiets its own statements by
             // setting log_min_duration_statement = -1, and that must not count as
             // the server's value.
-            "SELECT name, reset_val FROM pg_settings WHERE name IN ('log_statement_sample_rate', 'log_min_duration_statement')",
+            &crate::tags::tagged(
+                "logs_sampling",
+                "SELECT name, reset_val FROM pg_settings WHERE name IN ('log_statement_sample_rate', 'log_min_duration_statement')",
+            ),
             &[],
         )
         .await
