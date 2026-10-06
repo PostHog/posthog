@@ -251,7 +251,8 @@ def test_error_classification_preserves_checkpoint(status: int) -> None:
 @responses.activate
 def test_credential_probe_status_mapping(status: int, schema: str | None, valid: bool, message: str | None) -> None:
     path = "messages/blocked" if schema else "clicks/blocked"
-    responses.get(f"{BASE}/{path}", status=status, json={"queryEndTime": NOW.isoformat(), "clicksBlocked": []})
+    selector = "messagesBlocked" if schema else "clicksBlocked"
+    responses.get(f"{BASE}/{path}", status=status, json={"queryEndTime": NOW.isoformat(), selector: []})
     result, error = ProofpointTapSource().validate_credentials(CONFIG, 1, schema)
     assert result is valid
     if message is None:
