@@ -11,7 +11,6 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { userLogic } from 'scenes/userLogic'
 
 import {
     BillingPlan,
@@ -21,6 +20,8 @@ import {
     BillingType,
     SurveyEventName,
 } from '~/types'
+
+import { billingActivateCreate } from 'products/billing/frontend/generated/api'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductKey } from '../../queries/schema/schema-general'
@@ -97,6 +98,7 @@ export interface billingProductLogicValues {
     unsubscribeError: UnsubscribeError | null // billingLogic
     unusedPlatformAddonAmount: number // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    paymentFlowId: number // paymentEntryLogic
     amountDueBeforeCredits: number
     amountDueToday: number
     appliedCreditBalance: number
@@ -182,13 +184,13 @@ export interface billingProductLogicActions {
         billing: BillingType | null
         payload?: string
     } // billingLogic
-    loadBilling: () => any // billingLogic
+    loadBilling: (organizationId?: string | undefined) => string // billingLogic
     loadBillingSuccess: (
         billing: BillingType | null,
-        payload?: any
+        payload?: string | undefined
     ) => {
         billing: BillingType | null
-        payload?: any
+        payload?: string
     } // billingLogic
     setProductSpecificAlert: (productSpecificAlert: BillingAlertConfig | null) => {
         productSpecificAlert: BillingAlertConfig | null
@@ -216,6 +218,16 @@ export interface billingProductLogicActions {
             [key: string]: number | null
         }
     } // billingLogic
+    beginPaymentFlow: (
+        organizationId: string,
+        redirectPath?: string | null | undefined
+    ) => {
+        organizationId: string
+        redirectPath: string | null
+    } // paymentEntryLogic
+    showPaymentEntryModal: () => {
+        value: true
+    } // paymentEntryLogic
     activateTrial: () => {
         value: true
     }
@@ -511,6 +523,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
     path(['scenes', 'billing', 'billingProductLogic']),
     connect(() => ({
         values: [
+            paymentEntryLogic,
+            ['paymentFlowId'],
             billingLogic,
             [
                 'billing',
@@ -527,6 +541,8 @@ export const billingProductLogic = kea<billingProductLogicType>([
             ['featureFlags'],
         ],
         actions: [
+            paymentEntryLogic,
+            ['beginPaymentFlow', 'showPaymentEntryModal'],
             billingLogic,
             [
                 'updateBillingLimits',
@@ -1189,13 +1205,25 @@ export const billingProductLogic = kea<billingProductLogicType>([
             actions.handleProductUpgrade(products, redirectPath)
         },
         handleProductUpgrade: async ({ products, redirectPath }) => {
+            const organizationId = organizationLogic.values.currentOrganization?.id
+            if (!organizationId) {
+                lemonToast.error('Reload the page before updating payment details.')
+                actions.setBillingProductLoading(null)
+                return
+            }
+            actions.beginPaymentFlow(organizationId, redirectPath || null)
+            const flowId = values.paymentFlowId
             try {
-                const body: Record<string, string> = { products }
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingActivateCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                const response = await api.create('api/billing/activate', body)
+                const response = await billingActivateCreate({ organization_id: organizationId, products })
+                if (flowId !== values.paymentFlowId) {
+                    return
+                }
 
                 if (response.success) {
-                    await billingLogic.asyncActions.loadBilling()
+                    await paymentEntryLogic.asyncActions.refreshPaymentOrganization(organizationId)
+                    if (flowId !== values.paymentFlowId) {
+                        return
+                    }
                     if (redirectPath) {
                         window.location.pathname = redirectPath
                     } else {
@@ -1204,12 +1232,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
                             upgraded: 'true',
                             products,
                         })
-                        organizationLogic.actions.loadCurrentOrganization()
-                        userLogic.actions.loadUser()
                     }
                 } else if (response.must_setup_payment) {
-                    paymentEntryLogic.actions.setRedirectPath(redirectPath || null)
-                    paymentEntryLogic.actions.showPaymentEntryModal()
+                    actions.showPaymentEntryModal()
                 } else {
                     lemonToast.error(response.error || 'Failed to activate subscription')
                 }

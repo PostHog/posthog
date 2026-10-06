@@ -9,6 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { billingProductLogic } from 'scenes/billing/billingProductLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { defaultPlatformAddons } from '~/mocks/fixtures/_billing_platform_addons'
@@ -233,7 +234,15 @@ describe('billingProductLogic — confirm purchase modal', () => {
         // Respond with an error so activation stops before any real-charge side effects, while still
         // proving the request fired with the right add-on + plan.
         const activate = jest.fn(() => [200, { success: false, error: 'stop before charge' }] as [number, unknown])
-        useMocks({ post: { '/api/billing/activate': activate } })
+        let body: unknown
+        useMocks({
+            post: {
+                '/api/billing/activate': async ({ request }) => {
+                    body = await request.json()
+                    return activate()
+                },
+            },
+        })
         logic = billingProductLogic({ product: scaleAddon })
         logic.mount()
 
@@ -247,6 +256,10 @@ describe('billingProductLogic — confirm purchase modal', () => {
             .toFinishAllListeners()
 
         expect(activate).toHaveBeenCalled()
+        expect(body).toEqual({
+            organization_id: organizationLogic.values.currentOrganization!.id,
+            products: `${scaleAddon.type}:${scaleAddon.plans[0].plan_key}`,
+        })
     })
 
     it('auto-closes the modal once activation finishes', async () => {

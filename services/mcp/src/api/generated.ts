@@ -16586,6 +16586,31 @@ export namespace Schemas {
       billing_limit: number;
     }
 
+    export interface BillingActivationRequest {
+      /** Organization selected when this payment flow started. */
+      organization_id: string;
+      /** Product and plan keys to activate. */
+      products?: string;
+      /** Product that prompted the subscription upgrade. */
+      intent_product?: string;
+      /** JSON-encoded custom product limits to apply on activation. */
+      custom_limits_usd?: string;
+    }
+
+    export interface BillingActivationResponse {
+      /** Whether the subscription was activated. */
+      success?: boolean;
+      /** Whether payment details are required. */
+      must_setup_payment?: boolean;
+      /** Products activated by this request. */
+      products?: string[];
+      /**
+         * Reason activation failed.
+         * @nullable
+         */
+      error?: string | null;
+    }
+
     /**
      * * `product` - Product
      * * `addon` - Addon
@@ -17110,6 +17135,35 @@ export namespace Schemas {
       hog_function_ids: string[];
     }
 
+    export interface BillingAuthorizationResponse {
+      /** Stripe client secret for the authorization intent. */
+      clientSecret?: string;
+      /** Whether authorization completed without a payment form. */
+      success?: boolean;
+    }
+
+    export interface BillingAuthorizationStatusRequest {
+      /** Organization selected when this payment flow started. */
+      organization_id: string;
+      /**
+         * Stripe payment intent created for this organization.
+         * @nullable
+         */
+      payment_intent_id?: string | null;
+    }
+
+    export interface BillingAuthorizationStatusResponse {
+      /** Authorization status: loading, success, or failed. */
+      status?: string;
+      /**
+         * Reason authorization failed.
+         * @nullable
+         */
+      error?: string | null;
+      /** Whether authorization completed without a payment form. */
+      success?: boolean;
+    }
+
     export interface BillingFeatures {
       available_product_features: ProductFeature[];
     }
@@ -17301,6 +17355,11 @@ export namespace Schemas {
       never_drop_data?: boolean;
       /** Set when a provisioning partner pays for this organization and the organization has no Stripe customer of its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise. */
       billing_managed_by_partner: BillingManagedByPartner | null;
+    }
+
+    export interface BillingPaymentOrganization {
+      /** Organization selected when this payment flow started. */
+      organization_id: string;
     }
 
     export interface BillingPeriodResponse {
@@ -111235,6 +111294,17 @@ export namespace Schemas {
          */
       compare: _SpanTreeNode[] | null;
     }
+
+    export type BillingListParams = {
+    /**
+     * Whether to include usage forecasting.
+     */
+    include_forecasting?: boolean;
+    /**
+     * Explicit organization to refresh after payment.
+     */
+    organization_id?: string;
+    };
 
     export type BillingSpendRetrieveParams = {
     /**

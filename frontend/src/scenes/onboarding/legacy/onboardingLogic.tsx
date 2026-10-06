@@ -92,10 +92,10 @@ export interface onboardingLogicValues {
 export interface onboardingLogicActions {
     loadBillingSuccess: (
         billing: BillingType | null,
-        payload?: any
+        payload?: string | undefined
     ) => {
         billing: BillingType | null
-        payload?: any
+        payload?: string
     } // billingLogic
     openGlobalSetup: () => {
         value: true

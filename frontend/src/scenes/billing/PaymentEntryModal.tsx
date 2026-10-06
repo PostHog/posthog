@@ -5,8 +5,6 @@ import { useEffect, useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
 import { paymentEntryLogic } from './paymentEntryLogic'
 
 const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await import('@stripe/stripe-js')
@@ -18,7 +16,7 @@ const STRIPE_UNAVAILABLE_MESSAGE =
     "We couldn't load the payment form. Disable any ad blocker and reload the page. If it keeps failing, contact support."
 
 export const PaymentForm = (): JSX.Element => {
-    const { stripeError, isLoading, redirectPath } = useValues(paymentEntryLogic)
+    const { stripeError, isLoading, stripeReturnUrl, paymentFlowId } = useValues(paymentEntryLogic)
     const { setStripeError, clearErrors, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } =
         useActions(paymentEntryLogic)
 
@@ -40,19 +38,25 @@ export const PaymentForm = (): JSX.Element => {
             })
             return
         }
+        if (!stripeReturnUrl) {
+            setStripeError('Return to billing and start the payment flow again.')
+            return
+        }
+        const submittedFlowId = paymentFlowId
         setLoading(true)
 
-        const returnUrl = `${window.location.origin}${urls.billingAuthorizationStatus()}`
-        const queryParams = redirectPath ? `?postRedirectPath=${encodeURIComponent(redirectPath)}` : ''
         const result = await stripe.confirmPayment({
             elements,
-            confirmParams: { return_url: `${returnUrl}${queryParams}` },
+            confirmParams: { return_url: stripeReturnUrl },
             redirect: 'if_required',
         })
 
+        if (paymentEntryLogic.values.paymentFlowId !== submittedFlowId) {
+            return
+        }
         if (result.error) {
             setLoading(false)
-            setStripeError(result.error.message)
+            setStripeError(result.error.message || 'Payment failed. Please try again.')
             posthog.captureException(new Error('payment entry stripe error', { cause: result.error }))
         } else {
             pollAuthorizationStatus(result.paymentIntent.id)
@@ -80,7 +84,7 @@ export const PaymentForm = (): JSX.Element => {
 }
 
 export const PaymentEntryModal = (): JSX.Element => {
-    const { clientSecret, paymentEntryModalOpen, apiError } = useValues(paymentEntryLogic)
+    const { clientSecret, paymentEntryModalOpen, apiError, paymentFlowId } = useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization, setStripeError } = useActions(paymentEntryLogic)
     const [stripePromise, setStripePromise] = useState<any>(null)
 
@@ -108,7 +112,7 @@ export const PaymentEntryModal = (): JSX.Element => {
         if (paymentEntryModalOpen) {
             initiateAuthorization()
         }
-    }, [paymentEntryModalOpen, initiateAuthorization])
+    }, [paymentEntryModalOpen, paymentFlowId, initiateAuthorization])
 
     return (
         <LemonModal

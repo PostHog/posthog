@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -9,6 +10,8 @@ import { expectLogic } from 'kea-test-utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { paymentEntryLogic } from 'scenes/billing/paymentEntryLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -32,6 +35,7 @@ describe('paymentEntryLogic', () => {
     afterEach(() => {
         logic?.unmount()
         toastErrorSpy.mockRestore()
+        window.history.replaceState({}, '', '/')
     })
 
     describe('startPaymentEntryFlow — returning customer (customer_id present)', () => {
@@ -53,6 +57,24 @@ describe('paymentEntryLogic', () => {
             expect(toastErrorSpy).toHaveBeenCalledWith('test failure')
             expect(logic.values.paymentEntryModalOpen).toBe(false)
             expect(logic.values.apiError).toBe(null)
+        })
+
+        it('includes the displayed organization in subscription activation', async () => {
+            let body: unknown
+            useMocks({
+                post: {
+                    '/api/billing/activate': async ({ request }) => {
+                        body = await request.json()
+                        return [200, { must_setup_payment: true }]
+                    },
+                },
+            })
+            logic = paymentEntryLogic()
+            logic.mount()
+            const organizationId = organizationLogic.values.currentOrganization!.id
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow()).toFinishAllListeners()
+            expect(body).toEqual({ organization_id: organizationId, products: 'all_products:' })
+            expect(logic.values.paymentOrganizationId).toBe(organizationId)
         })
 
         it('falls back to a generic toast when activate responds without an error string', async () => {
@@ -104,6 +126,29 @@ describe('paymentEntryLogic', () => {
     })
 
     describe('startPaymentEntryFlow — new customer (no customer_id)', () => {
+        it('authorizes the initiating organization after the current organization changes', async () => {
+            await seedBilling({ subscription_level: 'free' })
+            const originalOrganization = organizationLogic.values.currentOrganization!
+            const bodies: unknown[] = []
+            useMocks({
+                post: {
+                    '/api/billing/activate/authorize': async ({ request }) => {
+                        bodies.push(await request.json().catch(() => null))
+                        return [200, { clientSecret: 'secret_original' }]
+                    },
+                },
+            })
+            logic = paymentEntryLogic()
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow()).toFinishAllListeners()
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...originalOrganization,
+                id: '00000000-0000-4000-8000-000000000002',
+            })
+            await expectLogic(logic, () => logic.actions.initiateAuthorization()).toFinishAllListeners()
+            expect(bodies).toEqual([{ organization_id: originalOrganization.id }])
+        })
+
         it('opens the payment entry modal without calling activate', async () => {
             await seedBilling({ subscription_level: 'free' })
             const activate = jest.fn(() => [200, { success: true }] as [number, Record<string, unknown>])
@@ -135,6 +180,205 @@ describe('paymentEntryLogic', () => {
 
             expect(activate).not.toHaveBeenCalled()
             expect(logic.values.paymentEntryModalOpen).toBe(false)
+        })
+    })
+
+    describe('payment flow organization binding', () => {
+        it.each([false, true])(
+            'preserves concurrent user state when the selected organization changes: %s',
+            async (switchOrganization) => {
+                await seedBilling({ subscription_level: 'free' })
+                const organization = organizationLogic.values.currentOrganization!
+                const user = userLogic.values.user!
+                let resolveOrganization!: (value: [number, unknown]) => void
+                const response = new Promise<[number, unknown]>((resolve) => {
+                    resolveOrganization = resolve
+                })
+                let requested = false
+                useMocks({
+                    get: {
+                        [`/api/organizations/${organization.id}`]: () => {
+                            requested = true
+                            return response
+                        },
+                    },
+                })
+                logic = paymentEntryLogic()
+                logic.mount()
+                logic.actions.beginPaymentFlow(organization.id)
+                logic.actions.refreshPaymentOrganization(organization.id)
+                await waitFor(() => expect(requested).toBe(true))
+                const selectedOrganization = switchOrganization
+                    ? { ...organization, id: '00000000-0000-4000-8000-000000000002' }
+                    : organization
+                organizationLogic.actions.loadCurrentOrganizationSuccess(selectedOrganization)
+                userLogic.actions.loadUserSuccess({
+                    ...user,
+                    first_name: 'Updated name',
+                    organization: selectedOrganization,
+                })
+                resolveOrganization([200, { ...organization, customer_id: 'cus_refreshed' }])
+                await expectLogic(logic).toFinishAllListeners()
+                expect(userLogic.values.user?.first_name).toBe('Updated name')
+                expect(userLogic.values.user?.organization?.id).toBe(selectedOrganization.id)
+                expect(organizationLogic.values.currentOrganization?.id).toBe(selectedOrganization.id)
+                expect(userLogic.values.user?.organization?.customer_id).toBe(
+                    switchOrganization ? selectedOrganization.customer_id : 'cus_refreshed'
+                )
+            }
+        )
+
+        it('refreshes original organization billing and entitlements without ambient user or organization reads', async () => {
+            await seedBilling({ subscription_level: 'free' })
+            const organization = organizationLogic.values.currentOrganization!
+            const features = [{ key: 'session_recording', name: 'Session recording', limit: null, note: null }]
+            const refreshOrganizations: (string | null)[] = []
+            const ambientOrganization = jest.fn(() => [
+                200,
+                { ...organization, id: '00000000-0000-4000-8000-000000000002' },
+            ])
+            const ambientUser = jest.fn(() => [
+                200,
+                {
+                    ...userLogic.values.user,
+                    organization: { ...organization, id: '00000000-0000-4000-8000-000000000002' },
+                },
+            ])
+            useMocks({
+                get: {
+                    '/api/billing': ({ request }) => {
+                        refreshOrganizations.push(new URL(request.url).searchParams.get('organization_id'))
+                        return [200, { subscription_level: 'paid', customer_id: 'cus_original' }]
+                    },
+                    [`/api/organizations/${organization.id}`]: () => [
+                        200,
+                        { ...organization, available_product_features: features },
+                    ],
+                    '/api/organizations/@current': ambientOrganization,
+                    '/api/users/@me': ambientUser,
+                },
+                post: { '/api/billing/activate/authorize/status': () => [200, { status: 'success' }] },
+            })
+            logic = paymentEntryLogic()
+            logic.mount()
+            logic.actions.beginPaymentFlow(organization.id, '/project/1/replay')
+            await expectLogic(logic, () => logic.actions.pollAuthorizationStatus('pi_original')).toFinishAllListeners()
+            expect(refreshOrganizations).toEqual([organization.id])
+            expect(ambientOrganization).not.toHaveBeenCalled()
+            expect(ambientUser).not.toHaveBeenCalled()
+            expect(organizationLogic.values.currentOrganization?.id).toBe(organization.id)
+            expect(userLogic.values.user?.organization?.id).toBe(organization.id)
+            expect(userLogic.values.user?.organization?.available_product_features).toEqual(features)
+            expect(billingLogic.values.billing?.customer_id).toBe('cus_original')
+        })
+
+        it('restores the organization and redirect from the Stripe callback', async () => {
+            const organizationId = '00000000-0000-4000-8000-000000000002'
+            const redirectPath = '/project/2/replay?foo=bar'
+            window.history.replaceState(
+                {},
+                '',
+                `/?organization_id=${organizationId}&postRedirectPath=${encodeURIComponent(redirectPath)}`
+            )
+            logic = paymentEntryLogic()
+            logic.mount()
+            expect(logic.values.paymentOrganizationId).toBe(organizationId)
+            const returnUrl = new URL(logic.values.stripeReturnUrl!)
+            expect(returnUrl.pathname).toBe('/billing/authorization_status')
+            expect(returnUrl.searchParams.get('organization_id')).toBe(organizationId)
+            expect(returnUrl.searchParams.get('postRedirectPath')).toBe(redirectPath)
+        })
+
+        it.each(['', '?organization_id=invalid', '?organization_id=@current'])(
+            'rejects old or invalid callbacks %s without polling',
+            async (query) => {
+                const statusRequest = jest.fn(() => [200, { status: 'success' }])
+                useMocks({ post: { '/api/billing/activate/authorize/status': statusRequest } })
+                window.history.replaceState({}, '', `/${query}`)
+                logic = paymentEntryLogic()
+                logic.mount()
+                await expectLogic(logic, () => logic.actions.pollAuthorizationStatus('pi_test')).toFinishAllListeners()
+                expect(statusRequest).not.toHaveBeenCalled()
+                expect(logic.values.apiError).toContain('Return to billing and start again')
+            }
+        )
+
+        it('clears the previous secret and ignores its late response when a new flow starts', async () => {
+            let resolveFirst!: (value: [number, { clientSecret: string }]) => void
+            const firstResponse = new Promise<[number, { clientSecret: string }]>((resolve) => {
+                resolveFirst = resolve
+            })
+            let calls = 0
+            useMocks({
+                post: {
+                    '/api/billing/activate/authorize': () =>
+                        ++calls === 1 ? firstResponse : [200, { clientSecret: 'secret_second' }],
+                },
+            })
+            logic = paymentEntryLogic()
+            logic.mount()
+            logic.actions.beginPaymentFlow('00000000-0000-4000-8000-000000000001')
+            logic.actions.setClientSecret('secret_previous')
+            logic.actions.initiateAuthorization()
+            await waitFor(() => expect(calls).toBe(1))
+            logic.actions.beginPaymentFlow('00000000-0000-4000-8000-000000000002')
+            expect(logic.values.clientSecret).toBe(null)
+            logic.actions.initiateAuthorization()
+            await waitFor(() => expect(logic.values.clientSecret).toBe('secret_second'))
+            resolveFirst([200, { clientSecret: 'secret_first' }])
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.clientSecret).toBe('secret_second')
+        })
+
+        it('keeps the original organization and redirect throughout pending status retries', async () => {
+            await seedBilling({ subscription_level: 'free' })
+            const originalOrganization = organizationLogic.values.currentOrganization!
+            const bodies: unknown[] = []
+            useMocks({
+                post: {
+                    '/api/billing/activate/authorize/status': async ({ request }) => {
+                        bodies.push(await request.json())
+                        return [200, { status: bodies.length === 1 ? 'loading' : 'success' }]
+                    },
+                },
+            })
+            logic = paymentEntryLogic()
+            logic.mount()
+            logic.actions.beginPaymentFlow(originalOrganization.id, '/project/1/replay?foo=bar')
+            const pushSpy = jest.spyOn(router.actions, 'push')
+            let retry!: () => void
+            const originalSetTimeout = global.setTimeout
+            const timerSpy = jest.spyOn(global, 'setTimeout').mockImplementation(((
+                callback: () => void,
+                delay: number,
+                ...args: unknown[]
+            ) => {
+                if (delay === 2000) {
+                    retry = callback
+                    return 0 as any
+                }
+                return originalSetTimeout(callback, delay, ...args)
+            }) as typeof setTimeout)
+            try {
+                await expectLogic(logic, () =>
+                    logic.actions.pollAuthorizationStatus('pi_original')
+                ).toFinishAllListeners()
+                organizationLogic.actions.loadCurrentOrganizationSuccess({
+                    ...originalOrganization,
+                    id: '00000000-0000-4000-8000-000000000002',
+                })
+                logic.actions.setRedirectPath(null)
+                retry()
+                await waitFor(() =>
+                    expect(pushSpy).toHaveBeenCalledWith('/project/1/replay', { foo: 'bar', success: true })
+                )
+                expect(bodies).toEqual(
+                    Array(2).fill({ organization_id: originalOrganization.id, payment_intent_id: 'pi_original' })
+                )
+            } finally {
+                timerSpy.mockRestore()
+                pushSpy.mockRestore()
+            }
         })
     })
 })

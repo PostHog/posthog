@@ -2,7 +2,8 @@ import re
 import json
 from collections.abc import Callable, Sequence
 from datetime import timedelta
-from typing import Any, NoReturn, Optional, cast
+from typing import Any, Literal, NoReturn, Optional, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -19,6 +20,7 @@ from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
@@ -541,11 +543,63 @@ class BillingPeriodResponseSerializer(serializers.Serializer):
     )
 
 
+class BillingPaymentOrganizationSerializer(serializers.Serializer):
+    organization_id = serializers.UUIDField(help_text="Organization selected when this payment flow started.")
+
+    def validate_organization_id(self, value: UUID) -> UUID:
+        if not isinstance(self.initial_data.get("organization_id"), str):
+            raise serializers.ValidationError("A UUID string is required.")
+        return value
+
+
+class BillingOverviewRequestSerializer(serializers.Serializer):
+    organization_id = serializers.UUIDField(required=False, help_text="Explicit organization to refresh after payment.")
+    include_forecasting = serializers.BooleanField(required=False, help_text="Whether to include usage forecasting.")
+
+
+class BillingActivationRequestSerializer(BillingPaymentOrganizationSerializer):
+    products = serializers.CharField(required=False, help_text="Product and plan keys to activate.")
+    intent_product = serializers.CharField(required=False, help_text="Product that prompted the subscription upgrade.")
+    custom_limits_usd = serializers.CharField(
+        required=False, allow_blank=True, help_text="JSON-encoded custom product limits to apply on activation."
+    )
+
+
+class BillingActivationResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(required=False, help_text="Whether the subscription was activated.")
+    must_setup_payment = serializers.BooleanField(required=False, help_text="Whether payment details are required.")
+    products = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Products activated by this request."
+    )
+    error = serializers.CharField(required=False, allow_null=True, help_text="Reason activation failed.")
+
+
+class BillingAuthorizationResponseSerializer(serializers.Serializer):
+    clientSecret = serializers.CharField(required=False, help_text="Stripe client secret for the authorization intent.")
+    success = serializers.BooleanField(
+        required=False, help_text="Whether authorization completed without a payment form."
+    )
+
+
+class BillingAuthorizationStatusRequestSerializer(BillingPaymentOrganizationSerializer):
+    payment_intent_id = serializers.CharField(
+        required=False, allow_null=True, help_text="Stripe payment intent created for this organization."
+    )
+
+
+class BillingAuthorizationStatusResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(required=False, help_text="Authorization status: loading, success, or failed.")
+    error = serializers.CharField(required=False, allow_null=True, help_text="Reason authorization failed.")
+    success = serializers.BooleanField(
+        required=False, help_text="Whether authorization completed without a payment form."
+    )
+
+
 @extend_schema(tags=["billing"])
 class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = BillingSerializer
     pagination_class = None
-    param_derived_from_user_current_team = "team_id"
+    param_derived_from_user_current_team: Literal["team_id", "project_id"] | None = "team_id"
 
     scope_object = "billing"
     scope_object_read_actions = ["list", "usage", "spend", "usage_export", "spend_export", "usage_team_options"]
@@ -554,12 +608,31 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # Billing opts in so generated clients and MCP scaffolding include these read actions.
     force_include_in_api_docs = True
 
+    payment_actions = {"activate", "authorize", "authorize_status"}
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        scoped_billing_read = self.action == "list" and "organization_id" in request.query_params
+        if self.action in self.payment_actions or scoped_billing_read:
+            serializer = BillingPaymentOrganizationSerializer(
+                data=request.query_params if scoped_billing_read else request.data
+            )
+            serializer.is_valid(raise_exception=True)
+            # Configure normal organization scope before shared permissions resolve any cached
+            # routing properties. The user's current project can change in another browser tab.
+            self.param_derived_from_user_current_team = None
+            parent_prefix = extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX
+            self.kwargs[f"{parent_prefix}organization_id"] = str(serializer.validated_data["organization_id"])
+        super().initial(request, *args, **kwargs)
+
     def get_billing_manager(self) -> BillingManager:
         license = get_cached_instance_license()
         user = self.request.user if isinstance(self.request.user, User) and self.request.user.distinct_id else None
         return BillingManager(license, user, ip_address=get_trusted_client_ip(self.request))
 
-    @extend_schema(responses={200: OpenApiResponse(response=BillingOverviewResponseSerializer)})
+    @extend_schema(
+        parameters=[BillingOverviewRequestSerializer],
+        responses={200: OpenApiResponse(response=BillingOverviewResponseSerializer)},
+    )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = get_cached_instance_license()
         if license and not license.is_v2_license:
@@ -678,6 +751,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
+    @extend_schema(request=BillingActivationRequestSerializer, responses={200: BillingActivationResponseSerializer})
     @action(
         methods=["POST"],
         detail=False,
@@ -686,7 +760,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.activate_subscription(organization, request.data)
+        serializer = BillingActivationRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = {key: value for key, value in serializer.validated_data.items() if key != "organization_id"}
+        res = billing_manager.activate_subscription(organization, data)
         return Response(res, status=status.HTTP_200_OK)
 
     class DeactivateSerializer(serializers.Serializer):
@@ -855,11 +932,14 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.cancel_trial(organization, request.data)
         return Response(res, status=status.HTTP_200_OK)
 
+    @extend_schema(
+        request=BillingPaymentOrganizationSerializer, responses={200: BillingAuthorizationResponseSerializer}
+    )
     @action(
         methods=["POST"],
         detail=False,
         url_path="activate/authorize",
-        permission_classes=[permissions.IsAuthenticated, BillingNotManagedByPartner],
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess, BillingNotManagedByPartner],
     )
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
@@ -874,7 +954,16 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         res = billing_manager.authorize(organization)
         return Response(res, status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=False, url_path="activate/authorize/status")
+    @extend_schema(
+        request=BillingAuthorizationStatusRequestSerializer,
+        responses={200: BillingAuthorizationStatusResponseSerializer},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        url_path="activate/authorize/status",
+        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+    )
     def authorize_status(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         license = get_cached_instance_license()
         if not license:
@@ -885,7 +974,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.authorize_status(organization, request.data)
+        serializer = BillingAuthorizationStatusRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = {key: value for key, value in serializer.validated_data.items() if key != "organization_id"}
+        res = billing_manager.authorize_status(organization, data)
         return Response(res, status=status.HTTP_200_OK)
 
     @action(
@@ -1332,6 +1424,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return None
 
         try:
+            if self.action in self.payment_actions or (
+                self.action == "list" and "organization_id" in self.request.query_params
+            ):
+                return self.organization
             return self.team.organization
         except Exception:
             return None
