@@ -1436,6 +1436,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     LEDYER = "Ledyer", "Ledyer"
     SUPERMETRICS = "Supermetrics", "Supermetrics"
     SQLITE = "SQLite", "SQLite"
+    MODAL = "Modal", "Modal"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
