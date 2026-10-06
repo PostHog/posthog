@@ -174,12 +174,11 @@ impl Packer {
 
     /// The caller must release the claims of the returned keys, whose runs
     /// emptied.
-    pub fn purge(&mut self, revoked: &[(String, i32)]) -> (usize, Vec<Arc<str>>) {
+    pub fn purge(&mut self, revoked: &[(String, i32)]) -> Vec<Arc<str>> {
         let revoked: HashSet<(&str, i32)> = revoked
             .iter()
             .map(|(topic, partition)| (topic.as_str(), *partition))
             .collect();
-        let mut purged = 0usize;
         let mut emptied_keys = Vec::new();
         let requests = self
             .open
@@ -187,11 +186,11 @@ impl Packer {
             .map(|batch| &mut batch.request)
             .chain(self.sealed.iter_mut());
         for request in requests {
-            purged += purge_request(request, &revoked, &mut emptied_keys);
+            purge_request(request, &revoked, &mut emptied_keys);
         }
         self.open.retain(|batch| !batch.request.runs.is_empty());
         self.sealed.retain(|request| !request.runs.is_empty());
-        (purged, emptied_keys)
+        emptied_keys
     }
 
     fn seal(&mut self, index: usize, reason: SealReason) {
@@ -206,7 +205,7 @@ pub(crate) fn purge_request(
     request: &mut PackedRequest,
     revoked: &HashSet<(&str, i32)>,
     emptied_keys: &mut Vec<Arc<str>>,
-) -> usize {
+) {
     let mut purged = 0usize;
     request.runs.retain_mut(|run| {
         let before = run.messages.len();
@@ -226,7 +225,6 @@ pub(crate) fn purge_request(
         .iter()
         .map(|run| payload_bytes(&run.messages))
         .sum();
-    purged
 }
 
 #[cfg(test)]
@@ -340,9 +338,9 @@ mod tests {
         mixed.run.messages.push(message("b", 3, 11));
         packer.push(mixed, now);
 
-        let (purged, emptied) = packer.purge(&[("events".to_string(), 0)]);
-        assert_eq!(purged, 3);
+        let emptied = packer.purge(&[("events".to_string(), 0)]);
         assert_eq!(emptied, vec![Arc::<str>::from("a")]);
+        assert_eq!(packer.held_messages(), 1);
         packer.flush();
         let sent = packer.take_ready(now, 10);
         assert_eq!(keys(&sent[0]), vec!["b"]);

@@ -69,11 +69,6 @@ pub struct UnclaimedSettle {
     pub routing_key: String,
 }
 
-pub struct Purged {
-    pub messages: usize,
-    pub evicted_keys: Vec<Arc<str>>,
-}
-
 /// One push's messages, or one settle's returned messages. Kept whole, so
 /// a claim of one segment hands its messages on without copying them.
 struct Segment {
@@ -312,7 +307,8 @@ impl KeyQueues {
         Ok(false)
     }
 
-    pub fn purge(&mut self, revoked: &[(String, i32)]) -> Purged {
+    /// Returns the keys that left the table.
+    pub fn purge(&mut self, revoked: &[(String, i32)]) -> Vec<Arc<str>> {
         let revoked_set: HashSet<(&str, i32)> = revoked
             .iter()
             .map(|(topic, partition)| (topic.as_str(), *partition))
@@ -366,10 +362,7 @@ impl KeyQueues {
         let keys = &self.keys;
         self.ready
             .retain(|key| keys.get(key).is_some_and(KeyState::is_ready));
-        Purged {
-            messages: purged,
-            evicted_keys,
-        }
+        evicted_keys
     }
 }
 
@@ -488,9 +481,8 @@ mod tests {
         queues.push(key("a"), 0, vec![message("a", 0, 2)], now);
         queues.push(key("b"), 0, vec![message("b", 0, 5)], now);
 
-        let purged = queues.purge(&[("events".to_string(), 0)]);
-        assert_eq!(purged.messages, 2);
-        assert_eq!(purged.evicted_keys, vec![Arc::<str>::from("b")]);
+        let evicted = queues.purge(&[("events".to_string(), 0)]);
+        assert_eq!(evicted, vec![Arc::<str>::from("b")]);
         assert_eq!(queues.queued_messages(), 0);
 
         let returned = vec![message("a", 0, 1), message("a", 1, 7)];

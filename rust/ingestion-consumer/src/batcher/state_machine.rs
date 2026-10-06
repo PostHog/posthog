@@ -410,11 +410,12 @@ impl ActiveState {
         now: Instant,
         partitions: &[(String, i32)],
     ) -> Result<Effects, String> {
-        let mut effects = Effects::default();
-        let purged = self.keys.purge(partitions);
-        effects.evicted_keys = purged.evicted_keys;
+        let mut effects = Effects {
+            evicted_keys: self.keys.purge(partitions),
+            ..Effects::default()
+        };
 
-        let (_, mut emptied_keys) = self.packer.purge(partitions);
+        let mut emptied_keys = self.packer.purge(partitions);
         let revoked: HashSet<(&str, i32)> = partitions
             .iter()
             .map(|(topic, partition)| (topic.as_str(), *partition))
