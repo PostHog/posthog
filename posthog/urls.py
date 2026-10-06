@@ -75,7 +75,7 @@ from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
-from products.workflows.backend.presentation.views import hog_flow, hog_flow_template
+from products.workflows.backend.presentation.views import hog_flow
 
 from .utils import opt_slash_path
 from .views import (
@@ -202,10 +202,6 @@ urlpatterns = [
     opt_slash_path(
         "api/public_hog_function_templates",
         hog_function_template.PublicHogFunctionTemplateViewSet.as_view({"get": "list"}),
-    ),
-    opt_slash_path(
-        "api/public_hog_flow_templates",
-        hog_flow_template.PublicHogFlowTemplateViewSet.as_view({"get": "list"}),
     ),
     opt_slash_path(
         "api/public_source_configs",

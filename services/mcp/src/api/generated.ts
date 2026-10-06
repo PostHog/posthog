@@ -7166,6 +7166,8 @@ export namespace Schemas {
     export interface HogQLFilters {
       /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
       breakdownFilter?: BreakdownFilter | null;
+      /** Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}. */
+      compareFilter?: CompareFilter | null;
       dateRange?: DateRange | null;
       filterTestAccounts?: boolean | null;
       /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
@@ -10721,6 +10723,7 @@ export namespace Schemas {
     export interface BIConfig {
       chartType: ChartDisplayType;
       columns: BIField[];
+      compareFilter?: CompareFilter | null;
       /** Column that receives the worksheet and dashboard date range. */
       dateField?: BIField | null;
       dateRange?: DateRange | null;
@@ -30711,6 +30714,7 @@ export namespace Schemas {
      * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
      * * `WhoGho` - WhoGho
      * * `Whop` - Whop
+     * * `Wistia` - Wistia
      * * `Wiz` - Wiz
      * * `Wompi` - Wompi
      * * `Workiz` - Workiz
@@ -32078,6 +32082,7 @@ export namespace Schemas {
       WhatsappBusinessManagement: 'WhatsappBusinessManagement',
       WhoGho: 'WhoGho',
       Whop: 'Whop',
+      Wistia: 'Wistia',
       Wiz: 'Wiz',
       Wompi: 'Wompi',
       Workiz: 'Workiz',
@@ -33459,6 +33464,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -36088,6 +36094,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -47351,6 +47358,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -48752,6 +48760,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -98641,6 +98650,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -100058,6 +100068,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
@@ -101457,6 +101468,7 @@ export namespace Schemas {
        * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
        * * `WhoGho` - WhoGho
        * * `Whop` - Whop
+       * * `Wistia` - Wistia
        * * `Wiz` - Wiz
        * * `Wompi` - Wompi
        * * `Workiz` - Workiz
