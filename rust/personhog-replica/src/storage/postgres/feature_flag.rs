@@ -11,6 +11,8 @@ use crate::storage::traits::FeatureFlagStorage;
 use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext};
 
 // Mirrors `COOKIELESS_SENTINEL_VALUE` in `common-cookieless`, which pulls in redis and moka.
+// The override queries in this file apply the same sentinel rules as the hash key override SQL
+// in `rust/feature-flags/src/flags/flag_matching_utils.rs`. Keep the two in sync.
 const COOKIELESS_SENTINEL_VALUE: &str = "$posthog_cookieless";
 
 // Kept as an intermediate struct because the rows are aggregated into
@@ -178,9 +180,10 @@ impl FeatureFlagStorage for PostgresStorage {
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
         // DO UPDATE locks each conflicting row even when its WHERE is false, so NOT EXISTS
-        // skips the pairs that already hold a real key. DO UPDATE also fails when two distinct
-        // ids of one person produce the same row twice, so DISTINCT removes the duplicates.
-        // ORDER BY makes concurrent upserts lock rows in the same order.
+        // skips the pairs that already hold a real key. The WHERE still keeps a real key that a
+        // concurrent write commits after NOT EXISTS reads its snapshot. DO UPDATE also fails
+        // when two distinct ids of one person produce the same row twice, so DISTINCT removes
+        // the duplicates. ORDER BY makes concurrent upserts lock rows in the same order.
         let result = sqlx::query!(
             r#"
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)

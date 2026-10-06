@@ -1396,10 +1396,12 @@ async fn test_upsert_hash_key_overrides_empty_flag_keys_returns_zero() {
 }
 
 #[rstest]
-#[case::keeps_a_real_key("first_hash", 0, "first_hash")]
-#[case::replaces_the_cookieless_sentinel("$posthog_cookieless", 1, "second_hash")]
+#[case::keeps_a_real_key("conflict-flag", "first_hash", 0, "first_hash")]
+#[case::replaces_the_cookieless_sentinel("conflict-flag", "$posthog_cookieless", 1, "second_hash")]
+#[case::writes_past_a_real_key_on_another_flag("other-flag", "first_hash", 1, "second_hash")]
 #[tokio::test]
 async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentinel(
+    #[case] stored_flag_key: &str,
     #[case] stored_hash_key: &str,
     #[case] expected_count: i64,
     #[case] expected_hash_key: &str,
@@ -1410,7 +1412,7 @@ async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentin
         .insert_person("upsert_conflict_user", None)
         .await
         .expect("Failed to insert person");
-    ctx.insert_hash_key_override(person.id, "conflict-flag", stored_hash_key)
+    ctx.insert_hash_key_override(person.id, stored_flag_key, stored_hash_key)
         .await
         .expect("Failed to insert override");
 
@@ -1439,8 +1441,12 @@ async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentin
         .expect("Failed to get hash key override context");
 
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].overrides.len(), 1);
-    assert_eq!(result[0].overrides[0].hash_key, expected_hash_key);
+    let conflict_flag_override = result[0]
+        .overrides
+        .iter()
+        .find(|o| o.feature_flag_key == "conflict-flag")
+        .expect("Missing conflict-flag override");
+    assert_eq!(conflict_flag_override.hash_key, expected_hash_key);
 
     ctx.cleanup().await.ok();
 }
