@@ -332,4 +332,26 @@ mod tests {
         assert_eq!(offsets(&sent[0].runs[0].messages), vec![11]);
         assert_eq!(sent[0].message_count, 1);
     }
+
+    #[test]
+    fn a_partial_purge_keeps_counts_bytes_and_the_deadline_exact() {
+        let now = Instant::now();
+        let budget = Duration::from_millis(500);
+        let mut packer = Packer::new(targets(100, 500));
+        let mut mixed = ready("a", FRESH, 0, 1);
+        mixed.run.messages.push(message("a", 3, 1));
+        mixed.bytes = payload_bytes(&mixed.run.messages);
+        packer.push(mixed, now);
+        packer.push(ready("b", FRESH, 10, 2), now + Duration::from_millis(5));
+
+        let emptied = packer.purge(&[("events".to_string(), 0)]);
+        assert_eq!(emptied, vec![Arc::<str>::from("b")]);
+        assert_eq!(packer.held_messages(), 1);
+        assert_eq!(packer.held_keys(), 1);
+        assert_eq!(packer.next_deadline(), Some(now + budget));
+        let sent = packer.take_ready(now + budget, 10);
+        assert_eq!(keys(&sent[0]), vec!["a"]);
+        assert_eq!(sent[0].message_count, 1);
+        assert_eq!(sent[0].bytes, message("a", 3, 1).payload_bytes());
+    }
 }

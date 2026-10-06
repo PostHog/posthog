@@ -1151,6 +1151,111 @@ mod tests {
     }
 
     #[test]
+    fn a_revoke_of_a_sealed_request_waiting_for_a_slot_never_sends_it() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let x = KeyRun {
+            routing_key: "x".into(),
+            messages: vec![message("x", 0, 1)],
+        };
+        let y = KeyRun {
+            routing_key: "y".into(),
+            messages: vec![message("y", 1, 2)],
+        };
+        let (batcher, effects) = batcher(1, now).on_groups(now, &workers, 0, vec![x, y]);
+        assert_eq!(effects.sends.len(), 1, "y waits for w's slot");
+        let request = effects.sends[0].request;
+
+        let (batcher, effects) = batcher.on_partitions_revoked(now, &[("events".to_string(), 1)]);
+        assert_eq!(effects.evicted_keys, vec![Arc::<str>::from("y")]);
+        assert_eq!(batcher.pending_messages(), 0);
+
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
+        assert!(effects.sends.is_empty());
+        assert!(matches!(batcher, BatcherStateMachine::Running(_)));
+    }
+
+    #[test]
+    fn the_stall_clock_starts_when_an_open_batch_seals_not_when_it_opened() {
+        let start = Instant::now();
+        let budget = STALL / 2;
+        let batcher = packing_batcher(100, budget, 4, start);
+        let (batcher, _) = batcher.on_groups(start, &pool(&[]), 0, vec![run("a", &[1])]);
+
+        let sealed_at = start + budget;
+        let (batcher, effects) = batcher.on_wakeup(sealed_at, &pool(&[]));
+        assert_eq!(effects.next_wakeup, Some(sealed_at + NO_WORKER_DELAY));
+
+        let (batcher, _) =
+            batcher.on_wakeup(sealed_at + STALL - Duration::from_millis(1), &pool(&[]));
+        assert!(matches!(batcher, BatcherStateMachine::Running(_)));
+        let (batcher, effects) = batcher.on_wakeup(sealed_at + STALL, &pool(&[]));
+        assert!(matches!(batcher, BatcherStateMachine::Failed));
+        assert!(effects.fatal.is_some());
+    }
+
+    #[test]
+    fn every_offset_completes_exactly_once_across_failures_retries_and_packing() {
+        let now = Instant::now();
+        let retry_at = now + FAULT_DELAY;
+        let workers = pool(&["w1", "w2"]);
+        let mut completed = Vec::new();
+        let mut record = |effects: &Effects| {
+            for completion in &effects.completions {
+                completed.extend(completion.offsets.iter().map(|offset| offset.0));
+            }
+        };
+
+        let (batcher, effects) = packing_batcher(3, Duration::ZERO, 2, now).on_groups(
+            now,
+            &workers,
+            0,
+            vec![
+                run("a", &[1, 2]),
+                run("b", &[3]),
+                run("c", &[4]),
+                run("d", &[5, 6]),
+            ],
+        );
+        assert_eq!(
+            effects.sends.iter().map(shape).collect::<Vec<_>>(),
+            vec![
+                vec![("a", vec![1, 2]), ("b", vec![3])],
+                vec![("c", vec![4]), ("d", vec![5, 6])],
+            ]
+        );
+        let (failed, failed_messages) =
+            (effects.sends[0].request, sent_messages(&effects.sends[0]));
+        let succeeded = effects.sends[1].request;
+
+        let (batcher, _) =
+            batcher.on_request_failed(now, &workers, failed, FailureCause::Fault, failed_messages);
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[7])]);
+        assert!(effects.sends.is_empty(), "a is claimed by its replay");
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, succeeded, 3);
+        record(&effects);
+
+        let (batcher, effects) = batcher.on_wakeup(retry_at, &workers);
+        assert!(effects.sends[0].class.replay);
+        assert_eq!(
+            shape(&effects.sends[0]),
+            vec![("a", vec![1, 2]), ("b", vec![3])]
+        );
+        let replay = effects.sends[0].request;
+        let (batcher, effects) = batcher.on_request_succeeded(retry_at, &workers, replay, 3);
+        record(&effects);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![7])]);
+        let last = effects.sends[0].request;
+        let (batcher, effects) = batcher.on_request_succeeded(retry_at, &workers, last, 1);
+        record(&effects);
+
+        completed.sort_unstable();
+        assert_eq!(completed, vec![1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(batcher.pending_messages(), 0);
+        assert_eq!(batcher.in_flight_messages(), 0);
+    }
+
+    #[test]
     fn a_worker_accepting_fewer_messages_than_sent_fails_the_state_machine() {
         let now = Instant::now();
         let workers = pool(&["w"]);
