@@ -303,17 +303,15 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         calls.attach_mock(wait_for_mutations, "wait")
         run_person_id_update_mutations(cluster, dictionary)
 
-    enqueues = enqueue_on_shards.call_args_list
-
-    # This assertion names the targets literally instead of reusing SQUASH_TARGETS, because that
-    # constant would still match after someone drops a target from its definition.
+    # This assertion names the targets literally instead of reusing SQUASH_TARGETS. That constant
+    # would still match after someone drops a target from it.
     resolve_placements.assert_called_once_with(cluster, (EVENTS, EVENTS_JSON, FLAG_EVALUATIONS))
-    assert {enqueue.args[0].table: enqueue.args[1] for enqueue in enqueues} == {
+    assert {enqueue.args[0].table: enqueue.args[1] for enqueue in enqueue_on_shards.call_args_list} == {
         EVENTS_DATA_TABLE(): cluster,
         EVENTS_JSON_DATA_TABLE: sibling,
         FLAG_EVALUATIONS_DATA_TABLE: sibling,
     }
-    assert {enqueue.args[0].table: enqueue.args[0].patch_parts for enqueue in enqueues} == {
+    assert {enqueue.args[0].table: enqueue.args[0].patch_parts for enqueue in enqueue_on_shards.call_args_list} == {
         EVENTS_DATA_TABLE(): False,
         EVENTS_JSON_DATA_TABLE: True,
         FLAG_EVALUATIONS_DATA_TABLE: False,

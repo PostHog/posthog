@@ -156,7 +156,7 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
     def update_commands(self):
         raise NotImplementedError()
 
-    def update_mutation_runner_for(self, table: str, *, patch_parts: bool = False) -> AlterTableMutationRunner:
+    def update_mutation_runner_for(self, table: str) -> AlterTableMutationRunner:
         """The rewrite this snapshot applies, aimed at one target's storage table.
 
         A squash rewrites every table that stamps the overridden column, so the table is an
@@ -166,7 +166,6 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
             table=table,
             commands=self.update_commands,
             parameters={"name": self.qualified_name},
-            patch_parts=patch_parts,
         )
 
     @property

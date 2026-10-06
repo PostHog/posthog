@@ -24,7 +24,6 @@ from posthog.clickhouse.cluster import (
     Query,
     Workload,
     wait_for_mutations_on_shards,
-    wait_for_patch_part_replication,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, describe_runs
@@ -721,10 +720,6 @@ def delete_events(
         for key, by_shard in waiters.items()
     }
 
-    # mark_deletions_verified counts survivors after the wait op, on whichever replica answers.
-    if any(placement.target.uses_patch_parts for placement in placements):
-        wait_for_patch_part_replication()
-
     return (load_and_verify_deletes_dictionary, cluster_mutations)
 
 
@@ -1309,7 +1304,6 @@ def cleanup_old_events_by_partition(
         context.log.info(f"Processing partition {partition} ({idx}/{total_partitions})")
 
         for placement in placements:
-            target_cluster = placement.cluster
             delete_mutation_runner = LightweightDeleteMutationRunner(
                 table=placement.target.data_table,
                 predicate="""
@@ -1326,10 +1320,10 @@ def cleanup_old_events_by_partition(
             )
 
             # Run on one host per shard
-            shard_mutations = target_cluster.map_one_host_per_shard(delete_mutation_runner).result()
+            shard_mutations = placement.cluster.map_one_host_per_shard(delete_mutation_runner).result()
 
             # Wait for all mutations to complete
-            _ = target_cluster.map_all_hosts_in_shards(
+            _ = placement.cluster.map_all_hosts_in_shards(
                 {
                     host.shard_num: mutation.wait
                     for host, mutation in shard_mutations.items()

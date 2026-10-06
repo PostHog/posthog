@@ -33,7 +33,7 @@ from posthog.clickhouse.cluster import (
     LightweightDeleteMutationRunner,
     wait_for_patch_part_replication,
 )
-from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
+from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
 from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.common.s3_staging import S3StagingLocation
@@ -56,6 +56,7 @@ from posthog.models.data_deletion_request import (
 )
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
+    EVENTS_JSON,
     FLAG_EVALUATIONS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
@@ -67,7 +68,7 @@ from posthog.models.deletion_targets import (
     placement_for,
     resolve_placements,
 )
-from posthog.models.event.sql import json_property_presence_expr
+from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE, json_property_presence_expr
 from posthog.models.person.bulk_delete import (
     PersonDeletionStep,
     delete_persons_profile,
@@ -172,16 +173,8 @@ def _json_property_filter_clause(props: list[str], column: str = "properties") -
         if column == "properties"
         else [f"{instruction}.{prop}" for instruction in ("$set", "$set_once") for prop in props]
     )
-    exprs.extend(json_property_presence_expr(TEMPORARY_PROPERTIES_COLUMN, prop) for prop in temporary_props)
+    exprs.extend(json_property_presence_expr("temporary_properties", prop) for prop in temporary_props)
     return f"({' OR '.join(exprs)})"
-
-
-def _temporary_property_keys(ctx: DeletionRequestContext) -> list[str]:
-    """The temporary_properties paths that can hold a copy of the request's properties."""
-    return [
-        *ctx.properties,
-        *(f"{instruction}.{prop}" for instruction in ("$set", "$set_once") for prop in ctx.person_properties),
-    ]
 
 
 def _property_filter_params(props: list[str], prefix: str = "fp_") -> dict:
@@ -782,9 +775,8 @@ def delete_event_removal_shard(
 ) -> EventRemovalShard:
     """Run the lightweight delete for one table on one shard, and wait until it finishes.
 
-    On a mutation-backed table, a re-execution waits on the matching mutation in system.mutations if
-    ClickHouse still lists it, and enqueues it again otherwise. On a patch-part table it runs the
-    delete again.
+    A re-execution waits on the matching mutation in system.mutations if ClickHouse still lists it,
+    and enqueues it again otherwise.
     """
     placement = _placement_for_table(cluster, shard.data_table)
     # The HogQL fragment compiles differently per schema: materialized-column/JSONExtract
@@ -793,7 +785,7 @@ def delete_event_removal_shard(
         deletion_request, use_new_events_schema=placement.target.uses_new_events_schema
     )
     runner = LightweightDeleteMutationRunner(
-        table=placement.target.data_table,
+        table=shard.data_table,
         predicate=predicate,
         parameters=parameters,
         settings={"lightweight_deletes_sync": 0},
@@ -1147,15 +1139,6 @@ def _cleaned_select_list(
         source = "toJSONString(person_properties)" if target.json_schema else "person_properties"
         replacements["person_properties"] = f"JSONDropKeysPool({source}, %(person_keys)s)"
         params["person_keys"] = deletion_request.person_properties
-    # temporary_properties holds a second copy of what the cleaner moved out of the event: the
-    # property itself, and the $set/$set_once instructions that carry person properties. The
-    # presence check reads it, so a cleaned row that kept it would fail verification.
-    temporary_keys = _temporary_property_keys(deletion_request)
-    if target.json_schema and temporary_keys:
-        replacements[TEMPORARY_PROPERTIES_COLUMN] = (
-            f"JSONDropKeysPool(toJSONString({TEMPORARY_PROPERTIES_COLUMN}), %(temporary_keys)s)"
-        )
-        params["temporary_keys"] = temporary_keys
     for name, is_nullable in mat_cols:
         replacements[name] = "NULL" if is_nullable else "''"
 
@@ -1451,8 +1434,7 @@ def delete_property_removal_shard(
         staging.finish_step(client, _DELETED, {"rows": originals})
         return originals
 
-    target_cluster = _cluster_for(cluster, target)
-    deleted = _run_on_shard(target_cluster, target, delete)
+    deleted = _run_on_shard(_cluster_for(cluster, target), target, delete)
     context.add_output_metadata({"deleted": dagster.MetadataValue.int(deleted)})
     return target
 
@@ -1544,8 +1526,7 @@ def reingest_property_removal_shard(
         staging.finish_step(client, _REINGESTED, {"rows": copied["rows"]})
         return copied["rows"]
 
-    target_cluster = _cluster_for(cluster, target)
-    reingested = _run_on_shard(target_cluster, target, reingest)
+    reingested = _run_on_shard(_cluster_for(cluster, target), target, reingest)
     context.add_output_metadata({"reingested": dagster.MetadataValue.int(reingested)})
     return target
 
@@ -1683,15 +1664,31 @@ def verify_property_removal(
 
     properties = deletion_request.properties
     person_properties = deletion_request.person_properties
+    targets: list[tuple[str, bool, tuple[str, dict]]] = [
+        ("events", False, compile_hogql_predicate(deletion_request)),
+    ]
+    if any(p.target is EVENTS_JSON for p in placements):
+        targets.append(
+            (
+                DISTRIBUTED_EVENTS_JSON_TABLE,
+                True,
+                compile_hogql_predicate(deletion_request, use_new_events_schema=True),
+            )
+        )
 
-    def check(client: Client, table: str, json_schema: bool, hogql_compiled: tuple[str, dict]) -> int:
+    def check(
+        client: Client,
+        table: str,
+        json_schema: bool,
+        hogql_compiled: tuple[str, dict],
+    ) -> int:
         mat_cols = (
-            _get_affected_mat_columns(client, "events", properties, table_column="properties")
+            _get_affected_mat_columns(client, table, properties, table_column="properties")
             if properties and not json_schema
             else []
         )
         person_mat_cols = (
-            _get_affected_mat_columns(client, "events", person_properties, table_column="person_properties")
+            _get_affected_mat_columns(client, table, person_properties, table_column="person_properties")
             if person_properties and not json_schema
             else []
         )
@@ -1710,35 +1707,12 @@ def verify_property_removal(
         )[0][0]
         return remaining
 
-    if any(p.target.uses_patch_parts and p.target.accepts_property_rewrite for p in placements):
+    if any(p.target.uses_patch_parts for p in placements):
         wait_for_patch_part_replication()
-    results: list[int] = []
-    for placement in placements:
-        target = placement.target
-        if not target.accepts_property_rewrite:
-            continue
-        hogql_compiled = compile_hogql_predicate(deletion_request, use_new_events_schema=target.uses_new_events_schema)
-        if placement.cluster is cluster:
-            results.append(
-                cluster.any_host(
-                    partial(
-                        check,
-                        table=target.read_table,
-                        json_schema=target.uses_new_events_schema,
-                        hogql_compiled=hogql_compiled,
-                    )
-                ).result()
-            )
-        else:
-            # The Distributed proxy reads the cluster its engine names, which is not this one, so
-            # count each shard's storage table on the cluster that holds it.
-            shard_check = partial(
-                check, table=target.data_table, json_schema=target.uses_new_events_schema, hogql_compiled=hogql_compiled
-            )
-            per_shard = placement.cluster.map_any_host_in_shards(
-                dict.fromkeys(placement.cluster.shards, shard_check)
-            ).result()
-            results.extend(per_shard.values())
+    results = [
+        cluster.any_host(partial(check, table=table, json_schema=json_schema, hogql_compiled=hogql_compiled)).result()
+        for table, json_schema, hogql_compiled in targets
+    ]
     remaining = sum(results)
     context.add_output_metadata(
         {
