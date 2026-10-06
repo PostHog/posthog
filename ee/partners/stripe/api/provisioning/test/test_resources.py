@@ -9,8 +9,7 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken
-from posthog.models.organization import OrganizationMembership
-from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.utils import generate_random_oauth_access_token
@@ -179,13 +178,10 @@ class TestResources(StripeProvisioningTestBase):
         self, _name: str, customer_id: str | None, expected_status: int, expected_billing_payloads: list[dict[str, str]]
     ) -> None:
         self.stripe_app.update_provisioning(pays_for_customers=True)
-        OrganizationProvisioning.objects.create(
-            organization=self.organization,
-            partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
-            application=self.stripe_app,
-        )
+        self.organization.provisioning_source = Organization.ProvisioningSource.STRIPE_PROJECTS
+        self.organization.provisioning_application = self.stripe_app
         self.organization.customer_id = customer_id
-        self.organization.save(update_fields=["customer_id"])
+        self.organization.save(update_fields=["provisioning_source", "provisioning_application", "customer_id"])
         token = self._get_bearer_token()
         billing_response = requests.Response()
         billing_response.status_code = 201

@@ -27,7 +27,6 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache, get_cached_in
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -1207,7 +1206,7 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         self.organization_membership.save()
 
     def _provision(
-        self, pays_for_customers: bool | None, partner_name: str = "Example Partner", *, legacy: bool = False
+        self, pays_for_customers: bool | None, partner_name: str = "Example Partner"
     ) -> OAuthApplication | None:
         if pays_for_customers is None:
             self.organization.provisioning_source = Organization.ProvisioningSource.VERCEL
@@ -1224,16 +1223,9 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
             is_provisioning_partner=True,
         )
         application.update_provisioning(pays_for_customers=pays_for_customers)
-        if legacy:
-            OrganizationProvisioning.objects.create(
-                organization=self.organization,
-                partner=OrganizationProvisioning.Partner.PROVISIONING_API,
-                application=application,
-            )
-        else:
-            self.organization.provisioning_source = Organization.ProvisioningSource.PROVISIONING_API
-            self.organization.provisioning_application = application
-            self.organization.save(update_fields=["provisioning_source", "provisioning_application"])
+        self.organization.provisioning_source = Organization.ProvisioningSource.PROVISIONING_API
+        self.organization.provisioning_application = application
+        self.organization.save(update_fields=["provisioning_source", "provisioning_application"])
         return application
 
     @parameterized.expand(
@@ -1322,11 +1314,9 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("organization_fields", False, False, False),
-            ("organization_fields_with_customer", False, True, False),
-            ("legacy_attribution", True, False, False),
-            ("legacy_attribution_with_customer", True, True, False),
-            ("concurrent_confirmation", False, True, True),
+            ("organization_fields", False, False),
+            ("organization_fields_with_customer", True, False),
+            ("concurrent_confirmation", True, True),
         ]
     )
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
@@ -1334,7 +1324,6 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
     def test_owner_detach_tells_billing_records_its_time_and_lifts_the_partner_lock(
         self,
         _name: str,
-        legacy: bool,
         has_customer: bool,
         confirmed_elsewhere: bool,
         mock_post: MagicMock,
@@ -1342,7 +1331,7 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
     ) -> None:
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
-        self._provision(pays_for_customers=True, legacy=legacy)
+        self._provision(pays_for_customers=True)
         self.organization.customer_id = "cus_example" if has_customer else None
         self.organization.billing_has_payer = True
         self.organization.save(update_fields=["customer_id", "billing_has_payer"])
