@@ -13946,6 +13946,8 @@ export interface SourceFieldCredentialAccountSelectConfigApi {
     caption?: string | null
     /** Names of the sibling fields whose values the account listing needs. The form sends exactly these, and the listing endpoint accepts exactly these. */
     credentialFields: string[]
+    /** Name of an OAuth integration id field that lists the same accounts, for a source offering both a typed-in credential and a connected account. The form sends this instead of `credentialFields` when it holds a value, and the listing endpoint accepts it on the same allowlist. */
+    integrationField?: string | null
     label: string
     name: string
     placeholder?: string | null
