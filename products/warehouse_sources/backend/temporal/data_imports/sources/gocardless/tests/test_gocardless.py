@@ -1,7 +1,7 @@
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
@@ -26,6 +26,13 @@ CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports
 GOCARDLESS_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.gocardless.gocardless.make_tracked_session"
 )
+
+
+def _status_response(status_code: int) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = b'{"error": {"code": %d}}' % status_code
+    return resp
 
 
 def _response(data_key: str, items: list[dict[str, Any]], after: str | None = None) -> Response:
@@ -258,6 +265,63 @@ class TestPagination:
         manager.save_state.assert_not_called()
 
 
+class TestFanout:
+    @pytest.mark.parametrize(
+        "endpoint, parent_key, parent_id, resolve_param, injected_key",
+        [
+            ("payout_items", "payouts", "PO1", "payout", "payout_id"),
+            ("balances", "creditors", "CR1", "creditor", "creditor_id"),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_is_fetched_per_parent_with_parent_id_injected(
+        self, MockSession, endpoint, parent_key, parent_id, resolve_param, injected_key
+    ):
+        session = MockSession.return_value
+        params, urls = _wire(
+            session,
+            [
+                _response(parent_key, [{"id": parent_id}]),
+                _response(endpoint, [{"type": "a", "amount": "1"}], after="X1"),
+                _response(endpoint, [{"type": "b", "amount": "2"}]),
+            ],
+        )
+
+        rows = _run(session, "live", endpoint, _make_manager())
+
+        assert urlparse(urls[1]).path == f"/{endpoint}"
+        assert parse_qs(urlparse(urls[1]).query) == {resolve_param: [parent_id]}
+        assert params[2]["after"] == "X1"
+        assert [r["type"] for r in rows] == ["a", "b"]
+        assert all(r[injected_key] == parent_id for r in rows)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_payout_items_skips_payouts_past_the_retention_window(self, MockSession):
+        session = MockSession.return_value
+        params, _ = _wire(
+            session,
+            [
+                _response("payouts", [{"id": "PO_OLD"}, {"id": "PO_NEW"}]),
+                _status_response(410),
+                _response("payout_items", [{"type": "payment_paid_out", "amount": "100"}]),
+            ],
+        )
+
+        rows = _run(session, "live", "payout_items", _make_manager())
+
+        assert [r["payout_id"] for r in rows] == ["PO_NEW"]
+        assert params[0]["created_at[gte]"] > _format_created_at(datetime.now(UTC) - timedelta(days=187))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_balances_lists_every_creditor(self, MockSession):
+        session = MockSession.return_value
+        params, _ = _wire(session, [_response("creditors", [{"id": "CR1"}]), _response("balances", [])])
+
+        _run(session, "live", "balances", _make_manager())
+
+        assert "created_at[gte]" not in params[0]
+
+
 class TestGoCardlessSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
@@ -272,6 +336,10 @@ class TestGoCardlessSourceResponse:
         )
 
         assert response.name == endpoint
+        if config.primary_key is None:
+            assert response.primary_keys is None
+            assert response.partition_keys is None
+            return
         assert response.primary_keys == [config.primary_key]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
@@ -284,4 +352,4 @@ class TestGoCardlessSourceResponse:
 
     @pytest.mark.parametrize("config", list(GOCARDLESS_ENDPOINTS.values()))
     def test_partition_keys_are_stable_creation_fields(self, config):
-        assert config.partition_key == "created_at"
+        assert config.partition_key in ("created_at", None)
