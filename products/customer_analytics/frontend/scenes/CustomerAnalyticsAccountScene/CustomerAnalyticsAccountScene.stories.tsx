@@ -6,7 +6,11 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { CustomPropertyValueWriteApi, AccountRelationshipWriteApi } from '../../generated/api.schemas'
+import type {
+    CustomPropertyValueWriteApi,
+    AccountRelationshipWriteApi,
+    PaginatedMeetingListApi,
+} from '../../generated/api.schemas'
 import { createAccountViewContent } from './accountViewDocument'
 
 const ACCOUNT_ID = '11111111-2222-4333-8444-555555555555'
@@ -15,6 +19,7 @@ const URL_UNSAFE_EXTERNAL_ACCOUNT_ID = 'spaces %2F slash / ? # + Unicode 漢字'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_BY_EXTERNAL_ID_ENDPOINT = 'api/projects/:team_id/accounts/by_external_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
+const ACCOUNT_MEETINGS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/meetings/'
 const ACCOUNT_PRESENCE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/presence/'
 const ACCOUNT_ICON_ENDPOINT = 'api/projects/:team_id/accounts/icon/'
 const VALUES_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/custom_property_values/'
@@ -87,6 +92,24 @@ const notebooks = {
             last_modified_by: null,
         },
     ],
+}
+
+const meetings: PaginatedMeetingListApi = {
+    count: 3,
+    next: null,
+    previous: null,
+    results: [
+        { id: 'meeting-next', title: 'Weekly review', start_time: '2026-05-23T12:00:00Z', is_recurring: true },
+        { id: 'meeting-one-off', title: 'Planning call', start_time: '2026-05-25T12:00:00Z', is_recurring: false },
+        { id: 'meeting-past', title: 'Previous weekly review', start_time: '2026-05-18T12:00:00Z', is_recurring: true },
+    ].map((meeting) => ({
+        ...meeting,
+        gong_url: null,
+        end_time: null,
+        organizer_email: 'host@example.com',
+        status: 'confirmed',
+        participants: [],
+    })),
 }
 
 const meta: Meta = {
@@ -211,6 +234,29 @@ export const Narrow: Story = {
     parameters: {
         testOptions: {
             waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '.ProfileBubbles'],
+            viewport: { width: 800, height: 900 },
+        },
+    },
+}
+
+export const Meetings: Story = {
+    render: () => <App />,
+    decorators: [mswDecorator({ get: { [ACCOUNT_MEETINGS_ENDPOINT]: meetings } })],
+    parameters: {
+        pageUrl: urls.customerAnalyticsAccount(ACCOUNT_ID, 'meetings'),
+        testOptions: {
+            waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '.LemonTable'],
+            viewport: { width: 1280, height: 900 },
+        },
+    },
+}
+
+export const MeetingsNarrow: Story = {
+    ...Meetings,
+    parameters: {
+        ...Meetings.parameters,
+        testOptions: {
+            waitForSelector: ['[data-attr="customer-analytics-account-scene"]', '.LemonTable'],
             viewport: { width: 800, height: 900 },
         },
     },

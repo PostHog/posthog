@@ -1886,10 +1886,23 @@ class TestVersionDeclaration:
 
 
 class TestReportTableMissingIncrementalField:
-    def test_incremental_report_table_without_incremental_field_defaults_to_segments_date(self):
-        # A report table's schema can arrive flagged incremental but with no incremental field
-        # (a config inconsistency). Its only valid field is always segments.date, so the sync must
-        # default to it and run rather than crashing with "incremental_field ... can't be None".
+    @pytest.mark.parametrize(
+        "incremental_field,incremental_field_type",
+        [
+            pytest.param(None, None, id="missing"),
+            # A stored config can also carry the underscore-joined synced column name
+            # (`segments_date`) instead of the queryable `segments.date` — e.g. a stale value from
+            # before a schema was reconciled. Google rejects that field name outright, so it must be
+            # corrected the same way a missing field is.
+            pytest.param("segments_date", IncrementalFieldType.Date, id="stale_underscore_value"),
+        ],
+    )
+    def test_incremental_report_table_with_bad_incremental_field_defaults_to_segments_date(
+        self, incremental_field, incremental_field_type
+    ):
+        # A report table's schema can arrive flagged incremental but with no, or an invalid,
+        # incremental field. Its only valid field is always segments.date, so the sync must use it
+        # rather than crashing or sending Google a field it will reject.
         table = _stats_table()
         assert table.alias is not None
         config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
@@ -1905,15 +1918,16 @@ class TestReportTableMissingIncrementalField:
                 resumable_source_manager=mock.Mock(),
                 api_version="v25",
                 should_use_incremental_field=True,
-                incremental_field=None,
-                incremental_field_type=None,
+                incremental_field=incremental_field,
+                incremental_field_type=incremental_field_type,
                 db_incremental_field_last_value=dt.date.today(),
             )
             list(typing.cast(collections.abc.Iterable, response.items()))
 
-        # The windowed drain ran (no crash) and queried on the defaulted segments.date field.
+        # The windowed drain ran (no crash) and queried on the corrected segments.date field.
         assert search.call_count >= 1
         assert "segments.date" in search.call_args_list[0].args[2]
+        assert "segments_date" not in search.call_args_list[0].args[2]
 
 
 class TestUnknownResource:
