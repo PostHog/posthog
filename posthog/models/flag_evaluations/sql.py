@@ -64,13 +64,13 @@ FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, toDate(timestamp), cityHash64(d
 #
 # The MV ignores the Kafka table's inserted_at and stamps the time it processes
 # the row, so a producer cannot set the value that deletion sweeps compare
-# against. The Kafka table still declares inserted_at with no DEFAULT. The MV does
-# not read it, but changing a Kafka engine table's columns means recreating the
-# table and its MV. Both Distributed tables MUST carry the
-# DEFAULT: an INSERT through a Distributed table fills omitted columns from the
-# Distributed table's own schema before forwarding to the shard, so without it a
-# direct insert via writable_flag_evaluations would store epoch instead of the
-# sharded table's DEFAULT.
+# against. The Kafka table still declares inserted_at with no DEFAULT, because
+# changing a Kafka engine table's columns means recreating the table and its MV.
+# Both Distributed tables MUST carry the DEFAULT: an INSERT through a Distributed
+# table fills omitted columns from the Distributed table's own schema before
+# forwarding to the shard, so without it a direct insert via
+# writable_flag_evaluations would store epoch instead of the sharded table's
+# DEFAULT.
 #
 # No column carries a CODEC, including the JSON blobs the events table wraps in
 # ZSTD(3); the general rule is in posthog/clickhouse/migrations/AGENTS.md. Nothing

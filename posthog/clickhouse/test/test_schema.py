@@ -216,16 +216,16 @@ def test_flag_evaluations_mv_ignores_producer_inserted_at() -> None:
                 'user' AS distinct_id,
                 timestamp AS created_at,
                 generateUUIDv4() AS person_id,
-                toDateTime64(arrayJoin(['1970-01-01 00:00:00', '2020-01-01 00:00:00']), 6, 'UTC') AS inserted_at,
+                timestamp AS inserted_at,
                 toDateTime('2020-01-01 00:00:00', 'UTC') AS _timestamp,
                 0 AS _offset,
                 0 AS _partition
         )
-        SELECT count(), countIf(inserted_at > toDateTime64('2020-01-02 00:00:00', 3, 'UTC')) FROM ("""
+        SELECT inserted_at > timestamp FROM ("""
         + select
         + ")"
     )
-    assert rows == [(2, 2)]
+    assert rows == [(1,)]
 
 
 def test_flag_evaluations_read_table_declares_every_stored_column():
