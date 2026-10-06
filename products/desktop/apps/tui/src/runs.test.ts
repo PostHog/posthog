@@ -12,6 +12,7 @@ import {
   type RunView,
   runNotice,
   type SessionLogs,
+  setupProgress,
   withListedRun,
 } from "./runs";
 
@@ -312,6 +313,134 @@ describe("runNotice", () => {
         null,
       ),
     ).toEqual(expected);
+  });
+});
+
+describe("setupProgress", () => {
+  const step = (
+    second: number,
+    stepName: string,
+    status: string,
+    label: string,
+    group = "setup:r1",
+  ): StoredLogEntry =>
+    ({
+      type: "notification",
+      timestamp: new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString(),
+      notification: {
+        method: "_posthog/progress",
+        params: { step: stepName, status, label, group },
+      },
+    }) as StoredLogEntry;
+  const ready = [
+    step(1, "sandbox", "in_progress", "Setting up sandbox"),
+    step(5, "sandbox", "completed", "Sandbox ready"),
+    step(6, "agent", "in_progress", "Starting agent"),
+    step(7, "clone", "in_progress", "Cloning repository"),
+    step(9, "clone", "completed", "Cloned repository"),
+  ];
+
+  it.each([
+    [
+      "names the step a new sandbox is on",
+      ready.slice(0, 1),
+      "Setting up sandbox",
+      false,
+    ],
+    [
+      "keeps naming a step still under way when another finishes",
+      ready,
+      "Starting agent",
+      false,
+    ],
+    [
+      "is done once the agent is ready, whatever comes after",
+      [
+        ...ready,
+        step(10, "agent", "completed", "Agent ready"),
+        step(40, "sandbox_deadline", "in_progress", "This sandbox stops soon"),
+      ],
+      "Agent ready",
+      true,
+    ],
+    [
+      "starts over when the same run is brought back",
+      [
+        ...ready,
+        step(10, "agent", "completed", "Agent ready"),
+        step(60, "sandbox", "in_progress", "Restoring sandbox"),
+      ],
+      "Restoring sandbox",
+      false,
+    ],
+  ])("%s", (_, entries, label, done) => {
+    const progress = setupProgress(entries, "r1");
+    expect(progress?.current.label).toBe(label);
+    expect(progress?.done).toBe(done);
+  });
+
+  it("reads only its own run's setup, and times it from that setup's start", () => {
+    const resumed = [
+      step(1, "sandbox", "in_progress", "Setting up sandbox", "setup:r0"),
+      step(60, "sandbox", "in_progress", "Restoring sandbox"),
+    ];
+    expect(setupProgress(resumed.slice(0, 1), "r1")).toBeNull();
+    expect(setupProgress(resumed, "r1")?.startedAt).toBe(
+      Date.UTC(2026, 0, 1, 0, 1, 0),
+    );
+  });
+});
+
+describe("runNotice during setup", () => {
+  const user = { kind: "user" as const, id: "u", text: "hi" };
+  const running = {
+    ...emptyRunView,
+    loaded: true,
+    status: "in_progress" as const,
+  };
+
+  it.each([
+    [
+      "the step under way, timed",
+      { status: "in_progress" as const, label: "Restoring sandbox" },
+      { text: "Restoring sandbox…", detail: "12s", tone: "working" },
+    ],
+    [
+      "a failed step as an error",
+      {
+        status: "failed" as const,
+        label: "Cloning repository",
+        detail: "repository not found",
+      },
+      {
+        text: "Cloning repository failed: repository not found",
+        tone: "error",
+      },
+    ],
+  ])("shows %s", (_, current, expected) => {
+    const setup = {
+      current: { step: "sandbox", ...current },
+      startedAt: Date.now() - 12_000,
+      done: false,
+    };
+    expect(runNotice(running, [user], false, null, null, setup)).toEqual(
+      expected,
+    );
+  });
+
+  it("gives way to the chat once the agent is ready", () => {
+    const setup = {
+      current: {
+        step: "agent",
+        status: "completed" as const,
+        label: "Agent ready",
+      },
+      startedAt: Date.now(),
+      done: true,
+    };
+    expect(runNotice(running, [user], false, null, null, setup)?.text).toBe(
+      "Starting cloud run…",
+    );
   });
 });
 

@@ -13,6 +13,7 @@ import {
   type RunSubscription,
   type RunView,
   runNotice,
+  setupProgress,
   withListedRun,
 } from "../runs";
 import { renderSheet, type Sheet } from "../sheet";
@@ -194,6 +195,11 @@ export function Pane({
   useEffect(() => {
     onLines(lines);
   });
+  const setupRunId = task?.latest_run?.id;
+  const setup = useMemo(
+    () => (setupRunId ? setupProgress(view.entries, setupRunId) : null),
+    [view.entries, setupRunId],
+  );
   // A new chat shows its message and start-up state before the run even exists.
   const notice: ChatNotice | null = task?.latest_run
     ? runNotice(
@@ -202,6 +208,7 @@ export function Pane({
         transcript.turnOpen,
         transcript.lastTurn,
         transcript.turnStartedAt,
+        setup,
       )
     : local
       ? runNotice(

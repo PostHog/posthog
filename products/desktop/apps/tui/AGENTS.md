@@ -39,7 +39,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `search.ts` | The task search's result rows and query editing; `hooks/useSearch.ts` asks the server after a pause in typing |
 | `turns.ts` | Which chats are mid-turn (the sidebar's spinner) and which finished while the reader was on another chat (the orange dot); a chat is watched from when it is on screen until its turn ends |
 | `work.ts` | The Work list (`getTasksPage`), one request at a time |
-| `runs.ts` | Cloud run views over `CloudTaskEngine`: tail windows, older pages, preloads, run notices. A pi task's runs share one pi session but keep separate logs, so its earlier runs page in above the current one |
+| `runs.ts` | Cloud run views over `CloudTaskEngine`: tail windows, older pages, preloads, run notices. While a sandbox sets up, the notice names the backend's current setup step (`_posthog/progress`, group `setup:<runId>`). A pi task's runs share one pi session but keep separate logs, so its earlier runs page in above the current one |
 | `chats.ts` | Starting and replying to pi cloud runs |
 | `local.ts` | Local chats: the harness as a child process (`createPiRpcClient` + `PiRuntime`), with a pi session file each |
 | `localChats.ts` | Local chats' pi session files under `~/.config/posthog-tui/local/`, one per task id, and linking older `local:<uuid>` files to new task rows |
