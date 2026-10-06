@@ -30,6 +30,7 @@ import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { InsightEventSource, sanitizeInsight, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
+import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -1233,7 +1234,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                     }
                 } else {
-                    router.actions.push(urls.insightView(savedInsight.short_id))
+                    router.actions.push(withBackLink(urls.insightView(savedInsight.short_id)))
                 }
             } else if (!insightNumericId) {
                 // If we've just saved a new insight without redirecting to view mode, we need to redirect to edit mode
@@ -1283,7 +1284,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             actions.reloadSavedInsights() // Load insights afresh
 
             if (redirectToViewMode) {
-                router.actions.push(urls.insightView(insight.short_id))
+                router.actions.push(withBackLink(urls.insightView(insight.short_id)))
             } else {
                 router.actions.push(urls.insightEdit(insight.short_id))
             }

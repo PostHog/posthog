@@ -292,7 +292,8 @@ export interface insightSceneLogicMeta {
             dashboardName: string | null,
             sceneSource: InsightSceneSource | null,
             dashboardBackPath: string | null,
-            arg: string | undefined
+            arg: string | undefined,
+            searchParams: Record<string, any>
         ) => Breadcrumb[]
         projectTreeRef: (insightId: InsightId) => ProjectTreeRef
         sidePanelContext: (
@@ -568,6 +569,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 s.sceneSource,
                 s.dashboardBackPath,
                 (state, props) => s.insightLogicRef(state, props)?.logic.selectors.insightName(state, props),
+                router.selectors.searchParams,
             ],
             (
                 insightLogicRef: {
@@ -580,55 +582,67 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 dashboardName: DashboardType['name'] | null,
                 sceneSource: InsightSceneSource | null,
                 dashboardBackPath: string | null,
-                insightName: string | undefined
+                insightName: string | undefined,
+                searchParams: Record<string, any>
             ): Breadcrumb[] => {
                 const dashboardLabel = dashboardName ?? 'Dashboard'
+                // A list that opened the insight can name the way back, like the dashboard scene allows.
+                const backUrl = searchParams.backUrl as string | undefined
                 return [
-                    ...(dashboardId !== null
+                    ...(backUrl && dashboardId === null
                         ? [
                               {
-                                  key: Scene.Dashboards,
-                                  name: 'Dashboards',
-                                  path: urls.dashboards(),
-                                  iconType: 'dashboard' as FileSystemIconType,
-                              },
-                              {
-                                  key: Scene.Dashboard,
-                                  name: dashboardLabel,
-                                  // Going back must land on the dashboard as the user left it, not on its saved state
-                                  path: dashboardBackPath ?? urls.dashboard(dashboardId),
-                                  iconType: 'dashboard' as FileSystemIconType,
+                                  key: backUrl,
+                                  name: (searchParams.backName as string | undefined) || 'Back',
+                                  path: backUrl,
+                                  iconType: 'product_analytics' as FileSystemIconType,
                               },
                           ]
-                        : [
-                              sceneSource === 'web-analytics'
-                                  ? {
-                                        key: Scene.WebAnalytics,
-                                        name: 'Web analytics',
-                                        path: urls.webAnalytics(),
-                                        iconType: 'web_analytics' as FileSystemIconType,
-                                    }
-                                  : sceneSource === 'llm-analytics'
+                        : dashboardId !== null
+                          ? [
+                                {
+                                    key: Scene.Dashboards,
+                                    name: 'Dashboards',
+                                    path: urls.dashboards(),
+                                    iconType: 'dashboard' as FileSystemIconType,
+                                },
+                                {
+                                    key: Scene.Dashboard,
+                                    name: dashboardLabel,
+                                    // Going back must land on the dashboard as the user left it, not on its saved state
+                                    path: dashboardBackPath ?? urls.dashboard(dashboardId),
+                                    iconType: 'dashboard' as FileSystemIconType,
+                                },
+                            ]
+                          : [
+                                sceneSource === 'web-analytics'
                                     ? {
-                                          key: 'AIObservability',
-                                          name: 'AI observability',
-                                          path: urls.aiObservabilityDashboard(),
-                                          iconType: 'llm_analytics' as FileSystemIconType,
+                                          key: Scene.WebAnalytics,
+                                          name: 'Web analytics',
+                                          path: urls.webAnalytics(),
+                                          iconType: 'web_analytics' as FileSystemIconType,
                                       }
-                                    : sceneSource === 'endpoints'
+                                    : sceneSource === 'llm-analytics'
                                       ? {
-                                            key: Scene.Endpoints,
-                                            name: 'endpoints',
-                                            path: urls.endpoints(),
-                                            iconType: 'endpoints' as FileSystemIconType,
+                                            key: 'AIObservability',
+                                            name: 'AI observability',
+                                            path: urls.aiObservabilityDashboard(),
+                                            iconType: 'llm_analytics' as FileSystemIconType,
                                         }
-                                      : {
-                                            key: Scene.SavedInsights,
-                                            name: 'Product analytics',
-                                            path: urls.savedInsights(),
-                                            iconType: 'product_analytics' as FileSystemIconType,
-                                        },
-                          ]),
+                                      : sceneSource === 'endpoints'
+                                        ? {
+                                              key: Scene.Endpoints,
+                                              name: 'endpoints',
+                                              path: urls.endpoints(),
+                                              iconType: 'endpoints' as FileSystemIconType,
+                                          }
+                                        : {
+                                              key: Scene.SavedInsights,
+                                              name: 'Product analytics',
+                                              path: urls.savedInsights(),
+                                              iconType: 'product_analytics' as FileSystemIconType,
+                                          },
+                            ]),
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
                         name: insightName,

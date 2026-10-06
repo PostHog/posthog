@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { InsightAsScene } from 'scenes/insights/InsightAsScene'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
@@ -34,7 +35,7 @@ export function InsightScene(): JSX.Element {
             insightMode === ItemMode.Edit
         ) {
             if (isBIVisualizationNode(insight.query) && !biEnabled) {
-                router.actions.replace(urls.insightView(insightId))
+                router.actions.replace(withBackLink(urls.insightView(insightId)))
                 return
             }
             const editorUrl = isBIVisualizationNode(insight.query) ? urls.businessIntelligence : urls.sqlEditor

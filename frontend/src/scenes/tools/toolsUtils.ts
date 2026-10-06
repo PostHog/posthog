@@ -1,3 +1,4 @@
+import { isFromPostHogItem } from 'scenes/analytics/analyticsUtils'
 import { TOOL_FILE_SYSTEM_TYPES } from 'scenes/library/libraryUtils'
 
 import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
@@ -28,7 +29,8 @@ export function toolMatchesSearch(tool: FileSystemImport, search: string): boole
 // Saved object types live in Library, except the ones that are working pages.
 export function isToolItem(item: FileSystemImport): boolean {
     const type = item.type?.split('/')[0] || item.iconType || ''
-    return !!item.href && !(type in fileSystemTypes && !TOOL_FILE_SYSTEM_TYPES.has(type))
+    // The ready-made analytics products open from the Analytics pane, so they are not tools as well.
+    return !!item.href && !isFromPostHogItem(item) && !(type in fileSystemTypes && !TOOL_FILE_SYSTEM_TYPES.has(type))
 }
 
 export function toolHrefForPath(

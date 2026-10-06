@@ -1865,7 +1865,7 @@ export const fileSystemTypes = {
         iconType: 'canvas',
         flag: FEATURE_FLAGS.TODAY_RAIL_NAV,
         href: (ref: string) => urls.canvasDetail(ref),
-        listHref: () => urls.canvases(),
+        listHref: () => urls.analyticsList({ type: 'canvas' }),
         iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
         filterKey: 'canvas',
     },
