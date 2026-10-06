@@ -386,6 +386,17 @@ def _scanner_copy_name(team_id: int, source_name: str) -> str:
     return source_name
 
 
+# A legacy targeted scanner keeps these in its config once retired (see `_keep_retired_experiment_config`).
+_RETIRED_EXPERIMENT_CONFIG_KEYS = ("experiment_id", "variants")
+_ONLY_EXPERIMENT_SCANNERS_MESSAGE = (
+    "Only an experiment scanner can watch an experiment. Create an experiment scanner for that experiment instead."
+)
+_DUPLICATE_RETIRED_MESSAGE = (
+    "This scanner watches an experiment the old way, so it can't be duplicated. "
+    "Create an experiment scanner for that experiment instead."
+)
+
+
 class ScannerExperimentTargetingSerializer(serializers.Serializer):
     """The experiment a scanner watches. Scans derive their person-scoped exposure filter from
     this blob at query time, so it is the only place an experiment can enter a scanner's
@@ -431,8 +442,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         required=False,
         allow_null=True,
         help_text=(
-            "The experiment this scanner's targeting watches, if any. "
-            "Set null when the experiment targeting is removed."
+            "Legacy experiment targeting from before the experiment scanner type. Read-only: setting or "
+            "changing it is rejected, so create an `experiment` scanner instead. Set null to clear it."
         ),
     )
     name = serializers.CharField(
@@ -759,8 +770,11 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
                 raise serializers.ValidationError({"name": "A scanner with this name already exists in this team."})
         self._reject_scanner_type_change(attrs)
         self._restore_redacted_experiment_config(attrs)
+        self._keep_retired_experiment_config(attrs)
         self._validate_scanner_config(attrs)
         self._validate_experiment_scanner(attrs)
+        self._reject_legacy_experiment_targeting(attrs)
+        self._refuse_enabling_a_retired_scanner(attrs)
         self._validate_and_strip_query(attrs)
         self._drop_redacted_targeting_clear(attrs)
         scout_caller = bool(self.context.get("scout_sandbox_caller"))
@@ -773,6 +787,59 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             else None,
         )
         return attrs
+
+    def _keep_retired_experiment_config(self, attrs: dict[str, Any]) -> None:
+        """Keep a retired legacy targeted scanner's experiment in its config across edits.
+
+        Migration 0106 copied each legacy scanner's targeting into `scanner_config`. Like an
+        experiment scanner's, that experiment is fixed: a config write that drops it (a denied
+        caller sees it redacted) gets it back, and one that changes it is refused.
+        """
+        if self.instance is None or self.instance.scanner_type == ScannerType.EXPERIMENT:
+            return
+        config = attrs.get("scanner_config")
+        stored = self.instance.scanner_config if isinstance(self.instance.scanner_config, dict) else {}
+        if not isinstance(config, dict) or stored.get("experiment_id") is None:
+            return
+        for key in _RETIRED_EXPERIMENT_CONFIG_KEYS:
+            if key in config and config[key] != stored.get(key):
+                raise serializers.ValidationError({"scanner_config": _ONLY_EXPERIMENT_SCANNERS_MESSAGE})
+        attrs["scanner_config"] = {
+            **config,
+            **{key: stored[key] for key in _RETIRED_EXPERIMENT_CONFIG_KEYS if key in stored},
+        }
+
+    def _reject_legacy_experiment_targeting(self, attrs: dict[str, Any]) -> None:
+        # Clearing it, or writing back the stored value unchanged (the editor form sends the whole
+        # object), stays allowed; setting or changing it doesn't.
+        targeting = attrs.get("experiment_targeting")
+        if not targeting or (self.instance is not None and targeting == self.instance.experiment_targeting):
+            return
+        raise serializers.ValidationError({"experiment_targeting": _ONLY_EXPERIMENT_SCANNERS_MESSAGE})
+
+    def _refuse_enabling_a_retired_scanner(self, attrs: dict[str, Any]) -> None:
+        """Refuse turning on a scanner of another type that still watches an experiment.
+
+        Only the experiment type applies its experiment's exposure filter at scan time in full, with
+        variant attribution and balancing. A retired legacy scanner turned back on would no longer
+        be the scanner its history describes, so it stays off.
+        """
+        if attrs.get("enabled") is not True:
+            return
+        scanner_type = attrs.get("scanner_type", getattr(self.instance, "scanner_type", None))
+        if scanner_type == ScannerType.EXPERIMENT:
+            return
+        config = attrs.get("scanner_config", getattr(self.instance, "scanner_config", None))
+        targeting = attrs.get("experiment_targeting", getattr(self.instance, "experiment_targeting", None))
+        if (isinstance(config, dict) and config.get("experiment_id") is not None) or targeting:
+            raise serializers.ValidationError(
+                {
+                    "enabled": (
+                        "This scanner watches an experiment the old way, so it can't be turned on. "
+                        "Create an experiment scanner for that experiment instead."
+                    )
+                }
+            )
 
     def _drop_redacted_targeting_clear(self, attrs: dict[str, Any]) -> None:
         # to_representation redacts experiment_targeting to null for callers denied the experiment,
@@ -929,6 +996,16 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         scanner_config = attrs.get("scanner_config", getattr(self.instance, "scanner_config", None))
         if scanner_type is None:
             return  # Upstream `scanner_type` ChoiceField rejects this on create; PATCH with no instance is unreachable.
+        if (
+            scanner_type != ScannerType.EXPERIMENT
+            and self.instance is not None
+            and isinstance(scanner_config, dict)
+            and isinstance(self.instance.scanner_config, dict)
+            and self.instance.scanner_config.get("experiment_id") is not None
+        ):
+            # A retired scanner's kept experiment (see `_keep_retired_experiment_config`) isn't part
+            # of its type's config schema; the rest of the config still validates.
+            scanner_config = {k: v for k, v in scanner_config.items() if k not in _RETIRED_EXPERIMENT_CONFIG_KEYS}
         message = scanner_config_error(ScannerType(scanner_type), scanner_config)
         if message is not None:
             raise serializers.ValidationError({"scanner_config": message})
@@ -966,7 +1043,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         # a denied caller, so the rest of the config (prompt, length) stays readable. Writes are a
         # separate question: `_restore_redacted_experiment_config` refuses every config write from a
         # denied caller.
-        if instance.scanner_type == ScannerType.EXPERIMENT and isinstance(data.get("scanner_config"), dict):
+        # A retired legacy scanner keeps its experiment there too (migration 0106), so this runs for every type.
+        if isinstance(data.get("scanner_config"), dict):
             experiment_id = data["scanner_config"].get("experiment_id")
             if experiment_id is not None and not self._can_view_targeted_experiment({"experiment_id": experiment_id}):
                 data["scanner_config"] = {
@@ -2292,16 +2370,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
             )
         user = cast(User, request.user)
-        # A scanner is viewable at a coarser grain than its targeted experiment, so the read path
-        # nulls an experiment the caller cannot view. Drop it from the copy for the same reason:
-        # create rejects targeting such an experiment, and duplicate must not be the way around it.
-        experiment_targeting = source.experiment_targeting
-        if experiment_targeting:
-            experiment_id = experiment_targeting.get("experiment_id")
-            if experiment_id is None or not is_experiment_accessible(
-                self.user_access_control, self.team_id, experiment_id
-            ):
-                experiment_targeting = None
+        if source.scanner_type != ScannerType.EXPERIMENT and source.experiment_scope() is not None:
+            # Copying a retired legacy targeted scanner would only make another scanner that can't
+            # be turned on; dropping its experiment would make one that watches everyone instead.
+            raise serializers.ValidationError(_DUPLICATE_RETIRED_MESSAGE)
         if source.scanner_type == ScannerType.EXPERIMENT:
             scope_experiment_id = (source.experiment_scope() or {}).get("experiment_id")
             if scope_experiment_id is None or not is_experiment_accessible(
@@ -2330,7 +2402,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     provider=source.provider,
                     model=source.model,
                     emits_signals=source.emits_signals,
-                    experiment_targeting=experiment_targeting,
                     enabled=False,
                 )
             except IntegrityError as e:
@@ -3180,7 +3251,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "has_query": bool(drafted.query),
                 # Whether the goal named an experiment, so the scan watches its participants rather
                 # than everyone who reached the same pages.
-                "has_experiment_targeting": drafted.experiment_targeting is not None,
+                # Kept under its old name for the insights that read it: whether the draft watches an experiment.
+                "has_experiment_targeting": drafted.scanner_type == ScannerType.EXPERIMENT,
                 "sampling_mode": drafted.sampling_mode,
                 "sampling_rate": drafted.sampling_rate,
                 "model": drafted.model,
