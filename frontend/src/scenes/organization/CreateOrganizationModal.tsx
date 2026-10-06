@@ -28,7 +28,7 @@ export function CreateOrganizationModal({
         useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
-    const { user, hasAvailableFeature } = useValues(userLogic)
+    const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
     const [name, setName] = useState<string>('')
 
@@ -38,16 +38,21 @@ export function CreateOrganizationModal({
     const showNoInviteHelp = !hasPendingInvites && isCurrentOrganizationUnavailable
     // Users who hit the project limit often create an organization when they wanted more projects.
     const showSeparateOrganizationNote = !isCurrentOrganizationUnavailable && !!currentOrganization
+    // Mirror the backend limit check: distinct non-demo projects, and one project when the plan lacks the feature.
+    const projectsFeature = currentOrganization?.available_product_features?.find(
+        (feature) => feature.key === AvailableFeature.ORGANIZATIONS_PROJECTS
+    )
+    const projectLimit = projectsFeature ? projectsFeature.limit : 1
+    const nonDemoProjectCount = new Set(
+        currentOrganization?.teams?.filter((team) => !team.is_demo).map((team) => team.project_id)
+    ).size
     const isAtProjectLimit =
         showSeparateOrganizationNote &&
         !!preflight?.cloud &&
-        // Without billing features the limit is unknown, so do not claim the organization is at it.
+        // Without billing features the plan is unknown, so do not claim the organization is at its limit.
         !!currentOrganization?.available_product_features?.length &&
-        !hasAvailableFeature(
-            AvailableFeature.ORGANIZATIONS_PROJECTS,
-            // Match the backend limit check: distinct projects, demo projects excluded.
-            new Set(currentOrganization?.teams?.filter((team) => !team.is_demo).map((team) => team.project_id)).size
-        )
+        projectLimit != null &&
+        nonDemoProjectCount >= projectLimit
 
     const closeModal: () => void = () => {
         if (onClose) {
