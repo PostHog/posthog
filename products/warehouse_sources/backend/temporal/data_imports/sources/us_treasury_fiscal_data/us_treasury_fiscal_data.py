@@ -72,7 +72,7 @@ def fiscal_data_source(inputs: SourceInputs, manager: ResumableSourceManager[Fis
             lower_bound = saved.lower_bound
 
     sort_fields = list(dict.fromkeys((endpoint.incremental_field, *endpoint.primary_keys)))
-    params: dict[str, str | int] = {"page[size]": PAGE_SIZE, "sort": ",".join(sort_fields), "format": "json"}
+    params: dict[str, Any] = {"page[size]": PAGE_SIZE, "sort": ",".join(sort_fields), "format": "json"}
     if lower_bound is not None:
         params["filter"] = f"{endpoint.incremental_field}:gte:{lower_bound}"
 
