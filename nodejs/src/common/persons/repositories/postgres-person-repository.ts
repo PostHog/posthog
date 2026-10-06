@@ -639,8 +639,9 @@ export class PostgresPersonRepository
         )
         const reattached = new Set(rows.map((row) => row.distinct_id))
         const unattached = names.filter((name) => !reattached.has(name))
-        if (unattached.length > 0) {
-            // A create that revives the stray's own owner (same uuid) leaves the mapping live and already correct.
+        // Only a create can revive the stray's own owner (same uuid), which leaves the mapping live and already correct;
+        // addDistinctId keeps reporting a mapping its person already owns as a conflict.
+        if (operation === 'createPerson' && unattached.length > 0) {
             const { rows: owned } = await this.postgres.query<{
                 id: string
                 team_id: number

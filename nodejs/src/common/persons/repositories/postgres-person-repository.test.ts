@@ -669,14 +669,22 @@ describe('PostgresPersonRepository', () => {
             })
         })
 
-        it('addDistinctId throws DistinctIdConflictError for a live mapping', async () => {
-            const person = await createTestPerson(team.id, 'conflict-adder-did')
-            await createTestPerson(team.id, 'already-owned-did')
+        it.each([
+            ['another live person', 'other-owned-did', false],
+            ['the same person', 'conflict-adder-did', true],
+        ])(
+            'addDistinctId throws DistinctIdConflictError for a live mapping owned by %s',
+            async (_owner, distinctId, ownedBySamePerson) => {
+                const person = await createTestPerson(team.id, 'conflict-adder-did')
+                if (!ownedBySamePerson) {
+                    await createTestPerson(team.id, distinctId)
+                }
 
-            await expect(revivalRepository.addDistinctId(person, 'already-owned-did', 0)).rejects.toThrow(
-                DistinctIdConflictError
-            )
-        })
+                await expect(revivalRepository.addDistinctId(person, distinctId, 0)).rejects.toThrow(
+                    DistinctIdConflictError
+                )
+            }
+        )
 
         it('isPersonLive is true for a live person and false for a tombstoned one', async () => {
             const person = await createTestPerson(team.id, 'live-check-did')
