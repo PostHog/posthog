@@ -6302,6 +6302,10 @@ snapshots:
         hash: v1.k794b7964.3c027b2e0731f9738cdfe21d14b6a893375c0fe0a0f11b587580adafc09340f9.GfzW8vynGlDg1ZO7Mp1sS9oDhRiKra5Vxhtopyi31Go
     products-alerts-shared-components--notifications-multiple-slack-workspaces--light:
         hash: v1.k794b7964.63ec31eddf76c6f6544838a9b765e091bbe84325070fff837ed94d2cc1e85ba8.rPHnjzF-XA_HZd7mJ9KKN8iLGsZVXVdne4uww2vsx4w
+    products-alerts-shared-components--notifications-pager-duty--dark:
+        hash: v1.k794b7964.c3a3b73806e040d29cf7bfce8d565543a0e7e4b47a56556414e047f2511da17b.SGZtwKir5o45QYI1dRjvgbzHGHTrnWqW6mmktzjN3jk
+    products-alerts-shared-components--notifications-pager-duty--light:
+        hash: v1.k794b7964.211c55b2e573ce2620f4ff11dfe2692c56f6a7ae320af57557bd302430b40d87.KtzQY8KdtOwLt-LOiH6XneFrqpaKvdGg8Wa3oAElMSQ
     products-alerts-shared-components--preview--dark:
         hash: v1.k794b7964.c9bdafae1ad47e45cba8bc136bc1f911fcd38d3f3adc0109c73c608fc7aff1a7.JQQcVBlkdE7zlG0B9V18hFYCe7DRINlSu1YhOXTSNFg
     products-alerts-shared-components--preview--light:
