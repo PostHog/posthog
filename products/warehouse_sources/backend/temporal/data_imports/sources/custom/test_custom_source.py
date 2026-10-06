@@ -2629,6 +2629,34 @@ class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
         assert ok is False
         assert err is not None and "upstream_row_order" in err and "'users'" in err
 
+    @parameterized.expand(
+        [
+            (
+                "endpoint_incremental",
+                {"incremental": {"cursor_path": "updated_at", "start_param": "since", "cursor_type": "integer"}},
+            ),
+            (
+                "params_incremental",
+                {"params": {"since": {"type": "incremental", "cursor_path": "updated_at", "cursor_type": "integer"}}},
+            ),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_incremental_in_resource_defaults_rejected(self, _name, default_endpoint, mock_resources):
+        manifest = _minimal_manifest()
+        manifest["resource_defaults"] = {"endpoint": default_endpoint}
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+
+        with self.assertRaises(ManifestValidationError) as ctx:
+            source.preview_resource(config, team_id=999, resource_name="users")
+        assert "resource_defaults" in str(ctx.exception)
+        mock_resources.assert_not_called()
+
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "resource_defaults" in err
+
 
 class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
     def _manifest(self) -> dict:
