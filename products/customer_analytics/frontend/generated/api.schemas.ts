@@ -1763,7 +1763,7 @@ export interface HogQLQueryModifiersApi {
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
-    /** Move eligible non-nullable equality filters from CROSS JOIN queries into INNER ALL JOIN constraints */
+    /** Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints */
     optimizeCrossJoins?: boolean | null
     optimizeJoinedFilters?: boolean | null
     optimizeProjections?: boolean | null

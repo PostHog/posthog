@@ -596,7 +596,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            'Move eligible non-nullable equality filters from CROSS JOIN queries into INNER ALL JOIN constraints'
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
                         ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -1553,7 +1553,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            'Move eligible non-nullable equality filters from CROSS JOIN queries into INNER ALL JOIN constraints'
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
                         ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -2269,7 +2269,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            'Move eligible non-nullable equality filters from CROSS JOIN queries into INNER ALL JOIN constraints'
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
                         ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -2977,7 +2977,7 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            'Move eligible non-nullable equality filters from CROSS JOIN queries into INNER ALL JOIN constraints'
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
                         ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -3704,7 +3704,7 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            'Move eligible non-nullable equality filters from CROSS JOIN queries into INNER ALL JOIN constraints'
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
                         ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -4141,7 +4141,7 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            'Move eligible non-nullable equality filters from CROSS JOIN queries into INNER ALL JOIN constraints'
+                            'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
                         ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -4401,7 +4401,7 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                     .union([zod.boolean(), zod.null()])
                     .optional()
                     .describe(
-                        'Move eligible non-nullable equality filters from CROSS JOIN queries into INNER ALL JOIN constraints'
+                        'Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints'
                     ),
                 optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                 optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
