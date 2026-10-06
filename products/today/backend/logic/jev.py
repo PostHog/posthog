@@ -60,12 +60,8 @@ class GatewayJev:
 
     @cached_property
     def _client(self) -> GatewaySystemOneClient:
-        client = build_system_one_client(
-            model=self._model,
-            ai_product=_AI_PRODUCT,
-            team_id=self._team_id,
-            distinct_id=self._distinct_id,
-        )
+        # No team_id: the gateway bills the team it is given, and PostHog pays for these calls.
+        client = build_system_one_client(model=self._model, ai_product=_AI_PRODUCT, distinct_id=self._distinct_id)
         assert isinstance(client, GatewaySystemOneClient)
         return client
 

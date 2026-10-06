@@ -13,8 +13,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
-from posthog.hogql.transforms.prompt_jev import OUT_OF_AI_CREDITS_MESSAGE
-
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
@@ -39,19 +37,12 @@ from .serializers import (
 
 logger = structlog.get_logger(__name__)
 JEV_UNAVAILABLE = OpenApiResponse(description="The decision model is unavailable.")
-JEV_OUT_OF_CREDITS = OpenApiResponse(description="The organization has no AI credits left.")
 
 
 class JevUnavailable(APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_detail = "The decision model is unavailable."
     default_code = "jev_unavailable"
-
-
-class JevOutOfCredits(APIException):
-    status_code = status.HTTP_402_PAYMENT_REQUIRED
-    default_detail = OUT_OF_AI_CREDITS_MESSAGE
-    default_code = "jev_out_of_credits"
 
 
 class JevBurstThrottle(UserRateThrottle):
@@ -73,8 +64,6 @@ def _jev_errors_as_responses(team_id: int) -> Iterator[None]:
         yield
     except SystemOneRequestFailed as error:
         logger.warning("today_jev_unavailable", team_id=team_id, reason=type(error).__name__, status=error.status_code)
-        if error.status_code == status.HTTP_402_PAYMENT_REQUIRED:
-            raise JevOutOfCredits() from error
         raise JevUnavailable() from error
     except (SystemOneNotConfigured, contracts.JevTimedOut) as error:
         logger.warning("today_jev_unavailable", team_id=team_id, reason=type(error).__name__)
@@ -176,7 +165,6 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         query_serializer=KeyClausesQuerySerializer,
         responses={
             200: OpenApiResponse(response=ReportKeyClausesSerializer),
-            402: JEV_OUT_OF_CREDITS,
             503: JEV_UNAVAILABLE,
         },
         summary="Mark the key clauses of a report",
@@ -202,7 +190,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(ReportKeyClausesSerializer(found).data)
 
     @validated_request(
-        responses={200: OpenApiResponse(response=FigureMarksSerializer), 402: JEV_OUT_OF_CREDITS, 503: JEV_UNAVAILABLE},
+        responses={200: OpenApiResponse(response=FigureMarksSerializer), 503: JEV_UNAVAILABLE},
         summary="Mark the numbers of a report with their sources",
         description="The numbers in the report's lead and impact sentence that a signal or the agent's research states, each with the sentence that states it. A number is marked only when the decision model is sure it is a measured result and that one source states the same result. 404 when the report is missing or the person may not use Jev.",
     )
@@ -226,7 +214,6 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         request_serializer=ExcerptChoiceRequestSerializer,
         responses={
             200: OpenApiResponse(response=ExcerptChoiceSerializer),
-            402: JEV_OUT_OF_CREDITS,
             503: JEV_UNAVAILABLE,
         },
         summary="Pick the code excerpt a finding describes",

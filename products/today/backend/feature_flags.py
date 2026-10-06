@@ -48,13 +48,19 @@ def may_get_briefing(user: User, team: Team) -> bool:
 
 
 def may_ask_jev(user: User, team: Team) -> bool:
-    return _may_use_ai(user, team, TODAY_REPORT_JEV_FLAG) and _flag_on(TODAY_RAIL_NAV_FLAG, user, team)
+    """PostHog pays for Jev calls, so they skip the organization's AI credit limit."""
+    return _may_send_to_ai(user, team) and all(
+        _flag_on(flag, user, team) for flag in (TODAY_REPORT_JEV_FLAG, TODAY_RAIL_NAV_FLAG)
+    )
+
+
+def _may_send_to_ai(user: User, team: Team) -> bool:
+    return bool(team.organization.is_ai_data_processing_approved and user.teams.filter(id=team.id).exists())
 
 
 def _may_use_ai(user: User, team: Team, flag: str) -> bool:
     return bool(
-        team.organization.is_ai_data_processing_approved
+        _may_send_to_ai(user, team)
         and not is_team_limited(team.api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
-        and user.teams.filter(id=team.id).exists()
         and _flag_on(flag, user, team)
     )

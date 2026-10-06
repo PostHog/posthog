@@ -195,15 +195,15 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             ("not a report id", True, "report-1", None, status.HTTP_404_NOT_FOUND),
             ("no gateway", True, REPORT_ID, SystemOneNotConfigured("no gateway"), status.HTTP_503_SERVICE_UNAVAILABLE),
             (
-                "out of ai credits",
+                "the gateway refuses to bill",
                 True,
                 REPORT_ID,
                 SystemOneRequestFailed("payment required", status_code=402),
-                status.HTTP_402_PAYMENT_REQUIRED,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
             ),
         ]
     )
-    def test_key_clauses_answer_only_people_who_may_use_jev(
+    def test_key_clauses_answer_only_people_who_may_use_jev_even_without_ai_credits(
         self,
         _sync_connect: MagicMock,
         _name: str,
@@ -219,6 +219,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         )
         with (
             self._flag(flag),
+            patch("products.today.backend.feature_flags.is_team_limited", return_value=True),
             patch("products.today.backend.facade.api.signals.report_page_source", return_value=page),
             patch("products.today.backend.facade.api.GatewayJev", return_value=jev, side_effect=gateway_error),
         ):
@@ -311,7 +312,7 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
             ("a sure pick", ChoiceAnswer(choice="2", confidence=0.9, probabilities={}), status.HTTP_200_OK, 1),
             ("an unsure pick", ChoiceAnswer(choice="2", confidence=0.3, probabilities={}), status.HTTP_200_OK, None),
             ("a failing gateway", SystemOneRequestFailed("bad gateway", status_code=502), 503, None),
-            ("no ai credits", SystemOneRequestFailed("payment required", status_code=402), 402, None),
+            ("a gateway that refuses to bill", SystemOneRequestFailed("payment required", status_code=402), 503, None),
         ]
     )
     def test_excerpt_choice_asks_the_gateway_once_for_the_finding(

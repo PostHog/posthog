@@ -28,10 +28,12 @@ class TestGatewayJev(SimpleTestCase):
 
     def _ask(self, adecide: AsyncMock, items: list[str], team_id: int = 1) -> list[float | None]:
         with (
-            patch("products.today.backend.logic.jev.build_system_one_client", return_value=CLIENT),
+            patch("products.today.backend.logic.jev.build_system_one_client", return_value=CLIENT) as build,
             patch.object(GatewaySystemOneClient, "adecide", adecide),
         ):
-            return GatewayJev(team_id=team_id, distinct_id="person").yes_probability(items, "Is it broken?")
+            answers = GatewayJev(team_id=team_id, distinct_id="person").yes_probability(items, "Is it broken?")
+        assert all("team_id" not in call.kwargs for call in build.call_args_list)
+        return answers
 
     def test_asks_the_model_once_for_each_distinct_text(self) -> None:
         adecide = AsyncMock(side_effect=answered)
