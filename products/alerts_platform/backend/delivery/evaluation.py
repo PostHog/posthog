@@ -16,6 +16,7 @@ from posthog.models import Team
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.slack import SlackTransport
+from products.alerts_platform.backend.delivery.teams import TeamsTransport
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport
@@ -43,6 +44,7 @@ LIVE_DELIVERY_FLAG: Final = "alert-platform-live-delivery"
 _TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
     DestinationType.SLACK: SlackTransport,
     DestinationType.WEBHOOK: WebhookTransport,
+    DestinationType.TEAMS: TeamsTransport,
 }
 
 
