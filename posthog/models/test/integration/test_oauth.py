@@ -64,6 +64,8 @@ class TestOauthIntegrationModel(BaseTest):
         "LINKEDIN_APP_CLIENT_SECRET": "linkedin-client-secret",
         "TIKTOK_ADS_CLIENT_ID": "tiktok-app-id",
         "TIKTOK_ADS_CLIENT_SECRET": "tiktok-secret",
+        "LINEAR_APP_CLIENT_ID": "linear-client-id",
+        "LINEAR_APP_CLIENT_SECRET": "linear-client-secret",
     }
 
     def create_integration(
@@ -146,6 +148,15 @@ class TestOauthIntegrationModel(BaseTest):
                 url
                 == "https://accounts.google.com/o/oauth2/v2/auth?client_id=google-client-id&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fadwords+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email&redirect_uri=https%3A%2F%2Flocalhost%3A8010%2Fintegrations%2Fgoogle-ads%2Fcallback&response_type=code&state=next%3D%252Fprojects%252Ftest%26token%3Dstate_token&access_type=offline&prompt=consent"
             )
+
+    def test_linear_authorize_url_forces_the_approval_screen(self):
+        # Without the prompt, a person with several Linear workspaces never sees the switcher.
+        with self.settings(**self.mock_settings):
+            url = OauthIntegration.authorize_url("linear", token="state_token", next="/projects/test")
+            params = {k: v[0] for k, v in parse_qs(url.partition("?")[2]).items()}
+
+            assert params["prompt"] == "consent"
+            assert params["actor"] == "application"
 
     def test_authorize_url_google_calendar(self):
         with self.settings(**self.mock_settings):
@@ -1197,6 +1208,28 @@ class TestOauthIntegrationModel(BaseTest):
         assert call.kwargs["auth"].password == ""
 
         mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_stripe_refresh_retry_after_lost_response_replays_the_same_request(self, mock_post, mock_reload):
+        rotated = MagicMock(status_code=200)
+        rotated.json.return_value = {"access_token": "REFRESHED", "refresh_token": "ROTATED"}
+        rotated_again = MagicMock(status_code=200)
+        rotated_again.json.return_value = {"access_token": "REFRESHED_AGAIN", "refresh_token": "ROTATED_AGAIN"}
+        mock_post.side_effect = [requests.exceptions.ReadTimeout(), rotated, rotated_again]
+
+        integration = self.create_integration(kind="stripe")
+
+        with self.settings(STRIPE_APP_CLIENT_ID="ca_test_clientid", STRIPE_APP_SECRET_KEY="sk_test_secret"):
+            OauthIntegration(integration).refresh_access_token()
+            OauthIntegration(Integration.objects.get(id=integration.id)).refresh_access_token()
+            OauthIntegration(Integration.objects.get(id=integration.id)).refresh_access_token()
+
+        lost, retried, next_rotation = (call.kwargs["headers"]["Idempotency-Key"] for call in mock_post.call_args_list)
+        assert lost == retried
+        assert next_rotation != retried
+        assert "REFRESH" not in lost
+        assert Integration.objects.get(id=integration.id).sensitive_config["refresh_token"] == "ROTATED_AGAIN"
 
     @patch("posthog.models.integration.oauth.requests.post")
     def test_stripe_oauth_does_not_persist_is_sandbox(self, mock_post):

@@ -1502,6 +1502,13 @@ class QueryMatchingTest:
         snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
         return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
 
+    def sql_snapshot(self, printed: str):
+        """The snapshot to compare printed ClickHouse SQL against: a query that reads the native-JSON events
+        table goes to the schema-specific file, so one test keeps a snapshot per schema mode."""
+        return self._schema_snapshot(
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed.lower()
+        )
+
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
         replace_all_numbers = replace_all_numbers or self.replace_all_numbers
@@ -1785,6 +1792,34 @@ def _create_event(**kwargs):
         kwargs["timestamp"] = dt.datetime.now()
     events_cache_tests.append(kwargs)
     return kwargs["event_uuid"]
+
+
+def _create_flag_evaluations(team_id: int, flag_key: str, count: int = 1, timestamp: dt.datetime | None = None) -> None:
+    """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
+    the rows immediately."""
+    timestamp = timestamp or dt.datetime.now(dt.UTC)
+    properties = json.dumps({"$feature_flag": flag_key, "$feature_flag_response": True})
+    # writable_flag_evaluations does not declare flag_key. The shard computes it from properties.$feature_flag.
+    sync_execute(
+        """
+        INSERT INTO writable_flag_evaluations
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id)
+        VALUES
+        """,
+        [
+            (
+                str(uuid.uuid4()),
+                "$feature_flag_called",
+                properties,
+                timestamp,
+                team_id,
+                "evaluator",
+                timestamp,
+                str(uuid.uuid4()),
+            )
+            for _ in range(count)
+        ],
+    )
 
 
 def _warn_if_session_id_malformed(session_id: str):

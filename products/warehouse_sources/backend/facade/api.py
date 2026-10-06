@@ -28,6 +28,7 @@ from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
 from products.warehouse_sources.backend.file_uploads import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
+    FORMAT_CSV,
     MAX_UPLOAD_SIZE_BYTES as MAX_FILE_UPLOAD_SIZE_BYTES,
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_key,
@@ -104,6 +105,7 @@ __all__ = [
     # file-upload storage contract
     "FILE_FORMAT_READ_HINTS",
     "FILE_FORMAT_TO_TABLE_FORMAT",
+    "FORMAT_CSV",
     "MAX_FILE_UPLOAD_SIZE_BYTES",
     "SUPPORTED_FILE_FORMATS",
     "build_file_upload_s3_key",
@@ -117,6 +119,7 @@ __all__ = [
 # weight off the ``django.setup()`` import path — only the namespaced-resource registry loads them.
 _LAZY = {
     "github_repositories_for_job_inputs": "github_warehouse_repos",
+    "github_source_credential": "github_warehouse_repos",
     "reconcile_github_repositories": "github_warehouse_repos",
 }
 
@@ -575,11 +578,21 @@ def soft_delete_tables(team_id: int, names: Collection[str]) -> int:
     return deleted
 
 
-def list_jobs_for_source(source_id: UUID, team_id: int) -> list[contracts.ExternalDataJob]:
+MAX_JOBS_PER_SOURCE = 100
+
+
+def list_jobs_for_source(
+    source_id: UUID, team_id: int, limit: int = MAX_JOBS_PER_SOURCE
+) -> list[contracts.ExternalDataJob]:
+    """The source's newest jobs, most recent first, at most `MAX_JOBS_PER_SOURCE` of them.
+
+    The cap is not optional in effect: a busy source runs millions of jobs, so an unbounded
+    read here would scan and sort that whole history to serve one caller.
+    """
     qs = (
         _ExternalDataJob.objects.select_related("schema", "pipeline")
         .filter(team_id=team_id, pipeline_id=source_id)
-        .order_by("-created_at")
+        .order_by("-created_at")[: min(max(limit, 1), MAX_JOBS_PER_SOURCE)]
     )
     return [_to_job(j) for j in qs]
 

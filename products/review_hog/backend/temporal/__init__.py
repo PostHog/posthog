@@ -11,6 +11,7 @@ from products.review_hog.backend.temporal.activities import (
     load_validation_skill_activity,
     post_status_comment_activity,
     publish_review_activity,
+    record_turn_marker_activity,
     remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
@@ -33,6 +34,7 @@ from products.review_hog.backend.temporal.resolution import (
     fail_resolution_activity,
     resolve_threads_activity,
 )
+from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, review_resolution_running_activity
 from products.review_hog.backend.temporal.workflow import (
     ReviewPerspectivesWorkflow,
     ReviewPRWorkflow,
@@ -40,6 +42,7 @@ from products.review_hog.backend.temporal.workflow import (
 )
 
 WORKFLOWS = [
+    ReviewPRQueueWorkflow,
     ReviewPRWorkflow,
     ReviewPerspectivesWorkflow,
     ValidateIssuesWorkflow,
@@ -48,6 +51,7 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    review_resolution_running_activity,
     validate_github_integration_activity,
     fetch_pr_data_activity,
     resolve_acting_user_activity,
@@ -63,6 +67,7 @@ ACTIVITIES = [
     validate_chunk_activity,
     build_body_activity,
     publish_review_activity,
+    record_turn_marker_activity,
     remove_trigger_label_activity,
     post_status_comment_activity,
     finalize_status_comment_activity,

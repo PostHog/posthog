@@ -14,10 +14,13 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 #   - "sales_report":     `/v1/salesReports`, which is not a collection at all — one request per report date
 #                         returns a gzipped TSV file. Walked forward a day at a time from the watermark.
 #   - "analytics_report": Apple's Analytics Reports API, an asynchronous request/poll/download flow.
-#                         Per app: ensure an ONGOING report request exists (the one account mutation this
-#                         source makes), find the named report under it, list its DAILY instances, then
-#                         download and parse each instance's file segments. Walked forward by instance
-#                         processing date from the watermark.
+#                         Per app: ensure an ONGOING report request exists, find the named report under
+#                         it, list its DAILY instances, then download and parse each instance's file
+#                         segments. Walked forward by instance processing date from the watermark. On a
+#                         fresh table (first sync, resync, or full refresh) a ONE_TIME_SNAPSHOT request
+#                         is also ensured and, once Apple generates it, backfills history older than
+#                         the ongoing stream. Report request creation is the only account mutation this
+#                         source makes.
 EndpointKind = Literal["collection", "app_fanout", "sales_report", "analytics_report"]
 
 # Apple caps most collection pages at 200 resources.
@@ -88,14 +91,8 @@ class AppStoreConnectEndpointConfig:
     # the DAILY/SUMMARY combination of each report type.
     report_version: str = ""
     report_frequency: str = "DAILY"
-    # Apple 404s a SALES report request for a date with no data. Subscription-family report types
-    # (SUBSCRIPTION, SUBSCRIPTION_EVENT) instead 400 with a misleading "Invalid vendor number
-    # specified" error for that same condition — a longstanding, publicly reported Apple API quirk,
-    # usually not an actual credentials problem. A tolerated 400 is not swallowed blindly:
-    # `_fetch_report` reads the body, so a genuinely malformed request (wrong version or sub type)
-    # still fails loudly instead of reading as a quiet account. Apple words that same 400 for a
-    # vendor number it doesn't know, so a sales-report check separates the two before the misleading
-    # wording is tolerated across the whole lookback.
+    # Apple sometimes returns a misleading 400 instead of 404 for an empty report day. Endpoints that
+    # exhibit this quirk tolerate 400; `_fetch_report` classifies the response body before swallowing it.
     missing_report_status_codes: tuple[int, ...] = (404,)
 
 
@@ -211,6 +208,7 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
         incremental_fields=[_REPORT_DATE_FIELD],
         partition_key="report_date",
         should_sync_default=False,
+        missing_report_status_codes=(404, 400),
     ),
     # Daily active subscription counts by state and territory.
     "subscription_reports": AppStoreConnectEndpointConfig(

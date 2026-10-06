@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { type MutableRefObject, useEffect, useRef } from 'react'
 
+import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
@@ -11,9 +12,12 @@ import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
 import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../components/RunEscapeBoundary'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
+import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { runCancellationLogic } from '../../../logics/runCancellationLogic'
 import type { RunContinuationHandoff } from '../../../logics/runInteractionLogic'
+import type { AttachedContextItem } from '../../../types/contextTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
+import { QuillTaskComposerSkeleton } from './QuillTaskComposerSkeleton'
 import { TaskRunComposer } from './TaskRunComposer'
 
 export interface TaskRunChatProps {
@@ -32,6 +36,7 @@ export interface TaskRunChatProps {
     initialDraft?: string
     onDraftAdopted?: () => void
     autoFocus?: boolean
+    contextItems?: AttachedContextItem[]
 }
 
 /**
@@ -52,6 +57,7 @@ export function TaskRunChat({
     initialDraft,
     onDraftAdopted,
     autoFocus,
+    contextItems,
 }: TaskRunChatProps): JSX.Element {
     const { setSelectedRunId, loadTaskRuns, continueWithRun } = useActions(taskDetailSceneLogic({ taskId }))
     const { selectedRun, task } = useValues(taskDetailSceneLogic({ taskId }))
@@ -73,6 +79,7 @@ export function TaskRunChat({
         initialDraft,
         onDraftAdopted,
         flushDraft: () => flushDraftRef.current(),
+        contextItems: contextItems ?? pendingInteraction?.props.contextItems,
         currentModel:
             runConfig?.model ??
             (typeof runConfig?.state?.model === 'string'
@@ -88,6 +95,10 @@ export function TaskRunChat({
                 ? runConfig.state.initial_permission_mode
                 : pendingInteraction?.props.currentMode,
         currentRuntimeAdapter: runConfig?.runtime_adapter ?? pendingInteraction?.props.currentRuntimeAdapter,
+        currentCodexModelAccess:
+            typeof runConfig?.state?.codex_model_access === 'string'
+                ? runConfig.state.codex_model_access
+                : pendingInteraction?.props.currentCodexModelAccess,
         onRunStarted: (newRunId, handoff) => {
             if (handoff) {
                 continueWithRun(handoff)
@@ -128,6 +139,7 @@ function TaskRunChatContent({
     flushDraftRef: MutableRefObject<() => void>
 }): JSX.Element {
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
+    const skin = useThreadSkin()
     const { handleEscape } = useActions(runInteractionLogic(logicProps))
     const { cancellationState } = useValues(runInteractionLogic(logicProps))
     const { clearCancellation } = useActions(
@@ -154,7 +166,7 @@ function TaskRunChatContent({
                 textAreaRef={textAreaRef}
                 onEscape={handleEscape}
                 disabled={readOnly}
-                className="@container/thread flex flex-col h-full -mx-4"
+                className={cn('@container/thread flex flex-col h-full', skin === 'lemon' && '-mx-4')}
             >
                 <RunSurface.Thread
                     restoreReadPosition
@@ -164,7 +176,10 @@ function TaskRunChatContent({
                 />
                 {/* Stay live (stream keeps flowing) but omit the composer entirely for a read-only viewer. */}
                 {!readOnly && (
-                    <RunSurface.Composer isStopping={!!cancellationState}>
+                    <RunSurface.Composer
+                        isStopping={!!cancellationState}
+                        loadingFallback={skin === 'quill' ? <QuillTaskComposerSkeleton /> : undefined}
+                    >
                         {/* The composer owns the per-keystroke draft in an isolated child so typing never re-renders
                         the thread/virtualizer rendered as its sibling above — that cascade is what made the input lag. */}
                         <TaskRunComposer

@@ -152,19 +152,118 @@ class TestFileSystemShortcutAPI(APIBaseTest):
             shortcut.refresh_from_db()
             self.assertEqual(shortcut.order, expected_order)
 
-    def test_reorder_rejects_foreign_user_shortcuts(self):
+    @parameterized.expand(
+        [
+            ("reorder", "reorder", "ordered_ids"),
+            ("bulk_update", "bulk_update", "remove_ids"),
+        ]
+    )
+    def test_rejects_foreign_user_shortcuts(self, _name: str, url_path: str, ids_field: str):
         other_user = self._create_user("other")
         foreign = FileSystemShortcut.objects.create(team=self.team, path="Foreign", type="t", user=other_user)
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/file_system_shortcut/reorder/",
-            {"ordered_ids": [str(foreign.id)]},
+            f"/api/projects/{self.team.id}/file_system_shortcut/{url_path}/",
+            {ids_field: [str(foreign.id)], "add": [{"path": "Logs", "type": "logs", "href": "/logs"}]},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertIn(str(foreign.id), response.json()["unknown_ids"])
         foreign.refresh_from_db()
         self.assertEqual(foreign.order, 0)
+        self.assertFalse(FileSystemShortcut.objects.filter(user=self.user).exists())
+
+    def test_bulk_update_adds_removes_and_skips_duplicates(self):
+        kept = FileSystemShortcut.objects.create(
+            team=self.team, path="Dashboards", type="dashboard", href="/dashboard", user=self.user, order=3
+        )
+        removed = FileSystemShortcut.objects.create(
+            team=self.team, path="Logs", type="logs", href="/logs", user=self.user, order=4
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/bulk_update/",
+            {
+                "add": [
+                    {"path": "Session replay", "type": "session_replay", "href": "/replay"},
+                    {"path": "Dashboards", "type": "dashboard", "href": "/dashboard"},
+                    {"path": "Feature flags", "type": "feature_flag", "href": "/feature_flags"},
+                    {"path": "Feature flags", "type": "feature_flag", "href": "/feature_flags"},
+                ],
+                "remove_ids": [str(removed.id)],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(
+            [(row["path"], row["order"]) for row in response.json()],
+            [("Dashboards", 3), ("Session replay", 4), ("Feature flags", 5)],
+        )
+        self.assertEqual(response.json()[0]["id"], str(kept.id))
+        self.assertFalse(FileSystemShortcut.objects.filter(id=removed.id).exists())
+
+    def test_reorder_response_excludes_retired_shortcuts(self):
+        retired = FileSystemShortcut.objects.create(
+            team=self.team, path="Old link", type="link", user=self.user, order=0
+        )
+        kept = FileSystemShortcut.objects.create(
+            team=self.team, path="Dashboards", type="dashboard", user=self.user, order=1
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/reorder/",
+            {"ordered_ids": [str(kept.id), str(retired.id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([row["id"] for row in response.json()], [str(kept.id)])
+
+    def test_bulk_update_response_excludes_retired_shortcuts(self):
+        FileSystemShortcut.objects.create(team=self.team, path="Old link", type="link", user=self.user, order=0)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/bulk_update/",
+            {"add": [{"path": "Dashboards", "type": "dashboard", "href": "/dashboard"}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual([row["path"] for row in response.json()], ["Dashboards"])
+
+    @parameterized.expand(
+        [
+            ("retrieve", "get", status.HTTP_404_NOT_FOUND, True),
+            ("update", "patch", status.HTTP_404_NOT_FOUND, True),
+            ("delete", "delete", status.HTTP_204_NO_CONTENT, False),
+        ]
+    )
+    def test_retired_shortcut_is_hidden_except_from_delete(
+        self, _name: str, method: str, expected_status: int, still_exists: bool
+    ) -> None:
+        retired = FileSystemShortcut.objects.create(team=self.team, path="Old link", type="link", user=self.user)
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/file_system_shortcut/{retired.pk}/", {"path": "Renamed"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(FileSystemShortcut.objects.filter(pk=retired.pk, path="Old link").exists(), still_exists)
+
+    @parameterized.expand(
+        [
+            ("create", "", {"path": "Old link", "type": "link"}),
+            ("bulk_update", "bulk_update/", {"add": [{"path": "Old link", "type": "link"}]}),
+        ]
+    )
+    def test_rejects_new_shortcut_of_retired_type(self, _name: str, url_suffix: str, body: dict) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/{url_suffix}", body, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertFalse(FileSystemShortcut.objects.filter(type="link").exists())
 
     def test_reorder_rejects_empty_list(self):
         response = self.client.post(

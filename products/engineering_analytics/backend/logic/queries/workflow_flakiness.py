@@ -41,7 +41,7 @@ _SELECT = """
         maxIf(j.run_attempt, j.conclusion = 'success') AS passed_attempt,
         maxIf(j.duration_seconds, j.conclusion IN ('failure', 'timed_out')) AS failed_duration_seconds
     FROM __JOBS_SOURCE__ AS j
-    INNER JOIN __RUNS_SOURCE__ AS r ON r.id = j.run_id
+    INNER JOIN __RUNS_SOURCE__ AS r ON r.id = j.run_id AND r.ci_engine = j.ci_engine
     -- Both sources carry a raw-string floor inside their builder (job_created_floor /
     -- run_started_floor); the parsed j.created_at filter alone can't push down, so those floors
     -- keep the sweep off a full jobs+runs scan each hour.
@@ -49,7 +49,7 @@ _SELECT = """
     -- concat yields NULL when j.name is NULL, which a bare NOT IN would drop.
        AND ifNull(concat(lower(r.repo_owner), '/', lower(r.repo_name), '/', j.name), '')
            NOT IN {by_design_failures}
-    GROUP BY r.repo_owner, r.repo_name, j.workflow_name, j.name, j.run_id, j.head_sha
+    GROUP BY r.repo_owner, r.repo_name, j.workflow_name, j.name, j.ci_engine, j.run_id, j.head_sha
     HAVING failed_attempt > 0
        AND passed_attempt > failed_attempt
        AND failed_duration_seconds >= {min_failed_duration_seconds}

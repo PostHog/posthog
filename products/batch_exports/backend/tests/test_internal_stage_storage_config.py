@@ -4,9 +4,11 @@ from django.test.utils import override_settings
 
 from posthog.credentials import AWSKeyPair
 
+from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     _get_s3_credentials,
     _get_s3_endpoint_url,
+    get_base_s3_staging_folder,
     get_s3_staging_folder,
 )
 
@@ -104,3 +106,28 @@ def test_s3_endpoint_url_self_hosted_uses_configured_endpoint_not_localhost() ->
         BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT=OBJECT_STORAGE_ENDPOINT,
     ):
         assert _get_s3_endpoint_url() == OBJECT_STORAGE_ENDPOINT
+
+
+@pytest.mark.parametrize(
+    "start,end,run_id,expected_base",
+    [
+        ("2026-01-01", "2026-01-02", None, "batch-exports/export/2026-01-01-2026-01-02"),
+        (None, "2026-01-02", None, "batch-exports/export/None-2026-01-02"),
+        (None, "2026-01-02", "run-a", "batch-exports/export/runs/run-a"),
+        ("2026-01-01", None, "run-a", "batch-exports/export/runs/run-a"),
+        (None, None, "run-b", "batch-exports/export/runs/run-b"),
+        (None, None, None, None),
+    ],
+)
+def test_staging_folder_namespace(
+    start: str | None, end: str | None, run_id: str | None, expected_base: str | None
+) -> None:
+    if expected_base is None:
+        with pytest.raises(MissingRequiredInputsError, match="requires data_interval_end or run_id"):
+            get_s3_staging_folder("export", start, end, 1, run_id=run_id)
+        return
+    assert get_base_s3_staging_folder("export", start, end, run_id) == expected_base
+    for attempt in (1, 2):
+        assert (
+            get_s3_staging_folder("export", start, end, attempt, run_id).folder == f"{expected_base}/attempt_{attempt}"
+        )

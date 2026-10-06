@@ -11,14 +11,24 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
+from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.models.team import Team
 from posthog.models.user import User
+
+from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 
 _B = "products.cdp.backend."
 
 _LAZY = {"HogFunctionSerializer": "api.hog_function"}
 
-__all__ = [*sorted(_LAZY), "create_hog_functions"]
+__all__ = [*sorted(_LAZY), "create_hog_functions", "is_hog_function_template_available"]
+
+
+def is_hog_function_template_available(template_id: str, team: Team) -> bool:
+    if HogFunctionTemplate.get_template(template_id) is None:
+        return False
+    flag = FLAG_GATED_TEMPLATE_IDS.get(template_id)
+    return flag is None or gated_template_enabled(flag, team)
 
 
 def create_hog_functions(

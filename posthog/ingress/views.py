@@ -10,6 +10,7 @@ import structlog
 from rest_framework.request import Request as DRFRequest
 from rest_framework.throttling import ScopedRateThrottle
 
+from posthog.exceptions_capture import capture_exception
 from posthog.ingress.dispatch.budget import DeliveryBudget, delivery_budget_seconds
 from posthog.ingress.dispatch.forward import forward_to_other_region
 from posthog.ingress.dispatch.loading import get_dispatcher
@@ -91,7 +92,16 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
 
         verification = provider.verify(request)
         if verification.outcome is VerificationOutcome.NOT_CONFIGURED:
-            logger.error("ingress_webhook_not_configured", provider=provider.provider, app=provider.app)
+            # An incarnation that answers a 4xx may stay off until an operator configures it, and its
+            # URL is public meanwhile, so what reaches this line is probe traffic. A warning still
+            # reaches an operator, and at error level an anonymous prober would decide how much of
+            # the error budget this endpoint spends.
+            log = logger.warning if provider.unconfigured_status < 500 else logger.error
+            log("ingress_webhook_not_configured", provider=provider.provider, app=provider.app)
+            if provider.reports_unconfigured:
+                capture_exception(
+                    Exception(f"Inbound webhook {provider.provider}/{provider.app} has no secret configured")
+                )
             observe_delivery(provider=provider.provider, app=provider.app, outcome="not_configured")
             reason = "Webhook not configured" if provider.explains_rejections else ""
             return HttpResponse(reason, status=provider.unconfigured_status)
@@ -172,13 +182,24 @@ def build_webhook_view(provider: WebhookProvider) -> Callable[[HttpRequest], Htt
                 if not forwarded and provider.retry_status is not None:
                     observe_delivery(provider=provider.provider, app=provider.app, outcome="forward_failed")
                     return HttpResponse(status=provider.retry_status)
-            else:
+            elif request.get_host() == other_region_domain(provider.receiving_region_domain()):
                 # This region is the one deliveries are forwarded to, so a local miss here is that
                 # consumer's unresolved routing, not proof that no region owns the delivery.
                 logger.warning(
                     "ingress_delivery_unowned_here",
                     provider=provider.provider,
                     app=provider.app,
+                    consumers=list(elsewhere),
+                )
+            else:
+                # Neither region answers on this host, so the forward is skipped and the delivery is
+                # receipted here whatever the consumer said. The likely cause is a callback URL
+                # registered against a hostname no region names, and nothing else reports it.
+                logger.warning(
+                    "ingress_delivery_host_matches_no_region",
+                    provider=provider.provider,
+                    app=provider.app,
+                    host=request.get_host(),
                     consumers=list(elsewhere),
                 )
 

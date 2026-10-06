@@ -20,6 +20,7 @@ import type {
     DataQualitySuiteRunApi,
 } from 'products/data_quality/frontend/generated/api.schemas'
 
+import type { OverviewChecksStatus } from './dataQualityOverviewLogic'
 import {
     NEW_CHECK_ACTION_ID,
     dataQualityOverviewLogic,
@@ -329,17 +330,29 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.overviewSummary).toEqual('1 of 1 checks failing, across 1 tables, views, and metrics.')
     })
 
-    it.each<[string, (string | null)[], string]>([
+    it.each<[string, (string | null)[], string | null, OverviewChecksStatus]>([
         // The regression: a not-failing check was reported as passed, so a page of never-run checks
         // read as an all-clear the moment they were created.
-        ['never-run checks as not run, never as passed', [null, null], 'None of your checks have run yet.'],
-        ['a fully passing project as all passed', ['passed', 'passed'], 'All 2 checks passed on their last run.'],
+        [
+            'never-run checks as not run, never as passed',
+            [null, null],
+            'None of your checks have run yet.',
+            'some-not-passed',
+        ],
+        [
+            'a fully passing project as all passed',
+            ['passed', 'passed'],
+            'All 2 checks passed on their last run.',
+            'all-passed',
+        ],
         [
             'a mix without claiming the unrun ones passed',
             ['passed', null],
             '1 of 2 checks passed on their last run, 1 not run yet.',
+            'some-not-passed',
         ],
-    ])('summarises %s', async (_case, statuses, expected) => {
+        ['a project with no checks as having none', [], null, 'none'],
+    ])('summarises %s', async (_case, statuses, expected, expectedStatus) => {
         ;(dataQualityChecksList as jest.Mock).mockResolvedValue({
             results: statuses.map((status, index) => buildCheck(`check-${index}`, 'orders', status)),
         })
@@ -347,6 +360,17 @@ describe('dataQualityOverviewLogic', () => {
         await mountLogic()
 
         expect(logic.values.overviewSummary).toEqual(expected)
+        expect(logic.values.checksStatus).toEqual(expectedStatus)
+    })
+
+    it('does not claim every check passed when the checks fill the page', async () => {
+        ;(dataQualityChecksList as jest.Mock).mockResolvedValue({
+            results: Array.from({ length: 500 }, (_, index) => buildCheck(`check-${index}`, 'orders', 'passed')),
+        })
+        ;(dataQualityChecksHealthList as jest.Mock).mockResolvedValue([])
+        await mountLogic()
+
+        expect(logic.values.checksStatus).toEqual('unknown')
     })
 
     it('sends no ids when running everything', async () => {
@@ -492,15 +516,27 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.isRunning).toBe(false)
     })
 
-    it.each<[string, Record<string, string>[], string | null]>([
+    it.each<[string, Record<string, string | boolean>[], string | null, boolean]>([
         // Retention clears the compiled query of older runs first, so "latest" is not always [0].
         [
             'the newest run that still has one',
             [{ compiled_query: 'SELECT 2' }, { compiled_query: 'SELECT 1' }],
             'SELECT 2',
+            false,
         ],
-        ['past runs whose query was cleared', [{ compiled_query: '' }, { compiled_query: 'SELECT 1' }], 'SELECT 1'],
-    ])('opens the failing rows of %s', async (_case, runs, expected) => {
+        [
+            'past runs whose query was cleared',
+            [{ compiled_query: '' }, { compiled_query: 'SELECT 1' }],
+            'SELECT 1',
+            false,
+        ],
+        [
+            'a run that checked an unpublished refresh',
+            [{ compiled_query: 'WITH orders AS (SELECT 1) SELECT * FROM orders', audited_staged_refresh: true }],
+            'WITH orders AS (SELECT 1) SELECT * FROM orders',
+            true,
+        ],
+    ])('opens the failing rows of %s', async (_case, runs, expected, explained) => {
         ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue(runs)
         await mountLogic()
 
@@ -509,11 +545,16 @@ describe('dataQualityOverviewLogic', () => {
 
         expect(router.values.location.pathname).toMatch(/\/sql$/)
         expect(router.values.searchParams.open_query).toEqual(expected)
+        expect(lemonToast.info).toHaveBeenCalledTimes(explained ? 1 : 0)
     })
 
-    it.each<[string, Record<string, string>[]]>([
+    it.each<[string, Record<string, string | boolean>[]]>([
         ['the check has never run', []],
         ['every run has lost its query to retention', [{ compiled_query: '' }]],
+        [
+            'the newest run checked an unpublished refresh but has no query',
+            [{ compiled_query: '', audited_staged_refresh: true }, { compiled_query: 'SELECT 1' }],
+        ],
     ])('says why there is nothing to open when %s', async (_case, runs) => {
         ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue(runs)
         await mountLogic()
@@ -526,7 +567,7 @@ describe('dataQualityOverviewLogic', () => {
     })
 
     it.each<[string, Partial<DataQualityOverviewCheckApi>, string | null]>([
-        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1/tests'],
+        ['a view on a DAG node', { subject_type: 'view', subject_node_id: 'node-1' }, '/models/node-1/data-quality'],
         ['a view on no DAG', { subject_type: 'view', subject_node_id: null }, null],
         [
             'a PostHog table on a DAG node',
@@ -537,7 +578,7 @@ describe('dataQualityOverviewLogic', () => {
         [
             'a metric',
             { subject_type: 'metric', subject_metric_name: 'weekly_signups' },
-            '/data-catalog/metrics/weekly_signups?tab=tests',
+            '/data-catalog/metrics/weekly_signups?tab=data-quality',
         ],
         ['a deleted metric', { subject_type: 'metric', subject_metric_name: null }, null],
         [
@@ -553,7 +594,7 @@ describe('dataQualityOverviewLogic', () => {
         [
             'a metric on its catalog page',
             { subject_type: 'metric', subject_uuid: 'uuid-metric', subject_metric_name: 'signups' },
-            '/data-catalog/metrics/signups?tab=tests',
+            '/data-catalog/metrics/signups?tab=data-quality',
         ],
         [
             'a metric whose name did not come through',

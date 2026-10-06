@@ -1,3 +1,4 @@
+import { ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
 import { errorClassLabel } from '~/common/personhog/metrics'
@@ -8,19 +9,29 @@ import {
     personhogStoreShadowDurationSeconds,
     personhogStoreShadowErrorsCounter,
     personhogStoreShadowFoldRedriveCounter,
+    personhogStoreShadowMergeRedriveCounter,
     personhogStoreShadowSkipsCounter,
 } from '~/common/persons/metrics'
 import { PersonMessage } from '~/common/persons/person-message'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
+import { promiseRetry } from '~/common/utils/retries'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
+import { PersonMergeCallFailedError, PersonMergeUnsettledError } from './person-merge-types'
 import { EventOps } from './person-update'
-import { PersonhogPersonsStore } from './personhog-persons-store'
-import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsBackend, PersonsStore } from './persons-store'
+import { CREATE_EVENT_NAME, PersonhogPersonsStore } from './personhog-persons-store'
+import {
+    FlushResult,
+    MergePersonsRequest,
+    MergePersonsResult,
+    PersonsBackend,
+    PersonsStore,
+    isFoldRequest,
+} from './persons-store'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from './persons-store-for-batch'
 
 export type PersonsStoreMode = 'pg' | 'personhog' | 'shadow'
@@ -105,6 +116,18 @@ function stableEqual(left: unknown, right: unknown): boolean {
  */
 const SHADOW_VERB_TIMEOUT_MS = 60_000
 
+/**
+ * A deferred shadow merge waits this long before a flush re-drives it, since the op holding its person usually
+ * completes within it, and stays in play for the identity service's execute timeout for that op.
+ */
+const SHADOW_MERGE_REDRIVE_DELAY_MS = 5_000
+const SHADOW_MERGE_REDRIVE_WINDOW_MS = 30_000
+/** Re-drives one flush runs, and deferred merges one store keeps; past them the oldest are dropped, counted. */
+const SHADOW_MERGE_REDRIVES_PER_FLUSH = 16
+const SHADOW_MERGE_DEFERRED_LIMIT = 1_000
+
+type DeferredShadowMerge = { request: MergePersonsRequest; batchId: number; notBefore: number; expiresAt: number }
+
 /** Raised when a shadow verb outruns its ceiling and the batch abandons it. */
 class ShadowVerbTimeoutError extends Error {
     constructor(verb: string) {
@@ -144,10 +167,11 @@ export class RoutingPersonsStore implements PersonsStore {
      * the consumer's poll budget, so a verb that outruns the ceiling is
      * abandoned and counted as lost fidelity; the bound is per verb.
      */
-    private async shadowed(verb: string, run: () => Promise<unknown>): Promise<void> {
+    private async shadowed(verb: string, run: (abandoned: AbortSignal) => Promise<unknown>): Promise<void> {
         const stopTimer = personhogStoreShadowDurationSeconds.labels({ verb }).startTimer()
         let timer: ReturnType<typeof setTimeout> | undefined
-        const running = run()
+        const abandon = new AbortController()
+        const running = run(abandon.signal)
         // The abandoned leg keeps running against the personhog side; its
         // settlement is swallowed here so a rejection arriving after the
         // ceiling cannot surface as an unhandled one.
@@ -156,18 +180,25 @@ export class RoutingPersonsStore implements PersonsStore {
             await Promise.race([
                 running,
                 new Promise<never>((_resolve, reject) => {
-                    timer = setTimeout(() => reject(new ShadowVerbTimeoutError(verb)), SHADOW_VERB_TIMEOUT_MS)
+                    timer = setTimeout(() => {
+                        abandon.abort()
+                        reject(new ShadowVerbTimeoutError(verb))
+                    }, SHADOW_VERB_TIMEOUT_MS)
                 }),
             ])
         } catch (error) {
-            // Labelled by class as well as verb: the failures a rollout
-            // must tell apart read identically under one number.
-            personhogStoreShadowErrorsCounter.labels({ verb, error: errorClassLabel(error) }).inc()
-            logger.warn('personhog shadow verb failed', { verb, error: String(error) })
+            this.recordShadowFailure(verb, error)
         } finally {
             clearTimeout(timer)
             stopTimer()
         }
+    }
+
+    private recordShadowFailure(verb: string, error: unknown): void {
+        // Labelled by class as well as verb: the failures a rollout
+        // must tell apart read identically under one number.
+        personhogStoreShadowErrorsCounter.labels({ verb, error: errorClassLabel(error) }).inc()
+        logger.warn('personhog shadow verb failed', { verb, error: String(error) })
     }
 
     /**
@@ -180,19 +211,19 @@ export class RoutingPersonsStore implements PersonsStore {
         pg: () => Promise<T>,
         personhog: () => Promise<T>,
         opts?: {
-            shadow?: () => Promise<unknown>
+            shadow?: (abandoned: AbortSignal) => Promise<unknown>
             compare?: (authoritative: T, shadow: unknown) => void
-            after?: (authoritative: T, shadow: unknown) => Promise<void>
+            after?: (authoritative: T, shadow: unknown, abandoned: AbortSignal) => Promise<void>
         }
     ): Promise<T> {
         if (this.mode === 'personhog') {
             return personhog()
         }
         const result = await pg()
-        await this.shadowed(verb, async () => {
-            const shadow = await (opts?.shadow ?? personhog)()
+        await this.shadowed(verb, async (abandoned) => {
+            const shadow = await (opts?.shadow ? opts.shadow(abandoned) : personhog())
             this.compared(verb, () => opts?.compare?.(result, shadow))
-            await opts?.after?.(result, shadow)
+            await opts?.after?.(result, shadow, abandoned)
         })
         return result
     }
@@ -215,7 +246,12 @@ export class RoutingPersonsStore implements PersonsStore {
      * are not compared because the backends allocate independently; the
      * uuid is derived the same way on both.
      */
-    private comparePerson(verb: string, authoritative: unknown, shadow: unknown): void {
+    private comparePerson(
+        verb: string,
+        authoritative: unknown,
+        shadow: unknown,
+        compareProperties: boolean = true
+    ): void {
         // Absence arrives as null from either backend, and as undefined from
         // a caller that answered nothing at all; both mean the same thing
         // here and neither may be dereferenced.
@@ -236,7 +272,7 @@ export class RoutingPersonsStore implements PersonsStore {
         if (left.is_identified !== right.is_identified) {
             this.recordDivergence(verb, 'is_identified')
         }
-        if (!propertiesMatch(left.properties, right.properties)) {
+        if (compareProperties && !propertiesMatch(left.properties, right.properties)) {
             this.recordDivergence(verb, 'properties')
         }
     }
@@ -248,18 +284,31 @@ export class RoutingPersonsStore implements PersonsStore {
     /**
      * The caller holds the Postgres row, whose numeric id means nothing
      * here (independent sequences), so a shadow write re-resolves by
-     * distinct id and skips, counted, when the person does not exist yet.
-     * Memoized per batch.
+     * distinct id. A person that does not exist here yet is usually one
+     * another pod attached on the authoritative side while its shadow merge
+     * was still running, so a caller that can hold its ops for a resolve
+     * at flush does; the rest skip, counted. Memoized per batch.
      */
     private async withShadowPerson(
         verb: string,
         teamId: number,
         distinctId: string,
         batchId: number,
-        run: (person: InternalPerson) => Promise<unknown>
+        run: (person: InternalPerson) => Promise<unknown>,
+        hold?: () => void
     ): Promise<void> {
+        // Ops still held for this id were stated earlier, so later ops queue behind them, as the event's
+        // partition does when the authoritative store retries.
+        if (hold && this.personhog.hasHeldOps(teamId, distinctId)) {
+            hold()
+            return
+        }
         const shadowPerson = await this.personhog.fetchForUpdate(teamId, distinctId, batchId)
         if (shadowPerson === null) {
+            if (hold) {
+                hold()
+                return
+            }
             personhogStoreShadowSkipsCounter.labels({ verb }).inc()
             return
         }
@@ -275,7 +324,13 @@ export class RoutingPersonsStore implements PersonsStore {
             'fetchForChecking',
             () => this.pg.fetchForChecking(teamId, distinctId, batchId),
             () => this.personhog.fetchForChecking(teamId, distinctId, batchId),
-            { compare: (authoritative, shadow) => this.comparePerson('fetchForChecking', authoritative, shadow) }
+            // A checking read resolves identity only: personhog answers it from the identity service without
+            // the leader's document, so its properties are empty unless a projection happens to be cached, and
+            // the personless step never reads them.
+            {
+                compare: (authoritative, shadow) =>
+                    this.comparePerson('fetchForChecking', authoritative, shadow, false),
+            }
         )
     }
 
@@ -333,8 +388,107 @@ export class RoutingPersonsStore implements PersonsStore {
                     extraDistinctIds,
                     tx,
                     batchId
-                )
+                ),
+            {
+                shadow: (abandoned) =>
+                    this.shadowCreate(
+                        () =>
+                            this.personhog.createPerson(
+                                createdAt,
+                                properties,
+                                propertiesLastUpdatedAt,
+                                propertiesLastOperation,
+                                teamId,
+                                isUserId,
+                                isIdentified,
+                                uuid,
+                                primaryDistinctId,
+                                extraDistinctIds,
+                                tx,
+                                batchId
+                            ),
+                        teamId,
+                        properties,
+                        isIdentified,
+                        primaryDistinctId.distinctId,
+                        batchId,
+                        abandoned
+                    ),
+                after: (authoritative, shadow, abandoned) =>
+                    this.reconcileShadowCreate(
+                        authoritative,
+                        shadow as CreatePersonResult,
+                        properties,
+                        primaryDistinctId.distinctId,
+                        batchId,
+                        abandoned
+                    ),
+            }
         )
+    }
+
+    /**
+     * A create the client gave up on may have left the person without its properties, and the event does not retry
+     * here, so its properties are held set-once for the distinct id. A deterministic rejection would fail again, and
+     * an abandoned create's batch may be released, so neither is held.
+     */
+    private async shadowCreate(
+        create: () => Promise<CreatePersonResult>,
+        teamId: number,
+        properties: Properties,
+        isIdentified: boolean,
+        distinctId: string,
+        batchId: number,
+        abandoned: AbortSignal
+    ): Promise<CreatePersonResult> {
+        try {
+            return await create()
+        } catch (error) {
+            if (!abandoned.aborted && (error as { isRetriable?: boolean })?.isRetriable === true) {
+                this.personhog.holdEventOps(
+                    teamId,
+                    distinctId,
+                    {
+                        set: {},
+                        setOnce: properties,
+                        unset: [],
+                        denied: false,
+                        shouldForceUpdate: true,
+                        eventName: CREATE_EVENT_NAME,
+                        ...(isIdentified ? { isIdentified: true } : {}),
+                    },
+                    batchId
+                )
+            }
+            throw error
+        }
+    }
+
+    /** Postgres created the person and personhog only found it: apply the creation properties set-once. */
+    private async reconcileShadowCreate(
+        authoritative: CreatePersonResult,
+        shadow: CreatePersonResult,
+        properties: Properties,
+        distinctId: string,
+        batchId: number,
+        abandoned: AbortSignal
+    ): Promise<void> {
+        if (
+            abandoned.aborted ||
+            !(authoritative.success && authoritative.created) ||
+            !(shadow.success && !shadow.created)
+        ) {
+            return
+        }
+        const ops: EventOps = {
+            set: {},
+            setOnce: properties,
+            unset: [],
+            denied: false,
+            shouldForceUpdate: true,
+            eventName: CREATE_EVENT_NAME,
+        }
+        await this.personhog.applyEventOps(shadow.person, ops, distinctId, batchId)
     }
 
     applyEventOps(
@@ -349,8 +503,13 @@ export class RoutingPersonsStore implements PersonsStore {
             () => this.personhog.applyEventOps(person, ops, distinctId, batchId),
             {
                 shadow: () =>
-                    this.withShadowPerson('applyEventOps', person.team_id, distinctId, batchId, (shadowPerson) =>
-                        this.personhog.applyEventOps(shadowPerson, ops, distinctId, batchId)
+                    this.withShadowPerson(
+                        'applyEventOps',
+                        person.team_id,
+                        distinctId,
+                        batchId,
+                        (shadowPerson) => this.personhog.applyEventOps(shadowPerson, ops, distinctId, batchId),
+                        () => this.personhog.holdEventOps(person.team_id, distinctId, ops, batchId)
                     ),
             }
         )
@@ -422,15 +581,175 @@ export class RoutingPersonsStore implements PersonsStore {
             () => this.pg.mergePersons(request, batchId),
             () => this.personhog.mergePersons(request, batchId),
             {
-                compare: (authoritative, shadow) => this.compareMerge(authoritative, shadow),
-                after: (authoritative, shadow) => this.redriveShadowFoldPairs(request, batchId, authoritative, shadow),
+                shadow: (abandoned) => this.shadowMerge(request, batchId, abandoned),
+                compare: (authoritative, shadow) => this.compareMerge(request, authoritative, shadow),
+                after: (authoritative, shadow, abandoned) =>
+                    this.redriveShadowFoldPairs(request, batchId, authoritative, shadow, abandoned),
             }
         )
     }
 
+    /** Shadow merges whose retries ended unsettled or without a verdict, re-driven at a flush once their delay has passed. */
+    private deferredShadowMerges: DeferredShadowMerge[] = []
+
     /**
-     * A fold only the shadow aborted gets its pairs re-driven, single
-     * shot, as the fallback merges the service cannot issue (it sees only
+     * The merge service's retries wrap the routed call, which never throws
+     * for the shadow side. A merge still unsettled or without a verdict
+     * after them is deferred to the flush, unless this is that re-drive.
+     */
+    private async retriedShadowMerge(
+        request: MergePersonsRequest,
+        batchId: number,
+        abandoned: AbortSignal,
+        defer: boolean = true
+    ): Promise<MergePersonsResult> {
+        let unsettled: MergePersonsResult | undefined
+        try {
+            return await promiseRetry(
+                async () => {
+                    // An abandoned verb starts no new write; one already in flight still finishes.
+                    if (abandoned.aborted) {
+                        throw new ShadowVerbTimeoutError('mergePersons')
+                    }
+                    const result = await this.personhog.mergePersons(request, batchId)
+                    // Unsettled means a retry under the same op id may settle it.
+                    if (result.results.some((source) => source.settled === false)) {
+                        unsettled = result
+                        throw new PersonMergeUnsettledError('shadow merge verdict is unsettled')
+                    }
+                    return result
+                },
+                'shadow_merge_persons',
+                undefined,
+                undefined,
+                undefined,
+                [ConnectError, ShadowVerbTimeoutError]
+            )
+        } catch (error) {
+            if (error instanceof PersonMergeUnsettledError && unsettled !== undefined) {
+                if (defer) {
+                    this.deferShadowMerge(request, batchId)
+                }
+                return unsettled
+            }
+            if (error instanceof PersonMergeCallFailedError && defer) {
+                this.deferShadowMerge(request, batchId)
+            }
+            throw error
+        }
+    }
+
+    private deferShadowMerge(request: MergePersonsRequest, batchId: number): void {
+        const now = Date.now()
+        this.deferredShadowMerges.push({
+            request,
+            batchId,
+            notBefore: now + SHADOW_MERGE_REDRIVE_DELAY_MS,
+            expiresAt: now + SHADOW_MERGE_REDRIVE_WINDOW_MS,
+        })
+        if (this.deferredShadowMerges.length > SHADOW_MERGE_DEFERRED_LIMIT) {
+            this.dropShadowMerge(this.deferredShadowMerges.shift()!, 'the store holds its limit')
+        }
+    }
+
+    private dropShadowMerge(entry: DeferredShadowMerge, reason: string): void {
+        personhogStoreShadowMergeRedriveCounter.labels({ outcome: 'dropped' }).inc()
+        logger.warn('shadow merge dropped unsettled', {
+            team_id: entry.request.teamId,
+            target_distinct_id: entry.request.targetDistinctId,
+            sources: entry.request.sources.map((source) => source.distinctId),
+            reason,
+        })
+    }
+
+    private requeueAbandonedShadowMerges(entries: DeferredShadowMerge[]): void {
+        personhogStoreShadowMergeRedriveCounter.labels({ outcome: 'abandoned' }).inc(entries.length)
+        this.deferredShadowMerges.push(...entries)
+    }
+
+    /** Rejects when the ceiling abandons the leg, so a loop can stop waiting on a call it cannot cancel. */
+    private abandonment(abandoned: AbortSignal): Promise<never> {
+        return new Promise((_resolve, reject) =>
+            abandoned.addEventListener('abort', () => reject(new ShadowVerbTimeoutError('mergePersons')), {
+                once: true,
+            })
+        )
+    }
+
+    /**
+     * The identity service refuses a merge as a conflict while another op
+     * holds one of its persons, and a re-drive run too soon lands inside
+     * the same hold. A deferred merge runs at the first flush past its
+     * delay and is dropped once its window closes; one the ceiling
+     * abandons is re-queued, counted, and a flush runs a bounded number of
+     * them after the lanes.
+     */
+    private async redriveDeferredShadowMerges(abandoned: AbortSignal): Promise<void> {
+        const now = Date.now()
+        for (const entry of this.deferredShadowMerges.filter((entry) => entry.expiresAt <= now)) {
+            this.dropShadowMerge(entry, 'its window closed')
+        }
+        const live = this.deferredShadowMerges.filter((entry) => entry.expiresAt > now)
+        const due = live.filter((entry) => entry.notBefore <= now).slice(0, SHADOW_MERGE_REDRIVES_PER_FLUSH)
+        this.deferredShadowMerges = live.filter((entry) => !due.includes(entry))
+        if (due.length === 0) {
+            return
+        }
+        // One abort listener for the whole loop; the catch keeps it handled if no race is waiting when it fires.
+        const legAbandoned = this.abandonment(abandoned)
+        void legAbandoned.catch(() => {})
+        for (const [index, entry] of due.entries()) {
+            if (abandoned.aborted) {
+                this.requeueAbandonedShadowMerges(due.slice(index))
+                return
+            }
+            let settled = false
+            // The call itself cannot be cancelled, so the loop stops waiting for it at the ceiling and the entry
+            // keeps its turn; a flush's re-drives never outlive its leg.
+            const attempt = this.retriedShadowMerge(entry.request, entry.batchId, abandoned, false)
+            void attempt.catch(() => {})
+            try {
+                const result = await Promise.race([attempt, legAbandoned])
+                settled = result.results.every((source) => source.settled !== false)
+            } catch (error) {
+                if (abandoned.aborted) {
+                    this.requeueAbandonedShadowMerges(due.slice(index))
+                    return
+                }
+                this.recordShadowFailure('mergePersons', error)
+            }
+            const notBefore = Date.now() + SHADOW_MERGE_REDRIVE_DELAY_MS
+            if (settled) {
+                personhogStoreShadowMergeRedriveCounter.labels({ outcome: 'settled' }).inc()
+            } else if (notBefore >= entry.expiresAt) {
+                this.dropShadowMerge(entry, 'its window closed')
+            } else {
+                personhogStoreShadowMergeRedriveCounter.labels({ outcome: 'deferred' }).inc()
+                this.deferredShadowMerges.push({ ...entry, notBefore })
+            }
+        }
+    }
+
+    /** A fold is never retried as a fold: one that throws aborts, and its pairs take the re-drive. */
+    private async shadowMerge(
+        request: MergePersonsRequest,
+        batchId: number,
+        abandoned: AbortSignal
+    ): Promise<MergePersonsResult> {
+        if (!isFoldRequest(request)) {
+            return this.retriedShadowMerge(request, batchId, abandoned)
+        }
+        try {
+            return await this.personhog.mergePersons(request, batchId)
+        } catch (error) {
+            this.recordShadowFailure('mergePersons', error)
+            return { survivor: null, results: [], foldAborted: 'error' }
+        }
+    }
+
+    /**
+     * A fold only the shadow aborted gets its pairs re-driven, as the
+     * fallback merges the service cannot issue (it sees only
      * the executed authoritative result). Per-pair op ids let the pair's
      * own event attach on redelivery; ops stay empty because plan events
      * route theirs through the shadowed update path regardless.
@@ -439,7 +758,8 @@ export class RoutingPersonsStore implements PersonsStore {
         request: MergePersonsRequest,
         batchId: number,
         authoritative: MergePersonsResult,
-        shadow: unknown
+        shadow: unknown,
+        abandoned: AbortSignal
     ): Promise<void> {
         const shadowResult = shadow as MergePersonsResult
         if (authoritative.foldAborted !== undefined || shadowResult?.foldAborted === undefined) {
@@ -447,7 +767,7 @@ export class RoutingPersonsStore implements PersonsStore {
         }
         for (const source of request.sources) {
             try {
-                const result = await this.personhog.mergePersons(
+                const result = await this.retriedShadowMerge(
                     {
                         teamId: request.teamId,
                         targetDistinctId: request.targetDistinctId,
@@ -465,7 +785,8 @@ export class RoutingPersonsStore implements PersonsStore {
                         mergeMode: request.mergeMode,
                         createdAtMs: request.createdAtMs,
                     },
-                    batchId
+                    batchId,
+                    abandoned
                 )
                 const outcome = result.results[0]?.outcome ?? 'error'
                 personhogStoreShadowFoldRedriveCounter.labels({ outcome }).inc()
@@ -496,10 +817,33 @@ export class RoutingPersonsStore implements PersonsStore {
      * disagreement is the most consequential divergence; the vocabularies
      * differ between backends, so a difference is a finding, not an alarm.
      */
-    private compareMerge(authoritative: unknown, shadow: unknown): void {
+    private compareMerge(request: MergePersonsRequest, authoritative: unknown, shadow: unknown): void {
         const left = authoritative as MergePersonsResult
         const right = shadow as MergePersonsResult
         personhogStoreShadowComparedCounter.labels({ verb: 'mergePersons' }).inc()
+        // Sorted by source: the backends report the same verdicts in different orders.
+        const verdicts = (result: MergePersonsResult): string =>
+            result.foldAborted !== undefined
+                ? `aborted:${result.foldAborted}`
+                : result.results
+                      .map((source) => `${source.sourceDistinctId}=${source.outcome}`)
+                      .sort()
+                      .join(',')
+        const bothAborted = left.foldAborted !== undefined && right.foldAborted !== undefined
+        const disagree =
+            (left.survivor?.uuid ?? null) !== (right.survivor?.uuid ?? null) || verdicts(left) !== verdicts(right)
+        if (disagree && !bothAborted) {
+            logger.info('personhog shadow merge verdicts differ', {
+                team_id: request.teamId,
+                target_distinct_id: request.targetDistinctId,
+                trigger_source_distinct_id: request.triggerSourceDistinctId,
+                sources: request.sources.map((source) => source.distinctId),
+                pg_survivor: left.survivor?.uuid ?? null,
+                pg: verdicts(left),
+                personhog_survivor: right.survivor?.uuid ?? null,
+                personhog: verdicts(right),
+            })
+        }
         // An aborted fold carries no verdicts, so the disposition itself is
         // what the backends can disagree on: one record when only one side
         // aborted, nothing when both did.
@@ -534,11 +878,13 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void> {
-        return this.route(
-            'prefetchPersons',
-            () => this.pg.prefetchPersons(teamDistinctIds),
-            () => this.personhog.prefetchPersons(teamDistinctIds)
-        )
+        if (this.mode === 'personhog') {
+            return this.personhog.prefetchPersons(teamDistinctIds)
+        }
+        // Both start now: the pipeline does not await the prefetch, so a shadow prefetch started after the
+        // authoritative one finishes would lose the race with the batch's own reads.
+        const shadow = this.shadowed('prefetchPersons', () => this.personhog.prefetchPersons(teamDistinctIds))
+        return Promise.all([this.pg.prefetchPersons(teamDistinctIds), shadow]).then(() => undefined)
     }
 
     getFlushStats(): BatchWritingStoreFlushStats {
@@ -558,7 +904,15 @@ export class RoutingPersonsStore implements PersonsStore {
         return this.route(
             'flush',
             () => this.pg.flush(),
-            () => this.personhog.flush()
+            () => this.personhog.flush(),
+            {
+                shadow: async (abandoned) => {
+                    // The lanes first; the re-drives take what is left of the ceiling.
+                    const flushed = await this.personhog.flush()
+                    await this.redriveDeferredShadowMerges(abandoned)
+                    return flushed
+                },
+            }
         )
     }
 
@@ -589,6 +943,15 @@ export class RoutingPersonsStore implements PersonsStore {
                 // The store's unwritten-lanes rejection is the right alarm
                 // only when it owns the data; a shadow-only fault must not
                 // stop shutdown.
+                if (this.deferredShadowMerges.length > 0) {
+                    personhogStoreShadowMergeRedriveCounter
+                        .labels({ outcome: 'dropped' })
+                        .inc(this.deferredShadowMerges.length)
+                    logger.warn('shadow merges dropped unsettled at shutdown', {
+                        count: this.deferredShadowMerges.length,
+                    })
+                    this.deferredShadowMerges = []
+                }
                 await this.shadowed('shutdown', () => this.personhog.shutdown())
             }
         }

@@ -368,18 +368,26 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # gets the same treatment — a GitHub-side outage, not something reconnecting or reconfiguring
         # the source can fix.
         #
-        # A TLS session cut at the socket while minting the installation access token
-        # (``GitHubIntegrationBase.client_request``, called from ``_get_access_token``) has no
-        # in-process retry of its own — unlike ``_fetch_page``'s data requests, whose tenacity retry
-        # already covers ``requests.ConnectionError`` (the base class ``SSLError`` subclasses).
-        # Either way it's a dropped connection, not a GitHub or customer problem, so once Temporal
-        # retries the activity the failure is transient and self-recovering. Mirrors ClickHouse's
-        # equivalent classification of the same urllib3/OpenSSL wording.
+        # A TLS session cut at the socket, or a read that outran its 10s deadline, while minting the
+        # installation access token (``GitHubIntegrationBase.client_request``, called from
+        # ``_get_access_token``) has no in-process retry of its own — unlike ``_fetch_page``'s data
+        # requests, whose tenacity retry already covers ``requests.ConnectionError`` (the base class
+        # ``SSLError`` subclasses) and ``requests.ReadTimeout`` directly. Either way it's a transient
+        # network blip, not a GitHub or customer problem, so once Temporal retries the activity the
+        # failure is self-recovering. Mirrors ClickHouse's equivalent classification of the same
+        # urllib3/OpenSSL wording.
+        #
+        # A GitHubEgressBudgetExhausted gets the same treatment as the GitHub-side rate limit it is
+        # the twin of. It is our own limiter shedding a deferrable call on purpose, so it is the
+        # least surprising failure the source has; tracking it as an exception put a self-inflicted,
+        # self-healing condition at the top of the pipeline-error groups.
         return {
             "GitHub API rate limit exceeded",
+            "GitHub egress budget exhausted",
             "Github API error (retryable)",
             "UNEXPECTED_EOF_WHILE_READING",
             "EOF occurred in violation of protocol",
+            "Read timed out",
         }
 
     def get_oauth_accounts(

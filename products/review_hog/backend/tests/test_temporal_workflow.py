@@ -21,6 +21,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, VALIDATION_MAX_ATTEMPTS
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import ChunkSelectionDTO, PerspectiveSelectionDTO
 from products.review_hog.backend.temporal.activities import (
@@ -83,6 +84,9 @@ class StubResolvePRWorkflow:
         StubResolvePRWorkflow.dispatches.append((inputs.pr_number, inputs.acting_user_id, inputs.trigger_source))
 
 
+_TURN_MARKER = ReviewHogMarker(version="reviewhog-full-9-9", fingerprint="abc1234")
+
+
 def _stage_kwargs() -> dict:
     return {
         "team_id": 1,
@@ -116,6 +120,10 @@ async def _run_full_review_pr_workflow(
     resolve_comments_setting: bool = False,
     input_resolve_comments: bool | None = None,
     review_mode: str = "full",
+    flash_reasoning_effort: str = "medium",
+    review_authored_prs: bool = False,
+    already_completed: bool = False,
+    pr_open: bool = True,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -150,6 +158,7 @@ async def _run_full_review_pr_workflow(
     # The mode every consumer received, keyed by stage: the arms, the prefix, and the events all key
     # off it, so a stage that drops it silently runs (or labels) a flash turn as a full one.
     mode_calls: dict[str, set[str]] = {}
+    effort_calls: dict[str, set[str]] = {}
 
     def _saw_mode(stage: str, mode: str) -> None:
         mode_calls.setdefault(stage, set()).add(mode)
@@ -174,6 +183,8 @@ async def _run_full_review_pr_workflow(
             pr_number=meta_pr_number,
             pr_url="u" if meta_pr_number is not None else None,
             empty_diff=empty_diff,
+            already_completed=already_completed,
+            pr_open=pr_open,
         )
 
     @activity.defn(name="resolve_acting_user_activity")
@@ -187,6 +198,8 @@ async def _run_full_review_pr_workflow(
             review_inbox_prs=review_inbox_prs,
             resolved_from="override",
             resolve_comments=resolve_comments_setting,
+            flash_reasoning_effort=flash_reasoning_effort,
+            review_authored_prs=review_authored_prs,
         )
 
     @activity.defn(name="sync_review_skills_activity")
@@ -196,6 +209,12 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="generate_schemas_activity")
     async def gen_schemas(input) -> None:
         return None
+
+    marker_calls: dict[str, ReviewHogMarker | None] = {}
+
+    @activity.defn(name="record_turn_marker_activity")
+    async def record_marker(input) -> ReviewHogMarker:
+        return _TURN_MARKER
 
     @activity.defn(name="split_chunks_activity")
     async def split(input) -> list[int]:
@@ -227,6 +246,7 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="review_chunk_activity")
     async def review(input: ReviewChunkInput) -> bool:
+        effort_calls.setdefault("review", set()).add(input.flash_reasoning_effort)
         _saw_mode("review", input.review_mode)
         review_calls.append(
             (
@@ -255,6 +275,7 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="validate_chunk_activity")
     async def validate_chunk(input: ValidateChunkInput) -> ValidateChunkResult:
+        effort_calls.setdefault("validate", set()).add(input.flash_reasoning_effort)
         _saw_mode("validate", input.review_mode)
         validate_calls.append(input.chunk_id)
         return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=len(input.issue_ids))
@@ -290,6 +311,7 @@ async def _run_full_review_pr_workflow(
     async def finalize_status(input: FinalizeStatusCommentInput) -> None:
         _saw_mode("status", input.review_mode)
         finalize_status_calls.append((input.urgency_threshold, input.resolved_from, input.review_url))
+        marker_calls["status"] = input.marker
         return None
 
     @activity.defn(name="fail_status_comment_activity")
@@ -310,12 +332,15 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="track_review_completed_activity")
     async def track_completed(input: TrackReviewCompletedInput) -> None:
+        effort_calls.setdefault("track", set()).add(input.flash_reasoning_effort)
         _saw_mode("track", input.review_mode)
         track_completed_calls.append((input.run_index, input.turn_trigger_source))
+        marker_calls["track"] = input.marker
         return None
 
     @activity.defn(name="track_review_started_activity")
     async def track_started(input: TrackReviewStartedInput) -> None:
+        effort_calls.setdefault("track", set()).add(input.flash_reasoning_effort)
         _saw_mode("track", input.review_mode)
         track_started_calls.append((input.run_index, input.turn_trigger_source))
         return None
@@ -339,6 +364,7 @@ async def _run_full_review_pr_workflow(
                 resolve_acting_user,
                 sync_skills,
                 gen_schemas,
+                record_marker,
                 split,
                 load_perspectives,
                 select_perspectives,
@@ -412,6 +438,8 @@ async def _run_full_review_pr_workflow(
         "track_started": track_started_calls,
         "resolve_dispatches": list(StubResolvePRWorkflow.dispatches),
         "modes": mode_calls,
+        "efforts": effort_calls,
+        "markers": marker_calls,
     }
 
 
@@ -498,6 +526,8 @@ async def test_review_pr_workflow_publishes_only_when_publish_true():
     # posted review's URL — dropping any of these reverts the comment to blaming the author's
     # settings or linking nowhere.
     assert recorded["finalize_status"] == [("must_fix", "override", _REVIEW_URL)]
+    # The marker recorded at turn start reaches the completed event and the comment footer intact.
+    assert recorded["markers"] == {"track": _TURN_MARKER, "status": _TURN_MARKER}
 
 
 @pytest.mark.asyncio
@@ -555,19 +585,45 @@ async def test_review_pr_workflow_chains_resolution_per_setting_and_override(
 
 
 @pytest.mark.asyncio
-async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_resolution():
+@pytest.mark.parametrize("effort", ["medium", "xhigh"])
+async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_resolution(effort: str):
     # Flash must not write code even with the strongest opt-in (an explicit True override on a
     # publishing run), and every stage that picks an arm, labels a GitHub message, or emits an
     # event has to receive the mode — a consumer that falls back to the default runs or labels a
     # flash turn as a full one.
     recorded = await _run_full_review_pr_workflow(
-        publish=True, resolve_comments_setting=True, input_resolve_comments=True, review_mode="flash"
+        publish=True,
+        resolve_comments_setting=True,
+        input_resolve_comments=True,
+        review_mode="flash",
+        flash_reasoning_effort=effort,
     )
     assert recorded["publish"] == [7]
     assert recorded["resolve_dispatches"] == []
     assert recorded["modes"] == {
         stage: {"flash"} for stage in ("fetch", "select", "review", "validate", "publish", "status", "track")
     }
+    assert recorded["efforts"] == {stage: {effort} for stage in ("review", "validate", "track")}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "enabled,completed,pr_open,expected_review",
+    [(True, False, True, True), (False, False, True, False), (True, True, True, False), (True, False, False, False)],
+)
+async def test_automatic_reviews_recheck_consent_and_skip_completed_or_closed_prs(
+    enabled: bool, completed: bool, pr_open: bool, expected_review: bool
+) -> None:
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        trigger_source="automatic",
+        review_mode="flash",
+        review_authored_prs=enabled,
+        already_completed=completed,
+        pr_open=pr_open,
+    )
+    assert bool(recorded["review"]) is expected_review
+    assert bool(recorded["publish"]) is expected_review
 
 
 @pytest.mark.asyncio
