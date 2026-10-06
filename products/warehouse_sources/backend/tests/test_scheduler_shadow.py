@@ -582,11 +582,12 @@ class TestShadowReport:
         assert f"matched: {expected_matched}" in output
         assert "shadow_only (shadow would fire, no job): 0" in output
         assert f"temporal_only (schedule-fired job, no decision): {expected_temporal_only}" in output
-        assert err.getvalue().splitlines() == [
-            f"fetched {decision_count} decisions",
-            "fetched 1 jobs",
-            "matching...",
-        ]
+        stderr = err.getvalue().splitlines()
+        assert "fetching decisions..." in stderr
+        assert any(line.startswith(f"fetched {decision_count} decisions in ") for line in stderr)
+        assert "fetching jobs..." in stderr
+        assert any(line.startswith("fetched 1 jobs in ") for line in stderr)
+        assert any(line.startswith("matching: done in ") for line in stderr)
 
     def test_report_matches_jobs_and_counts_adhoc(self, team, monkeypatch):
         db_url = get_test_database_url()
