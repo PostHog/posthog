@@ -245,12 +245,12 @@ export const dataNodeCollectionLogic = kea<dataNodeCollectionLogicType>([
 
         const finishVisit = (reason: 'navigated_away' | 'left_app', options?: CaptureOptions): void => {
             const visit: DataCollectionPageVisit | null = cache.visit
-            if (!visit || visit.reported) {
+            if (!visit) {
                 return
             }
             if (cache.cycle) {
                 abandon(cache.cycle, reason, options)
-            } else if (visit.cycles === 0 && isPageCollection(props.key) && posthog.capture) {
+            } else if (!visit.reported && visit.cycles === 0 && isPageCollection(props.key) && posthog.capture) {
                 const payload: PageLoadTimeToSeeData = {
                     type: 'page_load',
                     context: props.key,

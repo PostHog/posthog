@@ -333,6 +333,22 @@ describe('dataNodeCollectionLogic', () => {
             )
         })
 
+        it('still reports a load that starts after the page returns from the back-forward cache', () => {
+            logic.actions.startPageVisit('visit-1')
+            mountTile('tile-a')
+            logic.actions.collectionNodeLoadData('tile-a')
+            window.dispatchEvent(new Event('pagehide'))
+
+            logic.actions.collectionNodeLoadData('tile-a')
+            window.dispatchEvent(new Event('pagehide'))
+            logic.actions.endPageVisit()
+
+            expect(capturedLoads().map((load) => [load.status, load.cancel_reason])).toEqual([
+                ['cancelled', 'left_app'],
+                ['cancelled', 'left_app'],
+            ])
+        })
+
         it('reports a provisional hidden event and counts only visible time toward the wait', () => {
             const setVisibility = (state: DocumentVisibilityState): void => {
                 Object.defineProperty(document, 'visibilityState', { value: state, configurable: true })
