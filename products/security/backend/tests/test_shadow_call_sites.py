@@ -1,9 +1,17 @@
+import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock
+
+from django.test import RequestFactory
+from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from social_core.exceptions import AuthFailed
 
+from posthog.api.signup import process_social_domain_jit_provisioning_signup, process_social_invite_signup
 from posthog.models import Organization, User
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 
 from products.security.backend.tests.helpers import block_rule, enforcing, seed_rules
@@ -87,3 +95,44 @@ class TestShadowCallSites(APIBaseTest):
         before = _count("app", "session", "email")
         assert self.client.get("/api/users/@me/").status_code == 200
         assert _count("app", "session", "email") == before
+
+    def _sso_join(self, path: str, email: str, user: User | None, organization: Organization) -> None:
+        strategy = MagicMock(request=RequestFactory().get("/complete/google-oauth2/"))
+        if path == "invite":
+            invite = OrganizationInvite.objects.create(target_email=email, organization=organization)
+            process_social_invite_signup(strategy, str(invite.id), email, "Joiner", user, backend=MagicMock())
+        else:
+            OrganizationDomain.objects.create(
+                organization=organization,
+                domain="jit.example",
+                verified_at=timezone.now(),
+                jit_provisioning_enabled=True,
+            )
+            process_social_domain_jit_provisioning_signup(strategy, email, "Joiner", user, backend=MagicMock())
+
+    @parameterized.expand(
+        [
+            ("invite, existing account, logged only", "invite", False, [], False),
+            ("invite, existing account, enforced", "invite", False, ["signup"], True),
+            ("invite, new account, enforced", "invite", True, ["signup"], True),
+            ("verified domain, existing account, logged only", "jit", False, [], False),
+            ("verified domain, existing account, enforced", "jit", False, ["signup"], True),
+        ]
+    )
+    def test_blocked_sso_join(
+        self, _name: str, path: str, new_account: bool, enforced: list[str], refused: bool
+    ) -> None:
+        # Invite and verified-domain joins over SSO never reach the signup serializers.
+        email = "joiner@jit.example"
+        seed_rules(block_rule(targetValue=email, scope="signup"))
+        joined = Organization.objects.create(name="Joined org")
+        user = None if new_account else User.objects.create_and_join(self.organization, email, None)
+
+        with enforcing(*enforced):
+            if refused:
+                with pytest.raises(AuthFailed, match="access_blocked"):
+                    self._sso_join(path, email, user, joined)
+            else:
+                self._sso_join(path, email, user, joined)
+
+        assert joined.members.filter(email=email).exists() is not refused

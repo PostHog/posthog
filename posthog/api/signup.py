@@ -18,6 +18,8 @@ import structlog
 import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers, status
 from rest_framework.request import Request
+from social_core.backends.base import BaseAuth
+from social_core.exceptions import AuthFailed
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 from webauthn.helpers import base64url_to_bytes
@@ -890,8 +892,37 @@ def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[Organi
     )
 
 
+def _refuse_blocked_sso_join(strategy: DjangoStrategy, backend: BaseAuth, email: str, user: Optional[User]) -> None:
+    """Refuse an SSO signup or organization join that an enforced signup rule blocks.
+
+    Invite and verified-domain joins over SSO never reach the signup serializers, so they run this
+    check themselves, right before an account is created or joins an organization.
+    """
+    try:
+        refused = security_access_refused(
+            SecuritySubject(
+                email=(user.email if user else email) or "",
+                user_uuid=str(user.uuid) if user else None,
+                ip=get_trusted_client_ip(strategy.request),
+            ),
+            SecuritySurface.SIGNUP,
+            call_site="sso_signup",
+        )
+    except Exception:
+        logger.exception("security_access_check_site_failed", call_site="sso_signup")
+        refused = False
+    if refused:
+        raise AuthFailed(backend, SIGNUP_BLOCKED_DETAIL)
+
+
 def process_social_invite_signup(
-    strategy: DjangoStrategy, invite_id: str, email: str, full_name: str, user: Optional[User] = None
+    strategy: DjangoStrategy,
+    invite_id: str,
+    email: str,
+    full_name: str,
+    user: Optional[User] = None,
+    *,
+    backend: BaseAuth,
 ) -> Optional[User]:
     try:
         # nosemgrep: idor-lookup-without-org (invite UUID from server session serves as auth token)
@@ -907,6 +938,8 @@ def process_social_invite_signup(
         # domain gate itself — real invites get it upstream via their resolved organization.
         if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(email, invite.organization):
             return None
+
+    _refuse_blocked_sso_join(strategy, backend, email, user)
 
     # Capture before invite.use() — use() deletes the invite row, so the in-memory boolean is
     # the only safe source of truth for delegation routing.
@@ -934,7 +967,7 @@ def process_social_invite_signup(
 
 
 def process_social_domain_jit_provisioning_signup(
-    strategy: DjangoStrategy, email: str, full_name: str, user: Optional[User] = None
+    strategy: DjangoStrategy, email: str, full_name: str, user: Optional[User] = None, *, backend: BaseAuth
 ) -> Optional[User]:
     # Check if the user is on an allowed domain
     domain = email.split("@")[-1]
@@ -959,6 +992,8 @@ def process_social_domain_jit_provisioning_signup(
             scim_enabled=scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
+            if not user or not user.organizations.filter(pk=domain_instance.organization_id).exists():
+                _refuse_blocked_sso_join(strategy, backend, email, user)
             if not user:
                 try:
                     invite: OrganizationInvite = OrganizationInvite.objects.get(
@@ -1084,9 +1119,9 @@ def social_create_user(
             user.save()
 
         if invite_id:
-            process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user)
+            process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user, backend=backend)
         else:
-            process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user)
+            process_social_domain_jit_provisioning_signup(strategy, user.email, user.first_name, user, backend=backend)
 
         return {"is_new": False}
 
@@ -1110,13 +1145,13 @@ def social_create_user(
 
     if invite_id:
         from_invite = True
-        user = process_social_invite_signup(strategy, invite_id, email, full_name)
+        user = process_social_invite_signup(strategy, invite_id, email, full_name, backend=backend)
         if user is None:
             return redirect("/login?error_code=invalid_invite")
 
     else:
         # JIT Provisioning?
-        user = process_social_domain_jit_provisioning_signup(strategy, email, full_name)
+        user = process_social_domain_jit_provisioning_signup(strategy, email, full_name, backend=backend)
         logger.info(
             f"social_create_user_jit_user",
             full_name_len=len(full_name),
