@@ -602,6 +602,30 @@ def _feature_flag_value_read(feature_flags: ast.Expr, key: str) -> ast.Expr:
     )
 
 
+def _feature_flag_json_read(feature_flags: ast.Expr, key: str) -> ast.Expr:
+    """The JSON text the legacy document holds for `$feature/<key>`, or NULL when the map has no such flag.
+
+    SDKs send a boolean flag as JSON `true`/`false` and a variant as a JSON string. The map stores the booleans as 'true'
+    and 'false' and a variant named "false" or "true" under its sentinel, so only the sentinels serialize back to strings.
+    """
+    value = ast.ArrayAccess(array=clone_expr(feature_flags), property=_const(key))
+    return _call(
+        "if",
+        [
+            _call("has", [clone_expr(feature_flags), _const(key)]),
+            _call(
+                "if",
+                [
+                    _call("in", [clone_expr(value), ast.Tuple(exprs=[_sentinel("true"), _sentinel("false")])]),
+                    clone_expr(value),
+                    _call("toJSONString", [feature_flag_variant_read(value)]),
+                ],
+            ),
+            _const(None),
+        ],
+    )
+
+
 def _is_events_properties(field_type: ast.FieldType, context: HogQLContext) -> bool:
     table_type = _unwrap_to_table_type(field_type)
     field = field_type.resolve_database_field(context)
@@ -816,11 +840,13 @@ def _active_feature_flags_present(feature_flags: ast.Expr, restricted_keys: list
 
 
 def _feature_flag_compatibility_read(
-    node: ast.PropertyAccess, field_type: ast.FieldType, context: HogQLContext
+    node: ast.PropertyAccess, field_type: ast.FieldType, context: HogQLContext, *, as_json: bool = False
 ) -> ast.Expr | None:
     """The read of a flag property the native table rebuilds from `$feature_flags`, or None to read it as stored.
 
     The legacy table stores every flag property as sent, so it always reads them as stored.
+    `as_json` reads `$feature/<key>` as the JSON text a JSON function parses instead of the unquoted value.
+    `$active_feature_flags` and the whole `$feature_flags` map read as JSON text either way.
     """
     first_key = str(node.keys[0])
     deeper_keys = list(node.keys[1:])
@@ -841,7 +867,12 @@ def _feature_flag_compatibility_read(
     restricted_keys = _restricted_feature_flag_keys(field_type, context)
 
     if first_key.startswith(FEATURE_FLAG_PROPERTY_PREFIX):
-        value = _feature_flag_value_read(feature_flags, first_key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX))
+        flag_key = first_key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX)
+        value = (
+            _feature_flag_json_read(feature_flags, flag_key)
+            if as_json
+            else _feature_flag_value_read(feature_flags, flag_key)
+        )
         return ast.PropertyAccess(expr=value, keys=deeper_keys) if deeper_keys else value
 
     if first_key == "$active_feature_flags":
@@ -1301,10 +1332,6 @@ class ClickHousePropertyResolver(CloningVisitor):
         if json_string_on_events_json is not None:
             return json_string_on_events_json
 
-        feature_flag_extract = self._rewrite_feature_flag_json_extract(node)
-        if feature_flag_extract is not None:
-            return feature_flag_extract
-
         temporary_property_json_function = self._rewrite_json_function_on_temporary_property(node)
         if temporary_property_json_function is not None:
             return temporary_property_json_function
@@ -1317,15 +1344,19 @@ class ClickHousePropertyResolver(CloningVisitor):
         if temporary_property_json_value is not None:
             return temporary_property_json_value
 
-        json_extract_on_events_json = self._rewrite_json_extract_on_events_json_subcolumn(node)
-        if json_extract_on_events_json is not None:
-            return json_extract_on_events_json
-
         optimized_json_has = self._rewrite_feature_flag_json_has(node)
         if optimized_json_has is None:
             optimized_json_has = self._optimize_json_has_on_events_json(node)
         if optimized_json_has is not None:
             return optimized_json_has
+
+        feature_flag_json = self._rewrite_feature_flag_json_call(node)
+        if feature_flag_json is not None:
+            return feature_flag_json
+
+        json_extract_on_events_json = self._rewrite_json_extract_on_events_json_subcolumn(node)
+        if json_extract_on_events_json is not None:
+            return json_extract_on_events_json
 
         # `isNull` / `isNotNull` / `JSONHas` on a property-group property can be answered by `has(map, key)` alone,
         # without reading the values subcolumn — so it stays eligible for the keys bloom-filter index.
@@ -1352,23 +1383,49 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         return super().visit_call(node)
 
-    def _rewrite_feature_flag_json_extract(self, node: ast.Call) -> ast.Expr | None:
+    def _rewrite_feature_flag_json_call(self, node: ast.Call) -> ast.Expr | None:
+        """A JSON function over a virtual flag key, rewritten on native events to parse the flag read.
+
+        The native stored document has no `$feature/<key>` or `$active_feature_flags` key, so a JSON function that reads
+        the document sees a missing key. The legacy document holds every flag key as sent, so it is read as stored.
+        """
+        # `JSON_VALUE` and the other SQL-standard `JSON_` functions take one JSONPath argument instead of keys, so
+        # dropping their second argument would leave them without a path.
         if (
-            not node.name.startswith("JSONExtract")
+            not self.context.uses_new_events_schema()
+            or not node.name.startswith("JSON")
+            or node.name.startswith("JSON_")
             or len(node.args) < 2
-            or not isinstance(node.args[1], ast.Constant)
-            or node.args[1].value != "$feature_flags"
         ):
             return None
-        field_type = resolve_field_type(node.args[0])
-        if not isinstance(field_type, ast.FieldType):
+        key_arg = node.args[1]
+        if not isinstance(key_arg, ast.Constant) or not isinstance(key_arg.value, str):
             return None
-        value = _feature_flag_compatibility_read(
-            ast.PropertyAccess(expr=node.args[0], keys=["$feature_flags"]), field_type, self.context
-        )
+        first_key = key_arg.value
+        if not is_virtual_feature_flag_key(first_key):
+            return None
+
+        document = node.args[0]
+        # On the legacy table `toString(properties)` is the stored document itself, so queries pass it to JSON
+        # functions in place of `properties`.
+        unwrapped = document.expr if isinstance(document, ast.Alias) else document
+        if isinstance(unwrapped, ast.Call) and unwrapped.name == "toString" and len(unwrapped.args) == 1:
+            document = unwrapped.args[0]
+        field_type = resolve_field_type(document)
+        if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
+            return None
+
+        value: ast.Expr | None
+        if first_key in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+            value = ast.Constant(value=None, type=ast.StringType(nullable=True))
+        else:
+            value = _feature_flag_compatibility_read(
+                ast.PropertyAccess(expr=document, keys=[first_key]), field_type, self.context, as_json=True
+            )
         if value is None:
             return None
-        # Keep the extractor to preserve its return type and missing-value defaults.
+        # Keep the function and pass it the flag read with the first key dropped, so its return type, missing-value
+        # default and any deeper keys behave as they do over the legacy document.
         return ast.Call(
             start=node.start,
             end=node.end,
