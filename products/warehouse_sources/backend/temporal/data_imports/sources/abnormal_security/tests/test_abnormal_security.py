@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -15,7 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.abnormal_s
 from products.warehouse_sources.backend.temporal.data_imports.sources.abnormal_security.source import (
     AbnormalSecuritySource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.abnormalsecurity import (
     AbnormalSecuritySourceConfig,
 )
@@ -48,6 +49,10 @@ def manager(resume: AbnormalSecurityResumeConfig | None = None) -> MagicMock:
     return result
 
 
+def sync_items(response: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], response.items())
+
+
 @pytest.mark.parametrize("terminal", [{}, {"nextPageNumber": None}])
 @responses.activate
 def test_cases_pagination_and_auth(terminal: dict[str, Any]) -> None:
@@ -58,7 +63,7 @@ def test_cases_pagination_and_auth(terminal: dict[str, Any]) -> None:
     result = AbnormalSecuritySource().source_for_pipeline(
         AbnormalSecuritySourceConfig(api_key="test-token"), checkpoint, inputs("cases")
     )
-    assert [row for page in result.items() for row in page] == rows
+    assert [row for page in sync_items(result) for row in page] == rows
     assert len(responses.calls) == 2
     for number, call in enumerate(responses.calls, start=1):
         assert call.request.headers["Authorization"] == "Bearer test-token"
@@ -91,7 +96,7 @@ def test_incremental_filter(table: str, incremental: bool, watermark: Any, expec
     result = AbnormalSecuritySource().source_for_pipeline(
         AbnormalSecuritySourceConfig(api_key="test-token"), manager(), inputs(table, incremental, watermark)
     )
-    assert list(result.items()) == []
+    assert list(sync_items(result)) == []
     query = parse_qs(urlparse(responses.calls[0].request.url).query)
     assert query["filter"][0].startswith(f"lastModifiedTime gte {expected} lte ")
     assert result.sort_mode == "desc"
@@ -125,7 +130,7 @@ def test_detail_fanout(table: str, path: str, selector: str, primary_key: str, d
     result = AbnormalSecuritySource().source_for_pipeline(
         AbnormalSecuritySourceConfig(api_key="test-token"), manager(), inputs(table)
     )
-    assert [row for page in result.items() for row in page] == [
+    assert [row for page in sync_items(result) for row in page] == [
         {primary_key: "item-a", **details},
         {primary_key: "item-b", **details},
     ]
@@ -143,7 +148,7 @@ def test_resume_preserves_filter_and_page() -> None:
     result = AbnormalSecuritySource().source_for_pipeline(
         AbnormalSecuritySourceConfig(api_key="test-token"), checkpoint, inputs("cases", True, "2025-01-15T00:00:00Z")
     )
-    assert list(result.items()) == [[{"caseId": "case-c"}]]
+    assert list(sync_items(result)) == [[{"caseId": "case-c"}]]
     query = parse_qs(urlparse(responses.calls[0].request.url).query)
     assert query["pageNumber"] == ["3"]
     assert query["filter"] == [saved_filter]
@@ -162,7 +167,7 @@ def test_fanout_resume_skips_completed_details() -> None:
     result = AbnormalSecuritySource().source_for_pipeline(
         AbnormalSecuritySourceConfig(api_key="test-token"), checkpoint, inputs("threats")
     )
-    assert list(result.items()) == [[{"threatId": "item-b", "messages": []}]]
+    assert list(sync_items(result)) == [[{"threatId": "item-b", "messages": []}]]
     assert len(responses.calls) == 2
 
 
@@ -173,7 +178,7 @@ def test_sync_auth_errors_match_user_messages(status: int) -> None:
     source = AbnormalSecuritySource()
     result = source.source_for_pipeline(AbnormalSecuritySourceConfig(api_key="test-token"), manager(), inputs("cases"))
     with pytest.raises(HTTPError) as error:
-        list(result.items())
+        list(sync_items(result))
     matches = [message for pattern, message in source.get_non_retryable_errors().items() if pattern in str(error.value)]
     assert len(matches) == 1
     assert "test-token" not in str(error.value)
@@ -198,4 +203,4 @@ def test_missing_collection_does_not_erase_table(body: dict[str, Any]) -> None:
         AbnormalSecuritySourceConfig(api_key="test-token"), manager(), inputs("cases")
     )
     with pytest.raises(ValueError):
-        list(result.items())
+        list(sync_items(result))

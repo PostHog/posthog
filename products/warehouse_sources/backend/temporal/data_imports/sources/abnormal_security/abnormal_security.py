@@ -122,7 +122,7 @@ def abnormal_security_source(
     params: dict[str, Any] = {"filter": filter_value, "pageSize": 100, "pageNumber": 1}
     if inputs.schema_name == "threats":
         params["source"] = "all"
-    resources: list[EndpointResource] = [
+    resources: list[str | EndpointResource] = [
         {
             "name": parent_name,
             "endpoint": {
