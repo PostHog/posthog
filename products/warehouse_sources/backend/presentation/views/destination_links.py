@@ -14,6 +14,7 @@ from rest_framework.exceptions import ValidationError
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataDestination,
     ExternalDataSchemaDestination,
+    ExternalDataSource,
     ExternalDataSourceDestination,
 )
 
@@ -86,8 +87,10 @@ def set_source_destinations(*, team_id: int, source_id: Any, destination_ids: li
     destinations = _resolve_destinations(team_id, destination_ids)
 
     # Atomic because the delete and the creates are one edit: a failure between them would leave
-    # the source with a partial set, and every table without an override would sync to it.
+    # the source with a partial set, and every table without an override would sync to it. Locking
+    # the source also serializes this edit with the destination backfill.
     with transaction.atomic():
+        ExternalDataSource.objects.select_for_update(of=("self",)).get(pk=source_id, team_id=team_id)
         ExternalDataSourceDestination.objects.for_team(team_id).filter(source_id=source_id).delete()
         for destination in destinations:
             ExternalDataSourceDestination.objects.for_team(team_id).create(

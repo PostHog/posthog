@@ -157,8 +157,9 @@ tools:
             GitHub config {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace and reproduction
             details"}; GitLab config {"title":"Checkout TypeError","body":"Stack trace and reproduction details"}.
             Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body};
-            linear -> {team_id, title, description}; jira -> {project_key, title, description}. Use integrations-list
-            first to find the `integration_id` and kind; use integrations-jira-projects-retrieve,
+            linear -> {team_id, title, description}; jira -> {project_key, title, description}. Every kind also accepts
+            an optional `assignee` key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. Use
+            integrations-list first to find the `integration_id` and kind; use integrations-jira-projects-retrieve,
             integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific
             IDs.
     error-tracking-external-references-destroy:

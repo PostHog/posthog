@@ -148,7 +148,7 @@ ORDER BY abs(z) DESC
 LIMIT 25
 ```
 
-**Filter to the windows you score, not to their span.** Five aligned 24h windows is all these aggregates ever read, so the `WHERE` enumerates those five days and keeps the outer 29-day bounds only for partition pruning and the future-clock guard. A plain contiguous `>= now() - INTERVAL 29 DAY` range costs the same bytes off disk but pushes roughly six times the rows through the session-level aggregation — on a high-traffic project that is the difference between a query that returns in a couple of seconds and one that dies on the memory limit. Apply the same shape to any query here whose aggregates only read specific windows; the entry-path query below is the exception, because its `bounce_prior` genuinely reads the whole range.
+**Filter to the windows you score, not to their span.** Five aligned 24h windows is all these aggregates ever read, so the `WHERE` enumerates those five days and keeps the outer 29-day bounds only for partition pruning and the future-clock guard. A plain contiguous `>= now() - INTERVAL 29 DAY` range costs the same bytes off disk but pushes roughly six times the rows through the session-level aggregation — on a high-traffic project that is the difference between a query that returns in a couple of seconds and one that dies on the memory limit. Apply the same shape to any query here whose aggregates only read specific windows; the entry-path bounce query below is the exception, because its `bounce_prior` genuinely reads the whole range.
 
 If the scored query still exceeds memory on a very high-volume project, narrow in this order and record which step you took in the close-out: first scope to the site's own hosts (`$entry_hostname IN (...)`, minus whatever is already in `noise:`), then fall back to three windows (7/14/21 days back), where the median is `aligned[2]` and the MAD is `deviations[2]`. Three windows still scores, but the baseline is thinner — treat a borderline `|z|` as a `remember`, not a report.
 
@@ -174,14 +174,14 @@ A divergence concentrated in one referrer or one `utm_source`/`utm_campaign` nam
 
 #### Entry-path step
 
-Bounce and volume per landing page, against the path's own history. Group by host plus an **ID-normalized path** — raw paths shatter one surface into dozens of single-count rows:
+Bounce and volume per landing page, against the path's own history. Group by host plus an **ID-normalized path** — raw paths shatter one surface into dozens of single-count rows. Run two queries, because the two candidate shapes need opposite volume gates: a bounce step needs traffic now, a cliff needs traffic before.
+
+**Bounce step** — gate on current volume, since a bounce rate over a handful of sessions is noise:
 
 ```sql
 SELECT $entry_hostname AS host,
        replaceRegexpAll($entry_pathname, '[0-9]+', ':id') AS entry_path,
        uniqIf(session_id, $start_timestamp >= now() - INTERVAL 1 DAY) AS sessions_24h,
-       uniqIf(session_id, $start_timestamp >= now() - INTERVAL 8 DAY
-                      AND $start_timestamp <  now() - INTERVAL 7 DAY) AS aligned_1w_ago,
        round(avgIf($is_bounce, $start_timestamp >= now() - INTERVAL 1 DAY), 3) AS bounce_24h,
        round(avgIf($is_bounce, $start_timestamp <  now() - INTERVAL 1 DAY), 3) AS bounce_prior
 FROM sessions
@@ -189,14 +189,37 @@ WHERE $start_timestamp >= now() - INTERVAL 15 DAY
   AND $start_timestamp <= now() + INTERVAL 1 DAY
 GROUP BY host, entry_path
 HAVING sessions_24h >= 100
-ORDER BY aligned_1w_ago DESC
+ORDER BY sessions_24h DESC
 LIMIT 30
 ```
 
-Two candidate shapes, different stories:
+A candidate is `bounce_24h` ≥ ~15 percentage points above `bounce_prior` (big paths hold their bounce rate within a point or two; a step is glaring). Either the page broke (slow, blank, erroring — cross-check the vitals pattern and median duration on those sessions) or its _inbound traffic_ changed (a new campaign or referrer dumping mismatched visitors — check the path's channel mix across the two windows before blaming the page).
 
-- **Bounce step** — `bounce_24h` ≥ ~15 percentage points above `bounce_prior` (big paths hold their bounce rate within a point or two; a step is glaring). Either the page broke (slow, blank, erroring — cross-check the vitals pattern and median duration on those sessions) or its _inbound traffic_ changed (a new campaign or referrer dumping mismatched visitors — check the path's channel mix across the two windows before blaming the page).
-- **Traffic cliff** — an established entry path (≥ ~200 sessions/day) whose `sessions_24h` collapsed against both aligned windows. A removed link, a changed redirect, a de-indexed page. Find which referrer/channel stopped sending.
+**Traffic cliff** — gate on baseline volume, never on current volume. A path that fell to zero has no sessions in the last 24h, so a `sessions_24h` gate removes exactly the outage this check exists to find. A path with zero current sessions still has rows in the aligned windows, so it stays in this result with `sessions_24h = 0`:
+
+```sql
+SELECT $entry_hostname AS host,
+       replaceRegexpAll($entry_pathname, '[0-9]+', ':id') AS entry_path,
+       uniqIf(session_id, $start_timestamp >= now() - INTERVAL 1 DAY) AS sessions_24h,
+       uniqIf(session_id, $start_timestamp >= now() - INTERVAL 8 DAY
+                      AND $start_timestamp <  now() - INTERVAL 7 DAY) AS aligned_1w_ago,
+       uniqIf(session_id, $start_timestamp >= now() - INTERVAL 15 DAY
+                      AND $start_timestamp <  now() - INTERVAL 14 DAY) AS aligned_2w_ago
+FROM sessions
+WHERE ($start_timestamp >= now() - INTERVAL 1 DAY
+    OR ($start_timestamp >= now() - INTERVAL 8 DAY  AND $start_timestamp < now() - INTERVAL 7 DAY)
+    OR ($start_timestamp >= now() - INTERVAL 15 DAY AND $start_timestamp < now() - INTERVAL 14 DAY))
+  AND $start_timestamp >= now() - INTERVAL 15 DAY
+  AND $start_timestamp <= now() + INTERVAL 1 DAY
+GROUP BY host, entry_path
+HAVING least(aligned_1w_ago, aligned_2w_ago) >= 200
+ORDER BY sessions_24h / least(aligned_1w_ago, aligned_2w_ago) ASC
+LIMIT 30
+```
+
+A candidate is an established path whose `sessions_24h` collapsed against both aligned windows. The sort puts the deepest drops first, so a path at zero is always the first row. A removed link, a changed redirect, a de-indexed page. Find which referrer/channel stopped sending.
+
+Regression example: `www.example.com /pricing` has 1,180 sessions one week ago, 1,240 two weeks ago, and 0 in the last 24h after a redirect change. The bounce query drops this row, because `sessions_24h` is below 100. The cliff query keeps it and ranks it first. If a run reads only the bounce query, it misses this outage — always run both.
 
 App and marketing hosts have different bounce physics (a logged-in app session almost never bounces; a blog post bounces half the time) — never pool paths across hosts when judging a step.
 
