@@ -98,8 +98,10 @@ That is the same shape as a real regression.
   Use `reached_from_step_count` for the minimum-entrant floor, the steady-denominator check and the report evidence.
   Score only the points whose entrant period ended at least one conversion interval ago, and use the older mature points as the baseline.
   Each trends point is the first-to-last rate, and `query-funnel` has no step selector.
-  For the rate from step k-1 to step k, run the same trends query for the prefix funnels of steps 1..k-1 and 1..k, and divide `reached_to_step_count` of the longer prefix by that of the shorter prefix at the same index.
-  This division holds only when `funnelOrderType` is `ordered` or `strict`.
+  For the rate from step 1 to step 2, use `data` of the same trends query for the prefix funnel of steps 1..2.
+  Do not query a one-step prefix, because `query-funnel` rejects a funnel with fewer than two steps.
+  For the rate from step k-1 to step k when k is 3 or more, run the same trends query for the prefix funnels of steps 1..k-1 and 1..k, and divide `reached_to_step_count` of the longer prefix by that of the shorter prefix at the same index.
+  These prefix rates hold only when `funnelOrderType` is `ordered` or `strict`.
   For an `unordered` funnel, score only the first-to-last rate.
 - A saved funnel with `exclusions` can give a biased trends result: one excluded attempt removes that person's failed entries from every period, which can inflate older baselines.
   Do not author a decline for such a funnel from trends results.
