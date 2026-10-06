@@ -291,12 +291,13 @@ class RunValidationResult:
 # Validation does all its work (HogQL + sklearn) inside a single activity to
 # keep the Temporal payload small — we only return summary counts, not raw data.
 _VALIDATION_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30))
-# Each date runs two batch queries of up to HOGQL_INCREASED_MAX_EXECUTION_TIME (600 s) each.
-# An attempt claims another date only while that worst case, plus the metrics and writes, still
-# fits in the attempt. The rest of a larger backlog stays pending for the next sweep, so the
-# attempt completes instead of timing out part-way.
+# Each date runs one predictions query per model that scored it, up to the five models of a
+# shadow set, plus one realized-labels query. Each takes up to HOGQL_INCREASED_MAX_EXECUTION_TIME
+# (600 s). An attempt claims another date only while that worst case, plus the metrics and
+# writes, still fits in the attempt. The rest of a larger backlog stays pending for the next
+# sweep, so the attempt completes instead of timing out part-way.
 _VALIDATION_ATTEMPT_TIMEOUT = timedelta(hours=2)
-_VALIDATION_DATE_RESERVE = timedelta(minutes=30)
+_VALIDATION_DATE_RESERVE = timedelta(minutes=70)
 # Covers both attempts plus their backoff, as for inference.
 _VALIDATION_WORKFLOW_TIMEOUT = timedelta(hours=5)
 
