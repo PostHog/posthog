@@ -1,6 +1,14 @@
 import { ChartDisplayType } from '~/types'
 
-import { ChartSettings, DatabaseSerializedFieldType, HogQLQuery, Node, NodeKind, TableSettings } from './schema-general'
+import {
+    ChartSettings,
+    DatabaseSerializedFieldType,
+    DateRange,
+    HogQLQuery,
+    Node,
+    NodeKind,
+    TableSettings,
+} from './schema-general'
 
 export interface BIVisualizationNode extends Node<never> {
     kind: NodeKind.BIVisualizationNode
@@ -71,6 +79,9 @@ export interface BIFilter {
 
 export interface BIConfig {
     source: BIDataSource | null
+    /** Column that receives the worksheet and dashboard date range. */
+    dateField?: BIField | null
+    dateRange?: DateRange
     chartType: ChartDisplayType
     rows: BIField[]
     columns: BIField[]

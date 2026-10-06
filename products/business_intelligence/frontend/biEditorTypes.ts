@@ -28,6 +28,8 @@ import {
 } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { getBIFiltersPlaceholder, getBIQueryFilters, normalizeBIDates } from './biQueryFilters'
+
 export enum BIEditorView {
     SQL = 'sql',
     BI = 'bi',
@@ -122,7 +124,7 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
 }
 
 export function normalizeBIConfig(config: BIConfig): BIConfig {
-    let normalized = config
+    let normalized = normalizeBIDates(config)
     const sort = normalized.sort
     if (sort && !getBISortOptions(normalized).some((option) => option.key === sort.key)) {
         normalized = { ...normalized, sort: null }
@@ -425,6 +427,20 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
     }
 
     const candidate = decodedConfig as Partial<BIConfig>
+    if (
+        candidate.dateRange !== undefined &&
+        (!candidate.dateRange ||
+            typeof candidate.dateRange !== 'object' ||
+            [candidate.dateRange.date_from, candidate.dateRange.date_to].some(
+                (bound) => bound != null && typeof bound !== 'string'
+            ) ||
+            (candidate.dateRange.explicitDate !== undefined && typeof candidate.dateRange.explicitDate !== 'boolean'))
+    ) {
+        return null
+    }
+    if (candidate.dateField !== undefined && candidate.dateField !== null && !parseBIFieldValue(candidate.dateField)) {
+        return null
+    }
     const source =
         candidate.source === null
             ? null
@@ -520,6 +536,10 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const config: BIConfig = {
         source,
+        ...(candidate.dateField !== undefined
+            ? { dateField: candidate.dateField === null ? null : parseBIFieldValue(candidate.dateField) }
+            : {}),
+        ...(candidate.dateRange !== undefined ? { dateRange: candidate.dateRange } : {}),
         chartType: candidate.chartType as ChartDisplayType,
         rows: rows as BIField[],
         columns: columns as BIField[],
@@ -533,6 +553,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
         ...config.columns,
         ...config.values.map((value) => value.field),
         ...config.filters.map((filter) => filter.field),
+        ...(config.dateField ? [config.dateField] : []),
     ]
 
     if (fields.length > 0 && (!source || fields.some((field) => !isBIFieldCompatible(source, field)))) {
@@ -749,6 +770,7 @@ function filterExpression(filter: BIFilter): string | null {
 }
 
 export function buildBIFilterOptionsQuery(config: BIConfig, index: number): HogQLQuery | null {
+    config = normalizeBIConfig(config)
     const filter = config.filters[index]
     if (
         !config.source ||
@@ -769,7 +791,8 @@ export function buildBIFilterOptionsQuery(config: BIConfig, index: number): HogQ
     return {
         kind: NodeKind.HogQLQuery,
         connectionId: config.source.connectionId,
-        query: `SELECT DISTINCT toString(${expression}) AS value\nFROM ${escapePropertyAsHogQLIdentifier(config.source.table)}\nWHERE ${[`${expression} IS NOT NULL`, ...conditions].map((condition) => `(${condition})`).join(' AND ')}\nLIMIT 100`,
+        filters: getBIQueryFilters(config),
+        query: `SELECT DISTINCT toString(${expression}) AS value\nFROM ${escapePropertyAsHogQLIdentifier(config.source.table)}\nWHERE ${[getBIFiltersPlaceholder(config), `${expression} IS NOT NULL`, ...conditions].map((condition) => `(${condition})`).join(' AND ')}\nLIMIT 100`,
     }
 }
 
@@ -964,6 +987,7 @@ function buildOrderByExpression(
 }
 
 export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
+    config = normalizeBIConfig(config)
     if (!config.source || config.filters.some(getBIFilterValidationError)) {
         return null
     }
@@ -1011,9 +1035,9 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
         `FROM ${escapePropertyAsHogQLIdentifier(config.source.table)}`,
     ]
 
-    if (filters.length > 0) {
-        queryParts.push(`WHERE\n    ${filters.join('\n    AND ')}`)
-    }
+    queryParts.push(
+        `WHERE\n    ${[getBIFiltersPlaceholder(config), ...filters.map((filter) => `(${filter})`)].join('\n    AND ')}`
+    )
     if (dimensionExpressions.length > 0) {
         queryParts.push(`GROUP BY\n    ${dimensionExpressions.join(',\n    ')}`)
     }
@@ -1064,6 +1088,8 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
                 kind: NodeKind.HogQLQuery,
                 query,
                 connectionId: config.source.connectionId,
+                sendRawQuery: undefined,
+                filters: getBIQueryFilters(config),
             },
             display: config.chartType,
             ...(pivotTableSettings || seriesSettings ? { chartSettings: pivotTableSettings ?? seriesSettings } : {}),
