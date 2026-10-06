@@ -256,7 +256,7 @@ impl PollSource {
                 None => {
                     index_by_key.insert(key, runs.len());
                     runs.push(KeyRun {
-                        routing_key: format!("key-{key}"),
+                        routing_key: format!("key-{key}").into(),
                         messages: vec![message],
                     });
                 }

@@ -29,7 +29,7 @@ impl SentMessage {
 }
 
 struct SentRun {
-    routing_key: String,
+    routing_key: Arc<str>,
     messages: Vec<SentMessage>,
 }
 
@@ -41,7 +41,7 @@ pub struct InFlightRequest {
 }
 
 pub struct KeyOutcome {
-    pub routing_key: String,
+    pub routing_key: Arc<str>,
     pub accepted: Vec<SentMessage>,
     pub returned: Vec<SerializedKafkaMessage>,
 }
@@ -96,7 +96,7 @@ impl InFlightRequests {
         let runs: Vec<SentRun> = runs
             .iter()
             .map(|run| SentRun {
-                routing_key: run.routing_key.clone(),
+                routing_key: Arc::clone(&run.routing_key),
                 messages: run.messages.iter().map(SentMessage::of).collect(),
             })
             .collect();
@@ -184,7 +184,7 @@ impl InFlightRequest {
                     .all(|(rank, (message_index, _))| *message_index == first_returned + rank);
                 if !is_suffix {
                     return Err(ResolveError::NotASuffix {
-                        routing_key: run.routing_key,
+                        routing_key: run.routing_key.to_string(),
                     });
                 }
                 let mut accepted = run.messages;
@@ -213,7 +213,7 @@ mod tests {
 
     fn run(key: &str, offsets: &[i64]) -> KeyRun {
         KeyRun {
-            routing_key: key.to_string(),
+            routing_key: key.into(),
             messages: offsets
                 .iter()
                 .map(|&offset| message(key, 0, offset))
@@ -244,7 +244,7 @@ mod tests {
             .iter()
             .map(|outcome| {
                 (
-                    outcome.routing_key.as_str(),
+                    &*outcome.routing_key,
                     outcome
                         .accepted
                         .iter()
@@ -263,7 +263,7 @@ mod tests {
     #[rstest]
     #[case::skips_an_accepted_message(
         vec![message("a", 0, 2)],
-        ResolveError::NotASuffix { routing_key: "a".to_string() },
+        ResolveError::NotASuffix { routing_key: "a".into() },
     )]
     #[case::outside_the_request(
         vec![message("a", 0, 99)],

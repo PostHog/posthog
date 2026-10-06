@@ -5,6 +5,7 @@
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{GroupCompletion, Offset, Partition};
@@ -36,7 +37,7 @@ pub struct Send {
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct KeyAck {
-    pub routing_key: String,
+    pub routing_key: Arc<str>,
     pub max_offset: i64,
 }
 
@@ -54,7 +55,7 @@ pub struct Effects {
     pub completions: Vec<GroupCompletion>,
     pub key_acks: Vec<KeyAck>,
     /// Keys that left the state machine; their order-sentinel state can go.
-    pub evicted_keys: Vec<String>,
+    pub evicted_keys: Vec<Arc<str>>,
     pub worker_outcomes: Vec<WorkerOutcome>,
     /// Workers with nothing left in flight. A draining worker in this list
     /// has finished its work.
@@ -306,7 +307,7 @@ impl ActiveState {
         self.restart_stall_clock_if_quiet(now);
         for run in runs {
             self.keys
-                .push(&run.routing_key, assignment_epoch, run.messages, now);
+                .push(run.routing_key, assignment_epoch, run.messages, now);
         }
         let mut effects = Effects::default();
         self.advance(now, pool, false, &mut effects)?;
@@ -450,14 +451,14 @@ impl ActiveState {
 
     fn settle_key(
         &mut self,
-        routing_key: &str,
+        routing_key: &Arc<str>,
         returned: Vec<SerializedKafkaMessage>,
         retry_at: Option<Instant>,
         now: Instant,
         effects: &mut Effects,
     ) {
         if self.keys.settle(routing_key, returned, retry_at, now) == Settled::Evicted {
-            effects.evicted_keys.push(routing_key.to_string());
+            effects.evicted_keys.push(Arc::clone(routing_key));
         }
     }
 
@@ -646,7 +647,7 @@ fn key_acks(outcomes: &[KeyOutcome]) -> Vec<KeyAck> {
                 .map(|message| message.offset)
                 .max()?;
             Some(KeyAck {
-                routing_key: outcome.routing_key.clone(),
+                routing_key: Arc::clone(&outcome.routing_key),
                 max_offset,
             })
         })
@@ -704,7 +705,7 @@ mod tests {
 
     fn run(key: &str, offsets: &[i64]) -> KeyRun {
         KeyRun {
-            routing_key: key.to_string(),
+            routing_key: key.into(),
             messages: offsets
                 .iter()
                 .map(|&offset| message(key, 0, offset))
@@ -715,7 +716,7 @@ mod tests {
     fn shape(send: &Send) -> Vec<(&str, Vec<i64>)> {
         send.runs
             .iter()
-            .map(|run| (run.routing_key.as_str(), offsets(&run.messages)))
+            .map(|run| (&*run.routing_key, offsets(&run.messages)))
             .collect()
     }
 
@@ -741,16 +742,16 @@ mod tests {
         assert_eq!(shape(&effects.sends[0]), vec![("a", vec![3])]);
         assert_eq!(effects.completions.len(), 1);
         assert_eq!(effects.completions[0].offsets, vec![Offset(1), Offset(2)]);
-        assert_eq!(effects.evicted_keys, vec!["b".to_string()]);
+        assert_eq!(effects.evicted_keys, vec![Arc::<str>::from("b")]);
         assert_eq!(
             effects.key_acks,
             vec![
                 KeyAck {
-                    routing_key: "a".to_string(),
+                    routing_key: "a".into(),
                     max_offset: 1
                 },
                 KeyAck {
-                    routing_key: "b".to_string(),
+                    routing_key: "b".into(),
                     max_offset: 2
                 },
             ]
@@ -893,7 +894,7 @@ mod tests {
         let placed: Vec<_> = effects
             .sends
             .iter()
-            .map(|send| (send.runs[0].routing_key.as_str(), send.worker.as_ref()))
+            .map(|send| (&*send.runs[0].routing_key, send.worker.as_ref()))
             .collect();
         assert_eq!(placed, vec![("large", "w1"), ("small", "w2")]);
     }
@@ -988,7 +989,7 @@ mod tests {
 
         let (batcher, effects) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
         assert!(effects.sends.is_empty());
-        assert_eq!(effects.evicted_keys, vec!["a".to_string()]);
+        assert_eq!(effects.evicted_keys, vec![Arc::<str>::from("a")]);
         assert_eq!(batcher.pending_messages(), 0);
 
         let (_, effects) = batcher.on_wakeup(now + budget + STALL / 2, &pool(&["w"]));

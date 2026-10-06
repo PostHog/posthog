@@ -1,6 +1,7 @@
 //! The packer groups claimed runs into requests near a target size.
 
 use std::collections::{HashSet, VecDeque};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use metrics::counter;
@@ -173,7 +174,7 @@ impl Packer {
 
     /// The caller must release the claims of the returned keys, whose runs
     /// emptied.
-    pub fn purge(&mut self, revoked: &[(String, i32)]) -> (usize, Vec<String>) {
+    pub fn purge(&mut self, revoked: &[(String, i32)]) -> (usize, Vec<Arc<str>>) {
         let revoked: HashSet<(&str, i32)> = revoked
             .iter()
             .map(|(topic, partition)| (topic.as_str(), *partition))
@@ -204,7 +205,7 @@ impl Packer {
 pub(crate) fn purge_request(
     request: &mut PackedRequest,
     revoked: &HashSet<(&str, i32)>,
-    emptied_keys: &mut Vec<String>,
+    emptied_keys: &mut Vec<Arc<str>>,
 ) -> usize {
     let mut purged = 0usize;
     request.runs.retain_mut(|run| {
@@ -213,7 +214,7 @@ pub(crate) fn purge_request(
             .retain(|message| !revoked.contains(&(&*message.topic, message.partition)));
         purged += before - run.messages.len();
         if run.messages.is_empty() {
-            emptied_keys.push(run.routing_key.clone());
+            emptied_keys.push(Arc::clone(&run.routing_key));
             false
         } else {
             true
@@ -250,7 +251,7 @@ mod tests {
             class,
             bytes: payload_bytes(&messages),
             run: KeyRun {
-                routing_key: key.to_string(),
+                routing_key: key.into(),
                 messages,
             },
             first_arrival: Instant::now(),
@@ -258,11 +259,7 @@ mod tests {
     }
 
     fn keys(request: &PackedRequest) -> Vec<&str> {
-        request
-            .runs
-            .iter()
-            .map(|run| run.routing_key.as_str())
-            .collect()
+        request.runs.iter().map(|run| &*run.routing_key).collect()
     }
 
     fn targets(events: usize, budget_ms: u64) -> PackTargets {
@@ -345,7 +342,7 @@ mod tests {
 
         let (purged, emptied) = packer.purge(&[("events".to_string(), 0)]);
         assert_eq!(purged, 3);
-        assert_eq!(emptied, vec!["a".to_string()]);
+        assert_eq!(emptied, vec![Arc::<str>::from("a")]);
         packer.flush();
         let sent = packer.take_ready(now, 10);
         assert_eq!(keys(&sent[0]), vec!["b"]);
