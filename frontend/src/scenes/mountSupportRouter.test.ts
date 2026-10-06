@@ -2,19 +2,21 @@ import { mountSupportRouter } from './mountSupportRouter'
 
 const mount = jest.fn()
 let importError: Error | null = null
+let exportMissing = false
 
 jest.mock('lib/components/Support/supportRouterLogic', () => ({
     get supportRouterLogic() {
         if (importError) {
             throw importError
         }
-        return { mount }
+        return exportMissing ? undefined : { mount }
     },
 }))
 
 describe('mountSupportRouter', () => {
     beforeEach(() => {
         importError = null
+        exportMissing = false
         mount.mockReset().mockReturnValue(jest.fn())
         jest.spyOn(console, 'warn').mockImplementation(() => {})
     })
@@ -49,6 +51,16 @@ describe('mountSupportRouter', () => {
         ['WebKit', 'Importing a module script failed.'],
     ])('swallows a %s chunk-load failure instead of rejecting', async (_browser, message) => {
         importError = new TypeError(message)
+
+        const { unmount, mounted } = mountSupportRouter()
+        await expect(mounted).resolves.toBeUndefined()
+
+        expect(console.warn).toHaveBeenCalled()
+        expect(() => unmount()).not.toThrow()
+    })
+
+    it('skips the mount when the chunk resolves without the export', async () => {
+        exportMissing = true
 
         const { unmount, mounted } = mountSupportRouter()
         await expect(mounted).resolves.toBeUndefined()
