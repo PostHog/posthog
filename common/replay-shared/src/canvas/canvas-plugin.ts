@@ -2,6 +2,7 @@ import { Replayer, canvasMutation } from 'posthog-js/rrweb'
 import { ReplayPlugin } from 'posthog-js/rrweb'
 import {
     CanvasArg,
+    CanvasContext,
     EventType,
     IncrementalSource,
     canvasMutationData,
@@ -55,9 +56,29 @@ const PRELOAD_BUFFER_SIZE = 20
 const BUFFER_TIME = 30000 // 30 seconds
 const DEBOUNCE_MILLIS = 250 // currently using 4fps for all recordings
 
-export type CanvasPluginErrorHandler = (error: unknown) => void
+export type CanvasPluginErrorContext = {
+    canvas_node_id: number
+    canvas_context: string
+}
+
+export type CanvasPluginErrorHandler = (error: unknown, context?: CanvasPluginErrorContext) => void
 
 const noOpErrorHandler: CanvasPluginErrorHandler = () => {}
+
+export class CanvasMutationError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'CanvasMutationError'
+    }
+}
+
+// The node id stays out of the message so that error tracking groups failures by context, not by canvas.
+function toCanvasMutationError(error: unknown, context: CanvasPluginErrorContext): unknown {
+    if (error instanceof Error) {
+        return error
+    }
+    return new CanvasMutationError(`Canvas mutation failed in ${context.canvas_context} context: ${String(error)}`)
+}
 
 export const CanvasReplayerPlugin = (
     events: eventWithTime[],
@@ -227,8 +248,12 @@ export const CanvasReplayerPlugin = (
             target: target,
             imageMap,
             canvasEventMap,
-            errorHandler: (error: unknown) => {
-                onError(error)
+            errorHandler: (_failedMutation: unknown, error: unknown) => {
+                const context = {
+                    canvas_node_id: data.id,
+                    canvas_context: CanvasContext[data.type] ?? String(data.type),
+                }
+                onError(toCanvasMutationError(error, context), context)
             },
         })
 

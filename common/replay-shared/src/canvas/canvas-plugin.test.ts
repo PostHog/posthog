@@ -4,7 +4,7 @@
 import { canvasMutation } from 'posthog-js/rrweb'
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
-import { CanvasReplayerPlugin } from './canvas-plugin'
+import { CanvasMutationError, CanvasReplayerPlugin } from './canvas-plugin'
 
 // Mock rrweb canvasMutation function
 jest.mock('posthog-js/rrweb', () => ({
@@ -558,6 +558,49 @@ describe('CanvasReplayerPlugin', () => {
             const call = (canvasMutation as jest.Mock).mock.calls.at(-1)[0]
             expect(call.target.width).toBe(500)
             expect(call.target.height).toBe(400)
+        })
+    })
+
+    describe('canvas mutation error reporting', () => {
+        it.each([
+            {
+                name: 'reports the error rrweb passes, not the mutation',
+                thrown: new TypeError('drawImage failed'),
+                expected: new TypeError('drawImage failed'),
+            },
+            {
+                name: 'wraps a non-Error value with the canvas context',
+                thrown: 'context lost',
+                expected: new CanvasMutationError('Canvas mutation failed in WebGL context: context lost'),
+            },
+        ])('$name', async ({ thrown, expected }) => {
+            const canvas = document.createElement('canvas')
+            const event = {
+                type: EventType.IncrementalSnapshot as const,
+                data: {
+                    source: IncrementalSource.CanvasMutation as const,
+                    id: 7,
+                    type: 1,
+                    commands: [{ property: 'drawArrays', args: [0, 0, 3] }],
+                },
+                timestamp: 1000,
+            }
+            ;(canvasMutation as jest.Mock).mockImplementationOnce(async ({ mutation, errorHandler }) => {
+                errorHandler(mutation, thrown)
+            })
+            const onError = jest.fn()
+
+            const plugin = CanvasReplayerPlugin([event], onError)
+            const replayer = { getMirror: () => ({ getNode: (id: number) => (id === 7 ? canvas : null) }) }
+            plugin.onBuild?.(canvas, { id: 7, replayer } as any)
+            plugin.handler!(event, false, { replayer } as any)
+            await new Promise((resolve) => setTimeout(resolve, 10))
+
+            expect(onError).toHaveBeenCalledTimes(1)
+            const [reported, context] = onError.mock.calls[0]
+            expect(reported).toEqual(expected)
+            expect(reported.constructor).toBe(expected.constructor)
+            expect(context).toEqual({ canvas_node_id: 7, canvas_context: 'WebGL' })
         })
     })
 })
