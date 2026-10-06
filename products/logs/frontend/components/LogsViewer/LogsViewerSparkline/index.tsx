@@ -7,6 +7,7 @@ import type { DateRangeZoomData, Series, TimeSeriesBarChartConfig, TooltipContex
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
+import { ProjectAnnotationsLayer } from 'lib/components/AnnotationsOverlay/ProjectAnnotationsLayer'
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -177,6 +178,7 @@ export function LogsSparkline({
                             {highlight ? (
                                 <HighlightedRange start={highlight.startIndex} end={highlight.endIndex} />
                             ) : null}
+                            <ProjectAnnotationsLayer dates={sparklineLabels} />
                         </TimeSeriesBarChart>
                     ) : !sparklineLoading ? (
                         <div className="h-full text-muted flex items-center justify-center">

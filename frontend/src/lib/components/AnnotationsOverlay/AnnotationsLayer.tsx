@@ -2,6 +2,8 @@ import React, { useMemo } from 'react'
 
 import { computeVisibleXLabels, useChartLayout } from '@posthog/quill-charts'
 
+import type { IntervalType } from '~/types'
+
 import { AnnotationsOverlay } from './AnnotationsOverlay'
 import type { AnnotationsChartGeometry } from './useAnnotationsPositioning'
 
@@ -21,6 +23,10 @@ interface AnnotationsLayerProps {
     /** Series key for the previous-period bar. Required for previous-period annotations
      *  to anchor on the correct bar within each band. */
     previousSeriesKey?: string
+    /** Disambiguates the annotations logic when several charts mount with the same `insightNumericId`. */
+    kind?: string
+    /** Bucket interval for charts outside an insight. See `AnnotationsOverlayLogicProps.interval`. */
+    interval?: IntervalType
 }
 
 const WRAPPER_STYLE: React.CSSProperties = {
@@ -40,6 +46,8 @@ export function AnnotationsLayer({
     seriesKey,
     previousDates,
     previousSeriesKey,
+    kind,
+    interval,
 }: AnnotationsLayerProps): React.ReactElement | null {
     const { scales, dimensions, labels, axis } = useChartLayout()
     const xTickFormatter = axis.xTickFormatter
@@ -97,6 +105,8 @@ export function AnnotationsLayer({
                 dates={dates}
                 chartWidth={dimensions.width}
                 insightNumericId={insightNumericId}
+                kind={kind}
+                interval={interval}
             />
             {previousGeometry && previousDates && (
                 <AnnotationsOverlay
@@ -104,7 +114,8 @@ export function AnnotationsLayer({
                     dates={previousDates}
                     chartWidth={dimensions.width}
                     insightNumericId={insightNumericId}
-                    kind="previous"
+                    kind={kind ? `${kind}::previous` : 'previous'}
+                    interval={interval}
                 />
             )}
         </div>
