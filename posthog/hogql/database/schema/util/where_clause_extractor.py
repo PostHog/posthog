@@ -175,11 +175,13 @@ class WhereClauseExtractor(CloningVisitor):
         return ast.Not(expr=response)
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
-        if node.name == "and":
+        # The parser emits `NOT (...)` as a call named "NOT", so match logical operators case-insensitively.
+        name = node.name.lower()
+        if name == "and":
             return self.visit_and(ast.And(exprs=node.args))
-        elif node.name == "or":
+        elif name == "or":
             return self.visit_or(ast.Or(exprs=node.args))
-        elif node.name == "not":
+        elif name == "not":
             if self.is_join:
                 return ast.Constant(value=True)
             # Route the `not(...)` call form through visit_not for the same guard as the `ast.Not` form.
