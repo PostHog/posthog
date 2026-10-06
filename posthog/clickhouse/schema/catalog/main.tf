@@ -374,6 +374,13 @@ module "usage_report_events_preagg" {
   ttl        = var.ttl
 }
 
+module "warehouse_object_reads_daily" {
+  source     = "./warehouse_object_reads_daily"
+  database   = var.database
+  deployment = try(var.deployment.families.warehouse_object_reads_daily, { components = [] })
+  ttl        = var.ttl
+}
+
 module "web_bot_definition" {
   source              = "./web_bot_definition"
   database            = var.database

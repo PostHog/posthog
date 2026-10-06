@@ -39,6 +39,7 @@ locals {
     { name = "consecutive_failures", type = "UInt32" },
     { name = "muted_notification", type = "LowCardinality(String)" },
     { name = "occurred_at", type = "DateTime64(6, 'UTC')" },
+    { name = "source_kind", type = "LowCardinality(String)" },
     { name = "expires_at", type = "Date", default_expression = "today() + toIntervalDay(90)" },
   ]
 }

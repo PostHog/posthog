@@ -101,7 +101,7 @@ locals {
     { name = "original_expiry_timestamp", type = "DateTime64(6)" },
   ]
 
-  kafka_metrics_avro2_columns = [
+  kafka_metrics_avro4_columns = [
     { name = "uuid", type = "String" },
     { name = "trace_id", type = "String" },
     { name = "span_id", type = "String" },
@@ -184,7 +184,7 @@ locals {
     { name = "_offset", type = "UInt64" },
   ]
 
-  metrics2_input_columns = [
+  metrics4_input_columns = [
     { name = "uuid", type = "String" },
     { name = "team_id", type = "Int32" },
     { name = "metric_name", type = "LowCardinality(String)" },
@@ -669,365 +669,6 @@ module "metrics_kafka_metrics_family" {
 
 # Tables that hold data, and the materialized views between them.
 
-
-
-
-
-
-
-
-
-
-
-module "metrics2_input" {
-  source = "../../lib/table"
-
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics2_input")
-  database = var.database
-  name     = "metrics2_input"
-  engine   = "`Null`"
-  columns  = local.metrics2_input_columns
-  override = try(local.deployment.overrides["metrics2_input"], {})
-}
-
-module "metrics2_input_to_metric_attributes" {
-  source = "../../lib/materialized_view"
-
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics2_input_to_metric_attributes")
-  database = var.database
-  name     = "metrics2_input_to_metric_attributes"
-  to_table = "${var.database}.metric_attributes2"
-  query    = <<-SQL
-    SELECT
-        team_id,
-        time_bucket,
-        original_expiry_time_bucket,
-        service_name,
-        attribute_key,
-        attribute_value,
-        attribute_type,
-        attribute_count
-    FROM
-    (
-        SELECT
-            team_id AS team_id,
-            toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-            toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-            service_name AS service_name,
-            mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
-            arrayJoin(filtered_attributes) AS attribute,
-            'metric' AS attribute_type,
-            attribute.1 AS attribute_key,
-            attribute.2 AS attribute_value,
-            sumSimpleState(1) AS attribute_count
-        FROM ${var.database}.metrics2_input
-        WHERE has_labels
-        GROUP BY
-            team_id,
-            time_bucket,
-            original_expiry_time_bucket,
-            service_name,
-            filtered_attributes
-    )
-  SQL
-  override = try(local.deployment.overrides["metrics2_input_to_metric_attributes"], {})
-
-  depends_on = [
-    module.metric_attributes2_family,
-    module.metrics2_input,
-  ]
-}
-
-module "metrics2_input_to_metric_attributes3" {
-  source = "../../lib/materialized_view"
-
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics2_input_to_metric_attributes3")
-  database = var.database
-  name     = "metrics2_input_to_metric_attributes3"
-  to_table = "${var.database}.metric_attributes3"
-  query    = <<-SQL
-    SELECT
-        team_id,
-        metric_name,
-        time_bucket,
-        original_expiry_time_bucket,
-        service_name,
-        attribute_key,
-        attribute_value,
-        attribute_type,
-        attribute_count
-    FROM
-    (
-        SELECT
-            team_id AS team_id,
-            metric_name AS metric_name,
-            toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-            toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-            service_name AS service_name,
-            mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS filtered_attributes,
-            arrayJoin(filtered_attributes) AS attribute,
-            'metric' AS attribute_type,
-            attribute.1 AS attribute_key,
-            attribute.2 AS attribute_value,
-            sumSimpleState(1) AS attribute_count
-        FROM ${var.database}.metrics2_input
-        WHERE has_labels
-        GROUP BY
-            team_id,
-            metric_name,
-            time_bucket,
-            original_expiry_time_bucket,
-            service_name,
-            filtered_attributes
-    )
-  SQL
-  override = try(local.deployment.overrides["metrics2_input_to_metric_attributes3"], {})
-
-  depends_on = [
-    module.metric_attributes3_family,
-    module.metrics2_input,
-  ]
-}
-
-module "metrics2_input_to_metric_names3" {
-  source = "../../lib/materialized_view"
-
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics2_input_to_metric_names3")
-  database = var.database
-  name     = "metrics2_input_to_metric_names3"
-  to_table = "${var.database}.metric_names3"
-  query    = <<-SQL
-    SELECT
-        team_id,
-        metric_name,
-        toStartOfHour(timestamp) AS time_bucket,
-        toStartOfHour(input.original_expiry_timestamp) AS original_expiry_time_bucket,
-        maxSimpleState(input.original_expiry_timestamp) AS original_expiry_timestamp
-    FROM ${var.database}.metrics2_input AS input
-    WHERE has_labels
-    GROUP BY
-        team_id,
-        time_bucket,
-        metric_name,
-        original_expiry_time_bucket
-  SQL
-  override = try(local.deployment.overrides["metrics2_input_to_metric_names3"], {})
-
-  depends_on = [
-    module.metric_names3_family,
-    module.metrics2_input,
-  ]
-}
-
-module "metrics2_input_to_metric_series" {
-  source = "../../lib/materialized_view"
-
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics2_input_to_metric_series")
-  database = var.database
-  name     = "metrics2_input_to_metric_series"
-  to_table = "${var.database}.metric_series2"
-  query    = <<-SQL
-    SELECT
-        team_id,
-        metric_name,
-        series_fingerprint,
-        metric_type,
-        unit,
-        aggregation_temporality,
-        is_monotonic,
-        service_name,
-        instrumentation_scope,
-        resource_attributes,
-        attributes,
-        timestamp AS last_seen,
-        original_expiry_timestamp
-    FROM ${var.database}.metrics2_input
-    WHERE has_labels
-  SQL
-  override = try(local.deployment.overrides["metrics2_input_to_metric_series"], {})
-
-  depends_on = [
-    module.metric_series2_family,
-    module.metrics2_input,
-  ]
-}
-
-module "metrics2_input_to_metric_series3" {
-  source = "../../lib/materialized_view"
-
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics2_input_to_metric_series3")
-  database = var.database
-  name     = "metrics2_input_to_metric_series3"
-  to_table = "${var.database}.metric_series3"
-  query    = <<-SQL
-    SELECT
-        team_id,
-        metric_name,
-        series_fingerprint,
-        metric_type,
-        unit,
-        aggregation_temporality,
-        is_monotonic,
-        service_name,
-        instrumentation_scope,
-        resource_attributes,
-        attributes,
-        timestamp AS last_seen,
-        original_expiry_timestamp
-    FROM ${var.database}.metrics2_input
-    WHERE has_labels
-  SQL
-  override = try(local.deployment.overrides["metrics2_input_to_metric_series3"], {})
-
-  depends_on = [
-    module.metric_series3_family,
-    module.metrics2_input,
-  ]
-}
-
-module "metrics2_input_to_metrics" {
-  source = "../../lib/materialized_view"
-
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics2_input_to_metrics")
-  database = var.database
-  name     = "metrics2_input_to_metrics"
-  to_table = "${var.database}.metrics2"
-  query    = <<-SQL
-    SELECT
-        team_id,
-        metric_name,
-        series_fingerprint,
-        resource_fingerprint,
-        timestamp,
-        observed_timestamp,
-        original_expiry_timestamp,
-        service_name,
-        metric_type,
-        value,
-        count,
-        histogram_bounds,
-        histogram_counts,
-        trace_id,
-        span_id,
-        trace_flags,
-        has_labels,
-        unit,
-        aggregation_temporality,
-        is_monotonic,
-        instrumentation_scope,
-        _partition,
-        _topic,
-        _offset
-    FROM ${var.database}.metrics2_input
-  SQL
-  override = try(local.deployment.overrides["metrics2_input_to_metrics"], {})
-
-  depends_on = [
-    module.metrics2_family,
-    module.metrics2_input,
-  ]
-}
-
-module "metrics2_input_to_resource_attributes" {
-  source = "../../lib/materialized_view"
-
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics2_input_to_resource_attributes")
-  database = var.database
-  name     = "metrics2_input_to_resource_attributes"
-  to_table = "${var.database}.metric_attributes2"
-  query    = <<-SQL
-    SELECT
-        team_id,
-        time_bucket,
-        original_expiry_time_bucket,
-        service_name,
-        attribute_key,
-        attribute_value,
-        attribute_type,
-        attribute_count
-    FROM
-    (
-        SELECT
-            team_id AS team_id,
-            toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-            toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-            service_name AS service_name,
-            resource_attributes AS filtered_attributes,
-            arrayJoin(filtered_attributes) AS attribute,
-            'resource' AS attribute_type,
-            attribute.1 AS attribute_key,
-            attribute.2 AS attribute_value,
-            sumSimpleState(1) AS attribute_count
-        FROM ${var.database}.metrics2_input
-        WHERE has_labels
-        GROUP BY
-            team_id,
-            time_bucket,
-            original_expiry_time_bucket,
-            service_name,
-            filtered_attributes
-    )
-  SQL
-  override = try(local.deployment.overrides["metrics2_input_to_resource_attributes"], {})
-
-  depends_on = [
-    module.metric_attributes2_family,
-    module.metrics2_input,
-  ]
-}
-
-module "metrics2_input_to_resource_attributes3" {
-  source = "../../lib/materialized_view"
-
-  enabled  = local.storage && !contains(local.deployment.exclude, "metrics2_input_to_resource_attributes3")
-  database = var.database
-  name     = "metrics2_input_to_resource_attributes3"
-  to_table = "${var.database}.metric_attributes3"
-  query    = <<-SQL
-    SELECT
-        team_id,
-        metric_name,
-        time_bucket,
-        original_expiry_time_bucket,
-        service_name,
-        attribute_key,
-        attribute_value,
-        attribute_type,
-        attribute_count
-    FROM
-    (
-        SELECT
-            team_id AS team_id,
-            metric_name AS metric_name,
-            toStartOfInterval(timestamp, toIntervalHour(1)) AS time_bucket,
-            toStartOfInterval(original_expiry_timestamp, toIntervalHour(1)) AS original_expiry_time_bucket,
-            service_name AS service_name,
-            resource_attributes AS filtered_attributes,
-            arrayJoin(filtered_attributes) AS attribute,
-            'resource' AS attribute_type,
-            attribute.1 AS attribute_key,
-            attribute.2 AS attribute_value,
-            sumSimpleState(1) AS attribute_count
-        FROM ${var.database}.metrics2_input
-        WHERE has_labels
-        GROUP BY
-            team_id,
-            metric_name,
-            time_bucket,
-            original_expiry_time_bucket,
-            service_name,
-            filtered_attributes
-    )
-  SQL
-  override = try(local.deployment.overrides["metrics2_input_to_resource_attributes3"], {})
-
-  depends_on = [
-    module.metric_attributes3_family,
-    module.metrics2_input,
-  ]
-}
-
-
 module "metrics4_input" {
   source = "../../lib/table"
 
@@ -1035,7 +676,7 @@ module "metrics4_input" {
   database = var.database
   name     = "metrics4_input"
   engine   = "`Null`"
-  columns  = local.metrics2_input_columns
+  columns  = local.metrics4_input_columns
   override = try(local.deployment.overrides["metrics4_input"], {})
 }
 
@@ -1256,11 +897,6 @@ module "metrics4_input_to_metrics4_series" {
 
 # Distributed tables, views and dictionaries that queries read from.
 
-
-
-
-
-
 module "metrics4_view" {
   source = "../../lib/view"
 
@@ -1339,68 +975,6 @@ module "metrics4_view" {
 
 # Kafka tables and the materialized views that consume them.
 
-module "kafka_metrics_avro2" {
-  source = "../../lib/table"
-
-  deployment = local.deployment
-
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_metrics_avro2")
-  database = var.database
-  name     = "kafka_metrics_avro2"
-  engine   = "Kafka(warpstream_metrics)"
-  settings = "input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro2', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics'"
-  columns  = local.kafka_metrics_avro2_columns
-  override = try(local.deployment.overrides["kafka_metrics_avro2"], {})
-}
-
-module "kafka_metrics_avro2_mv" {
-  source = "../../lib/materialized_view"
-
-  enabled  = local.ingest && !contains(local.deployment.exclude, "kafka_metrics_avro2_mv")
-  database = var.database
-  name     = "kafka_metrics_avro2_mv"
-  to_table = "${var.database}.metrics2_input"
-  query    = <<-SQL
-    SELECT
-        uuid,
-        toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
-        ifNull(metric_name, '') AS metric_name,
-        reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
-        cityHash64(mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes))) AS resource_fingerprint,
-        timestamp,
-        observed_timestamp,
-        timestamp + toIntervalDay(assumeNotNull(if((retention_days IS NOT NULL) AND (retention_days > 0), retention_days, toInt32OrDefault(_headers.value[indexOf(_headers.name, 'retention-days')], toInt32(30))))) AS original_expiry_timestamp,
-        ifNull(service_name, '') AS service_name,
-        ifNull(metric_type, '') AS metric_type,
-        ifNull(value, 0) AS value,
-        toUInt64(ifNull(count, 1)) AS count,
-        histogram_bounds,
-        arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
-        trace_id,
-        span_id,
-        ifNull(trace_flags, 0) AS trace_flags,
-        toBool(ifNull(has_labels, 1)) AS has_labels,
-        ifNull(unit, '') AS unit,
-        ifNull(aggregation_temporality, '') AS aggregation_temporality,
-        ifNull(is_monotonic, 0) AS is_monotonic,
-        ifNull(instrumentation_scope, '') AS instrumentation_scope,
-        if(toBool(ifNull(has_labels, 1)), mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)), CAST(map(), 'Map(String, String)')) AS resource_attributes,
-        if(toBool(ifNull(has_labels, 1)), mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)), CAST(map(), 'Map(String, String)')) AS attributes,
-        _partition,
-        _topic,
-        _offset
-    FROM ${var.database}.kafka_metrics_avro2
-    WHERE kafka_metrics_avro2.series_fingerprint IS NOT NULL
-    SETTINGS min_insert_block_size_rows = 0, min_insert_block_size_bytes = 0
-  SQL
-  override = try(local.deployment.overrides["kafka_metrics_avro2_mv"], {})
-
-  depends_on = [
-    module.kafka_metrics_avro2,
-    module.metrics2_input,
-  ]
-}
-
 module "kafka_metrics_avro4" {
   source = "../../lib/table"
 
@@ -1411,7 +985,7 @@ module "kafka_metrics_avro4" {
   name     = "kafka_metrics_avro4"
   engine   = "Kafka(warpstream_metrics)"
   settings = "input_format_avro_allow_missing_fields = 1, kafka_format = 'Avro', kafka_group_name = 'clickhouse-metrics-avro4', kafka_num_consumers = 1, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_metrics'"
-  columns  = local.kafka_metrics_avro2_columns
+  columns  = local.kafka_metrics_avro4_columns
   override = try(local.deployment.overrides["kafka_metrics_avro4"], {})
 }
 

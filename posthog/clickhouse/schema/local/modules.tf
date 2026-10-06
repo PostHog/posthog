@@ -95,9 +95,10 @@ module "catalog" {
           "trace_spans_to_kafka_metrics_mv",
         ] : []
       }
-      usage_report_events_preagg = { components = local.components }
-      web_bot_definition         = { components = local.components }
-      web_preaggregated          = { components = local.components }
+      usage_report_events_preagg   = { components = local.components }
+      warehouse_object_reads_daily = { components = local.components }
+      web_bot_definition           = { components = local.components }
+      web_preaggregated            = { components = local.components }
       billing_usage_records = {
         overrides = {
           kafka_billing_usage_records = {
