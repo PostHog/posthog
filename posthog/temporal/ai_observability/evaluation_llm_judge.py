@@ -55,7 +55,9 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderConfigurationError,
     ProviderConnectionError,
+    ProviderHostUnresolvedError,
     ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
@@ -95,6 +97,12 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
 # A retry can fix these client errors, so they stay on the retry policy like a 5xx.
 # 499 is a cancellation, which Gemini already maps to the transport lane.
 _RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({408, 409, 429, 499})
+
+
+def _is_last_judge_attempt() -> bool:
+    if not temporalio.activity.in_activity():
+        return False
+    return temporalio.activity.info().attempt >= (LLM_JUDGE_RETRY_POLICY.maximum_attempts or 0)
 
 
 class TransientJudgeError(NonReportableError):
@@ -744,7 +752,7 @@ def call_llm_judge(
                     response_format=response_format,
                 )
             )
-    except SystemOneEndpointBlockedError as e:
+    except (SystemOneEndpointBlockedError, ProviderConfigurationError) as e:
         increment_user_errors("endpoint_blocked", provider=provider)
         return terminal_user_error_result(
             spec=require_user_error_spec("endpoint_blocked", is_byok=is_byok),
@@ -914,6 +922,21 @@ def call_llm_judge(
         )
         return _build_content_filtered_skip_result(
             allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model, output_type=output_type
+        )
+
+    except ProviderHostUnresolvedError as e:
+        if not _is_last_judge_attempt():
+            increment_errors("connection_error", provider=provider)
+            raise TransientJudgeError(str(e)) from e
+        # The host did not resolve on any attempt, so the base URL is probably wrong. A failed
+        # workflow shows the user nothing, so skip the run with the reason instead. A skip leaves
+        # the evaluation and its key enabled, because a DNS outage that ends needs no user action.
+        increment_user_errors("host_unresolved", provider=provider)
+        return build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning=str(e),
+            skip_reason="host_unresolved",
         )
 
     except ProviderConnectionError as e:

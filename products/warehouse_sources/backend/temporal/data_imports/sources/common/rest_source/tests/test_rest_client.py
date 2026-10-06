@@ -773,6 +773,18 @@ class TestRESTClient:
         assert _parse_retry_after(response) == expected
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    def test_parse_retry_after_honors_x_rate_limit_reset(self, mock_datetime) -> None:
+        # X answers 429 with a UNIX epoch reset and no ``Retry-After``. Its windows run 15 minutes,
+        # so without this the exponential fallback burns the attempt budget inside one window.
+        now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = now
+
+        response = _make_response({"title": "Too Many Requests"}, status_code=429)
+        response.headers["x-rate-limit-reset"] = str(int(now.timestamp()) + 120)
+
+        assert _parse_retry_after(response) == 120
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
     def test_parse_retry_after_caps_sentry_reset_header(self, mock_datetime) -> None:
         # A reset far in the future must be clamped to MAX_RETRY_AFTER_SECONDS.
         now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)

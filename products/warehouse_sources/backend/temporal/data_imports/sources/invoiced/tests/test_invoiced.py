@@ -130,6 +130,39 @@ class TestSourcePagination:
         assert params["sort"] == "updated_at asc"
         assert params["per_page"] == PAGE_SIZE
 
+    @parameterized.expand(
+        [
+            ("tasks", "updated_at asc"),
+            ("credit_balance_adjustments", None),
+            ("events", None),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_endpoint_without_updated_after_ignores_cursor(
+        self, endpoint: str, expected_sort: str | None, MockSession
+    ) -> None:
+        # These endpoints document no `updated_after` filter (and only some document `sort`), so a
+        # stale cursor must not leak an undocumented param into the request.
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response([])])
+
+        _rows(
+            invoiced_source(
+                "api-key",
+                endpoint,
+                team_id=1,
+                job_id="j",
+                resumable_source_manager=_make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=1700000000,
+            )
+        )
+
+        params = snapshots[0]["params"]
+        assert "updated_after" not in params
+        assert params.get("sort") == expected_sort
+        assert params["per_page"] == PAGE_SIZE
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_full_refresh_omits_updated_after(self, MockSession) -> None:
         session = MockSession.return_value
