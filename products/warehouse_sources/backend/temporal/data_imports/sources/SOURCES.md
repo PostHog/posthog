@@ -1447,6 +1447,7 @@ doesn't conflict with concurrent PRs.
 - tenjin
 - terabox
 - ternary
+- tessitura
 - terra_api
 - thinkific_courses
 - thoughtspot
