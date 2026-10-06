@@ -7,11 +7,17 @@ from products.notifications.backend.facade.enums import (
     SourceType,
     TargetType,
 )
-from products.notifications.backend.logic import create_notification, has_been_dispatched, publish_resource_edited
+from products.notifications.backend.logic import (
+    can_receive_notifications,
+    create_notification,
+    has_been_dispatched,
+    publish_resource_edited,
+)
 from products.notifications.backend.pubsub import subscribe_to_notifications
 from products.notifications.backend.resolvers import RecipientsResolver
 
 __all__ = [
+    "can_receive_notifications",
     "create_notification",
     "has_been_dispatched",
     "publish_resource_edited",

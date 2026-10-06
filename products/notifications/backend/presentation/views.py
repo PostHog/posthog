@@ -14,6 +14,7 @@ from django.utils.dateparse import parse_datetime
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
+from loginas.utils import is_impersonated_session
 from rest_framework import serializers as drf_serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -280,7 +281,9 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         organization_id = self.team.organization_id
         user_id = self._get_user().id
         return sse_streaming_response(
-            notification_event_stream(organization_id, user_id),
+            notification_event_stream(
+                organization_id, user_id, domain_enforcement_exempt=is_impersonated_session(request)
+            ),
             endpoint="notifications",
             budget=NOTIFICATIONS_STREAM_BUDGET,
         )

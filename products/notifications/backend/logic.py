@@ -8,7 +8,7 @@ import posthoganalytics
 
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_NOTIFICATION_EVENTS
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, OrganizationDomain, Team, User
 
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES
 from products.notifications.backend.cache import invalidate_unread_count_for_users
@@ -70,6 +70,23 @@ def _filter_to_active_members(user_ids: list[int], organization_id: UUID) -> lis
         ).values_list("id", flat=True)
     )
     return [user_id for user_id in user_ids if user_id in allowed]
+
+
+def can_receive_notifications(user_id: int, organization_id: UUID, *, domain_enforcement_exempt: bool) -> bool:
+    """Whether the user is an active member of the organization whom verified-domain enforcement allows."""
+    user = (
+        User.objects.filter(id=user_id, is_active=True, organization_membership__organization_id=organization_id)
+        .only("email")
+        .first()
+    )
+    if user is None:
+        return False
+    if domain_enforcement_exempt:
+        return True
+    organization = Organization.objects.filter(id=organization_id).first()
+    if organization is None:
+        return False
+    return not OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, organization)
 
 
 def _filter_by_user_preferences(
