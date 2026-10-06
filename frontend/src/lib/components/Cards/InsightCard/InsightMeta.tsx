@@ -58,7 +58,7 @@ import { queryScanHasActionableFinding } from '~/queries/nodes/DataNode/querySca
 import { QueryScanTileTooltip } from '~/queries/nodes/DataNode/QueryScanTileTooltip'
 import { copyTableData, getInsightExportAdapter } from '~/queries/nodes/InsightViz/exportAdapters'
 import { useInsightDisplayOptions } from '~/queries/nodes/InsightViz/insightDisplayOptions'
-import { Node, ProductKey } from '~/queries/schema/schema-general'
+import { Node, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     isDataVisualizationNode,
     isDataVisualizationNodeWithHogQLQuery,
@@ -546,7 +546,8 @@ export function InsightMeta({
                             <>
                                 <LemonButton
                                     to={inInsightProject(
-                                        isDataVisualizationNode(insight.query)
+                                        isDataVisualizationNode(insight.query) &&
+                                            insight.query.kind !== NodeKind.BIVisualizationNode
                                             ? urls.sqlEditor({
                                                   insightShortId: short_id,
                                                   dashboard: dashboardId ?? undefined,

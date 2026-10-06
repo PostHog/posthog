@@ -285,6 +285,12 @@ class TestUtils(BaseTest):
             ("TrendsQuery is insight", {"kind": "TrendsQuery"}, True, True),
             ("FunnelsQuery is insight", {"kind": "FunnelsQuery"}, True, True),
             ("HogQLQuery is insight", {"kind": "HogQLQuery"}, True, True),
+            (
+                "BIVisualizationNode wrapping HogQLQuery",
+                {"kind": "BIVisualizationNode", "source": {"kind": "HogQLQuery"}},
+                True,
+                True,
+            ),
             ("TracesQuery gets extended timeout only", {"kind": "TracesQuery"}, False, True),
             ("ExperimentQuery gets extended timeout only", {"kind": "ExperimentQuery"}, False, True),
             (
