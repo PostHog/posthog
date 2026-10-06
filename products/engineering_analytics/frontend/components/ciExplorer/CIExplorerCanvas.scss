@@ -13,6 +13,19 @@
     height: 100%;
     background: var(--color-bg-primary);
 
+    &:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: -2px;
+    }
+
+    &__cardButton:focus-visible,
+    &__job:focus-visible,
+    &__cellHead:focus-visible,
+    &__step:focus-visible {
+        outline: calc(2px * var(--i0)) solid var(--color-accent);
+        outline-offset: calc(2px * var(--i0));
+    }
+
     .react-flow__pane {
         cursor: grab;
 
@@ -105,7 +118,7 @@
         position: absolute;
         box-sizing: border-box;
         width: 300px;
-        height: 98px;
+        height: 134px;
 
         // React Flow turns pointer events off for everything in its viewport that is not one of its nodes.
         pointer-events: auto;
@@ -113,11 +126,8 @@
         border: calc(1px * var(--i0)) solid var(--color-border-primary);
         border-radius: 8px;
         box-shadow: var(--ci-shadow);
-        transition:
-            background-color 0.3s,
-            border-color 0.3s,
-            box-shadow 0.3s;
 
+        // No transition: a failed tile's red border would fade through the zoom and read as a flash.
         &--failure {
             border-color: var(--danger);
         }
@@ -152,18 +162,28 @@
         display: flex;
         gap: 0.5em;
         align-items: center;
-        height: 24px;
+        height: 60px;
         font-size: calc(16px * var(--i1));
-        line-height: 1.5;
-        transition: opacity 0.3s;
+        line-height: 1.25;
+        transition: opacity 0.28s;
 
+        // A long workflow name wraps to three lines. The tooltip has the whole name.
         b {
+            display: -webkit-box;
             min-width: 0;
             overflow: hidden;
             font-weight: 600;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            overflow-wrap: anywhere;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 3;
         }
+    }
+
+    &__provider {
+        flex: none;
+        width: 1em;
+        height: 1em;
+        color: var(--color-text-primary);
     }
 
     &__cardHeader &__duration {
@@ -509,6 +529,12 @@
                 background: var(--color-bg-fill-error-tertiary);
             }
         }
+    }
+
+    // The step the Context tab is comparing.
+    &__step--compared {
+        outline: 1.5px solid var(--color-text-primary);
+        outline-offset: -1.5px;
     }
 
     a#{&}__step:hover {

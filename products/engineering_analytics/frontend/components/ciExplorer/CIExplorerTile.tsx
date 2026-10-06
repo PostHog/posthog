@@ -4,12 +4,14 @@ import type { CSSProperties } from 'react'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
+import { statusLabel } from '../../lib/ciExplorerDetails'
 import { CIExplorerLayout, CIExplorerWorkflow, TILE_WIDTH } from '../../lib/ciExplorerGraph'
 import { ciExplorerLogic } from '../../scenes/ciExplorerLogic'
+import { CIExplorerProviderMark } from './CIExplorerProviderMark'
 import { CIExplorerUnit } from './CIExplorerUnit'
 
 const TILE_PADDING = 17
-const GRAPH_TOP = 53
+const GRAPH_TOP = 89
 // The room a tile has for its graph. A graph never shows larger than the cap, so a small workflow keeps its scale.
 const GRAPH_WIDTH = TILE_WIDTH - 34
 const GRAPH_HEIGHT = 28
@@ -48,15 +50,18 @@ export function CIExplorerTile({
             <button
                 type="button"
                 className="CIExplorer__cardButton"
-                aria-label={`${run.workflow}, zoom in`}
+                aria-label={`${run.workflow}, ${statusLabel(run.conclusion)}`}
                 aria-pressed={focusedNodeId === workflow.id}
+                // Zoomed in, the jobs take the tab order and the tile around them leaves it.
+                tabIndex={graphReachable ? -1 : 0}
                 onClick={() => setFocus(workflow.id)}
                 data-attr="ci-explorer-workflow"
             >
                 <span className="CIExplorer__cardHeader">
                     <i className={`CIExplorer__dot CIExplorer__dot--${status}`} />
+                    <CIExplorerProviderMark engine={run.ciEngine} />
                     <b>{run.workflow}</b>
-                    <span className="CIExplorer__duration">
+                    <span className="CIExplorer__duration" title="Elapsed, from the first job start to the last finish">
                         {run.durationSeconds === null
                             ? 'Running'
                             : humanFriendlyDuration(run.durationSeconds, { maxUnits: 2 })}

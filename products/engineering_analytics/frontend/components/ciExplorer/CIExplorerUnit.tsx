@@ -4,10 +4,19 @@ import type { CSSProperties, MouseEvent } from 'react'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
-import { CIExplorerItem, INNER_SCALE, NODE_WIDTH, itemSize, shownSteps } from '../../lib/ciExplorerGraph'
+import { statusLabel } from '../../lib/ciExplorerDetails'
+import { CIExplorerItem, CIStatus, INNER_SCALE, NODE_WIDTH, itemSize, shownSteps } from '../../lib/ciExplorerGraph'
 import { ciExplorerLogic } from '../../scenes/ciExplorerLogic'
 import { clickedNodeId } from './ciExplorerFocus'
 import { CIExplorerSteps } from './CIExplorerSteps'
+
+// A matrix has one status for many jobs, so its neutral status covers cancelled and skipped shards alike.
+const ITEM_STATUS: Record<CIStatus, string> = {
+    success: 'Passed',
+    failure: 'Failed',
+    running: 'Running',
+    neutral: 'No verdict',
+}
 
 function duration(seconds: number | null): string {
     return seconds === null ? '' : humanFriendlyDuration(seconds, { maxUnits: 2 })
@@ -37,6 +46,7 @@ export function CIExplorerUnit({ item, x, y }: { item: CIExplorerItem; x: number
             <button
                 type="button"
                 className="CIExplorer__job"
+                aria-label={`${item.name}, ${ITEM_STATUS[item.status]}`}
                 aria-pressed={focused}
                 onClick={focus}
                 data-attr="ci-explorer-job"
@@ -88,6 +98,7 @@ export function CIExplorerUnit({ item, x, y }: { item: CIExplorerItem; x: number
                                     <button
                                         type="button"
                                         className="CIExplorer__cellHead"
+                                        aria-label={`${shard.job.name}, ${statusLabel(shard.job.conclusion)}`}
                                         aria-pressed={shardFocused}
                                         onClick={focus}
                                         data-attr="ci-explorer-shard"
