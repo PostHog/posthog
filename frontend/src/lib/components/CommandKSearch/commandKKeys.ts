@@ -12,6 +12,8 @@ export interface KeyState {
     atStart: boolean
     chipCount: number
     selectedChipIndex: number | null
+    /** Tab completes a filter row or asks AI. With neither, it moves focus as usual. */
+    tabHasAction: boolean
 }
 
 /** What a key press does in the search input, or null to let the input handle it. */
@@ -32,7 +34,7 @@ export function keyIntent(
                 ? { type: 'edit-chip', index: selectedChipIndex }
                 : { type: 'activate', newTab: modifiers.metaKey || modifiers.ctrlKey }
         case 'Tab':
-            return { type: 'complete' }
+            return state.tabHasAction ? { type: 'complete' } : null
         case 'Escape':
             return { type: 'clear-or-close' }
         case 'Backspace':

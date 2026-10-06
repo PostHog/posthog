@@ -1,5 +1,4 @@
 import { useActions } from 'kea'
-import { capitalizeFirstLetter } from 'kea-forms'
 import { memo } from 'react'
 
 import { IconFilter, IconFolder, IconPerson, IconSparkles } from '@posthog/icons'
@@ -7,6 +6,7 @@ import { Button, cn } from '@posthog/quill'
 
 import { getIconForItem, getItemTypeDisplayName } from 'lib/components/Search/searchItemDisplay'
 import { formatRelativeTimeShort } from 'lib/components/Search/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemIconType } from '~/queries/schema/schema-general'

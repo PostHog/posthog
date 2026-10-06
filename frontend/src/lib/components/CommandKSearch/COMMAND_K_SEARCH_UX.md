@@ -72,7 +72,7 @@ The input is always in exactly one mode, decided from the token under the cursor
 - Typing a prefix that matches a filter key or alias shows a **Filters** section at the top.
   - `is` → `is:` "Type, such as dashboard or feature flag"
   - `createdB` → `createdBy:` "Who created it"
-  - `c` → `createdBy:`, `created:` (all keys starting with `c`)
+  - `c` → `createdBy:` (all keys starting with `c`)
 - Match is case-insensitive prefix on key and aliases. Show the canonical key, not the alias.
 - The Filters section holds at most 3 rows so it never pushes results far down.
 - `Tab` or `↵` on a key row completes it to `key:` and switches to Value suggest. It does not navigate.
@@ -154,22 +154,22 @@ These are the rules reviewers check. Breaking one is a bug.
 - Remote result under 300 ms p95 for `file_system` search with filters.
 - Per-section caps: Filters 3, Suggestions 8 (`is:` lists every type, since that list is short and fixed), Results 20, Recents 5, Products, Settings, Persons and Groups 5 each in Search mode. No virtualization needed at these sizes.
 - Cache remote responses by normalized query string (sorted chips + trimmed text) for the life of the palette. Backspacing to an earlier query paints from cache with zero network.
-- Org members for `createdBy:` load once when the palette first opens, then filter locally.
+- Org members for `createdBy:` and folders for `in:` load the first time that filter is used, then filter locally. Opening the palette sends no request.
 - The parser and the local filters are pure and memoized on input text.
 
 ## Keyboard
 
-| Key                     | Action                                                                                  |
-| ----------------------- | --------------------------------------------------------------------------------------- |
-| `↑` / `↓`               | Move highlight. Wraps at ends. Skips section headers.                                   |
-| `↵`                     | Filter key or value row: complete it. Result row: open it.                              |
-| `⌘↵`                    | Open result in a new tab.                                                               |
-| `Tab`                   | Highlighted key or value row: complete it. Any other row, with a query: ask PostHog AI. |
-| `Space`                 | After `key:value`, commits the chip.                                                    |
-| `⌫` at start of text    | First press selects the previous chip. Second press removes it.                         |
-| `↵` on a selected chip  | Turns the chip back into editable text (`is:dashboard`) with the cursor after it.       |
-| `←` / `→` at text edges | Move between chips.                                                                     |
-| `Esc`                   | Text in the input: clear it. Empty input: close the palette.                            |
+| Key                     | Action                                                                                                                      |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `↑` / `↓`               | Move highlight. Wraps at ends. Skips section headers.                                                                       |
+| `↵`                     | Filter key or value row: complete it. Result row: open it.                                                                  |
+| `⌘↵`                    | Open result in a new tab.                                                                                                   |
+| `Tab`                   | Highlighted key or value row: complete it. Any other row, with a query: ask PostHog AI. With neither, focus moves as usual. |
+| `Space`                 | After `key:value`, commits the chip.                                                                                        |
+| `⌫` at start of text    | First press selects the previous chip. Second press removes it.                                                             |
+| `↵` on a selected chip  | Turns the chip back into editable text (`is:dashboard`) with the cursor after it.                                           |
+| `←` / `→` at text edges | Move between chips.                                                                                                         |
+| `Esc`                   | Text in the input: clear it. Empty input: close the palette.                                                                |
 
 ## Edge cases
 

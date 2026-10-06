@@ -13,7 +13,7 @@ import { rowDomId } from './CommandKSearchRow'
 export const COMMAND_K_LISTBOX_ID = 'command-k-listbox'
 
 export function CommandKSearchInput(): JSX.Element {
-    const { text, cursor, chips, selectedChipIndex, highlightedRow, tabAsksAi, isPaletteEmpty } =
+    const { text, cursor, chips, selectedChipIndex, highlightedRow, highlightIsFilterRow, tabAsksAi, isPaletteEmpty } =
         useValues(commandKSearchLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
     const { inputChanged, setCursor, applyKeyIntent, selectChip, clearQuery, askAi, closeCommand } =
@@ -34,11 +34,16 @@ export function CommandKSearchInput(): JSX.Element {
     }, [])
 
     const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+        // Keys confirm or move inside an IME composition, so leave them to the input. Safari reports 229.
+        if (event.nativeEvent.isComposing || event.keyCode === 229) {
+            return
+        }
         const input = event.currentTarget
         const intent = keyIntent(event.key, event, {
             atStart: input.selectionStart === 0 && input.selectionEnd === 0,
             chipCount: chips.length,
             selectedChipIndex,
+            tabHasAction: tabAsksAi || highlightIsFilterRow,
         })
         if (!intent) {
             return

@@ -82,7 +82,7 @@ export interface commandKSearchLogicValues {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     meFirstMembers: OrganizationMemberType[] // membersLogic
-    membersLoading: boolean // membersLogic
+    members: OrganizationMemberType[] | null // membersLogic
     recents: FileSystemEntry[] // recentItemsModel
     dataManagementItems: SearchItem[] // searchListsLogic
     healthItems: SearchItem[] // searchListsLogic
@@ -256,7 +256,7 @@ export interface commandKSearchLogicMeta {
         ) => FilterOptions
         cursorContext: (text: string, cursor: number, chips: QueryChip[]) => CursorContext
         mode: (cursorContext: CursorContext) => CommandKMode
-        resolvedQuery: (text: string, chips: QueryChip[], filterOptions: any) => ResolvedQuery
+        resolvedQuery: (text: string, chips: QueryChip[], filterOptions: FilterOptions) => ResolvedQuery
         localQuery: (resolvedQuery: ResolvedQuery, mode: CommandKMode) => string
         askAiQuestion: (text: string, chips: QueryChip[]) => string
         remoteContext: (
@@ -274,8 +274,8 @@ export interface commandKSearchLogicMeta {
         remoteQueries: (requestQueries: Record<string, string>) => Partial<Record<RemoteSource, string>>
         suggestionsSection: (
             cursorContext: CursorContext,
-            filterOptions: any,
-            membersLoading: boolean,
+            filterOptions: FilterOptions,
+            members: any,
             folders: FileSystemEntry[] | null
         ) => CommandKSection | null
         recentItems: (recents: FileSystemEntry[]) => SearchItem[]
@@ -347,7 +347,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             recentItemsModel,
             ['recents'],
             membersLogic,
-            ['meFirstMembers', 'membersLoading'],
+            ['members', 'meFirstMembers'],
             userLogic,
             ['user'],
             teamLogic,
@@ -533,16 +533,16 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 ),
         ],
         suggestionsSection: [
-            (s) => [s.cursorContext, s.filterOptions, s.membersLoading, s.folders],
+            (s) => [s.cursorContext, s.filterOptions, s.members, s.folders],
             (
                 context: CursorContext,
                 filterOptions: FilterOptions,
-                membersLoading: boolean,
+                members: OrganizationMemberType[] | null,
                 folders: FileSystemEntry[] | null
             ): CommandKSection | null =>
                 context.kind === 'value'
                     ? buildSuggestions(context, filterOptions, {
-                          members: membersLoading && filterOptions.createdBy.length <= 1,
+                          members: members === null,
                           folders: folders === null,
                       })
                     : null,
@@ -713,8 +713,12 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 posthog.capture('command k filter suggested', { stage: context.kind, keys })
             }
             cache.lastSuggestion = signature
+            // Value lists load the first time their filter is used, so opening the palette sends no request.
             if (context.kind === 'value' && context.filter.key === 'in') {
                 actions.loadFolders()
+            }
+            if (context.kind === 'value' && context.filter.key === 'createdBy') {
+                actions.ensureAllMembersLoaded()
             }
             actions.syncRemote()
         }
@@ -834,7 +838,15 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             syncRemote: () => {
                 for (const request of REMOTE_REQUESTS) {
                     const query = values.requestQueries[request.id]
-                    if (!query || query === values.requestedQueries[request.id]) {
+                    if (!query) {
+                        // The request no longer applies, so stop it rather than let it hold a query slot.
+                        if (values.requestedQueries[request.id]) {
+                            cache.disposables.dispose(`request-${request.id}`)
+                            actions.requestStarted(request.id, '')
+                        }
+                        continue
+                    }
+                    if (query === values.requestedQueries[request.id]) {
                         continue
                     }
                     actions.requestStarted(request.id, query)
@@ -889,9 +901,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             },
         }
     }),
-    afterMount(({ actions, values }) => {
+    afterMount(({ values }) => {
         posthog.capture('command k search opened', { source: values.openSource })
-        actions.ensureAllMembersLoaded()
     }),
     beforeUnmount(({ values }) => {
         if (!values.resultOpened) {

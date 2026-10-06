@@ -5,6 +5,7 @@ const state = (overrides: Partial<KeyState> = {}): KeyState => ({
     atStart: false,
     chipCount: 0,
     selectedChipIndex: null,
+    tabHasAction: false,
     ...overrides,
 })
 
@@ -45,6 +46,8 @@ describe('keyIntent', () => {
         ],
         ['ArrowRight with no chip selected is left to the input', 'ArrowRight', state({ chipCount: 2 }), null],
         ['typing is left to the input', 'a', state(), null],
+        ['Tab completes or asks AI when it has an action', 'Tab', state({ tabHasAction: true }), { type: 'complete' }],
+        ['Tab with nothing to do moves focus', 'Tab', state(), null],
     ])('%s', (_, key, keyState, expected, metaKey = false) => {
         expect(keyIntent(key, { ...NO_MODIFIERS, metaKey }, keyState)).toEqual(expected)
     })
