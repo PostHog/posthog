@@ -164,18 +164,55 @@ export function decorateAlertName(baseName: string, selectedKinds: string[] | nu
     return `${baseName}${formatKindsSuffix(selectedKinds)}`
 }
 
-function buildAlertInputs(
-    template: HogFunctionTemplateType,
+export function buildAlertInputs(
+    inputsSchema: CyclotronJobInputSchemaType[] | null | undefined,
     subTemplateInputs: Record<string, CyclotronJobInputType> | null | undefined,
     inputValues: Record<string, CyclotronJobInputType>
 ): Record<string, CyclotronJobInputType> {
     const inputs: Record<string, CyclotronJobInputType> = {}
-    for (const schema of template.inputs_schema ?? []) {
+    for (const schema of inputsSchema ?? []) {
         if (schema.default !== undefined) {
             inputs[schema.key] = { value: schema.default }
         }
     }
     return { ...inputs, ...subTemplateInputs, ...inputValues }
+}
+
+export interface AlertHogFunctionConfiguration {
+    type: 'internal_destination'
+    template_id: string
+    name: string
+    description: string
+    filters: CyclotronJobFiltersType | null | undefined
+    enabled: true
+    masking: null
+    inputs: Record<string, CyclotronJobInputType>
+}
+
+/** The hog function an alert creates: an enabled internal destination with the template's merged inputs. */
+export function buildAlertHogFunctionConfiguration({
+    templateId,
+    name,
+    description,
+    filters,
+    inputs,
+}: {
+    templateId: string
+    name: string
+    description: string
+    filters: CyclotronJobFiltersType | null | undefined
+    inputs: Record<string, CyclotronJobInputType>
+}): AlertHogFunctionConfiguration {
+    return {
+        type: 'internal_destination',
+        template_id: templateId,
+        name,
+        description,
+        filters,
+        enabled: true,
+        masking: null,
+        inputs,
+    }
 }
 
 function extractDestinationKeyFromAlert(alert: HogFunctionType, allDestinations: WizardDestination[]): string | null {
@@ -685,7 +722,11 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 return
             }
 
-            const mergedInputs = buildAlertInputs(selectedTemplate, subTemplate.inputs, values.inputValues)
+            const mergedInputs = buildAlertInputs(
+                selectedTemplate.inputs_schema,
+                subTemplate.inputs,
+                values.inputValues
+            )
 
             const configuration: Record<string, any> = {
                 type: 'internal_destination',
@@ -771,22 +812,23 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     return
                 }
 
-                const mergedInputs = buildAlertInputs(selectedTemplate, subTemplate.inputs, values.inputValues)
+                const mergedInputs = buildAlertInputs(
+                    selectedTemplate.inputs_schema,
+                    subTemplate.inputs,
+                    values.inputValues
+                )
 
                 const filters = applyKindFilter(subTemplate.filters, values.selectedKinds)
                 const name = decorateAlertName(subTemplate.name ?? '', values.selectedKinds)
                 const description = decorateAlertName(subTemplate.description ?? '', values.selectedKinds)
 
-                const configuration: Record<string, any> = {
-                    type: 'internal_destination',
-                    template_id: destination.templateId,
+                const configuration = buildAlertHogFunctionConfiguration({
+                    templateId: destination.templateId,
                     name,
                     description,
                     filters,
-                    enabled: true,
-                    masking: null,
                     inputs: mergedInputs,
-                }
+                })
 
                 await api.hogFunctions.create(configuration)
                 posthog.capture('error_tracking_alert_created', {
