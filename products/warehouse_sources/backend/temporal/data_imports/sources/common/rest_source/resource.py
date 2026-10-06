@@ -25,6 +25,9 @@ class PageCheckpoints:
     def defer(self, state: Optional[dict[str, Any]]) -> None:
         self._pending.append(state)
 
+    def defer_page_state(self, state: Optional[dict[str, Any]], _has_next_page: bool) -> None:
+        self.defer(state)
+
     def apply(self, *, page_is_handed_on: bool) -> None:
         pending, self._pending = self._pending, []
         if not pending:

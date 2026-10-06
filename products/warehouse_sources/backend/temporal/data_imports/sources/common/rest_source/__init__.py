@@ -153,7 +153,6 @@ def _make_paginate_dependent_resource(
     data_selector_empty_ok: bool = False,
     on_parent_error: Optional[Callable[[str, Exception], None]] = None,
     parent_source: FanoutParentSource = "api",
-    resume_hook_before_yield: bool = False,
 ) -> Callable[..., Iterator[list[Any]]]:
     """Build the generator for a dependent (child) resource.
 
@@ -214,12 +213,14 @@ def _make_paginate_dependent_resource(
                 current_child_state if (resume_hook is not None and current_path == formatted_path) else None
             )
 
-            def child_resume_hook(paginator_state: Optional[dict[str, Any]], _path: str = formatted_path) -> None:
+            def child_page_state_hook(
+                paginator_state: Optional[dict[str, Any]], has_next_page: bool, _path: str = formatted_path
+            ) -> None:
                 nonlocal current_path, current_child_state
-                if paginator_state is None:
-                    # This checkpoint can be staged before the parent's last page is handed on. An
-                    # in-progress checkpoint with no child state would make a resumed run read the
-                    # whole parent again, so the parent is recorded as complete here.
+                if not has_next_page:
+                    # The state of a parent's last page is staged before that page is handed on. An
+                    # in-progress checkpoint would make a resumed run read the whole parent again,
+                    # so the parent is recorded as complete here.
                     completed.add(_path)
                     current_path = None
                     current_child_state = None
@@ -237,11 +238,10 @@ def _make_paginate_dependent_resource(
                     paginator=paginator,
                     data_selector=data_selector,
                     hooks=hooks,
-                    resume_hook=child_resume_hook if resume_hook is not None else None,
+                    page_state_hook=child_page_state_hook if resume_hook is not None else None,
                     initial_paginator_state=child_initial,
                     data_selector_required=data_selector_required,
                     data_selector_empty_ok=data_selector_empty_ok,
-                    resume_hook_before_yield=resume_hook_before_yield,
                 ):
                     if parent_record:
                         for child_record in child_page:
@@ -403,9 +403,7 @@ def create_resources(
                 incremental_object: Optional[Incremental] = incremental_object,
                 incremental_param: Optional[IncrementalParam] = incremental_param,
                 incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
-                resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = (
-                    page_checkpoints.defer if page_checkpoints is not None else None
-                ),
+                page_checkpoints: Optional[PageCheckpoints] = page_checkpoints,
                 initial_paginator_state: Optional[dict[str, Any]] = (
                     None if has_dependent_resource else initial_paginator_state
                 ),
@@ -432,12 +430,11 @@ def create_resources(
                     paginator=paginator,
                     data_selector=data_selector,
                     hooks=hooks,
-                    resume_hook=resume_hook,
+                    page_state_hook=page_checkpoints.defer_page_state if page_checkpoints is not None else None,
                     initial_paginator_state=initial_paginator_state,
                     data_selector_required=data_selector_required,
                     data_selector_empty_ok=data_selector_empty_ok,
                     data_selector_malformed_retryable=data_selector_malformed_retryable,
-                    resume_hook_before_yield=resume_hook is not None,
                 ):
                     yield list(convert_types(page, columns_config))
 
@@ -479,7 +476,6 @@ def create_resources(
                 incremental_cursor_transform=incremental_cursor_transform,
                 db_incremental_field_last_value=db_incremental_field_last_value,
                 resume_hook=page_checkpoints.defer if page_checkpoints is not None else None,
-                resume_hook_before_yield=page_checkpoints is not None,
                 initial_state=dependent_initial_state,
                 data_selector_required=bool(endpoint_config.get("data_selector_required")),
                 data_selector_empty_ok=bool(endpoint_config.get("data_selector_empty_ok")),

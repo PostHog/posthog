@@ -8,6 +8,9 @@ import pytest
 from requests import PreparedRequest, Request, Response, Session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import rest_api_resources
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    PageNumberPaginator,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import RESTAPIConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import (
@@ -68,7 +71,7 @@ FANOUT = {
     "/parents/a/children": [[{"id": "a1"}], [{"id": "a2"}]],
     "/parents/b/children": [[{"id": "b1"}]],
 }
-FANOUT_RESOURCES = [
+FANOUT_RESOURCES: list[Any] = [
     "parents",
     {
         "name": "children",
@@ -153,6 +156,28 @@ def test_the_last_page_of_a_parent_is_handed_on_with_the_parent_recorded_complet
     }
     assert states_before[("a2",)] == {"completed": ["/parents/a/children"], "current": None, "child_state": None}
     assert states_before[("b1",)]["current"] == "/parents/b/children"
+
+
+class _NoResumeStatePaginator(PageNumberPaginator):
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return None
+
+
+def test_a_parent_stays_in_progress_while_a_paginator_without_resume_state_has_more_pages() -> None:
+    events: list[Any] = []
+    children = {
+        **FANOUT_RESOURCES[1],
+        "endpoint": {**FANOUT_RESOURCES[1]["endpoint"], "paginator": _NoResumeStatePaginator()},
+    }
+    resource = _resource(paged_config(FANOUT, ["parents", children]), "children", events.append)
+
+    _events(resource, events, covers_framework_checkpoints=True)
+
+    assert events[events.index(["a1"]) - 1] == {
+        "completed": [],
+        "current": "/parents/a/children",
+        "child_state": None,
+    }
 
 
 @pytest.mark.parametrize("stop_after_pages", [1, 2, 3])

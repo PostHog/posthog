@@ -438,19 +438,19 @@ class RESTClient:
         data_selector_required: bool = False,
         data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
-        resume_hook_before_yield: bool = False,
+        page_state_hook: Optional[Callable[[Optional[dict[str, Any]], bool], None]] = None,
     ) -> Iterator[list[Any]]:
         """Yield each page of an endpoint.
 
         `resume_hook` receives the paginator state that fetches the page after the one this call
-        yields, or `None` when no page follows. By default it runs after the `yield` returns, which
-        is when the caller asks for the next page. A caller that does work between this `yield` and
-        its own (a child request per row, a transform that can raise) needs that order: state staged
-        earlier would cover rows the caller has not handed on.
+        yields, or `None` when no page follows. It runs after the `yield` returns, which is when the
+        caller asks for the next page. A caller that does work between this `yield` and its own (a
+        child request per row, a transform that can raise) needs that order: state staged earlier
+        would cover rows the caller has not handed on.
 
-        With `resume_hook_before_yield`, the hook runs before the `yield`. The caller then owns the
-        state until the page reaches the pipeline. `Resource` does this, so the pipeline receives a
-        page and its cursor together and can commit both in one step.
+        `page_state_hook` receives the same state and whether a page follows, before the `yield`.
+        The caller then owns the state until the page reaches the pipeline. `Resource` does this, so
+        the pipeline receives a page and its cursor together and can commit both in one step.
         """
         paginator = copy.deepcopy(paginator) if paginator else copy.deepcopy(self.paginator)
         hooks = hooks or {}
@@ -498,15 +498,14 @@ class RESTClient:
                 paginator.update_state(response, data)
                 paginator.update_request(request)
 
-            next_page_state = (
-                paginator.get_resume_state() if paginator is not None and paginator.has_next_page else None
-            )
-            if resume_hook is not None and resume_hook_before_yield:
-                resume_hook(next_page_state)
+            has_next_page = paginator is not None and paginator.has_next_page
+            next_page_state = paginator.get_resume_state() if paginator is not None and has_next_page else None
+            if page_state_hook is not None:
+                page_state_hook(next_page_state, has_next_page)
 
             yield data
 
-            if resume_hook is not None and not resume_hook_before_yield:
+            if resume_hook is not None:
                 resume_hook(next_page_state)
 
             # Direct Resource traversal has consumed the page before execution resumes here, so this

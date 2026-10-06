@@ -243,8 +243,8 @@ class TestRESTClient:
             for _page in client.paginate(
                 path="/items",
                 paginator=TwoPagePaginator(),
-                resume_hook=saved.append,
-                resume_hook_before_yield=before_yield,
+                resume_hook=None if before_yield else saved.append,
+                page_state_hook=(lambda state, _has_next_page: saved.append(state)) if before_yield else None,
             ):
                 saved.append("page")
 
