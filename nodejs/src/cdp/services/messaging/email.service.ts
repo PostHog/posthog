@@ -536,6 +536,7 @@ export class EmailService {
                     // send. Mirrors the fetch-retry (`result.invocation.queueParameters = params`) and
                     // queue-routing paths, which re-attach the same way.
                     result.invocation.queueParameters = params
+                    result.invocation.queueMetadata = invocation.queueMetadata
                     const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, refillPerSecond, claim.reserved)
                     emailReservedParkMs.labels('workflow-email').observe(retryDelayMs)
                     result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
@@ -560,6 +561,7 @@ export class EmailService {
                 // per-workflow limit above: createInvocationResult cleared queueParameters, and
                 // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
+                result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
                 const capRetrySeconds = Math.round(capDelay.retryDelayMs / 1000)
                 addLog(
@@ -628,6 +630,7 @@ export class EmailService {
                 throttled = true
                 result.finished = false
                 result.invocation.queueParameters = params
+                result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else {

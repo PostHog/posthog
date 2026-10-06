@@ -53,7 +53,7 @@ describe('CdpCyclotronWorkerEmail', () => {
         expect(worker['name']).toBe('CdpCyclotronWorkerEmail')
     })
 
-    describe('rescheduled emails through the v2 job codec (M17 drops origin priority until Silthus/posthog#310)', () => {
+    describe('rescheduled emails through the v2 job codec preserve origin queue and priority (M17)', () => {
         let worker: CdpCyclotronWorkerEmail
         let ses: LocalSes
         let redis: TestRedisV2
@@ -311,7 +311,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                 const delayed = await processInvocation(retry)
                 expect(delayed.finished).toBe(false)
                 expect(delayed.invocation).toMatchObject({ queue: 'email', queuePriority: 1, queueParameters: params })
-                expect(delayed.invocation.queueMetadata).toBeUndefined()
+                expect(delayed.invocation.queueMetadata).toEqual({ originQueue: 'hogflow', originPriority: 2 })
                 expect(delayed.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(before)
                 expect(delayed.metrics).toEqual([])
                 expect(delayed.messageAssets).toEqual([])
@@ -335,7 +335,7 @@ describe('CdpCyclotronWorkerEmail', () => {
             results.push(resumed)
             expect(resumed.invocation).toMatchObject({
                 queue: 'hogflow',
-                queuePriority: 1,
+                queuePriority: 2,
                 queueParameters: { type: 'fetch' },
             })
             expect(resumed.invocation.queueMetadata).toBeUndefined()
