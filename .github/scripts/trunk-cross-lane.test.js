@@ -51,8 +51,6 @@ test('names the files on each side so the author knows what to split', () => {
     assert.deepEqual(verdict.lightFiles, ['nodejs/src/ingestion/ingestion-consumer.ts'])
 })
 
-// A file whose own rule already spans both sides is cross-lane on purpose, so
-// it must not turn an otherwise single-sided PR into a mix.
 test('a file that claims both sides by rule is not counted on either', () => {
     const verdict = crossLaneFiles(['hogli.yaml', 'nodejs/src/ingestion/ingestion-consumer.ts'], CONTEXT)
     assert.equal(verdict.mixed, false)

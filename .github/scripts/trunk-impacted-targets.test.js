@@ -475,9 +475,6 @@ test('the root oxc configs claim the JS lanes except node', () => {
     }
 })
 
-// The rule above is safe only because both configs leave nodejs/ to its own
-// toolchain. Dropping the ignore would let them fail a Node suite from a lane
-// that no longer claims it.
 test('the root oxc configs keep ignoring nodejs', () => {
     for (const file of ['.oxlintrc.json', '.oxfmtrc.json']) {
         const config = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, file), 'utf8'))

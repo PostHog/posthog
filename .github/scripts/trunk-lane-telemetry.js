@@ -108,8 +108,7 @@ function buildProperties(changedFiles, impactedTargets, universe, crossLane = nu
         target_domains: targetDomains,
         tripwire_files: tripwireFiles.slice(0, MAX_LISTED),
         tripwire_domains: tripwireDomains,
-        // A Python or frontend lane and a Node or Rust lane in one PR, from files
-        // that each claim only one side. Null when no verdict could be given.
+        // Null when no verdict could be given.
         cross_lane: crossLane ? crossLane.mixed : null,
         cross_lane_heavy_files: crossLane ? crossLane.heavyFiles.slice(0, MAX_LISTED) : [],
         cross_lane_light_files: crossLane ? crossLane.lightFiles.slice(0, MAX_LISTED) : [],

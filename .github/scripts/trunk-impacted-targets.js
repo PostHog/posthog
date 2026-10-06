@@ -533,8 +533,7 @@ const TRIPWIRE_RULES = [
     ['tsconfig.*.json', JAVASCRIPT],
     ['babel.config.js', JAVASCRIPT],
     ['webpack.config.js', JAVASCRIPT],
-    // Both root oxc configs ignore nodejs/, which has its own lint and format
-    // toolchain, so neither can fail a Node suite. A lane test guards the ignores.
+    // Both ignore nodejs/, which has its own toolchain; a lane test guards that.
     ['.oxlintrc.json', FRONTEND_SUITE],
     ['.oxfmtrc*', FRONTEND_SUITE],
     // Prettier still formats the nodejs tree (ci-nodejs runs its check), so
