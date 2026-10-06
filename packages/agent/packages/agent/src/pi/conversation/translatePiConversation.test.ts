@@ -134,6 +134,52 @@ describe("createPiConversationTranslator", () => {
   });
 
   it.each([
+    [
+      "interrupted, cut off by the abort",
+      true,
+      "This operation was aborted",
+      "cancelled",
+      [],
+    ],
+    [
+      "interrupted, failing on its own",
+      true,
+      "overloaded_error",
+      "error",
+      ["runtime_error"],
+    ],
+    [
+      "not interrupted",
+      false,
+      "This operation was aborted",
+      "error",
+      ["runtime_error"],
+    ],
+  ])(
+    "ends a turn whose model request errored, %s",
+    (_, interrupted, errorMessage, stopReason, runtimeErrors) => {
+      const translator = createPiConversationTranslator();
+      const failed = {
+        ...assistant([{ type: "text", text: "partial" }], "error"),
+        errorMessage,
+      };
+      if (interrupted) translator.markTurnInterrupted();
+
+      translator.translateEvent({ type: "message_end", message: failed });
+      const ended = translator.translateEvent({
+        type: "agent_end",
+        messages: [failed],
+        willRetry: false,
+      });
+
+      expect(ended.map((event) => event.type)).toEqual(runtimeErrors);
+      expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+        expect.objectContaining({ type: "turn_completed", stopReason }),
+      ]);
+    },
+  );
+
+  it.each([
     ["error" as const, "error", 1_000],
     ["aborted" as const, "cancelled", 1_000],
   ])(
