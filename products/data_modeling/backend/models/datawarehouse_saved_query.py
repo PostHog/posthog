@@ -30,7 +30,11 @@ from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     S3Table,
 )
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.resolver_utils import extract_select_queries
 
+from posthog.clickhouse.query_tagging import Feature, Product, tag_contains_user_hogql, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
@@ -434,28 +438,25 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.column_order = list(columns.keys())
 
     def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
-        from posthog.api.services.query import process_query_dict
-        from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-        from posthog.hogql_queries.query_runner import ExecutionMode
-
         query = self.query or {}
-        if not isinstance(query, dict):
+        if not isinstance(query, dict) or "query" not in query:
             raise Exception("Saved query is missing a query definition")
 
-        # Saved queries store {"query": "SELECT ..."} without a kind discriminator.
-        # process_query_dict requires a valid QuerySchemaRoot, so wrap as HogQLQuery.
-        if "kind" not in query and "query" in query:
-            query = {"kind": "HogQLQuery", **query}
+        # ClickHouse returns the column names and types for a LIMIT 0 query without reading any data.
+        select_query = parse_select(query["query"])
+        for branch in extract_select_queries(select_query):
+            branch.limit = ast.Constant(value=0)
+            branch.offset = None
 
         # Resolve as the acting user so warehouse access control is enforced against them - a userless
         # build fails closed and denies every warehouse table, breaking column inference for all users.
         with tags_context(product=Product.WAREHOUSE, feature=Feature.DATA_MODELING):
-            response = process_query_dict(
-                self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=user
-            )
-        result = getattr(response, "types", [])
+            tag_contains_user_hogql()
+            # Printing the AST back to HogQL text would drop COLUMNS(...) and table column alias lists.
+            response = execute_hogql_query(select_query, team=self.team, user=user, query_type="HogQLQuery")
+        result = response.types
 
-        if result is None or isinstance(result, int):
+        if result is None:
             raise Exception("No columns types provided by clickhouse in get_columns")
 
         columns = {

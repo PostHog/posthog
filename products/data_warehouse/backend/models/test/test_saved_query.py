@@ -1,10 +1,12 @@
 from datetime import timedelta
 from types import SimpleNamespace
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.db.models.query import QuerySet as DjangoQuerySet
+
+from parameterized import parameterized
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -102,8 +104,8 @@ class TestGetColumnsQueryTagging(BaseTest):
     feature query tags (enforced as a hard error in DEBUG). Untagged, view creation over any table —
     including ai_events — fails with UntaggedQueryError. The inference query must be tagged."""
 
-    @patch("posthog.api.services.query.process_query_dict")
-    def test_get_columns_tags_the_inference_query(self, mock_process_query_dict):
+    @patch("products.data_modeling.backend.models.datawarehouse_saved_query.execute_hogql_query")
+    def test_get_columns_tags_the_inference_query(self, mock_execute_hogql_query):
         from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 
         captured: dict[str, object] = {}
@@ -114,7 +116,7 @@ class TestGetColumnsQueryTagging(BaseTest):
             captured["feature"] = tags.feature
             return SimpleNamespace(types=[("trace_id", "String")])
 
-        mock_process_query_dict.side_effect = _capture
+        mock_execute_hogql_query.side_effect = _capture
 
         saved_query = DataWarehouseSavedQuery(
             team=self.team,
@@ -126,3 +128,35 @@ class TestGetColumnsQueryTagging(BaseTest):
         assert captured["product"] == Product.WAREHOUSE
         assert captured["feature"] == Feature.DATA_MODELING
         assert columns == {"trace_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}}
+
+
+class TestGetColumnsReadsNoRows(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("aggregation", "SELECT uuid, count() AS n FROM events GROUP BY uuid", {"uuid": "UUID", "n": "UInt64"}, 1),
+            (
+                "existing_limit_and_offset",
+                "SELECT uuid, count() AS n FROM events GROUP BY uuid LIMIT 5 OFFSET 2",
+                {"uuid": "UUID", "n": "UInt64"},
+                1,
+            ),
+            (
+                "union_all",
+                "SELECT event AS name FROM events UNION ALL SELECT distinct_id AS name FROM events LIMIT 3",
+                {"name": "String"},
+                2,
+            ),
+        ]
+    )
+    def test_infers_types_without_reading_rows(
+        self, _name: str, sql: str, expected_types: dict[str, str], select_count: int
+    ) -> None:
+        saved_query = DataWarehouseSavedQuery(team=self.team, name="my_view", query={"query": sql})
+
+        with self.capture_select_queries() as queries:
+            columns = saved_query.get_columns(user=self.user)
+
+        assert {name: column["clickhouse"] for name, column in columns.items()} == expected_types
+        assert len(queries) == 1
+        assert queries[0].count("LIMIT 0") == select_count
+        assert "OFFSET" not in queries[0]
