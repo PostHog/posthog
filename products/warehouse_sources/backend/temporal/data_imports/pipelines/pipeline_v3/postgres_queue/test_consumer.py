@@ -21,6 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import LOC
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DestinationConfigurationError,
+    DestinationDeliveryError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
     consumer as consumer_module,
 )
@@ -211,8 +215,16 @@ class TestProcessSingle:
 
         assert states == [SourceBatchStatus.State.EXECUTING, SourceBatchStatus.State.SUCCEEDED]
 
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ValueError("boom"),
+            DestinationDeliveryError("Prod", RuntimeError("connection timeout expired")),
+        ],
+        ids=["generic", "destination_connect_timeout"],
+    )
     @pytest.mark.asyncio
-    async def test_error_sets_waiting_retry(self):
+    async def test_error_sets_waiting_retry(self, error: Exception):
         consumer = _make_consumer(max_attempts=3)
         batch = _make_batch(latest_attempt=0)
         states: list[str] = []
@@ -221,7 +233,7 @@ class TestProcessSingle:
             states.append(job_state)
             return True
 
-        consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
+        consumer._process_batch = AsyncMock(side_effect=error)
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status_unless_failed",
             side_effect=track_status,
@@ -238,6 +250,7 @@ class TestProcessSingle:
             "Source column type changed: 'price' has values that no longer fit its stored type int64",
             "[Errno 5] An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
             "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.",
+            str(DestinationConfigurationError("Prod", "The host name does not exist.")),
         ],
     )
     @pytest.mark.asyncio
@@ -273,6 +286,8 @@ class TestProcessSingle:
             # upstream/customer condition, not a pipeline bug.
             ("ExternalDataJob matching query does not exist.", False),
             ("ExternalDataSchema matching query does not exist.", False),
+            # A destination the customer configured refuses the connection.
+            (str(DestinationConfigurationError("Prod", "The host name does not exist.")), False),
             # A genuine non-retryable failure must still surface so real bugs aren't hidden.
             ("20009.59 is too large to store in a Decimal128 of precision 24.", True),
             # Storage backend out of disk space is an operational condition operators need to
@@ -1720,14 +1735,17 @@ class TestFailRun:
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery.abort_destinations",
-                side_effect=lambda signal: seen.append(signal),
+                side_effect=lambda signal, failure_reason: seen.append((signal, failure_reason)),
             ),
         ):
             await consumer._fail_run(batch, reason="boom", conn=consumer._poll_conn)
 
         assert len(seen) == 1
-        assert seen[0].destination_ids == ["11111111-1111-1111-1111-111111111111"]
-        assert seen[0].team_id == 1
+        signal, failure_reason = seen[0]
+        assert signal.destination_ids == ["11111111-1111-1111-1111-111111111111"]
+        assert signal.team_id == 1
+        # The abort path reads the reason to skip a destination that failed on its configuration.
+        assert failure_reason == "boom"
 
     @pytest.mark.asyncio
     async def test_attempts_job_status_update_even_when_queue_update_fails(self):
@@ -3937,6 +3955,43 @@ class TestCoalesceGroup:
             [("run-1", 7)],
         ]
 
+    @pytest.mark.parametrize(
+        "destination_ids",
+        [["warehouse-1"], ["warehouse-1", "warehouse-2"]],
+        ids=["warehouse_only", "two_warehouse_rows"],
+    )
+    def test_batches_bound_only_for_the_warehouse_still_share_a_write(self, destination_ids: list[str]):
+        # Every run now snapshots the PostHog warehouse, which delta writes rather than a
+        # destination writer delivers. Reading a non-empty snapshot as "has destinations" would
+        # stop the whole fleet coalescing.
+        batches = [
+            _make_batch(
+                id=f"00000000-0000-0000-0000-{i:012d}",
+                run_uuid="run-1",
+                batch_index=i,
+                sync_type="incremental",
+                destination_ids=destination_ids,
+                metadata={"external_destination_ids": []},
+            )
+            for i in range(3)
+        ]
+        assert self._sets(batches) == [[0, 1, 2]]
+
+    def test_batches_for_different_destinations_never_share_a_write(self):
+        # The external set is a key, not a flag: one write cannot deliver to two different places.
+        batches = [
+            _make_batch(
+                id=f"00000000-0000-0000-0000-{i:012d}",
+                run_uuid="run-1",
+                batch_index=i,
+                sync_type="incremental",
+                destination_ids=["warehouse-1", dest],
+                metadata={"external_destination_ids": [dest]},
+            )
+            for i, dest in enumerate(["dest-a", "dest-a", "dest-b"])
+        ]
+        assert self._sets(batches) == [[0], [1], [2]]
+
     def test_a_final_only_marker_row_stays_alone(self):
         # An older producer repeats the last batch's index as a final-only row; it is not a new batch.
         batches = _run_batches(2)
@@ -3954,10 +4009,12 @@ class TestCoalesceGroup:
         [
             {"sync_type": "cdc"},
             {"metadata": {"cdc_write_mode": "scd2_append"}},
+            {"destination_ids": ["dest-1"], "metadata": {"external_destination_ids": ["dest-1"]}},
+            # Queued before the producer recorded the subset, so every id counts as external.
             {"destination_ids": ["dest-1"]},
             {"latest_attempt": 1},
         ],
-        ids=["cdc", "scd2_companion", "external_destinations", "redelivery"],
+        ids=["cdc", "scd2_companion", "external_destinations", "unknown_subset", "redelivery"],
     )
     def test_batches_the_sink_loads_one_at_a_time(self, overrides: dict[str, Any]):
         batches = [

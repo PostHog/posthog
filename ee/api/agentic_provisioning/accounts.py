@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.api.authentication import password_reset_token_generator
@@ -17,7 +18,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.organization_provisioning import OrganizationProvisioning, get_billing_lock_partner
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
@@ -228,7 +229,8 @@ def find_partner_organization(user: User, partner: OAuthApplication) -> Organiza
     # otherwise put this partner's project, and the partner's bill for it, in that organization.
     candidates = (
         Organization.objects.filter(
-            partner_provisioning__application=partner,
+            Q(provisioning_application=partner)
+            | Q(provisioning_source__isnull=True, partner_provisioning__application=partner),
             membership__user=user,
             membership__level=OrganizationMembership.Level.OWNER,
         )
@@ -276,7 +278,10 @@ def get_or_create_partner_organization_team(user: User, partner: OAuthApplicatio
         previous_organization_id = locked_user.current_organization_id
         previous_team_id = locked_user.current_team_id
         organization, _, team = Organization.objects.bootstrap(
-            locked_user, name=partner_organization_name(partner, locked_user.email)
+            locked_user,
+            name=partner_organization_name(partner, locked_user.email),
+            provisioning_source=Organization.ProvisioningSource.PROVISIONING_API,
+            provisioning_application=partner,
         )
         # bootstrap makes the new organization current. Switching back keeps `@current` in the
         # user's personal API keys and OAuth calls on the project they were already using.
@@ -284,11 +289,6 @@ def get_or_create_partner_organization_team(user: User, partner: OAuthApplicatio
         locked_user.current_team_id = previous_team_id
         locked_user.save(update_fields=["current_organization", "current_team"])
         TeamProvisioningConfig.objects.create(team=team, application=partner)
-        OrganizationProvisioning.objects.create(
-            organization=organization,
-            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
-            application=partner,
-        )
     return team, True
 
 
@@ -321,13 +321,12 @@ def handle_new_user(
                 password=None,
                 first_name=first_name,
                 is_email_verified=False,
+                organization_fields={
+                    "provisioning_source": Organization.ProvisioningSource.PROVISIONING_API,
+                    "provisioning_application": partner,
+                },
             )
             TeamProvisioningConfig.objects.get_or_create(team=team, defaults={"application": partner})
-            OrganizationProvisioning.objects.create(
-                organization=organization,
-                partner=OrganizationProvisioning.Partner.PROVISIONING_API,
-                application=partner,
-            )
     except IntegrityError:
         existing = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if existing:

@@ -265,7 +265,8 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
         assert code_data["team_id"] == self.team2.id
         assert code_data["org_id"] == str(self.org2.id)
-        assert not OrganizationProvisioning.objects.exists()
+        self.org2.refresh_from_db()
+        assert (self.org2.provisioning_source, self.org2.provisioning_application_id) == (None, None)
 
     def _code_data(self, res) -> dict:
         code = res.json()["redirect_url"].split("code=")[1].split("&")[0]
@@ -288,21 +289,43 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
         assert organization.id not in (self.organization.id, self.org2.id)
         assert organization.name == f"{self.partner.name} ({self.user.email})"[:64]
         assert organization.memberships.get(user=self.user).level == OrganizationMembership.Level.OWNER
+        assert (organization.provisioning_source, organization.provisioning_application_id) == (
+            Organization.ProvisioningSource.PROVISIONING_API,
+            self.partner.id,
+        )
+        assert not OrganizationProvisioning.objects.filter(organization=organization).exists()
         assert get_billing_lock_partner(organization) == self.partner
         assert TeamProvisioningConfig.objects.get(team=team).application == self.partner
         self.user.refresh_from_db()
         assert (self.user.current_organization_id, self.user.current_team_id) == (self.organization.id, self.team.id)
 
-    def test_paying_partner_confirm_reuses_the_organization_the_partner_already_provisioned(self) -> None:
+    @parameterized.expand([("organization_fields", False), ("legacy_record", True)])
+    def test_paying_partner_confirm_reuses_the_organization_the_partner_already_provisioned(
+        self, _name: str, legacy_record: bool
+    ) -> None:
         self.partner.update_provisioning(pays_for_customers=True)
-        self._set_pending_auth("state_first", self.user.email)
-        first_team_id = self._code_data(self._confirm("state_first", self.team.id))["team_id"]
+        organization = Organization.objects.create(
+            name="Partner-created organization",
+            provisioning_source=None if legacy_record else Organization.ProvisioningSource.PROVISIONING_API,
+            provisioning_application=None if legacy_record else self.partner,
+        )
+        OrganizationMembership.objects.create(
+            user=self.user, organization=organization, level=OrganizationMembership.Level.OWNER
+        )
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=organization)
+        TeamProvisioningConfig.objects.create(team=team, application=self.partner)
+        if legacy_record:
+            OrganizationProvisioning.objects.create(
+                organization=organization,
+                partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+                application=self.partner,
+            )
         organization_count = Organization.objects.count()
 
         self._set_pending_auth("state_again", self.user.email)
         again = self._confirm("state_again", self.team2.id)
 
-        assert self._code_data(again)["team_id"] == first_team_id
+        assert self._code_data(again)["team_id"] == team.id
         assert Organization.objects.count() == organization_count
 
     @parameterized.expand(

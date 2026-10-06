@@ -34,6 +34,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'comment:read',
     'comment:write',
     'conversation:read',
+    'cross_project_dashboard:read',
     'customer_analytics:read',
     'customer_analytics:write',
     'customer_task:read',

@@ -169,8 +169,34 @@ class Organization(ModelActivityMixin, UUIDTModel):
                 fields=["for_internal_metrics"],
                 condition=Q(for_internal_metrics=True),
                 name="single_for_internal_metrics",
-            )
+            ),
+            models.CheckConstraint(
+                condition=Q(provisioning_source__isnull=True, provisioning_application__isnull=True)
+                | (
+                    Q(provisioning_source__isnull=False)
+                    & (
+                        Q(provisioning_source="vercel", provisioning_application__isnull=True)
+                        | Q(
+                            provisioning_source__in=["provisioning_api", "stripe_projects"],
+                            provisioning_application__isnull=False,
+                        )
+                    )
+                ),
+                name="org_provisioning_source_matches_app",
+            ),
         ]
+        indexes = [
+            models.Index(
+                fields=["provisioning_application"],
+                condition=Q(provisioning_application__isnull=False),
+                name="org_provisioning_app_idx",
+            ),
+        ]
+
+    class ProvisioningSource(models.TextChoices):
+        PROVISIONING_API = "provisioning_api"
+        STRIPE_PROJECTS = "stripe_projects"
+        VERCEL = "vercel"
 
     class PluginsAccessLevel(models.IntegerChoices):
         # None means the organization can't use plugins at all. They're hidden. Cloud default.
@@ -215,6 +241,15 @@ class Organization(ModelActivityMixin, UUIDTModel):
     _loaded_name: Optional[str] = None
     slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
+    provisioning_source = models.CharField(max_length=32, choices=ProvisioningSource.choices, null=True, blank=True)
+    provisioning_application = models.ForeignKey(
+        "posthog.OAuthApplication",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        db_index=False,
+        related_name="provisioned_orgs",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(

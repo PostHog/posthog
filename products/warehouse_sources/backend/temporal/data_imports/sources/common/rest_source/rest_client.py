@@ -15,6 +15,7 @@ from requests.exceptions import (
     HTTPError,
     JSONDecodeError as RequestsJSONDecodeError,
     Timeout as RequestsTimeout,
+    TooManyRedirects,
 )
 from tenacity import RetryCallState, retry, retry_if_exception_type
 
@@ -535,6 +536,15 @@ class RESTClient:
             # credential-in-query-string reason as the ConnectionError branch.
             raise RESTClientRetryableError(
                 self._redact(f"Request timed out ({type(e).__name__}) for {_safe_url(prepared.url or '')}")
+            ) from e
+        except TooManyRedirects as e:
+            # requests already followed its redirect cap (30) chasing a final response and never
+            # got one — a deterministic loop (e.g. an auth wall, or an http/https scheme mismatch)
+            # baked into how the remote host answers this URL, not a one-off network blip.
+            # Re-fetching replays the same chain, so fail fast and non-retryably instead of burning
+            # the retry budget on 30+ requests per attempt.
+            raise RESTClientNonRetryableError(
+                self._redact(f"Too many redirects for {_safe_url(prepared.url or '')}")
             ) from e
 
         # With redirects disabled, a 3xx is not an error to `raise_for_status` and would fall

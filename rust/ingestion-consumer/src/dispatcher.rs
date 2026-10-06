@@ -600,9 +600,9 @@ impl Dispatcher {
     /// the per-worker sub-batches.
     fn note_and_assemble(&self, dispatches: Vec<Dispatch>) -> WorkerAssignments {
         let mut assignments = WorkerAssignments::new();
+        let mut sentinel = self.key_sentinel.batch();
         for dispatch in dispatches {
-            self.key_sentinel
-                .note_sent(&dispatch.routing_key, &dispatch.messages, dispatch.kind);
+            sentinel.note_sent(&dispatch.routing_key, &dispatch.messages, dispatch.kind);
             assignments.add_dispatch(dispatch);
         }
         assignments
@@ -773,8 +773,9 @@ impl Dispatcher {
         let mut inner = self.inner.lock().unwrap();
         let effects = inner.scheduler.on_partitions_revoked(partitions);
         debug_assert!(effects.dispatches.is_empty(), "a purge never dispatches");
+        let mut sentinel = self.key_sentinel.batch();
         for key in &effects.evicted_keys {
-            self.key_sentinel.evict(key);
+            sentinel.evict(key);
         }
     }
 
@@ -908,8 +909,9 @@ impl Dispatcher {
         } = effects;
 
         if !evicted_keys.is_empty() {
+            let mut sentinel = self.key_sentinel.batch();
             for key in &evicted_keys {
-                self.key_sentinel.evict(key);
+                sentinel.evict(key);
             }
             counter!(
                 "ingestion_consumer_dispatcher_pin_evictions_total",
@@ -963,9 +965,9 @@ impl Dispatcher {
     /// its settle so the sentinel state isn't evicted first).
     /// Advances each key's ACK high-water mark in the order sentinel.
     pub fn on_sub_batch_acked(&self, key_offsets: &[KeyOffset]) {
+        let mut sentinel = self.key_sentinel.batch();
         for key_offset in key_offsets {
-            self.key_sentinel
-                .note_acked(&key_offset.routing_key, key_offset.max_offset);
+            sentinel.note_acked(&key_offset.routing_key, key_offset.max_offset);
         }
     }
 
@@ -1079,7 +1081,7 @@ mod tests {
 
     fn make_msg(key: &str) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "test".to_string(),
+            topic: "test".into(),
             partition: 0,
             offset: 0,
             timestamp: 0,
@@ -1102,7 +1104,7 @@ mod tests {
 
     fn make_unkeyed_msg() -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "test".to_string(),
+            topic: "test".into(),
             partition: 7,
             offset: 42,
             timestamp: 0,
