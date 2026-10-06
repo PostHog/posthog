@@ -2081,7 +2081,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     insight,
                     name: tabName,
                     description: tabDescription,
-                    sourceQuery: insightVisualizationQuery,
+                    sourceQuery: insightVisualizationQuery ?? (view ? hogQLEditorSourceQuery(view.query) : undefined),
                     draft,
                     metricName,
                     biEditorState:
@@ -2100,6 +2100,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
                 if (insightVisualizationQuery) {
                     actions.setLastRunQuery(insightVisualizationQuery)
+                } else if (view) {
+                    actions.setSourceQuery(hogQLEditorSourceQuery(view.query))
                 }
                 if (query !== undefined) {
                     actions.setQueryInput(query)
@@ -4002,6 +4004,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         )
                     } else {
                         actions.editView(queryToOpen, view, biEditorStateFromUrl ?? undefined)
+                    }
+                    if (hasFiltersHashParam) {
+                        actions.setSourceQuery(applyFiltersFromUrl(values.sourceQuery))
                     }
                     actions.setViewLoading(false)
                     actions.setViewQueryLoading(false)
