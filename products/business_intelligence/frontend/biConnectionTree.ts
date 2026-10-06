@@ -17,6 +17,8 @@ export interface BIConnection {
     connections: BIConnection[]
 }
 
+type TableLookup = Record<string, Pick<DatabaseSchemaTable, 'name' | 'fields'>>
+
 function getHydrationKey(table: DatabaseSchemaTable): string {
     return table.type === 'posthog' ? table.id : table.name
 }
@@ -69,11 +71,19 @@ export function buildBIConnections(
     const expanded = new Set(expandedIds)
     const getTable = (name?: string): DatabaseSchemaTable | null =>
         name ? (tables[name] ?? tables[name.replaceAll('`', '')] ?? null) : null
-    const visit = (tableName: string, fields: DatabaseSchemaField[], path: string[]): BIConnection[] => {
-        const tableLookup = {
-            ...tables,
-            [tableName]: { name: tableName, fields: Object.fromEntries(fields.map((field) => [field.name, field])) },
-        }
+    const getTableLookup = (tableName: string, fields: DatabaseSchemaField[]): TableLookup => {
+        const lookup: TableLookup = Object.create(tables)
+        Object.defineProperty(lookup, tableName, {
+            value: { name: tableName, fields: Object.fromEntries(fields.map((field) => [field.name, field])) },
+        })
+        return lookup
+    }
+    const visit = (
+        tableName: string,
+        fields: DatabaseSchemaField[],
+        path: string[],
+        tableLookup: TableLookup
+    ): BIConnection[] => {
         return fields
             .flatMap((originalField): BIConnection[] => {
                 let pendingTableName: string | undefined
@@ -118,13 +128,7 @@ export function buildBIConnections(
                 }
                 const childFields = getConnectionFields(field, table)
                 const nestedTableName = table?.name ?? field.table ?? tableName
-                const childLookup = {
-                    ...tables,
-                    [nestedTableName]: {
-                        name: nestedTableName,
-                        fields: Object.fromEntries(childFields.map((child) => [child.name, child])),
-                    },
-                }
+                const childLookup = getTableLookup(nestedTableName, childFields)
                 const scalarFields = childFields.map((child) => {
                     const resolved =
                         child.type === 'field_traverser'
@@ -140,13 +144,14 @@ export function buildBIConnections(
                             source,
                             childPath
                         ),
-                        connections: visit(nestedTableName, childFields, childPath),
+                        connections: visit(nestedTableName, childFields, childPath, childLookup),
                     },
                 ]
             })
             .sort((left, right) => left.name.localeCompare(right.name))
     }
-    return visit(source.table, Object.values(getTable(source.table)?.fields ?? {}), [])
+    const sourceFields = Object.values(getTable(source.table)?.fields ?? {})
+    return visit(source.table, sourceFields, [], getTableLookup(source.table, sourceFields))
 }
 
 export function getPendingBIConnectionTables(connections: BIConnection[]): string[] {
