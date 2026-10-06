@@ -63,10 +63,11 @@ class TestTeamsCard(SimpleTestCase):
         )
         target = cast(AlertDestinationData, {"type": "teams", "webhook_url": TEAMS_URL})
 
-        with pinned_post(202) as session:
+        with pinned_post(202) as adapter:
             TeamsTransport().deliver(team_id=2, target=target, message=message)
 
-        sent = session.post.call_args.kwargs["data"]
+        sent = adapter.sent[-1].body
+        assert isinstance(sent, bytes)
         facts = json.loads(sent)["attachments"][0]["content"]["body"][1]["facts"]
         assert len(sent) < 28_000
         assert facts[2] == {"title": "Failed checks", "value": "3"}
@@ -86,11 +87,11 @@ class TestTeamsTransport(SimpleTestCase):
     def test_only_a_url_teams_issues_is_posted_to(self, _name: str, url: str, posted: bool) -> None:
         target = cast(AlertDestinationData, {"type": "teams", "webhook_url": url})
 
-        with pinned_post(202) as session:
+        with pinned_post(202) as adapter:
             if posted:
                 TeamsTransport().deliver(team_id=2, target=target, message=alert_message())
             else:
                 with pytest.raises(DeliveryError):
                     TeamsTransport().deliver(team_id=2, target=target, message=alert_message())
 
-        assert session.post.called is posted
+        assert bool(adapter.sent) is posted
