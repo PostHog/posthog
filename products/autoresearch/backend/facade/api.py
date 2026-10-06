@@ -49,6 +49,11 @@ from ..models import (
 )
 from ..query import measure_queries
 from ..training import artifacts as artifact_store
+from ..training.explanation import (
+    MAX_TOP_FEATURES as _MAX_TOP_FEATURES,
+    FeatureDirection as _FeatureDirection,
+    normalize_model_explanation,
+)
 from ..training.recipe_validation import RecipeValidationError, feature_sql_hints, validate_feature_sql, validate_recipe
 from ..training.shadow_set import shadow_set_ids
 from .contracts import (
@@ -174,7 +179,7 @@ def _model_to_contract(row: AutoresearchModel, *, in_shadow_set: bool) -> Model:
         role=row.role,
         recipe_hash=row.recipe_hash,
         model_recipe=row.model_recipe or {},
-        model_explanation=row.model_explanation or {},
+        model_explanation=normalize_model_explanation(row.model_explanation),
         holdout_score=row.holdout_score,
         realized_score=row.realized_score,
         calibration_error=row.calibration_error,
@@ -1638,3 +1643,5 @@ SUGGESTION_STATUS_CHOICES = AutoresearchSuggestion.Status.choices
 SUGGESTION_SOURCE_CHOICES = AutoresearchSuggestion.Source.choices
 RUN_TYPE_CHOICES = AutoresearchRun.RunType.choices
 RUN_STATUS_CHOICES = AutoresearchRun.Status.choices
+FEATURE_DIRECTION_CHOICES = _FeatureDirection.choices
+MAX_TOP_FEATURES = _MAX_TOP_FEATURES
