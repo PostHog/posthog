@@ -22,7 +22,6 @@ from rest_framework.exceptions import NotAuthenticated
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -1101,20 +1100,13 @@ class TestBuildBillingToken(BaseTest):
         assert "email" not in decoded
         assert "organization_role" not in decoded
 
-    @parameterized.expand(
-        [
-            ("paying_partner", True, None, True),
-            ("partner_that_does_not_pay", False, None, False),
-            ("paying_partner_but_own_stripe_customer", True, "cus_example", False),
-            ("no_partner", None, None, False),
-        ]
-    )
+    @parameterized.expand([("paying_partner", True), ("no_partner", False)])
+    @patch("ee.billing.billing_manager.get_billing_lock_partner")
     def test_build_billing_token_payer_partner_claim(
-        self, _name: str, pays_for_customers: bool | None, customer_id: str | None, expect_claim: bool
+        self, _name: str, has_partner: bool, mock_partner: MagicMock
     ) -> None:
-        application = None
-        if pays_for_customers is not None:
-            application = OAuthApplication.objects.create(
+        application = (
+            OAuthApplication.objects.create(
                 client_id="example-partner",
                 name="Example Partner",
                 client_secret="",
@@ -1124,20 +1116,16 @@ class TestBuildBillingToken(BaseTest):
                 algorithm="RS256",
                 is_provisioning_partner=True,
             )
-            application.update_provisioning(pays_for_customers=pays_for_customers)
-            OrganizationProvisioning.objects.create(
-                organization=self.organization,
-                partner=OrganizationProvisioning.Partner.PROVISIONING_API,
-                application=application,
-            )
-        self.organization.customer_id = customer_id
-        self.organization.save()
+            if has_partner
+            else None
+        )
+        mock_partner.return_value = application
 
         token = build_billing_token(self.license, self.organization)
 
+        mock_partner.assert_called_once_with(self.organization)
         decoded = jwt.decode(token, "license_secret", algorithms=["HS256"], audience="posthog:license-key")
-        if expect_claim:
-            assert application is not None
+        if application is not None:
             assert decoded["payer_partner_id"] == str(application.id)
         else:
             assert "payer_partner_id" not in decoded
