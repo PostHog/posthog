@@ -1,4 +1,5 @@
 import html
+import re
 import uuid
 import smtplib
 import datetime
@@ -66,12 +67,13 @@ def is_smtp_email_service_available() -> bool:
 
 
 def single_line(value: str) -> str:
-    """Flatten CR/LF to spaces so a user-set value is safe in an email Subject.
+    """Flatten CR/LF to a single space so a user-set value is safe in an email Subject.
 
     A CR or LF in a Subject makes Django raise BadHeaderError, which the send path swallows, so
-    the whole notification would be dropped.
+    the whole notification would be dropped. A run of CR/LF (e.g. "\r\n") collapses to one space
+    rather than one per character, so it reads like a single line break once flattened.
     """
-    return value.replace("\r", " ").replace("\n", " ")
+    return re.sub(r"[\r\n]+", " ", value)
 
 
 def is_email_available(with_absolute_urls: bool = False) -> bool:

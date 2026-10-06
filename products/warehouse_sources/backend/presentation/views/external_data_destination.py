@@ -15,6 +15,7 @@ from posthog.models.integration import Integration
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.warehouse_sources.backend.facade.destination_health import resume_destination
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataDestination,
     ExternalDataSchema,
@@ -95,6 +96,23 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
     is_posthog_warehouse = serializers.BooleanField(
         read_only=True, help_text="Whether this is the managed PostHog warehouse destination."
     )
+    status = serializers.ChoiceField(
+        choices=ExternalDataDestination.Status.choices,
+        read_only=True,
+        help_text=(
+            "Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the "
+            "last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. "
+            "Edit the destination to turn it back on."
+        ),
+    )
+    latest_error = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The last delivery error, safe to show to the user. Null if no delivery has failed.",
+    )
+    latest_error_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When the last delivery error occurred."
+    )
     synced_sources = serializers.SerializerMethodField(
         help_text=(
             "Sources whose tables sync to this destination, so you can see what a change or a "
@@ -154,8 +172,21 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             "created_by",
             "updated_at",
             "synced_sources",
+            "status",
+            "latest_error",
+            "latest_error_at",
         ]
-        read_only_fields = ["id", "is_posthog_warehouse", "created_at", "created_by", "updated_at", "synced_sources"]
+        read_only_fields = [
+            "id",
+            "is_posthog_warehouse",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "synced_sources",
+            "status",
+            "latest_error",
+            "latest_error_at",
+        ]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         destination_type = attrs.get("type", getattr(self.instance, "type", None))
@@ -346,8 +377,8 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         if is_service_auth(self.request):
             return
 
-        source_ids = {link.source_id for link in instance.source_links.filter(enabled=True)}
-        direct_schema_ids = {link.schema_id for link in instance.schema_links.filter(enabled=True)}
+        source_ids = {link.source_id for link in instance.source_links.all()}
+        direct_schema_ids = {link.schema_id for link in instance.schema_links.all()}
         schemas = list(
             ExternalDataSchema.objects.exclude(deleted=True)
             .filter(team_id=self.team_id)
@@ -366,6 +397,10 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         # always construct this viewset's serializer with the existing instance to update.
         self._assert_can_mutate(cast(ExternalDataDestination, serializer.instance))
         super().perform_update(serializer)
+        # An edit is how a user says they fixed the destination, so the next sync tries it again.
+        destination = cast(ExternalDataDestination, serializer.instance)
+        if destination.status != ExternalDataDestination.Status.HEALTHY:
+            resume_destination(destination)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Soft-delete, and detach it from everything that syncs to it.

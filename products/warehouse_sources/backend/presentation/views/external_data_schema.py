@@ -1,5 +1,5 @@
 import datetime as dt
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any, Optional, cast
 
 from django.db import transaction
@@ -1852,6 +1852,15 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if obj.source.is_system_managed:
                 raise PermissionDenied("This schema is managed by PostHog and cannot be changed through this API.")
 
+    def _assert_can_resume_destinations(self, schemas: Iterable[ExternalDataSchema]) -> None:
+        if is_service_auth(self.request):
+            return
+        uac = self.user_access_control
+        for schema in schemas:
+            level = uac.get_user_access_level(schema.table or schema.source)
+            if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+                raise PermissionDenied("You do not have editor access to every table wired to this destination.")
+
     @extend_schema(exclude=True)
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # Schemas are created by source schema discovery, never via the API. ModelViewSet would
@@ -1963,6 +1972,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             team_id=self.team_id,
             schema_id=schema.id,
             destination_ids=serializer.validated_data["destination_ids"],
+            authorize_resume=self._assert_can_resume_destinations,
         )
         return Response(
             status=status.HTTP_200_OK,

@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    NoActiveDestinationsError,
     destination_ids_for_run,
     is_multi_destination_enabled,
 )
@@ -45,7 +46,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
-from products.warehouse_sources.backend.temporal.data_imports.util import retry_internal_db_operation
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
+    retry_internal_db_operation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits import (
     billing_limit_reached,
 )
@@ -351,7 +355,13 @@ def create_external_data_job_model_activity(
 
         destination_ids: list[str] = []
         if is_multi_destination_enabled(inputs.team_id, source.source_type):
-            destination_ids = destination_ids_for_run(schema)
+            try:
+                destination_ids = destination_ids_for_run(schema)
+            except NoActiveDestinationsError as e:
+                # Fails before the job exists and before anything is extracted, so a paused
+                # destination costs the source no reads.
+                logger.info("Every destination of this table is paused, not running the sync")
+                raise NonRetryableException() from e
         # A refresh run skips the repartition activity, the only thing that ends a repartition hold on
         # the import. A refresh while the import is held never wipes the table or restarts the clock,
         # so the refresh waits until the repartition resolves.
@@ -463,6 +473,9 @@ def create_external_data_job_model_activity(
             hit_billing_limit=hit_billing_limit,
             source_templates_needed=source_templates_needed,
         )
+    except NonRetryableException:
+        # Already classified and logged where it was raised.
+        raise
     except V3PipelineLockLostError:
         # The takeover race the guard handles, not a defect — skip the generic handler's
         # stack trace log, same reasoning as SourceOrSchemaDeletedError above.
