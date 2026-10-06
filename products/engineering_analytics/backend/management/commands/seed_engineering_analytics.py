@@ -338,7 +338,14 @@ def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "created_at": started_at,
                     "started_at": started_at,
                     "completed_at": completed_at,
-                    "steps": "[]",
+                    # Only an unfinished job gets steps, which show the in-progress and queued states.
+                    "steps": (
+                        _shaped_steps(
+                            _JOB_NAMES[idx % len(_JOB_NAMES)], job_start, job_start + timedelta(seconds=segment), None
+                        )
+                        if job_start and segment and not completed
+                        else "[]"
+                    ),
                 }
             )
     return jobs
@@ -447,7 +454,8 @@ def _demo_master_commits(anchor: datetime, merged_prs: Sequence[dict[str, Any]])
                     "conclusion": conclusion,
                     "created_at": iso(start),
                     "run_started_at": iso(start),
-                    "updated_at": iso(start) if running else iso(start + duration),
+                    # A running run was last updated part of the way through, which gives its jobs a time span.
+                    "updated_at": iso(start + duration / 2) if running else iso(start + duration),
                     "run_attempt": 1,
                     "repository": {"full_name": "PostHog/posthog"},
                     "pull_requests": [{"number": _FORK_PR_NUMBER, "base": {"repo": {"id": _FORK_REPO_ID}}}],
@@ -716,7 +724,7 @@ def _demo_multi_push(
                     "conclusion": None if running else conclusion,
                     "created_at": iso(start),
                     "run_started_at": iso(start),
-                    "updated_at": iso(start) if running else iso(end),
+                    "updated_at": iso(start + (end - start) / 2) if running else iso(end),
                     "run_attempt": 1,
                     "repository": {"full_name": "PostHog/posthog"},
                     "pull_requests": [{"number": _DEMO_PR_NUMBER}],
