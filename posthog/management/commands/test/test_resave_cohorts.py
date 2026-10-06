@@ -285,8 +285,11 @@ class TestResaveCohortsCommandWithDependencies(BaseTest):
                         {
                             "type": "OR",
                             "values": [
-                                {"type": "AND", "values": [_make_person_only_filters()["properties"]["values"][0]]},
-                                {"type": "person", "key": "email", "operator": "exact", "value": "a@example.com"},
+                                {
+                                    "type": "AND",
+                                    "values": [{"type": "person", "key": "email", "value": "a@example.com"}],
+                                },
+                                {"type": "person", "key": "email", "value": "b@example.com"},
                             ],
                         }
                     ],
