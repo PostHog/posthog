@@ -30,6 +30,7 @@ from posthog.llm.wizard_blocklist import (
     wizard_identity_blocked,
 )
 from posthog.models.oauth import OAuthAccessToken, oauth_scope_tokens_expression, revoke_oauth_session
+from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.security.backend.facade.api import (
@@ -63,6 +64,7 @@ def sweep_blocklisted_gateway_credentials() -> SweepResult:
     verdicts: dict[tuple[int, tuple[str, ...], tuple[int, ...]], bool] = {}
     revoked_pairs: set[tuple[int, uuid.UUID]] = set()
     blocked_user_ids: set[int] = set()
+    team_organizations: dict[int, str] = {}
 
     candidates = (
         OAuthAccessToken.objects.alias(scope_tokens=oauth_scope_tokens_expression())
@@ -93,8 +95,15 @@ def sweep_blocklisted_gateway_credentials() -> SweepResult:
                 user_uuid=str(user.uuid),
                 organization_ids=question[1],
                 team_ids=question[2],
-            ) or security_gateway_credentials_revoked(
-                SecuritySubject(email=user.email, user_uuid=str(user.uuid), organization_ids=question[1])
+            ) or (
+                security_is_enforced(SecuritySurface.AI_GATEWAY)
+                and security_gateway_credentials_revoked(
+                    SecuritySubject(
+                        email=user.email,
+                        user_uuid=str(user.uuid),
+                        organization_ids=_rule_organization_ids(question[1], question[2], team_organizations),
+                    )
+                )
             )
             verdicts[question] = blocked
             if blocked:
@@ -134,6 +143,23 @@ def _organization_ids(token: OAuthAccessToken) -> tuple[str, ...]:
 
 def _team_ids(token: OAuthAccessToken) -> tuple[int, ...]:
     return tuple(token.scoped_teams or [])
+
+
+def _rule_organization_ids(
+    organization_ids: tuple[str, ...], team_ids: tuple[int, ...], team_organizations: dict[int, str]
+) -> tuple[str, ...]:
+    """The credential's organizations plus the ones that own its teams.
+
+    Access rules have no team target, and a team-scoped credential carries no organizations of
+    its own, so an organization rule reaches it only through its teams. `team_organizations`
+    caches the lookup across one sweep.
+    """
+    missing = [team_id for team_id in team_ids if team_id not in team_organizations]
+    if missing:
+        for team_id, organization_id in Team.objects.filter(id__in=missing).values_list("id", "organization_id"):
+            team_organizations[team_id] = str(organization_id)
+    owners = {team_organizations[team_id] for team_id in team_ids if team_id in team_organizations}
+    return tuple(sorted({*organization_ids, *owners}))
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

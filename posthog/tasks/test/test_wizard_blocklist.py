@@ -39,6 +39,7 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         expired: bool = False,
         user: User | None = None,
         scoped_organizations: list[str] | None = None,
+        scoped_teams: list[int] | None = None,
     ) -> OAuthAccessToken:
         owner = user or self.user
         expires = timezone.now() + (timedelta(hours=-1) if expired else timedelta(hours=1))
@@ -49,6 +50,7 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
             scope=scope,
             expires=expires,
             scoped_organizations=scoped_organizations,
+            scoped_teams=scoped_teams,
         )
         OAuthRefreshToken.objects.create(
             user=owner, application=self.application, token=f"refresh_{token}", access_token=access_token
@@ -61,6 +63,7 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
 
         with (
             patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=flag),
+            patch("posthog.tasks.wizard_blocklist.security_is_enforced", return_value=rule),
             patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=rule),
         ):
             result = sweep_blocklisted_gateway_credentials()
@@ -214,6 +217,19 @@ class TestSweepBlocklistedGatewayCredentials(APIBaseTest):
         assert (result.blocked_users, result.revoked_sessions) == (1, 1)
         assert not OAuthAccessToken.objects.filter(token="blocked_token").exists()
         assert OAuthAccessToken.objects.filter(token="other_token").exists()
+
+    def test_an_organization_rule_reaches_a_token_scoped_only_to_one_of_its_teams(self) -> None:
+        # A team-scoped token carries no organizations of its own, and rules have no team target.
+        self._token(token="team_token", scoped_teams=[self.team.id])
+
+        with (
+            patch("posthog.tasks.wizard_blocklist.wizard_identity_blocked", return_value=False),
+            patch("posthog.tasks.wizard_blocklist.security_is_enforced", return_value=True),
+            patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=False) as rule,
+        ):
+            sweep_blocklisted_gateway_credentials()
+
+        assert rule.call_args.args[0].organization_ids == (str(self.team.organization_id),)
 
     @parameterized.expand([("gateway in shadow", False, True), ("gateway enforced", True, False)])
     @patch("posthog.tasks.wizard_blocklist.security_gateway_credentials_revoked", return_value=True)
