@@ -1204,7 +1204,7 @@ fn worker_msg(distinct_id: &str, seq: usize) -> SerializedKafkaMessage {
     headers.insert("token".to_string(), "tok".to_string());
     headers.insert("distinct_id".to_string(), distinct_id.to_string());
     SerializedKafkaMessage {
-        topic: "t".to_string(),
+        topic: "t".into(),
         partition: 0,
         offset: seq as i64,
         timestamp: 0,
