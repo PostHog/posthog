@@ -8507,6 +8507,7 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
       Apns: 'apns',
+      AppleAds: 'apple-ads',
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
       AwsRedshift: 'aws-redshift',
@@ -57900,6 +57901,7 @@ export namespace Schemas {
 
     /**
      * * `anthropic` - Anthropic
+     * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
@@ -57954,6 +57956,7 @@ export namespace Schemas {
 
     export const IntegrationKindEnum = {
       Anthropic: 'anthropic',
+      AppleAds: 'apple-ads',
       Apns: 'apns',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
@@ -58008,6 +58011,7 @@ export namespace Schemas {
       /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
        *
        * * `anthropic` - Anthropic
+       * * `apple-ads` - Apple Ads
        * * `apns` - Apple Push
        * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
@@ -97387,6 +97391,8 @@ export namespace Schemas {
       caption?: string | null;
       /** Names of the sibling fields whose values the account listing needs. The form sends exactly these, and the listing endpoint accepts exactly these. */
       credentialFields: string[];
+      /** Name of an OAuth integration id field that lists the same accounts, for a source offering both a typed-in credential and a connected account. The form sends this instead of `credentialFields` when it holds a value, and the listing endpoint accepts it on the same allowlist. */
+      integrationField?: string | null;
       label: string;
       name: string;
       placeholder?: string | null;
@@ -120468,6 +120474,7 @@ export namespace Schemas {
     export type IntegrationsListParams = {
     /**
      * * `anthropic` - Anthropic
+     * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
@@ -120534,6 +120541,7 @@ export namespace Schemas {
     export const IntegrationsListKind = {
       Anthropic: 'anthropic',
       Apns: 'apns',
+      AppleAds: 'apple-ads',
       AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
