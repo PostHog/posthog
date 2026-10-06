@@ -82,6 +82,29 @@ def _get_issue(team_id: int, issue_id: UUID | str, *, select_related: tuple[str,
         raise ErrorTrackingIssueNotFoundError from err
 
 
+def _lock_issues(
+    team_id: int, issue_ids: list[UUID] | list[str], *, select_related: tuple[str, ...] = ()
+) -> list[ErrorTrackingIssue]:
+    """Row-lock issues so that each change records the value it actually replaced.
+
+    Ingestion reopens issues concurrently, so a value read before the lock can be stale.
+    The id order matches the merge lock, so concurrent mutations cannot deadlock. `of`
+    keeps the lock on the issue rows, never on the team or organization rows a join reads.
+    """
+    qs = ErrorTrackingIssue.objects.select_for_update(of=("self",)).filter(team_id=team_id, id__in=issue_ids)
+    if select_related:
+        qs = qs.select_related(*select_related)
+    return list(qs.order_by("id"))
+
+
+def _refresh_under_lock(issue: ErrorTrackingIssue) -> None:
+    locked = _lock_issues(issue.team_id, [issue.id])
+    if not locked:
+        raise ErrorTrackingIssueNotFoundError
+    for field in _CLICKHOUSE_VISIBLE_ISSUE_STATE_FIELDS:
+        setattr(issue, field, getattr(locked[0], field))
+
+
 def _status_from_string(status: str) -> "ErrorTrackingIssue.Status | None":
     match status:
         case "active":
@@ -122,66 +145,68 @@ def update_issue(
     # Fetch via the detail queryset so the returned instance is response-ready
     # (first_seen, assignment, external issues, cohorts) without a second read.
     issue = get_issue(issue_id=issue_id, team_id=team_id)
-    status_before = issue.status
-    severity_before = issue.severity
-    name_before = issue.name
-    description_before = issue.description
-    status_after = fields.get("status")
-    severity_after = fields.get("severity")
-    name_after = fields.get("name")
-    status_updated = "status" in fields and status_after != status_before
-    severity_updated = "severity" in fields and severity_after != severity_before
-    name_updated = "name" in fields and name_after != name_before
-    description_updated = "description" in fields and fields["description"] != description_before
-    state_updated = _has_clickhouse_visible_state_change(issue, fields)
     operation = ChangeOperation.for_user(team_id, user)
 
-    for key in ("status", "severity", "name", "description"):
-        if key in fields:
-            setattr(issue, key, fields[key])
-
-    issue_changes: list[IssueChange] = []
-    if status_updated:
-        issue_changes.append(IssueChange(issue=issue, data=StatusChanged(previous=Status(status_before))))
-    if severity_updated:
-        issue_changes.append(
-            IssueChange(
-                issue=issue,
-                data=SeverityChanged(
-                    previous=ErrorTrackingIssue.Severity(severity_before) if severity_before else None
-                ),
-            )
-        )
-    if name_updated:
-        issue_changes.append(IssueChange(issue=issue, data=NameChanged(previous=name_before)))
-
-    changes = []
-    if status_updated:
-        changes.append(
-            Change(
-                type="ErrorTrackingIssue",
-                field="status",
-                before=status_before,
-                after=status_after,
-                action="changed",
-            )
-        )
-    if severity_updated:
-        changes.append(
-            Change(
-                type="ErrorTrackingIssue",
-                field="severity",
-                before=severity_before,
-                after=severity_after,
-                action="changed",
-            )
-        )
-    if name_updated:
-        changes.append(
-            Change(type="ErrorTrackingIssue", field="name", before=name_before, after=name_after, action="changed")
-        )
-
     with transaction.atomic():
+        _refresh_under_lock(issue)
+        status_before = issue.status
+        severity_before = issue.severity
+        name_before = issue.name
+        description_before = issue.description
+        status_after = fields.get("status")
+        severity_after = fields.get("severity")
+        name_after = fields.get("name")
+        status_updated = "status" in fields and status_after != status_before
+        severity_updated = "severity" in fields and severity_after != severity_before
+        name_updated = "name" in fields and name_after != name_before
+        description_updated = "description" in fields and fields["description"] != description_before
+        state_updated = _has_clickhouse_visible_state_change(issue, fields)
+
+        for key in ("status", "severity", "name", "description"):
+            if key in fields:
+                setattr(issue, key, fields[key])
+
+        issue_changes: list[IssueChange] = []
+        if status_updated:
+            issue_changes.append(IssueChange(issue=issue, data=StatusChanged(previous=Status(status_before))))
+        if severity_updated:
+            issue_changes.append(
+                IssueChange(
+                    issue=issue,
+                    data=SeverityChanged(
+                        previous=ErrorTrackingIssue.Severity(severity_before) if severity_before else None
+                    ),
+                )
+            )
+        if name_updated:
+            issue_changes.append(IssueChange(issue=issue, data=NameChanged(previous=name_before)))
+
+        changes = []
+        if status_updated:
+            changes.append(
+                Change(
+                    type="ErrorTrackingIssue",
+                    field="status",
+                    before=status_before,
+                    after=status_after,
+                    action="changed",
+                )
+            )
+        if severity_updated:
+            changes.append(
+                Change(
+                    type="ErrorTrackingIssue",
+                    field="severity",
+                    before=severity_before,
+                    after=severity_after,
+                    action="changed",
+                )
+            )
+        if name_updated:
+            changes.append(
+                Change(type="ErrorTrackingIssue", field="name", before=name_before, after=name_after, action="changed")
+            )
+
         if state_updated:
             issue.state_updated_at = timezone.now()
         issue.save()
@@ -235,6 +260,8 @@ def merge_issues(
         outcome = issue.merge(issue_ids=ids)
         if outcome.result != ErrorTrackingIssueMergeResult.MERGED:
             return IssueMergeOutcome(result=outcome.result, merged_issue_count=len(outcome.merged_issue_ids))
+        # The merge holds the target's row lock, so this reads the state the snapshot must show.
+        _refresh_under_lock(issue)
         record_issue_changes(
             operation,
             [IssueChange(issue=issue, data=Merged(merged_issue_ids=tuple(outcome.merged_issue_ids)))],
@@ -303,6 +330,7 @@ def split_issue(
     issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
     operation = ChangeOperation.for_user(team_id, user)
     with transaction.atomic():
+        _refresh_under_lock(issue)
         new_issues = issue.split(fingerprints=fingerprints)
         new_issue_ids = [new_issue.id for new_issue in new_issues]
         if new_issues:
@@ -359,7 +387,10 @@ def assign_issue(
 ) -> bool:
     operation = ChangeOperation.for_user(team_id, user)
     with transaction.atomic():
-        issue = _get_issue(team_id, issue_id, select_related=("team__organization",))
+        locked = _lock_issues(team_id, [issue_id], select_related=("team__organization",))
+        if not locked:
+            raise ErrorTrackingIssueNotFoundError
+        issue = locked[0]
         outcome = _assign_one(issue, assignee, issue.team.organization, user, team_id, was_impersonated)
         transition = outcome.transition if outcome is not None else None
         if outcome is not None:
@@ -382,14 +413,12 @@ def bulk_update_issues(
     user: User,
     was_impersonated: bool,
 ) -> int:
-    issues = list(
-        ErrorTrackingIssue.objects.filter(team_id=team_id, id__in=issue_ids).select_related("team__organization")
-    )
     changed_issue_ids: list[UUID] = []
     issue_changes: list[IssueChange] = []
     operation = ChangeOperation.for_user(team_id, user, bulk=True)
 
     with transaction.atomic():
+        issues = _lock_issues(team_id, issue_ids, select_related=("team__organization",))
         if action == "set_status":
             new_status = _status_from_string(status) if status is not None else None
             if new_status is None:

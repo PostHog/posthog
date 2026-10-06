@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from products.error_tracking.backend.logic import get_issue
 from products.error_tracking.backend.logic.issue_mutations import (
     assign_issue,
     bulk_update_issues,
@@ -58,6 +59,22 @@ class TestIssueChangeRecording(BaseTest):
             "first_seen": EARLY.isoformat(),
         }
         assert (changes[0].actor_type, changes[0].actor_user_id, changes[0].bulk) == ("user", self.user.id, False)
+
+    def test_update_records_the_status_it_replaced_when_ingestion_reopened_the_issue_meanwhile(self, _flag) -> None:
+        issue = self._create_issue({"fp": EARLY}, status=ErrorTrackingIssue.Status.RESOLVED)
+
+        def read_then_reopen(*, issue_id, team_id):
+            read = get_issue(issue_id=issue_id, team_id=team_id)
+            ErrorTrackingIssue.objects.filter(id=issue_id).update(status=ErrorTrackingIssue.Status.ACTIVE)
+            return read
+
+        with patch("products.error_tracking.backend.logic.issue_mutations.get_issue", side_effect=read_then_reopen):
+            update_issue(
+                self.team.id, issue.id, fields={"status": "suppressed"}, user=self.user, was_impersonated=False
+            )
+
+        [change] = self._changes()
+        assert (change.data, change.snapshot["status"]) == ({"previous": "active"}, "suppressed")
 
     def test_bulk_status_change_records_the_new_status_as_one_bulk_operation(self, _flag) -> None:
         issues = [self._create_issue({f"fp{i}": EARLY}) for i in range(2)]
