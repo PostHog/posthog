@@ -29,7 +29,7 @@ import { activityDetail } from './todayWorkItems'
 const PREVIEW_ROWS = [
     {
         title: 'Retry failed webhook deliveries',
-        space: 'billing',
+        space: 'Public',
         repository: 'example-org/api',
         branch: 'fix/webhook-retries',
         creator: 'Ada Lovelace',
@@ -37,7 +37,7 @@ const PREVIEW_ROWS = [
     },
     {
         title: 'Add a dark theme to settings',
-        space: 'design',
+        space: 'Personal',
         repository: 'example-org/web',
         branch: 'feat/settings-dark-theme',
         creator: 'Grace Hopper',
@@ -45,7 +45,7 @@ const PREVIEW_ROWS = [
     },
     {
         title: 'Rewrite the SDK install guide',
-        space: 'docs',
+        space: 'Shared · docs',
         repository: 'example-org/docs',
         branch: 'docs/sdk-install',
         creator: 'Katherine Johnson',

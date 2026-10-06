@@ -3,14 +3,13 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { TodayWorkItem, groupByDay } from './todayWorkItems'
 
 export type TodayRecentSort = 'recent' | 'created' | 'alpha'
-export type TodayRecentGrouping = 'date' | 'space' | 'repository'
+export type TodayRecentGrouping = 'date' | 'repository'
 
 export const DEFAULT_RECENT_SORT: TodayRecentSort = 'recent'
 export const DEFAULT_RECENT_GROUPING: TodayRecentGrouping = 'date'
 
 export const RECENT_GROUPING_OPTIONS: { value: TodayRecentGrouping; label: string }[] = [
     { value: 'date', label: 'Date' },
-    { value: 'space', label: 'Space' },
     { value: 'repository', label: 'Repository' },
 ]
 
@@ -67,21 +66,10 @@ export function groupRecentItems(
     items: TodayWorkItem[],
     sort: TodayRecentSort,
     grouping: TodayRecentGrouping,
-    spaceNames: Record<string, string>,
     now: Dayjs = dayjs()
 ): TodayRecentSection[] {
     if (!items.length) {
         return []
-    }
-    if (grouping === 'space') {
-        return keyedSections(
-            items,
-            (item) =>
-                item.channel && spaceNames[item.channel]
-                    ? { key: `space:${item.channel}`, label: spaceNames[item.channel] }
-                    : null,
-            { key: 'space:none', label: 'No space' }
-        )
     }
     if (grouping === 'repository') {
         return keyedSections(

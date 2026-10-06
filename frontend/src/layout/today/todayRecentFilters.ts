@@ -1,13 +1,14 @@
+import { TodayChatVisibility } from './todayChatVisibility'
 import { TodayWorkItem } from './todayWorkItems'
 
-export type TodayRecentCreatedByFilter = 'anyone' | 'me' | 'others'
+export type TodayRecentVisibilityFilter = 'any' | 'personal' | 'public'
 export type TodayRecentStatusFilter = 'any' | 'unread'
 export type TodayRecentPinnedFilter = 'any' | 'pinned'
 export type TodayRecentEnvironmentFilter = 'any' | 'local' | 'cloud'
 
 export interface TodayRecentFilters {
     status: TodayRecentStatusFilter
-    createdBy: TodayRecentCreatedByFilter
+    visibility: TodayRecentVisibilityFilter
     pinned: TodayRecentPinnedFilter
     environment: TodayRecentEnvironmentFilter
     /** Sources to keep. An empty list keeps every source. */
@@ -16,7 +17,7 @@ export interface TodayRecentFilters {
 
 export const DEFAULT_RECENT_FILTERS: TodayRecentFilters = {
     status: 'any',
-    createdBy: 'anyone',
+    visibility: 'any',
     pinned: 'any',
     environment: 'any',
     sources: [],
@@ -24,7 +25,7 @@ export const DEFAULT_RECENT_FILTERS: TodayRecentFilters = {
 
 /** What a filter reads besides the item itself. */
 export interface TodayRecentFilterContext {
-    userId: number | null
+    visibilityOf: (item: TodayWorkItem) => TodayChatVisibility
     unreadIds: Set<string>
     pinnedIds: Set<string>
 }
@@ -37,14 +38,14 @@ export const RECENT_STATUS_OPTIONS: FilterOptions<TodayRecentStatusFilter> = [
     { value: 'unread', label: 'Unread', dotClassName: 'bg-primary' },
 ]
 
-export const RECENT_CREATED_BY_OPTIONS: FilterOptions<TodayRecentCreatedByFilter> = [
-    { value: 'anyone', label: 'Anyone' },
-    { value: 'me', label: 'Me' },
-    { value: 'others', label: 'Other people' },
+export const RECENT_VISIBILITY_OPTIONS: FilterOptions<TodayRecentVisibilityFilter> = [
+    { value: 'any', label: 'All chats' },
+    { value: 'personal', label: 'Personal' },
+    { value: 'public', label: 'Public' },
 ]
 
 export const RECENT_PINNED_OPTIONS: FilterOptions<TodayRecentPinnedFilter> = [
-    { value: 'any', label: 'All sessions' },
+    { value: 'any', label: 'All chats' },
     { value: 'pinned', label: 'Pinned only' },
 ]
 
@@ -77,14 +78,15 @@ export function recentSourceLabel(source: string): string {
 
 /** Saved filters from before a filter existed lack it, so that filter starts at its default. */
 export function withRecentFilterDefaults(saved: Partial<TodayRecentFilters>): TodayRecentFilters {
-    return { ...DEFAULT_RECENT_FILTERS, ...saved }
+    const { status, visibility, pinned, environment, sources } = { ...DEFAULT_RECENT_FILTERS, ...saved }
+    return { status, visibility, pinned, environment, sources }
 }
 
 /** The search box is left out: it shows its own query, while a filter in a closed menu shows nothing. */
 export function hasActiveRecentFilters(filters: TodayRecentFilters): boolean {
     return (
         filters.status !== DEFAULT_RECENT_FILTERS.status ||
-        filters.createdBy !== DEFAULT_RECENT_FILTERS.createdBy ||
+        filters.visibility !== DEFAULT_RECENT_FILTERS.visibility ||
         filters.pinned !== DEFAULT_RECENT_FILTERS.pinned ||
         filters.environment !== DEFAULT_RECENT_FILTERS.environment ||
         filters.sources.length > 0
@@ -106,7 +108,7 @@ export function filterRecentItems(
     items: TodayWorkItem[],
     query: string,
     filters: TodayRecentFilters,
-    { userId, unreadIds, pinnedIds }: TodayRecentFilterContext
+    { visibilityOf, unreadIds, pinnedIds }: TodayRecentFilterContext
 ): TodayWorkItem[] {
     const needle = query.trim().toLowerCase()
     return items.filter((item) => {
@@ -123,15 +125,11 @@ export function filterRecentItems(
         if (filters.environment !== 'any' && item.runEnvironment !== filters.environment) {
             return false
         }
-        if (filters.createdBy !== 'anyone') {
-            // A deleted creator is neither you nor a known other person.
-            if (item.createdById === null) {
-                return false
-            }
-            const mine = item.createdById === userId
-            if (filters.createdBy === 'me' ? !mine : mine) {
-                return false
-            }
+        if (
+            filters.visibility !== 'any' &&
+            (visibilityOf(item) === 'personal') !== (filters.visibility === 'personal')
+        ) {
+            return false
         }
         return !filters.sources.length || (item.source !== null && filters.sources.includes(item.source))
     })

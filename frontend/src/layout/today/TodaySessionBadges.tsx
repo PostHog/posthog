@@ -1,4 +1,4 @@
-import { IconArrowRightDown, IconLaptop, IconPinFilled, IconPullRequest } from '@posthog/icons'
+import { IconArrowRightDown, IconGlobe, IconLaptop, IconPeople, IconPinFilled, IconPullRequest } from '@posthog/icons'
 import { Avatar, AvatarFallback, AvatarGroup, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -91,6 +91,19 @@ function StackedBadges({ badges, pullRequestState, pinned }: TodaySessionBadgesP
                                 pullRequest={badge.pullRequest}
                                 pullRequestState={pullRequestState}
                             />
+                        )
+                    case 'visibility':
+                        return (
+                            <IconBadge
+                                key={badge.kind}
+                                label={badge.visibility === 'public' ? 'Public' : 'Shared with an older space'}
+                            >
+                                {badge.visibility === 'public' ? (
+                                    <IconGlobe className="size-2.5 text-muted-foreground" />
+                                ) : (
+                                    <IconPeople className="size-2.5 text-muted-foreground" />
+                                )}
+                            </IconBadge>
                         )
                     case 'local':
                         return (

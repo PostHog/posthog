@@ -1,10 +1,10 @@
 import { VIEW_TYPES, ViewItem, ViewTypeFilter } from 'scenes/views/viewsUtils'
 
-import { RECENT_CREATED_BY_OPTIONS, TodayRecentCreatedByFilter } from './todayRecentFilters'
+export type TodayViewsCreatedByFilter = 'anyone' | 'me' | 'others'
 
 export interface TodayViewsFilters {
     type: ViewTypeFilter
-    createdBy: TodayRecentCreatedByFilter
+    createdBy: TodayViewsCreatedByFilter
 }
 
 export const DEFAULT_VIEWS_FILTERS: TodayViewsFilters = { type: 'all', createdBy: 'anyone' }
@@ -14,7 +14,11 @@ export const VIEWS_TYPE_OPTIONS: { value: ViewTypeFilter; label: string }[] = [
     ...VIEW_TYPES.map((info) => ({ value: info.type, label: info.pluralLabel })),
 ]
 
-export const VIEWS_CREATED_BY_OPTIONS = RECENT_CREATED_BY_OPTIONS
+export const VIEWS_CREATED_BY_OPTIONS: { value: TodayViewsCreatedByFilter; label: string }[] = [
+    { value: 'anyone', label: 'Anyone' },
+    { value: 'me', label: 'Me' },
+    { value: 'others', label: 'Other people' },
+]
 
 export function viewsFiltersActive(filters: TodayViewsFilters): boolean {
     return filters.type !== DEFAULT_VIEWS_FILTERS.type || filters.createdBy !== DEFAULT_VIEWS_FILTERS.createdBy

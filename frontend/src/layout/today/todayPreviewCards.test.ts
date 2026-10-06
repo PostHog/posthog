@@ -1,15 +1,21 @@
 import { ConversationDetail } from '~/types'
 
-import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { chatPreview, sessionPreview } from './todayPreviewCards'
 import { chatItem, sessionItem } from './todayWorkItems'
 
+const SPACES = [
+    { id: 'space-general', name: 'general', channel_type: 'public', system_role: 'general' },
+    { id: 'space-a', name: 'checkout', channel_type: 'private', system_role: null },
+] as ChannelDTOApi[]
+
 describe('todayPreviewCards', () => {
-    it.each<[string, string | null, Record<string, string>, string | null]>([
-        ['names the space the session is in', 'space-a', { 'space-a': 'checkout' }, 'checkout'],
-        ['leaves out a space the rail has not loaded', 'space-gone', { 'space-a': 'checkout' }, null],
-    ])('session card %s', (_name, channel, spaceNames, expected) => {
+    it.each<[string, string | null, string]>([
+        ['says a chat in the team space is public', 'space-general', 'Public'],
+        ['names the older space a shared chat sits in', 'space-a', 'Shared · checkout'],
+        ['says a chat with no space is personal', null, 'Personal'],
+    ])('session card %s', (_name, channel, expected) => {
         const item = sessionItem({
             id: 's',
             title: 'Session',
@@ -20,11 +26,11 @@ describe('todayPreviewCards', () => {
             unread: false,
             pinned: false,
             pullRequestStates: { 'https://github.com/example-org/web/pull/7': 'merged' },
-            spaceNames,
+            spaces: SPACES,
             menuId: 'menu-1',
             userId: null,
         })
-        expect([preview.spaceName, preview.pullRequestState]).toEqual([expected, 'merged'])
+        expect([preview.visibilityLabel, preview.pullRequestState]).toEqual([expected, 'merged'])
     })
 
     it.each<[string, string | null, string | null, string | null, string | null]>([
@@ -42,7 +48,7 @@ describe('todayPreviewCards', () => {
             unread: false,
             pinned: false,
             pullRequestStates: {},
-            spaceNames: {},
+            spaces: [],
             menuId: 'menu-1',
             userId: null,
         })

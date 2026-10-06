@@ -2,8 +2,9 @@ import { dayjs } from 'lib/dayjs'
 
 import { ConversationDetail } from '~/types'
 
-import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import { TodayChatVisibility } from './todayChatVisibility'
 import { TodayListItemField } from './todayListAppearance'
 import {
     DEFAULT_RECENT_FILTERS,
@@ -118,10 +119,10 @@ describe('todayWorkItems', () => {
 
     it.each<[string, string, Partial<TodayRecentFilters>, string[]]>([
         ['search ignores case', 'LOGIN', {}, ['mine', 'orphan', 'chat']],
-        ['created by me keeps your chats', '', { createdBy: 'me' }, ['mine', 'chat']],
-        ['created by others skips a deleted creator', '', { createdBy: 'others' }, ['theirs']],
+        ['personal keeps the chats only you can see', '', { visibility: 'personal' }, ['mine', 'chat']],
+        ['public keeps public and shared chats', '', { visibility: 'public' }, ['theirs', 'orphan']],
         ['source matches chats as PostHog AI', '', { sources: ['posthog_ai', 'slack'] }, ['orphan', 'chat']],
-        ['search and filters combine', 'login', { createdBy: 'me', sources: ['user_created'] }, ['mine']],
+        ['search and filters combine', 'login', { visibility: 'personal', sources: ['user_created'] }, ['mine']],
         ['unread keeps unread sessions only', '', { status: 'unread' }, ['theirs']],
         ['pinned only keeps pinned sessions', '', { pinned: 'pinned' }, ['orphan']],
         ['an environment skips chats and sessions that never ran', '', { environment: 'cloud' }, ['mine']],
@@ -131,7 +132,8 @@ describe('todayWorkItems', () => {
             query,
             { ...DEFAULT_RECENT_FILTERS, ...filters },
             {
-                userId: ME,
+                visibilityOf: (item): TodayChatVisibility =>
+                    item.id === 'theirs' ? 'public' : item.id === 'orphan' ? 'shared' : 'personal',
                 unreadIds: new Set(['theirs']),
                 pinnedIds: new Set(['orphan']),
             }
@@ -154,17 +156,10 @@ describe('todayWorkItems', () => {
         ['recent', 'date', ['Today: b', 'Yesterday: a', 'Sunday: c']],
         ['created', 'date', ['Yesterday: a', 'Thursday: c', 'Mar 1: b']],
         ['alpha', 'date', ['null: a b c']],
-        ['recent', 'space', ['Space one: b', 'No space: a c']],
         ['recent', 'repository', ['PostHog/posthog: b a', 'No repository: c']],
     ])('sorts by %s and groups by %s', (sort, grouping, sections) => {
         const now = dayjs('2026-03-10T12:00:00')
-        const groups = groupRecentItems(
-            sortRecentItems(orderedItems, sort),
-            sort,
-            grouping,
-            { 'space-1': 'Space one' },
-            now
-        )
+        const groups = groupRecentItems(sortRecentItems(orderedItems, sort), sort, grouping, now)
 
         expect(groups.map((group) => `${group.label}: ${group.items.map((item) => item.id).join(' ')}`)).toEqual(
             sections
@@ -289,6 +284,27 @@ describe('todayWorkItems', () => {
         ).toEqual(expected)
     })
 
+    it.each<[string, TodayChatVisibility, boolean, string[]]>([
+        ['a globe on a public chat', 'public', false, ['visibility', 'source', 'pullRequest']],
+        ['nothing on a personal chat', 'personal', false, ['source', 'pullRequest']],
+        ['no globe when the pin would make four', 'public', true, ['author', 'pullRequest']],
+    ])('shows %s', (_name, visibility, pinned, expected) => {
+        const item = sessionItem({
+            id: 's',
+            title: 'Session',
+            origin_product: 'slack',
+            latest_run: { output: { pr_url: 'https://github.com/a/b/pull/1' } },
+            created_by: { id: 8, email: 'ada@example.com' },
+            last_activity_at: pinned ? '2026-03-10T11:00:00Z' : null,
+        } as unknown as TaskListItemApi)
+
+        expect(
+            sessionBadges(item, ME, { pinned, visibility, now: Date.parse('2026-03-10T12:00:00Z') }).map(
+                (badge) => badge.kind
+            )
+        ).toEqual(expected)
+    })
+
     it.each([
         ['the closing message, trimmed', { final_message: '  Opened the pull request.\n' }, 'Opened the pull request.'],
         ['nothing when the run saved no message', { pr_url: 'https://github.com/a/b/pull/1' }, null],
@@ -305,7 +321,7 @@ describe('todayWorkItems', () => {
             'the chosen details in the chosen order',
             {},
             ['creator', 'branch', 'space', 'repository'],
-            ['Ada Lovelace', 'fix/retry', 'checkout', 'example-org/web'],
+            ['Ada Lovelace', 'fix/retry', 'Shared · checkout', 'example-org/web'],
         ],
         ['nothing when no detail is chosen', {}, [], []],
         ['how long ago the session moved', {}, ['activity'], ['2h ago']],
@@ -319,7 +335,7 @@ describe('todayWorkItems', () => {
             'only the details the session has',
             { channel: 'deleted-space', repository: null, latest_run: null, created_by: null },
             ['space', 'repository', 'branch', 'creator', 'activity'],
-            ['2h ago'],
+            ['Shared', '2h ago'],
         ],
     ])('shows %s under a session row', (_name, overrides, fields, expected) => {
         const item = sessionItem({
@@ -334,9 +350,12 @@ describe('todayWorkItems', () => {
         } as TaskListItemApi)
 
         expect(
-            sessionDetails(item, fields, { 'space-1': 'checkout' }, dayjs('2026-03-10T12:00:59')).map(
-                (detail) => detail.text
-            )
+            sessionDetails(
+                item,
+                fields,
+                [{ id: 'space-1', name: 'checkout', channel_type: 'private', system_role: null } as ChannelDTOApi],
+                dayjs('2026-03-10T12:00:59')
+            ).map((detail) => detail.text)
         ).toEqual(expected)
     })
 })

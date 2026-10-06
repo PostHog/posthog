@@ -122,9 +122,7 @@ export function TodaySessionHoverCard({
                                 <BranchLine branch={preview.branch} />
                             </TodayHoverCardFact>
                         )}
-                        {preview.spaceName && (
-                            <TodayHoverCardFact label="Space">{preview.spaceName}</TodayHoverCardFact>
-                        )}
+                        <TodayHoverCardFact label="Visibility">{preview.visibilityLabel}</TodayHoverCardFact>
                         {updated && (
                             <TodayHoverCardFact label="Updated">
                                 <span title={updated.title}>{updated.text}</span>

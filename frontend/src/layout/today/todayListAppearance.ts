@@ -4,7 +4,7 @@ export const TODAY_LIST_ITEM_FIELDS = ['space', 'repository', 'branch', 'creator
 export type TodayListItemField = (typeof TODAY_LIST_ITEM_FIELDS)[number]
 
 export const TODAY_LIST_ITEM_FIELD_LABELS: Record<TodayListItemField, string> = {
-    space: 'Space',
+    space: 'Visibility',
     repository: 'Repository',
     branch: 'Branch',
     creator: 'Creator',

@@ -27,7 +27,7 @@ import {
     reportMetricsFixture,
 } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportStatus } from 'products/signals/frontend/inbox/types'
-import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
+import { ChannelDTOApi, TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
 
@@ -1000,7 +1000,7 @@ export const SessionHoverCard: Story = {
                         unread: false,
                         pinned: true,
                         pullRequestStates: { 'https://github.com/example-org/webapp/pull/421': 'merged' },
-                        spaceNames: { 'space-checkout': 'checkout' },
+                        spaces: SPACES as ChannelDTOApi[],
                         menuId: 'story-card',
                         // The author, who can hand the session off, so the card lists every action a finished session has.
                         userId: 179,

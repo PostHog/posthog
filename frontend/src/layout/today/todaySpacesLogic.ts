@@ -31,6 +31,7 @@ import {
 } from 'products/tasks/frontend/generated/api.schemas'
 import { pullRequestStates, sessionIdsWithPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 
+import { TodayChatVisibility, chatVisibility } from './todayChatVisibility'
 import { matchesPaneQuery } from './todayPaneSearch'
 import {
     DEFAULT_RECENT_FILTERS,
@@ -146,7 +147,6 @@ export interface todaySpacesLogicValues {
     sectionHeights: Partial<Record<TodayWorkSectionId, number>>
     shownPinnedItems: TodayWorkItem[]
     sortedSpaces: ChannelDTOApi[]
-    spaceNames: Record<string, string>
     spaces: ChannelDTOApi[]
     spacesLoading: boolean
     spacesUnavailable: boolean
@@ -327,16 +327,14 @@ export interface todaySpacesLogicMeta {
             recentQuery: string,
             recentFilters: TodayRecentFilters,
             recentSort: TodayRecentSort,
-            user: UserType | null,
+            spaces: ChannelDTOApi[],
             unreadSessionIds: Set<string>,
             pinnedItems: TodayWorkItem[]
         ) => TodayWorkItem[]
-        spaceNames: (spaces: ChannelDTOApi[]) => Record<string, string>
         recentGroups: (
             recentItems: TodayWorkItem[],
             recentSort: TodayRecentSort,
-            recentGrouping: TodayRecentGrouping,
-            spaceNames: Record<string, string>
+            recentGrouping: TodayRecentGrouping
         ) => TodayRecentSection[]
         recentLoading: (recentTasksLoading: boolean, conversationHistoryLoading: boolean) => boolean
     }
@@ -564,7 +562,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 s.recentQuery,
                 s.recentFilters,
                 s.recentSort,
-                s.user,
+                s.spaces,
                 s.unreadSessionIds,
                 s.pinnedItems,
             ],
@@ -573,32 +571,26 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 recentQuery: string,
                 recentFilters: TodayRecentFilters,
                 recentSort: TodayRecentSort,
-                user: UserType | null,
+                spaces: ChannelDTOApi[],
                 unreadSessionIds: Set<string>,
                 pinnedItems: TodayWorkItem[]
             ): TodayWorkItem[] =>
                 sortRecentItems(
                     filterRecentItems(allRecentItems, recentQuery, recentFilters, {
-                        userId: user?.id ?? null,
+                        visibilityOf: (item): TodayChatVisibility => chatVisibility(item.channel, spaces),
                         unreadIds: unreadSessionIds,
                         pinnedIds: new Set(pinnedItems.map((item) => item.id)),
                     }),
                     recentSort
                 ),
         ],
-        spaceNames: [
-            (s) => [s.spaces],
-            (spaces: ChannelDTOApi[]): Record<string, string> =>
-                Object.fromEntries(spaces.map((space) => [space.id, spaceLabel(space)])),
-        ],
         recentGroups: [
-            (s) => [s.recentItems, s.recentSort, s.recentGrouping, s.spaceNames],
+            (s) => [s.recentItems, s.recentSort, s.recentGrouping],
             (
                 recentItems: TodayWorkItem[],
                 recentSort: TodayRecentSort,
-                recentGrouping: TodayRecentGrouping,
-                spaceNames: Record<string, string>
-            ): TodayRecentSection[] => groupRecentItems(recentItems, recentSort, recentGrouping, spaceNames),
+                recentGrouping: TodayRecentGrouping
+            ): TodayRecentSection[] => groupRecentItems(recentItems, recentSort, recentGrouping),
         ],
         recentLoading: [
             (s) => [s.recentTasksLoading, s.conversationHistoryLoading],

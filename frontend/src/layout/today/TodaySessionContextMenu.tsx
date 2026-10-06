@@ -3,6 +3,7 @@ import { ReactNode, useState } from 'react'
 
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@posthog/quill'
 
+import { chatVisibilityLabel } from './todayChatVisibility'
 import { CONTEXT_PARTS, SHEET_PARTS } from './todayMenuParts'
 import { useTodayPreviewMenuReport } from './todayPreviewCardContext'
 import { TodaySessionActionItems } from './TodaySessionActionItems'
@@ -37,7 +38,7 @@ export function TodaySessionContextMenu({
 }: TodaySessionContextMenuProps): JSX.Element {
     const { requestArchive } = useActions(todaySessionMenuLogic)
     const { phoneLayout } = useValues(todayShellLogic)
-    const { spaceNames } = useValues(todaySpacesLogic)
+    const { spaces } = useValues(todaySpacesLogic)
     const { touchMenuOpened } = useActions(todaySpacesLogic)
     const reportMenuOpen = useTodayPreviewMenuReport()
     const [open, setOpen] = useState(false)
@@ -53,7 +54,7 @@ export function TodaySessionContextMenu({
     })
 
     if (phoneLayout) {
-        const spaceName = target.spaceId ? spaceNames[target.spaceId] : null
+        const visibilityLabel = chatVisibilityLabel(target.spaceId, spaces)
         return (
             <>
                 <ContextMenu
@@ -75,7 +76,7 @@ export function TodaySessionContextMenu({
                             ? `${sessionsLabel(selection.selectedSessionIds.length)} selected`
                             : target.title || 'Untitled session'
                     }
-                    description={bulk ? undefined : (spaceName ?? undefined)}
+                    description={bulk ? undefined : visibilityLabel}
                 >
                     {bulk ? (
                         <TodaySessionBulkActionItems

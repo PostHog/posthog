@@ -1,6 +1,5 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
-import { DEFAULT_RECENT_FILTERS, TodayRecentFilters, filterRecentItems } from '~/layout/today/todayRecentFilters'
 import {
     TodayRecentGrouping,
     TodayRecentSort,
@@ -29,21 +28,30 @@ export type SpaceFeedView = 'list' | 'cards'
 export type SpaceFeedStatusFilter = 'any' | 'unread'
 export type SpaceFeedPinnedFilter = 'any' | 'pinned'
 export type SpaceFeedEnvironmentFilter = 'any' | 'local' | 'cloud'
-/** A space holds one space's sessions, so the feed does not group by space. */
-export type SpaceFeedGrouping = Exclude<TodayRecentGrouping, 'space'>
+export type SpaceFeedCreatedByFilter = 'anyone' | 'me' | 'others'
+export type SpaceFeedGrouping = TodayRecentGrouping
 
-export interface SpaceFeedFilters extends TodayRecentFilters {
+export interface SpaceFeedFilters {
     status: SpaceFeedStatusFilter
+    createdBy: SpaceFeedCreatedByFilter
     pinned: SpaceFeedPinnedFilter
     environment: SpaceFeedEnvironmentFilter
+    sources: string[]
 }
 
 export const DEFAULT_SPACE_FEED_FILTERS: SpaceFeedFilters = {
-    ...DEFAULT_RECENT_FILTERS,
     status: 'any',
+    createdBy: 'anyone',
     pinned: 'any',
     environment: 'any',
+    sources: [],
 }
+
+export const SPACE_FEED_CREATED_BY_OPTIONS: { value: SpaceFeedCreatedByFilter; label: string }[] = [
+    { value: 'anyone', label: 'Anyone' },
+    { value: 'me', label: 'Me' },
+    { value: 'others', label: 'Other people' },
+]
 
 export function hasActiveSpaceFeedFilters(filters: SpaceFeedFilters): boolean {
     return (
@@ -66,11 +74,14 @@ export function filterSpaceFeedItems(
     filters: SpaceFeedFilters,
     { userId, unreadIds, pinnedIds }: SpaceFeedFilterContext
 ): TodayWorkItem[] {
-    return filterRecentItems(items, '', filters, { userId, unreadIds, pinnedIds }).filter(
+    return items.filter(
         (item) =>
             (filters.status === 'any' || unreadIds.has(item.id)) &&
             (filters.pinned === 'any' || pinnedIds.has(item.id)) &&
-            (filters.environment === 'any' || item.runEnvironment === filters.environment)
+            (filters.environment === 'any' || item.runEnvironment === filters.environment) &&
+            (filters.createdBy === 'anyone' ||
+                (item.createdById !== null && (filters.createdBy === 'me') === (item.createdById === userId))) &&
+            (!filters.sources.length || (item.source !== null && filters.sources.includes(item.source)))
     )
 }
 
@@ -157,7 +168,7 @@ export function spaceFeedSections(
     const keyed = entries.map((entry) =>
         entry.kind === 'canvas' ? canvasOrderItem(entry.canvas, entry.key) : { ...entry.item, id: entry.key }
     )
-    return groupRecentItems(sortRecentItems(keyed, sort), sort, grouping, {}, now).map((section) => ({
+    return groupRecentItems(sortRecentItems(keyed, sort), sort, grouping, now).map((section) => ({
         key: section.key,
         label: section.label,
         entries: section.items.flatMap((item) => byKey.get(item.id) ?? []),

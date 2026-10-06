@@ -9,10 +9,10 @@ import { todayListAppearanceLogic } from './todayListAppearanceLogic'
 import { DROPDOWN_PARTS, SHEET_PARTS } from './todayMenuParts'
 import {
     DEFAULT_RECENT_FILTERS,
-    RECENT_CREATED_BY_OPTIONS,
     RECENT_ENVIRONMENT_OPTIONS,
     RECENT_PINNED_OPTIONS,
     RECENT_STATUS_OPTIONS,
+    RECENT_VISIBILITY_OPTIONS,
 } from './todayRecentFilters'
 import {
     DEFAULT_RECENT_GROUPING,
@@ -73,12 +73,12 @@ export function TodayRecentFilterMenu(): JSX.Element {
                 dataAttr="today-recent-filter-status"
             />
             <TodayRecentRadioSubmenu
-                label="Created by"
-                options={RECENT_CREATED_BY_OPTIONS}
-                value={filters.createdBy}
-                defaultValue={DEFAULT_RECENT_FILTERS.createdBy}
-                onChange={(createdBy) => setRecentFilters({ ...filters, createdBy })}
-                dataAttr="today-recent-filter-created-by"
+                label="Visibility"
+                options={RECENT_VISIBILITY_OPTIONS}
+                value={filters.visibility}
+                defaultValue={DEFAULT_RECENT_FILTERS.visibility}
+                onChange={(visibility) => setRecentFilters({ ...filters, visibility })}
+                dataAttr="today-recent-filter-visibility"
             />
             <TodayRecentRadioSubmenu
                 label="Pinned"
@@ -147,7 +147,7 @@ export function TodayRecentFilterMenu(): JSX.Element {
                     </TooltipTrigger>
                     <TooltipContent>{label}</TooltipContent>
                 </Tooltip>
-                <TodaySheetMenu open={sheetOpen} onOpenChange={setSheetOpen} title="Filter recent sessions">
+                <TodaySheetMenu open={sheetOpen} onOpenChange={setSheetOpen} title="Filter your chats">
                     {items}
                 </TodaySheetMenu>
             </>

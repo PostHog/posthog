@@ -1,4 +1,4 @@
-import { IconChevronDown, IconClock, IconGitBranch, IconGitRepository, IconPerson } from '@posthog/icons'
+import { IconChevronDown, IconClock, IconGitBranch, IconGitRepository, IconGlobe, IconPerson } from '@posthog/icons'
 import {
     Button,
     Checkbox,
@@ -13,10 +13,9 @@ import {
 } from '@posthog/quill'
 
 import { TODAY_LIST_ITEM_FIELD_LABELS, TodayListItemField } from './todayListAppearance'
-import { TodaySpaceGlyph } from './TodaySpaceGlyph'
 
 const FIELD_ICONS: Record<TodayListItemField, JSX.Element> = {
-    space: <TodaySpaceGlyph locked={false} />,
+    space: <IconGlobe />,
     repository: <IconGitRepository />,
     branch: <IconGitBranch />,
     creator: <IconPerson />,

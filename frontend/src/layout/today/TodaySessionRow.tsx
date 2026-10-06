@@ -5,6 +5,7 @@ import { useId, useMemo } from 'react'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { chatVisibility } from './todayChatVisibility'
 import { todayListAppearanceLogic } from './todayListAppearanceLogic'
 import { sessionPreview } from './todayPreviewCards'
 import { TodayPreviewTrigger } from './TodayPreviewTrigger'
@@ -47,19 +48,23 @@ export function TodaySessionRow({
     const { renaming } = useValues(todaySessionMenuLogic)
     const { location, searchParams } = useValues(router)
     const { user } = useValues(userLogic)
-    const { pullRequestStates, spaceNames } = useValues(todaySpacesLogic)
+    const { pullRequestStates, spaces } = useValues(todaySpacesLogic)
     const { fields } = useValues(todayListAppearanceLogic)
     const menuId = useId()
     const sidebarSelection = useTodaySidebarBulkSelection()
     const userId = user?.id
     const preview = useMemo(
-        () => sessionPreview(item, { unread, pinned, pullRequestStates, spaceNames, menuId, userId }),
-        [item, unread, pinned, pullRequestStates, spaceNames, menuId, userId]
+        () => sessionPreview(item, { unread, pinned, pullRequestStates, spaces, menuId, userId }),
+        [item, unread, pinned, pullRequestStates, spaces, menuId, userId]
     )
-    const details = useMemo(() => sessionDetails(item, fields, spaceNames), [item, fields, spaceNames])
+    const details = useMemo(() => sessionDetails(item, fields, spaces), [item, fields, spaces])
 
     const pinBadge = pinned && showPinBadge
-    const badges = useMemo(() => sessionBadges(item, userId, { pinned: pinBadge }), [item, userId, pinBadge])
+    const visibility = useMemo(() => chatVisibility(item.channel, spaces), [item.channel, spaces])
+    const badges = useMemo(
+        () => sessionBadges(item, userId, { pinned: pinBadge, visibility }),
+        [item, userId, pinBadge, visibility]
+    )
     const [pullRequest] = item.pullRequests
     const badgeCount = badges.length + (pinBadge ? 1 : 0)
 

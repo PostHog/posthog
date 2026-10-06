@@ -32,21 +32,20 @@ describe('todaySpacesLogic', () => {
 
     it.each<[string, object, Partial<TodayRecentFilters>, boolean]>([
         ['an untouched menu stays clear', { createdBy: 'anyone', sources: [] }, {}, false],
-        [
-            'a saved choice stays',
-            { createdBy: 'me', sources: ['slack'] },
-            { createdBy: 'me', sources: ['slack'] },
-            true,
-        ],
-    ])('reads Recent filters saved before Status, Pinned and Environment: %s', (_, saved, expected, active) => {
-        localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(saved))
-        initKeaTests()
-        const logic = todaySpacesLogic()
-        logic.mount()
+        ['a saved choice stays', { sources: ['slack'] }, { sources: ['slack'] }, true],
+        ['a saved Created by no longer narrows the list', { createdBy: 'others' }, {}, false],
+    ])(
+        'reads Recent filters saved before Status, Pinned, Environment and Visibility: %s',
+        (_, saved, expected, active) => {
+            localStorage.setItem(SAVED_FILTERS_KEY, JSON.stringify(saved))
+            initKeaTests()
+            const logic = todaySpacesLogic()
+            logic.mount()
 
-        expect(logic.values.recentFilters).toEqual({ ...DEFAULT_RECENT_FILTERS, ...expected })
-        expect(logic.values.recentFiltersActive).toBe(active)
-    })
+            expect(logic.values.recentFilters).toEqual({ ...DEFAULT_RECENT_FILTERS, ...expected })
+            expect(logic.values.recentFiltersActive).toBe(active)
+        }
+    )
 
     // A session another client started reaches the rail only on a return to the tab, so the reload has to be
     // registered as a disposable. A plain afterMount load passes every other test in this file.

@@ -1,8 +1,9 @@
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
 import type { ReportChartApi, ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
-import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
+import { ChannelDTOApi, PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
 import { TaskPullRequest } from 'products/tasks/frontend/spaces/taskPullRequests'
 
+import { chatVisibilityLabel } from './todayChatVisibility'
 import { recentSourceLabel } from './todayRecentFilters'
 import { TodaySessionDot, todaySessionDot } from './todaySessionDot'
 import { TodaySessionMenuTarget, TodayWorkItem, sessionMenuTarget } from './todayWorkItems'
@@ -15,7 +16,7 @@ export interface TodaySessionPreview {
     pinned: boolean
     pullRequest: TaskPullRequest | null
     pullRequestState: PrStateEnumApi | null
-    spaceName: string | null
+    visibilityLabel: string
     repository: string | null
     branch: string | null
     /** What filed the session, or null when a person made it by hand. */
@@ -76,14 +77,14 @@ export function sessionPreview(
         unread,
         pinned,
         pullRequestStates,
-        spaceNames,
+        spaces,
         menuId,
         userId,
     }: {
         unread: boolean
         pinned: boolean
         pullRequestStates: Record<string, PrStateEnumApi>
-        spaceNames: Record<string, string>
+        spaces: ChannelDTOApi[]
         menuId: string
         userId: number | null | undefined
     }
@@ -97,7 +98,7 @@ export function sessionPreview(
         pinned,
         pullRequest: pullRequest ?? null,
         pullRequestState: pullRequest ? (pullRequestStates[pullRequest.url] ?? null) : null,
-        spaceName: item.channel ? (spaceNames[item.channel] ?? null) : null,
+        visibilityLabel: chatVisibilityLabel(item.channel, spaces),
         repository: item.repository,
         branch: item.branch,
         source:

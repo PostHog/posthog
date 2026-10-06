@@ -3,6 +3,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { ConversationDetail } from '~/types'
 
 import {
+    ChannelDTOApi,
     TaskActivityDTOApi,
     TaskActivityReadMarkerApi,
     TaskListItemApi,
@@ -13,6 +14,7 @@ import { presenceTier } from 'products/tasks/frontend/spaces/spacePresence'
 import { TaskPullRequest, taskPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 import { taskUserName } from 'products/tasks/frontend/spaces/TaskUserAvatar'
 
+import { TodayChatVisibility, chatVisibilityLabel } from './todayChatVisibility'
 import { TodayListItemDetail, TodayListItemField, listItemDetails } from './todayListAppearance'
 
 export type TodayWorkItemKind = 'session' | 'chat'
@@ -51,6 +53,7 @@ export type TodaySessionBadge =
     | { kind: 'source'; source: string }
     | { kind: 'pullRequest'; pullRequest: TaskPullRequest }
     | { kind: 'local' }
+    | { kind: 'visibility'; visibility: Exclude<TodayChatVisibility, 'personal'> }
 
 const BADGE_SOURCES = new Set([
     'slack',
@@ -177,9 +180,16 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
 export function sessionBadges(
     item: TodayWorkItem,
     userId: number | null | undefined,
-    { pinned = false, now = Date.now() }: { pinned?: boolean; now?: number } = {}
+    {
+        pinned = false,
+        now = Date.now(),
+        visibility = 'personal',
+    }: { pinned?: boolean; now?: number; visibility?: TodayChatVisibility } = {}
 ): TodaySessionBadge[] {
     const badges: TodaySessionBadge[] = []
+    if (visibility !== 'personal') {
+        badges.push({ kind: 'visibility', visibility })
+    }
     if (item.originProduct && BADGE_SOURCES.has(item.originProduct)) {
         badges.push({ kind: 'source', source: item.originProduct })
     }
@@ -195,10 +205,12 @@ export function sessionBadges(
     if (item.author && item.createdById !== userId && tier !== 'idle') {
         badges.unshift({ kind: 'author', author: item.author, live: tier === 'live' })
     }
-    if (badges.length + (pinned ? 1 : 0) > MAX_ROW_BADGES) {
-        return badges.filter((badge) => badge.kind !== 'source')
+    const trimmed =
+        badges.length + (pinned ? 1 : 0) > MAX_ROW_BADGES ? badges.filter((badge) => badge.kind !== 'source') : badges
+    if (trimmed.length + (pinned ? 1 : 0) > MAX_ROW_BADGES) {
+        return trimmed.filter((badge) => badge.kind !== 'visibility')
     }
-    return badges
+    return trimmed
 }
 
 /** "2h ago", with the exact time for the tooltip. The same scale as PostHog Desktop's row details. */
@@ -217,7 +229,7 @@ export function activityDetail(
 export function sessionDetails(
     item: TodayWorkItem,
     fields: readonly TodayListItemField[],
-    spaceNames: Record<string, string>,
+    spaces: ChannelDTOApi[],
     now: Dayjs = dayjs()
 ): TodayListItemDetail[] {
     if (!fields.length) {
@@ -225,7 +237,7 @@ export function sessionDetails(
     }
     return listItemDetails(
         {
-            space: item.channel ? spaceNames[item.channel] : null,
+            space: chatVisibilityLabel(item.channel, spaces),
             repository: item.repository,
             branch: item.branch,
             creator: item.author ? taskUserName(item.author) : null,
