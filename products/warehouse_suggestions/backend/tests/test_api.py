@@ -48,6 +48,16 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
         )
 
+    def _materialize(self, view: DataWarehouseSavedQuery) -> DataWarehouseTable:
+        backing_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=view.name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://bucket/{view.folder_path}/{view.normalized_name}",
+        )
+        DataWarehouseSavedQuery.objects.filter(id=view.id).update(table=backing_table, is_materialized=True)
+        return backing_table
+
     def _suggest(
         self,
         subject_id: UUID,
@@ -62,7 +72,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             ),
         )
 
-    def _restrict(self, resource: str, resource_id: UUID, access_level: str) -> None:
+    def _restrict(self, resource: str, resource_id: UUID | None, access_level: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -70,7 +80,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         AccessControl.objects.create(
             team=self.team,
             resource=resource,
-            resource_id=str(resource_id),
+            resource_id=str(resource_id) if resource_id else None,
             organization_member=self.organization_membership,
             access_level=access_level,
         )
@@ -160,14 +170,43 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         deleted_view = self._make_view("old_orders")
         about_deleted = self._suggest(deleted_view.id)
         DataWarehouseSavedQuery.objects.filter(id=deleted_view.id).update(deleted=True)
+        about_backing_table = self._suggest(
+            self._materialize(self.view).id, subject_kind=WarehouseSuggestionSubjectKind.TABLE
+        )
         self._restrict("warehouse_view", self.view.id, "none")
 
         listed = self.client.get(f"{self.url}/")
 
         assert listed.json()["count"] == 1
         assert [row["id"] for row in listed.json()["results"]] == [str(visible.id)]
-        for hidden in (denied_view, about_deleted):
+        for hidden in (denied_view, about_deleted, about_backing_table):
             assert self.client.get(f"{self.url}/{hidden.id}/").status_code == status.HTTP_404_NOT_FOUND
+            for action in ("dismiss", "resume"):
+                response = self.client.post(
+                    f"{self.url}/{hidden.id}/{action}/", {"reason": WarehouseSuggestionDismissalReason.NOT_NOW}
+                )
+                assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand(
+        [
+            ("warehouse_viewer_with_edit_on_the_view", "viewer", "editor", status.HTTP_200_OK),
+            ("no_warehouse_access_with_view_on_the_view", "none", "viewer", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_a_grant_on_one_view_is_enough(
+        self, _name: str, warehouse_level: str, view_level: str, expected_dismiss_status: int
+    ) -> None:
+        suggestion = self._suggest(self.view.id)
+        self._restrict("warehouse_objects", None, warehouse_level)
+        self._restrict("warehouse_view", self.view.id, view_level)
+
+        listed = self.client.get(f"{self.url}/")
+        dismissed = self.client.post(
+            f"{self.url}/{suggestion.id}/dismiss/", {"reason": WarehouseSuggestionDismissalReason.NOT_NOW}
+        )
+
+        assert [row["id"] for row in listed.json()["results"]] == [str(suggestion.id)]
+        assert dismissed.status_code == expected_dismiss_status, dismissed.json()
 
     def test_a_viewer_of_the_subject_cannot_dismiss_its_suggestion(self) -> None:
         suggestion = self._suggest(self.view.id)

@@ -8,14 +8,17 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import viewsets
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions import Conflict
 from posthog.models import User
+from posthog.permissions import APIScopePermission, TeamMemberAccessPermission
 from posthog.utils import UUID_REGEX
 
 from ..facade import api
@@ -54,12 +57,21 @@ class SuggestionPagination(LimitOffsetPagination):
         return self.get_paginated_response(WarehouseSuggestionSerializer(page.results, many=True).data)
 
 
+class ProjectAccessPermission(BasePermission):
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        viewset = cast("WarehouseSuggestionViewSet", view)
+        return viewset.user_access_control.check_access_level_for_object(viewset.team, required_level="member")
+
+
 class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "warehouse_objects"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["dismiss", "resume"]
     pagination_class = SuggestionPagination
     lookup_value_regex = UUID_REGEX
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        return [IsAuthenticated(), APIScopePermission(), TeamMemberAccessPermission(), ProjectAccessPermission()]
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)

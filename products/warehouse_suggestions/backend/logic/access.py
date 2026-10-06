@@ -7,7 +7,7 @@ from django.db.models import Q, QuerySet
 
 from posthog.dataclasses import frozen
 
-from products.data_modeling.backend.facade.api import allowed_saved_query_ids
+from products.data_modeling.backend.facade.api import allowed_saved_query_ids, backing_table_ids_by_saved_query
 from products.warehouse_sources.backend.facade.api import allowed_table_ids
 
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
@@ -77,6 +77,8 @@ def subject_access(
     subject_ids: defaultdict[WarehouseSuggestionSubjectKind, set[UUID]] = defaultdict(set)
     for subject_kind, subject_id in suggestions.order_by().values_list("subject_kind", "subject_id").distinct():
         subject_ids[WarehouseSuggestionSubjectKind(subject_kind)].add(subject_id)
+    table_ids = subject_ids[WarehouseSuggestionSubjectKind.TABLE]
+    table_ids.difference_update(backing_table_ids_by_saved_query(team_id, table_ids=table_ids))
     readable = _allowed(team_id, user_access_control, "viewer", subject_ids)
     editable = _allowed(team_id, user_access_control, "editor", readable)
     return SubjectAccess(readable=readable, editable=editable)
