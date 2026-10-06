@@ -21,7 +21,7 @@ use super::{make_batch_id, BatcherOutputs};
 use crate::grpc_transport::GrpcTransport;
 use crate::order_sentinel::{KeyOrderSentinel, SendKind, SentinelBatch};
 use crate::transport::SendError;
-use crate::types::Accumulator;
+use crate::types::{Accumulator, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
 
 pub(super) struct StateMachineDriver {
@@ -50,14 +50,68 @@ pub(super) struct Load {
 
 pub(super) struct RevokeSender(mpsc::UnboundedSender<Input>);
 
+pub(super) trait RequestSender: Send + Sync + 'static {
+    fn assignment_epoch(&self) -> AssignmentEpoch;
+
+    fn send(
+        &self,
+        worker: &WorkerId,
+        messages: Vec<SerializedKafkaMessage>,
+        replay: bool,
+    ) -> BoxFuture<'static, Result<u32, SendError>>;
+}
+
+pub(super) trait Workers: Send + 'static {
+    fn candidates(&self) -> Vec<WorkerId>;
+
+    fn record_outcome(&self, worker: &WorkerId, fault: bool);
+
+    /// Completes the worker's drain if it is draining.
+    fn idle(&self, worker: &WorkerId);
+}
+
+impl RequestSender for GrpcTransport {
+    fn assignment_epoch(&self) -> AssignmentEpoch {
+        GrpcTransport::assignment_epoch(self)
+    }
+
+    fn send(
+        &self,
+        worker: &WorkerId,
+        messages: Vec<SerializedKafkaMessage>,
+        replay: bool,
+    ) -> BoxFuture<'static, Result<u32, SendError>> {
+        self.begin_send(worker, &make_batch_id(), messages, replay)
+            .wait()
+            .boxed()
+    }
+}
+
+impl Workers for WorkerPoolSource {
+    fn candidates(&self) -> Vec<WorkerId> {
+        WorkerPoolSource::candidates(self)
+    }
+
+    fn record_outcome(&self, worker: &WorkerId, fault: bool) {
+        self.registry().record_outcome(worker, fault);
+    }
+
+    fn idle(&self, worker: &WorkerId) {
+        let registry = self.registry();
+        if registry.is_draining(worker) {
+            registry.complete_drain(worker);
+        }
+    }
+}
+
 type Response = BoxFuture<'static, (RequestId, Result<u32, SendError>)>;
 
-struct BatcherTask {
+struct BatcherTask<S, W> {
     inputs: mpsc::UnboundedReceiver<Input>,
     responses: FuturesUnordered<Response>,
     wakeup: Option<Instant>,
-    pool_source: WorkerPoolSource,
-    transport: Arc<GrpcTransport>,
+    workers: W,
+    sender: Arc<S>,
     key_sentinel: Arc<KeyOrderSentinel>,
     completions: mpsc::UnboundedSender<GroupCompletion>,
     errors: mpsc::UnboundedSender<String>,
@@ -71,23 +125,23 @@ enum Event {
 }
 
 impl StateMachineDriver {
-    pub(super) fn new(
+    pub(super) fn new<S: RequestSender, W: Workers>(
         state: BatcherStateMachine,
-        pool_source: WorkerPoolSource,
-        transport: Arc<GrpcTransport>,
+        workers: W,
+        sender: Arc<S>,
     ) -> (Self, BatcherOutputs) {
         let (inputs_tx, inputs_rx) = mpsc::unbounded_channel();
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
         let (errors_tx, errors_rx) = mpsc::unbounded_channel();
         let load = Arc::new(Load::default());
         let key_sentinel = Arc::new(KeyOrderSentinel::new());
-        let assignment_epoch = transport.assignment_epoch();
+        let assignment_epoch = sender.assignment_epoch();
         let task = BatcherTask {
             inputs: inputs_rx,
             responses: FuturesUnordered::new(),
             wakeup: None,
-            pool_source,
-            transport,
+            workers,
+            sender,
             key_sentinel: Arc::clone(&key_sentinel),
             completions: completions_tx,
             errors: errors_tx,
@@ -166,7 +220,7 @@ impl RevokeSender {
     }
 }
 
-impl BatcherTask {
+impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
     async fn run(mut self, mut state: BatcherStateMachine) {
         loop {
             let wakeup = self.wakeup;
@@ -188,7 +242,8 @@ impl BatcherTask {
     }
 
     fn handle(&mut self, state: BatcherStateMachine, event: Event) -> BatcherStateMachine {
-        let now = Instant::now();
+        // Read through tokio, so tests on paused time control the clock.
+        let now = tokio::time::Instant::now().into_std();
         let mut assigned = false;
         let (state, effects) = match event {
             Event::Input(Input::Groups {
@@ -196,7 +251,7 @@ impl BatcherTask {
                 runs,
             }) => {
                 assigned = true;
-                state.on_groups(now, &self.pool_source.candidates(), assignment_epoch, runs)
+                state.on_groups(now, &self.workers.candidates(), assignment_epoch, runs)
             }
             Event::Input(Input::PartitionsRevoked(partitions)) => {
                 // Cleared in order with the sends, so no revoked message is
@@ -204,9 +259,9 @@ impl BatcherTask {
                 self.key_sentinel.clear();
                 state.on_partitions_revoked(now, &partitions)
             }
-            Event::Input(Input::Shutdown) => state.on_shutdown(now, &self.pool_source.candidates()),
+            Event::Input(Input::Shutdown) => state.on_shutdown(now, &self.workers.candidates()),
             Event::Response(request, Ok(accepted)) => {
-                state.on_request_succeeded(now, &self.pool_source.candidates(), request, accepted)
+                state.on_request_succeeded(now, &self.workers.candidates(), request, accepted)
             }
             Event::Response(request, Err(failure)) => {
                 // Backpressure is transient, not a worker fault.
@@ -217,7 +272,7 @@ impl BatcherTask {
                 };
                 let requeued = state.on_request_failed(
                     now,
-                    &self.pool_source.candidates(),
+                    &self.workers.candidates(),
                     request,
                     cause,
                     failure.messages,
@@ -228,7 +283,7 @@ impl BatcherTask {
                 drop(failure.fence_guard);
                 requeued
             }
-            Event::Wakeup => state.on_wakeup(now, &self.pool_source.candidates()),
+            Event::Wakeup => state.on_wakeup(now, &self.workers.candidates()),
         };
         self.perform(&state, effects);
         if assigned {
@@ -272,14 +327,11 @@ impl BatcherTask {
             busy.extend(busy_workers);
         }
 
-        let registry = self.pool_source.registry();
         for outcome in worker_outcomes {
-            registry.record_outcome(&outcome.worker, outcome.fault);
+            self.workers.record_outcome(&outcome.worker, outcome.fault);
         }
         for worker in idle_workers {
-            if registry.is_draining(&worker) {
-                registry.complete_drain(&worker);
-            }
+            self.workers.idle(&worker);
         }
         for completion in completions {
             counter!("ingestion_consumer_group_completions_total").increment(1);
@@ -313,18 +365,16 @@ impl BatcherTask {
             sentinel.note_sent(&run.routing_key, &run.messages, kind);
             messages.extend(run.messages);
         }
-        let pending =
-            self.transport
-                .begin_send(&send.worker, &make_batch_id(), messages, send.class.replay);
+        let response = self.sender.send(&send.worker, messages, send.class.replay);
         let request = send.request;
         self.responses
-            .push(async move { (request, pending.wait().await) }.boxed());
+            .push(async move { (request, response.await) }.boxed());
     }
 }
 
 async fn sleep_until(wakeup: Option<Instant>) {
     match wakeup {
-        Some(at) => tokio::time::sleep_until(at.into()).await,
+        Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
         None => std::future::pending().await,
     }
 }
