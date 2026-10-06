@@ -1,3 +1,4 @@
+import re
 import logging
 from dataclasses import dataclass
 from typing import Any, Required, TypedDict
@@ -32,6 +33,9 @@ from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG
 from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
+
+# GitHub rejects a review body over 65,536 characters; the margin covers the closing line.
+FALLBACK_BODY_MAX_CHARS = 60_000
 
 
 class ReviewComment(TypedDict, total=False):
@@ -409,19 +413,37 @@ def _promo_already_posted(
         return True
 
 
+def _code_span(text: str) -> str:
+    """`text` as a Markdown code span whose fence is longer than any backtick run inside it."""
+    longest_run = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * (longest_run + 1)
+    # CommonMark strips one space on each side, so padding keeps an edge backtick from merging with the fence.
+    padding = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{padding}{text}{padding}{fence}"
+
+
 def _with_inline_findings(body: str, comments: list[ReviewComment]) -> str:
-    """`body` plus every inline comment written out, for the body-only fallback.
+    """`body` plus the inline comments written out, for the body-only fallback.
 
     The stored body lists only the off-diff findings, so without this section a fallback post would
-    drop every finding that was meant to go inline.
+    drop every finding that was meant to go inline. GitHub rejects a review body over 65,536
+    characters, so the section stops at `FALLBACK_BODY_MAX_CHARS` and says how many findings it left out.
     """
     if not comments:
         return body
     lines = [body, "", "## Findings on the changed lines", ""]
-    for comment in comments:
+    size = sum(len(line) + 1 for line in lines)
+    for index, comment in enumerate(comments):
         # The thread marker belongs only on a real review thread, so the fallback leaves it out.
         comment_body = comment["body"].replace(REVIEW_HOG_FINDING_MARKER, "").rstrip()
-        lines.extend([f"`{comment['path']}:{comment.get('line', '')}`", "", comment_body, ""])
+        entry = [f"{_code_span(f'{comment["path"]}:{comment.get("line", "")}')}", "", comment_body, ""]
+        entry_size = sum(len(line) + 1 for line in entry)
+        if size + entry_size > FALLBACK_BODY_MAX_CHARS:
+            omitted = len(comments) - index
+            lines.append(f"{omitted} more finding(s) left out because the review body is too long.")
+            break
+        lines.extend(entry)
+        size += entry_size
     return "\n".join(lines)
 
 

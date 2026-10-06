@@ -14,6 +14,7 @@ from products.review_hog.backend.reviewer.models.issues_review import IssuePrior
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.github_threads import REVIEW_HOG_FINDING_MARKER
 from products.review_hog.backend.reviewer.tools.publish_review import (
+    FALLBACK_BODY_MAX_CHARS,
     ReviewComment,
     _build_inline_comments,
     _format_issue_comment,
@@ -242,6 +243,58 @@ class TestPostGithubReview:
         assert "### Token leaks into logs" in second["body"]
         assert "The token is logged." in second["body"]
         assert REVIEW_HOG_FINDING_MARKER not in second["body"]
+
+    def _fallback_body(self, mock_request: MagicMock, mock_paginated: MagicMock, comments: list[ReviewComment]) -> str:
+        _wire_readbacks(mock_paginated)
+
+        def request(method: str, path: str, **kwargs: Any) -> MagicMock:
+            if method == "POST" and path.endswith("/reviews") and "comments" in (kwargs.get("json") or {}):
+                raise GitHubAPIError("GitHub API POST returned 422: Unprocessable Entity", status=422)
+            return MagicMock()
+
+        mock_request.side_effect = request
+        _post_github_review(
+            "o",
+            "r",
+            1,
+            "body\n\nm",
+            comments,
+            token="t",
+            head_sha="",
+            post_promo=False,
+            marker="m",
+            promo_marker="pm",
+            inline_body="m",
+        )
+        _first, second = _review_posts(mock_request)
+        return second["body"]
+
+    def test_fallback_renders_a_path_with_backticks_inside_a_longer_fence(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
+        comments: list[ReviewComment] = [
+            {"path": "a`` **x**.py", "body": "finding", "side": "RIGHT", "line": 3},
+            {"path": "`edge`", "body": "finding", "side": "RIGHT", "line": 4},
+        ]
+
+        body = self._fallback_body(mock_request, mock_paginated, comments)
+
+        assert "```a`` **x**.py:3```" in body
+        assert "`` `edge`:4 ``" in body
+
+    def test_fallback_body_stays_under_the_limit_and_reports_omitted_findings(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
+        comments: list[ReviewComment] = [
+            {"path": f"f{i}.py", "body": "x" * 10_000, "side": "RIGHT", "line": i} for i in range(10)
+        ]
+
+        body = self._fallback_body(mock_request, mock_paginated, comments)
+
+        assert len(body) <= FALLBACK_BODY_MAX_CHARS
+        assert "`f0.py:0`" in body
+        assert "`f9.py:9`" not in body
+        assert "5 more finding(s) left out" in body
 
     def test_skips_when_a_review_with_our_marker_is_already_present(
         self, mock_request: MagicMock, mock_paginated: MagicMock
