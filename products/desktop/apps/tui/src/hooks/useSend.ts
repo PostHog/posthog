@@ -9,7 +9,7 @@ import {
   assignTask,
   findPane,
   type LayoutState,
-  newChat,
+  newChatIn,
   renameTask,
   renameWorkspace,
   workspaceOf,
@@ -166,7 +166,7 @@ export function useSend({
       return;
     }
     if (slash?.command === "new") {
-      setLayout(newChat);
+      setLayout((state) => newChatIn(state, paneId));
       return;
     }
     if (slash?.command === "search") {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   activeWorkspace,
+  allPanes,
   assignTask,
   closeFocused,
   cycleFocus,
@@ -12,6 +13,7 @@ import {
   type LayoutState,
   loadLayout,
   newChat,
+  newChatIn,
   openTask,
   paneIds,
   saveLayout,
@@ -94,6 +96,27 @@ describe("layout", () => {
     state = newChat(focusPane(state, paneIds(state.workspaces[0].root)[0]));
     expect(state.workspaces).toHaveLength(2);
     expect(state.activeWorkspaceId).toBe(state.workspaces[1].id);
+  });
+
+  it("gives a /new from a split pane that pane, and from the main view the main view", () => {
+    const split = openTask(
+      splitFocused(openTask(initialLayout(), "a"), "row"),
+      "b",
+    );
+    const [paneA, paneB] = paneIds(split.workspaces[0].root);
+    const fromSplit = newChatIn(split, paneA);
+    expect(allPanes(fromSplit).map((pane) => pane.taskId)).toEqual([null, "b"]);
+    expect(activeWorkspace(fromSplit).focusedPaneId).toBe(paneA);
+    expect(fromSplit.workspaces).toHaveLength(1);
+
+    const withMain = openTask(focusPane(split, paneB), "c");
+    const main = withMain.workspaces.find((w) => w.root.kind === "pane");
+    const fromMain = newChatIn(withMain, main?.focusedPaneId ?? "");
+    expect(allPanes(fromMain).map((pane) => pane.taskId)).toEqual([
+      "a",
+      "b",
+      null,
+    ]);
   });
 
   it("jumps to the workspace and pane of a task that is already open", () => {

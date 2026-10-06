@@ -212,6 +212,29 @@ export function newChat(state: LayoutState): LayoutState {
   };
 }
 
+// A new chat from a pane in a split takes that pane's place; from anywhere else it clears the main view.
+export function newChatIn(state: LayoutState, paneId: string): LayoutState {
+  const workspace = workspaceOf(state, paneId);
+  if (!workspace || workspace.root.kind === "pane") return newChat(state);
+  return {
+    workspaces: state.workspaces.map((w) =>
+      w.id === workspace.id
+        ? {
+            ...w,
+            root: mapPanes(w.root, (pane) =>
+              pane.id === paneId
+                ? { ...pane, taskId: null, title: undefined }
+                : pane,
+            ),
+            focusedPaneId: paneId,
+          }
+        : w,
+    ),
+    activeWorkspaceId: workspace.id,
+    focus: "pane",
+  };
+}
+
 // Splits are kept; of the single-pane views, only the active one (or else the last) survives.
 function withOneMainView(state: LayoutState): LayoutState {
   const singles = state.workspaces.filter((w) => w.root.kind === "pane");
