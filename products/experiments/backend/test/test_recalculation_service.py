@@ -104,36 +104,38 @@ class TestRecalculationService(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, trigger, minutes_since_query_to, expects_new_run)
-            ("manual_inside_window_reuses_latest", "manual", 2, False),
-            ("agent_mcp_inside_window_reuses_latest", "agent_mcp", 2, False),
-            ("manual_outside_window_starts_new", "manual", 6, True),
-            ("heal_inside_window_starts_new", "heal_latest_run", 2, True),
-            ("manual_retry_inside_window_starts_new", "manual_retry", 2, True),
+            # (name, trigger, latest_status, minutes_since_completed, expects_new_run)
+            ("manual_inside_window_reuses_latest", "manual", "completed", 2, False),
+            ("agent_mcp_inside_window_reuses_latest", "agent_mcp", "completed", 2, False),
+            ("manual_outside_window_starts_new", "manual", "completed", 6, True),
+            ("manual_after_failed_run_starts_new", "manual", "failed", 2, True),
+            ("heal_inside_window_starts_new", "heal_latest_run", "completed", 2, True),
+            ("manual_retry_inside_window_starts_new", "manual_retry", "completed", 2, True),
         ]
     )
     def test_request_recalculation_user_refresh_window(
-        self, name: str, trigger: str, minutes_since_query_to: int, expects_new_run: bool
+        self, name: str, trigger: str, latest_status: str, minutes_since_completed: int, expects_new_run: bool
     ):
         exp = self._launched_experiment(flag_key=f"window-{name}")
         now = timezone.now()
+        # query_to sits a day back, as on a stopped experiment, so the window can only come from completed_at.
         latest = ExperimentMetricsRecalculation.objects.create(
             team=self.team,
             experiment=exp,
-            status="completed",
-            query_to=now - timedelta(minutes=minutes_since_query_to),
-            completed_at=now - timedelta(minutes=1),
+            status=latest_status,
+            query_to=now - timedelta(days=1),
+            completed_at=now - timedelta(minutes=minutes_since_completed),
         )
 
         if not expects_new_run:
-            # An older run at the same query_to must not shadow the newest one the latest read serves.
+            # An older run at the same window must not shadow the newest one the latest read serves.
             ExperimentMetricsRecalculation.objects.filter(id=latest.id).update(created_at=now - timedelta(seconds=30))
             older = ExperimentMetricsRecalculation.objects.create(
                 team=self.team,
                 experiment=exp,
                 status="completed",
                 query_to=latest.query_to,
-                completed_at=now - timedelta(minutes=2),
+                completed_at=latest.completed_at,
             )
             ExperimentMetricsRecalculation.objects.filter(id=older.id).update(created_at=now - timedelta(minutes=2))
         rows_before = ExperimentMetricsRecalculation.objects.filter(experiment=exp).count()

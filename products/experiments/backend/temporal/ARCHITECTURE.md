@@ -110,7 +110,7 @@ Two safeguards on the POST endpoint:
 
 - **Idempotent reuse.** If an active recalc (pending or in-progress) exists for this experiment and is younger than 30 minutes, the POST returns it instead of creating a new one. Frontend can click Reload twice and get the same `recalculation_id`.
 - **Per-experiment lock.** The service runs inside `transaction.atomic()` with `Experiment.objects.select_for_update()` to serialize concurrent POSTs. Without this, two simultaneous clicks would both see no active row, both reach `.create()`, and the second would hit the per-experiment unique constraint and return HTTP 500.
-- **User refresh window.** A `manual` or `agent_mcp` POST within `MIN_USER_RECALCULATION_INTERVAL` (five minutes) of the latest finished run's `query_to` returns that run with `is_existing=True`, the way a dashboard serves its cache instead of a bulk refresh. System triggers (`cold_run`, `heal_latest_run`, `manual_retry`, config changes) are exempt.
+- **User refresh window.** A `manual` or `agent_mcp` POST within `MIN_USER_RECALCULATION_INTERVAL` (five minutes) after the latest completed run's `completed_at` returns that run with `is_existing=True`, the way a dashboard serves its cache instead of a bulk refresh. The window measures from completion, not `query_to`, because a stopped experiment pins `query_to` to `end_date`. A failed latest run never anchors the window. System triggers (`cold_run`, `heal_latest_run`, `manual_retry`, config changes) are exempt.
 
 ### Activity-aware staleness
 

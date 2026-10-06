@@ -155,7 +155,11 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         exp = self._launched_experiment()
         now = timezone.now()
         latest = ExperimentMetricsRecalculation.objects.create(
-            team=self.team, experiment=exp, status="completed", query_to=now - timedelta(minutes=2), completed_at=now
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            query_to=now - timedelta(minutes=3),
+            completed_at=now - timedelta(minutes=2),
         )
 
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")

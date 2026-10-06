@@ -55,7 +55,7 @@ from products.experiments.backend.temporal.recalculation_logic import discover_e
 # backstop if that rollback itself fails.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 
-# A user-driven POST within this window of the latest terminal run's query_to returns that run instead of
+# A user-driven POST within this window after the latest completed run finished returns that run instead of
 # starting a new one, the same five minutes a dashboard waits between bulk refreshes. System triggers are
 # exempt: they reuse the window or follow a config change, so they never spam ClickHouse by hand.
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
@@ -303,7 +303,7 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
 
     If an active (pending or in_progress) run already exists for this experiment, returns the existing run's
     serialized payload with ``is_existing=True`` — the caller should NOT start a new workflow in that case.
-    A user-driven trigger inside ``MIN_USER_RECALCULATION_INTERVAL`` of the latest terminal run's ``query_to``
+    A user-driven trigger inside ``MIN_USER_RECALCULATION_INTERVAL`` after the latest completed run finished
     returns that run the same way. Otherwise creates a fresh pending row.
     """
     if not experiment.is_launched:
@@ -336,13 +336,16 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
             return build_job_payload(existing, is_existing=True)
 
         if trigger in _RATE_LIMITED_TRIGGERS:
-            # The newest run by created_at, as the latest read serves it: a window-reusing run shares query_to
-            # with an older run, so ordering by query_to could return the run that lacks the changed metric.
+            # The newest terminal run by created_at, as the latest read serves it. The window measures from
+            # completed_at, not query_to: a stopped experiment pins query_to to end_date, and a long run
+            # finishes well after its query_to. A failed run never anchors the window, so a reload after a
+            # failure starts a new run.
             latest = _terminal_recalculations(experiment).order_by("-created_at").first()
             if (
                 latest is not None
-                and latest.query_to is not None
-                and latest.query_to >= timezone.now() - MIN_USER_RECALCULATION_INTERVAL
+                and latest.status == ExperimentMetricsRecalculation.Status.COMPLETED
+                and latest.completed_at is not None
+                and latest.completed_at >= timezone.now() - MIN_USER_RECALCULATION_INTERVAL
             ):
                 _recalculation_rate_limited_counter.inc()
                 return build_job_payload(latest, is_existing=True)
