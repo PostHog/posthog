@@ -137,6 +137,9 @@ def sso_enforcement_for_login_address(email: str, user: User | None) -> str | No
     return OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
 
 
+_LOGOUT_REASON_MESSAGES = {SECURITY_REFUSAL_CODE: ACCOUNT_BLOCKED_DETAIL}
+
+
 @require_http_methods(["POST"])
 def logout(request):
     clear_two_factor_session_flags(request)
@@ -149,6 +152,11 @@ def logout(request):
         return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
 
     auth_logout(request)
+
+    # A fixed reason, never request text, so the login page cannot be made to show arbitrary copy.
+    message = _LOGOUT_REASON_MESSAGES.get(request.POST.get("reason", ""))
+    if message:
+        return redirect(f"{settings.LOGIN_URL}?{urlencode({'message': message})}")
 
     next_url = request.POST.get("next")
     if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
@@ -1475,6 +1483,26 @@ def social_reauth(
             session_user_id=request.user.pk,
         )
         raise AuthFailed(backend, "reauth_user_mismatch")
+
+
+def social_access_rules_allow(
+    strategy: DjangoStrategy, backend: BaseAuth, user: User | None = None, **kwargs: Any
+) -> None:
+    """Refuse an SSO login for an account that an enforced access rule blocks, before a session starts."""
+    if user is None:
+        # A new account goes through signup, which runs its own check.
+        return
+    try:
+        refused = security_access_refused(
+            SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(strategy.request)),
+            SecuritySurface.APP,
+            call_site="sso_login",
+        )
+    except Exception:
+        logger.exception("security_access_check_site_failed", call_site="sso_login")
+        refused = False
+    if refused:
+        raise AuthFailed(backend, ACCOUNT_BLOCKED_DETAIL)
 
 
 def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None = None, **kwargs) -> None:

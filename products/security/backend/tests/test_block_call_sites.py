@@ -7,11 +7,14 @@ from unittest.mock import MagicMock, patch
 
 from django.test import RequestFactory
 from django.utils import timezone
+from django.conf import settings
+from django.test import RequestFactory, override_settings
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from social_core.exceptions import AuthFailed
 
+from posthog.api.authentication import social_access_rules_allow
 from posthog.api.signup import (
     process_social_domain_jit_provisioning_signup,
     process_social_invite_signup,
@@ -95,6 +98,27 @@ class TestBlockCallSites(APIBaseTest):
         assert response.status_code == status, response.json()
         assert _count("signup", "invite_signup", "email") == before + would_block
         assert self.user.organizations.filter(id=new_org.id).exists() is (status == 201)
+
+    @parameterized.expand([("logged only", [], False, 1), ("enforced", ["app"], True, 0)])
+    def test_blocked_sso_login(self, _name: str, enforced: list[str], refused: bool, would_block: int) -> None:
+        user = User.objects.create_and_join(self.organization, "blocked.sso@example.com", "a-long-password-123")
+        seed_rules(block_rule(targetType="user_uuid", targetValue=str(user.uuid)))
+        before = _count("app", "sso_login", "user_uuid")
+        strategy = MagicMock(request=RequestFactory().get("/complete/google-oauth2/"))
+
+        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+            if refused:
+                with pytest.raises(AuthFailed, match="access_blocked"):
+                    social_access_rules_allow(strategy, MagicMock(), user=user)
+            else:
+                social_access_rules_allow(strategy, MagicMock(), user=user)
+
+        assert _count("app", "sso_login", "user_uuid") == before + would_block
+        # The step does nothing unless the pipeline runs it before the session starts.
+        pipeline = list(settings.SOCIAL_AUTH_PIPELINE)
+        assert pipeline.index("posthog.api.authentication.social_access_rules_allow") < pipeline.index(
+            "posthog.api.signup.social_create_user"
+        )
 
     @parameterized.expand(
         [
