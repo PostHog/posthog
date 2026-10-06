@@ -10,7 +10,7 @@ name: Renovate dashboard digest
 
 on:
     schedule:
-        - cron: '50 13 * * 1' # Mondays 13:50 UTC, staggered after the other weekly reports
+        - cron: '50 13 * * 3' # Wednesdays 13:50 UTC, away from the Monday reports
     workflow_dispatch:
         inputs:
             dry_run:
