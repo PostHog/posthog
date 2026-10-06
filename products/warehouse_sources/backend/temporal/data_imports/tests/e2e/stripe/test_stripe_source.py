@@ -14,7 +14,10 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from stripe._http_client import HTTPClient
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.models.integration import Integration
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -29,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import WEBHOOK_ONLY_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
+    RATE_LIMIT_RETRIES,
     StripeAuthenticationError,
     StripeNestedResource,
     StripePermissionError,
@@ -45,7 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
 )
 from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.conftest import run_external_data_job_workflow
 
-from .data import BALANCE_TRANSACTIONS, CUSTOMER_BALANCE_TRANSACTIONS, CUSTOMERS
+from .data import BALANCE_TRANSACTIONS, CUSTOMER_BALANCE_TRANSACTIONS, CUSTOMERS, INVOICES
 
 pytestmark = pytest.mark.usefixtures("minio_client")
 
@@ -83,6 +87,17 @@ def external_data_schema_full_refresh(external_data_source, team):
         sync_type_config={},
     )
     return schema
+
+
+@pytest.fixture
+def external_data_schema_invoice(external_data_source, team):
+    return ExternalDataSchema.objects.create(
+        name="Invoice",
+        team_id=team.pk,
+        source_id=external_data_source.pk,
+        sync_type="full_refresh",
+        sync_type_config={},
+    )
 
 
 @pytest.fixture
@@ -175,6 +190,42 @@ async def test_stripe_source_resuming_full_refresh(
 
     # Make sure the last balance transaction ID was saved as the resume point
     assert mock_save_state.call_args[0][0].starting_after == BALANCE_TRANSACTIONS[-1]["id"]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_stripe_source_full_refresh_resumes_after_worker_shutdown_without_duplicates(
+    team, mock_stripe_api, external_data_source, external_data_schema_full_refresh
+):
+    checks = {"n": 0}
+
+    def raise_on_second_check(self):
+        checks["n"] += 1
+        if checks["n"] == 2:
+            raise WorkerShuttingDownError(
+                "test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type"
+            )
+
+    with (
+        override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe.STRIPE_CHUNK_SIZE", 1
+        ),
+        mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", raise_on_second_check),
+    ):
+        await run_external_data_job_workflow(
+            team=team,
+            external_data_source=external_data_source,
+            external_data_schema=external_data_schema_full_refresh,
+            table_name="stripe_balancetransaction",
+            expected_rows_synced=len(BALANCE_TRANSACTIONS),
+            expected_total_rows=len(BALANCE_TRANSACTIONS),
+        )
+
+    resumed_urls = [call.url for call in mock_stripe_api.get_all_api_calls() if "starting_after" in call.url]
+    assert resumed_urls == [
+        f"https://api.stripe.com/v1/balance_transactions?limit=100&starting_after={BALANCE_TRANSACTIONS[1]['id']}"
+    ]
 
 
 # mock the chunk size to 1 so we can test how iterating over chunks of data works, particularly with updating the
@@ -693,8 +744,8 @@ def test_call_stripe_passes_through_successful_result():
         # (status_code, num_retries, max_network_retries, expected)
         # 429 is now retried while budget remains — the SDK omits this on its own.
         ("rate_limit_retried", 429, 0, 2, True),
-        # ...but stops once the retry budget is exhausted, so we don't loop forever.
-        ("rate_limit_budget_exhausted", 429, 2, 2, False),
+        # ...on its own budget, and stops once that is exhausted, so we don't loop forever.
+        ("rate_limit_budget_exhausted", 429, RATE_LIMIT_RETRIES, 2, False),
         # 5xx keeps the SDK's built-in retry behavior.
         ("server_error_still_retried", 503, 0, 2, True),
         # Non-retryable 4xx (e.g. a bad request) must NOT be retried.
@@ -1146,7 +1197,7 @@ class TestCreateWebhook:
 
         assert result.success is False
         assert result.error is not None
-        assert "permission" in result.error.lower()
+        assert "Give it Write access on Webhook endpoints in Stripe, then select Try again" in result.error
 
     def test_source_pins_the_resolved_version_on_the_endpoint(self):
         endpoint = mock.MagicMock()
@@ -1211,9 +1262,12 @@ class TestCreateWebhook:
 # path walks parquet file order, and neither promises the other's ordering.
 PROBED_CUSTOMERS = ["cus_credit_1", "cus_credit_2", "cus_gone", "cus_null_balance"]
 
-FANOUT_GATE = (
+# The size floor is the only run-time switch between the two parent paths, so these tests set it
+# below the mock account's handful of customers to take the warehouse path and above it to take
+# the API path. The floor itself is policy, covered by the gate's own unit tests.
+PARENT_SIZE_FLOOR = (
     "products.warehouse_sources.backend.temporal.data_imports.workflow_activities."
-    "import_data_sync.is_fanout_warehouse_reuse_enabled"
+    "import_data_sync.MIN_WAREHOUSE_PARENT_ROWS"
 )
 
 
@@ -1271,7 +1325,7 @@ async def _sync_parent_then_child(team, source, parent, child, mock_stripe_api, 
     calls_before = len(mock_stripe_api.get_all_api_calls())
 
     expected_rows = sum(len(rows) for rows in CUSTOMER_BALANCE_TRANSACTIONS.values())
-    with mock.patch(FANOUT_GATE, return_value=reuse_enabled):
+    with mock.patch(PARENT_SIZE_FLOOR, 0 if reuse_enabled else len(CUSTOMERS) + 1):
         response = await run_external_data_job_workflow(
             team=team,
             external_data_source=source,
@@ -1369,15 +1423,36 @@ async def test_a_missing_parent_schema_keeps_the_api_path(team, mock_stripe_api,
     child = await _balance_transaction_child(external_data_source, team)
 
     expected_rows = sum(len(rows) for rows in CUSTOMER_BALANCE_TRANSACTIONS.values())
-    with mock.patch(FANOUT_GATE, return_value=True):
-        await run_external_data_job_workflow(
-            team=team,
-            external_data_source=external_data_source,
-            external_data_schema=child,
-            table_name="stripe_customerbalancetransaction",
-            expected_rows_synced=expected_rows,
-            expected_total_rows=expected_rows,
-        )
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=child,
+        table_name="stripe_customerbalancetransaction",
+        expected_rows_synced=expected_rows,
+        expected_total_rows=expected_rows,
+    )
 
     assert _listing_calls(mock_stripe_api), "with no parent table there is nothing to read but the API"
     assert sorted(_child_calls(mock_stripe_api)) == PROBED_CUSTOMERS
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_invoice_reads_relocated_fields_from_the_newer_payload_shape(
+    team, mock_stripe_api, external_data_source, external_data_schema_invoice
+):
+    # Rows rendered at a newer Stripe version carry `parent` and `status` instead of the flat
+    # `subscription` and `paid` columns. Those arrive empty, so the curated fields have to read the
+    # new locations or every subscription-billed invoice reads as unlinked and unpaid.
+    await run_external_data_job_workflow(
+        team=team,
+        external_data_source=external_data_source,
+        external_data_schema=external_data_schema_invoice,
+        table_name="stripe_invoice",
+        expected_rows_synced=len(INVOICES),
+        expected_total_rows=len(INVOICES),
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT subscription_id, paid FROM stripe_invoice", team)
+
+    assert res.results == [("sub_1SampleSubscriptionAA", True)]

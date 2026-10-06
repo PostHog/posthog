@@ -150,10 +150,9 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         node.save()
 
         # revert materialization
-        with patch("products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"):
-            revert_response = self.client.post(
-                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization/"
-            )
+        revert_response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization/"
+        )
         self.assertEqual(revert_response.status_code, status.HTTP_200_OK)
         node.refresh_from_db()
         self.assertEqual(node.type, NodeType.VIEW)

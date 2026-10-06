@@ -14,24 +14,6 @@ database "posthog" {
     }
   }
 
-  # dev runs the metrics consumer small: a fraction of prod volume arrives here,
-  # so it waits longer for smaller batches on fewer threads.
-  patch_table "kafka_metrics_avro" {
-    engine "kafka" {
-      collection           = "warpstream_metrics"
-      topic_list           = "clickhouse_metrics"
-      group_name           = "clickhouse-metrics-avro-new"
-      format               = "Avro"
-      num_consumers        = 2
-      max_block_size       = 4096
-      skip_broken_messages = 100
-      poll_timeout_ms      = 10000
-      poll_max_batch_size  = 4096
-      flush_interval_ms    = 10000
-      thread_per_consumer  = true
-    }
-  }
-
   patch_table "trace_attributes_distributed" {
     engine "distributed" {
       cluster_name    = "logs"
@@ -41,6 +23,9 @@ database "posthog" {
   }
 
   patch_table "trace_spans" {
+    settings = {
+      storage_policy = "s3_tiered"
+    }
     projection "projection_aggregate_counts" {
       query = <<SQL
 SELECT
@@ -53,13 +38,6 @@ SELECT
   count() AS event_count
 GROUP BY
   team_id, time_bucket, toStartOfMinute(timestamp), service_name, resource_fingerprint, is_root_span
-SQL
-
-    }
-    projection "projection_index_trace_id" {
-      query = <<SQL
-SELECT _part_offset
-ORDER BY trace_id
 SQL
 
     }

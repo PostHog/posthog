@@ -32,6 +32,7 @@ from products.growth.backend.product_push.cadence import (
     is_retry_eligible,
 )
 from products.growth.backend.product_push.selection import Selection, select_next_product
+from products.growth.backend.product_push.surfaces import SURFACE_ADOPTION_CHECKS
 
 logger = structlog.get_logger(__name__)
 
@@ -48,8 +49,8 @@ ON_ACTIVE_POLICIES = (ON_ACTIVE_SKIP, ON_ACTIVE_QUEUE, ON_ACTIVE_OVERRIDE)
 
 @dataclass(frozen=True)
 class AdoptionResult:
-    signal: str  # "intent_activated" | "intent_created"
-    team_id: int
+    signal: str  # "intent_activated" | "intent_created" | "surface_connected"
+    team_id: int | None = None  # None for org-wide surfaces (Desktop, Slack, GitHub, Self-driving)
 
 
 @dataclass(kw_only=True)
@@ -87,6 +88,12 @@ class StartBatchResult:
 
 def org_adopted_product(organization_id: str, product_key: str, since: datetime) -> AdoptionResult | None:
     """Did any team in the org start using the product after `since`?"""
+    surface_check = SURFACE_ADOPTION_CHECKS.get(product_key)
+    if surface_check is not None:
+        # A campaign only starts for an org that hasn't adopted the surface, so being adopted now
+        # means it happened during the campaign — no per-org timestamp to compare against `since`.
+        return AdoptionResult(signal="surface_connected") if surface_check(organization_id) else None
+
     intents = ProductIntent.objects.filter(team__organization_id=organization_id, product_type=product_key)
 
     if product_key not in ACTIVATION_CHECK_PRODUCT_KEYS:

@@ -1,7 +1,8 @@
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
+import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { fn } from "storybook/test";
 import { TaskListView } from "./TaskListView";
 
@@ -10,6 +11,7 @@ const createTask = (
   title: string,
   lastActivityAt: number,
   isPinned: boolean,
+  overrides: Partial<TaskData> = {},
 ): TaskData => ({
   id,
   title,
@@ -25,6 +27,7 @@ const createTask = (
   cloudPrUrl: null,
   branchName: null,
   linkedBranch: null,
+  ...overrides,
 });
 
 const pinnedTasks = [
@@ -41,6 +44,53 @@ const flatTasks = [
   createTask("task-1", "Add keyboard shortcuts", 1_730_000_000_000, false),
   createTask("task-2", "Improve dashboard loading", 1_720_000_000_000, false),
   createTask("task-3", "Update empty states", 1_710_000_000_000, false),
+];
+
+const taskStates = [
+  createTask("working", "Build the dashboard view", 1_750_000_000_000, false, {
+    isGenerating: true,
+    taskRunStatus: "in_progress",
+    taskRunEnvironment: "local",
+  }),
+  createTask(
+    "permission",
+    "Allow access to the project folder",
+    1_750_000_000_000,
+    false,
+    {
+      needsPermission: true,
+      taskRunStatus: "in_progress",
+      taskRunEnvironment: "local",
+    },
+  ),
+  createTask("unread", "Review the agent update", 1_750_000_000_000, false, {
+    isUnread: true,
+    taskRunStatus: "in_progress",
+    taskRunEnvironment: "local",
+  }),
+  createTask(
+    "suspended",
+    "Prepare the release notes",
+    1_750_000_000_000,
+    false,
+    {
+      isSuspended: true,
+      taskRunStatus: "in_progress",
+      taskRunEnvironment: "local",
+    },
+  ),
+  createTask("completed", "Check the signup funnel", 1_750_000_000_000, false, {
+    taskRunStatus: "completed",
+    taskRunEnvironment: "cloud",
+  }),
+  createTask(
+    "failed",
+    "Update the project settings",
+    1_750_000_000_000,
+    false,
+    { taskRunStatus: "failed", taskRunEnvironment: "cloud" },
+  ),
+  createTask("quiet", "Explore session recordings", 1_750_000_000_000, false),
 ];
 
 function StatefulTaskList(args: React.ComponentProps<typeof TaskListView>) {
@@ -66,6 +116,15 @@ function StatefulTaskList(args: React.ComponentProps<typeof TaskListView>) {
       }
     />
   );
+}
+
+function ArchivingTaskList(args: React.ComponentProps<typeof TaskListView>) {
+  useEffect(() => {
+    useArchivingTasksStore.getState().startArchiving("task-2");
+    return () => useArchivingTasksStore.getState().stopArchiving("task-2");
+  }, []);
+
+  return <StatefulTaskList {...args} />;
 }
 
 const meta = {
@@ -112,3 +171,16 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+export const Archiving: Story = {
+  render: (args) => <ArchivingTaskList {...args} />,
+};
+
+export const TaskStates: Story = {
+  render: (args) => <TaskListView {...args} />,
+  args: {
+    pinnedTasks: [],
+    flatTasks: taskStates,
+    activeTaskId: null,
+  },
+};

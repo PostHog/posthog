@@ -1,5 +1,11 @@
 Query trace spans with filtering by service name, status code, date range, and structured attribute filters. Supports cursor-based pagination. Returns spans with uuid, trace_id, span_id, parent_span_id, name, kind, service_name, status_code, timestamp, end_time, duration_nano, is_root_span, matched_filter, and attributes (the span-level OTel attribute map, e.g. db.statement, http.url).
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "serviceNames": ["api"], "dateRange": { "date_from": "-1h" } } }
+```
+
 Use 'apm-attributes-list' and 'apm-attribute-values-list' to discover available attributes before building filters. Use 'apm-services-list' to discover available services.
 
 # Return shape
@@ -12,8 +18,6 @@ Results are **grouped by trace**, not a flat list of matching spans. For each tr
 To collapse each matching trace to a **single row — its root span**, set `rootSpans: true` — see below. (The row is the trace's entry span, which may itself carry `matched_filter: 0` when the match was on a child.) To inspect a single trace's full tree, take a `trace_id` from the results and call `apm-trace-get`.
 
 CRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.
-
-All parameters must be nested inside a `query` object.
 
 # Data narrowing
 
@@ -44,8 +48,6 @@ The `value` field accepts a string, number, or array of strings depending on the
 Use the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.
 
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.serviceNames
 

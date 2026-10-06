@@ -16,6 +16,7 @@ import type {
 } from "@posthog/core/sidebar/sidebarData.types";
 import { computeSummaryIds } from "@posthog/core/sidebar/summaryIds";
 import type { AppView } from "@posthog/ui/router/useAppView";
+import { useReportSourceNavType } from "@posthog/ui/router/useAppView";
 import { useEffect, useMemo, useRef } from "react";
 import { useArchivedTaskIds } from "../archive/useArchivedTaskIds";
 import { useFolders } from "../folders/useFolders";
@@ -131,11 +132,16 @@ export function useSidebarData({
     ],
   );
 
-  const isHomeActive =
-    activeView.type === "task-input" || activeView.type === "task-pending";
-  const isInboxActive = activeView.type === "inbox";
+  // A report keeps the source surface's row marked, matching the rail.
+  const reportSourceNavType = useReportSourceNavType();
+  const isHomeActive = activeView.type === "task-input";
+  const isInboxActive =
+    activeView.type === "inbox" ||
+    (activeView.type === "report" && reportSourceNavType === "inbox");
   const isAgentsActive = activeView.type === "agents";
-  const isCommandCenterActive = activeView.type === "command-center";
+  const isCommandCenterActive =
+    activeView.type === "command-center" ||
+    (activeView.type === "report" && reportSourceNavType === "command-center");
   const isSkillsActive = activeView.type === "skills";
   const isMcpServersActive = activeView.type === "mcp-servers";
 

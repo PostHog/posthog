@@ -1,7 +1,7 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -242,7 +242,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         event_start = "2012-01-14T03:21:34.000Z"
         query_time = "2012-01-14T08:21:34.000Z"
 
-        with freeze_time(event_start) as frozen_time:
+        with time_machine.travel(event_start, tick=False) as frozen_time:
             elements = [
                 Element(
                     tag_name="a",
@@ -259,7 +259,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ]
 
             _create_event(  # 3 am but included because date_from is set to start of day
-                timestamp=frozen_time(),
+                timestamp=datetime.now(),
                 team=self.team,
                 elements=elements,
                 event="$autocapture",
@@ -267,10 +267,10 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 properties={"$current_url": "http://example.com/demo"},
             )
 
-            frozen_time.tick(delta=timedelta(hours=10))
+            frozen_time.shift(timedelta(hours=10))
 
             _create_event(  # included
-                timestamp=frozen_time(),
+                timestamp=datetime.now(),
                 team=self.team,
                 elements=elements,
                 event="$autocapture",
@@ -278,7 +278,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 properties={"$current_url": "http://example.com/demo"},
             )
 
-        with freeze_time(query_time):
+        with time_machine.travel(query_time, tick=False):
             # the UI doesn't allow you to choose time, so query should always be from start of day
             response = self.client.get(f"/api/element/stats/?paginate_response=true&date_from={query_time}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)

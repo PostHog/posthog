@@ -1,7 +1,10 @@
+import os
 import json
 import uuid
+import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.conf import settings
@@ -17,13 +20,15 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
+from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime, hydrate_event_reference
 from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
 from posthog.temporal.ai_observability.evaluation_sentiment import run_sentiment_eval
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
-from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
+from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
@@ -34,10 +39,25 @@ SOURCE_AI_PROPERTIES_TO_COPY = ("$ai_prompt_name", "$ai_prompt_version")
 EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE = "EmitEvaluationEventFailed"
 
 
-@dataclass
+def backfill_verdict_timestamp(
+    unit_timestamp: datetime, evaluation_id: str, backfill_id: str, unit_id: str
+) -> datetime:
+    """Spread a backfilled verdict inside the second its unit sits in.
+
+    The Kafka deduplicator keys a row on (timestamp, distinct_id, team_id, event), so backfilled
+    `$ai_evaluation` events that share a timestamp collide and all but one are dropped. Hashing all
+    three ids keeps the offset stable across activity retries, so a retried emit still collapses
+    into the original. Ingestion keeps millisecond precision, so the spread is about 1000 buckets.
+    """
+    digest = hashlib.sha256(f"{evaluation_id}:{backfill_id}:{unit_id}".encode()).digest()
+    return unit_timestamp + timedelta(microseconds=int.from_bytes(digest[:8], "big") % 1_000_000)
+
+
+@frozen
 class RunEvaluationInputs:
     evaluation_id: str
     event_data: dict[str, Any]
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -110,9 +130,10 @@ async def disable_evaluation_activity(
 ) -> bool:
     """Transition an evaluation into the ERROR state when the workflow hits a terminal skippable error.
 
-    Returns True only for the first workflow that disables the evaluation. Later in-flight
+    Returns True only for the first workflow that disables a running evaluation. Later in-flight
     workflows can hit the same terminal error after the first transition, but shouldn't send
-    duplicate disabled notifications or write duplicate activity log rows.
+    duplicate disabled notifications or write duplicate activity log rows. An evaluation that was
+    already off keeps its new error state, but returns False, because nothing was disabled.
     """
 
     def _disable() -> bool:
@@ -125,8 +146,9 @@ async def disable_evaluation_activity(
             if evaluation.status == EvaluationStatus.ERROR and not evaluation.enabled:
                 return False
 
+            was_enabled = evaluation.enabled
             evaluation.set_status("error", reason, status_reason_detail)
-            return True
+            return was_enabled
 
     return await database_sync_to_async(_disable)()
 
@@ -150,16 +172,18 @@ _STATUS_REASON_SUBJECTS = {
     "provider_key_quota_exceeded": "Your AI observability evaluation was disabled because its provider API key quota was exceeded",
     "provider_key_rate_limited": "Your AI observability evaluation was disabled because its provider API key is being rate limited",
     "model_not_found": "Your AI observability evaluation was disabled because its model was not found",
+    "model_not_supported": "Your AI observability evaluation was disabled because its model does not support chat completions",
     "hog_error": "Your AI observability evaluation was disabled because its Hog code failed",
 }
 
 
 @temporalio.activity.defn
 async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabledEmailInputs) -> None:
-    """Email org members when an evaluation enters the ERROR state."""
+    """Email subscribed org members who can view the evaluation when it enters the ERROR state."""
 
     def _send() -> None:
         from posthog.email import EmailMessage, is_email_available
+        from posthog.tasks.email import NotificationSetting, get_members_to_notify
 
         if not is_email_available(with_absolute_urls=True):
             logger.info(
@@ -173,6 +197,15 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
             team = Team.objects.select_related("organization").get(id=inputs.team_id)
         except Team.DoesNotExist:
             logger.warning("Team not found for evaluation disabled email", team_id=inputs.team_id)
+            return
+
+        evaluation = Evaluation.objects.filter(id=inputs.evaluation_id, team_id=team.id, deleted=False).first()
+        if evaluation is None:
+            logger.info(
+                "Evaluation not found for evaluation disabled email",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+            )
             return
 
         settings_url = f"/project/{team.pk}/settings/project-ai-observability#ai-observability-byok"
@@ -196,8 +229,9 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
             },
         )
 
-        for user in team.organization.members.all():
-            message.add_user_recipient(user)
+        for membership in get_members_to_notify(team, NotificationSetting.AI_EVALUATION_DISABLED.value):
+            if UserAccessControl(membership.user, team).check_access_level_for_object(evaluation, "viewer"):
+                message.add_user_recipient(membership.user)
 
         if message.to:
             message.send()
@@ -212,12 +246,13 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
     await database_sync_to_async(_send)()
 
 
-@dataclass
+@frozen
 class EmitEvaluationEventInputs:
     evaluation: dict[str, Any]
     event_data: dict[str, Any]
     result: EvaluationActivityResult
     start_time: datetime
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -228,7 +263,10 @@ class EmitEvaluationEventInputs:
 
 
 def build_evaluation_event_properties(
-    evaluation: dict[str, Any], result: EvaluationActivityResult, start_time: datetime
+    evaluation: dict[str, Any],
+    result: EvaluationActivityResult,
+    start_time: datetime,
+    backfill_id: str | None = None,
 ) -> dict[str, Any]:
     """Assemble the target-independent `$ai_evaluation` properties shared by all emit paths.
 
@@ -246,13 +284,19 @@ def build_evaluation_event_properties(
         "$ai_evaluation_result_type": result["result_type"],
         "$ai_evaluation_start_time": start_time.isoformat(),
         "$ai_evaluation_reasoning": result["reasoning"],
+        "$ai_evaluation_trigger": "backfill" if backfill_id else "live",
     }
+
+    if backfill_id:
+        properties["$ai_evaluation_backfill_id"] = backfill_id
 
     if result.get("skipped"):
         properties["$ai_evaluation_skipped"] = True
         properties["$ai_evaluation_skip_reason"] = result.get("skip_reason")
 
-    if evaluation_type == "llm_judge" and not result.get("skipped"):
+    # Keyed on a model rather than on the skip flag: a skip that reached the provider was billed,
+    # and a skip that never called one carries no model, so it still gets no attribution.
+    if evaluation_type == "llm_judge" and result.get("model"):
         properties["$ai_model"] = result.get("model", DEFAULT_JUDGE_MODEL)
         properties["$ai_provider"] = result.get("provider", "openai")
         properties["$ai_input_tokens"] = result.get("input_tokens", 0)
@@ -261,8 +305,27 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_provider"] = result.get("provider", "openai")
         properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
         properties["$ai_evaluation_key_id"] = result.get("key_id")
+        if "probability" in result:
+            properties["$ai_evaluation_probability"] = result["probability"]
 
-    if result["result_type"] == "sentiment":
+    if result["result_type"] == "categorical":
+        properties["$ai_evaluation_allows_na"] = allows_na
+        # Native JSON property reads turn [] into NULL, so applicability preserves empty results.
+        properties["$ai_evaluation_applicable"] = result.get("applicable", not result.get("skipped", False))
+        if not result.get("skipped") and result.get("applicable", True) and "categories" in result:
+            properties["$ai_evaluation_categorical_result"] = result["categories"]
+    elif result["result_type"] == "numeric":
+        properties["$ai_evaluation_allows_na"] = allows_na
+        if allows_na:
+            properties["$ai_evaluation_applicable"] = result.get("applicable", not result.get("skipped", False))
+        if not result.get("skipped") and result.get("applicable", True):
+            if "score" in result:
+                properties["$ai_evaluation_numeric_result"] = result["score"]
+            if "score_min" in result:
+                properties["$ai_evaluation_numeric_result_min"] = result["score_min"]
+            if "score_max" in result:
+                properties["$ai_evaluation_numeric_result_max"] = result["score_max"]
+    elif result["result_type"] == "sentiment":
         if not result.get("skipped"):
             properties["$ai_sentiment_label"] = result.get("sentiment_label")
             properties["$ai_sentiment_score"] = result.get("sentiment_score")
@@ -292,14 +355,52 @@ def _evaluation_event_uuid() -> str | None:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://ai-evaluation/{workflow_id}"))
 
 
+def capture_evaluation_run_usage(
+    evaluation: Mapping[str, object],
+    result: EvaluationActivityResult,
+    *,
+    team_id: int,
+) -> None:
+    properties: dict[str, object] = {
+        "evaluation_id": str(evaluation["id"]),
+        "team_id": team_id,
+        "result_type": result["result_type"],
+        "status": "skipped" if result.get("skipped") else "completed",
+    }
+    if evaluation.get("evaluation_type", "llm_judge") == "llm_judge" and result.get("model"):
+        properties.update(
+            {
+                key: value
+                for key, value in result.items()
+                if key in ("model", "provider", "input_tokens", "output_tokens", "total_tokens")
+            }
+        )
+    if "verdict" in result and not result.get("skipped"):
+        properties["verdict"] = result["verdict"]
+    from posthog.tasks.usage_report import get_ph_client  # noqa: PLC0415 - keeps billing imports off worker startup
+
+    organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
+    ph_client = get_ph_client(sync_mode=True, disabled=bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)))
+    ph_client.capture(
+        distinct_id=f"org-{organization_id}",
+        event="llm analytics evaluation executed",
+        properties=properties,
+        groups={"organization": organization_id, "instance": settings.SITE_URL},
+    )
+    ph_client.flush()
+
+
 async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) -> None:
     """Emit the $ai_evaluation event via capture_internal so it routes through the ingestion
     pipeline for cost calculation. A billing-limited capture drops the event without failing
-    the caller. The event timestamp is the workflow start time, not emit time: ingestion dedup
-    keys on (timestamp, event, distinct_id, token), so only a stable timestamp lets a retried
-    emit collapse into the original."""
+    the caller. The event timestamp never comes from emit time: ingestion dedup keys on
+    (timestamp, event, distinct_id, token), so only a stable timestamp lets a retried emit
+    collapse into the original."""
     evaluation = inputs.evaluation
-    event_data = inputs.event_data
+    # The judge path reads the same generation twice, once here and once in the judge activity.
+    # Both are point lookups on the ai_events sort key, which is cheaper than pushing an event
+    # that capture accepts up to 8 MiB through a Temporal payload capped near 2 MiB.
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
     result = inputs.result
     start_time = inputs.start_time
 
@@ -310,7 +411,7 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
             else event_data["properties"]
         )
 
-        properties = build_evaluation_event_properties(evaluation, result, start_time)
+        properties = build_evaluation_event_properties(evaluation, result, start_time, inputs.backfill_id)
         properties.update(
             {
                 "$ai_target_event_id": event_data["uuid"],
@@ -326,15 +427,33 @@ async def emit_generation_evaluation_event(inputs: EmitEvaluationEventInputs) ->
             if source_props.get(property_name) is not None:
                 properties[property_name] = source_props[property_name]
 
-        capture_internal_for_team(
+        capture_ai_internal_for_team(
             team_id=event_data["team_id"],
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=event_data["distinct_id"],
-            timestamp=start_time,
+            # A backfilled verdict sits at its generation's time so time-bucketed views line it
+            # up with the trace it grades instead of with the day the backfill ran.
+            timestamp=(
+                backfill_verdict_timestamp(
+                    as_utc_datetime(event_data["timestamp"]),
+                    str(evaluation["id"]),
+                    inputs.backfill_id,
+                    str(event_data["uuid"]),
+                )
+                if inputs.backfill_id
+                else start_time
+            ),
             properties=properties,
             event_uuid=_evaluation_event_uuid(),
         )
+        # Completed LLM judge runs emit telemetry in the workflow's separate activity.
+        if evaluation.get("evaluation_type", "llm_judge") != "llm_judge" or result.get("skipped"):
+            try:
+                capture_evaluation_run_usage(evaluation, result, team_id=event_data["team_id"])
+            except Exception:
+                # Telemetry failures must not retry an already emitted evaluation.
+                logger.warning("evaluation_usage_capture_failed", team_id=event_data["team_id"], exc_info=True)
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()
@@ -374,34 +493,11 @@ class EmitInternalTelemetryInputs:
 @temporalio.activity.defn
 async def emit_internal_telemetry_activity(inputs: EmitInternalTelemetryInputs) -> None:
     """Emit telemetry event to PostHog org for internal tracking."""
-    from posthog.tasks.usage_report import get_ph_client
-
-    evaluation = inputs.evaluation
-    team_id = inputs.team_id
-    result = inputs.result
-
-    def _emit_telemetry() -> None:
-        organization_id = str(Team.objects.filter(id=team_id).values_list("organization_id", flat=True).get())
-
-        ph_client = get_ph_client(sync_mode=True)
-        ph_client.capture(
-            distinct_id=f"org-{organization_id}",
-            event="llm analytics evaluation executed",
-            properties={
-                "evaluation_id": evaluation["id"],
-                "team_id": team_id,
-                "model": result.get("model", DEFAULT_JUDGE_MODEL),
-                "provider": result.get("provider", "openai"),
-                "input_tokens": result.get("input_tokens", 0),
-                "output_tokens": result.get("output_tokens", 0),
-                "total_tokens": result.get("total_tokens", 0),
-                "verdict": result["verdict"],
-            },
-            groups={"organization": organization_id, "instance": settings.SITE_URL},
-        )
-        ph_client.flush()
-
-    await database_sync_to_async(_emit_telemetry, thread_sensitive=False)()
+    await database_sync_to_async(capture_evaluation_run_usage, thread_sensitive=False)(
+        inputs.evaluation,
+        inputs.result,
+        team_id=inputs.team_id,
+    )
 
 
 @frozen
@@ -409,6 +505,7 @@ class RunLocalEvaluationInputs:
     evaluation_id: str
     event_data: dict[str, Any]
     start_time: datetime
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -443,12 +540,15 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
     evaluation = await database_sync_to_async_pool(fetch_evaluation)(inputs.evaluation_id, inputs.event_data["team_id"])
 
     evaluation_type = evaluation.get("evaluation_type", "llm_judge")
-    if evaluation_type == "hog":
-        result = await run_hog_eval_for_event(evaluation, inputs.event_data)
-    elif evaluation_type == "sentiment":
-        result = await run_sentiment_eval(evaluation, inputs.event_data)
-    else:
+    if evaluation_type not in ("hog", "sentiment"):
+        # An llm_judge returns before the read: its own activity hydrates what it grades.
         return LocalEvaluationOutcome(evaluation=evaluation, result=None, emitted=False)
+
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
+    if evaluation_type == "hog":
+        result = await run_hog_eval_for_event(evaluation, event_data)
+    else:
+        result = await run_sentiment_eval(evaluation, event_data)
 
     emitted = False
     if not is_terminal_user_error_result(result):
@@ -456,9 +556,10 @@ async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> Loc
             await emit_generation_evaluation_event(
                 EmitEvaluationEventInputs(
                     evaluation=evaluation,
-                    event_data=inputs.event_data,
+                    event_data=event_data,
                     result=result,
                     start_time=inputs.start_time,
+                    backfill_id=inputs.backfill_id,
                 )
             )
         except Exception as error:

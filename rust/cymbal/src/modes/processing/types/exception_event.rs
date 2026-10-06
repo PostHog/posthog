@@ -7,12 +7,18 @@ use uuid::Uuid;
 use crate::{
     error::EventError,
     fingerprinting::{Fingerprint, FingerprintRecordPart, FingerprintVersion},
-    frames::releases::{ReleaseInfo, ReleaseRecord},
+    frames::{
+        releases::{ReleaseInfo, ReleaseRecord},
+        RawFrame,
+    },
     issue_resolution::{Issue, IssueSeverity},
     langs::native::DebugImage,
-    modes::processing::normalization::normalize_wire_order,
+    modes::processing::normalization::{normalize_legacy_tags, normalize_wire_order},
     recursively_sanitize_properties,
-    types::{event::AnyEvent, ExceptionList, ProcessedExceptionProperties, RawExceptionProperties},
+    types::{
+        event::AnyEvent, ExceptionList, ProcessedExceptionProperties, RawExceptionProperties,
+        Stacktrace,
+    },
 };
 
 use super::ProcessedExceptionPropertiesWire;
@@ -201,6 +207,27 @@ impl<S> ExceptionEvent<S> {
 
     pub fn uuid(&self) -> Uuid {
         self.uuid
+    }
+
+    /// Resolved frames need this even when the event sent none: stored records replay old ones.
+    pub fn drop_code_variables(&mut self) {
+        for exception in self.exception_list.iter_mut() {
+            match &mut exception.stack {
+                Some(Stacktrace::Raw { frames }) => {
+                    for frame in frames.iter_mut() {
+                        if let RawFrame::Python(python) = frame {
+                            python.code_variables = None;
+                        }
+                    }
+                }
+                Some(Stacktrace::Resolved { frames }) => {
+                    for frame in frames.iter_mut() {
+                        frame.code_variables = None;
+                    }
+                }
+                None => {}
+            }
+        }
     }
 
     pub fn team_id(&self) -> i32 {
@@ -615,6 +642,7 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
             .and_then(|object| object.get_mut("$exception_list"))
         {
             recursively_sanitize_properties(event.uuid, value, 0)?;
+            normalize_legacy_tags(value);
         }
 
         let mut raw: RawExceptionProperties = serde_json::from_value(properties)
@@ -742,6 +770,54 @@ mod tests {
     }
 
     #[test]
+    fn exception_relationship_ids_survive_processing() {
+        for mechanisms in [
+            serde_json::json!([
+                {"type": "generic", "handled": true, "exception_id": 0},
+                {"type": "chained", "source": "member", "exception_id": 1, "parent_id": 0},
+                {"type": "chained", "source": "cause", "exception_id": 2, "parent_id": 1},
+                {"type": "chained", "source": "member", "exception_id": 3, "parent_id": 0}
+            ]),
+            serde_json::json!([{"type": "generic", "handled": true}]),
+        ] {
+            let exceptions: Vec<Value> = mechanisms.as_array().unwrap().iter().map(|mechanism| {
+                serde_json::json!({"type": "Error", "value": "example failure", "mechanism": mechanism})
+            }).collect();
+            let parsed = ExceptionEvent::<Parsed>::try_from(AnyEvent {
+                uuid: Uuid::now_v7(),
+                event: "$exception".to_string(),
+                team_id: 42,
+                timestamp: "2026-01-01T00:00:00Z".to_string(),
+                properties: serde_json::json!({"$exception_list": exceptions}),
+                others: HashMap::new(),
+            })
+            .unwrap();
+            let issue = Issue {
+                id: Uuid::now_v7(),
+                team_id: 42,
+                status: crate::issue_resolution::IssueStatus::Active,
+                severity: None,
+                name: None,
+                description: None,
+                created_at: chrono::Utc::now(),
+            };
+            let processed = parsed
+                .into_resolved()
+                .into_fingerprinted(SelectedFingerprint::manual("example-group".to_string()))
+                .into_linked(issue)
+                .into_rate_checked()
+                .into_finalized()
+                .into_clickhouse_properties();
+            let output = processed["$exception_list"].as_array().unwrap();
+            assert_eq!(output.len(), exceptions.len());
+            for (index, exception) in output.iter().enumerate() {
+                assert_eq!(exception["mechanism"], mechanisms[index]);
+                assert!(Uuid::parse_str(exception["id"].as_str().unwrap()).is_ok());
+            }
+        }
+    }
+
+    #[test]
     fn selected_fingerprint_constructors_keep_origin_coherent() {
         let manual = SelectedFingerprint::manual("manual-value".to_string());
         assert_eq!(manual.value(), "manual-value");
@@ -826,7 +902,7 @@ mod tests {
     }
 
     #[test]
-    fn exception_release_emitted_only_when_a_release_resolves() {
+    fn exception_release_is_sanitized_and_emitted_only_when_a_release_resolves() {
         let issue = Issue {
             id: Uuid::now_v7(),
             team_id: 42,
@@ -836,7 +912,13 @@ mod tests {
             description: None,
             created_at: chrono::Utc::now(),
         };
-        let record = release_record("hash-abc");
+        let mut record = release_record("hash-abc");
+        record.metadata = Some(serde_json::json!({
+            "git": {
+                "commit_id": "abc123",
+                "remote_url": "https://x-access-token:secret@github.com/example/repo.git?token=query-secret#access_token=fragment-secret"
+            }
+        }));
         let expected = serde_json::to_value(record.to_info()).unwrap();
 
         // A resolved release surfaces as `$exception_release` on both the grouping-rule projection
@@ -845,10 +927,21 @@ mod tests {
         resolved.state.metadata.release = Some(record.to_info());
         let grouping = resolved.grouping_rule_properties();
         assert_eq!(grouping["$exception_release"], expected);
+        assert_eq!(
+            grouping["$exception_release"]["metadata"]["git"],
+            serde_json::json!({
+                "commit_id": "abc123",
+                "remote_url": "https://github.com/example/repo.git"
+            })
+        );
         let fingerprinted =
             resolved.into_fingerprinted(SelectedFingerprint::manual("fp".to_string()));
         let wire = serde_json::to_value(fingerprinted.processed_properties(&issue)).unwrap();
         assert_eq!(wire["$exception_release"], expected);
+        assert_eq!(
+            wire["$exception_release"]["metadata"]["git"]["remote_url"],
+            "https://github.com/example/repo.git"
+        );
 
         // No release resolved: the property is omitted.
         let mut resolved = resolved_event();

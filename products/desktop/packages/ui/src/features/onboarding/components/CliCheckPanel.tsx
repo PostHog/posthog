@@ -1,6 +1,6 @@
-import { CheckCircle, CircleNotch } from "@phosphor-icons/react";
+import { CheckCircle } from "@phosphor-icons/react";
 import { PANEL_SHADOW } from "@posthog/ui/features/onboarding/components/onboardingStyles";
-import { Spin } from "@posthog/ui/primitives/Spinner";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Box, Flex, Text } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 
@@ -34,9 +34,7 @@ export function CliCheckPanel({
             </Text>
           </Flex>
           {isLoading ? (
-            <Spin className="text-(--gray-9)">
-              <CircleNotch size={14} />
-            </Spin>
+            <Spinner size="md" className="text-(--gray-9)" />
           ) : (
             statusBadge
           )}

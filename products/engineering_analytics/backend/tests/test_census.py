@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from unittest.mock import patch
 
-from posthog_owners import TeamTestCensus
+from owners_yaml import TeamTestCensus
 
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT, collect_repo_census, emit_census_events
 

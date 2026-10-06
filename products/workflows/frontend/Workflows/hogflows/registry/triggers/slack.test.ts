@@ -25,7 +25,7 @@ describe('slack message trigger', () => {
             // The editor reads its controls back out of the stored filters, so a mode that encodes
             // to something decode can't recognize silently resets the control on reopen.
             const filters = {
-                channel: 'C0ALERTS',
+                channels: ['C0ALERTS'],
                 posterMode: mode,
                 posterIds: ids,
                 topLevelOnly: true,
@@ -37,7 +37,7 @@ describe('slack message trigger', () => {
         it('keeps filters the native controls do not own', () => {
             const custom = { key: 'text', value: ['fire'], operator: PropertyOperator.IContains, type: 'event' }
             const encoded = encodeSlackFilters({
-                channel: 'C0ALERTS',
+                channels: ['C0ALERTS'],
                 posterMode: 'people',
                 posterIds: [],
                 topLevelOnly: false,
@@ -48,24 +48,24 @@ describe('slack message trigger', () => {
             expect(decodeSlackFilters(encoded).additional).toEqual([custom])
         })
 
-        it('reduces the picker composite to a channel id', () => {
+        it('reduces picker composites to channel ids', () => {
             // The picker round-trips `C123|#name`; the event carries `C123`, so storing the
             // composite compiles a filter that matches nothing.
             const encoded = encodeSlackFilters({
-                channel: 'C0ALERTS|#alerts',
+                channels: ['C0ALERTS|#alerts', 'C0INCIDENTS|#incidents'],
                 posterMode: 'anyone',
                 posterIds: [],
                 topLevelOnly: false,
                 additional: [],
             })
-            expect(decodeSlackFilters(encoded).channel).toBe('C0ALERTS')
+            expect(decodeSlackFilters(encoded).channels).toEqual(['C0ALERTS', 'C0INCIDENTS'])
         })
 
         it('separates top-level posts on thread_ts, not the boolean', () => {
             // is_thread_reply is a real boolean on the event, and comparing it against a string
             // would never match. Absence of thread_ts is what marks a top-level post.
             const encoded = encodeSlackFilters({
-                channel: null,
+                channels: [],
                 posterMode: 'anyone',
                 posterIds: [],
                 topLevelOnly: true,
@@ -82,7 +82,7 @@ describe('slack message trigger', () => {
                 // The control re-derives from the stored filters on every render, so a mode that
                 // encodes to nothing snaps straight back to "anyone" the moment you pick it.
                 const encoded = encodeSlackFilters({
-                    channel: null,
+                    channels: [],
                     posterMode: mode,
                     posterIds: [],
                     topLevelOnly: false,
@@ -96,7 +96,11 @@ describe('slack message trigger', () => {
     describe('registry entry', () => {
         it.each([
             { name: 'no channel filter', properties: [], valid: false },
-            { name: 'channel filter present', properties: [{ key: 'channel', value: ['C0ALERTS'] }], valid: true },
+            {
+                name: 'channel filter present',
+                properties: [{ key: 'channel', value: ['C0ALERTS', 'C0INCIDENTS'] }],
+                valid: true,
+            },
             { name: 'other filters alone', properties: [{ key: 'text', value: ['fire'] }], valid: false },
         ])('validate returns valid=$valid for $name', ({ properties, valid }) => {
             const result = getTriggerType().validate!({

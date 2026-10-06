@@ -1,15 +1,20 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, tzinfo
+from email.utils import parsedate_to_datetime
 from typing import Any, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.constants import (
     KLAVIYO_API_VERSION_2026_07_15,
@@ -18,13 +23,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.se
     KLAVIYO_ENDPOINTS,
     KlaviyoEndpointConfig,
     KlaviyoFanOutConfig,
+    KlaviyoValuesReportConfig,
 )
 
 KLAVIYO_BASE_URL = "https://a.klaviyo.com/api"
 
-# Klaviyo's reporting API requires a conversion metric on every values report. Placed Order is the
-# metric its own reporting defaults to, so it's the fallback when the source doesn't name one.
-DEFAULT_CONVERSION_METRIC_NAME = "Placed Order"
+# Cap how long a single in-function retry waits so a long fixed-window Retry-After doesn't pin a
+# worker thread; if the window is longer, the attempts exhaust and Temporal retries the whole
+# activity later from saved page state.
+MAX_RETRY_AFTER_SECONDS = 120
+
+# Klaviyo's reporting API only accepts a value-tracking metric (one that carries a monetary
+# $value, like an order metric) as a values report's conversion metric; engagement metrics such as
+# opens and clicks are rejected. Klaviyo has no "account default" flag to read and its /metrics
+# response has no eligibility field, so resolution prefers these names its ecommerce integrations
+# give the order metric, most likely first, before falling back to the account's first metric.
+CONVERSION_METRIC_NAME_PREFERENCES = ("Placed Order", "Ordered Product")
 # Accounts have tens of metrics, so the fallback lookup stays bounded rather than walking forever.
 MAX_CONVERSION_METRIC_PAGES = 20
 
@@ -35,7 +49,18 @@ CONVERSION_METRIC_INELIGIBLE_DETAIL = "does not support querying for values data
 
 
 class KlaviyoRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+class KlaviyoConversionMetricError(Exception):
+    """A values report can't run because no eligible conversion metric is available.
+
+    Raised instead of returning empty so the run fails visibly rather than finalizing green with
+    zero rows. The outcome is deterministic — the same metric resolves on every retry — so it is
+    registered as a non-retryable error that pauses the table with an actionable message.
+    """
 
 
 @dataclasses.dataclass
@@ -144,15 +169,41 @@ def _get_headers(api_key: str, revision: str = KLAVIYO_API_VERSION_2026_07_15) -
     }
 
 
-def validate_credentials(api_key: str, api_version: str = KLAVIYO_API_VERSION_2026_07_15) -> bool:
+_KLAVIYO_INVALID_KEY_ERROR = (
+    "Your Klaviyo API key is invalid or has been revoked. Create a new private API key in your "
+    "Klaviyo account settings, then reconnect."
+)
+
+# The probe reads /accounts, so a scoped key that was never granted account read lands here even
+# though it is a live key. Telling that user to replace the key sends them down the wrong path.
+_KLAVIYO_MISSING_SCOPE_ERROR = (
+    "Your Klaviyo API key can't read your account. Give the key read access to Accounts in your "
+    "Klaviyo account settings, then reconnect."
+)
+
+_KLAVIYO_UNREACHABLE_ERROR = "Couldn't reach Klaviyo to validate your API key. Try again in a few minutes."
+
+
+def validate_credentials(api_key: str, api_version: str = KLAVIYO_API_VERSION_2026_07_15) -> tuple[bool, str | None]:
     # Probe under the caller's resolved pin so a 2024-10-15-pinned source validates on the
     # same `revision` header it syncs with.
-    url = f"{KLAVIYO_BASE_URL}/accounts"
-    try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key, api_version), timeout=10)
-        return response.status_code == 200
-    except Exception:
-        return False
+    ok, status = validate_via_probe(
+        make_tracked_session,
+        f"{KLAVIYO_BASE_URL}/accounts",
+        headers=_get_headers(api_key, api_version),
+    )
+    if ok:
+        return True, None
+    if status == 401:
+        return False, _KLAVIYO_INVALID_KEY_ERROR
+    if status == 403:
+        return False, _KLAVIYO_MISSING_SCOPE_ERROR
+    # No status means the request never completed. That, a rate limit and a Klaviyo-side error are
+    # all transient, so none of them should point the user at a key that may be fine.
+    if status is None or status == 429 or status >= 500:
+        return False, _KLAVIYO_UNREACHABLE_ERROR
+    capture_exception(Exception(f"Unexpected Klaviyo credential validation response ({status})"))
+    return False, _KLAVIYO_INVALID_KEY_ERROR
 
 
 def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -234,6 +285,41 @@ def _raise_for_status_with_detail(response: requests.Response) -> None:
         raise
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    # Retry-After is either delta-seconds or an HTTP-date (RFC 7231).
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        delay = float(value)
+        # A negative delta is a malformed header, not "no wait" — falling through to exponential
+        # backoff avoids instant retries burning the attempt budget while still rate limited.
+        return delay if delay >= 0 else None
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+    return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
+
+
+_backoff = wait_exponential_jitter(initial=1, max=30)
+
+
+def _wait_klaviyo(retry_state: RetryCallState) -> float:
+    # Prefer the server's own backoff instruction on rate limits; fall back to exponential jitter
+    # when the header is absent (429 without one, or a 5xx). Only GET requests get Retry-After-aware
+    # backoff from the shared session's urllib3 retry policy (it retries GET/HEAD/OPTIONS only), so
+    # the reporting endpoints' POST pagination depends on this to honor the header at all.
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    if isinstance(exc, KlaviyoRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
+    return _backoff(retry_state)
+
+
 @retry(
     # ChunkedEncodingError is a mid-stream connection break (the server truncated a chunked
     # response body); it's transient like ConnectionError/ReadTimeout, not a ConnectionError subclass.
@@ -246,7 +332,7 @@ def _raise_for_status_with_detail(response: requests.Response) -> None:
         )
     ),
     stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    wait=_wait_klaviyo,
     reraise=True,
 )
 def _fetch_page(
@@ -263,7 +349,11 @@ def _fetch_page(
         response = session.post(page_url, headers=headers, json=json_body, timeout=60)
 
     if response.status_code == 429 or response.status_code >= 500:
-        raise KlaviyoRetryableError(f"Klaviyo API error (retryable): status={response.status_code}, url={page_url}")
+        retry_after = _parse_retry_after(response.headers.get("Retry-After")) if response.status_code == 429 else None
+        raise KlaviyoRetryableError(
+            f"Klaviyo API error (retryable): status={response.status_code}, url={page_url}",
+            retry_after=retry_after,
+        )
 
     if not response.ok:
         # 404 is expected and handled during a fan-out (a parent deleted mid-sync).
@@ -437,26 +527,36 @@ def _resolve_conversion_metric_id(
     """Pick the metric that conversion statistics in the values reports are attributed to.
 
     Klaviyo requires a conversion metric on every values report but has no "account default" to
-    read, so fall back to the Placed Order metric its own reporting defaults to, then to whatever
-    metric the account defines first. A user who wants a different one sets it on the source.
+    read, so prefer a value-tracking metric by name (see CONVERSION_METRIC_NAME_PREFERENCES), then
+    fall back to whatever metric the account defines first. A user who wants a different one, or
+    whose account has no value-tracking metric, sets one on the source.
     """
     url = f"{KLAVIYO_BASE_URL}/metrics"
     first_metric_id: str | None = None
+    # Best preferred-name match so far; a lower rank is a stronger preference.
+    best_preferred_id: str | None = None
+    best_preferred_rank: int | None = None
 
     for _ in range(MAX_CONVERSION_METRIC_PAGES):
         data = _fetch_page(session, url, headers, logger)
         for item in data.get("data", []):
             if first_metric_id is None:
                 first_metric_id = item["id"]
-            if item.get("attributes", {}).get("name") == DEFAULT_CONVERSION_METRIC_NAME:
-                return item["id"]
+            name = item.get("attributes", {}).get("name")
+            if name in CONVERSION_METRIC_NAME_PREFERENCES:
+                rank = CONVERSION_METRIC_NAME_PREFERENCES.index(name)
+                if rank == 0:
+                    return item["id"]  # top preference, nothing can beat it
+                if best_preferred_rank is None or rank < best_preferred_rank:
+                    best_preferred_rank = rank
+                    best_preferred_id = item["id"]
 
         next_url = data.get("links", {}).get("next")
         if not next_url:
             break
         url = next_url
 
-    return first_metric_id
+    return best_preferred_id or first_metric_id
 
 
 def _series_rows(
@@ -476,6 +576,60 @@ def _series_rows(
             for statistic, values in statistics.items():
                 row[statistic] = values[index] if isinstance(values, list) and index < len(values) else None
             yield row
+
+
+def _get_account_timezone(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> tzinfo:
+    """Read the IANA timezone of the account the API key belongs to.
+
+    Klaviyo ignores the offset on a custom timeframe's start and end and reads both as wall-clock
+    times in this timezone, so a window computed in any other timezone is off by the difference.
+    """
+    accounts = _fetch_page(session, f"{KLAVIYO_BASE_URL}/accounts", headers, logger).get("data") or []
+    name = accounts[0].get("attributes", {}).get("timezone") if accounts else None
+    if isinstance(name, str):
+        try:
+            return ZoneInfo(name)
+        except (ValueError, ZoneInfoNotFoundError):
+            pass
+    logger.warning(f"Klaviyo: account timezone {name!r} is unknown, computing the report window in UTC")
+    return UTC
+
+
+def _build_timeframe(report: KlaviyoValuesReportConfig, now: datetime) -> tuple[dict[str, str], str]:
+    """Build a report's timeframe attribute, and the label every row records the window under.
+
+    Klaviyo takes a timeframe either as one of its predefined keys or as a custom start/end pair.
+    A window no key matches goes as the custom pair: `timeframe_weeks` calendar weeks that open on
+    a Monday, Klaviyo's first day of the week, and end at `now`, which must be in the account's
+    timezone because Klaviyo reads the pair as wall-clock times in it.
+    """
+    if report.timeframe_weeks is None:
+        assert report.timeframe_key is not None
+        return {"key": report.timeframe_key}, report.timeframe_key
+
+    end = now.replace(microsecond=0)
+    this_monday = datetime.combine(end.date() - timedelta(days=end.weekday()), datetime.min.time(), tzinfo=end.tzinfo)
+    start = this_monday - timedelta(weeks=report.timeframe_weeks - 1)
+    return {"start": start.isoformat(), "end": end.isoformat()}, f"last_{report.timeframe_weeks}_weeks"
+
+
+def _no_activity_statistics(statistics: list[str]) -> dict[str, Any]:
+    return {statistic: None if statistic.endswith("_rate") else 0 for statistic in statistics}
+
+
+def _rows_for_ids_the_report_omitted(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    report: KlaviyoValuesReportConfig,
+    reported_ids: set[str],
+    common: dict[str, Any],
+) -> Iterator[dict[str, Any]]:
+    assert report.list_all_ids_path is not None
+    id_column = report.group_by[0]
+    for entity_id in _iter_resource_ids(session, headers, logger, report.list_all_ids_path, page_size=100):
+        if entity_id not in reported_ids:
+            yield {id_column: entity_id, **_no_activity_statistics(report.statistics), **common}
 
 
 def _get_values_report_rows(
@@ -503,14 +657,16 @@ def _get_values_report_rows(
     if report.requires_conversion_metric:
         metric_id = conversion_metric_id or _resolve_conversion_metric_id(session, headers, logger)
         if not metric_id:
-            logger.warning(
-                f"Klaviyo: no conversion metric found for {config.name}; set a conversion metric ID on the source"
+            raise KlaviyoConversionMetricError(
+                f"Klaviyo needs a conversion metric to sync {config.name}, but the account has none. "
+                f"Set a conversion metric ID on the source, then re-enable this table."
             )
-            return
 
+    account_tz = _get_account_timezone(session, headers, logger) if report.timeframe_weeks is not None else UTC
+    timeframe, timeframe_label = _build_timeframe(report, datetime.now(account_tz))
     attributes: dict[str, Any] = {
         "statistics": report.statistics,
-        "timeframe": {"key": report.timeframe_key},
+        "timeframe": timeframe,
     }
     if report.group_by:
         attributes["group_by"] = report.group_by
@@ -526,9 +682,12 @@ def _get_values_report_rows(
 
     # Tagged onto every row so each row records the window (and conversion metric)
     # it was computed over.
-    common: dict[str, Any] = {"timeframe_key": report.timeframe_key}
+    common: dict[str, Any] = {"timeframe_key": timeframe_label}
     if metric_id:
         common["conversion_metric_id"] = metric_id
+
+    lists_all_ids = report.list_all_ids_path is not None and not report.interval and len(report.group_by) == 1
+    reported_ids: set[str] = set()
 
     try:
         while True:
@@ -542,6 +701,8 @@ def _get_values_report_rows(
                 rows = ({**r.get("groupings", {}), **r.get("statistics", {}), **common} for r in results)
 
             for row in rows:
+                if lists_all_ids and row.get(report.group_by[0]) is not None:
+                    reported_ids.add(str(row[report.group_by[0]]))
                 batcher.batch(row)
                 if batcher.should_yield():
                     yield batcher.get_table()
@@ -550,17 +711,23 @@ def _get_values_report_rows(
             if not next_url:
                 break
             url = next_url
+
+        if lists_all_ids:
+            for row in _rows_for_ids_the_report_omitted(session, headers, logger, report, reported_ids, common):
+                batcher.batch(row)
+                if batcher.should_yield():
+                    yield batcher.get_table()
     except requests.HTTPError as exc:
         if (
             exc.response is not None
             and exc.response.status_code == 400
             and CONVERSION_METRIC_INELIGIBLE_DETAIL in exc.response.text
         ):
-            logger.warning(
-                f"Klaviyo: conversion metric {metric_id} isn't eligible for values reporting on "
-                f"{config.name}; set a different conversion metric ID on the source, skipping"
-            )
-            return
+            raise KlaviyoConversionMetricError(
+                f"Klaviyo rejected conversion metric {metric_id} for {config.name}: it isn't eligible "
+                f"for values reporting. Set an eligible conversion metric ID on the source, then "
+                f"re-enable this table."
+            ) from exc
         raise
 
 

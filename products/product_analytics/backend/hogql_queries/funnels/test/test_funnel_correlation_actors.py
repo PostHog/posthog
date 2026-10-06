@@ -2,7 +2,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -14,6 +14,8 @@ from unittest import skip
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActorsQuery,
     DateRange,
@@ -24,10 +26,13 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
+    HogQLQueryModifiers,
+    InsightActorsQueryOptions,
     StepOrderValue,
 )
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
@@ -67,6 +72,24 @@ def get_actors(
 
 class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
+
+    @parameterized.expand([("correlation",), ("correlation_actors",), ("actors_options",)])
+    def test_wrapper_queries_use_source_funnel_modifiers(self, wrapper):
+        funnel = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
+        )
+        correlation = FunnelCorrelationQuery(
+            source=FunnelsActorsQuery(source=funnel), funnelCorrelationType=FunnelCorrelationResultsType.EVENTS
+        )
+        query = {
+            "correlation": correlation,
+            "correlation_actors": FunnelCorrelationActorsQuery(source=correlation),
+            "actors_options": InsightActorsQueryOptions(source=FunnelsActorsQuery(source=funnel)),
+        }[wrapper]
+
+        runner = get_query_runner(query, self.team)
+        self.assertTrue(runner.modifiers.useNewEventsSchema)
 
     def _setup_basic_test(self):
         query = FunnelsQuery(
@@ -255,7 +278,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual([str(val[1]["id"]) for val in serialized_actors], [str(people["user_1"].uuid)])
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-02 00:00:00.000Z")
+    @time_machine.travel("2021-01-02 00:00:00.000Z", tick=False)
     def test_funnel_correlation_on_event_with_recordings(self):
         p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
         _create_event(
@@ -365,7 +388,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-02 00:00:00.000Z")
+    @time_machine.travel("2021-01-02 00:00:00.000Z", tick=False)
     def test_funnel_correlation_on_properties_with_recordings(self):
         p1 = _create_person(distinct_ids=["user_1"], team=self.team, properties={"foo": "bar"})
         _create_event(
@@ -438,7 +461,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @freeze_time("2021-01-02 00:00:00.000Z")
+    @time_machine.travel("2021-01-02 00:00:00.000Z", tick=False)
     @skip("Works locally and works after you tmate onto github actions and run it, but fails in CI")
     def test_strict_funnel_correlation_with_recordings(self):
         # First use that successfully completes the strict funnel

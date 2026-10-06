@@ -17,6 +17,7 @@ from typing import Any
 from django.contrib.auth import login as auth_login
 from django.core.cache import cache
 from django.http import HttpResponseBase, HttpResponseRedirect
+from django.utils.http import urlencode
 
 import structlog
 
@@ -27,15 +28,48 @@ from posthog.models.user import User
 
 from ee.partners.stripe.api.provisioning import DEEP_LINK_CACHE_PREFIX
 from ee.partners.stripe.api.provisioning.analytics import capture_provisioning_event
+from ee.partners.stripe.api.provisioning.constants import VERIFY_EMAIL_REASON
 from ee.partners.stripe.api.provisioning.core import is_safe_deep_link_path
 
 logger = structlog.get_logger(__name__)
 
 
 def _capture(
-    outcome: str, *, user_id: int | None = None, team_id: int | None = None, purpose: str | None = None
+    outcome: str,
+    *,
+    user_id: int | None = None,
+    team_id: int | None = None,
+    purpose: str | None = None,
+    verification_email_sent: bool | None = None,
 ) -> None:
-    capture_provisioning_event("deep_link_login", outcome, user_id=user_id, team_id=team_id, purpose=purpose)
+    capture_provisioning_event(
+        "deep_link_login",
+        outcome,
+        user_id=user_id,
+        team_id=team_id,
+        purpose=purpose,
+        verification_email_sent=verification_email_sent,
+    )
+
+
+def _block_unverified_email(user: User) -> HttpResponseBase:
+    """Send a fresh code and redirect to the verify-email page, telling it why the login stopped."""
+    email_sent = True
+    try:
+        email_verification_code_verifier.send_code(user)
+    except Exception:
+        # Intentionally swallowed: the login must stay blocked regardless of email delivery.
+        # The verifier captures the exception internally; the verify_email page has a resend button.
+        email_sent = False
+        logger.warning("stripe_provisioning.login.verification_email_failed", user_id=user.id)
+
+    _capture("email_unverified", user_id=user.id, verification_email_sent=email_sent)
+    logger.warning("stripe_provisioning.login.email_unverified", user_id=user.id, email_sent=email_sent)
+
+    params: dict[str, str] = {"reason": VERIFY_EMAIL_REASON}
+    if not email_sent:
+        params["email_sent"] = "false"
+    return HttpResponseRedirect(f"/verify_email/{user.uuid}?{urlencode(params)}")
 
 
 def _redirect_path(team_id: int | None, path: str | None) -> str:
@@ -108,15 +142,7 @@ def stripe_provisioning_login(request: Any) -> HttpResponseBase:
     # Require explicit is_email_verified=True - don't trust the legacy None passthrough
     # or the org-level email-verification-disabled flag.
     if user.is_email_verified is not True:
-        try:
-            email_verification_code_verifier.send_code(user)
-        except Exception:
-            # Intentionally swallowed: the login must stay blocked regardless of email delivery.
-            # The verifier captures the exception internally; the verify_email page has a resend button.
-            logger.warning("stripe_provisioning.login.verification_email_failed", user_id=user.id)
-        _capture("email_unverified", user_id=user_id)
-        logger.warning("stripe_provisioning.login.email_unverified", user_id=user_id)
-        return HttpResponseRedirect(f"/verify_email/{user.uuid}")
+        return _block_unverified_email(user)
 
     auth_login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 

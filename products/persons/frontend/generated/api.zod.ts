@@ -101,6 +101,8 @@ export const PersonsBatchByUuidsCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
+ *
+ * Person records are removed in the background shortly after the request returns, so a successful response reports them in `persons_queued_for_deletion` and `persons_deleted` is 0.
  */
 export const personsBulkDeleteCreateBodyDeleteEventsDefault = false
 export const personsBulkDeleteCreateBodyDeleteRecordingsDefault = false
@@ -127,7 +129,7 @@ export const PersonsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Reset a distinct_id for a deleted person. This allows the distinct_id to be used again.
+ * Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.
  */
 export const PersonsResetPersonDistinctIdCreateBody = /* @__PURE__ */ zod.object({
     properties: zod

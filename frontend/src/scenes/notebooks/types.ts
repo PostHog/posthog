@@ -50,12 +50,9 @@ export enum NotebookNodeType {
     Dashboard = 'ph-dashboard-widget',
     Action = 'ph-action',
     Workflow = 'ph-workflow',
-    Python = 'ph-python',
-    // The revamped Python cell: runs in the notebook's sandbox kernel via the SQLV2 run
-    // path, unlike the legacy ph-python node's in-browser kernel.
+    // Runs in the notebook's sandbox kernel via the SQLV2 run path. The "V2" suffix is a wire
+    // string: persisted notebooks carry `<PythonV2 />` / `<SQLV2 />` tags and `ph-*-v2` node types.
     PythonV2 = 'ph-python-v2',
-    DuckSQL = 'ph-duck-sql',
-    HogQLSQL = 'ph-hogql-sql',
     SQLV2 = 'ph-sql-v2',
     GeneratedWidget = 'ph-generated-widget',
     Recording = 'ph-recording',

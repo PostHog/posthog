@@ -147,6 +147,7 @@ export interface MenuCheckToast {
 export interface MenuCheckOutcome {
   toast?: MenuCheckToast;
   clearPending: boolean;
+  openUpdateModal?: boolean;
 }
 
 export function resolveMenuCheckFromStatus(
@@ -173,6 +174,10 @@ export function resolveMenuCheckFromStatus(
         description: payload.error,
       },
     };
+  }
+
+  if (payload.available || payload.downloading || payload.updateReady) {
+    return { clearPending: true, openUpdateModal: true };
   }
 
   if (payload.checking === false) {

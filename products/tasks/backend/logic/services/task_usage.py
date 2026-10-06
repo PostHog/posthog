@@ -17,7 +17,7 @@ import requests
 import structlog
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -127,7 +127,7 @@ def _get_cross_region_task_token_cost(*, team_id: int, task_id: UUID, task_creat
 # generations land in that region's own project. Same mapping AI credit billing reads
 # (`CLOUD_REGION_TO_TEAM_ID` in `posthog/tasks/usage_report.py`), kept separately because that
 # module imports this product's facade. `LLM_ANALYTICS_INTERNAL_TEAM_ID` is 2 in every region, so
-# it can't answer this on its own — it stays the fallback for a deployment that isn't US or EU.
+# it cannot identify a billing project outside US or EU Cloud.
 INTERNAL_LLM_ANALYTICS_TEAM_ID_BY_REGION = {"EU": 1, "US": 2}
 
 
@@ -137,9 +137,15 @@ def _internal_llm_analytics_team() -> Team:
     A deployment with no such project has nothing to read, and callers must surface that as
     unknown rather than as zero spend.
     """
-    team_id = INTERNAL_LLM_ANALYTICS_TEAM_ID_BY_REGION.get(
-        settings.CLOUD_DEPLOYMENT or "", settings.LLM_ANALYTICS_INTERNAL_TEAM_ID
-    )
+    region = (settings.CLOUD_DEPLOYMENT or "").upper()
+    team_id = INTERNAL_LLM_ANALYTICS_TEAM_ID_BY_REGION.get(region)
+    if team_id is None:
+        # Tests override this value with their fixture project. Other deployments do not have a
+        # configured region-local billing project, so project 2 can be an unrelated project.
+        if settings.TEST:
+            team_id = settings.LLM_ANALYTICS_INTERNAL_TEAM_ID
+        else:
+            raise TaskTokenUsageUnavailable("This deployment has no internal AI observability project")
     try:
         return Team.objects.get(pk=team_id)
     except Team.DoesNotExist as error:
@@ -177,15 +183,26 @@ def get_local_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: d
     return Decimal(str(value or 0))
 
 
+# A window read asks for every run of one origin product on one team, so its row count is bounded
+# by that team's runs rather than by a requested id list. The cap is far above the busiest fleet's
+# week of runs, and only stops a pathological read from materializing without limit.
+MAX_TASK_RUN_COST_ROWS = 50_000
+
+
 def get_local_task_run_token_costs(
     *,
     team_id: int,
     origin_product: str,
-    task_run_ids: Sequence[UUID],
     generated_after: datetime,
     product: Product,
+    task_run_ids: Sequence[UUID] | None = None,
 ) -> dict[str, Decimal]:
-    """Model spend per task run, for every run in `task_run_ids` that has any attributed to it.
+    """Model spend per task run, for every run that has any attributed to it.
+
+    Pass `task_run_ids` to price a known set of runs. Pass nothing to price every run of
+    `origin_product` this team generated since `generated_after` — the team filter and the time
+    window bound that read, so a caller that would otherwise send tens of thousands of ids does not
+    have to.
 
     Keyed on `task_origin_product` rather than `ai_product`, because `ai_product` names the agent
     that made the generation, not the product the run belongs to: one origin product spans several
@@ -197,19 +214,36 @@ def get_local_task_run_token_costs(
     is unknown, not zero. A run priced in part still reports the sum of what was priced, which is a
     lower bound.
     """
-    if not task_run_ids:
+    if task_run_ids is not None and not task_run_ids:
         return {}
 
+    placeholders: dict[str, ast.Expr] = {
+        "generated_after": ast.Constant(value=generated_after),
+        "origin_product": ast.Constant(value=origin_product),
+        "team_id": ast.Constant(value=str(team_id)),
+        # The group-by yields at most one row per run, but a limit-less select is capped at 100
+        # rows, and both paths can cover more runs than that.
+        "row_limit": ast.Constant(value=len(task_run_ids) if task_run_ids is not None else MAX_TASK_RUN_COST_ROWS),
+        "run_filter": (
+            parse_expr(
+                "in(toString(properties.task_run_id), {task_run_ids})",
+                placeholders={"task_run_ids": ast.Constant(value=[str(run_id) for run_id in task_run_ids])},
+            )
+            if task_run_ids is not None
+            else ast.Constant(value=True)
+        ),
+    }
     query = parse_select(
         """
         SELECT toString(properties.task_run_id) AS task_run_id,
-            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS token_cost_usd
+            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS token_cost_usd,
+            count() OVER () AS total_run_count
         FROM events
         WHERE equals(event, '$ai_generation')
             AND greaterOrEquals(timestamp, {generated_after})
             AND equals(properties.task_origin_product, {origin_product})
             AND equals(toString(properties.team_id), {team_id})
-            AND in(toString(properties.task_run_id), {task_run_ids})
+            AND {run_filter}
         GROUP BY task_run_id
         LIMIT {row_limit}
         """
@@ -217,19 +251,14 @@ def get_local_task_run_token_costs(
     with tags_context(product=product, feature=Feature.QUERY):
         result = execute_hogql_query(
             query=query,
-            placeholders={
-                "generated_after": ast.Constant(value=generated_after),
-                "origin_product": ast.Constant(value=origin_product),
-                "team_id": ast.Constant(value=str(team_id)),
-                "task_run_ids": ast.Constant(value=[str(task_run_id) for task_run_id in task_run_ids]),
-                # The group-by yields at most one row per requested run, but a limit-less select
-                # is capped at 100 rows, and a caller may ask about more runs than that.
-                "row_limit": ast.Constant(value=len(task_run_ids)),
-            },
+            placeholders=placeholders,
             team=_internal_llm_analytics_team(),
             query_type="TaskRunUsageTokenCost",
         )
-    return {str(row[0]): Decimal(str(row[1])) for row in (result.results or []) if row[0] and row[1] is not None}
+    rows = result.results or []
+    if task_run_ids is None and rows and int(rows[0][2]) > MAX_TASK_RUN_COST_ROWS:
+        raise TaskTokenUsageUnavailable("The task-run cost result exceeded its safe row limit")
+    return {str(row[0]): Decimal(str(row[1])) for row in rows if row[0] and row[1] is not None}
 
 
 def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:

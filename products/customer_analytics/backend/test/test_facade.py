@@ -12,12 +12,13 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
@@ -28,6 +29,7 @@ from products.customer_analytics.backend.models import (
     Account,
     AccountRelationship,
     AccountRelationshipDefinition,
+    CustomerTask,
     CustomPropertyDefinition,
     CustomPropertySource,
     CustomPropertyValue,
@@ -94,7 +96,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
         ignored_at = timezone.now()
         account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-123", ignored_at=ignored_at)
         tag = Tag.objects.create(name="enterprise", team_id=self.team.id)
-        TaggedItem.objects.create(tag=tag, account=account)
+        account.tagged_items.create(tag=tag)
         notebook = Notebook.objects.create(
             team=self.team,
             created_by=self.user,
@@ -240,7 +242,7 @@ class TestCustomerAnalyticsFacade(BaseTest):
             ).model_dump(mode="json"),
         )
         tag = Tag.objects.create(name="enterprise", team_id=self.team.id)
-        TaggedItem.objects.create(tag=tag, account=account)
+        account.tagged_items.create(tag=tag)
 
         result = facade.get_external_account(self.team.id, "acme-1")
 
@@ -413,7 +415,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
         kwargs.setdefault("name", "Acme Corp")
         return contracts.CreateAccountInput(**kwargs)
 
-    def _create(self, **kwargs) -> contracts.AccountView:
+    def _create(self, **kwargs) -> contracts.AccountDetails:
         return facade.create_account_for_view(
             team=self.team,
             input=self._create_account_input(**kwargs),
@@ -426,7 +428,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
     def test_create_account_returns_view_and_persists(self):
         view = self._create(name="Acme", external_id="acme-1", properties={"stripe_customer_id": "cus_1"})
 
-        assert isinstance(view, contracts.AccountView)
+        assert isinstance(view, contracts.AccountDetails)
         assert view.name == "Acme"
         assert view.external_id == "acme-1"
         assert view.properties == {"stripe_customer_id": "cus_1"}
@@ -442,7 +444,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
     def test_create_account_sets_tags(self):
         view = self._create(name="Tagged", tags=["enterprise", "priority"])
         account = Account.objects.unscoped().get(id=str(view.id))
-        assert sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True)) == [
+        assert sorted(TaggedItem.objects.for_object(account).values_list("tag__name", flat=True)) == [
             "enterprise",
             "priority",
         ]
@@ -492,6 +494,21 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
 
     def test_delete_account_removes_row(self):
         view = self._create(name="Doomed")
+        task = CustomerTask.objects.for_team(self.team.id).create(
+            team=self.team,
+            account_id=view.id,
+            name="Delete with account",
+            assigned_to=self.user,
+            created_by=self.user,
+        )
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_task",
+            resource_id=str(task.id),
+            access_level="editor",
+            organization_member=membership,
+        )
         facade.delete_account_for_view(
             team_id=self.team.id,
             account_id=str(view.id),
@@ -502,6 +519,7 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
             was_impersonated=False,
         )
         assert not Account.objects.unscoped().filter(id=str(view.id)).exists()
+        assert not AccessControl.objects.filter(resource="customer_task", resource_id=str(task.id)).exists()
 
     def test_get_account_for_view_unknown_raises(self):
         with self.assertRaises(facade.Account_DoesNotExist):

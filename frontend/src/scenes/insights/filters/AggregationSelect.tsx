@@ -4,7 +4,6 @@ import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -17,6 +16,8 @@ import {
     isRetentionQuery,
 } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
+
+import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'
 
 export function getHogQLValue(groupIndex?: number | null, aggregationQuery?: string | null): string {
     if (groupIndex != undefined) {

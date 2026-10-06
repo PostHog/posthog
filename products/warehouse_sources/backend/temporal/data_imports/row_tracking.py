@@ -1,8 +1,9 @@
 import uuid
 import asyncio
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, TypeVar
 
 from django.conf import settings
 from django.db.models import F, Q, Sum
@@ -16,6 +17,7 @@ from redis import (
     exceptions as redis_exceptions,
 )
 from structlog.types import FilteringBoundLogger
+from tenacity import retry, retry_if_exception, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
@@ -25,6 +27,7 @@ from posthog.settings import EE_AVAILABLE
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 
+from products.warehouse_sources.backend.billing import FREE_HISTORICAL_WINDOW, FREE_PERIOD_END, FREE_PERIOD_START
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, billable_destination_multiplier
 
 if TYPE_CHECKING:
@@ -33,37 +36,88 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+T = TypeVar("T")
+
+# A connect blip, a "too many open files" refusal and a replica redirect during a failover all
+# clear on their own, usually inside a second. Row tracking runs inside the import that calls it,
+# so the retry stays short: the import waits for every attempt.
+_retry_transient_redis_errors = retry(
+    retry=retry_if_exception_type(
+        (
+            redis_exceptions.ConnectionError,
+            redis_exceptions.TimeoutError,
+            redis_exceptions.ReadOnlyError,
+        )
+    ),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=0.1, max=1),
+    reraise=True,
+)
+
 
 def _get_hash_key(team_id: int) -> str:
     return f"posthog:data_warehouse_row_tracking:{team_id}"
+
+
+def _redis_url() -> str | None:
+    """The dedicated warehouse Redis, or the shared one when no dedicated instance is configured.
+
+    The fallback used to be localhost. Nothing listens there in a deployed environment, so an
+    environment that sets neither DATA_WAREHOUSE_REDIS_HOST nor POSTHOG_REDIS_HOST turned every
+    row-tracking call into a connection error. The shared Redis is the same fallback the other
+    per-product instances take (see SESSION_RECORDING_REDIS_URL), and settings refuse to start
+    without it, so a genuinely unconfigured install fails at startup instead of here.
+    """
+    if settings.DATA_WAREHOUSE_REDIS_HOST and settings.DATA_WAREHOUSE_REDIS_PORT:
+        return f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/"
+
+    return settings.REDIS_URL or None
+
+
+async def _fail_open(description: str, command: Callable[[], Awaitable[T]], fallback: T) -> T:
+    """Run a row-tracking Redis command, retry a transient failure, then return `fallback`.
+
+    Row tracking is bookkeeping for the billing estimate, so no Redis failure may reach the import
+    that called it. A retried command runs twice if Redis applied the first attempt and the reply
+    was lost, which at most counts one batch of rows twice until the next sync resets the counter.
+    """
+    try:
+        return await _retry_transient_redis_errors(command)()
+    except redis_exceptions.RedisError as e:
+        await logger.awarning(f"Redis error while {description}, failing open", error=str(e))
+        return fallback
 
 
 @asynccontextmanager
 async def _get_redis():
     """Returns an async Redis client for row tracking operations."""
     redis = None
-    try:
-        if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
-            raise Exception(
-                "Missing env vars for dwh row tracking: DATA_WAREHOUSE_REDIS_HOST or DATA_WAREHOUSE_REDIS_PORT"
-            )
+    url = _redis_url()
 
-        redis = get_async_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
-        await redis.ping()
-    except redis_exceptions.RedisError as e:
-        # Row tracking already fails open when redis is unavailable (every caller
-        # checks `if not redis: return`), so a Redis-side blip - unreachable, refusing
-        # writes because RDB snapshotting failed, loading, etc. - isn't a bug, and
-        # shouldn't be reported to error tracking. Same rationale as the RedisError
-        # handling in will_hit_billing_limit below.
-        await logger.awarning("Redis error while getting row tracking client, failing open", error=str(e))
-        redis = None
-    except Exception as e:
-        capture_exception(e)
-        # get_async_client only builds a lazy client, so a failed ping means redis is
-        # still unreachable - reset it to None so callers' `if not redis: return` guard
-        # actually skips the real command instead of raising the same error uncaught.
-        redis = None
+    if url is None:
+        await logger.aerror("No Redis is configured for row tracking, failing open")
+    else:
+        try:
+            client = get_async_client(url)
+
+            async def _ping() -> None:
+                await client.ping()
+
+            # get_async_client only builds a lazy client, so the ping is the first real connection
+            # attempt. Hand the client to the caller only once it answers, so that a caller's
+            # `if not redis: return` guard skips the real command instead of raising the same
+            # error uncaught.
+            await _retry_transient_redis_errors(_ping)()
+            redis = client
+        except redis_exceptions.RedisError as e:
+            # Row tracking already fails open when redis is unavailable (every caller
+            # checks `if not redis: return`), so a Redis-side blip - unreachable, refusing
+            # writes because RDB snapshotting failed, loading, etc. - isn't a bug, and
+            # shouldn't be reported to error tracking. Same rationale as the RedisError
+            # handling in will_hit_billing_limit below.
+            await logger.awarning("Redis error while getting row tracking client, failing open", error=str(e))
+        except Exception as e:
+            capture_exception(e)
 
     yield redis
 
@@ -73,14 +127,11 @@ async def setup_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
         if not redis:
             return
 
-        try:
+        async def _command() -> None:
             await redis.hset(_get_hash_key(team_id), str(schema_id), 0)
             await redis.expire(_get_hash_key(team_id), 60 * 60 * 24 * 7)  # 7 day expire
-        except redis_exceptions.RedisError as e:
-            # A successful ping doesn't guarantee later commands succeed (e.g. Redis
-            # refusing writes because it can't persist an RDB snapshot). Row tracking is
-            # best-effort, so a command failing here shouldn't fail the whole import.
-            capture_exception(e)
+
+        await _fail_open("setting up row tracking", _command, None)
 
 
 async def increment_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) -> None:
@@ -88,10 +139,10 @@ async def increment_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) ->
         if not redis:
             return
 
-        try:
+        async def _command() -> None:
             await redis.hincrby(_get_hash_key(team_id), str(schema_id), rows)
-        except redis_exceptions.RedisError as e:
-            capture_exception(e)
+
+        await _fail_open("incrementing row tracking", _command, None)
 
 
 async def decrement_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) -> None:
@@ -99,7 +150,7 @@ async def decrement_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) ->
         if not redis:
             return
 
-        try:
+        async def _command() -> None:
             if not await redis.hexists(_get_hash_key(team_id), str(schema_id)):
                 return
 
@@ -112,8 +163,8 @@ async def decrement_rows(team_id: int, schema_id: uuid.UUID | str, rows: int) ->
                 await redis.hset(_get_hash_key(team_id), str(schema_id), 0)
             else:
                 await redis.hincrby(_get_hash_key(team_id), str(schema_id), -rows)
-        except redis_exceptions.RedisError as e:
-            capture_exception(e)
+
+        await _fail_open("decrementing row tracking", _command, None)
 
 
 async def finish_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
@@ -121,10 +172,10 @@ async def finish_row_tracking(team_id: int, schema_id: uuid.UUID | str) -> None:
         if not redis:
             return
 
-        try:
+        async def _command() -> None:
             await redis.hdel(_get_hash_key(team_id), str(schema_id))
-        except redis_exceptions.RedisError as e:
-            capture_exception(e)
+
+        await _fail_open("finishing row tracking", _command, None)
 
 
 async def get_rows(team_id: int, schema_id: uuid.UUID | str) -> int:
@@ -132,15 +183,15 @@ async def get_rows(team_id: int, schema_id: uuid.UUID | str) -> int:
         if not redis:
             return 0
 
-        try:
+        async def _command() -> int:
             if await redis.hexists(_get_hash_key(team_id), str(schema_id)):
                 value = await redis.hget(_get_hash_key(team_id), str(schema_id))
                 if value:
                     return int(value)
-        except redis_exceptions.RedisError as e:
-            capture_exception(e)
 
-        return 0
+            return 0
+
+        return await _fail_open("reading row tracking", _command, 0)
 
 
 async def get_all_rows_for_team(team_id: int) -> int:
@@ -148,17 +199,12 @@ async def get_all_rows_for_team(team_id: int) -> int:
         if not redis:
             return 0
 
-        try:
+        async def _command() -> int:
             pairs = await redis.hgetall(_get_hash_key(team_id))
             return sum(int(v) for v in pairs.values())
-        except redis_exceptions.RedisError as e:
-            capture_exception(e)
-            return 0
 
+        return await _fail_open("reading team row tracking", _command, 0)
 
-# To be removed after 2025-11-06
-dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
-dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
 
 # The billing-period sum only moves when a job completes, so serving it from a cache for a
 # few minutes costs at most the rows one organization completes inside the window. The hard
@@ -179,10 +225,11 @@ def _get_sync_redis() -> Redis | None:
     The cache is read inside the same database thread as the query it replaces, so it uses the
     synchronous client rather than the async one the row-tracking helpers use.
     """
-    if not settings.DATA_WAREHOUSE_REDIS_HOST or not settings.DATA_WAREHOUSE_REDIS_PORT:
+    url = _redis_url()
+    if url is None:
         return None
 
-    return get_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
+    return get_client(url)
 
 
 def _rows_synced_in_billing_period(
@@ -215,7 +262,7 @@ def _rows_synced_in_billing_period(
     # Rows bill once per destination the run delivered to. A run completes only when every
     # destination took it, so the count is exact.
     result = ExternalDataJob.objects.filter(
-        Q(finished_at__gte=F("pipeline__created_at") + timedelta(days=7)),
+        Q(finished_at__gte=F("pipeline__created_at") + FREE_HISTORICAL_WINDOW),
         team_id__in=team_ids,
         finished_at__gte=billing_cycle_start,
         billable=True,
@@ -232,6 +279,37 @@ def _rows_synced_in_billing_period(
     return rows_synced_in_billing_period
 
 
+# Billing answers a request it could not finish in time with a 408, and a request it could not
+# serve with a 5xx. Both clear on a retry, and the check runs once per sync, so a few seconds of
+# retry is cheaper than a sync that skips the limit.
+_TRANSIENT_BILLING_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+
+
+def _is_transient_billing_error(error: BaseException) -> bool:
+    # A connect failure or a read timeout clears on its own. `RequestException` also covers a
+    # permanently broken request, such as an invalid `BILLING_SERVICE_URL`, and that must not be
+    # retried: it fails the same way on every attempt, so retrying only adds backoff to every sync.
+    if isinstance(error, requests.exceptions.ConnectionError | requests.exceptions.Timeout):
+        return True
+
+    # BillingServiceResponseError carries the status code billing answered with. The status is
+    # read through getattr because ee is not importable in every deployment.
+    return getattr(error, "status_code", None) in _TRANSIENT_BILLING_STATUS_CODES
+
+
+_retry_transient_billing_errors = retry(
+    retry=retry_if_exception(_is_transient_billing_error),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential_jitter(initial=0.5, max=4),
+    reraise=True,
+)
+
+
+@_retry_transient_billing_errors
+async def _fetch_billing_data(get_billing_data: Callable[[], Awaitable[T]]) -> T:
+    return await get_billing_data()
+
+
 async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", logger: FilteringBoundLogger) -> bool:
     if not EE_AVAILABLE:
         return False
@@ -242,20 +320,16 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
         await logger.adebug("Running will_hit_billing_limit")
 
         # Handle free period for newly created data sources
-        if source.created_at >= datetime.now(UTC) - timedelta(days=7):
+        if source.created_at >= datetime.now(UTC) - FREE_HISTORICAL_WINDOW:
             await logger.ainfo(
                 f"Skipping billing limits check for newly created data source for 7-days free rows. source.created_at = {source.created_at}"
             )
             return False
 
         # Handle free period for data synced during free period (to be removed after 2025-11-06)
-        if (
-            not TEST
-            and datetime.now(UTC) >= dwh_pricing_free_period_start
-            and datetime.now(UTC) <= dwh_pricing_free_period_end
-        ):
+        if not TEST and datetime.now(UTC) >= FREE_PERIOD_START and datetime.now(UTC) <= FREE_PERIOD_END:
             await logger.ainfo(
-                f"Skipping billing limits check for data synced during free period from {dwh_pricing_free_period_start} to {dwh_pricing_free_period_end}."
+                f"Skipping billing limits check for data synced during free period from {FREE_PERIOD_START} to {FREE_PERIOD_END}."
             )
             return False
 
@@ -293,7 +367,7 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
             billing_res,
             current_billing_cycle_start,
             rows_synced_in_billing_period,
-        ) = await _get_billing_data()
+        ) = await _fetch_billing_data(_get_billing_data)
 
         await logger.adebug(f"BillingLimits: Organisation_id = {org_id}")
         await logger.adebug(f"BillingLimits: Teams in org: {all_teams_in_org}")
@@ -356,6 +430,14 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
 
         return False
     except Exception as e:
+        if _is_transient_billing_error(e):
+            # Billing refused with a status that clears on its own, and the retries above are
+            # spent. The check already fails open, so this is infrastructure noise rather than a
+            # bug to report to error tracking.
+            await logger.awarning(f"BillingLimits: billing service is unavailable, failing open: {e}")
+
+            return False
+
         await logger.adebug(f"BillingLimits: Failed with exception {e}")
         capture_exception(e)
 

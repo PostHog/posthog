@@ -16,7 +16,14 @@ import {
     LemonSelect,
 } from '@posthog/lemon-ui'
 
-import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
+import {
+    CyclotronJobTemplateSuggestionsButton,
+    useTemplateEditorCursor,
+} from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
+import {
+    insertTemplateReference,
+    templateReferenceForOption,
+} from 'lib/components/CyclotronJob/cyclotronJobTemplateSuggestionsLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -33,6 +40,7 @@ import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
 import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
+import { previewLinkTargetCustomJs } from './custom-tools/previewLinkTarget'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 import { EmailFieldErrors, EmailTemplateFrom, MAX_WORKFLOW_EMAIL_SENDERS } from './types'
@@ -83,6 +91,7 @@ function AddAdvancedFieldButtons(): JSX.Element | null {
 function PlainTextEditor(): JSX.Element {
     const { logicProps, templatingEngine } = useValues(emailTemplaterLogic)
     const { setTemplatingEngine } = useActions(emailTemplaterLogic)
+    const { onEditorMount, cursorOffset } = useTemplateEditorCursor()
 
     return (
         <LemonField name="text" className="flex flex-col flex-1">
@@ -94,7 +103,13 @@ function PlainTextEditor(): JSX.Element {
                             setTemplatingEngine={setTemplatingEngine}
                             value={value}
                             onOptionSelect={(option) => {
-                                onChange(`${value || ''}${option.example}`)
+                                onChange(
+                                    insertTemplateReference(
+                                        value || '',
+                                        templateReferenceForOption(option, templatingEngine),
+                                        cursorOffset()
+                                    )
+                                )
                             }}
                         />
                     </span>
@@ -103,6 +118,7 @@ function PlainTextEditor(): JSX.Element {
                         language={templatingEngine === 'hog' ? 'hogTemplate' : 'liquid'}
                         value={value}
                         onChange={onChange}
+                        onMount={onEditorMount}
                         globals={logicProps.variables}
                         options={{
                             wordWrap: 'on',
@@ -207,6 +223,7 @@ function DestinationEmailTemplaterForm({
                                             // paid credits from our Unlayer workspace, so keep them all off.
                                             ai: false,
                                         },
+                                        customJS: [previewLinkTargetCustomJs],
                                     }}
                                 />
                             </div>
@@ -214,7 +231,7 @@ function DestinationEmailTemplaterForm({
                         </div>
                     </>
                 ) : (
-                    <LemonField name="html" className="flex relative flex-col">
+                    <LemonField name="html" className="flex relative flex-col flex-1">
                         {({ value }: ChildFunctionProps) => (
                             <>
                                 <div
@@ -231,7 +248,14 @@ function DestinationEmailTemplaterForm({
                                     />
                                 </div>
 
-                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
+                                {/* The floor keeps the preview readable where the host gives it no
+                                    spare height to grow into */}
+                                <iframe
+                                    srcDoc={value}
+                                    sandbox=""
+                                    title="Email template preview"
+                                    className="flex-1 min-h-40"
+                                />
                             </>
                         )}
                     </LemonField>
@@ -437,6 +461,7 @@ function LiquidSupportedText({
 }): JSX.Element {
     const { templatingEngine } = useValues(emailTemplaterLogic)
     const { setTemplatingEngine } = useActions(emailTemplaterLogic)
+    const { onEditorMount, cursorOffset } = useTemplateEditorCursor()
 
     const templating = templatingEngine ?? 'hog'
 
@@ -448,7 +473,13 @@ function LiquidSupportedText({
                     setTemplatingEngine={setTemplatingEngine}
                     value={value}
                     onOptionSelect={(option) => {
-                        onChange?.(`${value || ''}${option.example}`)
+                        onChange?.(
+                            insertTemplateReference(
+                                value || '',
+                                templateReferenceForOption(option, templating),
+                                cursorOffset()
+                            )
+                        )
                     }}
                 />
             </span>
@@ -459,6 +490,7 @@ function LiquidSupportedText({
                 value={value}
                 language={templating === 'hog' ? 'hogTemplate' : 'liquid'}
                 onChange={onChange}
+                onMount={onEditorMount}
             />
         </span>
     )
@@ -702,8 +734,12 @@ function NativeEmailTemplaterForm({
                                         },
                                         projectId: unlayerEditorProjectId,
                                         customJS: sceneIntegrationEnabled
-                                            ? [unsubscribeLinkToolCustomJs, collapseToolsPanelCustomJs]
-                                            : [unsubscribeLinkToolCustomJs],
+                                            ? [
+                                                  unsubscribeLinkToolCustomJs,
+                                                  collapseToolsPanelCustomJs,
+                                                  previewLinkTargetCustomJs,
+                                              ]
+                                            : [unsubscribeLinkToolCustomJs, previewLinkTargetCustomJs],
                                         fonts: unlayerEditorProjectId
                                             ? {
                                                   showDefaultFonts: true,
@@ -729,7 +765,7 @@ function NativeEmailTemplaterForm({
                         </div>
                     </>
                 ) : (
-                    <LemonField name="html" className="flex relative flex-col">
+                    <LemonField name="html" className="flex relative flex-col flex-1">
                         {({ value }: ChildFunctionProps) => (
                             <>
                                 <div
@@ -746,7 +782,14 @@ function NativeEmailTemplaterForm({
                                     />
                                 </div>
 
-                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
+                                {/* The floor keeps the preview readable where the host gives it no
+                                    spare height to grow into */}
+                                <iframe
+                                    srcDoc={value}
+                                    sandbox=""
+                                    title="Email template preview"
+                                    className="flex-1 min-h-40"
+                                />
                             </>
                         )}
                     </LemonField>

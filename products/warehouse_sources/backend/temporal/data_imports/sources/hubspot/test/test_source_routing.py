@@ -313,6 +313,8 @@ def test_missing_token_error_is_non_retryable(error_msg: str) -> None:
         "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
         # auth.hubspot_refresh_access_token, exhausted after tenacity's 5 in-process attempts
         "You have reached your rate limit.",
+        # auth.hubspot_refresh_access_token, raised verbatim while HubSpot migrates a portal
+        "Migration in progress and the portal is not available for access.",
     ],
 )
 def test_transient_http_error_is_retryable(error_msg: str) -> None:
@@ -396,13 +398,15 @@ class TestApiVersion:
 @pytest.mark.parametrize(
     "error_msg",
     [
-        # helpers._get exhausted all 5 tenacity retries on a 401 — token refresh succeeded each
-        # time but HubSpot kept rejecting the request, indicating broken OAuth credentials.
-        "Hubspot API 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/properties/tickets",
-        "Hubspot API 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/properties/contacts",
-        # raise_for_status() 401/403 from other fetch paths
+        # Each fetch loop refreshes the token on a 401 and re-raises this after tenacity's 5 attempts
+        "Hubspot API 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/properties/companies",
+        "Hubspot API 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/objects/deals",
+        "Hubspot v4 associations 401 - refreshed token, retrying: "
+        "url=https://api.hubapi.com/crm/v4/associations/contacts/deals/batch/read",
+        "Hubspot search 401 - refreshed token, retrying: url=https://api.hubapi.com/crm/v3/objects/contacts/search",
+        # raise_for_status() 401 from other fetch paths
         "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/companies",
-        "401 Client Error: Unauthorized for url: https://api.hubapi.com/crm/v3/properties/deals",
+        # raise_for_hubspot_status maps a 403 to this verbatim
         "403 Client Error: Forbidden for url: https://api.hubapi.com/crm/v3/objects/contacts",
     ],
 )

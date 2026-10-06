@@ -14,10 +14,13 @@ import {
 } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonSkeleton, ProfilePicture } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSlack } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
+import { customerTasksLogic } from '../CustomerTasks/customerTasksLogic'
 import { accountBillingLogic } from './accountBillingLogic'
 import { accountConversationsLogic } from './accountConversationsLogic'
 import { AccountDetailTabs } from './AccountDetailTabs'
@@ -130,6 +133,11 @@ function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
     )
 }
 
+function CustomerTasksMount({ accountId }: { accountId: string }): null {
+    useMountedLogic(customerTasksLogic({ context: 'account', accountId }))
+    return null
+}
+
 export function AccountNotebooksExpansion({
     accountId,
     externalId,
@@ -148,6 +156,7 @@ export function AccountNotebooksExpansion({
     useMountedLogic(accountConversationsLogic({ accountId }))
     useMountedLogic(accountEmailThreadsLogic({ accountId }))
     useMountedLogic(accountMeetingsLogic({ accountId }))
+    const { featureFlags } = useValues(featureFlagLogic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
     const activeTab = activeTabFor(accountId)
@@ -157,6 +166,9 @@ export function AccountNotebooksExpansion({
             className="sticky left-0 w-[100cqw] max-w-full overflow-x-hidden p-3 bg-bg-light"
             data-attr="account-expansion"
         >
+            {!!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS] && (
+                <CustomerTasksMount accountId={accountId} />
+            )}
             <div className="flex gap-4">
                 <div className="w-fit shrink-0 flex flex-col gap-4">
                     <UsefulLinks accountId={accountId} />

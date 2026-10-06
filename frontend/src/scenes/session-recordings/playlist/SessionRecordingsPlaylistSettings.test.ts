@@ -1,6 +1,6 @@
 import { RecordingUniversalFilters } from '~/types'
 
-import { getSortChangedEvent } from './SessionRecordingsPlaylistSettings'
+import { getRecommendedFilterChange, getSortChangedEvent } from './SessionRecordingsPlaylistSettings'
 
 type Sort = Parameters<typeof getSortChangedEvent>[1]
 
@@ -63,5 +63,11 @@ describe('getSortChangedEvent', () => {
 
     it.each(cases)('captures previous and new sort when %s', (_name, currentFilters, sort, expected) => {
         expect(getSortChangedEvent(currentFilters, sort)).toEqual(expected)
+    })
+})
+
+describe('getRecommendedFilterChange', () => {
+    it.each([true, false])('only changes the relevance filter when set to %s', (enabled) => {
+        expect(getRecommendedFilterChange(enabled)).toEqual({ recommended_only: enabled })
     })
 })

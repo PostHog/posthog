@@ -26,8 +26,8 @@ const ALLOWED_VIOLATIONS = {
     'new Function()': {
         loader: 0,
         eager: 1, // toolbarLogic's deliberate CSP support probe
-        total: 5, // + pixi.js via @posthog/hedgehog-mode (4), in the lazy hedgehog chunks
-        source: 'toolbarLogic CSP probe (1, eager) + pixi.js via @posthog/hedgehog-mode (4, lazy)',
+        total: 6, // + pixi.js via @posthog/hedgehog-mode (5), in the lazy hedgehog chunks
+        source: 'toolbarLogic CSP probe (1, eager) + pixi.js via @posthog/hedgehog-mode (5, lazy)',
     },
 }
 

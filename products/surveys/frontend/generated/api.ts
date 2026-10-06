@@ -9,6 +9,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    DesktopFeedbackRequestApi,
+    DesktopFeedbackResponseApi,
     GenerateSurveyTranslationsRequestApi,
     GenerateSurveyTranslationsResponseApi,
     PaginatedSurveyListApi,
@@ -45,6 +47,77 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
+export const getDesktopFeedbackCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/desktop_feedback/`
+}
+
+/**
+ * Stores selected attachments and submits one response to the PostHog Desktop feedback survey.
+ * @summary Submit Desktop feedback
+ */
+export const desktopFeedbackCreate = async (
+    projectId: string,
+    desktopFeedbackRequestApi: DesktopFeedbackRequestApi,
+    options?: RequestInit
+): Promise<DesktopFeedbackResponseApi> => {
+    const formData = new FormData()
+    formData.append(`response`, desktopFeedbackRequestApi.response)
+    formData.append(`source`, desktopFeedbackRequestApi.source)
+    formData.append(`feedback_view`, desktopFeedbackRequestApi.feedback_view)
+    if (desktopFeedbackRequestApi.feedback_type !== undefined) {
+        formData.append(`feedback_type`, desktopFeedbackRequestApi.feedback_type)
+    }
+    if (desktopFeedbackRequestApi.feedback_task_id !== undefined) {
+        formData.append(`feedback_task_id`, desktopFeedbackRequestApi.feedback_task_id)
+    }
+    if (desktopFeedbackRequestApi.feedback_folder_id !== undefined) {
+        formData.append(`feedback_folder_id`, desktopFeedbackRequestApi.feedback_folder_id)
+    }
+    if (desktopFeedbackRequestApi.feedback_app_logs !== undefined) {
+        formData.append(`feedback_app_logs`, desktopFeedbackRequestApi.feedback_app_logs)
+    }
+    if (desktopFeedbackRequestApi.app_version !== undefined) {
+        formData.append(`app_version`, desktopFeedbackRequestApi.app_version)
+    }
+    if (desktopFeedbackRequestApi.session_id !== undefined) {
+        formData.append(`session_id`, desktopFeedbackRequestApi.session_id)
+    }
+    if (desktopFeedbackRequestApi.screenshot !== undefined) {
+        formData.append(`screenshot`, desktopFeedbackRequestApi.screenshot)
+    }
+    if (desktopFeedbackRequestApi.image_1 !== undefined) {
+        formData.append(`image_1`, desktopFeedbackRequestApi.image_1)
+    }
+    if (desktopFeedbackRequestApi.image_2 !== undefined) {
+        formData.append(`image_2`, desktopFeedbackRequestApi.image_2)
+    }
+
+    return apiMutator<DesktopFeedbackResponseApi>(getDesktopFeedbackCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+export const getDesktopFeedbackAttachmentsRetrieveUrl = (projectId: string, mediaId: string) => {
+    return `/api/projects/${projectId}/desktop_feedback/attachments/${mediaId}/`
+}
+
+/**
+ * Returns an unexpired attachment to a user with access to the internal feedback project.
+ * @summary Download a Desktop feedback attachment
+ */
+export const desktopFeedbackAttachmentsRetrieve = async (
+    projectId: string,
+    mediaId: string,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getDesktopFeedbackAttachmentsRetrieveUrl(projectId, mediaId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getSurveysListUrl = (projectId: string, params?: SurveysListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -61,6 +134,13 @@ export const getSurveysListUrl = (projectId: string, params?: SurveysListParams)
         : `/api/projects/${projectId}/surveys/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysList = async (
     projectId: string,
     params?: SurveysListParams,
@@ -76,6 +156,13 @@ export const getSurveysCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/surveys/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysCreate = async (
     projectId: string,
     surveySerializerCreateUpdateOnlySchemaApi: NonReadonly<SurveySerializerCreateUpdateOnlySchemaApi>,
@@ -93,6 +180,13 @@ export const getSurveysRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<SurveyApi> => {
     return apiMutator<SurveyApi>(getSurveysRetrieveUrl(projectId, id), {
         ...options,
@@ -104,6 +198,13 @@ export const getSurveysUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysUpdate = async (
     projectId: string,
     id: string,
@@ -122,6 +223,13 @@ export const getSurveysPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysPartialUpdate = async (
     projectId: string,
     id: string,
@@ -140,6 +248,13 @@ export const getSurveysDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysDestroyUrl(projectId, id), {
         ...options,
@@ -151,6 +266,13 @@ export const getSurveysActivityRetrieveUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/surveys/${id}/activity/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysActivityRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysActivityRetrieveUrl(projectId, id), {
         ...options,
@@ -207,6 +329,13 @@ export const getSurveysGenerateTranslationsCreateUrl = (projectId: string, id: s
     return `/api/projects/${projectId}/surveys/${id}/generate_translations/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysGenerateTranslationsCreate = async (
     projectId: string,
     id: string,
@@ -406,6 +535,13 @@ export const getSurveysSummaryHeadlineCreateUrl = (projectId: string, id: string
     return `/api/projects/${projectId}/surveys/${id}/summary_headline/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysSummaryHeadlineCreate = async (
     projectId: string,
     id: string,
@@ -424,6 +560,13 @@ export const getSurveysAllActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/surveys/activity/`
 }
 
+/**
+ * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
+ *
+ * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
+ * decorator on serializer methods and converts them into the same responses the viewset path
+ * produces (see decorators._result_to_response), so both paths share one contract.
+ */
 export const surveysAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysAllActivityRetrieveUrl(projectId), {
         ...options,

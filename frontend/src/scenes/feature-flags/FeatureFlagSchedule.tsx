@@ -27,6 +27,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
 import { describeCron } from 'lib/cron'
 import { dayjs } from 'lib/dayjs'
@@ -39,7 +40,7 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import {
-    FeatureFlagType,
+    FeatureFlagWithV1Config,
     MultivariateFlagVariant,
     RecurrenceInterval,
     ScheduledChangeOperationType,
@@ -65,35 +66,10 @@ import { ScheduleTimeline } from './ScheduleTimeline'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 
-/** Shows the project timezone abbreviation (e.g. "PST") with a tooltip linking to settings. */
-function ScheduleTimezoneHint(): JSX.Element | null {
-    const { currentTeam } = useValues(teamLogic)
-    if (!currentTeam) {
-        return null
-    }
-    const tz = shortTimeZone(currentTeam.timezone) ?? currentTeam.timezone
-    return (
-        <Tooltip
-            interactive
-            title={
-                <>
-                    Times are in the{' '}
-                    <Link to={urls.settings('environment-customization', 'date-and-time')} target="_blank">
-                        project's timezone
-                    </Link>{' '}
-                    ({currentTeam.timezone})
-                </>
-            }
-        >
-            <span className="text-muted font-normal">({tz})</span>
-        </Tooltip>
-    )
-}
-
 type AggregationLabel = (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 
 function getScheduledVariantsPayloads(
-    featureFlag: FeatureFlagType,
+    featureFlag: FeatureFlagWithV1Config,
     schedulePayload: { variants?: MultivariateFlagVariant[]; payloads?: Record<string, any>; filters?: any }
 ): { variants: MultivariateFlagVariant[]; payloads: Record<string, any> } {
     const currentVariants = featureFlag.filters.multivariate?.variants || []
@@ -437,7 +413,7 @@ function ScheduleCard({
 
 export default function FeatureFlagSchedule(): JSX.Element {
     const {
-        featureFlag,
+        featureFlag: loadedFeatureFlag,
         scheduledChangesLoading,
         scheduledChangeOperation,
         scheduleDateMarker,
@@ -461,6 +437,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
         scheduleFormState,
         scheduleFormCollapsible,
     } = useValues(featureFlagLogic)
+    // The Schedule tab is not offered for another config version (availableTabs), so the document is v1.
+    const featureFlag = loadedFeatureFlag as FeatureFlagWithV1Config
     const {
         deleteScheduledChange,
         setScheduleDateMarker,
@@ -643,7 +621,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                         </Tooltip>
                                     ) : (
                                         <>
-                                            Date and time <ScheduleTimezoneHint />
+                                            Date and time <ProjectTimezoneHint />
                                         </>
                                     )}
                                 </label>
@@ -902,7 +880,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 {scheduleDateMarker ? (
                                     <>
                                         {` on ${scheduleDateMarker.format(DAYJS_FORMAT)} `}
-                                        <ScheduleTimezoneHint />
+                                        <ProjectTimezoneHint />
                                     </>
                                 ) : (
                                     ' on the scheduled date'
@@ -1150,7 +1128,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 'Next run'
                             ) : (
                                 <>
-                                    Date and time <ScheduleTimezoneHint />
+                                    Date and time <ProjectTimezoneHint />
                                 </>
                             )}
                         </label>

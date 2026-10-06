@@ -122,6 +122,13 @@ class TestRedditAdsSource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable_errors)
 
+    def test_unauthorized_surfaces_actionable_message(self):
+        error = "401 Client Error: Unauthorized for url: https://ads-api.reddit.com/api/v3/ad_accounts/789/campaigns"
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        friendly = next((message for pattern, message in non_retryable_errors.items() if pattern in error), None)
+        assert friendly is not None
+        assert "Reconnect" in friendly
+
     @pytest.mark.parametrize(
         "other_error",
         [

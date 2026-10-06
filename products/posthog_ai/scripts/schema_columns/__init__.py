@@ -13,7 +13,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 
-_HEADER = "Column | Type | Nullable | Description"
+# The separator row is part of the header: without it the block is not a markdown table and
+# renders as plain text wherever the reference is displayed.
+_HEADER = "Column | Type | Nullable | Description\n--- | --- | --- | ---"
 
 
 # Not `@frozen` from `posthog.dataclasses`: importing it runs `posthog/__init__`, and every helper

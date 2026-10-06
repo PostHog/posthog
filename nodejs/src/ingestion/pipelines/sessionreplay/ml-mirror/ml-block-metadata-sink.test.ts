@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { parseJSON } from '~/common/utils/json-parse'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import {
     SessionBlockMetadata,
     createNoopBlockMetadata,
@@ -9,9 +9,6 @@ import {
 import { ML_BLOCK_METADATA_OUTPUT, MlBlockMetadataOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 
 import { MlBlockMetadataSink } from './ml-block-metadata-sink'
-import { PSEUDONYM_SESSION, pseudonymize } from './pseudonymize'
-
-const SECRET = 'test-secret'
 
 const block = (sessionId: string, teamId: number, over: Partial<SessionBlockMetadata> = {}): SessionBlockMetadata => ({
     ...createNoopBlockMetadata(sessionId, teamId),
@@ -32,27 +29,19 @@ describe('MlBlockMetadataSink', () => {
         outputs = { queueMessages: jest.fn().mockResolvedValue(undefined) } as unknown as jest.Mocked<
             IngestionOutputs<MlBlockMetadataOutput>
         >
-        sink = new MlBlockMetadataSink(outputs, SECRET)
+        sink = new MlBlockMetadataSink(outputs, 'test-secret')
     })
 
-    it('produces pseudonymized rows to the ML topic, keyed by the session pseudonym', async () => {
-        await sink.storeSessionBlocks([block('s1', 7)])
-
-        expect(outputs.queueMessages).toHaveBeenCalledTimes(1)
-        const [output, messages] = outputs.queueMessages.mock.calls[0]
-        expect(output).toBe(ML_BLOCK_METADATA_OUTPUT)
-        expect(messages[0].key).toBe(pseudonymize(SECRET, PSEUDONYM_SESSION, 's1'))
-
-        const row = parseJSON((messages[0].value as Buffer).toString())
-        expect(row.session_id).toBe(pseudonymize(SECRET, PSEUDONYM_SESSION, 's1'))
-        expect(row.session_id).not.toBe('s1')
-        expect(row.distinct_id).not.toContain('user@example.com')
-        expect(row.block_byte_end).toBe(9)
+    it('rejects v2 metadata when encryption is not configured', async () => {
+        await expect(sink.storeSessionBlocks([block('01a0a4f0-3200-7000-8000-000000000001', 7)])).rejects.toThrow(
+            'requires key manager configuration'
+        )
+        expect(outputs.queueMessages).not.toHaveBeenCalled()
     })
 
     it('skips deletion and url-less markers', async () => {
         await sink.storeSessionBlocks([
-            block('s1', 1),
+            block('legacy-session', 1),
             block('s2', 1, { isDeleted: true }),
             block('s3', 1, { blockUrl: null }),
         ])
@@ -60,8 +49,20 @@ describe('MlBlockMetadataSink', () => {
         expect(messages).toHaveLength(1)
     })
 
+    it('stamps a record with the capture time of the earliest message in its block', async () => {
+        await sink.storeSessionBlocks([
+            block('legacy-session', 1, { earliestCapturedAtMs: 1_700_000_000_000 }),
+            block('legacy-other', 1),
+        ])
+        const [, messages] = outputs.queueMessages.mock.calls[0]
+        expect(messages.map((message) => message.headers?.[CAPTURE_TIMESTAMP_HEADER])).toEqual([
+            '1700000000000',
+            undefined,
+        ])
+    })
+
     it('still calls queueMessages for an all-skipped batch', async () => {
-        await sink.storeSessionBlocks([block('s1', 1, { isDeleted: true })])
+        await sink.storeSessionBlocks([block('01a0a4f0-3200-7000-8000-000000000001', 1, { isDeleted: true })])
         expect(outputs.queueMessages).toHaveBeenCalledWith(ML_BLOCK_METADATA_OUTPUT, [])
     })
 })

@@ -16,17 +16,16 @@ import {
     createApplyCookielessProcessingStep,
     createApplyPersonProcessingRestrictionsStep,
     createDedupeFeatureFlagCalledStep,
-    createOnlyCookielessRateLimitToOverflowStep,
     createOverflowLaneTTLRefreshStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
+import { prefetchHogFunctionsStep } from '~/ingestion/common/steps/prefetch-hog-functions-step'
 import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { prefetchEventSchemasStep } from '~/ingestion/pipelines/analytics/steps/prefetchEventSchemasStep'
 import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'
-import { prefetchHogFunctionsStep } from '~/ingestion/pipelines/analytics/steps/prefetchHogFunctionsStep'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
@@ -47,8 +46,6 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     eventSchemaEnforcementManager: EventSchemaEnforcementManager
     eventSchemaEnforcementEnabled: boolean
     cookielessManager: CookielessManager
-    preservePartitionLocality: boolean
-    overflowRedirectService?: OverflowRedirectService
     overflowLaneTTLRefreshService?: OverflowRedirectService
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     personsPrefetchEnabled: boolean
@@ -75,8 +72,6 @@ export function createPostTeamPreprocessingSubpipeline<
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
         cookielessManager,
-        preservePartitionLocality,
-        overflowRedirectService,
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
@@ -115,10 +110,6 @@ export function createPostTeamPreprocessingSubpipeline<
             // Any steps that depend on the final distinct ID must run after this step.
             .gather()
             .pipeChunk(createApplyCookielessProcessingStep(cookielessManager))
-            // Rate-limit only cookieless events using the hashed distinct_id assigned by the
-            // cookieless step. Non-cookieless events were rate-limited pre-parse in the joined
-            // pipeline via createSkipCookielessRateLimitToOverflowStep.
-            .pipeChunk(createOnlyCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             // Refresh TTLs for overflow lane events (keeps Redis flags alive)
             .pipeChunk(createOverflowLaneTTLRefreshStep(overflowLaneTTLRefreshService))
             // Drop redundant $feature_flag_called events (keep-first Redis claim).

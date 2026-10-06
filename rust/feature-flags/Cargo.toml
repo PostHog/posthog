@@ -36,7 +36,7 @@ url = "2.5"
 once_cell = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+serde_json = { workspace = true, features = ["raw_value"] }
 json5 = "1.3"
 thiserror = { workspace = true }
 sha1 = "0.10.6"
@@ -115,9 +115,10 @@ required-features = ["flags-cache-builder"]
 workspace = true
 
 [dev-dependencies]
+jsonschema = { version = "0.58", default-features = false }
 rstest = "0.26"
 assert-json-diff = { workspace = true }
-common-s3 = { path = "../common/s3" }
+common-s3 = { path = "../common/s3", features = ["mock-client"] }
 reqwest = { workspace = true }
 futures = "0.3.30"
 test-case = "3.3.1"

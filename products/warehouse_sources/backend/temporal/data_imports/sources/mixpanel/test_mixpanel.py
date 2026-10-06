@@ -2,7 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import orjson
@@ -205,11 +205,11 @@ class TestParseRetryAfter:
     def test_delta_seconds(self, _name: str, value: Optional[str], expected: Optional[float]) -> None:
         assert _parse_retry_after(value) == expected
 
-    @freeze_time("2024-06-04T00:00:00Z")
+    @time_machine.travel("2024-06-04T00:00:00Z", tick=False)
     def test_http_date_in_the_future(self) -> None:
         assert _parse_retry_after("Tue, 04 Jun 2024 00:00:30 GMT") == 30.0
 
-    @freeze_time("2024-06-04T00:00:00Z")
+    @time_machine.travel("2024-06-04T00:00:00Z", tick=False)
     def test_http_date_in_the_past_is_ignored(self) -> None:
         assert _parse_retry_after("Tue, 04 Jun 2024 00:00:00 GMT") is None
 
@@ -270,14 +270,20 @@ class TestValidateCredentials:
         else:
             assert error is not None
 
-    def test_bad_request_points_at_the_project_id(self) -> None:
-        # A 400 used to fall through and surface the raw status code, which is not actionable.
+    @parameterized.expand(
+        [
+            ("bad_request", 400, "project ID"),
+            ("payment_required", 402, "plan"),
+        ]
+    )
+    def test_rejections_explain_the_fix_without_the_status_code(self, _name: str, status: int, hint: str) -> None:
         session = MagicMock()
-        session.post.return_value = FakeResponse(status_code=400)
+        session.post.return_value = FakeResponse(status_code=status)
         with patch.object(mp, "make_tracked_session", return_value=session):
             ok, error = validate_credentials("us", "user", "secret", "123")
         assert ok is False
-        assert error is not None and "project ID" in error
+        assert error is not None and hint in error
+        assert str(status) not in error
 
     def test_network_error_returns_failure(self) -> None:
         session = MagicMock()
@@ -286,16 +292,6 @@ class TestValidateCredentials:
             ok, error = validate_credentials("eu", "user", "secret", "123")
         assert ok is False
         assert error is not None
-
-    def test_payment_required_gets_actionable_message(self) -> None:
-        session = MagicMock()
-        session.post.return_value = FakeResponse(status_code=402)
-        with patch.object(mp, "make_tracked_session", return_value=session):
-            ok, error = validate_credentials("us", "user", "secret", "123")
-        assert ok is False
-        assert error is not None
-        assert "402" in error
-        assert "plan" in error.lower()
 
 
 class TestExportIterator:
@@ -410,6 +406,61 @@ class TestExportStreamRetry:
         mock_sleep.assert_called_once()
         # Cursor only advances once the day finally completes.
         assert [s.from_date for s in manager.saved] == ["2024-01-02"]
+
+    def test_retries_day_when_the_stream_carries_the_abort_marker(self) -> None:
+        manager = FakeManager()
+        day = date(2024, 1, 1)
+        truncated = FakeResponse(lines=[self._line("i1"), b"terminated early"])
+        succeeding = FakeResponse(lines=[self._line("i1"), self._line("i2")])
+        with (
+            patch.object(mp, "_request", side_effect=[truncated, succeeding]) as mock_request,
+            patch.object(mp.time, "sleep") as mock_sleep,
+        ):
+            batches = list(
+                mp._iter_export(
+                    "us",
+                    "u",
+                    "s",
+                    "123",
+                    LOGGER,
+                    manager,  # type: ignore[arg-type]
+                    start_date=day,
+                    end_date=day,
+                    api_version=MIXPANEL_API_VERSION_V1,
+                )
+            )
+
+        rows = [row for batch in batches for row in batch]
+        assert [r["$insert_id"] for r in rows] == ["i1", "i2"]
+        assert mock_request.call_count == 2
+        mock_sleep.assert_called_once()
+        assert [s.from_date for s in manager.saved] == ["2024-01-02"]
+
+    def test_does_not_retry_a_line_without_the_abort_marker(self) -> None:
+        manager = FakeManager()
+        day = date(2024, 1, 1)
+        unparseable = FakeResponse(lines=[self._line("i1"), b"<html>gateway</html>"])
+        with (
+            patch.object(mp, "_request", side_effect=[unparseable]) as mock_request,
+            patch.object(mp.time, "sleep") as mock_sleep,
+        ):
+            with pytest.raises(orjson.JSONDecodeError):
+                list(
+                    mp._iter_export(
+                        "us",
+                        "u",
+                        "s",
+                        "123",
+                        LOGGER,
+                        manager,  # type: ignore[arg-type]
+                        start_date=day,
+                        end_date=day,
+                        api_version=MIXPANEL_API_VERSION_V1,
+                    )
+                )
+
+        assert mock_request.call_count == 1
+        mock_sleep.assert_not_called()
 
     def test_gives_up_after_max_attempts(self) -> None:
         manager = FakeManager()
@@ -529,8 +580,12 @@ class TestSingleRequestEndpoints:
             assert list(mp._fetch_annotations("us", "u", "s", "123", LOGGER)) == []
 
 
-@freeze_time("2024-06-04")
 class TestGetRowsExportWindow:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-06-04", tick=False):
+            yield
+
     def _captured_window(self, **kwargs) -> tuple[date, date]:
         with patch.object(mp, "_iter_export", return_value=iter([])) as mock_iter:
             list(mp.get_rows("us", "u", "s", "123", "export", LOGGER, FakeManager(), **kwargs))  # type: ignore[arg-type]

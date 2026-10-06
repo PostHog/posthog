@@ -21,6 +21,23 @@ export function pinnedPropertyId(property: PinnedProperty): string {
     return `${property.type}:${property.key}`
 }
 
+/**
+ * A property keeps its own type through HogQL, so a pin like $browser_version comes back as a
+ * number and a flag as a boolean. The strip renders text, so everything is stringified here.
+ */
+export function toDisplayValue(value: unknown): string | null {
+    if (value === null || value === undefined || value === '') {
+        return null
+    }
+    if (typeof value === 'string') {
+        return value
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+        return String(value)
+    }
+    return JSON.stringify(value)
+}
+
 function selectExpression(property: PinnedProperty): string {
     const identifier = escapePropertyAsHogQLIdentifier(property.key)
     if (property.type === 'session') {
@@ -68,12 +85,12 @@ export interface observationSessionPropertiesLogicActions {
     }
     loadSessionPropertiesSuccess: (
         sessionProperties: {
-            [k: string]: any
+            [k: string]: string | null
         } | null,
         payload?: any
     ) => {
         sessionProperties: {
-            [k: string]: any
+            [k: string]: string | null
         } | null
         payload?: any
     }
@@ -132,7 +149,7 @@ export const observationSessionPropertiesLogic = kea<observationSessionPropertie
                     }
                     return Object.fromEntries(
                         // An event carrying the key with an empty value reads the same as never carrying it.
-                        properties.map((property, index) => [pinnedPropertyId(property), row[index] || null])
+                        properties.map((property, index) => [pinnedPropertyId(property), toDisplayValue(row[index])])
                     )
                 },
             },

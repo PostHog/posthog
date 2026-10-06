@@ -1,5 +1,11 @@
 Aggregate trace span statistics as a call tree — one row per `(parent_service, parent_name) → (service_name, name)` edge.
 
+All parameters go inside `query` — top-level fields are rejected:
+
+```json
+{ "query": { "spanName": "GET /checkout", "serviceName": "api", "dateRange": { "date_from": "-1h" } } }
+```
+
 Requires a `spanName` to bound the matched trace set (the `(trace_id, parent_span_id)` self-join is unsafe at high cardinality without it), and a `serviceName` to scope the returned tree to a single service. All traces that contain at least one span with the given name in the given service are included, and every span in those traces from that service is aggregated against its parent.
 
 Returns rows with:
@@ -22,8 +28,6 @@ Use to answer:
 - "Did the call tree under `/api/feed` change between last week and this week?" (with `compareFilter`)
 
 For a flat per-operation view (no parent linkage), use `apm-spans-aggregate` instead.
-
-All parameters must be nested inside a `query` object.
 
 # Comparison window
 
@@ -49,8 +53,6 @@ Use `apm-attributes-list` and `apm-attribute-values-list` to discover available 
 Use `query.dateRange` to control the time window. Default is the last hour (`-1h`).
 
 # Parameters
-
-All parameters go inside `query`.
 
 ## query.spanName (required)
 

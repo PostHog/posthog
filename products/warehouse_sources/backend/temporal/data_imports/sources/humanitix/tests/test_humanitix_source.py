@@ -3,8 +3,7 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus, SourceFieldInputConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.humanitix import (
     HumanitixSourceConfig,
 )
@@ -42,7 +41,7 @@ class TestHumanitixSource:
     def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id)
         assert {s.name for s in schemas} == set(ENDPOINTS)
-        # Humanitix's list endpoints have no server-side timestamp filter, so every schema is full refresh.
+        # Every schema is full refresh: see settings.py for why the `since` filter is not used.
         assert all(s.supports_incremental is False for s in schemas)
         assert all(s.supports_append is False for s in schemas)
         assert all(s.incremental_fields == [] for s in schemas)

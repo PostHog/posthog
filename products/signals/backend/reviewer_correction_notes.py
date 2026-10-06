@@ -15,13 +15,14 @@ cold start (`scout-notes-list`). The note is the trigger, never the record: it a
 revisit its own memory, and the scout decides what to keep. Nothing here writes to the scratchpad,
 because a mechanical entry would overwrite ownership evidence a scout verified for itself.
 
-Targets are whoever holds the memory, which is why this is the only derived kind addressed to more
-than one scout. The authoring scout hears about its own report. On top of that, every scout whose
-`reviewer:` memory names a removed login hears about the removal, because those are the scouts still
-routing on it — a fleet-wide note would reach them only if it survived the newest-first window a run
-reads. A report with no live authoring scout falls back to the fleet-wide target, but only when no
-holder resolved: a run reads the fleet-wide notes alongside its own, so pairing the two would tell a
-holder the same thing twice.
+Targets are whoever was involved in the routing, which is why this is the only derived kind
+addressed to more than one scout. Every live scout that emitted or edited the report hears about it:
+an edit is how a scout puts reviewers on a report it did not file, so an editor is as much a router
+as the author. On top of that, every scout whose `reviewer:` memory names a removed login hears about
+the removal, because those are the scouts still routing on it — a fleet-wide note would reach them
+only if it survived the newest-first window a run reads. A report no live scout touched falls back to
+the fleet-wide target, but only when no holder resolved: a run reads the fleet-wide notes alongside
+its own, so pairing the two would tell a holder the same thing twice.
 
 Authorization is the editor's, and mirrors `dismissal_notes` rather than `feedback_notes`: the logins
 already reach scouts through the report's reviewers artefact and the project profile, so the note
@@ -31,7 +32,9 @@ event are already committed, so nothing here may fail a reviewer edit.
 
 A login itself is untrusted input, whichever path stored it, so it is shape-checked before it reaches
 a note and dropped when it is not a GitHub login: these values land inside a backtick span in a
-prompt every scout reads while holding privileged tools.
+prompt every scout reads while holding privileged tools. The editor's own name goes in for the same
+reason the logins do — a scout weighs a correction by who made it — and it is sanitized on the same
+terms, minus the backtick span.
 """
 
 from __future__ import annotations
@@ -49,7 +52,7 @@ from posthog.models import Team, User
 from products.signals.backend.dismissal_notes import DERIVED_NOTE_TTL, principal_may_steer_scouts
 from products.signals.backend.models import SignalReport, SignalScoutNote
 from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
-from products.signals.backend.scout_authorship import resolve_report_scout_skill
+from products.signals.backend.scout_authorship import resolve_touching_scout_skills
 from products.signals.backend.scout_harness.tools.notes import leave_note
 from products.signals.backend.scout_harness.tools.scratchpad import search_scratchpad_naming
 from products.skills.backend.models.skills import LLMSkill
@@ -84,6 +87,14 @@ SUPPRESSION_WINDOW = timedelta(hours=24)
 
 # Report titles are unbounded TextFields; a note references them for recognition only.
 _MAX_TITLE_CHARS = 200
+
+# The editor's name tells a scout whether a domain owner corrected the routing or somebody trimmed a
+# list in passing, so it is named rather than elided. It is user-controlled text, so it is normalized
+# to one line and capped the way a report title is. It never enters a backtick span:
+# `_logins_already_told` reads those spans back as suppression state, so a quoted name could stand in
+# for a login and silently swallow a later real correction.
+_MAX_ACTOR_NAME_CHARS = 60
+_UNNAMED_ACTOR = "someone"
 
 # GitHub logins are alphanumerics with single interior hyphens, 39 characters at most. Both write
 # paths into the reviewers artefact accept any non-empty string, so a login can carry a backtick or a
@@ -197,6 +208,7 @@ def _forward(*, team: Team, correction: ReviewerCorrection) -> ForwardedCorrecti
             continue
         content = _build_note_content(
             report=report,
+            editor=_actor_name(actor),
             added_logins=added,
             # Split per note rather than per edit: the caveat belongs to the logins this scout is
             # actually being told about, and the suppression filter above can leave a batch holding
@@ -247,17 +259,21 @@ def _renderable(logins: Sequence[str]) -> tuple[str, ...]:
 
 
 def _resolve_targets(team_id: int, report_id: str, removed_logins: Sequence[str]) -> list[str]:
-    """Who to tell: the scout that filed the report, plus every holder of the removed logins.
+    """Who to tell: every scout that touched the report, plus every holder of the removed logins.
 
-    A report with no live authoring scout (a pipeline report, or one whose scout is gone) falls back
-    to the fleet-wide target ("") that dismissals use — but only when no holder resolved, because a
-    run reads the fleet-wide notes alongside its own and a holder would hear the same edit twice.
+    Touching means emitted or edited, because a scout that set the reviewers through an edit did the
+    routing a human has just corrected, and it is better to tell it once too often than to leave it
+    routing on a login somebody removed. The touching union keeps deleted skills, so it is filtered
+    to live ones the way the holders are.
+
+    A report no live scout touched (a pipeline report, or one whose scouts are gone) falls back to
+    the fleet-wide target ("") that dismissals use — but only when no holder resolved, because a run
+    reads the fleet-wide notes alongside its own and a holder would hear the same edit twice.
     """
+    touching = _live_skills(team_id, resolve_touching_scout_skills(team_id, report_id))
     holders = _memory_holders(team_id, removed_logins)
-    authoring = resolve_report_scout_skill(team_id, report_id)
-    if not authoring:
-        return holders[:MAX_NOTE_TARGETS] if holders else [""]
-    return [authoring, *(name for name in holders if name != authoring)][:MAX_NOTE_TARGETS]
+    targets = [*touching, *(name for name in holders if name not in touching)]
+    return targets[:MAX_NOTE_TARGETS] if targets else [""]
 
 
 def _memory_holders(team_id: int, removed_logins: Sequence[str]) -> list[str]:
@@ -284,11 +300,24 @@ def _memory_holders(team_id: int, removed_logins: Sequence[str]) -> list[str]:
         )
         if entry.created_by_skill
     }
-    if not named:
+    return _live_skills(team_id, sorted(named))
+
+
+def _live_skills(team_id: int, names: Sequence[str]) -> list[str]:
+    """The given skill names that still exist, in the order they were given.
+
+    One query. A note addressed to a deleted skill steers no one, and `leave_note` rejects it.
+    """
+    if not names:
         return []
-    return sorted(
-        LLMSkill.objects.filter(team_id=team_id, name__in=named, deleted=False).values_list("name", flat=True)
-    )
+    live = set(LLMSkill.objects.filter(team_id=team_id, name__in=names, deleted=False).values_list("name", flat=True))
+    return [name for name in names if name in live]
+
+
+def _actor_name(actor: User) -> str:
+    """How the editor is named in the note, or a neutral word when the account carries no name."""
+    name = " ".join(f"{actor.first_name or ''} {actor.last_name or ''}".split()).replace("`", "")
+    return name[:_MAX_ACTOR_NAME_CHARS] if name else _UNNAMED_ACTOR
 
 
 def _actor_login(team_id: int, actor: User) -> str | None:
@@ -334,11 +363,12 @@ def _quoted_logins(content: str) -> set[str]:
 def _build_note_content(
     *,
     report: SignalReport,
+    editor: str,
     added_logins: Sequence[str],
     self_removed: Sequence[str],
     teammate_removed: Sequence[str],
 ) -> str:
-    sections = [f"Inbox routing correction: someone changed the suggested reviewers on {_subject(report)}"]
+    sections = [f"Inbox routing correction: {editor} changed the suggested reviewers on {_subject(report)}"]
     if added_logins:
         sections.append(
             f"{_ADDED_SECTION_PREFIX}{_listed(added_logins)}. An added login is a positive ownership fact for this "

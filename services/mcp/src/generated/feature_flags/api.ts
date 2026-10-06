@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 25 enabled ops
+ * PostHog API - MCP 28 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -46,6 +46,26 @@ export const FeatureFlagsCopyFlagsCreateBody = () => zod.object({
         .describe('Whether to also copy missing feature flags that this flag depends on'),
 })
 
+export const FeatureFlagsCopyFlagsDependencyRequirementsCreateParams = () => zod.object({
+    organization_id: zod
+        .string()
+        .describe(
+            "ID of the organization you're trying to access. To find the ID of the organization, make a call to \/api\/organizations\/."
+        ),
+})
+
+export const featureFlagsCopyFlagsDependencyRequirementsCreateBodyTargetProjectIdsMax = 50
+
+export const FeatureFlagsCopyFlagsDependencyRequirementsCreateBody = () => zod.object({
+    feature_flag_key: zod.string().describe('Key of the feature flag to check'),
+    from_project: zod.number().describe('Source project ID to copy the flag from'),
+    target_project_ids: zod
+        .array(zod.number())
+        .min(1)
+        .max(featureFlagsCopyFlagsDependencyRequirementsCreateBodyTargetProjectIdsMax)
+        .describe('List of target project IDs to check dependency copy eligibility for'),
+})
+
 /**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
  *
@@ -60,7 +80,12 @@ export const FeatureFlagsListParams = () => zod.object({
 })
 
 export const FeatureFlagsListQueryParams = () => zod.object({
-    active: zod.enum(['STALE', 'false', 'true']).optional(),
+    active: zod
+        .enum(['STALE', 'false', 'true'])
+        .optional()
+        .describe(
+            "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use."
+        ),
     archived: zod
         .enum(['false', 'true'])
         .optional()
@@ -945,8 +970,8 @@ export const FeatureFlagsDisableCreateParams = () => zod.object({
  *
  * Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
  * archived state are left as they are. An archived flag is refused: unarchive it first. A
- * flag whose own flag dependencies are disabled is also refused. An already-enabled flag
- * is returned unchanged.
+ * flag whose own flag dependencies are disabled or use an unsupported configuration
+ * format is also refused. An already-enabled flag is returned unchanged.
  */
 export const FeatureFlagsEnableCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
@@ -954,6 +979,111 @@ export const FeatureFlagsEnableCreateParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Serve a feature flag to every user.
+ *
+ * Adds a release condition with no property filters at 100% and keeps the existing
+ * conditions below it. Payloads, holdout and every other field are left as they are. On a
+ * boolean flag, removing the new condition restores the previous targeting. On a
+ * multivariate flag the variant distribution is rewritten as well, so removing the
+ * condition restores the audience but not the old split. A flag that already leads with
+ * such a condition gains no second one.
+ *
+ * This changes targeting only. A disabled flag still serves nobody, and a holdout is
+ * evaluated before release conditions, so users in one keep getting the holdout variant
+ * instead of the rollout. A flag gated on early access enrollment is refused, because that
+ * gate is evaluated before release conditions too and no targeting change gets past it.
+ *
+ * A multivariate flag needs `variant_key`, and every other flag rejects it. A release
+ * condition decides who the flag serves, not which variant they get, so rolling a
+ * multivariate flag out to everyone also gives the named variant 100% of the variant
+ * distribution and every other variant 0%. To serve everyone and keep the current split
+ * between variants, update the flag instead.
+ *
+ * Send the `version` your last read returned. A change to the flag after that version is
+ * refused with 409. Read the flag again and decide the rollout against its current
+ * definition.
+ */
+export const FeatureFlagsRollOutToEveryoneCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureFlagsRollOutToEveryoneCreateBodyVersionMin = 0
+
+export const FeatureFlagsRollOutToEveryoneCreateBody = () => zod.object({
+    version: zod
+        .number()
+        .min(featureFlagsRollOutToEveryoneCreateBodyVersionMin)
+        .nullable()
+        .describe(
+            'The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.'
+        ),
+    variant_key: zod
+        .string()
+        .nullish()
+        .describe(
+            'The variant every user gets. Required for a multivariate flag and rejected for any other flag, because a release condition decides who the flag serves and not which variant they get.'
+        ),
+})
+
+/**
+ * Set what percentage of one release condition's audience a feature flag is served to.
+ *
+ * Changes `rollout_percentage` on the release condition at `condition_index` and nothing
+ * else. The condition's property filters, every other condition, the variants, payloads,
+ * holdout and every remaining field are left as they are.
+ *
+ * Send the `version` your last read returned. A change to the flag after that version is
+ * refused with 409, because a condition index only names the condition you read. Read the
+ * flag again and decide the percentage against its current definition.
+ *
+ * On a multivariate flag this sets how many of the matching users get a variant at all. It
+ * does not change how the variants are split between them.
+ */
+export const FeatureFlagsSetReleaseConditionRolloutCreateParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this feature flag.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureFlagsSetReleaseConditionRolloutCreateBodyConditionIndexMin = 0
+
+export const featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMin = 0
+export const featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMax = 100
+
+export const featureFlagsSetReleaseConditionRolloutCreateBodyVersionMin = 0
+
+export const FeatureFlagsSetReleaseConditionRolloutCreateBody = () => zod.object({
+    condition_index: zod
+        .number()
+        .min(featureFlagsSetReleaseConditionRolloutCreateBodyConditionIndexMin)
+        .describe(
+            'Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.'
+        ),
+    rollout_percentage: zod
+        .number()
+        .min(featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMin)
+        .max(featureFlagsSetReleaseConditionRolloutCreateBodyRolloutPercentageMax)
+        .describe(
+            'Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them. Fractional percentages such as 0.5 are accepted, the same as a write that sends `filters`.'
+        ),
+    version: zod
+        .number()
+        .min(featureFlagsSetReleaseConditionRolloutCreateBodyVersionMin)
+        .nullable()
+        .describe(
+            'The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.'
         ),
 })
 
@@ -1029,8 +1159,9 @@ export const FeatureFlagsUnarchiveCreateParams = () => zod.object({
  *
  * Returns same format as bulk_delete for UI compatibility.
  *
- * Uses bulk operations for efficiency: database updates are batched and cache
- * invalidation happens once at the end rather than per-flag.
+ * Config version 1 flags are deleted with batched updates, and cache invalidation
+ * runs once at the end. Config version 2 flags are deleted one at a time through
+ * ``update_flag``. Each one bumps its ``version`` and commits on its own.
  */
 export const FeatureFlagsBulkDeleteCreateParams = () => zod.object({
     project_id: zod
@@ -1047,7 +1178,9 @@ export const FeatureFlagsBulkDeleteCreateBody = () => zod.object({
                 .enum(['true', 'false', 'STALE'])
                 .describe('\* `true` - true\n\* `false` - false\n\* `STALE` - STALE')
                 .optional()
-                .describe('Filter by active state.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE'),
+                .describe(
+                    "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.\n\n\* `true` - true\n\* `false` - false\n\* `STALE` - STALE"
+                ),
             created_by_id: zod.number().optional().describe('Filter to flags created by a specific user ID.'),
             search: zod.string().optional().describe('Search by feature flag key or name (case-insensitive).'),
             type: zod
@@ -1148,6 +1281,10 @@ export const FeatureFlagsBulkUpdateTagsCreateParams = () => zod.object({
 
 export const featureFlagsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const featureFlagsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const featureFlagsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const FeatureFlagsBulkUpdateTagsCreateBody = () => zod.object({
     ids: zod
         .array(zod.number())
@@ -1159,7 +1296,10 @@ export const FeatureFlagsBulkUpdateTagsCreateBody = () => zod.object({
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(featureFlagsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(featureFlagsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**

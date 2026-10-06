@@ -1,3 +1,4 @@
 name: Tasks
 owners:
-    - team-posthog-desktop
+    - team-agent-infrastructure
+    - team-self-driving

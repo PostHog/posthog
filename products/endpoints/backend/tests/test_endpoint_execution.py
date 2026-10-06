@@ -13,9 +13,11 @@ from rest_framework.response import Response
 
 from posthog.schema import EventsNode, TrendsQuery
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import CHQueryErrorNoCommonType
+from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService, _emit_endpoint_failure_signal
@@ -74,7 +76,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         self.v2_dag_ids_patcher = mock.patch(
             "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
-            side_effect=lambda candidate_dag_ids=None: set(candidate_dag_ids or []),
+            side_effect=lambda candidate_dag_ids=None, **_kwargs: set(candidate_dag_ids or []),
         )
         self.v2_dag_ids_patcher.start()
 
@@ -197,6 +199,64 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("Query execution failed.", detail)
         if forbidden_detail:
             self.assertNotIn(forbidden_detail, detail)
+
+    def test_budget_refusal_does_not_count_as_an_endpoint_error(self):
+        endpoint = create_endpoint_with_version(
+            name="budget_refused",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with (
+            mock.patch(
+                "products.endpoints.backend.logic.execution.process_query_model",
+                side_effect=APIQueriesBudgetExceeded(wait=120),
+            ),
+            mock.patch("products.endpoints.backend.logic.execution.ENDPOINT_EXECUTION_TOTAL") as mock_counter,
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_signal,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        mock_counter.labels.assert_not_called()
+        mock_signal.assert_not_called()
+        mock_capture.assert_not_called()
+
+    def test_capacity_error_preserves_retry_after(self):
+        endpoint = create_endpoint_with_version(
+            name="at_capacity",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        error = ClickHouseAtCapacity()
+        error.wait = 37
+
+        with mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "server_error",
+                "code": "query_capacity",
+                "detail": (
+                    "Queries are momentarily at capacity — please retry shortly. For consistently heavy "
+                    "endpoints, materialize to run on dedicated endpoint compute that isn't affected by shared query load."
+                ),
+                "attr": None,
+            },
+        )
+        self.assertEqual(response.get("Retry-After"), "37")
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(
@@ -885,8 +945,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("greaterorequals", query_sql)
             self.assertIn("less(", query_sql)
 
-    def test_materialized_count_with_range_variables_reaggregates(self):
-        """When range variables exist, read-time SQL should re-aggregate with sum()."""
+    @parameterized.expand(
+        [
+            ("bare_aggregate", "count()", "sum(`count()`) AS `count()`"),
+            ("aliased_aggregate", "count() AS impressions", "sum(impressions) AS impressions"),
+        ]
+    )
+    def test_materialized_count_with_range_variables_reaggregates(self, _name, select_expr, expected_select):
+        """When range variables exist, read-time SQL should re-aggregate with sum()
+        and keep the column name the endpoint declares."""
         start_var = InsightVariable.objects.create(
             team=self.team,
             name="Start Timestamp",
@@ -914,7 +981,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query={
                 "kind": "HogQLQuery",
-                "query": "SELECT count() FROM events WHERE timestamp >= {variables.start_ts} AND timestamp < {variables.end_ts} AND properties.$host = {variables.host}",
+                "query": f"SELECT {select_expr} FROM events WHERE timestamp >= {{variables.start_ts}} AND timestamp < {{variables.end_ts}} AND properties.$host = {{variables.host}}",
                 "variables": {
                     str(start_var.id): {
                         "variableId": str(start_var.id),
@@ -949,11 +1016,12 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             mock_exec.assert_called()
-            query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
-            # Re-aggregation: count() column should be wrapped with sum()
-            self.assertIn("sum(", query_sql)
+            query_sql = mock_exec.call_args[0][0]["query"]["query"]
+            # Re-aggregation wraps the column with sum(), then aliases it back to the name
+            # the endpoint declares, so a typed client can still parse the rows.
+            self.assertIn(expected_select, query_sql)
             # Range variable values should be wrapped with toStartOfDay
-            self.assertIn("tostartofday", query_sql)
+            self.assertIn("tostartofday", query_sql.lower())
 
     # =========================================================================
     # MATERIALIZED INSIGHT ENDPOINTS
@@ -1036,6 +1104,9 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             # Must use has() for array containment, not = for string equality
             self.assertIn("has(breakdown_value", query_sql)
             self.assertIn("chrome", query_sql)
+            # Insight reads are nested on return, so a default row cap would silently drop
+            # breakdown values or a compare period instead of reporting hasMore.
+            self.assertEqual(mock_exec.call_args.kwargs["limit_context"], LimitContext.SAVED_QUERY)
 
     def test_materialized_insight_endpoint_filters_by_multiple_breakdowns(self):
         endpoint = create_endpoint_with_version(
@@ -2473,13 +2544,57 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         # data_freshness_seconds=86400, materialized ~5 min ago -> ~86100s remaining
         self.assertGreater(cache_ttl, 80000, f"cache TTL clamped ({cache_ttl}s): freshness read from frozen timestamp")
 
-    def test_series_mismatch_falls_back_to_inline(self):
+    def test_materialized_response_transform_receives_the_job_materialization_time(self):
+        from products.endpoints.backend.logic.strategies import HogQLEndpointStrategy
+
+        endpoint = self._make_fresh_materialized_endpoint(
+            "v2-transform-now", {"kind": "HogQLQuery", "query": "select 1 as n"}
+        )
+        saved_query = endpoint.versions.first().saved_query
+        saved_query.sync_frequency_interval = None
+        saved_query.last_run_at = None
+        saved_query.status = None
+        saved_query.save()
+        materialized_at = timezone.now() - timedelta(minutes=5)
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=materialized_at,
+        )
+
+        flat_response = Response({"results": [[1]], "columns": ["n"]})
+        with (
+            mock.patch.object(EndpointExecutionService, "_execute_query_and_respond", return_value=flat_response),
+            mock.patch.object(
+                HogQLEndpointStrategy, "transform_materialized_response", autospec=True
+            ) as mock_transform,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_transform.assert_called_once()
+        _strategy, _data, _saved_query, passed_at = mock_transform.call_args.args
+        self.assertEqual(passed_at, materialized_at)
+
+    @parameterized.expand(
+        [
+            ("refresh_starts", None),
+            # A model with no DAG node cannot be re-materialized, but the caller still has to see
+            # the mismatch to fall back inline instead of a failure from the refresh attempt.
+            ("refresh_fails", RuntimeError("no node for this saved query")),
+        ]
+    )
+    def test_series_mismatch_falls_back_to_inline(self, _name: str, refresh_error: Exception | None):
         """Series drift triggers re-materialization AND serves the request inline."""
         from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
         from products.endpoints.backend.logic.strategies import InsightEndpointStrategy
 
         endpoint = self._make_fresh_materialized_endpoint(
-            "mismatch-fallback",
+            f"mismatch-fallback-{_name.replace('_', '-')}",
             TrendsQuery(
                 series=[EventsNode(event="$pageview")],
                 dateRange={"date_from": "2026-01-01", "date_to": "2026-01-10"},
@@ -2499,7 +2614,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 "transform_materialized_response",
                 side_effect=MaterializedSeriesMismatchError("series drift"),
             ),
-            mock.patch("products.endpoints.backend.logic.execution.trigger_saved_query_schedule") as mock_trigger,
+            mock.patch(
+                "products.endpoints.backend.logic.execution.materialize_saved_query", side_effect=refresh_error
+            ) as mock_trigger,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
@@ -2507,7 +2625,11 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_trigger.assert_called_once()
+        # a read-triggered repair must not clear the suspension of a repeatedly failing model
+        self.assertEqual(mock_trigger.call_args.kwargs["resume"], False)
         self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
+        # A refresh that cannot start must not overwrite the reason the read failed.
+        self.assertIsInstance(mock_capture.call_args_list[0].args[0], MaterializedSeriesMismatchError)
 
     def test_unrecoverable_failure_not_labeled_materialized_fallback(self):
         from prometheus_client import REGISTRY

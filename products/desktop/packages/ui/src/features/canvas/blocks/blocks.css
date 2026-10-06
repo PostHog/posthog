@@ -1,0 +1,69 @@
+.blocks-pointer-shield {
+  position: fixed;
+  inset: 0;
+  z-index: 998;
+  user-select: none;
+}
+
+.blocks-drag-ghost {
+  --blocks-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  pointer-events: none;
+  position: fixed;
+  z-index: 1000;
+  top: 0;
+  left: 0;
+  transform-origin: 24px 20px;
+  will-change: transform;
+}
+
+.blocks-drag-ghost[data-phase="drop"] {
+  opacity: 0;
+  scale: 0.98;
+  transition:
+    opacity 140ms var(--blocks-ease-out),
+    scale 140ms var(--blocks-ease-out);
+}
+
+.blocks-drag-ghost[data-phase="return"] {
+  opacity: 0;
+  transition:
+    transform 280ms var(--blocks-ease-out),
+    opacity 180ms ease-out 100ms;
+}
+
+.blocks-drag-ghost-card {
+  animation: blocks-ghost-lift 180ms var(--blocks-ease-out) both;
+  box-shadow:
+    0 0 0 1px rgb(0 0 0 / 0.04),
+    0 2px 4px -1px rgb(0 0 0 / 0.06),
+    0 12px 28px -10px rgb(0 0 0 / 0.22);
+}
+
+@keyframes blocks-ghost-lift {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blocks-drag-ghost-card {
+    animation-name: blocks-ghost-fade;
+  }
+  .blocks-drag-ghost[data-phase="return"] {
+    transition: opacity 140ms ease-out;
+  }
+}
+
+@keyframes blocks-ghost-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

@@ -2,45 +2,44 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-transport'
+import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
-import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
+import { MlSessionKeys } from './keys/key-store'
+import { mlKafkaRecord, mlWireVersion, validateImageOwner } from './keys/transport'
 import { MlMirrorMetrics } from './metrics'
 import { CollectedImage } from './parse-and-anonymize-step'
-
-/**
- * The Rust collector only dedupes within one message, leaving this as the sole thing between a hot
- * sprite and one produce per recurrence, so capacity translates directly into scrub-topic volume: a
- * ref evicted before its next sighting is re-produced and re-scrubbed. Budget ~200 B per entry (the
- * LRU's bookkeeping dominates the ~60 B ref), so this is ~100 MB against the 8000M mirror container
- * in https://github.com/PostHog/charts/blob/main/apps/ingestion-sessionreplay-ml-mirror/values.yaml,
- * which also holds the anonymizer's packed image buffers. Overflowing it costs topic bytes rather
- * than correctness, since the consumer dedupes by ref too.
- */
-const PRODUCED_REF_CACHE_MAX = 500_000
+import { ProducedImageRefs } from './produced-refs'
+import { usesRawSessionIdentifiers } from './session-identifier-format'
 
 /**
  * Produce collected original images to the scrub topic as a fire-and-forget side effect, keyed by
- * their `image:<pseudoTeam>:<hash>` ref. Delivery is deliberately not awaited and never blocks or
+ * their `image:<teamId>:<hash>` ref. Delivery is deliberately not awaited and never blocks or
  * fails the message: the mirrored lines already carry the refs, and a ref whose image never lands
  * is defined as equivalent to a placeholder for training joins.
+ *
+ * The anonymize call already left out the refs an earlier batch produced. The claim here catches
+ * the ones that two messages of one batch share.
  */
 export function createProduceCollectedImagesStep<
-    T extends { collectedImages?: CollectedImage[]; message: { timestamp?: number } },
->(
-    outputs: IngestionOutputs<MlImageScrubOutput>,
-    producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX
-): ProcessingStep<T, T> {
-    const producedRefs = new RefDedupCache('image_scrub_producer', producedRefCacheMax)
-
+    T extends {
+        team?: { teamId: number }
+        headers?: { session_id: string }
+        collectedImages?: CollectedImage[]
+        message: { timestamp?: number }
+        mlKeys?: MlSessionKeys
+    },
+>(outputs: IngestionOutputs<MlImageScrubOutput>, producedRefs: ProducedImageRefs): ProcessingStep<T, T> {
     return function produceCollectedImagesStep(input) {
+        const sessionId = input.headers?.session_id
+        const key = sessionId && usesRawSessionIdentifiers(sessionId) ? input.mlKeys?.session : undefined
         const images = input.collectedImages
         if (!images?.length) {
             return Promise.resolve(ok(input))
         }
 
-        const fresh = images.filter((image) => !producedRefs.has(image.ref))
+        const claimed = producedRefs.claim(images.map((image) => image.ref))
+        const fresh = images.filter((_image, index) => claimed[index])
         MlMirrorMetrics.incrementMlImagesCollected('deduped', images.length - fresh.length)
         if (fresh.length === 0) {
             return Promise.resolve(ok({ ...input, collectedImages: undefined }))
@@ -48,7 +47,6 @@ export function createProduceCollectedImagesStep<
 
         let bytes = 0
         for (const image of fresh) {
-            producedRefs.add(image.ref)
             bytes += image.bytes.length
         }
         MlMirrorMetrics.incrementMlImagesCollected('queued', fresh.length)
@@ -66,11 +64,16 @@ export function createProduceCollectedImagesStep<
         const produce = outputs
             .queueMessages(
                 ML_IMAGE_SCRUB_OUTPUT,
-                fresh.map((image) => ({ key: image.ref, value: image.bytes, headers }))
+                fresh.map((image) => {
+                    validateImageOwner(image.ref, key)
+                    const record = mlKafkaRecord(mlWireVersion(key), image.bytes)
+                    return { key: image.ref, value: record.value, headers: { ...headers, ...record.headers } }
+                })
             )
             .then(() => {
                 // queueMessages resolves on delivery acks, so `produced` counts what actually landed.
                 MlMirrorMetrics.incrementMlImagesCollected('produced', refs.length)
+                MlMirrorMetrics.incrementMlProducedVersion('image', mlWireVersion(key), refs.length)
                 MlMirrorMetrics.incrementMlImageBytesProduced(bytes)
             })
             .catch((error) => {
@@ -78,11 +81,12 @@ export function createProduceCollectedImagesStep<
                 // never re-thrown into the pipeline. Un-mark the refs: the same image recurring in
                 // a later snapshot then re-produces naturally (one attempt per recurrence, no retry
                 // loop), and duplicates are idempotent downstream (S3 keyed by hash).
-                for (const ref of refs) {
-                    producedRefs.delete(ref)
-                }
+                producedRefs.release(refs)
                 logger.warn('🖼️', 'ml_image_scrub_produce_failed', { count: refs.length, error: String(error) })
                 MlMirrorMetrics.incrementMlImagesCollected('produce_failed', refs.length)
+                if (key) {
+                    throw error
+                }
             })
         return Promise.resolve(ok({ ...input, collectedImages: undefined }, [produce]))
     }

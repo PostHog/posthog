@@ -33,6 +33,11 @@ def test_gate_stays_closed_when_a_required_scope_is_missing(workspace_integratio
 
 
 @pytest.mark.parametrize(
+    "gate",
+    [feature_flags.is_slack_app_agent_design_enabled, feature_flags.is_slack_app_project_picker_enabled],
+    ids=["agent design", "project picker"],
+)
+@pytest.mark.parametrize(
     ("distinct_id", "expected_identity"),
     [
         ("user-1", "user-1"),
@@ -40,8 +45,8 @@ def test_gate_stays_closed_when_a_required_scope_is_missing(workspace_integratio
     ],
     ids=["known user", "no user"],
 )
-def test_agent_design_gate_resolves_against_the_acting_user(
-    settings, workspace_integration, org_team_user, distinct_id, expected_identity
+def test_user_keyed_gate_resolves_against_the_acting_user(
+    settings, workspace_integration, org_team_user, gate, distinct_id, expected_identity
 ):
     # The identity decides which rules can match at all. Resolving a known user against the
     # workspace instead would silently stop every person rule, `email ends_with
@@ -50,7 +55,7 @@ def test_agent_design_gate_resolves_against_the_acting_user(
     org, _, _ = org_team_user
 
     with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
-        feature_flags.is_slack_app_agent_design_enabled(workspace_integration, distinct_id)
+        gate(workspace_integration, distinct_id)
 
     assert feature_enabled.call_args.args[1] == expected_identity
     assert feature_enabled.call_args.kwargs["person_properties"] == {"region": "DEV"}

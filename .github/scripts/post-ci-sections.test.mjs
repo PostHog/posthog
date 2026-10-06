@@ -3,6 +3,7 @@ import { describe, it } from 'node:test'
 
 import { buildDocsPreviewSection } from './post-docs-preview-section.mjs'
 import { buildHobbySection } from './post-hobby-section.mjs'
+import { buildHogboxPreviewSection } from './post-hogbox-preview-section.mjs'
 import { buildTrunkLaneSection, postTrunkLaneSection } from './post-trunk-lane-section.mjs'
 
 const commonHobby = {
@@ -61,11 +62,38 @@ describe('CI report section builders', () => {
         },
         {
             name: 'describes a non-backend lane',
-            input: { impactedTargets: ['fe:core'], isUniversal: false },
+            input: { impactedTargets: ['fe:core', 'node:ingestion'], isUniversal: false },
             expected: {
                 status: 'ok',
                 summary: 'non-backend lane',
                 body: 'This PR is assigned to the non-backend lane. It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'names the single non-backend target',
+            input: { impactedTargets: ['fe:product:desktop'], isUniversal: false },
+            expected: {
+                status: 'ok',
+                summary: 'non-backend lane (<code>fe:product:desktop</code>)',
+                body: 'This PR is assigned to the non-backend lane (<code>fe:product:desktop</code>). It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'names the single backend Python target',
+            input: { impactedTargets: ['py:product:surveys'], isUniversal: false },
+            expected: {
+                status: 'warn',
+                summary: 'backend Python lane (<code>py:product:surveys</code>)',
+                body: 'This PR is assigned to the backend Python lane (<code>py:product:surveys</code>). It runs backend Python tests and may merge in parallel with PRs in other lanes.',
+            },
+        },
+        {
+            name: 'escapes a target before rendering it',
+            input: { impactedTargets: ['</summary><img src="x">'], isUniversal: false },
+            expected: {
+                status: 'ok',
+                summary: 'non-backend lane (<code>&lt;/summary&gt;&lt;img src=&quot;x&quot;&gt;</code>)',
+                body: 'This PR is assigned to the non-backend lane (<code>&lt;/summary&gt;&lt;img src=&quot;x&quot;&gt;</code>). It does not run backend Python tests and may merge in parallel with PRs in other lanes.',
             },
         },
     ]) {
@@ -95,6 +123,36 @@ describe('CI report section builders', () => {
         assert.equal(section.status, 'fail')
         assert.match(section.body, /actions\/runs\/42/)
     })
+
+    for (const testCase of [
+        {
+            name: 'claims the PR frontend only when it was swapped in',
+            frontendSwapped: true,
+            expected: /\*\*and\*\* frontend/,
+        },
+        {
+            name: 'says the frontend is unchanged when it was not swapped in',
+            frontendSwapped: false,
+            expected: /frontend unchanged by this PR/,
+        },
+    ]) {
+        it(testCase.name, () => {
+            const section = buildHogboxPreviewSection({
+                state: 'ready',
+                sha: '1234567890abcdef',
+                runUrl: 'https://github.com/PostHog/posthog/actions/runs/42',
+                url: 'https://preview.example.com',
+                boxId: 'box-1',
+                penId: 'None',
+                consoleHost: 'console.example.com',
+                frontendSwapped: testCase.frontendSwapped,
+            })
+            assert.equal(section.status, 'ok')
+            assert.match(section.summary, /https:\/\/preview\.example\.com/)
+            assert.match(section.body, testCase.expected)
+            assert.doesNotMatch(section.body, /console\/fleet\/pens/)
+        })
+    }
 
     it('moves a hobby preview through setup, ready, and failed states', () => {
         const initial = buildHobbySection({ state: 'initial', ...commonHobby })

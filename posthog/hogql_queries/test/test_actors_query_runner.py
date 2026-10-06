@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
@@ -204,9 +204,15 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_persons_query_search_email(self):
         self.random_uuid = self._create_random_persons()
         self._create_random_persons()
+        capitalized_email = f"capitalized-{self.random_uuid}@example.com"
+        _create_person(team=self.team, distinct_ids=["capitalized"], properties={"Email": capitalized_email})
+        flush_persons_and_events()
+
         runner = self._create_runner(ActorsQuery(search=f"jacob4@{self.random_uuid}.posthog"))
         self.assertEqual(len(runner.calculate().results), 1)
         runner = self._create_runner(ActorsQuery(search=f"JACOB4@{self.random_uuid}.posthog"))
+        self.assertEqual(len(runner.calculate().results), 1)
+        runner = self._create_runner(ActorsQuery(search=f"capitalized-{self.random_uuid}@example"))
         self.assertEqual(len(runner.calculate().results), 1)
 
     def test_persons_query_search_name(self):
@@ -255,9 +261,9 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIsNotNone(results, "The query should execute without errors")
 
-    @freeze_time("2023-05-10T15:23:00Z")
+    @time_machine.travel("2023-05-10T15:23:00Z", tick=False)
     def test_persons_query_with_insight_actors_source_order_by_last_seen(self):
-        with freeze_time("2023-05-07T15:23:00Z"):
+        with time_machine.travel("2023-05-07T15:23:00Z", tick=False):
             _create_person(
                 properties={
                     "email": f"first@posthog.com",
@@ -268,7 +274,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 is_identified=True,
             )
             _create_event(distinct_id="jump-the-gun", event="clicky", team=self.team)
-        with freeze_time("2023-05-09T15:23:00Z"):
+        with time_machine.travel("2023-05-09T15:23:00Z", tick=False):
             _create_person(
                 properties={
                     "email": "last@posthog.com",
@@ -430,9 +436,9 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [[f"jacob4@{self.random_uuid}.posthog.com"]])
 
     def test_source_lifecycle_query(self):
-        with freeze_time("2021-01-01T12:00:00Z"):
+        with time_machine.travel("2021-01-01T12:00:00Z", tick=False):
             self.random_uuid = self._create_random_persons()
-        with freeze_time("2021-01-03T12:00:00Z"):
+        with time_machine.travel("2021-01-03T12:00:00Z", tick=False):
             source_query = LifecycleQuery(
                 series=[EventsNode(event="clicky-4")],
                 properties=[
@@ -967,7 +973,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for uuid in person_uuids:
             self.assertIn(uuid, result)
 
-    @freeze_time("2023-05-07T15:23:00Z")
+    @time_machine.travel("2023-05-07T15:23:00Z", tick=False)
     def test_last_seen_for_persons(self):
         _create_person(
             properties={"email": "test@example.com"},

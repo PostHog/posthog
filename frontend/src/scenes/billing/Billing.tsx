@@ -58,6 +58,7 @@ export function Billing(): JSX.Element {
         minimumBillingAccessLevel,
         canOnlyViewUsageAndSpend,
         hasSupportAddonPlan,
+        billingManagedByPartnerNotice,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -73,7 +74,7 @@ export function Billing(): JSX.Element {
     })
 
     useEffect(() => {
-        if (location.pathname === urls.organizationBilling() && featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]) {
+        if (location.pathname === urls.organizationBilling()) {
             // View-only members can't see the Overview tab, so land them on Usage instead
             router.actions.replace(
                 urls.organizationBillingSection(canOnlyViewUsageAndSpend ? 'usage' : 'overview'),
@@ -81,7 +82,7 @@ export function Billing(): JSX.Element {
             )
             return
         }
-    }, [featureFlags, location.pathname, searchParams, canOnlyViewUsageAndSpend])
+    }, [location.pathname, searchParams, canOnlyViewUsageAndSpend])
 
     useEffect(() => {
         if (billing) {
@@ -158,6 +159,12 @@ export function Billing(): JSX.Element {
             {billingError && (
                 <LemonBanner type={billingError.status} className="mb-2" action={billingError.action}>
                     {billingError.message}
+                </LemonBanner>
+            )}
+
+            {billingManagedByPartnerNotice && (
+                <LemonBanner type="info" className="max-w-300 mb-2">
+                    {billingManagedByPartnerNotice}
                 </LemonBanner>
             )}
 

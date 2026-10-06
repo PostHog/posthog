@@ -5,7 +5,6 @@ SALESFORCE_STRIPE_ENRICHMENT_WATERMARK_KEY: str = "salesforce-enrichment:stripe:
 ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE: str = "OrgMappingsCacheMissing"
 HARMONIC_BASE_URL: str = "https://api.harmonic.ai"
 YC_INVESTOR_NAME: str = "y combinator"
-HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS: int = 5  # rate limit: 10/s
 HARMONIC_REQUEST_TIMEOUT_SECONDS: int = 30
 HARMONIC_BATCH_SIZE: int = 100
 HARMONIC_DOMAIN_VARIATIONS: list[str] = ["", "www."]  # Try exact domain first, then with www prefix
@@ -132,6 +131,9 @@ POSTHOG_ORG_ID_FIELD = "Posthog_Org_ID__c"
 POSTHOG_USAGE_ENRICHMENT_BATCH_SIZE = 100
 POSTHOG_FETCH_MAPPINGS_PAGE_SIZE = 10_000  # Page size for fetching org mappings, kept under Temporal's 4 MB gRPC limit
 
+POSTHOG_ORG_REGION_FIELD = "Posthog_Org_Region__c"
+ORG_REGION_BY_LICENSE_ID: dict[int, str] = {1: "EU", 2: "US"}
+
 # Salesforce field mappings for PostHog usage signals
 # Format: internal_field_name -> salesforce_custom_field_name
 POSTHOG_USAGE_FIELD_MAPPINGS = {
@@ -146,6 +148,10 @@ POSTHOG_USAGE_FIELD_MAPPINGS = {
     "products_activated_30d": "posthog_products_30d__c",
     "events_30d_momentum": "posthog_events_30d_momentum__c",
 }
+
+# Both momentum fields are Number(7, 2) in Salesforce, which rejects the whole record for a value above
+# 99,999.99. Momentum is a percentage change, so growth from a nearly empty previous period exceeds it.
+SALESFORCE_MOMENTUM_MAX = 99_999.99
 
 STRIPE_ENRICHMENT_PAGE_SIZE: int = 5_000
 

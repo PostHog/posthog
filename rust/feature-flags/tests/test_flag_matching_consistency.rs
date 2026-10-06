@@ -149,6 +149,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                     reason: FeatureFlagMatchReason::ConditionMatch,
                     condition_index: Some(0),
                     payload: None,
+                    evaluation_v2: None,
                 }
             );
         } else {
@@ -160,6 +161,7 @@ async fn it_is_consistent_with_rollout_calculation_for_simple_flags() {
                     reason: FeatureFlagMatchReason::OutOfRolloutBound,
                     condition_index: Some(0),
                     payload: None,
+                    evaluation_v2: None,
                 }
             );
         }
@@ -1256,6 +1258,7 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                     reason: FeatureFlagMatchReason::ConditionMatch,
                     condition_index: Some(0),
                     payload: None,
+                    evaluation_v2: None,
                 }
             );
         } else {
@@ -1267,6 +1270,7 @@ async fn it_is_consistent_with_rollout_calculation_for_multivariate_flags() {
                     reason: FeatureFlagMatchReason::OutOfRolloutBound,
                     condition_index: Some(0),
                     payload: None,
+                    evaluation_v2: None,
                 }
             );
         }

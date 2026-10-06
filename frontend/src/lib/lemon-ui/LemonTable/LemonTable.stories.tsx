@@ -242,6 +242,17 @@ export const WithExpandableRows: Story = {
     },
 }
 
+export const WithFixedLayoutExpandableRows: Story = {
+    ...WithExpandableRows,
+    args: {
+        tableLayout: 'fixed',
+        expandable: {
+            expandedRowRender: (record) => <span>{record.occupation}</span>,
+        },
+    },
+    parameters: { testOptions: { viewport: { width: 600, height: 400 } } },
+}
+
 export const Small: Story = { render: renderBasic as any, args: { size: 'small' } }
 
 export const Embedded: Story = { render: renderBasic as any, args: { embedded: true } }
@@ -486,18 +497,33 @@ export const WithRowActions: Story = {
     },
 }
 
+const RESIZABLE_COLUMNS: LemonTableColumn<MockPerson, keyof MockPerson | undefined>[] = [
+    {
+        title: 'Identifier',
+        key: 'identifier',
+        width: 300,
+        render: (_, person) => (
+            <span className="whitespace-nowrap">{`0192b2c8-4f4c-7c3a-9e6d-${person.name.length}b2c3d4e5f6`}</span>
+        ),
+    },
+    ...WIDE_COLUMNS.slice(0, 3),
+]
+
 function ResizableColumnsTable(): JSX.Element {
     const [widths, setWidths] = useState<Record<number, number>>({})
 
     return (
         <LemonTable
-            columns={WIDE_COLUMNS.slice(0, 3).map((column, index) => ({
+            columns={RESIZABLE_COLUMNS.map((column, index) => ({
                 ...column,
                 width: widths[index] ?? column.width,
                 resizable: true,
                 onResize: (width: number) => setWidths((currentWidths) => ({ ...currentWidths, [index]: width })),
             }))}
             dataSource={MANY_PEOPLE.slice(0, 5)}
+            // Size the table to its content once a column is resized, the same as tables that persist
+            // column widths. Intrinsic sizing is the mode a cropped column shows in.
+            tableStyle={Object.keys(widths).length > 0 ? { width: 'max-content' } : undefined}
         />
     )
 }

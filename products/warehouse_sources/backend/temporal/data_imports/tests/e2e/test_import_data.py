@@ -3,12 +3,12 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 from asgiref.sync import sync_to_async
 
 from posthog.models.team.team import Team
-from posthog.tasks.test.test_usage_report import freeze_time
 
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -26,7 +26,12 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 
 
 @sync_to_async
-def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
+def _setup(
+    team: Team,
+    job_inputs: dict[Any, Any],
+    sync_type: str | None = None,
+    sync_type_config: dict[str, Any] | None = None,
+) -> ImportDataActivityInputs:
     source = ExternalDataSource.objects.create(
         team=team,
         source_id="source_id",
@@ -54,6 +59,8 @@ def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
         should_sync=True,
         status=ExternalDataSchema.Status.COMPLETED,
         last_synced_at="2024-01-01",
+        sync_type=sync_type,
+        sync_type_config=sync_type_config or {},
     )
     job = ExternalDataJob.objects.create(
         team=team,
@@ -66,6 +73,58 @@ def _setup(team: Team, job_inputs: dict[Any, Any]) -> ImportDataActivityInputs:
     )
 
     return ImportDataActivityInputs(team_id=team.pk, schema_id=schema.pk, source_id=source.pk, run_id=str(job.pk))
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rebuild_trigger,expected_ceiling",
+    [
+        ({}, 100),
+        ({"reset_pipeline": True}, None),
+        (
+            {
+                "delta_revive_required": {
+                    "reason": "hollow",
+                    "missing_path": "p",
+                    "detected_at": "2026-01-01T00:00:00+00:00",
+                }
+            },
+            None,
+        ),
+    ],
+    ids=["no_rebuild", "reset", "corrupt_delta_revive"],
+)
+async def test_table_rebuild_drops_the_xmin_cursor(
+    activity_environment, team, rebuild_trigger, expected_ceiling, **kwargs
+):
+    # Both triggers delete the Delta table before the read. Keeping the cursor makes that read the
+    # window since the last run, and the overwrite collapses the table to that slice.
+    activity_inputs = await _setup(
+        team,
+        {"host": "host.com", "port": 5432, "user": "u", "password": "p", "database": "db", "schema": "public"},
+        sync_type=ExternalDataSchema.SyncType.XMIN,
+        sync_type_config={**rebuild_trigger, "xmin_last_value": 100, "xmin_ceiling": 100, "xmin_num_wraparound": 0},
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source"
+        ) as mock_postgres_source,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync._run"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins._is_host_safe",
+            return_value=(True, None),
+        ),
+    ):
+        await activity_environment.run(import_data_activity_sync, activity_inputs)
+
+    called_with = mock_postgres_source.call_args.kwargs
+    assert called_with["is_xmin"] is True
+    stored = called_with["xmin_cursor"].load()
+    assert (stored.ceiling_xid if stored is not None else None) == expected_ceiling
 
 
 @pytest.mark.django_db(transaction=True)
@@ -116,9 +175,9 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
-            xmin_last_value=None,
-            xmin_num_wraparound=None,
-            byte_bounded_extraction=False,
+            xmin_cursor=None,
+            activity_attempt=1,
+            resumable_source_manager=mock.ANY,
         )
 
 
@@ -170,9 +229,9 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
-            xmin_last_value=None,
-            xmin_num_wraparound=None,
-            byte_bounded_extraction=False,
+            xmin_cursor=None,
+            activity_attempt=1,
+            resumable_source_manager=mock.ANY,
         )
 
 
@@ -236,9 +295,9 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
-            xmin_last_value=None,
-            xmin_num_wraparound=None,
-            byte_bounded_extraction=False,
+            xmin_cursor=None,
+            activity_attempt=1,
+            resumable_source_manager=mock.ANY,
         )
 
 
@@ -317,9 +376,9 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
-            xmin_last_value=None,
-            xmin_num_wraparound=None,
-            byte_bounded_extraction=False,
+            xmin_cursor=None,
+            activity_attempt=1,
+            resumable_source_manager=mock.ANY,
         )
 
 
@@ -566,11 +625,18 @@ def test_report_heartbeat_timeout_heartbeat_within_timeout(team):
 def test_report_heartbeat_timeout_heartbeat_not_within_timeout(team):
     logger = mock.MagicMock()
 
+    source = ExternalDataSource.objects.create(
+        team=team,
+        source_id="source_id",
+        connection_id="connection_id",
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=ExternalDataSourceType.SNOWFLAKE,
+    )
     activity_inputs = ImportDataActivityInputs(
-        team_id=team.pk, schema_id=uuid.uuid4(), source_id=uuid.uuid4(), run_id="run_id"
+        team_id=team.pk, schema_id=uuid.uuid4(), source_id=source.id, run_id="run_id"
     )
 
-    with freeze_time("2024-01-01 12:00:00"):
+    with time_machine.travel("2024-01-01 12:00:00", tick=False):
         past_time = datetime.now() - timedelta(seconds=30)
 
         mock_info = mock.MagicMock()
@@ -621,5 +687,7 @@ def test_report_heartbeat_timeout_heartbeat_not_within_timeout(team):
                     "workflow_run_id": mock_info.workflow_run_id,
                     "workflow_type": mock_info.workflow_type,
                     "attempt": mock_info.attempt,
+                    # The stamp that makes a death diagnosable per connector.
+                    "source_type": ExternalDataSourceType.SNOWFLAKE,
                 },
             )

@@ -1,4 +1,4 @@
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events
 
 from posthog.schema import (
@@ -24,7 +24,7 @@ from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_ba
 
 class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
     def _setup_test_data(self):
-        with freeze_time("2024-01-01T09:00:00Z"):
+        with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
             sessions = [str(uuid7("2024-01-01")) for _ in range(21)]
 
             for i in range(21):

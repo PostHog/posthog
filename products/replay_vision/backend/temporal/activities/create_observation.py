@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from django.db import IntegrityError, OperationalError, connection, transaction
@@ -6,24 +6,34 @@ from django.db.models import F
 from django.utils import timezone
 
 import psycopg.errors
+import posthoganalytics
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog import redis
+from posthog.event_usage import groups
 from posthog.models.organization import OrganizationMembership
 
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.enqueue_claims import release_enqueue_claim
-from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.learned_rules import current_ruleset_ids
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ObservationTrigger,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
 from products.replay_vision.backend.quota import (
     BillingPeriod,
+    QuotaState,
     ScannerBudget,
     compute_scanner_budget,
     current_period_bounds,
     quota_state,
 )
-from products.replay_vision.backend.temporal.constants import ADMISSION_BUDGET_TTL
+from products.replay_vision.backend.temporal.constants import ADMISSION_BUDGET_TTL, CREATE_OBSERVATION_TIMEOUT
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import SCANNER_ADMISSION_BUSY_ERROR_TYPE
 from products.replay_vision.backend.temporal.metrics import (
@@ -32,12 +42,64 @@ from products.replay_vision.backend.temporal.metrics import (
     record_scanner_admission_busy,
     record_scanner_limit_reached,
 )
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot, ScannerSnapshot
 from products.replay_vision.backend.temporal.types import CreateObservationInputs, CreateObservationOutput
 
+# One event per scanner and reason per hour. Without a gate, an org past its limit emits one event
+# for every session it refuses, which is its entire scan volume.
+_SCAN_BLOCKED_DEDUP_TTL_SECONDS = 60 * 60
 
-def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
-    return ScannerSnapshot.from_scanner(scanner).model_dump(mode="json")
+
+def _build_scanner_snapshot(
+    scanner: ReplayScanner, *, variant_sampling_rates: dict[str, float] | None = None
+) -> dict[str, Any]:
+    snapshot = ScannerSnapshot.from_scanner(scanner)
+    if variant_sampling_rates is not None:
+        snapshot = snapshot.model_copy(update={"variant_sampling_rates": variant_sampling_rates})
+    return snapshot.model_dump(mode="json")
+
+
+def _capture_scan_blocked(
+    *,
+    scanner: ReplayScanner,
+    reason: Literal["quota", "consent"],
+    triggered_by: ObservationTrigger,
+    quota: QuotaState | None = None,
+) -> None:
+    """Internal cross-customer telemetry for a scan refused before it created a row.
+
+    The Prometheus skip counters carry no team label, so this event is the only per-team record of a
+    refused scan.
+    """
+    dedup_key = f"@posthog/replay-vision/scan-blocked/{reason}/{scanner.pk}"
+    try:
+        # Also the retry gate: an activity retry re-enters this branch and the key is already held.
+        if not redis.get_client().set(dedup_key, b"1", nx=True, ex=_SCAN_BLOCKED_DEDUP_TTL_SECONDS):
+            return
+        posthoganalytics.capture(
+            distinct_id=replay_vision_distinct_id(scanner.team_id),
+            event="replay_vision_scan_blocked",
+            properties={
+                "reason": reason,
+                "scanner_id": str(scanner.pk),
+                "scanner_type": scanner.scanner_type,
+                "triggered_by": str(triggered_by),
+                # None for a reason that has no cap behind it, such as missing consent.
+                "credit_limit": quota.credit_limit if quota else None,
+                "credits_used": quota.credits_used if quota else None,
+                "team_id": scanner.team_id,
+                "organization_id": str(scanner.team.organization_id),
+            },
+            groups=groups(scanner.team.organization, scanner.team),
+        )
+    except Exception:
+        # Fail-soft: the scan is already refused and the caller returns next, so raising here would
+        # retry an activity whose decision cannot change.
+        activity.logger.exception(
+            "replay_vision.scan_blocked_capture_failed",
+            extra={"scanner_id": str(scanner.pk), "reason": reason},
+        )
 
 
 @activity.defn
@@ -93,8 +155,8 @@ def _admit_within_cap(scanner: ReplayScanner, cost: int, period: BillingPeriod) 
     """
     # SET LOCAL covers the whole admission transaction: the fast-path UPDATE and the refresh lock
     # both give up after 2s and defer to the activity's backoff instead of camping in Postgres's
-    # lock queue. The 2s grace absorbs the row's brief blocking holders (scanner save(),
-    # prompt-suggestion apply), which NOWAIT would turn into instant admission failures.
+    # lock queue. The 2s grace absorbs the row's brief blocking holders (scanner save()), which
+    # NOWAIT would turn into instant admission failures.
     with connection.cursor() as cursor:
         cursor.execute("SET LOCAL lock_timeout = '2s'")
     if _try_cached_admission(scanner.pk, cost, period):
@@ -189,6 +251,7 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             "Skipping observation: AI data processing not approved for organization",
             extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id, "session_id": inputs.session_id},
         )
+        _capture_scan_blocked(scanner=scanner, reason="consent", triggered_by=inputs.triggered_by)
         return CreateObservationOutput(
             observation_id=None,
             was_created=False,
@@ -209,25 +272,37 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
     # Backfill applies run the frozen config, not the scanner's current one.
     if backfill is not None:
         frozen = BackfillScannerSnapshot.load_for_backfill(backfill.id, backfill.scanner_snapshot)
-        snapshot_dict = frozen.to_observation_snapshot().model_dump(mode="json")
+        observation_snapshot = frozen.to_observation_snapshot()
+        if inputs.variant_sampling_rates is not None:
+            # The rates are the dispatching tick's, computed from live rollout shares, so they
+            # ride in on the inputs rather than living in the frozen config.
+            observation_snapshot = observation_snapshot.model_copy(
+                update={"variant_sampling_rates": inputs.variant_sampling_rates}
+            )
+        snapshot_dict = observation_snapshot.model_dump(mode="json")
         priced_model = frozen.model
     else:
-        snapshot_dict = _build_scanner_snapshot(scanner)
+        snapshot_dict = _build_scanner_snapshot(scanner, variant_sampling_rates=inputs.variant_sampling_rates)
         priced_model = scanner.model
 
     # Deliberately check-then-act: the snapshot doesn't count enqueue claims, so a concurrent burst can
     # overshoot by at most the in-flight caps allow, which is accepted.
-    if quota_state(scanner.team.organization_id).would_exceed(observation_credits_for_model(priced_model)):
+    with bounded_queries(CREATE_OBSERVATION_TIMEOUT):
+        quota = quota_state(scanner.team.organization_id)
+    if quota.would_exceed(observation_credits_for_model(priced_model)):
         record_quota_exhausted_skip(scanner.scanner_type)
         activity.logger.info(
             "Skipping observation: monthly quota exhausted",
             extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id, "session_id": inputs.session_id},
         )
+        _capture_scan_blocked(scanner=scanner, reason="quota", triggered_by=inputs.triggered_by, quota=quota)
         return CreateObservationOutput(
             observation_id=None,
             was_created=False,
             scanner_type=scanner.scanner_type,
         )
+    # Learned rules are not scanner config, so a backfill runs with the current ones rather than frozen ones.
+    snapshot_dict["learned_ruleset_ids"] = current_ruleset_ids(scanner.team_id, scanner.id)
 
     # Shared by the insert and the retake below, so a column added here can't be set on one path only.
     row_fields: dict[str, Any] = {
@@ -251,7 +326,7 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
     # observation will actually charge, not the scanner's current model.
     cost = observation_credits_for_model(priced_model)
     try:
-        with transaction.atomic():
+        with transaction.atomic(), bounded_queries(CREATE_OBSERVATION_TIMEOUT):
             # Capped scanners admit against the cached admission budget so concurrent applies cannot
             # overshoot the cap; uncapped scanners keep the lock-free path.
             if scanner.credit_limit is not None:
@@ -265,6 +340,8 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
                     reclaimed_output = _reclaim_own_pending_insert(inputs)
                     if reclaimed_output is not None:
                         return reclaimed_output
+                    # No blocked event here: this refusal holds the admission row lock, which cannot
+                    # wait on a Redis and an analytics round trip.
                     record_scanner_limit_reached("admission")
                     activity.logger.info(
                         "Skipping observation: scanner credit limit reached",

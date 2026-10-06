@@ -185,6 +185,13 @@ export interface JobSpec {
     payload?: Record<string, JobPayloadFieldOptions>
 }
 
+/** Mirrors FlagEvaluationsMode on OrganizationFeatureFlagsConfig in the Django feature_flags product. */
+export enum FlagEvaluationsMode {
+    Events = 0,
+    ReadFlagEvaluations = 1,
+    FlagEvaluationsOnly = 2,
+}
+
 export enum CookielessServerHashMode {
     Disabled = 0,
     Stateless = 1,
@@ -256,6 +263,7 @@ export interface EventSchemaEnforcement {
 export interface LogsSettings {
     capture_console_logs?: boolean
     json_parse_logs?: boolean
+    json_parse_logs_attribute_key?: string
     pii_scrub_logs?: boolean
     retention_days?: number
     retention_last_updated?: string
@@ -276,6 +284,7 @@ export interface Team {
     ingested_event: boolean
     person_display_name_properties: string[] | null
     minimal_flag_called_events: boolean
+    flag_evaluations_mode: FlagEvaluationsMode
     test_account_filters:
         | (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | CohortPropertyFilter)[]
         | null
@@ -875,6 +884,8 @@ export interface EventHeaders {
     force_disable_person_processing: boolean
     historical_migration: boolean
     skip_heatmap_processing: boolean
+    /** The Kafka partition key a redirect dropped, so the overflow lane can refresh its overflow flag. */
+    redirect_original_key?: string
 }
 
 export interface IncomingEvent {

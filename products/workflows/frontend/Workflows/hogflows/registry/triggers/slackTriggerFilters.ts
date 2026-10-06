@@ -72,7 +72,7 @@ export const SLACK_POSTER_MODE_OPTIONS: { value: SlackPosterMode; label: string;
 const OWNED_KEYS = new Set(['channel', 'user', 'bot_id', 'app_id', 'thread_ts'])
 
 export interface SlackTriggerFilters {
-    channel: string | null
+    channels: string[]
     posterMode: SlackPosterMode
     posterIds: string[]
     topLevelOnly: boolean
@@ -129,7 +129,7 @@ export function decodeSlackFilters(properties: Record<string, any>[] | undefined
     }
 
     return {
-        channel: values(channelEntry).length ? channelId(values(channelEntry)[0]) : null,
+        channels: values(channelEntry).map(channelId),
         posterMode,
         posterIds,
         topLevelOnly: threadTs?.operator === PropertyOperator.IsNotSet,
@@ -140,8 +140,8 @@ export function decodeSlackFilters(properties: Record<string, any>[] | undefined
 export function encodeSlackFilters(filters: SlackTriggerFilters): Record<string, any>[] {
     const properties: Record<string, any>[] = []
 
-    if (filters.channel) {
-        properties.push(exact('channel', [channelId(filters.channel)]))
+    if (filters.channels.length) {
+        properties.push(exact('channel', filters.channels.map(channelId)))
     }
 
     switch (filters.posterMode) {

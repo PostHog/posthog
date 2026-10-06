@@ -1,6 +1,7 @@
 """Workflow/run/job-scoped orchestration: health, activity, jobs, costs, and repo-level state."""
 
 from products.engineering_analytics.backend.facade.contracts import (
+    CIEngine,
     CurrentBranchHealth,
     MasterFailureGroup,
     RepoOverview,
@@ -38,98 +39,16 @@ from products.engineering_analytics.backend.logic.queries.workflow_run_list impo
 _DEFAULT_WORKFLOW_WINDOW = "-24h"
 
 
-def build_workflow_run(*, curated: CuratedGitHubSource, run_id: int) -> WorkflowRunDetail | None:
-    return query_workflow_run(curated=curated, run_id=run_id)
+def build_workflow_run(
+    *, curated: CuratedGitHubSource, ci_engine: CIEngine | None = None, run_id: int
+) -> WorkflowRunDetail | None:
+    return query_workflow_run(curated=curated, run_id=run_id, ci_engine=ci_engine)
 
 
 def build_workflow_jobs(
-    *, curated: CuratedGitHubSource, run_id: int, run_attempt: int | None = None
+    *, curated: CuratedGitHubSource, ci_engine: CIEngine | None = None, run_id: int, run_attempt: int | None = None
 ) -> list[WorkflowJob]:
-    return query_workflow_jobs(curated=curated, run_id=run_id, run_attempt=run_attempt)
-
-
-def build_workflow_run_list(
-    *,
-    curated: CuratedGitHubSource,
-    repo: str | None,
-    workflow_name: str,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    branch: str | None = None,
-) -> list[WorkflowRunDetail]:
-    owner, name = _require_repo(repo)
-    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
-    return query_workflow_run_list(
-        curated=curated,
-        repo_owner=owner,
-        repo_name=name,
-        workflow_name=workflow_name,
-        date_from=parsed_from,
-        date_to=parsed_to,
-        branch=branch,
-    )
-
-
-def build_workflow_run_activity(
-    *,
-    curated: CuratedGitHubSource,
-    repo: str | None,
-    workflow_name: str,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    branch: str | None = None,
-) -> WorkflowRunActivity:
-    owner, name = _require_repo(repo)
-    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
-    return query_workflow_run_activity(
-        curated=curated,
-        repo_owner=owner,
-        repo_name=name,
-        workflow_name=workflow_name,
-        date_from=parsed_from,
-        date_to=parsed_to,
-        branch=branch,
-    )
-
-
-def build_workflow_runner_costs(
-    *,
-    curated: CuratedGitHubSource,
-    repo: str | None,
-    workflow_name: str,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    branch: str | None = None,
-) -> list[WorkflowRunnerCost]:
-    owner, name = _require_repo(repo)
-    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
-    return query_workflow_runner_costs(
-        curated=curated,
-        repo_owner=owner,
-        repo_name=name,
-        workflow_name=workflow_name,
-        date_from=parsed_from,
-        date_to=parsed_to,
-        branch=branch,
-    )
-
-
-def build_workflow_health(
-    *,
-    curated: CuratedGitHubSource,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    branch: str | None = None,
-    run_scope: str | None = None,
-) -> list[WorkflowHealthItem]:
-    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
-    return query_workflow_health(
-        curated=curated,
-        date_from=parsed_from,
-        date_to=parsed_to,
-        branch=branch,
-        run_scope=_parse_run_scope(run_scope),
-    )
+    return query_workflow_jobs(curated=curated, run_id=run_id, ci_engine=ci_engine, run_attempt=run_attempt)
 
 
 def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
@@ -143,6 +62,98 @@ def _parse_run_scope(value: str | None) -> WorkflowHealthRunScope:
         raise ValueError(
             f"run_scope must be one of: {', '.join(scope.value for scope in WorkflowHealthRunScope)}"
         ) from None
+
+
+def build_workflow_run_list(
+    *,
+    curated: CuratedGitHubSource,
+    repo: str | None,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    run_scope: str | None = None,
+) -> list[WorkflowRunDetail]:
+    owner, name = _require_repo(repo)
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_workflow_run_list(
+        curated=curated,
+        repo_owner=owner,
+        repo_name=name,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
+    )
+
+
+def build_workflow_run_activity(
+    *,
+    curated: CuratedGitHubSource,
+    repo: str | None,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    run_scope: str | None = None,
+) -> WorkflowRunActivity:
+    owner, name = _require_repo(repo)
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_workflow_run_activity(
+        curated=curated,
+        repo_owner=owner,
+        repo_name=name,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
+    )
+
+
+def build_workflow_runner_costs(
+    *,
+    curated: CuratedGitHubSource,
+    repo: str | None,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    run_scope: str | None = None,
+) -> list[WorkflowRunnerCost]:
+    owner, name = _require_repo(repo)
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_workflow_runner_costs(
+        curated=curated,
+        repo_owner=owner,
+        repo_name=name,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
+    )
+
+
+def build_workflow_health(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    run_scope: str | None = None,
+    workflow_name: str | None = None,
+) -> list[WorkflowHealthItem]:
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
+    return query_workflow_health(
+        curated=curated,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
+        workflow_name=workflow_name,
+    )
 
 
 def build_repo_overview(
@@ -199,8 +210,10 @@ def build_master_failures(
     return query_master_failures(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=resolved_branch)
 
 
-def build_run_failure_logs(*, curated: CuratedGitHubSource, run_id: int) -> RunFailureLogs:
-    return query_run_failure_logs(curated=curated, run_id=run_id)
+def build_run_failure_logs(
+    *, curated: CuratedGitHubSource, ci_engine: CIEngine | None = None, run_id: int
+) -> RunFailureLogs:
+    return query_run_failure_logs(curated=curated, run_id=run_id, ci_engine=ci_engine)
 
 
 def build_job_aggregates(
@@ -210,8 +223,14 @@ def build_job_aggregates(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
 ) -> list[WorkflowJobAggregate]:
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_job_aggregates(
-        curated=curated, workflow_name=workflow_name, date_from=parsed_from, date_to=parsed_to, branch=branch
+        curated=curated,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_run_scope(run_scope),
     )

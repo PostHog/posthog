@@ -1,4 +1,9 @@
-use std::{collections::HashMap, net::IpAddr, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    net::IpAddr,
+    sync::Arc,
+    time::Duration,
+};
 
 use async_trait::async_trait;
 use base64::Engine;
@@ -6,8 +11,10 @@ use bytes::Bytes;
 use futures::StreamExt;
 use posthog_symbol_data::{read_symbol_data_with_byte_count, write_symbol_data, SourceAndMap};
 use reqwest::Url;
+use serde::Deserialize;
+use sourcemap::{DecodedMap, SourceMap};
 use sqlx::PgPool;
-use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter};
+use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter, SourcePosition};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -86,6 +93,9 @@ pub struct ChunkIdRescue {
 #[derive(Debug)]
 pub struct OwnedSourceMapCache {
     data: Vec<u8>,
+    // symbolic's source-map cache drops `ignoreList`; this side index avoids reparsing the map
+    // for every lookup.
+    ignored_source_ranges: Vec<(SourcePosition, bool)>,
     /// dart2js minified names mapping (minified -> original) for Flutter Web support.
     /// Parsed from the x_org_dartlang_dart2js.minified_names.global extension.
     dart_minified_names: Option<HashMap<String, String>>,
@@ -101,6 +111,7 @@ impl OwnedSourceMapCache {
         let decompressed_bytes = data.len();
         Ok(Self {
             data,
+            ignored_source_ranges: Vec::new(),
             dart_minified_names: None,
             decompressed_bytes,
         })
@@ -110,7 +121,7 @@ impl OwnedSourceMapCache {
         sam: SourceAndMap,
         decompressed_bytes: usize,
     ) -> Result<Self, symbolic::sourcemapcache::SourceMapCacheWriterError> {
-        // Parse dart2js minified names before we lose access to the raw JSON
+        let ignored_source_ranges = parse_ignored_source_ranges(&sam.sourcemap);
         let dart_minified_names = parse_dart_minified_names(&sam.sourcemap);
 
         let mut data = Vec::with_capacity(sam.minified_source.len() + sam.sourcemap.len() + 16);
@@ -118,6 +129,7 @@ impl OwnedSourceMapCache {
         smcw.serialize(&mut data).unwrap();
         Ok(Self {
             data,
+            ignored_source_ranges,
             dart_minified_names,
             decompressed_bytes,
         })
@@ -126,6 +138,16 @@ impl OwnedSourceMapCache {
     pub fn get_smc(&self) -> SourceMapCache<'_> {
         // UNWRAP - we've already parsed this data once, so we know it's valid
         SourceMapCache::parse(&self.data).unwrap()
+    }
+
+    pub fn is_source_ignored(&self, position: SourcePosition) -> bool {
+        let insertion = self
+            .ignored_source_ranges
+            .partition_point(|(start, _)| *start <= position);
+        insertion
+            .checked_sub(1)
+            .and_then(|index| self.ignored_source_ranges.get(index))
+            .is_some_and(|(_, ignored)| *ignored)
     }
 
     /// Returns the dart2js minified names map if this sourcemap has the extension.
@@ -137,8 +159,136 @@ impl OwnedSourceMapCache {
 
 impl Countable for OwnedSourceMapCache {
     fn byte_count(&self) -> usize {
-        self.decompressed_bytes
+        self.decompressed_bytes.saturating_add(
+            self.ignored_source_ranges
+                .capacity()
+                .saturating_mul(std::mem::size_of::<(SourcePosition, bool)>()),
+        )
     }
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use async_trait::async_trait;
+
+    use crate::symbolication::symbol_store::{chunk_id::OrChunkId, SymbolCatalog};
+
+    use super::*;
+
+    pub struct StaticSourceMapCatalog(Arc<OwnedSourceMapCache>);
+
+    #[async_trait]
+    impl SymbolCatalog<OrChunkId<Url>, OwnedSourceMapCache> for StaticSourceMapCatalog {
+        async fn lookup(
+            &self,
+            _team_id: i32,
+            _reference: OrChunkId<Url>,
+        ) -> Result<Arc<OwnedSourceMapCache>, ResolveError> {
+            Ok(Arc::clone(&self.0))
+        }
+    }
+
+    pub fn source_map_catalog() -> StaticSourceMapCatalog {
+        let sourcemap = r#"{"version":3,"file":"bundle.js","sources":["vendor.js","app.js"],"sourcesContent":["export function vendor() {}","export function app() {}"],"names":[],"mappings":"AAAA,UCAA","ignoreList":[0]}"#.to_string();
+        let decompressed_bytes = sourcemap.len();
+        let source_map = OwnedSourceMapCache::from_source_and_map(
+            SourceAndMap {
+                minified_source: "function vendor(){} function app(){}".to_string(),
+                sourcemap,
+            },
+            decompressed_bytes,
+        )
+        .unwrap();
+        StaticSourceMapCatalog(Arc::new(source_map))
+    }
+}
+
+#[derive(Default, Deserialize)]
+struct IgnoreListMetadata {
+    #[serde(default, rename = "ignoreList")]
+    ignore_list: Vec<u32>,
+    #[serde(default, rename = "x_google_ignoreList")]
+    legacy_ignore_list: Vec<u32>,
+    #[serde(default)]
+    sections: Vec<IgnoreListSection>,
+}
+
+#[derive(Default, Deserialize)]
+struct IgnoreListSection {
+    map: Option<Box<IgnoreListMetadata>>,
+}
+
+fn parse_ignored_source_ranges(sourcemap: &str) -> Vec<(SourcePosition, bool)> {
+    if !sourcemap.contains("\"ignoreList\"") && !sourcemap.contains("\"x_google_ignoreList\"") {
+        return Vec::new();
+    }
+
+    let Ok(metadata) = serde_json::from_str::<IgnoreListMetadata>(sourcemap) else {
+        return Vec::new();
+    };
+    let Ok(mut decoded) = sourcemap::decode_slice(sourcemap.as_bytes()) else {
+        return Vec::new();
+    };
+    apply_ignore_lists(&mut decoded, &metadata);
+
+    match decoded {
+        DecodedMap::Regular(map) => ignored_source_ranges(&map),
+        DecodedMap::Index(index) => index
+            .flatten()
+            .map(|map| ignored_source_ranges(&map))
+            .unwrap_or_default(),
+        DecodedMap::Hermes(map) => ignored_source_ranges(&map),
+    }
+}
+
+fn apply_ignore_lists(decoded: &mut DecodedMap, metadata: &IgnoreListMetadata) {
+    match decoded {
+        DecodedMap::Regular(map) => add_ignore_lists(map, metadata),
+        DecodedMap::Hermes(map) => add_ignore_lists(map, metadata),
+        DecodedMap::Index(index) => {
+            for (section_index, section_metadata) in metadata.sections.iter().enumerate() {
+                let Some((map, metadata)) = index
+                    .get_section_mut(section_index as u32)
+                    .and_then(|section| section.get_sourcemap_mut())
+                    .zip(section_metadata.map.as_deref())
+                else {
+                    continue;
+                };
+                apply_ignore_lists(map, metadata);
+            }
+        }
+    }
+}
+
+fn add_ignore_lists(map: &mut SourceMap, metadata: &IgnoreListMetadata) {
+    for source_id in metadata
+        .ignore_list
+        .iter()
+        .chain(&metadata.legacy_ignore_list)
+    {
+        map.add_to_ignore_list(*source_id);
+    }
+}
+
+fn ignored_source_ranges(map: &SourceMap) -> Vec<(SourcePosition, bool)> {
+    let ignored_sources: HashSet<u32> = map.ignore_list().copied().collect();
+    if ignored_sources.is_empty() {
+        return Vec::new();
+    }
+
+    let mut ranges = Vec::new();
+    let mut previous = false;
+    for token in map.tokens() {
+        let ignored = ignored_sources.contains(&token.get_src_id());
+        if ignored != previous {
+            ranges.push((
+                SourcePosition::new(token.get_dst_line(), token.get_dst_col()),
+                ignored,
+            ));
+            previous = ignored;
+        }
+    }
+    ranges
 }
 
 impl SourcemapProvider {
@@ -377,6 +527,22 @@ fn extract_chunk_id_from_body(body: &str) -> Option<String> {
     None
 }
 
+/// Resolves a `sourceMappingURL` reference against the url the source was fetched from.
+///
+/// The reference is a URL reference, not a path: it can be absolute, protocol-relative,
+/// root-relative, or relative to the source's directory, and it can carry a query string or
+/// fragment of its own. `Url::join` is exactly that resolution, so it replaces the hand-rolled
+/// dispatch this used to do with `Url::set_path` - which percent-encoded any `?` in the
+/// reference into the path, left the base's own query stacked alongside it, and resolved
+/// `../` against the root instead of the source's directory.
+///
+/// A reference is free to name another host, so callers must still vet the result before
+/// fetching it - `fetch_source_map` does.
+fn resolve_sourcemap_ref(base: &Url, found: &str) -> Result<Url, JsResolveErr> {
+    base.join(found)
+        .map_err(|_| JsResolveErr::InvalidSourceMapUrl(found.to_string()))
+}
+
 async fn find_sourcemap_url(
     client: &reqwest::Client,
     start: Url,
@@ -401,7 +567,7 @@ async fn find_sourcemap_url(
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
 
     // we use the final URL of the response in the relative case, to account for any redirects
-    let mut final_url = res.url().clone();
+    let final_url = res.url().clone();
 
     // First, we check for the sourcemap headers: SourceMap, or X-SourceMap
     let headers = res.headers();
@@ -426,15 +592,7 @@ async fn find_sourcemap_url(
             .to_str()
             .map_err(|_| JsResolveErr::InvalidSourceMapHeader(final_url.to_string()))?;
 
-        let url = if url.starts_with("http") {
-            url.parse()
-                .map_err(|_| JsResolveErr::InvalidSourceMapUrl(url.to_string()))?
-        } else {
-            // It's wild to me that this is infallible - feels like it must be a bug, there's no way
-            // "literally any string" is a valid URL path segment, even if there are escaping rules
-            final_url.set_path(url);
-            final_url
-        };
+        let url = resolve_sourcemap_ref(&final_url, url)?;
         return Ok(JsSourcePeek {
             body,
             sourcemap_url: url.into(),
@@ -464,29 +622,7 @@ async fn find_sourcemap_url(
                 });
             }
 
-            // If the found url has a scheme, we can just parse it
-            let url = if found.starts_with("http") {
-                found
-                    .parse()
-                    .map_err(|_| JsResolveErr::InvalidSourceMapUrl(found.to_string()))?
-            } else if !found.contains('/') {
-                // If it doesn't contain a slash, assume it only replaces the final part of the path
-                let Some(segments) = final_url.path_segments() else {
-                    // We should never hit this - path_segments() should always return Some for a URL
-                    // that "can be base" - basically a url with a domain name and scheme - and we know
-                    // final_url has that because it's the url we got the body we just parsed from.
-                    return Err(JsResolveErr::InvalidSourceMapUrl(found.to_string()).into());
-                };
-
-                let mut segments = segments.collect::<Vec<_>>();
-                segments.pop();
-                segments.push(found);
-                final_url.set_path(&segments.join("/"));
-                final_url
-            } else {
-                final_url.set_path(found);
-                final_url
-            };
+            let url = resolve_sourcemap_ref(&final_url, found)?;
             return Ok(JsSourcePeek {
                 body,
                 sourcemap_url: url.into(),
@@ -694,6 +830,7 @@ fn assert_is_sourcemap(data: &str) -> Result<(), ResolveError> {
 mod test {
     use crate::error::FrameError;
     use httpmock::MockServer;
+    use sourcemap::SourceMapBuilder;
 
     const MINIFIED: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js");
     const MAP: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js.map");
@@ -702,6 +839,97 @@ mod test {
     const TEST_MAX_RESPONSE_BYTES: usize = 25_000_000;
 
     use super::*;
+
+    fn source_map_with_ignore_list(field: &str) -> String {
+        let mut builder = SourceMapBuilder::new(Some("bundle.js"));
+        let vendor = builder.add_source("vendor.js");
+        builder.set_source_contents(vendor, Some("export function vendor() {}"));
+        builder.add(0, 0, 0, 0, Some("vendor.js"), Some("vendor"), false);
+
+        let app = builder.add_source("app.js");
+        builder.set_source_contents(app, Some("export function app() {}"));
+        builder.add(0, 10, 0, 0, Some("app.js"), Some("app"), false);
+        builder.add_to_ignore_list(vendor);
+
+        let mut encoded = Vec::new();
+        builder.into_sourcemap().to_writer(&mut encoded).unwrap();
+        String::from_utf8(encoded)
+            .unwrap()
+            .replace("\"ignoreList\"", &format!("\"{field}\""))
+    }
+
+    fn parsed_source_map(field: &str) -> OwnedSourceMapCache {
+        let sourcemap = source_map_with_ignore_list(field);
+        let decompressed_bytes = sourcemap.len();
+        OwnedSourceMapCache::from_source_and_map(
+            SourceAndMap {
+                minified_source: "function vendor(){} function app(){}".to_string(),
+                sourcemap,
+            },
+            decompressed_bytes,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn standard_ignore_list_classifies_generated_ranges() {
+        let source_map = parsed_source_map("ignoreList");
+
+        assert!(source_map.is_source_ignored(SourcePosition::new(0, 0)));
+        assert!(source_map.is_source_ignored(SourcePosition::new(0, 9)));
+        assert!(!source_map.is_source_ignored(SourcePosition::new(0, 10)));
+    }
+
+    #[test]
+    fn legacy_google_ignore_list_classifies_generated_ranges() {
+        let source_map = parsed_source_map("x_google_ignoreList");
+
+        assert!(source_map.is_source_ignored(SourcePosition::new(0, 0)));
+        assert!(!source_map.is_source_ignored(SourcePosition::new(0, 10)));
+    }
+
+    #[test]
+    fn indexed_maps_apply_nested_legacy_ignore_lists() {
+        let sourcemap = r#"{
+            "version": 3,
+            "sections": [
+                {
+                    "offset": {"line": 0, "column": 0},
+                    "map": {
+                        "version": 3,
+                        "sources": ["vendor.js"],
+                        "sourcesContent": ["export function vendor() {}"],
+                        "names": [],
+                        "mappings": "AAAA",
+                        "x_google_ignoreList": [0]
+                    }
+                },
+                {
+                    "offset": {"line": 0, "column": 10},
+                    "map": {
+                        "version": 3,
+                        "sources": ["app.js"],
+                        "sourcesContent": ["export function app() {}"],
+                        "names": [],
+                        "mappings": "AAAA"
+                    }
+                }
+            ]
+        }"#
+        .to_string();
+        let decompressed_bytes = sourcemap.len();
+        let source_map = OwnedSourceMapCache::from_source_and_map(
+            SourceAndMap {
+                minified_source: "function vendor(){} function app(){}".to_string(),
+                sourcemap,
+            },
+            decompressed_bytes,
+        )
+        .unwrap();
+
+        assert!(source_map.is_source_ignored(SourcePosition::new(0, 0)));
+        assert!(!source_map.is_source_ignored(SourcePosition::new(0, 10)));
+    }
 
     #[tokio::test]
     async fn find_sourcemap_url_in_body_test() {
@@ -726,6 +954,212 @@ mod test {
         let expected = server.url("/static/chunk-PGUQKT6S.js.map").parse().unwrap();
         assert_eq!(res, expected);
         mock.assert_hits(1);
+    }
+
+    // A `sourceMappingURL` reference is a URL reference, so a query string in it is a query
+    // string, not literal path characters. Shopify's asset CDN echoes the request's query
+    // into the comment it serves, so every cache-busted theme asset produces one of these.
+    #[tokio::test]
+    async fn find_sourcemap_url_keeps_query_on_absolute_path_ref() {
+        let server = MockServer::start();
+        let body = "console.log('hello');\n//# sourceMappingURL=/static/chunk.js.map?v=193bf1\n";
+
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js");
+            then.status(200).body(body);
+        });
+
+        let client = reqwest::Client::new();
+        let url = server.url("/static/chunk.js").parse().unwrap();
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+            .await
+            .unwrap();
+
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
+        };
+
+        let expected = server.url("/static/chunk.js.map?v=193bf1").parse().unwrap();
+        assert_eq!(res, expected);
+        mock.assert_hits(1);
+    }
+
+    // Same, for a reference with no slash in it - the branch that replaces the final path
+    // segment. The query has to be split off before the segment swap, or it lands in the
+    // segment.
+    #[tokio::test]
+    async fn find_sourcemap_url_keeps_query_on_bare_filename_ref() {
+        let server = MockServer::start();
+        let body = "console.log('hello');\n//# sourceMappingURL=chunk.js.map?v=193bf1\n";
+
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js");
+            then.status(200).body(body);
+        });
+
+        let client = reqwest::Client::new();
+        let url = server.url("/static/chunk.js").parse().unwrap();
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+            .await
+            .unwrap();
+
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
+        };
+
+        let expected = server.url("/static/chunk.js.map?v=193bf1").parse().unwrap();
+        assert_eq!(res, expected);
+        mock.assert_hits(1);
+    }
+
+    // The production shape: the source itself was fetched with a cache-buster, so the source
+    // url carries a query of its own. Relative resolution has to drop the base's query rather
+    // than leave it stacked alongside the reference's.
+    #[tokio::test]
+    async fn find_sourcemap_url_does_not_stack_queries() {
+        let server = MockServer::start();
+        let body = "console.log('hello');\n//# sourceMappingURL=/static/chunk.js.map?v=193bf1\n";
+
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js");
+            then.status(200).body(body);
+        });
+
+        let client = reqwest::Client::new();
+        let url = server.url("/static/chunk.js?v=193bf1").parse().unwrap();
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+            .await
+            .unwrap();
+
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
+        };
+
+        let expected = server.url("/static/chunk.js.map?v=193bf1").parse().unwrap();
+        assert_eq!(res, expected);
+        mock.assert_hits(1);
+    }
+
+    // The `SourceMap` header takes the same kind of reference, and resolves it the same way.
+    #[tokio::test]
+    async fn find_sourcemap_url_keeps_query_from_header() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js");
+            then.status(200)
+                .header("SourceMap", "/static/chunk.js.map?v=193bf1")
+                .body("console.log('hello');\n");
+        });
+
+        let client = reqwest::Client::new();
+        let url = server.url("/static/chunk.js?v=193bf1").parse().unwrap();
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+            .await
+            .unwrap();
+
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
+        };
+
+        let expected = server.url("/static/chunk.js.map?v=193bf1").parse().unwrap();
+        assert_eq!(res, expected);
+        mock.assert_hits(1);
+    }
+
+    // A reference that walks up the path has to be resolved against the source's directory.
+    #[tokio::test]
+    async fn find_sourcemap_url_resolves_dot_segments() {
+        let server = MockServer::start();
+        let body = "console.log('hello');\n//# sourceMappingURL=../maps/chunk.js.map\n";
+
+        let mock = server.mock(|when, then| {
+            when.method("GET").path("/static/js/chunk.js");
+            then.status(200).body(body);
+        });
+
+        let client = reqwest::Client::new();
+        let url = server.url("/static/js/chunk.js").parse().unwrap();
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+            .await
+            .unwrap();
+
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
+        };
+
+        let expected = server.url("/static/maps/chunk.js.map").parse().unwrap();
+        assert_eq!(res, expected);
+        mock.assert_hits(1);
+    }
+
+    // An absolute reference still names whatever host it says, including a different one from
+    // the source. This is the case the old `starts_with("http")` branch handled, and resolving
+    // via `join` has to keep it working.
+    #[tokio::test]
+    async fn find_sourcemap_url_keeps_absolute_cross_host_ref() {
+        let source_server = MockServer::start();
+        let map_server = MockServer::start();
+        let map_url = map_server.url("/maps/chunk.js.map");
+        let body = format!("console.log('hello');\n//# sourceMappingURL={map_url}\n");
+
+        let mock = source_server.mock(|when, then| {
+            when.method("GET").path("/static/chunk.js");
+            then.status(200).body(body);
+        });
+
+        let client = reqwest::Client::new();
+        let url = source_server.url("/static/chunk.js").parse().unwrap();
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+            .await
+            .unwrap();
+
+        let SourceMappingUrl::Url(res) = peek.sourcemap_url else {
+            panic!("Expected URL, got something else");
+        };
+
+        let expected: Url = map_url.parse().unwrap();
+        assert_eq!(res, expected);
+        assert_ne!(res.port(), source_server.port().into());
+        mock.assert_hits(1);
+    }
+
+    // End to end: a cache-busted asset whose map reference carries the same cache-buster must
+    // actually fetch and parse, not just produce a nice-looking url.
+    #[tokio::test]
+    async fn fetch_resolves_cache_busted_sourcemap() {
+        let server = MockServer::start();
+        let source = format!(
+            "{}\n//# sourceMappingURL=/static/chunk-PGUQKT6S.js.map?v=193bf1\n",
+            String::from_utf8_lossy(MINIFIED_WITH_NO_MAP_REF)
+        );
+
+        let source_mock = server.mock(|when, then| {
+            when.method("GET").path("/static/chunk-PGUQKT6S.js");
+            then.status(200).body(source);
+        });
+        let map_mock = server.mock(|when, then| {
+            when.method("GET")
+                .path("/static/chunk-PGUQKT6S.js.map")
+                .query_param("v", "193bf1");
+            then.status(200).body(MAP);
+        });
+
+        let mut config = ResolverConfig::init_with_defaults().unwrap();
+        config.allow_internal_ips = true;
+        let provider = SourcemapProvider::new(&config);
+        let url = server
+            .url("/static/chunk-PGUQKT6S.js?v=193bf1")
+            .parse()
+            .unwrap();
+
+        let data = provider.fetch(1, url).await.unwrap();
+        let (source_and_map, _): (SourceAndMap, usize) =
+            read_symbol_data_with_byte_count(&data).unwrap();
+
+        assert!(source_and_map.minified_source.contains("sourceMappingURL"));
+        source_mock.assert_hits(1);
+        map_mock.assert_hits(1);
     }
 
     #[tokio::test]

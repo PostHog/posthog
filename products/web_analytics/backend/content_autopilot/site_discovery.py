@@ -1,9 +1,11 @@
 import re
 import time
+from collections import deque
 from html.parser import HTMLParser
 from typing import TypedDict
 from urllib.parse import urljoin, urlparse, urlunparse
 
+import idna
 import defusedxml.ElementTree as ET
 from defusedxml.common import DefusedXmlException
 from defusedxml.ElementTree import ParseError as DefusedParseError
@@ -78,6 +80,22 @@ class _SiteNameParser(HTMLParser):
             self.title += data
 
 
+def _canonical_host(hostname: str) -> str:
+    """Return the host in the ASCII form the transport connects to.
+
+    `requests` IDNA-encodes a non-ASCII host before it opens the connection, so the
+    Unicode and the punycode spelling of one site must compare equal here too. An IP
+    literal and every other ASCII host stay as they are.
+    """
+    host = hostname.lower().removesuffix(".")
+    if host.isascii():
+        return host
+    try:
+        return idna.encode(host, uts46=True).decode("ascii")
+    except idna.IDNAError:
+        return host
+
+
 def normalize_site_origin(raw_url: str) -> str:
     invalid = ValueError("Enter a valid http or https site URL.")
     stripped = raw_url.strip()
@@ -85,7 +103,7 @@ def normalize_site_origin(raw_url: str) -> str:
         raise invalid
     try:
         parsed = urlparse(stripped)
-        hostname = (parsed.hostname or "").lower().removesuffix(".")
+        hostname = _canonical_host(parsed.hostname or "")
         port = parsed.port
     except ValueError as error:
         raise invalid from error
@@ -102,13 +120,13 @@ def _origin_key(url: str) -> str | None:
     try:
         parsed = urlparse(url)
         scheme = parsed.scheme.lower()
-        hostname = (parsed.hostname or "").lower()
+        hostname = _canonical_host(parsed.hostname or "")
         port = parsed.port
     except ValueError:
         return None
     if scheme not in _DEFAULT_PORTS or not hostname or parsed.username or parsed.password:
         return None
-    return f"{scheme}://{hostname.removesuffix('.')}:{port if port is not None else _DEFAULT_PORTS[scheme]}"
+    return f"{scheme}://{hostname}:{port if port is not None else _DEFAULT_PORTS[scheme]}"
 
 
 def has_same_public_origin(first_url: str, second_url: str) -> bool:
@@ -120,7 +138,7 @@ def _public_host(url: str) -> str:
     try:
         parsed = urlparse(url)
         scheme = parsed.scheme.lower()
-        hostname = (parsed.hostname or "").lower().removesuffix(".")
+        hostname = _canonical_host(parsed.hostname or "")
     except ValueError:
         return ""
     if scheme not in _DEFAULT_PORTS or not hostname or parsed.username or parsed.password:
@@ -128,9 +146,13 @@ def _public_host(url: str) -> str:
     return hostname
 
 
+def site_host(url: str) -> str:
+    return _public_host(url).removeprefix("www.")
+
+
 def has_same_public_site(first_url: str, second_url: str) -> bool:
-    first = _public_host(first_url).removeprefix("www.")
-    second = _public_host(second_url).removeprefix("www.")
+    first = site_host(first_url)
+    second = site_host(second_url)
     if not first or not second:
         return False
     return first == second or first.endswith(f".{second}") or second.endswith(f".{first}")
@@ -179,13 +201,16 @@ def _sitemaps_from_robots(robots_text: str, *, origin: str) -> list[str]:
     return sitemaps
 
 
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1].lower()
+
+
 def _is_sitemap(xml_text: str) -> bool:
     try:
         root = ET.fromstring(xml_text)
     except (DefusedParseError, DefusedXmlException):
         return False
-    root_name = root.tag.rsplit("}", 1)[-1].lower()
-    return root_name in {"urlset", "sitemapindex"}
+    return _local_name(root.tag) in {"urlset", "sitemapindex"}
 
 
 def _verified_sitemaps(candidates: list[str], *, deadline: float, budget: _RequestBudget) -> list[str]:
@@ -198,7 +223,9 @@ def _verified_sitemaps(candidates: list[str], *, deadline: float, budget: _Reque
         except PublicUrlFetchError:
             continue
         if _is_sitemap(fetched.text):
-            verified.append(fetched.url)
+            # Record the candidate, not the redirect target: every candidate is already
+            # same-origin with the profile domain, which is what profile creation accepts.
+            verified.append(candidate)
     return list(dict.fromkeys(verified))
 
 
@@ -252,3 +279,93 @@ def discover_site(raw_url: str) -> SiteDiscoveryResult:
         "sitemap_detected": sitemap_detected,
         "warnings": warnings,
     }
+
+
+_MAX_SITEMAP_BYTES = 8 * 1024 * 1024
+_MAX_SITEMAP_FETCHES = 12
+_MAX_SITEMAP_SECONDS = 60.0
+_MAX_SITEMAP_URLS = 20_000
+
+
+def _fetch_sitemap(url: str, *, deadline: float) -> str | None:
+    current_url = strip_userinfo(url)
+    for _ in range(_MAX_REDIRECTS + 1):
+        try:
+            response = fetch_public_url(
+                current_url,
+                headers={
+                    "Accept": "application/xml,text/xml;q=0.9,*/*;q=0.1",
+                    "User-Agent": "PostHog content research",
+                },
+                max_bytes=_MAX_SITEMAP_BYTES,
+                deadline=deadline,
+                connect_timeout_seconds=3.0,
+                read_timeout_seconds=15.0,
+            )
+        except PublicUrlFetchError:
+            return None
+        if response.status_code in PUBLIC_URL_REDIRECT_STATUSES:
+            location = response.headers.get("location")
+            if not location:
+                return None
+            target = strip_userinfo(urljoin(current_url, location))
+            if not has_same_public_site(target, url):
+                return None
+            current_url = target
+            continue
+        if not 200 <= response.status_code < 300:
+            return None
+        return response.body.decode("utf-8", errors="replace")
+    return None
+
+
+def _is_on_site(url: str, *, origin_scheme: str, origin_host: str, origin_port: int | None) -> bool:
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return False
+    scheme = parsed.scheme.lower()
+    if scheme != origin_scheme or scheme not in _DEFAULT_PORTS:
+        return False
+    if (port if port is not None else _DEFAULT_PORTS[scheme]) != origin_port:
+        return False
+    host = site_host(url)
+    return bool(host) and host == origin_host
+
+
+def read_sitemap_urls(source_urls: list[str], *, origin: str) -> list[str]:
+    deadline = time.monotonic() + _MAX_SITEMAP_SECONDS
+    parsed_origin = urlparse(origin)
+    origin_scheme = parsed_origin.scheme.lower()
+    origin_host = site_host(origin)
+    origin_port = parsed_origin.port or _DEFAULT_PORTS.get(origin_scheme)
+    queued = list(dict.fromkeys(url for url in source_urls if has_same_public_origin(url, origin)))[
+        :_MAX_SITEMAP_FETCHES
+    ]
+    queue = deque(queued)
+    seen_sitemaps = set(queued)
+    pages: dict[str, None] = {}
+    while queue and time.monotonic() < deadline:
+        sitemap_url = queue.popleft()
+        text = _fetch_sitemap(sitemap_url, deadline=deadline)
+        if text is None:
+            continue
+        try:
+            root = ET.fromstring(text)
+        except (DefusedParseError, DefusedXmlException):
+            continue
+        is_index = _local_name(root.tag) == "sitemapindex"
+        for element in root.iter():
+            if _local_name(element.tag) != "loc" or not element.text:
+                continue
+            location = element.text.strip()
+            if not _is_on_site(location, origin_scheme=origin_scheme, origin_host=origin_host, origin_port=origin_port):
+                continue
+            if is_index:
+                if location not in seen_sitemaps and len(seen_sitemaps) < _MAX_SITEMAP_FETCHES:
+                    seen_sitemaps.add(location)
+                    queue.append(location)
+            elif len(pages) < _MAX_SITEMAP_URLS:
+                pages[location] = None
+    return list(pages)

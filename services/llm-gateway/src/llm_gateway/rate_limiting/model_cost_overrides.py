@@ -65,6 +65,25 @@ BASETEN_DEEPSEEK_COST: Final[ModelCost] = {
     "supports_prompt_caching": True,
 }
 
+# litellm picks a Claude model's thinking and effort handling from these flags; a bridge row without
+# them loses adaptive thinking, between_tools and output_config.effort. Mirrors litellm's claude-sonnet-5.
+CLAUDE_5_CAPABILITIES: Final[ModelCost] = {
+    "supports_vision": True,
+    "supports_prompt_caching": True,
+    "supports_adaptive_thinking": True,
+    "supports_reasoning": True,
+    "supports_xhigh_reasoning_effort": True,
+    "supports_max_reasoning_effort": True,
+    "supports_output_config": True,
+    "supports_sampling_params": False,
+    "supports_assistant_prefill": False,
+    "supports_function_calling": True,
+    "supports_tool_choice": True,
+    "supports_response_schema": True,
+    "supports_pdf_input": True,
+    "supports_computer_use": True,
+}
+
 MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
     BASETEN_METRIC_MODEL: cast("ModelCost", dict(BASETEN_GLM_COST)),
     BASETEN_DEEPSEEK_METRIC_MODEL: cast("ModelCost", dict(BASETEN_DEEPSEEK_COST)),
@@ -72,6 +91,7 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
     BASETEN_GLM53_FLASH_METRIC_MODEL: cast("ModelCost", dict(BASETEN_GLM53_FLASH_COST)),
     "moonshotai/kimi-k3": cast("ModelCost", dict(KIMI_K3_COST)),
     "claude-fable-5": {
+        **CLAUDE_5_CAPABILITIES,
         "litellm_provider": "anthropic",
         "mode": "chat",
         # 200k not 1M: the 1M window is a beta-header feature, same as opus-4.x.
@@ -81,10 +101,9 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
         "output_cost_per_token": 5e-05,
         "cache_read_input_token_cost": 1e-06,
         "cache_creation_input_token_cost": 1.25e-05,
-        "supports_vision": True,
-        "supports_prompt_caching": True,
     },
     "claude-fable-5-1": {
+        **CLAUDE_5_CAPABILITIES,
         "litellm_provider": "anthropic",
         "mode": "chat",
         # 200k not 1M: the 1M window is a beta-header feature, same as opus-4.x.
@@ -94,8 +113,29 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
         "output_cost_per_token": 5e-05,
         "cache_read_input_token_cost": 1e-06,
         "cache_creation_input_token_cost": 1.25e-05,
-        "supports_vision": True,
-        "supports_prompt_caching": True,
+    },
+    "claude-opus-5-5": {
+        **CLAUDE_5_CAPABILITIES,
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        # 200k not 1M: the 1M window is a beta-header feature, same as opus-4.x.
+        "max_input_tokens": 200_000,
+        "max_output_tokens": 64_000,
+        "input_cost_per_token": 4e-06,
+        "output_cost_per_token": 2e-05,
+        "cache_read_input_token_cost": 2e-07,
+        "cache_creation_input_token_cost": 5e-06,
+    },
+    "claude-sonnet-5-5": {
+        **CLAUDE_5_CAPABILITIES,
+        "litellm_provider": "anthropic",
+        "mode": "chat",
+        "max_input_tokens": 1_000_000,
+        "max_output_tokens": 128_000,
+        "input_cost_per_token": 2e-06,
+        "output_cost_per_token": 1e-05,
+        "cache_read_input_token_cost": 2e-07,
+        "cache_creation_input_token_cost": 2.5e-06,
     },
     "gpt-5.6-sol": {
         "litellm_provider": "openai",
@@ -133,17 +173,96 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
         "supports_vision": True,
         "supports_prompt_caching": True,
     },
+    "gpt-6-sol": {
+        "litellm_provider": "openai",
+        "mode": "responses",
+        "max_input_tokens": 1_050_000,
+        "max_output_tokens": 128_000,
+        "input_cost_per_token": 2e-06,
+        "output_cost_per_token": 1e-05,
+        "cache_read_input_token_cost": 2e-07,
+        "cache_creation_input_token_cost": 2.5e-06,
+        "supports_vision": True,
+        "supports_prompt_caching": True,
+    },
+    "gpt-6.1-sol": cast(
+        "ModelCost",
+        {
+            "litellm_provider": "openai",
+            "mode": "responses",
+            "max_input_tokens": 1_050_000,
+            "max_output_tokens": 128_000,
+            "input_cost_per_token": 2e-06,
+            "output_cost_per_token": 1e-05,
+            "cache_read_input_token_cost": 1e-07,
+            "cache_creation_input_token_cost": 2.5e-06,
+            "input_cost_per_token_above_272k_tokens": 4e-06,
+            "output_cost_per_token_above_272k_tokens": 1.5e-05,
+            "cache_read_input_token_cost_above_272k_tokens": 2e-07,
+            "cache_creation_input_token_cost_above_272k_tokens": 5e-06,
+            "input_cost_per_token_flex": 1e-06,
+            "output_cost_per_token_flex": 5e-06,
+            "cache_read_input_token_cost_flex": 5e-08,
+            "cache_creation_input_token_cost_flex": 1.25e-06,
+            "input_cost_per_token_above_272k_tokens_flex": 2e-06,
+            "output_cost_per_token_above_272k_tokens_flex": 7.5e-06,
+            "cache_read_input_token_cost_above_272k_tokens_flex": 1e-07,
+            "cache_creation_input_token_cost_above_272k_tokens_flex": 2.5e-06,
+            "input_cost_per_token_priority": 4e-06,
+            "output_cost_per_token_priority": 2e-05,
+            "cache_read_input_token_cost_priority": 2e-07,
+            "cache_creation_input_token_cost_priority": 5e-06,
+            "input_cost_per_token_above_272k_tokens_priority": 8e-06,
+            "output_cost_per_token_above_272k_tokens_priority": 3e-05,
+            "cache_read_input_token_cost_above_272k_tokens_priority": 4e-07,
+            "cache_creation_input_token_cost_above_272k_tokens_priority": 1e-05,
+            "supports_vision": True,
+            "supports_prompt_caching": True,
+        },
+    ),
+    "gpt-6-luna": {
+        "litellm_provider": "openai",
+        "mode": "responses",
+        "max_input_tokens": 1_050_000,
+        "max_output_tokens": 128_000,
+        "input_cost_per_token": 1e-07,
+        "output_cost_per_token": 5e-07,
+        "cache_read_input_token_cost": 1e-08,
+        "cache_creation_input_token_cost": 1.25e-07,
+        "supports_vision": True,
+        "supports_prompt_caching": True,
+    },
+    "gpt-6-astra": {
+        "litellm_provider": "openai",
+        "mode": "chat",
+        "max_input_tokens": 922_000,
+        "max_output_tokens": 128_000,
+        "input_cost_per_token": 1e-05,
+        "output_cost_per_token": 5e-05,
+        "cache_read_input_token_cost": 1e-06,
+        "cache_creation_input_token_cost": 1.25e-05,
+        "supports_vision": True,
+        "supports_prompt_caching": True,
+    },
 }
 
-# Provider-specific contract prices must not be replaced by a same-named LiteLLM entry.
+# Contract prices must not be replaced by a same-named LiteLLM entry.
 PINNED_MODEL_COST_OVERRIDES: Final[frozenset[str]] = frozenset(
-    {BASETEN_METRIC_MODEL, BASETEN_DEEPSEEK_METRIC_MODEL, BASETEN_GLM53_METRIC_MODEL, BASETEN_GLM53_FLASH_METRIC_MODEL}
+    {
+        BASETEN_METRIC_MODEL,
+        BASETEN_DEEPSEEK_METRIC_MODEL,
+        BASETEN_GLM53_METRIC_MODEL,
+        BASETEN_GLM53_FLASH_METRIC_MODEL,
+        "gpt-6-astra",
+    }
 )
 
 
 def apply_model_cost_overrides(model_cost: dict[str, ModelCost]) -> dict[str, ModelCost]:
     """Apply missing bridge entries and contract-pinned provider prices in place."""
     for model_id, cost in MODEL_COST_OVERRIDES.items():
-        if model_id in PINNED_MODEL_COST_OVERRIDES or model_id not in model_cost:
+        if model_id in PINNED_MODEL_COST_OVERRIDES:
+            model_cost[model_id] = cast("ModelCost", {**model_cost.get(model_id, {}), **cost})
+        elif model_id not in model_cost:
             model_cost[model_id] = cast("ModelCost", dict(cost))
     return model_cost

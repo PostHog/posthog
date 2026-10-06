@@ -56,14 +56,6 @@ export const ElementsStatsRetrieveQueryParams = () => zod.object({
     sampling_factor: zod.number().optional().describe('Sampling factor between 0 and 1'),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -170,14 +162,6 @@ export const InsightsListQueryParams = () => zod.object({
         ),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -224,14 +208,6 @@ export const InsightsCreateBody = () => zod
     })
     .describe('Simplified serializer to speed response times when loading large amounts of objects.')
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsRetrieveParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])
@@ -287,14 +263,6 @@ export const InsightsRetrieveQueryParams = () => zod.object({
         ),
 })
 
-/**
- * DRF ViewSet mixin that gates coalesced responses behind permission checks.
- *
- * The QueryCoalescingMiddleware attaches cached response data to
- * request.META["_coalesced_response"] for followers. This mixin runs DRF's
- * initial() (auth + permissions + throttling) before returning the
- * cached response, ensuring the request is authorized.
- */
 export const InsightsPartialUpdateParams = () => zod.object({
     id: zod
         .union([zod.number(), zod.string()])

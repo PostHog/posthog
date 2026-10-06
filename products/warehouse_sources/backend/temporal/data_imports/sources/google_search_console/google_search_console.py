@@ -6,18 +6,18 @@ import collections.abc
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse, urlunparse
 
-from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
 import requests
 import structlog
-from google.auth.exceptions import RefreshError
+from google.auth.exceptions import RefreshError, TransportError
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -104,7 +104,9 @@ class GoogleSearchConsoleQuotaExceededError(Exception):
 
     Deliberately NOT matched by `get_non_retryable_errors` so Temporal retries
     the activity later (the resumable source picks up from the last saved date),
-    which is the right recovery for the longer 10-minute / daily load quotas.
+    which is the right recovery for the longer 10-minute / daily load quotas. Its
+    messages carry a `(retryable)` marker that `get_retryable_errors` matches, so
+    the self-recovering failure is logged as a warning instead of tracked as noise.
     """
 
 
@@ -112,6 +114,19 @@ class GoogleSearchConsoleQuotaExceededError(Exception):
 class GoogleSearchConsoleResumeConfig:
     current_date: str  # ISO date currently being fetched
     start_row: int  # next startRow within current_date
+
+
+SEARCH_CONSOLE_UI_PREFIX = "https://search.google.com/"
+
+
+def is_search_console_ui_url(site: str) -> bool:
+    """True when the value addresses Search Console itself rather than one of the account's properties.
+
+    ``normalize_site_url`` lifts the property out of a UI URL that carries a ``resource_id``.
+    Whatever is left on ``search.google.com`` names no property and never will, so no amount of
+    re-checking account access can make it validate.
+    """
+    return site.strip().lower().startswith(SEARCH_CONSOLE_UI_PREFIX)
 
 
 def normalize_site_url(raw: str) -> str:
@@ -128,7 +143,7 @@ def normalize_site_url(raw: str) -> str:
     site = raw.strip()
 
     # The Search Console UI URL carries the property in its `resource_id` query param.
-    if site.startswith("https://search.google.com/"):
+    if is_search_console_ui_url(site):
         resource_id = parse_qs(urlparse(site).query).get("resource_id")
         if resource_id:
             site = resource_id[0].strip()
@@ -207,11 +222,14 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     integration = _get_integration(integration_id, team_id)
+    resolved = integration_secrets.get_secrets(
+        ["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID", "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET"]
+    )
     return OAuthCredentials(
         token=None,
         refresh_token=integration.refresh_token,
-        client_id=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID,
-        client_secret=settings.GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET,
+        client_id=resolved["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID"],
+        client_secret=resolved["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET"],
         token_uri="https://oauth2.googleapis.com/token",
         # No `scopes=` on purpose. With a refresh-token grant, google-auth forwards the
         # requested scopes to Google's token endpoint, which rejects anything that isn't an
@@ -374,6 +392,24 @@ def _query_search_analytics(
             )
             time.sleep(wait)
             continue
+        except TransportError:
+            # Raised by AuthorizedSession's internal token-refresh request when the underlying
+            # HTTP call itself fails (connection reset, proxy error, DNS failure, timeout) before
+            # any response exists — google-auth wraps `requests.RequestException` in this class
+            # rather than raising it directly, so it never reaches the ConnectionError/Timeout
+            # handling above. Always a network-layer failure, same transient class, so retry
+            # inline like a 5xx rather than crashing the activity on the first blip.
+            if attempt == QUOTA_MAX_RETRIES:
+                raise
+            wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "GSC token refresh transport error, backing off",
+                site_url=site_url,
+                attempt=attempt,
+                wait_seconds=wait,
+            )
+            time.sleep(wait)
+            continue
 
         if response.ok:
             try:
@@ -407,7 +443,7 @@ def _query_search_analytics(
 
         if _is_daily_quota_error(response):
             raise GoogleSearchConsoleQuotaExceededError(
-                f"Search Analytics daily quota for '{site_url}' exhausted; retrying at the activity level"
+                f"Search Analytics daily quota for '{site_url}' exhausted; retrying at the activity level (retryable)"
             )
 
         # Quota (403 usageLimits / 429) and transient Google-side 5xx both clear on their own,
@@ -423,7 +459,7 @@ def _query_search_analytics(
                 # retries the activity (resuming from the last saved date).
                 response.raise_for_status()
             raise GoogleSearchConsoleQuotaExceededError(
-                f"Search Analytics quota for '{site_url}' still exhausted after {QUOTA_MAX_RETRIES} retries"
+                f"Search Analytics quota for '{site_url}' still exhausted after {QUOTA_MAX_RETRIES} retries (retryable)"
             )
 
         wait = _quota_backoff_seconds(response, attempt)
@@ -437,7 +473,7 @@ def _query_search_analytics(
         time.sleep(wait)
 
     # Unreachable: the loop either returns, raises for status, or raises the quota error.
-    raise GoogleSearchConsoleQuotaExceededError(f"Search Analytics quota for '{site_url}' exhausted")
+    raise GoogleSearchConsoleQuotaExceededError(f"Search Analytics quota for '{site_url}' exhausted (retryable)")
 
 
 def _parse_api_datetime(value: Any) -> dt.datetime | None:
@@ -571,14 +607,27 @@ def _property_rows(
 ) -> collections.abc.Iterator[list[dict[str, Any]]]:
     session = google_search_console_session(config.google_search_console_integration_id, team_id)
 
-    if resource_name == "sites":
-        rows = [_site_to_dict(site) for site in list_sites(session)]
-    else:
-        sitemaps = list_sitemaps(session, normalize_site_url(config.site_url))
-        if resource_name == "sitemaps":
-            rows = [_sitemap_to_dict(sitemap) for sitemap in sitemaps]
+    try:
+        if resource_name == "sites":
+            rows = [_site_to_dict(site) for site in list_sites(session)]
         else:
-            rows = [row for sitemap in sitemaps for row in _sitemap_content_rows(sitemap)]
+            sitemaps = list_sitemaps(session, normalize_site_url(config.site_url))
+            if resource_name == "sitemaps":
+                rows = [_sitemap_to_dict(sitemap) for sitemap in sitemaps]
+            else:
+                rows = [row for sitemap in sitemaps for row in _sitemap_content_rows(sitemap)]
+    except requests.HTTPError as e:
+        # `list_sites` and `list_sitemaps` call `raise_for_status` directly, so a spent quota
+        # arrives here as a bare "403 Client Error". `get_non_retryable_errors` matches that
+        # string and the table is disabled, even though the quota refills on its own. Google
+        # answers a spent quota and a real permission failure with the same status, and only the
+        # body separates them, which is what `_is_quota_error` reads. A real permission failure
+        # still raises unchanged, so it keeps disabling the table as before.
+        if e.response is not None and _is_quota_error(e.response):
+            raise GoogleSearchConsoleQuotaExceededError(
+                f"Search Console quota exhausted while listing {resource_name}; the next sync picks it up (retryable)"
+            ) from e
+        raise
 
     if rows:
         yield rows

@@ -5,6 +5,8 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.apps import apps
+from django.core.cache import cache
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -13,6 +15,7 @@ from rest_framework.test import APIClient
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import generate_random_token_secret
+from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.persons import create_group
 
 from products.customer_analytics.backend.models import (
@@ -24,7 +27,11 @@ from products.customer_analytics.backend.models import (
     DisplayType,
 )
 from products.customer_analytics.backend.models.account import AccountProperties
-from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
+from products.customer_analytics.backend.test.factories import (
+    create_account,
+    create_custom_property_definition,
+    enroll_account,
+)
 
 _SYNC_EXECUTE = "products.customer_analytics.backend.logic.custom_property_sync.execute_hogql_query"
 
@@ -75,6 +82,10 @@ class TestExternalAccountAPI(APIBaseTest):
             .values_list("user_id", flat=True)
         )
 
+    def _create_psak_token(self, scopes, team=None, label="external-account"):
+        _, token = create_project_secret_api_key(team or self.team, label=label, scopes=scopes)
+        return token
+
     # -- Authentication ---------------------------------------------------
 
     def test_get_requires_auth(self):
@@ -106,9 +117,76 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_rejects_team_without_customer_analytics_enabled(self):
+        read_psak = self._create_psak_token(scopes=["account:read"], label="read")
+        wrong_scope_psak = self._create_psak_token(scopes=["endpoint:read"], label="wrong-scope")
         self.mock_csp_enabled.return_value = False
-        response = self._get()
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        write_psak = self._create_psak_token(scopes=["account:write"], label="write")
+        for token in [self.team.secret_api_token, read_psak, wrong_scope_psak]:
+            with self.subTest(token=token):
+                response = self._get(token=token)
+                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+                self.assertEqual(response.json(), {"error": "Invalid API key"})
+        for token in [self.team.secret_api_token, write_psak]:
+            with self.subTest(token=token, method="post"):
+                response = self._post({"external_id": "acme-2"}, token=token)
+                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+                self.assertEqual(response.json(), {"error": "Invalid API key"})
+        self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="acme-2").exists())
+
+    def test_get_accepts_project_secret_api_key_with_account_read_scope(self):
+        response = self._get(token=self._create_psak_token(scopes=["account:read"]))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(self.account.id))
+
+    def test_get_rejects_project_secret_api_key_without_account_scope(self):
+        response = self._get(token=self._create_psak_token(scopes=["endpoint:read"]))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @parameterized.expand(
+        [
+            ("post_read_scope", "_post", ["account:read"], {"external_id": "acme-2"}),
+            ("post_unrelated_scope", "_post", ["endpoint:read"], {"external_id": "acme-2"}),
+            ("patch_read_scope", "_patch", ["account:read"], {"external_id": "acme-1", "churned_at": "2026-08-01"}),
+            ("patch_write_scope", "_patch", ["account:write"], {"external_id": "acme-1", "churned_at": "2026-08-01"}),
+        ]
+    )
+    def test_writes_reject_project_secret_api_key(
+        self, _name: str, request_method: str, scopes: list[str], payload: dict[str, str]
+    ) -> None:
+        token = self._create_psak_token(scopes=scopes)
+        response = getattr(self, request_method)(payload, token=token)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="acme-2").exists())
+        self.account.refresh_from_db()
+        self.assertIsNone(self.account.churned_at)
+
+    def test_post_accepts_project_secret_api_key_with_account_write_scope(self) -> None:
+        token = self._create_psak_token(scopes=["account:write"])
+
+        created = self._post({"external_id": "acme-2", "name": "Acme Two"}, token=token)
+        repeated = self._post({"external_id": "acme-2", "name": "Renamed"}, token=token)
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(repeated.status_code, status.HTTP_200_OK)
+        self.assertEqual(repeated.json()["id"], created.json()["id"])
+        accounts = Account.objects.for_team(self.team.id).filter(external_id="acme-2")
+        self.assertEqual([account.name for account in accounts], ["Acme Two"])
+
+    def test_project_secret_api_keys_share_a_team_rate_limit(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        first_token = self._create_psak_token(scopes=["account:read"], label="first")
+        second_token = self._create_psak_token(scopes=["account:read"], label="second")
+
+        with (
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch(
+                "products.customer_analytics.backend.presentation.views.external.ExternalAccountTeamBurstThrottle.rate",
+                "1/minute",
+            ),
+        ):
+            self.assertEqual(self._get(token=first_token).status_code, status.HTTP_200_OK)
+            self.assertEqual(self._get(token=second_token).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     # -- GET account ------------------------------------------------------
 
@@ -144,6 +222,76 @@ class TestExternalAccountAPI(APIBaseTest):
             {"CSM": [{"user_id": self.user.id, "email": self.user.email}]},
         )
 
+    def _control_csm(self) -> None:
+        self.csm_definition.is_controlled = True
+        self.csm_definition.save(update_fields=["is_controlled"])
+
+    def _manage_csm(self) -> None:
+        enroll_account(self.account, self.csm_definition, controlled_at=datetime(2026, 1, 1, tzinfo=UTC))
+
+    @parameterized.expand(
+        [
+            ("not_controlled", False, False, "member", None, []),
+            ("unmanaged_controlled", True, False, None, "unmanaged", []),
+            ("unmanaged_with_legacy_holder", True, False, "member", "unmanaged", []),
+            ("assigned", True, True, "member", "assigned", []),
+            ("cleared", True, True, None, "cleared", []),
+            ("blocked_non_member", True, True, "outsider", "blocked", ["holder_not_in_organization"]),
+            ("blocked_inactive", True, True, "inactive", "blocked", ["holder_inactive"]),
+        ]
+    )
+    def test_get_account_ownership_state(self, _name, controlled, managed, holder_kind, state, diagnostics):
+        if controlled:
+            self._control_csm()
+        if managed:
+            self._manage_csm()
+        holder = None
+        if holder_kind == "member":
+            holder = self.user
+        elif holder_kind == "outsider":
+            holder = User.objects.create_user("outsider@example.com", None, "")
+        elif holder_kind == "inactive":
+            holder = self._create_user("inactive@posthog.com", is_active=False)
+        relationship = self._assign_csm(holder) if holder is not None else None
+
+        response = self._get()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.json()
+        listed = (
+            {}
+            if holder is None or holder_kind == "outsider"
+            else {"CSM": [{"user_id": holder.id, "email": holder.email}]}
+        )
+        self.assertEqual(payload["relationships"], listed)
+        roles = payload["ownership"]["roles"]
+        if not controlled:
+            self.assertEqual(roles, [])
+            return
+        (csm,) = roles
+        self.assertEqual(csm["state"], state)
+        self.assertEqual(csm["diagnostics"], diagnostics)
+        self.assertEqual((csm["definition_id"], csm["definition_name"]), (self.csm_key, "CSM"))
+        self.assertEqual(csm["controlled_at"], "2026-01-01T00:00:00Z" if managed else None)
+        self.assertEqual(csm["relationship_id"], str(relationship.id) if relationship else None)
+        if holder is None:
+            self.assertIsNone(csm["holder"])
+            return
+        self.assertEqual(csm["holder"]["user_id"], holder.id)
+        self.assertEqual(csm["holder"]["is_organization_member"], holder_kind != "outsider")
+        self.assertEqual(csm["holder"]["is_active"], holder_kind != "inactive")
+        self.assertEqual(csm["holder"]["email"], None if holder_kind == "outsider" else holder.email)
+
+    def test_get_account_ownership_identity(self):
+        with override_settings(CLOUD_DEPLOYMENT="US"):
+            response = self._get()
+
+        ownership = response.json()["ownership"]
+        self.assertEqual(ownership["account_id"], str(self.account.id))
+        self.assertEqual(ownership["external_id"], "acme-1")
+        self.assertEqual(ownership["region"], "us")
+        self.assertEqual(ownership["roles"], [])
+
     def test_get_account_returns_custom_properties(self):
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
         create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
@@ -174,9 +322,11 @@ class TestExternalAccountAPI(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_team.secret_api_token = generate_random_token_secret()
         other_team.save(update_fields=["secret_api_token"])
+        other_team_psak = self._create_psak_token(scopes=["account:read"], team=other_team)
 
-        response = self._get(token=other_team.secret_api_token)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        for token in [other_team.secret_api_token, other_team_psak]:
+            with self.subTest(token=token):
+                self.assertEqual(self._get(token=token).status_code, status.HTTP_404_NOT_FOUND)
 
     # -- PATCH account ----------------------------------------------------
 
@@ -217,6 +367,16 @@ class TestExternalAccountAPI(APIBaseTest):
             response.json()["relationships"],
             {"CSM": [{"user_id": self.user.id, "email": self.user.email}]},
         )
+        self.assertEqual(self._active_csm_user_ids(), [self.user.id])
+
+    def test_patch_cannot_change_a_managed_controlled_relationship(self):
+        self._assign_csm(self.user)
+        self._control_csm()
+        self._manage_csm()
+
+        response = self._patch({"external_id": "acme-1", "relationships": {self.csm_key: None}})
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT, response.json())
         self.assertEqual(self._active_csm_user_ids(), [self.user.id])
 
     def test_patch_null_ends_active_assignment(self):
@@ -387,6 +547,25 @@ class TestExternalAccountAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("supplied_name", {"name": " Supplied Corp "}, "Supplied Corp"),
+            ("blank_name", {"name": "   "}, "New Corp"),
+            ("null_name", {"name": None}, "New Corp"),
+        ]
+    )
+    def test_post_supplied_name_overrides_group_name(
+        self, _name: str, extra_payload: dict[str, str | None], expected_name: str
+    ) -> None:
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save()
+        create_group(team=self.team, group_type_index=0, group_key="new-1", group_properties={"name": "New Corp"})
+
+        response = self._post({"external_id": "new-1", **extra_payload})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], expected_name)
+
+    @parameterized.expand(
+        [
             ("no_group_type_configured", False, False),
             ("group_missing", True, False),
             ("group_has_no_name_property", True, True),
@@ -399,17 +578,53 @@ class TestExternalAccountAPI(APIBaseTest):
         if create_nameless_group:
             create_group(team=self.team, group_type_index=0, group_key="new-1", group_properties={"plan": "free"})
 
-        response = self._post({"external_id": "new-1"})
+        response = self._post({"external_id": "new-1", "name": ""})
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "new-1")
 
     def test_post_existing_account_is_a_noop(self):
-        response = self._post({"external_id": "acme-1"})
+        response = self._post(
+            {"external_id": "acme-1", "name": "Renamed", "properties": {"stripe_customer_id": "cus_new"}}
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Acme Corp")
         self.account.refresh_from_db()
         self.assertEqual(self.account.name, "Acme Corp")
+        self.assertIsNone(self.account.properties.stripe_customer_id)
+
+    def test_post_stores_supplied_properties(self) -> None:
+        response = self._post(
+            {
+                "external_id": "new-1",
+                "properties": {
+                    "website_domain": "https://www.example.com/pricing",
+                    "stripe_customer_id": "cus_123",
+                    "sfdc_id": "001ABC",
+                    "slack_channel_id": "C0123",
+                },
+            }
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        properties = Account.objects.for_team(self.team.id).get(external_id="new-1").properties
+        self.assertEqual(properties.website_domain, "example.com")
+        self.assertEqual(properties.stripe_customer_id, "cus_123")
+        self.assertEqual(properties.sfdc_id, "001ABC")
+        self.assertEqual(properties.slack_channel_id, "C0123")
+
+    @parameterized.expand(
+        [
+            ("unknown_key", {"favorite_color": "blue"}),
+            ("wrong_type", {"email_domains": "example.com"}),
+            ("not_an_object", ["cus_123"]),
+        ]
+    )
+    def test_post_rejects_invalid_properties(self, _name: str, properties: object) -> None:
+        response = self._post({"external_id": "new-1", "properties": properties})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="new-1").exists())
 
     @parameterized.expand([("missing", {}), ("blank", {"external_id": "   "})])
     def test_post_requires_external_id(self, _name, payload):
@@ -422,6 +637,7 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         log = ActivityLog.objects.get(team_id=self.team.id, scope="Account", activity="created")
         self.assertIsNone(log.user)
+        self.assertEqual(log.credential_type, "team_secret_token")
         detail = log.detail
         assert detail is not None
         self.assertEqual(detail["trigger"]["job_type"], "hog_flow")

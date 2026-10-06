@@ -3,6 +3,8 @@ import { useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { mswDecorator } from '~/mocks/browser'
+
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { mockScoutConfigs } from '../../../__mocks__/scoutConfigs'
@@ -58,4 +60,50 @@ export const WeeklySchedule: Story = {
 // A schedule the presets cannot express. The expression is editable, and validated as it is typed.
 export const CustomCronSchedule: Story = {
     render: () => <EditableConfigForm initialConfig={{ ...mockScoutConfigs[0], run_cron_schedule: '0 9 * * 1-5' }} />,
+}
+
+// A scout that posts into a Slack channel: the collapsed section names the channel, so where the
+// output goes is readable without opening it. The workspace has to be mocked, or the header reports
+// the saved channel as disconnected, which is what an unresolvable workspace means.
+export const SlackChannelDestination: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/integrations/': () => [
+                    200,
+                    { results: [{ id: 1, kind: 'slack', display_name: 'PostHog', config: {}, errors: null }] },
+                ],
+            },
+        }),
+    ],
+    render: () => (
+        <EditableConfigForm
+            initialConfig={{
+                ...mockScoutConfigs[0],
+                output_destinations: {
+                    slack: { integration_id: 1, channel: 'C123|#scout-alerts', thread_reports: true },
+                },
+            }}
+        />
+    ),
+}
+
+// A scout that measures something on a schedule: the collapsed section names the fields of the
+// record it writes, so what the scout produces is readable without opening it.
+export const StructuredOutput: Story = {
+    render: () => (
+        <EditableConfigForm
+            initialConfig={{
+                ...mockScoutConfigs[0],
+                structured_output_schema: {
+                    type: 'object',
+                    properties: {
+                        verdict: { enum: ['good', 'bad', 'unsure'] },
+                        reason: { type: 'string' },
+                    },
+                    required: ['verdict', 'reason'],
+                },
+            }}
+        />
+    ),
 }

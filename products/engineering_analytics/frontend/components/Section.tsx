@@ -31,11 +31,11 @@ export function Section({
 }): JSX.Element {
     return (
         <section id={sectionDomId(id)} className="scroll-mt-14" aria-busy={busy}>
-            <div className="mb-2 flex items-baseline gap-2.5">
+            <div className="mb-2 flex flex-wrap items-baseline gap-2.5">
                 <h2 className="m-0 text-base font-semibold">{title}</h2>
                 {note && <span className="text-xs text-tertiary">{note}</span>}
                 {busy && <Spinner className="text-sm text-secondary" />}
-                {right && <span className="ml-auto text-xs">{right}</span>}
+                {right && <span className="ml-auto max-w-full text-xs">{right}</span>}
             </div>
             <div className={cn('transition-opacity', busy && 'pointer-events-none opacity-60')}>{children}</div>
         </section>

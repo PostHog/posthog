@@ -1364,6 +1364,43 @@ class TestConnectionDropped:
 
     @parameterized.expand(
         [
+            # duckgres reaps a client session that idled past duckgres.idle_timeout
+            # (the backfill holds its connection across the ClickHouse->S3 export).
+            # It sends a FATAL 57P05 before closing; older builds just dropped the
+            # socket, which landed in the transport-marker branch instead. The two
+            # halves of that classification are guarded independently below, so
+            # neither can regress while the other keeps these cases green.
+            #
+            # The real observed shape: sqlstate AND message both present.
+            (
+                "idle_session_timeout",
+                psycopg.errors.IdleSessionTimeout(
+                    "terminating connection due to idle timeout (duckgres.idle_timeout is 5m0s)"
+                ),
+            ),
+            # Message alone, no sqlstate — psycopg surfacing the text without a
+            # parsed ErrorResponse. Guards the _CONNECTION_DROPPED_MARKERS entry.
+            (
+                "idle_timeout_message_without_sqlstate",
+                psycopg.OperationalError("terminating connection due to idle timeout (duckgres.idle_timeout is 5m0s)"),
+            ),
+            # Sqlstate alone. PostgreSQL's own idle_session_timeout wording is
+            # hyphenated ("idle-session timeout") and so does NOT match the
+            # duckgres-shaped marker — which is exactly why this guards the
+            # _CONNECTION_DROPPED_SQLSTATES entry on its own.
+            (
+                "idle_session_timeout_sqlstate_without_marker",
+                psycopg.errors.IdleSessionTimeout("terminating connection due to idle-session timeout"),
+            ),
+        ]
+    )
+    def test_idle_session_reap_is_dropped(self, _label, exc):
+        # Safest possible replay: the session was idle, so no statement was in
+        # flight and a retry cannot double-apply.
+        assert _connection_dropped(exc) is True
+
+    @parameterized.expand(
+        [
             ("disk_full", psycopg.errors.DiskFull()),
             ("undefined_table", psycopg.errors.UndefinedTable()),
             ("value_error", ValueError("nope")),

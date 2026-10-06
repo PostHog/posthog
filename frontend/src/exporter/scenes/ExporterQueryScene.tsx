@@ -12,7 +12,7 @@ import { DISPLAYS_WITH_IN_CHART_LEGEND } from 'scenes/insights/insightVizDataLog
 
 import { Query } from '~/queries/Query/Query'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import { getDisplay, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { getDisplay, isInsightVizNode, isMetricInsightQuery, isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { ExportedData } from '../types'
@@ -78,12 +78,7 @@ export default function ExporterQueryScene({
 
     return (
         <BindLogic logic={insightLogic} props={insightLogicProps}>
-            <div
-                className={clsx(
-                    'ExportedInsight',
-                    trendsDisplay === ChartDisplayType.Metric && 'ExportedInsight--metric'
-                )}
-            >
+            <div className={clsx('ExportedInsight', isMetricInsightQuery(query) && 'ExportedInsight--metric')}>
                 {title && (
                     <div className="ExportedInsight__header">
                         <div className="ExportedInsight__header__title">{title}</div>

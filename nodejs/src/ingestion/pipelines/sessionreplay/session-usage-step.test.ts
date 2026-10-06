@@ -91,6 +91,17 @@ describe('createRecordSessionUsageStep', () => {
         expect(await record('web', 'posthog-js', false)).toEqual([])
     })
 
+    it('uses trusted capture time from replay headers', async () => {
+        const capturedAtMs = 1_700_000_000_000
+        const value = buildValue('web', 'posthog-js', true)
+        value.headers.now = new Date(capturedAtMs)
+
+        await createRecordSessionUsageStep(usageBatch)(value)
+        await usageBatch.flush()
+
+        expect(ingested[0]).toEqual(expect.objectContaining({ timestampMs: capturedAtMs }))
+    })
+
     describe('trackUnbilledNewSessions', () => {
         async function unbilledCount(): Promise<number> {
             const metric = register.getSingleMetric('recording_blob_ingestion_v2_unbilled_new_session')!

@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
@@ -7,36 +5,8 @@ use tracing::info;
 
 use crate::discovery::DiscoveryMode;
 use crate::routing::RoutingStrategy;
+use crate::scheduler::SchedulerKind;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
-
-/// Whether the consumer keeps an offset ledger, and whether that ledger
-/// observes the commit path or owns it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum LedgerMode {
-    /// No ledger: commit the per-batch max offset as before. Nothing is
-    /// charged, settled, forgotten on rebalance, or reported.
-    Off,
-    /// Commit the per-batch max offset and compare the ledger frontier to it.
-    #[default]
-    Shadow,
-    /// Commit the ledger frontier after the comparison.
-    Commit,
-}
-
-impl FromStr for LedgerMode {
-    type Err = String;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim().to_lowercase().as_str() {
-            "off" => Ok(Self::Off),
-            "shadow" => Ok(Self::Shadow),
-            "commit" => Ok(Self::Commit),
-            other => Err(format!(
-                "unknown consumer offset ledger mode '{other}' (expected 'off', 'shadow' or 'commit')"
-            )),
-        }
-    }
-}
 
 /// Configuration for the ingestion consumer.
 ///
@@ -194,18 +164,17 @@ pub struct Config {
     #[envconfig(default = "60000")]
     pub consumer_deferred_flush_timeout_ms: u64,
 
+    /// How often the key-table scheduler retries its parked keys
+    /// (milliseconds). Matches the flush driver's retry cadence, so the
+    /// scheduler switch does not regress recovery latency. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
+    #[envconfig(from = "INGESTION_PARKED_RETRY_INTERVAL_MS", default = "200")]
+    pub parked_retry_interval_ms: u64,
+
     /// Maximum Kafka batches to process concurrently. Matches the Node.js
     /// CONSUMER_MAX_BACKGROUND_TASKS setting used by the Kafka consumer wrapper.
     #[envconfig(from = "CONSUMER_MAX_BACKGROUND_TASKS", default = "1")]
     pub consumer_max_background_tasks: usize,
-
-    /// The source of offset commits. `off` commits the per-batch max offset
-    /// and keeps no ledger. `shadow` commits the same offset and compares the
-    /// ledger frontier with it, reporting disagreements. `commit` commits the
-    /// ledger frontier after that comparison. Fall back to `off` only if the
-    /// ledger's accounting or metrics are implicated in a problem.
-    #[envconfig(from = "CONSUMER_OFFSET_LEDGER_MODE", default = "shadow")]
-    pub consumer_offset_ledger_mode: LedgerMode,
 
     // ---- Debug API ----
     /// Serve the real-time debug API (`/debug/load`, `/debug/state`,
@@ -235,7 +204,6 @@ pub struct Config {
     #[envconfig(from = "CONSUMER_ORDER_SENTINEL_ENABLED", default = "true")]
     pub consumer_order_sentinel_enabled: bool,
 
-    // ---- Offset ledger ----
     // ---- Worker transport ----
     /// Comma-separated list of worker HTTP URLs. Readiness probes hit these
     /// directly; each worker's gRPC stream address is derived from its URL's
@@ -312,6 +280,12 @@ pub struct Config {
     /// (power-of-two-choices — herd-resistant for a shared worker pool).
     #[envconfig(from = "INGESTION_ROUTING_STRATEGY", default = "binpack")]
     pub routing_strategy: RoutingStrategy,
+
+    /// Which scheduler orders and places runs: `pin_stash` (default, sticky
+    /// pins with a per-batch stash) or `key_table` (at most one in-flight
+    /// request per key). The switch back is the rollback.
+    #[envconfig(from = "INGESTION_SCHEDULER", default = "pin_stash")]
+    pub scheduler: SchedulerKind,
 
     /// Minimum aperture width for `INGESTION_ROUTING_STRATEGY=aperture`: how
     /// many workers this dispatcher's ring slice spans. The effective width
@@ -502,19 +476,5 @@ impl Config {
         builder = builder.strip_classic_protocol_keys_if_consumer();
 
         builder.build()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::LedgerMode;
-    use std::str::FromStr;
-
-    #[test]
-    fn ledger_mode_parses_known_values() {
-        assert_eq!(LedgerMode::from_str("off"), Ok(LedgerMode::Off));
-        assert_eq!(LedgerMode::from_str(" SHADOW "), Ok(LedgerMode::Shadow));
-        assert_eq!(LedgerMode::from_str("commit"), Ok(LedgerMode::Commit));
-        assert!(LedgerMode::from_str("on").is_err());
     }
 }

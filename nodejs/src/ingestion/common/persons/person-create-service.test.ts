@@ -94,7 +94,7 @@ describe('PersonCreateService', () => {
 
             mockPersonStore.createPerson.mockResolvedValue(mockResult)
 
-            const [person, created] = await personCreateService.createPerson(
+            const [person, created, messages] = await personCreateService.createPerson(
                 createdAt,
                 properties,
                 propertiesOnce,
@@ -107,11 +107,9 @@ describe('PersonCreateService', () => {
 
             expect(person).toEqual(mockPerson)
             expect(created).toBe(true)
-            expect(mockOutputs.produce).toHaveBeenCalledWith('persons', {
-                value: Buffer.from('test'),
-                key: null,
-                teamId,
-            })
+            // The caller owns the produce, so a transactional caller can defer it past commit.
+            expect(messages).toEqual(mockResult.messages)
+            expect(mockOutputs.produce).not.toHaveBeenCalled()
         })
 
         it('should handle PersonPropertiesSizeViolationError and log ingestion warning', async () => {

@@ -1,4 +1,5 @@
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
+import { useFilingTasksStore } from "@posthog/ui/features/canvas/stores/filingTasksStore";
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { TaskItem } from "@posthog/ui/features/sidebar/components/items/TaskItem";
 import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
@@ -63,11 +64,15 @@ export function TaskRow({
     cloudPrUrl: task.cloudPrUrl,
     taskRunEnvironment: task.taskRunEnvironment,
   });
-  const isArchiving = useArchivingTasksStore((state) =>
-    state.archivingTaskIds.has(task.id),
+  const archivePresentation = useArchivingTasksStore((state) =>
+    state.hiddenArchivingTaskIds.has(task.id)
+      ? "hidden"
+      : state.archivingTaskIds.has(task.id)
+        ? "progress"
+        : null,
   );
-
-  if (isArchiving) return null;
+  const filing = useFilingTasksStore((state) => state.filingTasks[task.id]);
+  if (archivePresentation === "hidden") return null;
 
   return (
     <TaskItem
@@ -77,6 +82,8 @@ export function TaskRow({
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
+      isArchiving={archivePresentation === "progress"}
+      isFiling={filing?.status === "pending"}
       hideHoverActions={hideHoverActions}
       isEditing={isEditing}
       workspaceMode={effectiveMode}

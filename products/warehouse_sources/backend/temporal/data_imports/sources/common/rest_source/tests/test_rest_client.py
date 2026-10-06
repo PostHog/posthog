@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
     _parse_retry_after,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
 
 
 def _make_response(json_body: Any, status_code: int = 200) -> Response:
@@ -228,11 +229,41 @@ class TestRESTClient:
         saved: list[Any] = []
 
         client = RESTClient(base_url="https://api.example.com")
-        list(client.paginate(path="/items", paginator=TwoPagePaginator(), resume_hook=saved.append))
+        with activate_safe_point(lambda: saved.append("safe_point"), covers_framework_checkpoints=True):
+            list(client.paginate(path="/items", paginator=TwoPagePaginator(), resume_hook=saved.append))
 
         # Called once between page 1 and page 2 with the next-page state, and
-        # once on the terminal page with None (no more pages to resume to).
-        assert saved == [{"page": 1}, None]
+        # once on the terminal page with None (no more pages to resume to). Each checkpoint is
+        # followed by a safe point, never preceded by one, so the staged cursor covers the page.
+        assert saved == [{"page": 1}, "safe_point", None, "safe_point"]
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+    )
+    def test_paginate_invokes_safe_point_without_resume_hook(self, MockSession) -> None:
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+        mock_session.send.side_effect = [_make_response([]), _make_response([])]
+
+        class TwoPagePaginator(BasePaginator):
+            def __init__(self):
+                super().__init__()
+                self._page = 0
+
+            def update_state(self, response, data=None):
+                self._page += 1
+                self._has_next_page = self._page < 2
+
+            def update_request(self, request):
+                pass
+
+        safe_points: list[str] = []
+        client = RESTClient(base_url="https://api.example.com")
+        with activate_safe_point(lambda: safe_points.append("safe_point"), covers_framework_checkpoints=True):
+            list(client.paginate(path="/items", paginator=TwoPagePaginator()))
+
+        assert safe_points == ["safe_point", "safe_point"]
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -740,6 +771,18 @@ class TestRESTClient:
         response.headers["anthropic-ratelimit-requests-reset"] = header_value
 
         assert _parse_retry_after(response) == expected
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
+    def test_parse_retry_after_honors_x_rate_limit_reset(self, mock_datetime) -> None:
+        # X answers 429 with a UNIX epoch reset and no ``Retry-After``. Its windows run 15 minutes,
+        # so without this the exponential fallback burns the attempt budget inside one window.
+        now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
+        mock_datetime.now.return_value = now
+
+        response = _make_response({"title": "Too Many Requests"}, status_code=429)
+        response.headers["x-rate-limit-reset"] = str(int(now.timestamp()) + 120)
+
+        assert _parse_retry_after(response) == 120
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.datetime")
     def test_parse_retry_after_caps_sentry_reset_header(self, mock_datetime) -> None:

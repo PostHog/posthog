@@ -148,7 +148,10 @@ pub async fn filter_property_definitions(
         }
         keep[idx] = false;
         // Refresh the dedup cache with the stored type, so future typed sightings
-        // of this row hit in memory instead of re-probing the reader.
+        // of this row hit in memory instead of re-probing the reader. The cache
+        // decides whether this changes anything: the entry may have been evicted
+        // or removed while the batch waited, so the batch row is not proof of
+        // the cached state.
         if let Some(stored) = stored_type.and_then(|s| PropertyValueType::from_str(&s).ok()) {
             if let Update::Property(pd) = &batch.cached[idx] {
                 let mut refreshed = pd.clone();

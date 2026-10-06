@@ -7,7 +7,7 @@ the helpers directly so they're independent of Temporal harnessing.
 
 from datetime import UTC, datetime, timedelta
 
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
@@ -17,6 +17,8 @@ from posthog.schema import AlertCalculationInterval, AlertState
 from posthog.temporal.alerts.investigation import (
     IN_FLIGHT_INVESTIGATION_HORIZON,
     MAX_INVESTIGATIONS_PER_EPISODE,
+    InvestigationDecision,
+    carried_verdict_suppresses,
     claim_investigation_slot,
     decide_investigation,
     investigation_cooldown,
@@ -50,7 +52,7 @@ class InvestigationTestCase(BaseTest):
         investigation_status: str | None = None,
         investigation_verdict: str | None = None,
     ) -> AlertCheck:
-        with freeze_time(at):
+        with time_machine.travel(at, tick=False):
             return AlertCheck.objects.create(
                 alert_configuration=self.alert,
                 state=state,
@@ -80,12 +82,16 @@ class TestDecideInvestigation(InvestigationTestCase):
         decision = decide_investigation(self.alert, check)
 
         assert decision.should_investigate
-        assert decision.is_first_of_episode is (already_investigated == 0)
+        assert decision.previous_verdict == (None if already_investigated == 0 else "true_positive")
 
     def test_stops_once_the_budget_is_spent(self) -> None:
         check = self._firing_episode(investigated=MAX_INVESTIGATIONS_PER_EPISODE)
 
-        assert not decide_investigation(self.alert, check).should_investigate
+        decision = decide_investigation(self.alert, check)
+
+        assert not decision.should_investigate
+        # The episode's last verdict still reaches the caller, so it can hold the notification.
+        assert decision.previous_verdict == "true_positive"
 
     def test_investigates_a_check_whose_predecessor_was_dismissed(self) -> None:
         # The suppressed-false-positive case needs no rule of its own: the next check is
@@ -101,7 +107,7 @@ class TestDecideInvestigation(InvestigationTestCase):
         decision = decide_investigation(self.alert, check)
 
         assert decision.should_investigate
-        assert not decision.is_first_of_episode
+        assert decision.previous_verdict == "false_positive"
 
     def test_budget_resets_after_the_alert_stops_firing(self) -> None:
         self._firing_episode(investigated=MAX_INVESTIGATIONS_PER_EPISODE)
@@ -111,7 +117,7 @@ class TestDecideInvestigation(InvestigationTestCase):
         decision = decide_investigation(self.alert, check)
 
         assert decision.should_investigate
-        assert decision.is_first_of_episode
+        assert decision.previous_verdict is None
 
     def test_a_skipped_check_does_not_spend_budget(self) -> None:
         # SKIPPED means the cooldown refused the slot, so no agent ever ran.
@@ -124,21 +130,6 @@ class TestDecideInvestigation(InvestigationTestCase):
         check = self._make_check(at=_EPISODE_START + timedelta(hours=MAX_INVESTIGATIONS_PER_EPISODE + 1))
 
         assert decide_investigation(self.alert, check).should_investigate
-
-    def test_does_not_gate_a_reminder_after_a_skipped_first_fire(self) -> None:
-        # The cooldown refused the episode's opening fire, so its notification already went
-        # out. The next check must not hold a reminder of an incident the user knows about.
-        self._make_check(at=_EPISODE_START, state=AlertState.NOT_FIRING)
-        self._make_check(
-            at=_EPISODE_START + timedelta(hours=1),
-            investigation_status=InvestigationStatus.SKIPPED,
-        )
-        check = self._make_check(at=_EPISODE_START + timedelta(hours=2))
-
-        decision = decide_investigation(self.alert, check)
-
-        assert decision.should_investigate
-        assert not decision.is_first_of_episode
 
     @parameterized.expand([("not_firing", AlertState.NOT_FIRING), ("errored", AlertState.ERRORED)])
     def test_does_not_trigger_on_a_check_that_is_not_firing(self, _name: str, state: str) -> None:
@@ -161,6 +152,28 @@ class TestDecideInvestigation(InvestigationTestCase):
         assert not decide_investigation(self.alert, check).should_investigate
 
 
+class TestCarriedVerdictSuppresses(InvestigationTestCase):
+    @parameterized.expand(
+        [
+            ("false_positive", "false_positive", True, "notify", True),
+            ("true_positive", "true_positive", True, "notify", False),
+            ("no_verdict_yet", None, True, "notify", False),
+            ("inconclusive_notifies", "inconclusive", True, "notify", False),
+            ("inconclusive_suppressed", "inconclusive", True, "suppress", True),
+            ("alert_does_not_gate", "false_positive", False, "notify", False),
+        ]
+    )
+    def test_follows_the_episode_last_verdict(
+        self, _name: str, previous_verdict: str | None, gates: bool, inconclusive_action: str, expected: bool
+    ) -> None:
+        self.alert.investigation_gates_notifications = gates
+        self.alert.investigation_inconclusive_action = inconclusive_action
+
+        decision = InvestigationDecision(previous_verdict=previous_verdict)
+
+        assert carried_verdict_suppresses(self.alert, decision) is expected
+
+
 class TestEpisodeInvestigations(InvestigationTestCase):
     def test_reports_the_previous_verdict_and_the_episode_key(self) -> None:
         self._make_check(at=_EPISODE_START, state=AlertState.NOT_FIRING)
@@ -180,7 +193,6 @@ class TestEpisodeInvestigations(InvestigationTestCase):
         assert episode.previous_verdict == "false_positive"
         # Every investigation of one incident emits under the same signal source id.
         assert episode.first_check_id == str(first.id)
-        assert episode.is_first_fire is False
 
     def test_a_verdict_from_the_previous_episode_is_not_carried_over(self) -> None:
         self._make_check(
@@ -195,7 +207,6 @@ class TestEpisodeInvestigations(InvestigationTestCase):
 
         assert episode.previous_verdict is None
         assert episode.first_check_id == str(check.id)
-        assert episode.is_first_fire
 
 
 class TestInvestigationCooldown(InvestigationTestCase):
@@ -219,7 +230,7 @@ class TestInvestigationCooldown(InvestigationTestCase):
         self._make_check(at=_EPISODE_START, investigation_status=InvestigationStatus.DONE)
         check = self._make_check(at=_EPISODE_START + timedelta(hours=1))
 
-        with freeze_time(_EPISODE_START + timedelta(hours=1)):
+        with time_machine.travel(_EPISODE_START + timedelta(hours=1), tick=False):
             assert claim_investigation_slot(self.alert, check)
 
 
@@ -227,7 +238,7 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
     def test_claims_when_no_recent_investigation(self) -> None:
         check = self._make_check(at=_EPISODE_START)
 
-        with freeze_time(_EPISODE_START):
+        with time_machine.travel(_EPISODE_START, tick=False):
             assert claim_investigation_slot(self.alert, check)
 
         check.refresh_from_db()
@@ -238,7 +249,7 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
         self._make_check(at=now - timedelta(minutes=10), investigation_status=InvestigationStatus.DONE)
         new_check = self._make_check(at=now)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert not claim_investigation_slot(self.alert, new_check)
 
         new_check.refresh_from_db()
@@ -249,7 +260,7 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
         self._make_check(at=now - timedelta(hours=2), investigation_status=InvestigationStatus.DONE)
         new_check = self._make_check(at=now)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert claim_investigation_slot(self.alert, new_check)
 
         new_check.refresh_from_db()
@@ -267,7 +278,7 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
         self._make_check(at=now - timedelta(minutes=10), investigation_status=blocking_status)
         new_check = self._make_check(at=now)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert not claim_investigation_slot(self.alert, new_check)
 
     @parameterized.expand(
@@ -281,7 +292,7 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
         self._make_check(at=now - timedelta(minutes=10), investigation_status=terminal_status)
         new_check = self._make_check(at=now)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert claim_investigation_slot(self.alert, new_check)
 
     @parameterized.expand(
@@ -299,7 +310,7 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
         self._make_check(at=now - timedelta(minutes=30), investigation_status=in_flight_status)
         new_check = self._make_check(at=now)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert not claim_investigation_slot(self.alert, new_check)
 
         new_check.refresh_from_db()
@@ -321,5 +332,5 @@ class TestClaimInvestigationSlot(InvestigationTestCase):
         )
         new_check = self._make_check(at=now)
 
-        with freeze_time(now):
+        with time_machine.travel(now, tick=False):
             assert claim_investigation_slot(self.alert, new_check)

@@ -49,6 +49,10 @@ export const Toolbar: Story = {
     },
 }
 
+export const Menu: Story = {
+    args: { ...Toolbar.args, variant: 'menu' },
+}
+
 export const MissingBuildHash: Story = {
     args: { buildHash: null, securityReview: null, variant: 'gate' },
 }

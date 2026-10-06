@@ -14,10 +14,9 @@ from requests.exceptions import (
     Timeout,
 )
 
-from posthog.schema import ReleaseStatus
-
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
@@ -28,6 +27,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import (
+    TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+    TIKTOK_MISSING_SCOPE_MESSAGE,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
     TikTokAdsAPIError,
@@ -98,11 +99,30 @@ class TestTikTokAdsSource:
 
     @parameterized.expand(
         [
-            ("video", "advertiser does not grant you /file/video/ad/search/:GET permission"),
-            ("image", "advertiser does not grant you /file/image/ad/search/:GET permission"),
+            (
+                "video",
+                "advertiser does not grant you /file/video/ad/search/:GET permission",
+                TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+            ),
+            (
+                "image",
+                "advertiser does not grant you /file/image/ad/search/:GET permission",
+                TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+            ),
+            (
+                "report_scope",
+                "Permission error: The access token lacks the required scope for endpoint "
+                "'/report/integrated/get/(method=GET)'. Please first check if the request method is correct.",
+                TIKTOK_MISSING_SCOPE_MESSAGE,
+            ),
+            (
+                "campaign_scope",
+                "Permission error: The access token lacks the required scope for endpoint '/campaign/get/(method=GET)'.",
+                TIKTOK_MISSING_SCOPE_MESSAGE,
+            ),
         ]
     )
-    def test_creative_permission_denied_surfaces_friendly_message(self, name, message):
+    def test_permission_denied_surfaces_friendly_message(self, name, message, expected):
         """Fails if the dict entries are reordered, which would shadow this message with None."""
         error_message = f"{TIKTOK_NON_RETRYABLE_ERROR_PREFIX} {message} (code: 40001)"
 
@@ -113,9 +133,7 @@ class TestTikTokAdsSource:
         ]
 
         assert friendly, "permission denial matched no non-retryable pattern"
-        assert friendly[0] is not None, "generic prefix shadowed the creative-permission message"
-        assert "creative_videos" in friendly[0]
-        assert "creative_images" in friendly[0]
+        assert friendly[0] == expected
 
     @parameterized.expand(
         [
@@ -473,13 +491,21 @@ class TestTikTokAdsSource:
             with pytest.raises(ValueError, match="TikTok Ads access token not found"):
                 self.source.source_for_pipeline(self.config, MagicMock(), inputs)
 
-    def test_validate_credentials_exception_handling(self):
+    @parameterized.expand(
+        [
+            # A deleted/disconnected integration is an expected user state — surface a clean
+            # "reconnect" message rather than the internal id the ValueError carries.
+            ("missing_integration", ValueError("Integration not found: 123"), "TikTok Ads integration not found"),
+            ("unexpected_error", Exception("Network error"), "Failed to validate TikTok Ads credentials"),
+        ]
+    )
+    def test_validate_credentials_exception_handling(self, _name, side_effect, expected_error_fragment):
         config = TikTokAdsSourceConfig(advertiser_id="123456789", tiktok_integration_id=123)
 
         with patch.object(self.source, "get_oauth_integration") as mock_get_integration:
-            mock_get_integration.side_effect = Exception("Network error")
+            mock_get_integration.side_effect = side_effect
 
             is_valid, error = self.source.validate_credentials(config, self.team_id)
 
             assert is_valid is False
-            assert "Failed to validate TikTok Ads credentials" in str(error)
+            assert expected_error_fragment in str(error)

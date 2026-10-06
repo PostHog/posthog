@@ -1,5 +1,5 @@
 import type { RequestPermissionRequest } from "@agentclientprotocol/sdk";
-import { BEDROCK_GATEWAY_VARIANTS } from "@posthog/shared";
+import { BEDROCK_GATEWAY_VARIANTS, CLOUD_REGIONS } from "@posthog/shared";
 import { effortLevelSchema } from "@posthog/shared/domain-types";
 import { z } from "zod";
 import { USER_AGENT_INSTRUCTIONS_MAX_LENGTH } from "../os/schemas";
@@ -154,6 +154,7 @@ export const sessionResponseSchema = z.object({
   // (`_meta.posthog.sideQuestion`): true means the adapter can answer a
   // one-shot "/btw" question forked off the live transcript.
   sideQuestion: z.boolean().optional(),
+  gatewayMode: z.enum(["legacy", "go"]).optional(),
 });
 
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
@@ -273,21 +274,37 @@ export type ClaudeSubscriptionStatus = z.infer<
 >;
 
 export const claudeAuthTerminalInput = z.object({
-  action: z.enum(["login", "logout"]),
+  action: z.enum(["login", "logout", "setup-token"]),
 });
 
-export const claudeAuthTerminalOutput = z.object({
+export const authTerminalOutput = z.object({
   command: z.string(),
   cwd: z.string(),
   additionalEnv: z.record(z.string(), z.string()),
   unsetEnv: z.array(z.string()),
 });
 
-export type ClaudeAuthTerminal = z.infer<typeof claudeAuthTerminalOutput>;
+export type AuthTerminal = z.infer<typeof authTerminalOutput>;
+
+export const codexCloudAuthAttemptInput = z.object({
+  attemptId: z.string().min(1),
+});
 
 export const codexSubscriptionLoginOutput = z.object({
   authUrl: z.string(),
 });
+
+/**
+ * The `tokens` object of the `auth.json` that `codex login` writes into the
+ * Desktop-only `~/.codex-posthog` home. Never the user's own `~/.codex`.
+ */
+export const codexCloudAuthTokensOutput = z.object({
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1),
+  id_token: z.string().nullable().optional(),
+});
+
+export type CodexCloudAuthTokens = z.infer<typeof codexCloudAuthTokensOutput>;
 
 // Set config option input (for Codex reasoning level, etc.)
 export const setConfigOptionInput = z.object({
@@ -390,7 +407,7 @@ export const listSessionsOutput = z.array(sessionInfoSchema);
 
 export const getPiModelCatalogInput = z.object({
   apiHost: z.string(),
-  region: z.enum(["us", "eu", "dev"]),
+  region: z.enum(CLOUD_REGIONS),
 });
 
 export const getPiModelCatalogOutput = z.array(piModelCatalogEntrySchema);

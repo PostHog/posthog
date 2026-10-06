@@ -4,7 +4,6 @@ import {
   planEnvironmentInput,
   planFromEnvironment,
 } from "@posthog/core/settings/environmentSetup";
-import { Spinner } from "@posthog/quill";
 import type {
   SandboxCustomImage,
   SandboxEnvironment,
@@ -12,6 +11,7 @@ import type {
 import { EnvironmentEditForm } from "@posthog/ui/features/settings/sections/environments/setup/EnvironmentEditForm";
 import { useSandboxCustomImages } from "@posthog/ui/features/settings/sections/environments/useSandboxCustomImages";
 import { useSandboxEnvironments } from "@posthog/ui/features/settings/sections/environments/useSandboxEnvironments";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useState } from "react";
 
 interface EnvironmentEditPageProps {
@@ -38,11 +38,7 @@ export function EnvironmentEditPage({
     useSandboxCustomImages();
 
   if (isLoading) {
-    return (
-      <div className="flex h-40 items-center justify-center">
-        <Spinner />
-      </div>
-    );
+    return <LoadingState className="h-40" />;
   }
 
   return (

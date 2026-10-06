@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import re
 import logging
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -12,16 +13,19 @@ from django.db import transaction
 
 from pydantic import BaseModel
 
+from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_installations_for_sandbox
+from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    EVAL_INTERACTION_ORIGIN,
     INITIAL_PERMISSION_MODE_CHOICES,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
@@ -32,6 +36,16 @@ from products.tasks.backend.constants import (
     is_same_run_resume_state,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
+from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
+from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.gateway_model_pin import (
+    FREE_TIER_PIN_KEY,
+    GATEWAY_PRODUCT_STATE_KEY,
+    PRODUCT_ALLOWED_MODELS,
+)
+from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
+from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
 # Re-exported so existing activity/workflow imports keep working after the move to
@@ -45,16 +59,26 @@ from products.tasks.backend.logic.services.run_actor import (
 )
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
+    AI_GATEWAY_TOKEN_MINTS,
     MINTABLE_PRODUCTS,
+    POSTHOG_CODE_PRODUCT,
+    is_slack_origin,
+    mint_refusal,
     mint_scoped_token,
+    posthog_code_allowed_models,
     resolve_sandbox_ai_product,
     sandbox_product_routed,
+    token_cap_usd,
 )
 
 if TYPE_CHECKING:
     from posthog.models.user import User
 
+    from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
+    from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
+        TaskProcessingContext,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +98,11 @@ class GitHubCredentialSource(StrEnum):
 class RunSource(StrEnum):
     MANUAL = "manual"
     SIGNAL_REPORT = "signal_report"
+    AGENT = "agent"
+
+
+def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_only", "full"]:
+    return "full" if run_source in (None, RunSource.MANUAL, RunSource.SIGNAL_REPORT) else "read_only"
 
 
 # Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
@@ -101,130 +130,13 @@ class ReasoningEffort(StrEnum):
     ULTRACODE = "ultracode"
 
 
-PUBLIC_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    ReasoningEffort.LOW,
-    ReasoningEffort.MEDIUM,
-    ReasoningEffort.HIGH,
-    ReasoningEffort.XHIGH,
-    ReasoningEffort.MAX,
-    ReasoningEffort.ULTRACODE,
-)
-
-
 CONTEXT_WINDOW_CHOICES: tuple[str, ...] = ("200k", "1m")
 
 
 RUNTIME_PROVIDER_BY_ADAPTER: dict[RuntimeAdapter, LLMProvider] = {
-    RuntimeAdapter.CLAUDE: LLMProvider.ANTHROPIC,
-    RuntimeAdapter.CODEX: LLMProvider.OPENAI,
+    RuntimeAdapter(adapter): LLMProvider(provider)
+    for adapter, provider in model_catalog.PROVIDER_BY_RUNTIME_ADAPTER.items()
 }
-
-
-CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
-    # GLM 5.2 is a Cloudflare-served model driven through the `claude` runtime adapter: the LLM
-    # gateway exposes it over its Anthropic-Messages surface and translates the `@cf/` id upstream,
-    # so the derived `provider="anthropic"` is the intended routing, not a direct Anthropic call.
-    "@cf/zai-org/glm-5.2": (
-        ReasoningEffort.HIGH,
-        ReasoningEffort.MAX,
-    ),
-    "zai-org/glm-5.3": (
-        ReasoningEffort.HIGH,
-        ReasoningEffort.MAX,
-    ),
-    "zai-org/glm-5.3-flash": (
-        ReasoningEffort.HIGH,
-        ReasoningEffort.MAX,
-    ),
-    "moonshotai/kimi-k3": (),
-    "claude-opus-4-5": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-    ),
-    "claude-opus-4-6": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-    ),
-    "claude-opus-4-7": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-opus-4-8": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-opus-5": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-fable-5": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-fable-5-1": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-sonnet-5": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-        ReasoningEffort.XHIGH,
-        ReasoningEffort.MAX,
-        ReasoningEffort.ULTRACODE,
-    ),
-    "claude-sonnet-4-6": (
-        ReasoningEffort.LOW,
-        ReasoningEffort.MEDIUM,
-        ReasoningEffort.HIGH,
-    ),
-}
-
-CODEX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    ReasoningEffort.LOW,
-    ReasoningEffort.MEDIUM,
-    ReasoningEffort.HIGH,
-)
-CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    *CODEX_REASONING_EFFORTS,
-    ReasoningEffort.XHIGH,
-)
-CODEX_MAX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
-    *CODEX_XHIGH_REASONING_EFFORTS,
-    ReasoningEffort.MAX,
-)
-CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
-CODEX_MAX_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"})
-
-# Canonical list of Codex models. The runtime technically accepts any
-# `gpt-*` identifier passed through, but only models on this list are
-# considered tested and surfaced in pickers. Extend when a new Codex model
-# ships.
-CODEX_MODELS: tuple[str, ...] = ("gpt-5", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
 
 
 def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> tuple[str, ...]:
@@ -237,20 +149,25 @@ def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None)
     if runtime_adapter is None:
         return ()
     adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    if adapter_value == RuntimeAdapter.CLAUDE.value:
-        return tuple(CLAUDE_REASONING_EFFORTS_BY_MODEL.keys())
-    if adapter_value == RuntimeAdapter.CODEX.value:
-        return CODEX_MODELS
-    return ()
+    return model_catalog.models_for_runtime_adapter(adapter_value)
 
 
-# Applied at fire time when a loop leaves its model unset ("" / None): a blank
-# model means "let PostHog pick", so defaults can improve without rewriting
-# stored loops. Mirrored by LOOP_DEFAULT_MODELS in posthog-code's loops UI.
-DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
-    RuntimeAdapter.CLAUDE.value: "claude-sonnet-5",
-    RuntimeAdapter.CODEX.value: "gpt-5",
-}
+def runtime_adapter_serves_model(runtime_adapter: RuntimeAdapter | str | None, model: str | None) -> bool:
+    """Whether the adapter drives the model, whichever spelling the caller sends.
+
+    An allowlist wants this rather than membership of `get_models_for_runtime_adapter`,
+    which holds canonical ids and so rejects the provider-qualified spelling the gateway
+    also serves and every resolver here accepts.
+    """
+    if runtime_adapter is None:
+        return False
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    return model_catalog.serves_model(adapter_value, model)
+
+
+# Applied at fire time when a run or loop leaves its model unset ("" / None): a blank
+# model means "let PostHog pick", so defaults can improve without rewriting stored loops.
+DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = dict(model_catalog.DEFAULT_MODEL_BY_RUNTIME_ADAPTER)
 
 
 def get_default_model_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> str | None:
@@ -328,17 +245,7 @@ def get_supported_reasoning_efforts(
         return ()
 
     adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
-    if adapter_value == RuntimeAdapter.CLAUDE.value:
-        return CLAUDE_REASONING_EFFORTS_BY_MODEL.get(model, ())
-    if adapter_value == RuntimeAdapter.CODEX.value:
-        normalized_model = model.lower()
-        if normalized_model in CODEX_MAX_REASONING_MODELS:
-            return CODEX_MAX_REASONING_EFFORTS
-        if normalized_model in CODEX_XHIGH_REASONING_MODELS:
-            return CODEX_XHIGH_REASONING_EFFORTS
-        return CODEX_REASONING_EFFORTS
-
-    return ()
+    return tuple(ReasoningEffort(effort) for effort in model_catalog.reasoning_efforts_for(adapter_value, model))
 
 
 def get_reasoning_effort_error(
@@ -369,14 +276,8 @@ def get_runtime_adapter_for_model(model: str | None) -> RuntimeAdapter | None:
     deriving it is what lets callers reject a `(runtime_adapter, model)` pair that
     disagrees with itself. `None` when no adapter claims the model.
     """
-    if not model:
-        return None
-
-    normalized = model.strip().lower()
-    for adapter in RuntimeAdapter:
-        if any(known.lower() == normalized for known in get_models_for_runtime_adapter(adapter)):
-            return adapter
-    return None
+    adapter = model_catalog.runtime_adapter_for_model(model)
+    return RuntimeAdapter(adapter) if adapter else None
 
 
 def validate_model_selection(
@@ -451,7 +352,10 @@ class RunState(BaseModel, extra="allow"):
     reasoning_effort: ReasoningEffort | None = None
     context_window: str | None = None
     fast_mode: bool | None = None
+    claude_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
+    codex_model_access: Literal["posthog-gateway", "own-subscription"] | None = None
     resume_from_run_id: str | None = None
+    resume_from_import_run: bool = False
     same_run_resume: bool = False
     same_run_resume_idle: bool = False
     snapshot_external_id: str | None = None
@@ -468,6 +372,11 @@ class RunState(BaseModel, extra="allow"):
     slack_thread_url: str | None = None
     interaction_origin: str | None = None
     slack_sent_relay_ids: list[str] | None = None
+    sandbox_template: str | None = None
+
+    @property
+    def model_access(self) -> ModelAccess:
+        return resolve_model_access(self.model_dump())
 
     def resume_snapshot_kind(self) -> SnapshotKind:
         if self.snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
@@ -696,9 +605,7 @@ def get_user_mcp_server_configs(
 
     The `x-posthog-mcp-consumer` header is set on every config so the agent's
     identity propagates through the MCP Store proxy to whichever upstream MCP
-    the user installed. The PostHog MCP needs this to resolve single-exec mode
-    (without it, calls to `exec` fail with "Tool exec not found"); non-PostHog
-    upstreams ignore the header.
+    the user installed. Non-PostHog upstreams ignore the header.
 
     Returns an empty list on errors (non-fatal).
     """
@@ -713,7 +620,9 @@ def get_user_mcp_server_configs(
         allowed_gateway_server_ids=allowed_gateway_server_ids,
     )
     api_base = get_sandbox_api_url().rstrip("/")
-    consumer = _resolve_mcp_consumer(interaction_origin, slack_reply_context=slack_reply_context)
+    consumer = _resolve_mcp_consumer(
+        interaction_origin, slack_reply_context=slack_reply_context, origin_product=origin_product
+    )
 
     configs: list[McpServerConfig] = []
     for installation in installations:
@@ -829,12 +738,16 @@ def get_imported_mcp_server_configs(task_run: TaskRun, existing_names: Iterable[
     return build_imported_mcp_server_configs(task_run.imported_mcp_servers, existing_names)
 
 
-def _resolve_mcp_consumer(interaction_origin: str | None, *, slack_reply_context: bool = False) -> str:
+def _resolve_mcp_consumer(
+    interaction_origin: str | None, *, slack_reply_context: bool = False, origin_product: str | None = None
+) -> str:
     """Map the task's reply context to the `x-posthog-mcp-consumer` value.
 
-    Slack reply contexts send `"slack"` and posthog_ai (Max) runs send
-    `"posthog_ai"`; everything else (the PostHog Desktop UI, API callers, missing
-    origin) is treated as PostHog Desktop. Only `"posthog-code"` is a UI-apps host
+    Slack reply contexts send `"slack"`, posthog_ai (Max) runs send `"posthog_ai"`,
+    and eval harness runs send `"eval"`; everything else (the PostHog Desktop UI,
+    API callers, missing origin) is treated as PostHog Desktop. Browser-created
+    PostHog AI runs can lack an interaction origin, so their task origin selects
+    the consumer that retains native widget data. Only `"posthog-code"` is a UI-apps host
     on the MCP server — it gates UI-apps payload emission, so `"posthog_ai"` and
     `"slack"` deliberately don't get UI apps. Keep the `"posthog-code"` literal
     in sync with `POSTHOG_CODE_CONSUMER` in
@@ -842,9 +755,25 @@ def _resolve_mcp_consumer(interaction_origin: str | None, *, slack_reply_context
     """
     if slack_reply_context or interaction_origin == "slack":
         return "slack"
-    if interaction_origin == "posthog_ai":
+    if interaction_origin == "posthog_ai" or (not interaction_origin and origin_product == "posthog_ai"):
         return "posthog_ai"
+    if interaction_origin == EVAL_INTERACTION_ORIGIN:
+        return EVAL_INTERACTION_ORIGIN
     return "posthog-code"
+
+
+def mcp_exec_skills_env_vars(ctx: TaskProcessingContext) -> dict[str, str]:
+    """Env that launches the sandbox without bundled product skills when this run gets them
+    through the MCP `learn` command instead.
+
+    Desktop runs keep their bundled skills: the MCP server excludes the `posthog-code`
+    consumer from `learn`, so stripping them there would leave the agent with no skills.
+    """
+    if _resolve_mcp_consumer(ctx.interaction_origin, origin_product=ctx.origin_product) == "posthog-code":
+        return {}
+    if not is_mcp_exec_skills_enabled(ctx.organization_id, ctx.distinct_id):
+        return {}
+    return {ENV_DISABLE_BUNDLED_SKILLS: "1"}
 
 
 # Names capabilities rather than describing the server, because the agent's tool search reads
@@ -854,6 +783,32 @@ POSTHOG_MCP_DESCRIPTION = (
     "feature flags, experiments, surveys, error tracking, session replay, logs, "
     "LLM analytics, and the data warehouse."
 )
+
+_MCP_EXCLUDE_TOOL_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+_MAX_MCP_EXCLUDE_TOOLS = 32
+
+
+def sanitize_mcp_exclude_tools(names: Sequence[str] | None) -> list[str]:
+    if not names:
+        return []
+    seen: set[str] = set()
+    cleaned: list[str] = []
+    for name in names:
+        token = name.strip().lower()
+        if not _MCP_EXCLUDE_TOOL_NAME.fullmatch(token) or token in seen:
+            continue
+        seen.add(token)
+        cleaned.append(token)
+        if len(cleaned) >= _MAX_MCP_EXCLUDE_TOOLS:
+            break
+    return cleaned
+
+
+def mcp_exclude_tools_from_state(state: dict[str, Any] | None) -> list[str]:
+    raw = (state or {}).get("mcp_exclude_tools")
+    if not isinstance(raw, list):
+        return []
+    return sanitize_mcp_exclude_tools([name for name in raw if isinstance(name, str)])
 
 
 def get_sandbox_ph_mcp_configs(
@@ -865,6 +820,7 @@ def get_sandbox_ph_mcp_configs(
     slack_reply_context: bool = False,
     task_id: str | None = None,
     origin_product: str | None = None,
+    exclude_tools: Sequence[str] | None = None,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
@@ -876,13 +832,14 @@ def get_sandbox_ph_mcp_configs(
     (scouts and Desktop tasks both send `posthog-code`), and the MCP server needs it to keep
     `exec` from advertising gateway tools to runs that mount those servers directly.
 
-    Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
-    - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
-    - eu.posthog.com → https://mcp-eu.posthog.com/mcp
-    - app.dev.posthog.dev → https://mcp.dev.posthog.dev/mcp
-    - Other hosts → empty list (MCP not available)
+    Uses SANDBOX_MCP_URL if explicitly set, otherwise MCP_SERVER_URL. Returns an empty list when
+    neither is set, because the instance has no MCP server.
+    An explicit empty scope list also omits the server: internal-only tokens cannot initialize
+    a PostHog MCP session.
     """
-    url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL)
+    if scopes == []:
+        return []
+    url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, mcp_server_url=settings.MCP_SERVER_URL)
     if not url:
         return []
     read_only = not has_write_scopes(scopes)
@@ -893,13 +850,18 @@ def get_sandbox_ph_mcp_configs(
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
         {
             "name": "x-posthog-mcp-consumer",
-            "value": _resolve_mcp_consumer(interaction_origin, slack_reply_context=slack_reply_context),
+            "value": _resolve_mcp_consumer(
+                interaction_origin, slack_reply_context=slack_reply_context, origin_product=origin_product
+            ),
         },
     ]
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
     if origin_product:
         headers.append({"name": "X-PostHog-Task-Origin", "value": origin_product})
+    excluded = sanitize_mcp_exclude_tools(exclude_tools)
+    if excluded:
+        headers.append({"name": "x-posthog-exclude-tools", "value": ",".join(excluded)})
     return [
         McpServerConfig(
             type="http",
@@ -944,13 +906,13 @@ def can_mint_readonly_github_token(team_id: int) -> bool:
     connected GitHub from one that did. Same team-level-only rule as the mint itself; never raises.
     """
     try:
-        return _resolve_mintable_team_integration(team_id) is not None
+        return resolve_readonly_github_integration(team_id) is not None
     except Exception:
         logger.warning("Failed to resolve GitHub integration for team %d", team_id, exc_info=True)
         return False
 
 
-def _resolve_mintable_team_integration(team_id: int) -> GitHubIntegration | None:
+def resolve_readonly_github_integration(team_id: int) -> GitHubIntegration | None:
     """The team-level integration a read-only mint may use, or None.
 
     Refuses the resolver's org-owner personal-integration fallback (its installation can span
@@ -982,7 +944,7 @@ def get_readonly_github_token(team_id: int) -> Optional[str]:
     nicety, and its absence must not fail the run.
     """
     try:
-        integration = _resolve_mintable_team_integration(team_id)
+        integration = resolve_readonly_github_integration(team_id)
         if integration is None:
             logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
             return None
@@ -1375,8 +1337,9 @@ def build_sandbox_environment_variables(
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
     env_vars.update(run_gateway_env_vars(ctx, task))
+    env_vars.update(mcp_exec_skills_env_vars(ctx))
 
-    if otel_telemetry_enabled:
+    if otel_telemetry_enabled and task.is_scout_experiment is not True:
         env_vars.update(get_sandbox_otel_env_vars())
 
     return env_vars
@@ -1400,7 +1363,7 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     return env_vars
 
 
-def run_gateway_env_vars(ctx, task) -> dict[str, str]:
+def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, str]:
     """The gateway routing/mint env for one run, derived from its server-side context.
 
     Every sandbox provisioning path calls this rather than spelling out the kwargs, so
@@ -1408,13 +1371,102 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
-    return ai_gateway_env_vars(
+    if task.is_scout_experiment is True:
+        ensure_scout_trial_capture_ready()
+        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
+            raise GatewayNotConfiguredError("Scout trials require the AI gateway instead of subscription credentials")
+        if ctx.task_runtime == "pi":
+            raise GatewayNotConfiguredError("Scout trials require a runtime that supports the AI gateway")
+        gateway_url = settings.SANDBOX_AI_GATEWAY_URL
+        if not gateway_url:
+            raise GatewayNotConfiguredError("Scout trials require SANDBOX_AI_GATEWAY_URL")
+        token = mint_private_gateway_token(team_id=ctx.team_id, user=ctx.distinct_id)
+        try:
+            record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=True)
+        except Exception:
+            revoke_private_gateway_token(token)
+            raise
+        return {
+            "LLM_GATEWAY_URL": "",
+            "AI_GATEWAY_URL": gateway_url,
+            "AI_GATEWAY_PRODUCTS": "signals_scout",
+            "AI_GATEWAY_TOKEN": token,
+            "AI_GATEWAY_TOKEN_CAP_USD": token_cap_usd(ctx.team_id, "signals_scout"),
+            "AI_GATEWAY_PRODUCT": "signals_scout",
+            "AI_GATEWAY_AI_STAGE": (ctx.state or {}).get("ai_stage") or "scout",
+        }
+    if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
+        record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
+        return {}
+    try:
+        env_vars = ai_gateway_env_vars(
+            team_id=ctx.team_id,
+            origin_product=ctx.origin_product,
+            ai_stage=(ctx.state or {}).get("ai_stage"),
+            internal=task.internal,
+            prior_slack_run=_task_has_stamped_slack_run(task, ctx.origin_product, ctx.state),
+            distinct_id=ctx.distinct_id,
+            state=ctx.state,
+            model=ctx.model,
+            runtime=ctx.task_runtime,
+        )
+        pinned = env_vars.pop(_PIN_KEY_ENV, None) or env_vars.get("AI_GATEWAY_PRODUCT")
+        if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
+            # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
+            for key in _TOKEN_ENV_KEYS:
+                env_vars.pop(key, None)
+    except Exception:
+        # Degrading to the Python gateway beats failing the provisioning activity and the run.
+        AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
+        logger.warning(
+            "ai_gateway_token: routing failed, run stays on the Python gateway",
+            extra={"run_id": ctx.run_id},
+            exc_info=True,
+        )
+        env_vars = {}
+    # Retry provisioning if coverage cannot be recorded; otherwise fallback usage can look fully accounted for.
+    record_gateway_routing(
+        run_id=ctx.run_id,
         team_id=ctx.team_id,
-        origin_product=ctx.origin_product,
-        ai_stage=(ctx.state or {}).get("ai_stage"),
-        internal=task.internal,
-        distinct_id=ctx.distinct_id,
+        uses_gateway=bool(env_vars.get("AI_GATEWAY_TOKEN")) and ctx.task_runtime != "pi",
     )
+    return env_vars
+
+
+def _task_has_stamped_slack_run(task, origin_product: str | None, state: dict | None) -> bool:
+    """Whether any run of this task carried the Slack stamp.
+
+    A run started outside Slack gets fresh state, and the stamp is PATCH-protected, so a stamped run
+    is server proof for the task.
+    """
+    from products.tasks.backend.models import TaskRun  # noqa: PLC0415
+
+    if not is_slack_origin(origin_product) or is_slack_interaction_state(state):
+        return False
+    return TaskRun.objects.filter(task_id=task.id, state__interaction_origin="slack").exists()
+
+
+_TOKEN_ENV_KEYS = ("AI_GATEWAY_TOKEN", "AI_GATEWAY_TOKEN_CAP_USD")
+# Carries a narrower pin than the product's own to the run stamp; popped before the env reaches the sandbox.
+_PIN_KEY_ENV = "_AI_GATEWAY_PIN_KEY"
+
+
+def _record_pinned_gateway_product(run_id: str, state: dict | None, minted_product: str | None) -> bool:
+    """Stamp the run with the pinned product of its token. False leaves a pinned run unstamped."""
+    from products.tasks.backend.models import TaskRun  # noqa: PLC0415
+
+    pinned = minted_product if minted_product in PRODUCT_ALLOWED_MODELS else None
+    if pinned == (state or {}).get(GATEWAY_PRODUCT_STATE_KEY):
+        return True
+    try:
+        if pinned:
+            TaskRun.update_state_atomic(run_id, updates={GATEWAY_PRODUCT_STATE_KEY: pinned})
+        else:
+            TaskRun.update_state_atomic(run_id, remove_keys=[GATEWAY_PRODUCT_STATE_KEY])
+    except Exception:
+        logger.warning("ai_gateway_token: failed to record the pinned product", extra={"run_id": run_id}, exc_info=True)
+        return pinned is None
+    return True
 
 
 def ai_gateway_env_vars(
@@ -1424,6 +1476,10 @@ def ai_gateway_env_vars(
     ai_stage: str | None = None,
     internal: bool = False,
     distinct_id: str | None = None,
+    state: dict[str, Any] | None = None,
+    model: str | None = None,
+    runtime: str | None = None,
+    prior_slack_run: bool = False,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
@@ -1450,10 +1506,40 @@ def ai_gateway_env_vars(
         if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
             ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
         ):
-            token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
+            refusal = mint_refusal(
+                ai_product,
+                team_id=team_id,
+                state=state,
+                model=model,
+                runtime=runtime,
+                internal=internal,
+                prior_slack_run=prior_slack_run,
+                distinct_id=distinct_id,
+            )
+            if refusal:
+                AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()
+                # The deploy's log formatter drops `extra`, so the message carries the fields.
+                # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs product, team id and a refusal code, no credential present
+                logger.info(
+                    "ai_gateway_token: mint skipped, run stays on the Python gateway (ai_product=%s team_id=%s reason=%s)",
+                    ai_product,
+                    team_id,
+                    refusal,
+                    extra={"ai_product": ai_product, "team_id": team_id, "reason": refusal},
+                )
+                return env_vars
+            mint_kwargs: dict[str, Any] = {}
+            if ai_product == POSTHOG_CODE_PRODUCT:
+                free_pin = posthog_code_allowed_models(team_id)
+                if free_pin is not None:
+                    mint_kwargs["allowed_models"] = free_pin
+            token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
+                env_vars["AI_GATEWAY_TOKEN_CAP_USD"] = token_cap_usd(team_id, ai_product)
                 env_vars["AI_GATEWAY_PRODUCT"] = ai_product
+                if "allowed_models" in mint_kwargs:
+                    env_vars[_PIN_KEY_ENV] = FREE_TIER_PIN_KEY
                 if ai_stage:
                     env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
     return env_vars
@@ -1603,3 +1689,14 @@ def record_message_actor(run_id: str, message_id: str, slack_user_id: str) -> No
 
 def get_message_actor(run_id: str, message_id: str) -> str | None:
     return get_tasks_cache().get(_message_actor_cache_key(run_id, message_id))
+
+
+def slack_reply_target(task_run: TaskRun, mapping: SlackThreadTaskMapping | None, message_id: str | None) -> str | None:
+    """The recorded sender of the message a reply answers, else the run's actor, else the thread's actors."""
+    state = task_run.state or {}
+    return (
+        (get_message_actor(str(task_run.id), message_id) if message_id else None)
+        or state.get("slack_actor_slack_user_id")
+        or (mapping.latest_actor_slack_user_id if mapping else None)
+        or (mapping.mentioning_slack_user_id if mapping else None)
+    )

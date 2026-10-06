@@ -107,6 +107,32 @@ describe('announcementsLogic', () => {
         expect(logic.values.submitting).toBe(false)
     })
 
+    it('labels the sender option with the current user and defaults to the bot', async () => {
+        logic = announcementsLogic()
+        logic.mount()
+        await expectLogic(logic).toMatchValues({ sendAs: 'bot' })
+
+        userLogic.actions.loadUserSuccess({
+            id: 7,
+            first_name: 'Ada',
+            email: 'ada@example.com',
+            is_email_verified: true,
+        } as UserType)
+        await expectLogic(logic).toMatchValues({ senderName: 'Ada', senderDisabledReason: undefined })
+
+        // A legacy account that never confirmed its address reads as unverified, same as the backend.
+        userLogic.actions.loadUserSuccess({ id: 7, first_name: 'Ada', is_email_verified: null } as UserType)
+        await expectLogic(logic).toMatchValues({
+            senderDisabledReason: 'Verify your email address to send announcements as yourself',
+        })
+
+        userLogic.actions.loadUserSuccess({ id: 7, first_name: '', email: '' } as UserType)
+        await expectLogic(logic).toMatchValues({ senderName: 'you' })
+
+        logic.actions.setSendAs('user')
+        await expectLogic(logic).toMatchValues({ sendAs: 'user' })
+    })
+
     it('narrows the channel picker to filtered accounts and bulk-selects them', async () => {
         useMocks({
             get: {
@@ -164,22 +190,38 @@ describe('announcementsLogic', () => {
         expect(logic.values.selectedChannelIds).toEqual(['C9'])
     })
 
-    it('treats "my accounts" as the current user and keeps assigned/unassigned mutually exclusive', async () => {
+    it.each([
+        ['assigned', { assignedOnly: true }],
+        ['unassigned', { allRolesUnassigned: true }],
+    ] as const)('maps the %s status to the accounts query', async (status, expectedFilter) => {
+        mockPerformQuery.mockResolvedValue({ columns: ['name', 'slack_channel_id'], results: [] })
+        logic = announcementsLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.setAssignmentStatus(status)
+        }).toDispatchActions(['loadFilteredAccountChannelsSuccess'])
+
+        expect(mockPerformQuery).toHaveBeenCalledWith(expect.objectContaining(expectedFilter))
+    })
+
+    it('treats "my accounts" as the current user and keeps assignment state canonical', async () => {
         mockPerformQuery.mockResolvedValue({ columns: ['name', 'slack_channel_id'], results: [] })
         logic = announcementsLogic()
         logic.mount()
         userLogic.actions.loadUserSuccess({ id: 7, email: 'me@example.com' } as UserType)
 
         logic.actions.setMyAccounts(true)
+        expect(logic.values.assignmentStatus).toBe('assigned')
         expect(logic.values.assignedTo).toEqual([7])
         expect(logic.values.assignedToCurrentUser).toBe(true)
 
-        logic.actions.setAllUnassigned(true)
+        logic.actions.setAssignmentStatus('unassigned')
         expect(logic.values.assignedTo).toEqual([])
         expect(logic.values.assignedToCurrentUser).toBe(false)
 
         logic.actions.setAssignedTo([9])
-        expect(logic.values.allUnassigned).toBe(false)
+        expect(logic.values.assignmentStatus).toBe('assigned')
     })
 
     it('does not submit while a send is already in flight', async () => {

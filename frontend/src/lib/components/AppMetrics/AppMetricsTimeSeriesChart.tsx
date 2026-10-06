@@ -1,15 +1,9 @@
 import clsx from 'clsx'
 import { useMemo } from 'react'
 
-import {
-    type Series,
-    TimeSeriesLineChart,
-    type TimeSeriesLineChartConfig,
-    createXAxisTickCallback,
-} from '@posthog/quill-charts'
+import { type Series, TimeSeriesLineChart, type TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
-import { dayjs } from 'lib/dayjs'
 
 import { AppMetricsTimeSeriesResponse } from './appMetricsLogic'
 
@@ -52,14 +46,13 @@ export function AppMetricsTimeSeriesChart({
     )
 
     const labels = timeSeries.labels
-    const config = useChartConfig<TimeSeriesLineChartConfig>(() => {
-        // Labels arrive from appMetricsLogic pre-formatted in the team's timezone ('YYYY-MM-DD',
-        // or 'YYYY-MM-DD HH:mm' for sub-day intervals), so parse them as naive local strings.
-        const hasTimePart = labels.some((label) => label.includes(' '))
-        return {
+    const config = useChartConfig<TimeSeriesLineChartConfig>(
+        () => ({
             xAxis: {
                 hide: minimal,
-                tickFormatter: createXAxisTickCallback({ allDays: labels, timezone: 'UTC' }),
+                timezone: timeSeries.timezone,
+                interval: timeSeries.interval,
+                allDays: labels,
             },
             yAxis: { hide: minimal, showGrid: !minimal },
             ...(minimal ? { showAxisLines: { x: false, y: false } as const } : {}),
@@ -68,10 +61,10 @@ export function AppMetricsTimeSeriesChart({
                 placement: 'cursor',
                 pinnable: true,
                 sortedByValue: true,
-                labelFormatter: (label: string) => dayjs(label).format(hasTimePart ? 'MMM D, HH:mm' : 'MMM D, YYYY'),
             },
-        }
-    }, [labels, minimal, showLegend])
+        }),
+        [labels, minimal, showLegend, timeSeries.interval, timeSeries.timezone]
+    )
 
     return (
         <div className={clsx('relative flex h-full w-full flex-col', className)}>

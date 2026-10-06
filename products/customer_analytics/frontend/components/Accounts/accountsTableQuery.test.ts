@@ -18,6 +18,7 @@ import {
     AccountsTableQueryPlan,
     BuildAccountsTableQueryPlanInput,
     accountsTableCell,
+    accountsTableDatasetKey,
     buildAccountsTableQueryPlan,
 } from './accountsTableQuery'
 
@@ -71,18 +72,18 @@ function queryInput(overrides: Partial<BuildAccountsTableQueryPlanInput> = {}): 
         visibleColumnNames: ['name', 'tag_names', 'notebook_count', 'csm'],
         searchQuery: '',
         tagsFilter: [],
-        allRolesUnassigned: false,
+        assignmentStatus: 'all',
         assignedToFilter: [],
         accountIdFilter: null,
         tileFilter: null,
         accountFilters: [],
+        accountFilterGroups: [],
         relationshipDefinitionsById: {
             [RELATIONSHIP_ID]: { id: RELATIONSHIP_ID, name: 'CSM' } as AccountRelationshipDefinitionApi,
         },
         customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: definition },
         columnDisplay: {},
-        sortOrder: null,
-        canSortClientSide: true,
+        serverSortOrder: null,
         ...overrides,
     }
 }
@@ -93,10 +94,10 @@ describe('accountsTableQuery', () => {
             queryInput({
                 searchQuery: ' acme ',
                 tagsFilter: ['enterprise'],
+                assignmentStatus: 'assigned',
                 assignedToFilter: [7, 9],
                 accountFilters: [relationshipFilter(), customFilter()],
-                sortOrder: { column: 'csm', direction: 'desc' },
-                canSortClientSide: false,
+                serverSortOrder: { column: 'csm', direction: 'desc' },
             })
         )
 
@@ -132,6 +133,48 @@ describe('accountsTableQuery', () => {
         })
     })
 
+    it('keeps global filters outside OR groups of supported property filters', () => {
+        const input = queryInput({
+            searchQuery: 'Account',
+            accountFilters: [relationshipFilter(), customFilter({ operator: PropertyOperator.IsNotSet, value: null })],
+            accountFilterGroups: [[customFilter({ operator: PropertyOperator.Exact, value: 20 })]],
+        })
+        const plan = buildAccountsTableQueryPlan(input)
+
+        expect(plan.query.filters).toEqual([{ kind: 'search', query: 'Account' }])
+        expect(plan.query.filterGroups).toEqual([
+            [
+                { kind: 'relationship', definitionId: RELATIONSHIP_ID, operator: 'exact', userIds: [7] },
+                { kind: 'custom_property', definitionId: CUSTOM_PROPERTY_ID, operator: 'is_not_set', values: [] },
+            ],
+            [{ kind: 'custom_property', definitionId: CUSTOM_PROPERTY_ID, operator: 'exact', values: [20] }],
+        ])
+        expect(accountsTableDatasetKey(input)).not.toEqual(
+            accountsTableDatasetKey({ ...input, accountFilterGroups: [[accountFieldFilter()]] })
+        )
+    })
+
+    it('keeps valid conditions when a restored group contains deleted properties', () => {
+        const validName = accountFieldFilter({
+            key: AccountsTableAccountField.Name,
+            operator: PropertyOperator.Exact,
+            value: 'Example',
+        })
+        const missingProperty = customFilter({ key: '99999999-9999-9999-9999-999999999999' })
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                accountFilters: [validName, missingProperty],
+                accountFilterGroups: [[relationshipFilter(), missingProperty], [missingProperty]],
+            })
+        )
+
+        expect(plan.query.filters).toEqual([])
+        expect(plan.query.filterGroups).toEqual([
+            [{ kind: 'account_field', field: AccountsTableAccountField.Name, operator: 'exact', values: ['Example'] }],
+            [{ kind: 'relationship', definitionId: RELATIONSHIP_ID, operator: 'exact', userIds: [7] }],
+        ])
+    })
+
     it('translates typed native account field filters', () => {
         const plan = buildAccountsTableQueryPlan(
             queryInput({
@@ -147,7 +190,6 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
-            { kind: 'assigned' },
             {
                 kind: 'account_field',
                 field: AccountsTableAccountField.IgnoredAt,
@@ -176,13 +218,29 @@ describe('accountsTableQuery', () => {
             })
         )
 
-        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+        expect(plan.query.filters).toEqual([])
     })
 
-    it('filters the default account list to accounts assigned to someone', () => {
-        const plan = buildAccountsTableQueryPlan(queryInput())
+    it.each([
+        ['all', undefined],
+        ['assigned', { kind: 'assigned' }],
+        ['unassigned', { kind: 'unassigned' }],
+    ] as const)('maps the %s assignment status to its query filter', (assignmentStatus, expected) => {
+        const plan = buildAccountsTableQueryPlan(queryInput({ assignmentStatus }))
 
-        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+        expect(plan.query.filters).toEqual(expected ? [expected] : [])
+    })
+
+    it('narrows the assigned status to specific users when any are selected', () => {
+        const plan = buildAccountsTableQueryPlan(queryInput({ assignmentStatus: 'assigned', assignedToFilter: [7] }))
+
+        expect(plan.query.filters).toEqual([{ kind: 'assigned_to', userIds: [7] }])
+    })
+
+    it('ignores selected users outside the assigned status', () => {
+        const plan = buildAccountsTableQueryPlan(queryInput({ assignmentStatus: 'all', assignedToFilter: [7] }))
+
+        expect(plan.query.filters).toEqual([])
     })
 
     it('translates saved custom-property history display configuration', () => {
@@ -194,8 +252,7 @@ describe('accountsTableQuery', () => {
                 ],
                 visibleColumnNames: ['name', 'cp_value'],
                 columnDisplay: { [CUSTOM_PROPERTY_ID]: { mode: 'sparkline', window_days: 30 } },
-                sortOrder: { column: 'cp_value', direction: 'asc' },
-                canSortClientSide: false,
+                serverSortOrder: { column: 'cp_value', direction: 'asc' },
             })
         )
 
@@ -216,7 +273,7 @@ describe('accountsTableQuery', () => {
                 accountIdFilter: RELATIONSHIP_ID,
                 searchQuery: 'ignored',
                 tagsFilter: ['ignored'],
-                allRolesUnassigned: true,
+                assignmentStatus: 'unassigned',
             })
         )
 
@@ -253,7 +310,6 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
-            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,
@@ -279,7 +335,6 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
-            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,
@@ -309,7 +364,7 @@ describe('accountsTableQuery', () => {
             })
         )
 
-        expect(plan.query.filters).toEqual([{ kind: 'assigned' }])
+        expect(plan.query.filters).toEqual([])
     })
 
     it('keeps contains filters for link properties', () => {
@@ -322,7 +377,6 @@ describe('accountsTableQuery', () => {
         )
 
         expect(plan.query.filters).toEqual([
-            { kind: 'assigned' },
             {
                 kind: 'custom_property',
                 definitionId: CUSTOM_PROPERTY_ID,

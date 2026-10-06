@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
+import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
@@ -33,7 +34,6 @@ import { surveyLogic } from '../../surveyLogic'
 import { surveysLogic } from '../../surveysLogic'
 import { ColorInput } from '../ColorInput'
 import { SurveyThemeSelector } from '../SurveyThemeSelector'
-import { WizardSection } from '../WizardLayout'
 
 export function AppearanceStep(): JSX.Element {
     const { survey, hasBranchingLogic } = useValues(surveyLogic)
@@ -78,7 +78,7 @@ export function AppearanceStep(): JSX.Element {
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
             {/* Left: Controls */}
             <div className="space-y-3.5 lg:col-span-2">
-                <WizardSection
+                <GuidedWizardSection
                     title="How should it look?"
                     description="Customize colors and styling. You can use CSS variables (e.g. var(--brand-color)) for dynamic theming."
                     descriptionClassName="text-sm"
@@ -99,7 +99,7 @@ export function AppearanceStep(): JSX.Element {
                 />
 
                 {/* Color customization */}
-                <WizardSection title="Fine-tune colors" titleClassName="text-sm font-medium">
+                <GuidedWizardSection title="Fine-tune colors" titleClassName="text-sm font-medium">
                     <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                         <LemonField.Pure label="Background" className="gap-1">
                             <ColorInput
@@ -155,7 +155,7 @@ export function AppearanceStep(): JSX.Element {
                             </>
                         )}
                     </div>
-                </WizardSection>
+                </GuidedWizardSection>
 
                 {/* Branding */}
                 <LemonCheckbox
@@ -173,7 +173,7 @@ export function AppearanceStep(): JSX.Element {
                 />
 
                 {/* Question behavior */}
-                <WizardSection title="Behavior" titleClassName="text-sm font-medium">
+                <GuidedWizardSection title="Behavior" titleClassName="text-sm font-medium">
                     <SurveyBehaviorOptions
                         survey={survey}
                         onAppearanceChange={onAppearanceChange}
@@ -181,7 +181,7 @@ export function AppearanceStep(): JSX.Element {
                         deleteBranchingLogic={deleteBranchingLogic}
                         onTranslationsChange={(translations) => setSurveyValue('translations', translations)}
                     />
-                </WizardSection>
+                </GuidedWizardSection>
 
                 {/* Advanced options */}
                 <LemonCollapse

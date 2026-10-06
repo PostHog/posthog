@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -208,7 +208,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2025-11-07"):
+        with time_machine.travel("2025-11-07", tick=False):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
             response = runner.calculate()
 
@@ -244,7 +244,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         # so it needs its own day-of-week coverage
         table_name = self.setup_data_warehouse()
 
-        with freeze_time("2025-11-08"):
+        with time_machine.travel("2025-11-08", tick=False):
             response = FunnelsQueryRunner(
                 query=self._days_of_week_trends_query(table_name, days_of_week),
                 team=self.team,
@@ -257,7 +257,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse_and_regular_nodes(self):
         table_name = self.setup_data_warehouse()
-        with freeze_time("2025-11-07"):
+        with time_machine.travel("2025-11-07", tick=False):
             _create_person(
                 distinct_ids=["person1"],
                 team_id=self.team.pk,
@@ -331,7 +331,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         # column (not cast to UUID) must not fail the UNION ALL with NO_COMMON_TYPE
         # against the events series' person_id UUID.
         table_name = self.setup_data_warehouse()
-        with freeze_time("2025-11-07"):
+        with time_machine.travel("2025-11-07", tick=False):
             _create_person(
                 distinct_ids=["person1"],
                 team_id=self.team.pk,
@@ -356,7 +356,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         # actor_id, which is a String for a mixed funnel. Exercise it to confirm
         # the stringified actor id still resolves to a person.
         table_name = self.setup_data_warehouse()
-        with freeze_time("2025-11-07"):
+        with time_machine.travel("2025-11-07", tick=False):
             _create_person(
                 distinct_ids=["person1"],
                 team_id=self.team.pk,
@@ -403,7 +403,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2025-11-07"):
+        with time_machine.travel("2025-11-07", tick=False):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
             response = runner.calculate()
 
@@ -435,7 +435,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             ],
         )
 
-        with freeze_time("2025-11-07"):
+        with time_machine.travel("2025-11-07", tick=False):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
             response = runner.calculate()
 
@@ -471,7 +471,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         assert isinstance(funnels_query.series[1], FunnelsDataWarehouseNode)  # for mypy
 
         # throws an error because of nulls in id field
-        with freeze_time("2025-11-07"):
+        with time_machine.travel("2025-11-07", tick=False):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
             with pytest.raises(ExposedCHQueryError) as exc_info:
                 runner.calculate()
@@ -486,7 +486,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         funnels_query.series[0].properties = not_null_filter
         funnels_query.series[1].properties = not_null_filter
 
-        with freeze_time("2025-11-07"):
+        with time_machine.travel("2025-11-07", tick=False):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
             response = runner.calculate()
 
@@ -615,7 +615,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             funnelsFilter=FunnelsFilter(funnelWindowInterval=30),
         )
 
-        with freeze_time("2024-06-30"):
+        with time_machine.travel("2024-06-30", tick=False):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
             response = runner.calculate()
 
@@ -654,7 +654,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             funnelsFilter=FunnelsFilter(funnelWindowInterval=30, funnelOrderType=StepOrderValue.UNORDERED),
         )
 
-        with freeze_time("2024-06-30"):
+        with time_machine.travel("2024-06-30", tick=False):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
             response = runner.calculate()
 
@@ -689,7 +689,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.UNORDERED),
         )
 
-        with freeze_time("2025-11-07"):
+        with time_machine.travel("2025-11-07", tick=False):
             runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
             response = runner.calculate()
 
@@ -718,7 +718,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                 series=[node, node],
             )
 
-        with freeze_time("2025-11-07"):
+        with time_machine.travel("2025-11-07", tick=False):
             total = FunnelsQueryRunner(query=_query(False), team=self.team, just_summarize=True).calculate()
             first_time = FunnelsQueryRunner(query=_query(True), team=self.team, just_summarize=True).calculate()
 
@@ -754,7 +754,7 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             funnelsFilter=FunnelsFilter(funnelOrderType=StepOrderValue.UNORDERED),
         )
 
-        with freeze_time("2025-11-07"):
+        with time_machine.travel("2025-11-07", tick=False):
             response = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True).calculate()
 
         # Each user appears once per table, so first-time-for-user leaves the counts unchanged —

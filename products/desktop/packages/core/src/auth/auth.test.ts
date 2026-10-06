@@ -1,6 +1,10 @@
 import type { RootLogger } from "@posthog/di/logger";
 import type { IPowerManager } from "@posthog/platform/power-manager";
-import { NotAuthenticatedError, OAUTH_SCOPE_VERSION } from "@posthog/shared";
+import {
+  type CloudRegion,
+  NotAuthenticatedError,
+  OAUTH_SCOPE_VERSION,
+} from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthService } from "./auth";
 import type {
@@ -130,13 +134,14 @@ describe("AuthService", () => {
   function seedStoredSession(
     overrides: {
       refreshToken?: string;
+      cloudRegion?: CloudRegion;
       selectedProjectId?: number | null;
       scopeVersion?: number;
     } = {},
   ) {
     sessionPort.saveCurrent({
       refreshTokenEncrypted: overrides.refreshToken ?? "stored-refresh-token",
-      cloudRegion: "us",
+      cloudRegion: overrides.cloudRegion ?? "us",
       selectedProjectId: overrides.selectedProjectId ?? null,
       scopeVersion: overrides.scopeVersion ?? OAUTH_SCOPE_VERSION,
     });
@@ -215,7 +220,7 @@ describe("AuthService", () => {
     );
   };
 
-  function createService(): AuthService {
+  function createService(extraFetchOrigins: string[] = []): AuthService {
     return new AuthService(
       preferencePort,
       sessionPort,
@@ -225,6 +230,7 @@ describe("AuthService", () => {
       mockPowerManager as unknown as IPowerManager,
       mockLogger,
       null,
+      extraFetchOrigins,
     );
   }
 
@@ -447,6 +453,133 @@ describe("AuthService", () => {
     },
   );
 
+  it("sends the bearer to an extra origin the host binds", async () => {
+    service.shutdown();
+    service = createService(["http://127.0.0.1:8787"]);
+    service.init();
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    const response = await service.authenticatedFetch(
+      fetch,
+      "http://127.0.0.1:8787/mcp",
+    );
+
+    expect(response.status).toBe(200);
+  });
+
+  it("refuses to attach the bearer to an origin outside the allowlist", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+    vi.mocked(fetch).mockClear();
+
+    await expect(
+      service.authenticatedFetch(fetch, "https://evil.example/steal?q=1"),
+    ).rejects.toThrow(
+      /^Refusing to send PostHog credentials to https:\/\/evil\.example$/,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("checks the origin of a Request input", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+    vi.mocked(fetch).mockClear();
+
+    await expect(
+      service.authenticatedFetch(
+        fetch,
+        new Request("https://evil.example/steal"),
+      ),
+    ).rejects.toThrow(/^Refusing to send PostHog credentials/);
+    expect(fetch).not.toHaveBeenCalled();
+
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+    const response = await service.authenticatedFetch(
+      fetch,
+      new Request("https://mcp.posthog.com/mcp"),
+    );
+    expect(response.status).toBe(200);
+  });
+
+  it.each([
+    "https://gateway.us.posthog.com/posthog_code/v1/messages",
+    "https://mcp.posthog.com/mcp",
+  ])("still sends the bearer to %s", async (url) => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+    vi.mocked(fetch).mockResolvedValueOnce(new Response("ok"));
+
+    const response = await service.authenticatedFetch(fetch, url);
+
+    expect(response.status).toBe(200);
+  });
+
+  it("applies a desktop access denial reported by another endpoint", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+
+    service.reportDesktopAccessBlocked(99, {
+      allowed: false,
+      reason: "startup_plan",
+    });
+    expect(service.getState().desktopAccess.status).not.toBe("blocked");
+    service.reportDesktopAccessBlocked(42, {
+      allowed: false,
+      reason: "startup_plan",
+    });
+
+    expect(service.getState().desktopAccess).toEqual({
+      projectId: 42,
+      status: "blocked",
+      reason: "startup_plan",
+    });
+  });
+
+  it("changes the session epoch on a sign-in over a live session only", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+    const first = service.getSessionEpoch();
+    expect(first).not.toBeNull();
+
+    await service.refreshAccessToken();
+    expect(service.getSessionEpoch()).toBe(first);
+
+    let finishFlow: (value: unknown) => void = () => undefined;
+    oauthFlow.startFlow.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishFlow = resolve;
+      }),
+    );
+    const pending = service.login("us");
+    await service.refreshAccessToken().catch(() => undefined);
+    expect(service.getSessionEpoch()).toBe(first);
+    finishFlow(mockTokenResponse());
+    await pending;
+    expect(service.getSessionEpoch()).not.toBe(first);
+    const second = service.getSessionEpoch();
+
+    oauthFlow.startFlow.mockResolvedValue(mockTokenResponse());
+    await service.login("us");
+    expect(service.getSessionEpoch()).not.toBe(second);
+
+    await service.logout();
+    expect(service.getSessionEpoch()).toBeNull();
+  });
+
   it("requires scope reauthentication when the stored scope version is stale", async () => {
     seedStoredSession({
       refreshToken: "refresh-token",
@@ -471,51 +604,81 @@ describe("AuthService", () => {
     });
   });
 
-  it("restores an authenticated session by refreshing the stored refresh token", async () => {
-    seedStoredSession({ selectedProjectId: 42 });
-    oauthFlow.refreshToken.mockResolvedValue(
-      mockTokenResponse({
-        accessToken: "new-access-token",
-        refreshToken: "rotated-refresh-token",
-      }),
-    );
-    stubAuthFetch({
-      orgs: {
-        "org-1": {
-          name: "Org 1",
-          projects: [
-            { id: 42, name: "Project 42" },
-            { id: 84, name: "Project 84" },
-          ],
-        },
-      },
+  it("does not let a caller silently refresh past a stale scope version", async () => {
+    seedStoredSession({
+      refreshToken: "refresh-token",
+      selectedProjectId: 123,
+      scopeVersion: OAUTH_SCOPE_VERSION - 1,
     });
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    stubAuthFetch();
 
     await service.initialize();
+    expect(service.getState().needsScopeReauth).toBe(true);
 
-    expect(service.getState()).toMatchObject({
-      status: "authenticated",
-      bootstrapComplete: true,
-      cloudRegion: "us",
-      orgProjectsMap: {
-        "org-1": {
-          orgName: "Org 1",
-          projects: [
-            { id: 42, name: "Project 42" },
-            { id: 84, name: "Project 84" },
-          ],
-        },
-      },
-      currentOrgId: "org-1",
-      currentProjectId: 42,
-      desktopAccess: { projectId: 42, status: "allowed", reason: null },
-      needsScopeReauth: false,
-    });
-
-    expect(sessionPort.getCurrent()?.refreshTokenEncrypted).toBe(
-      "rotated-refresh-token",
+    // A caller that only wants a token (e.g. a background usage/telemetry
+    // fetch) must not resurrect the session on the old scope grant behind
+    // the reauth prompt's back.
+    await expect(service.getValidAccessToken()).rejects.toThrow(
+      NotAuthenticatedError,
     );
+    expect(oauthFlow.refreshToken).not.toHaveBeenCalled();
+    expect(service.getState().needsScopeReauth).toBe(true);
   });
+
+  it.each(["us", "dev", "dev-cloud"] as const)(
+    "restores an authenticated stored %s session",
+    async (cloudRegion) => {
+      seedStoredSession({ cloudRegion, selectedProjectId: 42 });
+      oauthFlow.refreshToken.mockResolvedValue(
+        mockTokenResponse({
+          accessToken: "new-access-token",
+          refreshToken: "rotated-refresh-token",
+        }),
+      );
+      stubAuthFetch({
+        orgs: {
+          "org-1": {
+            name: "Org 1",
+            projects: [
+              { id: 42, name: "Project 42" },
+              { id: 84, name: "Project 84" },
+            ],
+          },
+        },
+      });
+
+      await service.initialize();
+
+      expect(service.getState()).toMatchObject({
+        status: "authenticated",
+        bootstrapComplete: true,
+        cloudRegion,
+        orgProjectsMap: {
+          "org-1": {
+            orgName: "Org 1",
+            projects: [
+              { id: 42, name: "Project 42" },
+              { id: 84, name: "Project 84" },
+            ],
+          },
+        },
+        currentOrgId: "org-1",
+        currentProjectId: 42,
+        desktopAccess: { projectId: 42, status: "allowed", reason: null },
+        needsScopeReauth: false,
+      });
+
+      expect(oauthFlow.refreshToken).toHaveBeenCalledWith(
+        "stored-refresh-token",
+        cloudRegion,
+      );
+      expect(sessionPort.getCurrent()).toMatchObject({
+        refreshTokenEncrypted: "rotated-refresh-token",
+        cloudRegion,
+      });
+    },
+  );
 
   it("keeps the existing refresh token when the server does not rotate it", async () => {
     seedStoredSession({ refreshToken: "existing-refresh-token" });

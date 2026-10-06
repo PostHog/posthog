@@ -6,15 +6,15 @@ import inspect
 import logging
 import datetime as dt
 import resource
+import threading
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import ExitStack, contextmanager
+from contextlib import AbstractContextManager, ExitStack, contextmanager
 from functools import wraps
 from typing import Any, Optional, Union, cast
 
 import pytest
 import unittest
-import freezegun
 from unittest.mock import patch
 
 from django.apps import apps
@@ -26,9 +26,6 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
-# we have to import pendulum for the side effect of importing it
-# freezegun.FakeDateTime and pendulum don't play nicely otherwise
-import pendulum  # noqa F401
 import sqlparse
 from clickhouse_pool import ChPool
 from clickhouse_pool.pool import TooManyConnections
@@ -44,6 +41,7 @@ from posthog.hogql import (
 )
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.sources_cache import clear_sources_cache
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import clone_expr
 
@@ -242,12 +240,6 @@ from products.event_definitions.backend.models.property_definition import (
 )
 from products.product_analytics.backend.facade.models import Insight
 
-# Make sure freezegun ignores our utils class that times functions, and heavy optional
-# deps (e.g. transformers) that can break when freezegun walks sys.modules.
-cast(Any, freezegun).configure(
-    extend_ignore_list=["posthog.test.assert_faster_than", "transformers"],
-)
-
 events_cache_tests: list[dict[str, Any]] = []
 
 from posthog.test.persons import stage_person_for_bulk_create  # noqa: E402
@@ -312,10 +304,11 @@ def clean_varying_query_parts(query, replace_all_numbers):
         query,
     )
 
-    # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
+    # Both replay gate columns embed feature flag IDs in their containment probes, the linked
+    # flag directly and a trigger group nested inside `conditions.flag`. Normalize every one.
     query = re.sub(
-        r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
-        r"""session_recording_linked_flag" @> '{"id": 99999}'::jsonb""",
+        r"""session_recording_(?:linked_flag|trigger_groups)" @> '[^']*'""",
+        lambda probe: re.sub(r'"id": \d+', '"id": 99999', probe.group(0)),
         query,
     )
 
@@ -712,12 +705,18 @@ class PostHogTestCase(SimpleTestCase):
     def setUp(self):
         get_instance_setting.cache_clear()  # type: ignore[attr-defined]
 
+        # The sources cache is keyed on team/user ids, which repeat across tests while the
+        # rows behind them roll back, so a stale entry would leak one test's schema into the next.
+        clear_sources_cache()
+
         # Warm the new-events-schema gate settings so their cold reads don't land inside
         # assertNumQueries blocks: production workers serve requests with this cache warm
         # (60s TTL), and counting the cold reads would make every exact-count test depend
-        # on which events-schema mode CI is running.
+        # on which events-schema mode CI is running. The deferred-revenue-views gate is read
+        # on the same database-build path, so it is warmed for the same reason.
         get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA")
         get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS")
+        get_instance_setting("HOGQL_DEFERRED_REVENUE_VIEWS_ENABLED")
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
@@ -1503,6 +1502,13 @@ class QueryMatchingTest:
         snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
         return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
 
+    def sql_snapshot(self, printed: str):
+        """The snapshot to compare printed ClickHouse SQL against: a query that reads the native-JSON events
+        table goes to the schema-specific file, so one test keeps a snapshot per schema mode."""
+        return self._schema_snapshot(
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed.lower()
+        )
+
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
         replace_all_numbers = replace_all_numbers or self.replace_all_numbers
@@ -1772,7 +1778,7 @@ def _create_event(**kwargs):
     stored with timestamp `2022-11-24T19:00:00` - because America/Pheonix is UTC-7, and Phoenix noon occurs at 7 PM UTC.
     If a `timestamp` WITH an explicit timezone is provided (in the case of ISO strings, this can be the "Z" suffix
     signifying UTC), we use that timezone instead of the project timezone.
-    If NO `timestamp` is provided, we use the current system time (which can be mocked with `freeze_time()`)
+    If NO `timestamp` is provided, we use the current system time (which can be mocked with `time_machine.travel()`)
     and treat that as local to the project.
 
     NOTE: All events get batched and only created when sync_execute is called.
@@ -1786,6 +1792,34 @@ def _create_event(**kwargs):
         kwargs["timestamp"] = dt.datetime.now()
     events_cache_tests.append(kwargs)
     return kwargs["event_uuid"]
+
+
+def _create_flag_evaluations(team_id: int, flag_key: str, count: int = 1, timestamp: dt.datetime | None = None) -> None:
+    """Insert `count` $feature_flag_called rows for flag_key into flag_evaluations. Unlike _create_event, it writes
+    the rows immediately."""
+    timestamp = timestamp or dt.datetime.now(dt.UTC)
+    properties = json.dumps({"$feature_flag": flag_key, "$feature_flag_response": True})
+    # writable_flag_evaluations does not declare flag_key. The shard computes it from properties.$feature_flag.
+    sync_execute(
+        """
+        INSERT INTO writable_flag_evaluations
+            (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id)
+        VALUES
+        """,
+        [
+            (
+                str(uuid.uuid4()),
+                "$feature_flag_called",
+                properties,
+                timestamp,
+                team_id,
+                "evaluator",
+                timestamp,
+                str(uuid.uuid4()),
+            )
+            for _ in range(count)
+        ],
+    )
 
 
 def _warn_if_session_id_malformed(session_id: str):
@@ -2305,6 +2339,9 @@ def snapshot_hogql_queries(fn_or_class):
     @wraps(fn_or_class)
     def wrapped(self, *args, **kwargs):
         captured_queries = []
+        # A paginator call reaches the executor with the page limit added, so the executor skips it.
+        # Thread-local because a runner may execute its series on worker threads.
+        paginating = threading.local()
 
         # Patch the execute_hogql_query method on the paginator to capture queries before resolution
         original_paginator_method = HogQLHasMorePaginator.execute_hogql_query
@@ -2314,52 +2351,29 @@ def snapshot_hogql_queries(fn_or_class):
             if isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
                 captured_queries.append(clone_expr(query))
 
-            return original_paginator_method(paginator_self, query=query, **exec_kwargs)
+            paginating.active = True
+            try:
+                return original_paginator_method(paginator_self, query=query, **exec_kwargs)
+            finally:
+                paginating.active = False
 
-        # Patch the module-level execute_hogql_query function for direct calls
-        # We need to patch it in modules that import it directly
-        original_module_function = hogql_query_module.execute_hogql_query
+        # Patch the executor every call reaches, whichever way its caller imported execute_hogql_query
+        original_executor_method = hogql_query_module.HogQLQueryExecutor.execute
 
-        def capture_module_execute(*exec_args, **exec_kwargs):
-            # Extract the query parameter - it can be positional or keyword
-            query = exec_kwargs.get("query") if "query" in exec_kwargs else (exec_args[0] if exec_args else None)
-
+        def capture_executor_execute(executor_self):
             # Capture the query AST before it gets resolved
-            if query and isinstance(query, ast.SelectQuery | ast.SelectSetQuery):
-                captured_queries.append(clone_expr(query))
+            if not getattr(paginating, "active", False) and isinstance(
+                executor_self.query, ast.SelectQuery | ast.SelectSetQuery
+            ):
+                captured_queries.append(clone_expr(executor_self.query))
 
-            return original_module_function(*exec_args, **exec_kwargs)
+            return original_executor_method(executor_self)
 
-        # Import modules that use execute_hogql_query directly
-        patches = [
+        # Annotated because the two patches have different types, which join to object.
+        patches: list[AbstractContextManager[Any]] = [
             patch.object(HogQLHasMorePaginator, "execute_hogql_query", capture_paginator_execute),
-            patch.object(hogql_query_module, "execute_hogql_query", capture_module_execute),
+            patch.object(hogql_query_module.HogQLQueryExecutor, "execute", capture_executor_execute),
         ]
-
-        # Add patches for modules that import execute_hogql_query directly
-        try:
-            from products.web_analytics.backend.hogql_queries import web_overview
-
-            if hasattr(web_overview, "execute_hogql_query"):
-                patches.append(patch.object(web_overview, "execute_hogql_query", capture_module_execute))
-        except ImportError:
-            pass
-
-        try:
-            from products.web_analytics.backend.hogql_queries import stats_table
-
-            if hasattr(stats_table, "execute_hogql_query"):
-                patches.append(patch.object(stats_table, "execute_hogql_query", capture_module_execute))
-        except ImportError:
-            pass
-
-        try:
-            from posthog.hogql_queries.insights.trends import trends_query_runner
-
-            if hasattr(trends_query_runner, "execute_hogql_query"):
-                patches.append(patch.object(trends_query_runner, "execute_hogql_query", capture_module_execute))
-        except ImportError:
-            pass
 
         # Apply all patches
         with ExitStack() as stack:

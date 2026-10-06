@@ -33,13 +33,7 @@ from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.logs.backend.column_expressions import canonical_key, column_to_expr
-from products.logs.backend.models import (
-    DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS,
-    DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
-    DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS,
-    SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS,
-    TeamLogsConfig,
-)
+from products.logs.backend.models import resolved_distinct_id_attribute_keys, resolved_session_id_attribute_keys
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -533,10 +527,6 @@ class LogsFilterBuilder:
 
         return ast.And(exprs=exprs)
 
-    @cached_property
-    def _team_logs_config(self) -> TeamLogsConfig | None:
-        return TeamLogsConfig.objects.filter(team=self.team).first()
-
     def _attribute_scope_expr(self, attribute_keys: list[str], values: list[str]) -> ast.Expr:
         # Matches when any of the keys, in either the log attributes or the resource attributes,
         # holds one of the values. Both maps are scoped because the logs UI resolves a person or a
@@ -586,15 +576,11 @@ class LogsFilterBuilder:
             # Unknown person (or another team's person): match nothing. property_to_expr
             # treats an empty value list as always-true, which would return every log.
             return ast.Constant(value=False)
-        config = self._team_logs_config
-        configured_keys = (
-            config.logs_distinct_id_attribute_keys if config else None
-        ) or DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS
-        # Also scope on the built-in convention keys the logs UI renders as clickable person
-        # links (isDistinctIdKey in products/logs/frontend/utils.tsx), so a log the UI shows as
-        # belonging to a person appears on their Logs tab even when the team hasn't configured
-        # that key. Deduped, configured keys first.
-        attribute_keys = list(dict.fromkeys([*configured_keys, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+        # Scope on the configured keys plus the built-in convention keys the logs UI renders
+        # as clickable person links (isDistinctIdKey in products/logs/frontend/utils.tsx), so
+        # a log the UI shows as belonging to a person appears on their Logs tab even when the
+        # team hasn't configured that key.
+        attribute_keys = resolved_distinct_id_attribute_keys(self.team)
         return self._attribute_scope_expr(attribute_keys, list(distinct_ids))
 
     def _session_scope_expr(self) -> ast.Expr:
@@ -607,15 +593,10 @@ class LogsFilterBuilder:
             # property_to_expr treats an empty value as always-true, which would return every log.
             return ast.Constant(value=False)
 
-        config = self._team_logs_config
-        configured_keys = (
-            config.logs_session_id_attribute_keys if config else None
-        ) or DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS
-        # Also scope on the built-in convention keys the logs UI reads a session from
+        # Configured keys plus the built-in convention keys the logs UI reads a session from
         # (isSessionIdKey in products/logs/frontend/utils.tsx), so a log the UI shows as belonging
         # to a session appears when scoped to it even when the team hasn't configured that key.
-        # Deduped, configured keys first.
-        attribute_keys = list(dict.fromkeys([*configured_keys, *SESSION_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+        attribute_keys = resolved_session_id_attribute_keys(self.team)
         return self._attribute_scope_expr(attribute_keys, [session_id])
 
     def resource_filter(self, *, existing_filters):
@@ -648,6 +629,25 @@ class LogsFilterBuilder:
             return negative_resource_filter
 
         return ast.Constant(value=1)
+
+
+def fail_fast_aggregate_settings(
+    max_bytes_to_read: int = 10_000_000_000, *, use_uncompressed_cache: bool = False
+) -> HogQLGlobalSettings:
+    """Caps for headline aggregates: fail fast rather than scan unbounded data.
+
+    Matches the caps AlertCheckQuery uses against the same table. Runners that repeatedly
+    decompress the attribute maps over near-identical windows opt into the uncompressed
+    block cache, guarded to the runner's own read cap (see LogsGroupByQueryRunner).
+    """
+    return HogQLGlobalSettings(
+        max_execution_time=30,
+        max_bytes_to_read=max_bytes_to_read,
+        read_overflow_mode="throw",
+        use_uncompressed_cache=use_uncompressed_cache or None,
+        merge_tree_max_rows_to_use_cache=50_000_000 if use_uncompressed_cache else None,
+        merge_tree_max_bytes_to_use_cache=max_bytes_to_read if use_uncompressed_cache else None,
+    )
 
 
 class LogsQueryRunnerMixin(QueryRunner):
@@ -722,6 +722,24 @@ class LogsQueryRunnerMixin(QueryRunner):
 
     def where(self) -> ast.Expr:
         return self._filter_builder.where()
+
+    def where_with_timestamp_bounds(self) -> ast.Expr:
+        # LogsFilterBuilder.where() filters by toStartOfDay(time_bucket), which is
+        # day-precision; the explicit per-row bounds (half-open to avoid double-counting
+        # on boundaries) make aggregate counts match the requested window. Same pattern
+        # as AlertCheckQuery.
+        return ast.And(
+            exprs=[
+                self.where(),
+                parse_expr(
+                    "timestamp >= {date_from} AND timestamp < {date_to}",
+                    placeholders={
+                        "date_from": ast.Constant(value=self.query_date_range.date_from()),
+                        "date_to": ast.Constant(value=self.query_date_range.date_to()),
+                    },
+                ),
+            ]
+        )
 
     def resource_filter(self, *, existing_filters):
         return self._filter_builder.resource_filter(existing_filters=existing_filters)

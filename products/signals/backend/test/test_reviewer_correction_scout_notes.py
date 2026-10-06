@@ -8,6 +8,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models import User
+
 from products.signals.backend.models import (
     SignalReport,
     SignalScoutConfig,
@@ -18,6 +20,7 @@ from products.signals.backend.models import (
 from products.signals.backend.reviewer_correction_notes import (
     MAX_CORRECTION_LOGINS,
     ReviewerCorrection,
+    _actor_name,
     _build_note_content,
     _logins_already_told,
     _renderable,
@@ -61,6 +64,7 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
     ) -> None:
         content = _build_note_content(
             report=SignalReport(id="0198e7f0-0000-7000-8000-000000000001", title="Checkout errors"),
+            editor="Ada Lovelace",
             added_logins=(),
             self_removed=self_removed,
             teammate_removed=teammate_removed,
@@ -71,6 +75,34 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
         assert expected in content
         if not teammate_removed:
             assert "a teammate removed the login" not in content
+
+    @parameterized.expand(
+        [
+            ("both_names", "Ada", "Lovelace", "Ada Lovelace"),
+            ("first_name_only", "Ada", "", "Ada"),
+            ("no_name_falls_back", "", "", "someone"),
+            ("whitespace_is_normalized", " Ada\n\nRemoved: ", "x ", "Ada Removed: x"),
+            ("backticks_are_stripped", "`Ada`", "", "Ada"),
+            ("capped", "A" * 80, "", "A" * 60),
+        ]
+    )
+    def test_the_editors_name_is_sanitized(self, _name: str, first: str, last: str, expected: str) -> None:
+        # The name reaches a prompt every scout reads, so it stays one line and bounded. Backticks go
+        # because `_logins_already_told` reads backtick spans back as suppression state.
+        assert _actor_name(User(first_name=first, last_name=last)) == expected
+
+    def test_the_note_names_the_editor(self) -> None:
+        content = _build_note_content(
+            report=SignalReport(id="0198e7f0-0000-7000-8000-000000000001", title="Checkout errors"),
+            editor="Ada Lovelace",
+            added_logins=("octocat",),
+            self_removed=(),
+            teammate_removed=(),
+        )
+
+        # Who corrected the routing is the evidence a scout weighs, so it must reach the note body,
+        # which is the only part of a note the run prompt renders.
+        assert content.startswith("Inbox routing correction: Ada Lovelace changed the suggested reviewers")
 
 
 class TestReviewerCorrectionScoutNotes(APIBaseTest):
@@ -193,6 +225,59 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
         # routing on the login somebody just took off.
         assert sorted(note.skill_name for note in self._correction_notes()) == [SCOUT_SKILL, OTHER_SCOUT_SKILL]
 
+    @parameterized.expand([("added", {"added": ("octocat",)}), ("removed", {"removed": ("octocat",)})])
+    def test_a_scout_that_edited_the_report_is_told(self, _name: str, edit: dict[str, tuple[str, ...]]) -> None:
+        self._create_skill()
+        self._create_skill(OTHER_SCOUT_SKILL)
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+        self._create_run(skill_name=OTHER_SCOUT_SKILL, edited_report_ids=[str(report.id)])
+
+        self._forward(report, **edit)
+
+        # An edit is how a scout puts reviewers on a report it did not file, so the editor did the
+        # routing this human corrected — for an addition too, which no memory search would find.
+        assert [note.skill_name for note in self._correction_notes()] == [SCOUT_SKILL, OTHER_SCOUT_SKILL]
+
+    def test_a_deleted_editing_scout_is_not_told(self) -> None:
+        self._create_skill()
+        LLMSkill.objects.create(team=self.team, name=OTHER_SCOUT_SKILL, description="gone", body="# gone", deleted=True)
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+        self._create_run(skill_name=OTHER_SCOUT_SKILL, edited_report_ids=[str(report.id)])
+
+        self._forward(report, removed=("octocat",))
+
+        # The touching union keeps deleted skills on purpose for autostart exclusion, so it has to be
+        # filtered here: a note addressed to a name no run answers to steers no one.
+        assert [note.skill_name for note in self._correction_notes()] == [SCOUT_SKILL]
+
+    def test_a_touching_scout_that_also_holds_the_memory_is_told_once(self) -> None:
+        self._create_skill()
+        self._create_skill(OTHER_SCOUT_SKILL)
+        report = self._create_report()
+        self._create_run(emitted_report_ids=[str(report.id)])
+        self._create_run(skill_name=OTHER_SCOUT_SKILL, edited_report_ids=[str(report.id)])
+        for index, skill_name in enumerate((SCOUT_SKILL, OTHER_SCOUT_SKILL)):
+            self._remember(
+                key=f"reviewer:products/logs{index}", content="octocat owns the logs path", skill_name=skill_name
+            )
+
+        self._forward(report, removed=("octocat",))
+
+        assert [note.skill_name for note in self._correction_notes()] == [SCOUT_SKILL, OTHER_SCOUT_SKILL]
+
+    def test_an_editing_scout_replaces_the_fleet_wide_fallback(self) -> None:
+        self._create_skill(OTHER_SCOUT_SKILL)
+        report = self._create_report()
+        self._create_run(skill_name=OTHER_SCOUT_SKILL, edited_report_ids=[str(report.id)])
+
+        self._forward(report, removed=("octocat",))
+
+        # Nobody emitted this report, but a scout edited it, so the correction has an audience and
+        # must not go to the whole fleet.
+        assert [note.skill_name for note in self._correction_notes()] == [OTHER_SCOUT_SKILL]
+
     def test_a_login_that_is_only_a_substring_of_a_memory_is_not_a_holder(self) -> None:
         self._create_skill()
         self._create_skill(OTHER_SCOUT_SKILL)
@@ -237,6 +322,16 @@ class TestReviewerCorrectionScoutNotes(APIBaseTest):
         content = self._correction_notes()[0].content
         assert "Removed: `someone-else`." in content
         assert "Removed: `octocat`. That is the editor's own login" in content
+
+    def test_the_forwarded_note_names_the_editor(self) -> None:
+        report = self._create_report()
+        self.user.first_name = "Ada"
+        self.user.last_name = "Lovelace"
+        self.user.save()
+
+        self._forward(report, added=("octocat",))
+
+        assert self._correction_notes()[0].content.startswith("Inbox routing correction: Ada Lovelace changed")
 
     def test_a_child_environment_correction_stays_off_the_notes_channel(self) -> None:
         self._create_skill()

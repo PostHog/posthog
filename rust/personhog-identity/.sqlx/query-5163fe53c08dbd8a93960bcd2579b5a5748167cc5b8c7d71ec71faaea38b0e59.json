@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-identity', operation='delete_mark_existing' */ SELECT person_id FROM lifecycle_op_person WHERE op_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5163fe53c08dbd8a93960bcd2579b5a5748167cc5b8c7d71ec71faaea38b0e59"
+}

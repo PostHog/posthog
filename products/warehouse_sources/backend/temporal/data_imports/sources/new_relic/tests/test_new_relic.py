@@ -3,7 +3,7 @@ from datetime import UTC, date, datetime
 from typing import Any, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -209,8 +209,12 @@ class TestFetchEventWindow:
         logger.warning.assert_called_once()
 
 
-@freeze_time("2026-01-02 12:00:00")
 class TestGetEventRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2026-01-02 12:00:00", tick=False):
+            yield
+
     def _now_ms(self) -> int:
         return int(datetime(2026, 1, 2, 12, tzinfo=UTC).timestamp() * 1000)
 

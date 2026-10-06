@@ -23,6 +23,8 @@ class MaterializedViewFailureCheck(HealthCheck):
     policy = DEFAULT_EXECUTION_POLICY
     schedule = "30 7 * * *"
     active_since_days = 30
+    # Payloads carry materialized view names and errors.
+    access_controlled_resource = "warehouse_objects"
     remediation = Remediation(
         human="""
             Open Data modeling (the Data warehouse / data modeling section). Find the failing view, open
@@ -69,13 +71,10 @@ class MaterializedViewFailureCheck(HealthCheck):
         )
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        # The duckgres shadow shares saved_query_id and finalizes after ClickHouse, so it must not
-        # stand in for the serving run.
-        latest_job = (
-            DataModelingJob.objects.filter(saved_query_id=OuterRef("id"))
-            .exclude(engine=DataModelingJobEngine.DUCKGRES)
-            .order_by("-last_run_at")
-        )
+        # Only ClickHouse jobs serve these views, so shadow jobs must not determine their health.
+        latest_job = DataModelingJob.objects.filter(
+            saved_query_id=OuterRef("id"), engine=DataModelingJobEngine.CLICKHOUSE
+        ).order_by("-last_run_at")
 
         queryset = (
             DataWarehouseSavedQuery.objects

@@ -136,11 +136,12 @@ class HogFlow(UUIDTModel):
 
     class OriginProduct(models.TextChoices):
         LOOPS = "loops", "Loops"
+        BROADCASTS = "broadcasts", "Broadcasts"
 
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     version = models.IntegerField(default=1)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     status = models.CharField(max_length=20, choices=State, default=State.DRAFT)
     # The product surface that owns this workflow, so that surface can list only its own flows.
     # Null for workflows built directly in the workflows UI or over the API.
@@ -149,7 +150,7 @@ class HogFlow(UUIDTModel):
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
 
     trigger = models.JSONField(default=dict)
@@ -171,6 +172,16 @@ class HogFlow(UUIDTModel):
     # Start bound for every detector window on this workflow. Without it, resuming instantly
     # re-trips on the feedback that caused the pause in the first place.
     email_sending_resumed_at = models.DateTimeField(null=True, blank=True)
+
+    class EmailSendingPausedBy(models.TextChoices):
+        AUTO = "auto", "auto"
+        STAFF = "staff", "staff"
+
+    # Who paused it: "auto" for the deliverability detector, "staff" for a PostHog admin. A staff
+    # pause is not customer-resumable, so the resume endpoint refuses it. Empty when not paused.
+    email_sending_paused_by = models.CharField(
+        max_length=16, blank=True, default="", db_default="", choices=EmailSendingPausedBy.choices
+    )
     # When the deliverability detector last warned this workflow's admins that its rates are
     # approaching the pause thresholds. Bounds how often the warning email can repeat.
     email_sending_warned_at = models.DateTimeField(null=True, blank=True)

@@ -12,6 +12,7 @@ from products.growth.dags.github_sdk_versions import (
     fetch_dotnet_sdk_data,
     fetch_elixir_sdk_data,
     fetch_flutter_sdk_data,
+    fetch_github_data_for_sdk,
     fetch_go_sdk_data,
     fetch_ios_sdk_data,
     fetch_java_sdk_data,
@@ -381,11 +382,12 @@ def _release(tag_name: str, created_at: str) -> dict:
 
 class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
     @pytest.mark.parametrize(
-        "fetch_fn,releases,expected_latest,expected_date_keys",
+        "sdk_type,repo,releases,expected_latest,expected_date_keys",
         [
             # posthog-python moved to `posthog-v*` tags; sibling package tags must not match
             (
-                fetch_python_sdk_data,
+                "posthog-python",
+                "PostHog/posthog-python",
                 [
                     _release("openfeature-provider-posthog-v0.1.39", "2026-08-01T00:00:00Z"),
                     _release("posthog-v7.38.0", "2026-07-30T00:00:00Z"),
@@ -397,7 +399,8 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
             ),
             # posthog-ruby moved to `posthog-ruby-v*` tags; `posthog-rails-v*` is a different package
             (
-                fetch_ruby_sdk_data,
+                "posthog-ruby",
+                "PostHog/posthog-ruby",
                 [
                     _release("posthog-rails-v3.18.0", "2026-08-01T00:00:00Z"),
                     _release("posthog-ruby-v3.23.0", "2026-07-30T00:00:00Z"),
@@ -409,7 +412,8 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
             ),
             # posthog-dotnet moved to `PostHog-v*` tags; AspNetCore/AI package tags must not match
             (
-                fetch_dotnet_sdk_data,
+                "posthog-dotnet",
+                "PostHog/posthog-dotnet",
                 [
                     _release("PostHog.AspNetCore-v2.8.2", "2026-08-01T00:00:00Z"),
                     _release("PostHog.AI-v0.1.4", "2026-07-31T00:00:00Z"),
@@ -422,7 +426,8 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
             ),
             # posthog-kmp dropped its `v` prefix after 0.1.x
             (
-                fetch_kmp_sdk_data,
+                "posthog-kmp",
+                "PostHog/posthog-kmp",
                 [
                     _release("0.2.2", "2026-07-30T00:00:00Z"),
                     _release("v0.1.0", "2026-05-30T00:00:00Z"),
@@ -430,14 +435,97 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
                 "0.2.2",
                 {"0.2.2", "0.1.0"},
             ),
+            (
+                "posthog-unity",
+                "PostHog/posthog-unity",
+                [_release("1.1.0", "2026-08-01T00:00:00Z")],
+                "1.1.0",
+                {"1.1.0"},
+            ),
+            (
+                "posthog-node-mcp",
+                "PostHog/posthog-js",
+                [
+                    _release("@posthog/mcp@0.2.0", "2026-08-01T00:00:00Z"),
+                    _release("posthog-node@5.0.0", "2026-08-01T00:00:00Z"),
+                ],
+                "0.2.0",
+                {"0.2.0"},
+            ),
+            (
+                "posthog-python-mcp",
+                "PostHog/posthog-python",
+                [
+                    _release("posthog-v7.47.0", "2026-08-01T00:00:00Z"),
+                    _release("v7.0.0", "2025-08-30T00:00:00Z"),
+                    _release("openfeature-provider-posthog-v8.0.0", "2026-08-01T00:00:00Z"),
+                ],
+                "7.47.0",
+                {"7.47.0", "7.0.0"},
+            ),
+            (
+                "posthog-edge",
+                "PostHog/posthog-js",
+                [
+                    _release("posthog-node@5.0.0", "2026-08-01T00:00:00Z"),
+                    _release("posthog-js@100.0.0", "2026-08-01T00:00:00Z"),
+                ],
+                "5.0.0",
+                {"5.0.0"},
+            ),
+            (
+                "posthog-convex",
+                "PostHog/posthog-js",
+                [
+                    _release("@posthog/convex@0.2.0", "2026-08-01T00:00:00Z"),
+                    _release("posthog-node@5.0.0", "2026-08-01T00:00:00Z"),
+                ],
+                "0.2.0",
+                {"0.2.0"},
+            ),
+            (
+                "posthog-rails",
+                "PostHog/posthog-ruby",
+                [
+                    _release("posthog-rails-v3.18.0", "2026-08-01T00:00:00Z"),
+                    _release("posthog-ruby-v3.23.0", "2026-08-01T00:00:00Z"),
+                    _release("v3.6.1", "2025-08-30T00:00:00Z"),
+                ],
+                "3.18.0",
+                {"3.18.0"},
+            ),
+            (
+                "posthog-aspnetcore",
+                "PostHog/posthog-dotnet",
+                [
+                    _release("PostHog.AspNetCore-v2.8.2", "2026-08-01T00:00:00Z"),
+                    _release("PostHog-v2.13.0", "2026-08-01T00:00:00Z"),
+                    _release("v2.4.1", "2025-08-30T00:00:00Z"),
+                ],
+                "2.8.2",
+                {"2.8.2"},
+            ),
         ],
     )
-    def test_current_and_historical_tag_schemes(self, fetch_fn, releases, expected_latest, expected_date_keys):
+    def test_current_and_historical_tag_schemes(
+        self,
+        sdk_type: str,
+        repo: str,
+        releases: list[dict[str, str | bool]],
+        expected_latest: str,
+        expected_date_keys: set[str],
+    ) -> None:
         with patch("posthog.egress.transport.transport.requests.request") as mock_get:
-            self.setup_ok_json_mock(mock_get, releases)
+            page = MagicMock(ok=True)
+            page.json.return_value = releases
+            empty_page = MagicMock(ok=True)
+            empty_page.json.return_value = []
+            mock_get.side_effect = [page, empty_page, empty_page]
 
-            result = fetch_fn()
+            result = fetch_github_data_for_sdk(sdk_type)
 
+        assert result is not None
+        assert f"/repos/{repo}/releases" in mock_get.call_args_list[0].args[1]
         assert result["latestVersion"] == expected_latest
         assert set(result["releaseDates"]) == expected_date_keys
 

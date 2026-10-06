@@ -25,6 +25,21 @@ export const CommunitySkillsInstallCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Bind a catalog entry's template variables and return the text a create form starts from.
+ *
+ * Persists nothing, so it needs no more access than reading the catalog already does — the
+ * result is prefill, and the caller creates the skill or scout through its own product's path.
+ */
+export const CommunitySkillsRenderCreateBody = /* @__PURE__ */ zod.object({
+    variables: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Values for a template skill's declared variables, as a {name: value} map. Required only when rendering a template (see the skill's `template_variables`); ignored for non-template skills."
+        ),
+})
+
 export const llmSkillsCreateBodyNameMax = 64
 
 export const llmSkillsCreateBodyDescriptionMax = 1024
@@ -45,7 +60,9 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
         name: zod
             .string()
             .max(llmSkillsCreateBodyNameMax)
-            .describe('Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.'),
+            .describe(
+                'Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters. Cannot be the name of a skill PostHog ships.'
+            ),
         description: zod
             .string()
             .max(llmSkillsCreateBodyDescriptionMax)
@@ -64,7 +81,9 @@ export const LlmSkillsCreateBody = /* @__PURE__ */ zod
         allowed_tools: zod
             .array(zod.string())
             .optional()
-            .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
+            .describe(
+                'Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant.'
+            ),
         metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
         owners: zod
             .array(zod.uuid())
@@ -172,7 +191,9 @@ export const LlmSkillsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     allowed_tools: zod
         .array(zod.string())
         .optional()
-        .describe('List of pre-approved tools the skill may use. Tool names cannot contain whitespace.'),
+        .describe(
+            'Tools the skill asks to use. Tool names cannot contain whitespace. A harness that reads the skill from a file (zip export, git marketplace, a content=full bundle) treats the list as pre-approved. A harness that loads the skill over MCP, including the default content=stub bundle, ignores the list until the user approves that grant.'
+        ),
     metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Arbitrary key-value metadata.'),
     files: zod
         .array(
@@ -243,7 +264,7 @@ export const LlmSkillsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
     new_name: zod
         .string()
         .max(llmSkillsNameDuplicateCreateBodyNewNameMax)
-        .describe('Name for the duplicated skill. Must be unique.'),
+        .describe('Name for the duplicated skill. Must be unique, and cannot be the name of a skill PostHog ships.'),
 })
 
 export const llmSkillsNameFilesCreateBodyPathMax = 500
@@ -290,6 +311,17 @@ export const LlmSkillsNameFilesRenameCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const llmSkillsNamePublishCommunityCreateBodyExpectedCategoryMax = 64
+
+export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunIntervalMinutesMin = 30
+export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunIntervalMinutesMax = 43200
+
+export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunCronScheduleMax = 100
+
+export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneTagsItemMax = 50
+
+export const llmSkillsNamePublishCommunityCreateBodyScoutConfigOneTagsMax = 10
+
 export const llmSkillsNamePublishCommunityCreateBodyDisplayNameOneMax = 64
 
 export const llmSkillsNamePublishCommunityCreateBodyDisplayNameOneRegExp = new RegExp('^[^\\u0000-\\u001f\\u007f]\*$')
@@ -305,6 +337,50 @@ export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleOneRegExp = new 
 export const llmSkillsNamePublishCommunityCreateBodyAuthorHandleTwoMax = 0
 
 export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.object({
+    expected_skill_id: zod.uuid().describe('Immutable ID of the skill version that the publisher reviewed.'),
+    expected_version: zod
+        .number()
+        .min(1)
+        .describe('Skill version that the publisher reviewed. The request returns 409 if the latest version changed.'),
+    expected_category: zod
+        .string()
+        .max(llmSkillsNamePublishCommunityCreateBodyExpectedCategoryMax)
+        .optional()
+        .describe(
+            'Category of the skill the publisher reviewed. Registering a skill as a scout changes its category without raising its version, so the version alone would let a skill reviewed as an ordinary one publish as a scout. The request returns 409 if the category changed. Omit it to skip that check.'
+        ),
+    scout_config: zod
+        .object({
+            run_interval_minutes: zod
+                .number()
+                .min(llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunIntervalMinutesMin)
+                .max(llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunIntervalMinutesMax)
+                .optional()
+                .describe('How often the scout runs, in minutes. Ignored when run_cron_schedule is set.'),
+            run_cron_schedule: zod
+                .string()
+                .max(llmSkillsNamePublishCommunityCreateBodyScoutConfigOneRunCronScheduleMax)
+                .optional()
+                .describe(
+                    "Five-field cron expression for the scout's schedule, which takes precedence over the interval."
+                ),
+            emit: zod
+                .boolean()
+                .optional()
+                .describe('Whether the scout writes its reports to the inbox. False means it runs as a dry run.'),
+            tags: zod
+                .array(zod.string().max(llmSkillsNamePublishCommunityCreateBodyScoutConfigOneTagsItemMax))
+                .max(llmSkillsNamePublishCommunityCreateBodyScoutConfigOneTagsMax)
+                .optional()
+                .describe('Tags used to group the scout in the fleet.'),
+        })
+        .describe(
+            "The scout settings a published scout travels with. Every field is optional. An omitted field\nmeans the scout-create form's own default applies."
+        )
+        .optional()
+        .describe(
+            'Schedule, emit posture and tags to publish alongside a scout, so it arrives in another project with its cadence intact. Rejected for a skill that is not a scout.'
+        ),
     display_name: zod
         .union([
             zod
@@ -332,5 +408,16 @@ export const LlmSkillsNamePublishCommunityCreateBody = /* @__PURE__ */ zod.objec
         .optional()
         .describe(
             "The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account."
+        ),
+})
+
+export const llmSkillsNameRenameCreateBodyNewNameMax = 64
+
+export const LlmSkillsNameRenameCreateBody = /* @__PURE__ */ zod.object({
+    new_name: zod
+        .string()
+        .max(llmSkillsNameRenameCreateBodyNewNameMax)
+        .describe(
+            "New name for the skill. Must be unique in the project, cannot be the name of a skill PostHog ships, and must not start with 'signals-scout-' or 'review-hog-'."
         ),
 })

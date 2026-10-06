@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, createEvent, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { SceneName } from './SceneTitleSection'
 
@@ -28,6 +28,42 @@ describe('SceneName', () => {
         expect(onChange).toHaveBeenCalledWith('Paying users')
     })
 
+    // Guards a duplicate rename request: Enter saves the value straight away, and the name prop
+    // only catches up once that save round-trips, so the blur right after it used to save again.
+    // The second half guards the over-correction — a rejected save must stay retryable, so the
+    // field may not treat the value as saved for good.
+    test('saves an Enter-then-blur rename once, and still saves it again on a later blur', () => {
+        jest.useFakeTimers()
+        try {
+            const onChange = jest.fn()
+            render(<SceneName name="Old name" onChange={onChange} canEdit saveOnBlur renameDebounceMs={0} />)
+
+            fireEvent.click(screen.getByRole('button'))
+
+            const textarea = screen.getByRole('textbox')
+            fireEvent.change(textarea, { target: { value: 'New name' } })
+            fireEvent.keyDown(textarea, { key: 'Enter' })
+            fireEvent.blur(textarea)
+            act(() => {
+                jest.advanceTimersByTime(1)
+            })
+
+            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChange).toHaveBeenCalledWith('New name')
+
+            // The save was rejected, so the name prop still holds the old title.
+            fireEvent.click(screen.getByRole('button'))
+            fireEvent.blur(screen.getByRole('textbox'))
+            act(() => {
+                jest.advanceTimersByTime(1)
+            })
+
+            expect(onChange).toHaveBeenCalledTimes(2)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     // Guards the reconciliation change: a genuine external update (loading a resource,
     // an AI-generated name) must still replace the field's value.
     test('adopts an external name change into the field', () => {
@@ -36,33 +72,5 @@ describe('SceneName', () => {
 
         rerender(<SceneName name="Generated name" canEdit onChange={jest.fn()} />)
         expect(screen.getByText('Generated name')).toBeInTheDocument()
-    })
-
-    // Guards click and drag text selection: the edit row is wider and taller than the field
-    // inside it, so a press that misses the glyphs by a few pixels lands on the row. Left
-    // unclaimed, some browsers read that press as their own gesture rather than a selection.
-    test('a press on the edit row beside the field focuses the field and is consumed', () => {
-        render(<SceneName name="Paying users" canEdit forceEdit onChange={jest.fn()} />)
-
-        const row = screen.getByTestId('scene-name-edit-row')
-        const textarea = screen.getByRole('textbox')
-        expect(textarea).not.toHaveFocus()
-
-        const press = createEvent.mouseDown(row)
-        fireEvent(row, press)
-
-        expect(textarea).toHaveFocus()
-        expect(press.defaultPrevented).toBe(true)
-    })
-
-    // The counterpart: a press on the field itself must reach the browser untouched,
-    // or it would never start a selection.
-    test('a press on the field itself is left alone', () => {
-        render(<SceneName name="Paying users" canEdit forceEdit onChange={jest.fn()} />)
-
-        const press = createEvent.mouseDown(screen.getByRole('textbox'))
-        fireEvent(screen.getByRole('textbox'), press)
-
-        expect(press.defaultPrevented).toBe(false)
     })
 })

@@ -45,7 +45,6 @@ interface WarmActivationPayload {
   pendingUserMessage?: string;
   pendingUserArtifactIds?: string[];
   suppressWarmReuse: boolean;
-  augmented: boolean;
 }
 
 // The local connect path appends channel CONTEXT.md to initialPrompt and gets
@@ -57,7 +56,7 @@ interface WarmActivationPayload {
 function buildCloudFirstMessage(
   messageText: string | undefined,
   input: TaskCreationInput,
-): { pendingUserMessage?: string; augmented: boolean } {
+): string | undefined {
   const customInstructionsText = messageText
     ? buildCustomInstructionsText(input.customInstructions)
     : null;
@@ -67,14 +66,11 @@ function buildCloudFirstMessage(
     input.channelContextId,
     input.channelContextPath,
   );
-  const pendingUserMessage =
+  return (
     [messageText, customInstructionsText, channelContextText]
       .filter((part): part is string => !!part)
-      .join("\n\n") || undefined;
-  return {
-    pendingUserMessage,
-    augmented: !!(customInstructionsText || channelContextText),
-  };
+      .join("\n\n") || undefined
+  );
 }
 
 export class TaskCreationSaga extends Saga<
@@ -106,6 +102,12 @@ export class TaskCreationSaga extends Saga<
   ): Promise<TaskCreationOutput> {
     const taskId = input.taskId;
     const isPiRuntime = input.runtime === "pi";
+    const claudeCloudModelAccess = isPiRuntime
+      ? undefined
+      : input.claudeCloudModelAccess;
+    const codexCloudModelAccess = isPiRuntime
+      ? undefined
+      : input.codexCloudModelAccess;
     const folderPromise =
       !taskId && input.repoPath
         ? this.resolveFolder(input.repoPath)
@@ -116,7 +118,11 @@ export class TaskCreationSaga extends Saga<
       : await this.importClaudeSession(input);
 
     const warmPayload =
-      !isPiRuntime && !taskId && input.workspaceMode === "cloud"
+      !isPiRuntime &&
+      !taskId &&
+      input.workspaceMode === "cloud" &&
+      claudeCloudModelAccess !== "own-subscription" &&
+      codexCloudModelAccess !== "own-subscription"
         ? await this.prepareWarmActivation(input)
         : null;
 
@@ -127,7 +133,16 @@ export class TaskCreationSaga extends Saga<
       : await this.createTask(input, warmPayload);
 
     if (!isPiRuntime) {
-      this.deps.sessionService.markTaskCreationInFlight(task.id);
+      await this.step({
+        name: "mark_task_starting",
+        execute: async () => {
+          this.deps.sessionService.markTaskCreationInFlight(task.id);
+          return task.id;
+        },
+        rollback: async (markedTaskId) => {
+          this.deps.sessionService.clearVisibleTaskStarting(markedTaskId);
+        },
+      });
     }
 
     if (importedClaude && input.repoPath) {
@@ -225,11 +240,12 @@ export class TaskCreationSaga extends Saga<
           error,
         });
         this.deps.host.clearProvisioning(task.id);
+        this.deps.sessionService.clearVisibleTaskStarting(task.id);
         if (shouldDeferLocalPiTaskReady) {
           this.notifyTaskReady({ task, workspace: null });
         }
-        // The in-flight mark is left to TTL-expire on purpose: this state has
-        // its own retry-prompt UX, and auto-recovery would race the retry.
+        // Keep the recovery guard until its TTL expires so automatic recovery
+        // cannot race the worktree retry.
         return { task, workspace: null, provisioningError };
       }
     } else if (workspaceMode === "cloud") {
@@ -313,7 +329,7 @@ export class TaskCreationSaga extends Saga<
     // Warm-activated at create time: the backend already forwarded the first
     // message (with any uploaded artifacts) to the pre-warmed run.
     if (!taskId && warmPayload && task.latest_run) {
-      if (warmPayload.augmented && warmPayload.pendingUserMessage) {
+      if (warmPayload.pendingUserMessage) {
         this.deps.sessionService.rememberInitialCloudPrompt(
           task.id,
           warmPayload.pendingUserMessage,
@@ -407,15 +423,15 @@ export class TaskCreationSaga extends Saga<
             ? warmPayload.transport
             : await buildTransport();
 
-          const { pendingUserMessage, augmented } = warmPayload
-            ? warmPayload
+          const pendingUserMessage = warmPayload
+            ? warmPayload.pendingUserMessage
             : buildCloudFirstMessage(transport?.messageText, input);
 
           // The sandbox echoes pendingUserMessage back once it boots; until then
           // the optimistic placeholder would show the bare task description with
           // no CONTEXT.md / personalization chip. Hand the augmented message to
           // the session service so it seeds the placeholder right away.
-          if (!isPiRuntime && augmented && pendingUserMessage) {
+          if (!isPiRuntime && pendingUserMessage) {
             this.deps.sessionService.rememberInitialCloudPrompt(
               task.id,
               pendingUserMessage,
@@ -430,6 +446,8 @@ export class TaskCreationSaga extends Saga<
             branch,
             adapter: cloudAdapter,
             ...(isPiRuntime ? { piRuntime: true } : {}),
+            claudeModelAccess: claudeCloudModelAccess,
+            codexModelAccess: codexCloudModelAccess,
             model: input.model,
             reasoningLevel: input.reasoningLevel,
             contextWindow: isPiRuntime ? undefined : input.contextWindow,
@@ -450,6 +468,13 @@ export class TaskCreationSaga extends Saga<
           });
           if (!taskRun?.id) {
             throw new Error("Failed to create cloud run");
+          }
+
+          if (claudeCloudModelAccess === "own-subscription") {
+            await this.deps.sessionService.designateClaudeSubscription(
+              task.id,
+              taskRun.id,
+            );
           }
 
           if (!isPiRuntime && input.relayedMcpServers?.length) {
@@ -765,7 +790,7 @@ export class TaskCreationSaga extends Saga<
       resolvedContent,
       input.filePaths,
     );
-    const { pendingUserMessage, augmented } = buildCloudFirstMessage(
+    const pendingUserMessage = buildCloudFirstMessage(
       transport.messageText,
       input,
     );
@@ -773,7 +798,6 @@ export class TaskCreationSaga extends Saga<
       transport,
       pendingUserMessage,
       suppressWarmReuse: false,
-      augmented,
     };
 
     const lease =
@@ -782,9 +806,10 @@ export class TaskCreationSaga extends Saga<
             repository: input.repository ?? null,
             repositories: input.repositories,
             branch: input.branch ?? null,
-            runtimeAdapter: input.adapter ?? null,
+            runtimeAdapter: input.adapter ?? "claude",
             model: input.model ?? null,
             reasoningEffort: input.reasoningLevel ?? null,
+            permissionMode: input.executionMode ?? null,
             sandboxEnvironmentId: input.sandboxEnvironmentId ?? null,
             customImageId: input.customImageId ?? null,
           })
@@ -846,7 +871,10 @@ export class TaskCreationSaga extends Saga<
           this.deps.fileReadClient,
         );
         const canActivateWarmRun =
-          input.runtime !== "pi" && !warmPayload?.suppressWarmReuse;
+          input.runtime !== "pi" &&
+          !warmPayload?.suppressWarmReuse &&
+          input.claudeCloudModelAccess !== "own-subscription" &&
+          input.codexCloudModelAccess !== "own-subscription";
         const result = await this.deps.posthogClient.createTask({
           description,
           naming_source: namingSource,
@@ -877,6 +905,9 @@ export class TaskCreationSaga extends Saga<
           signal_report_task_relationship: input.signalReportId
             ? input.signalReportTaskRelationship
             : undefined,
+          signal_report_discussion_question: input.signalReportId
+            ? input.signalReportDiscussionQuestion
+            : undefined,
           branch:
             input.workspaceMode === "cloud" && canActivateWarmRun
               ? (input.branch ?? null)
@@ -885,7 +916,7 @@ export class TaskCreationSaga extends Saga<
             input.workspaceMode === "cloud" &&
             canActivateWarmRun &&
             input.runtime !== "pi"
-              ? (input.adapter ?? null)
+              ? (input.adapter ?? "claude")
               : undefined,
           model:
             input.workspaceMode === "cloud" &&
@@ -898,6 +929,13 @@ export class TaskCreationSaga extends Saga<
             canActivateWarmRun &&
             input.runtime !== "pi"
               ? (input.reasoningLevel ?? null)
+              : undefined,
+          initial_permission_mode:
+            input.workspaceMode === "cloud" &&
+            canActivateWarmRun &&
+            input.runtime !== "pi"
+              ? (input.executionMode ??
+                (input.adapter === "codex" ? "auto" : "plan"))
               : undefined,
           sandbox_environment_id:
             input.workspaceMode === "cloud" && canActivateWarmRun

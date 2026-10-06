@@ -61,26 +61,35 @@ describe('YAxisRangeFilter', () => {
     const committedFilter = (): TrendsFilter =>
         (insightVizDataLogic(insightProps).values.querySource as TrendsQuery).trendsFilter ?? {}
 
-    // "Begin at zero" and the minimum both set the axis floor, so exactly one is live at a time.
-    // Wire the reason to the wrong control and the toggle is unusable, since it is on by default.
-    // Every row carries a display, including `undefined`: jest passes a `done` callback in place of
-    // an argument a shorter row doesn't supply, and the case then times out waiting on it.
-    it.each<[string, TrendsFilter, { toggle: boolean; min: boolean; max: boolean }, ChartDisplayType | undefined]>([
-        ['begin at zero is on by default', {}, { toggle: false, min: true, max: false }, undefined],
+    // "Begin at zero" and the minimum both set the axis floor, so the minimum only appears once
+    // the toggle is off. Every row carries a display, including `undefined`: jest passes a `done`
+    // callback in place of an argument a shorter row doesn't supply, and the case then times out
+    // waiting on it.
+    it.each<
+        [string, TrendsFilter, { toggle: boolean; min: boolean | 'hidden'; max: boolean }, ChartDisplayType | undefined]
+    >([
+        ['begin at zero is on by default', {}, { toggle: false, min: 'hidden', max: false }, undefined],
         ['begin at zero is off', { yAxisStartAtZero: false }, { toggle: false, min: false, max: false }, undefined],
-        ['a logarithmic scale', { yAxisScaleType: 'log10' }, { toggle: true, min: true, max: true }, undefined],
+        ['a logarithmic scale', { yAxisScaleType: 'log10' }, { toggle: true, min: 'hidden', max: true }, undefined],
+        [
+            'a logarithmic scale with begin at zero off',
+            { yAxisScaleType: 'log10', yAxisStartAtZero: false },
+            { toggle: true, min: true, max: true },
+            undefined,
+        ],
         [
             'percentages are shown',
             { showPercentStackView: true },
-            { toggle: true, min: true, max: true },
+            { toggle: true, min: 'hidden', max: true },
             // Percent stacking is offered on bar, area and pie only, so an area graph is the one
             // display where it and the range controls are both reachable.
             ChartDisplayType.ActionsAreaGraph,
         ],
     ])('disables the right controls when %s', (_name, trendsFilter, expected, display) => {
         const container = setup(trendsFilter, display)
+        const minInput = container.querySelector<HTMLInputElement>('[data-attr="trends-y-axis-min-input"]')
         expect(control(container, 'trends-y-axis-start-at-zero')).toHaveProperty('disabled', expected.toggle)
-        expect(control(container, 'trends-y-axis-min-input')).toHaveProperty('disabled', expected.min)
+        expect(minInput ? minInput.disabled : 'hidden').toBe(expected.min)
         expect(control(container, 'trends-y-axis-max-input')).toHaveProperty('disabled', expected.max)
     })
 

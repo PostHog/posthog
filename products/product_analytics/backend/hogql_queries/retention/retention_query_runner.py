@@ -42,12 +42,12 @@ from posthog.hogql_queries.utils.breakdowns import (
 )
 from posthog.hogql_queries.utils.properties import has_cohort_property
 from posthog.hogql_queries.utils.query_date_range import QueryDateRangeWithIntervals
+from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
-from posthog.queries.util import correct_result_for_sampling
 
 from products.actions.backend.models.action import Action
 from products.product_analytics.backend.hogql_queries.retention.retention_base_query_fixed import (
@@ -59,6 +59,7 @@ from products.product_analytics.backend.hogql_queries.retention.retention_base_q
 from products.product_analytics.backend.hogql_queries.retention.retention_validation_rules import (
     DisallowBreakdownsWithDataWarehouse24HourWindows,
     DisallowCumulativeWith24HourWindows,
+    DisallowExcessiveIntervals,
     DisallowGroupAggregationWithDataWarehouse24HourWindows,
     DisallowPropertyAggregationWith24HourWindows,
     DisallowUnsupportedDataWarehouseTimestampField,
@@ -148,6 +149,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
     def validators(self) -> Sequence[QueryValidationRule[RetentionQuery]]:
         return (
             DisallowCumulativeWith24HourWindows(),
+            DisallowExcessiveIntervals(),
             DisallowBreakdownsWithDataWarehouse24HourWindows(),
             DisallowGroupAggregationWithDataWarehouse24HourWindows(),
             DisallowPropertyAggregationWith24HourWindows(),
@@ -702,11 +704,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     breakdown_totals[breakdown_value] = breakdown_totals.get(breakdown_value, 0) + count
 
             # Step 2: Rank breakdowns and determine top N and 'Other'
-            breakdown_limit = (
+            requested_breakdown_limit = (
                 self.query.breakdownFilter.breakdown_limit
                 if self.query.breakdownFilter and self.query.breakdownFilter.breakdown_limit is not None
                 else get_breakdown_limit_for_context(self.limit_context)
             )
+            # A negative limit slices from the end of the ranked values, which keeps all but the last one.
+            breakdown_limit = max(requested_breakdown_limit, 0)
             sorted_breakdowns = sorted(breakdown_totals.items(), key=lambda item: (-item[1], item[0]))
             other_values = {item[0] for item in sorted_breakdowns[breakdown_limit:]}
 

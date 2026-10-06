@@ -26,7 +26,7 @@ import {
 import {
     createApplyEventRestrictionsStep,
     createEnrichSurveyPersonPropertiesStep,
-    createSkipCookielessRateLimitToOverflowStep,
+    createRateLimitToOverflowStep,
     createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
@@ -34,6 +34,7 @@ import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-proce
 import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
 import { createGroupStoreBeforeBatchStep } from '~/ingestion/common/steps/group-store-batch-step'
 import { createPersonsStoreBeforeBatchStep } from '~/ingestion/common/steps/persons-store-batch-step'
+import { prefetchTeamsStep } from '~/ingestion/common/steps/prefetch-teams-step'
 import {
     createEventUsageBeforeBatchStep,
     createFlushEventUsageStep,
@@ -54,7 +55,6 @@ import {
     PostTeamPreprocessingSubpipelineConfig,
     createPostTeamPreprocessingSubpipeline,
 } from './post-team-preprocessing-subpipeline'
-import { prefetchTeamsStep } from './steps/prefetchTeamsStep'
 
 export interface JoinedIngestionPipelineConfig {
     eventSchemaEnforcementEnabled: boolean
@@ -167,8 +167,6 @@ export function createJoinedIngestionPipeline<
         eventSchemaEnforcementManager,
         eventSchemaEnforcementEnabled,
         cookielessManager,
-        preservePartitionLocality,
-        overflowRedirectService,
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
@@ -222,11 +220,11 @@ export function createJoinedIngestionPipeline<
                     pipelineWritesPersons: true,
                 })
             )
-            // Rate-limit non-cookieless events to overflow before parsing the body.
-            // Cookieless events (headers.distinct_id === sentinel) pass through and are
-            // handled by the matching only-cookieless step in post-team, which keys on
-            // the hashed distinct_id assigned by the cookieless step.
-            .pipeChunk(createSkipCookielessRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
+            // Rate-limit events to overflow before parsing the body, keyed on the
+            // Kafka message key — the partition key capture computed. Cookieless
+            // events count under token:client_ip, so one IP's cookieless stream
+            // is budgeted as a single partition key.
+            .pipeChunk(createRateLimitToOverflowStep(preservePartitionLocality, overflowRedirectService))
             // Warm the team cache for the chunk's tokens in one batched load while message
             // bodies parse, so the per-event lookups in resolveTeam hit cache or coalesce
             // onto the in-flight load instead of paying a serial load per token.

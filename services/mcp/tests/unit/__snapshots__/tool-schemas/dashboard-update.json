@@ -2,7 +2,72 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "breakdown_colors": {
-            "description": "Custom color mapping for breakdown values."
+            "anyOf": [
+                {
+                    "items": {
+                        "properties": {
+                            "breakdownProperty": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property."
+                            },
+                            "breakdownType": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`."
+                            },
+                            "breakdownValue": {
+                                "description": "The breakdown value this color applies to, as it appears in the chart legend.",
+                                "type": "string"
+                            },
+                            "colorToken": {
+                                "anyOf": [
+                                    {
+                                        "pattern": "^preset-[1-9][0-9]*$",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color."
+                            },
+                            "source": {
+                                "anyOf": [
+                                    {
+                                        "description": "* `auto` - auto\n* `manual` - manual",
+                                        "enum": ["auto", "manual"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n* `auto` - auto\n* `manual` - manual"
+                            }
+                        },
+                        "required": ["breakdownValue", "colorToken"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
         },
         "data_color_theme_id": {
             "anyOf": [
@@ -119,18 +184,112 @@
             "type": "array"
         },
         "tiles": {
-            "description": "Dashboard tiles to update. Widget tiles accept nested widget.config patches.",
+            "description": "Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches.",
             "items": {
                 "properties": {
                     "id": {
                         "description": "Dashboard tile ID to update.",
                         "type": "number"
                     },
+                    "layouts": {
+                        "description": "Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request.",
+                        "properties": {
+                            "sm": {
+                                "description": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts.",
+                                "properties": {
+                                    "h": {
+                                        "description": "Height in grid rows.",
+                                        "minimum": 1,
+                                        "type": "number"
+                                    },
+                                    "w": {
+                                        "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                        "maximum": 12,
+                                        "minimum": 1,
+                                        "type": "number"
+                                    },
+                                    "x": {
+                                        "description": "Column position in the dashboard grid (0-indexed).",
+                                        "maximum": 11,
+                                        "minimum": 0,
+                                        "type": "number"
+                                    },
+                                    "y": {
+                                        "description": "Row position in the dashboard grid (0-indexed).",
+                                        "minimum": 0,
+                                        "type": "number"
+                                    }
+                                },
+                                "required": ["x", "y", "w", "h"],
+                                "type": "object"
+                            },
+                            "xs": {
+                                "description": "Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.",
+                                "properties": {
+                                    "h": {
+                                        "description": "Height in grid rows.",
+                                        "minimum": 1,
+                                        "type": "number"
+                                    },
+                                    "w": {
+                                        "description": "Width in grid columns. The desktop grid is 12 columns wide.",
+                                        "maximum": 12,
+                                        "minimum": 1,
+                                        "type": "number"
+                                    },
+                                    "x": {
+                                        "description": "Column position in the dashboard grid (0-indexed).",
+                                        "maximum": 11,
+                                        "minimum": 0,
+                                        "type": "number"
+                                    },
+                                    "y": {
+                                        "description": "Row position in the dashboard grid (0-indexed).",
+                                        "minimum": 0,
+                                        "type": "number"
+                                    }
+                                },
+                                "required": ["x", "y", "w", "h"],
+                                "type": "object"
+                            }
+                        },
+                        "required": ["sm"],
+                        "type": "object"
+                    },
                     "widget": {
                         "description": "Nested widget row updates.",
                         "properties": {
                             "config": {
                                 "anyOf": [
+                                    {
+                                        "properties": {
+                                            "notebookShortId": {
+                                                "anyOf": [
+                                                    {
+                                                        "maxLength": 128,
+                                                        "minLength": 1,
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Source notebook short ID."
+                                            },
+                                            "snapshotId": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Immutable notebook widget snapshot. Add one from a notebook widget's menu."
+                                            }
+                                        },
+                                        "type": "object"
+                                    },
                                     {
                                         "properties": {
                                             "dateRange": {
@@ -1119,7 +1278,7 @@
                                 "description": "Optional custom display name for the widget tile."
                             },
                             "widget_type": {
-                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
+                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `notebook_widget` - notebook_widget\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
                                 "enum": [
                                     "activity_events_list",
                                     "conversations_recent_tickets",
@@ -1127,6 +1286,7 @@
                                     "experiment_results",
                                     "experiments_list",
                                     "logs_list",
+                                    "notebook_widget",
                                     "session_replay_list",
                                     "survey_results"
                                 ],

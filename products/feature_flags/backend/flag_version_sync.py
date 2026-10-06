@@ -28,10 +28,11 @@ pre-bump versions.
 """
 
 from collections import defaultdict
+from collections.abc import Collection
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Value
+from django.db.models import QuerySet, Value
 from django.db.models.functions import Coalesce
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
@@ -43,6 +44,8 @@ from posthog.models.activity_logging.activity_log import Change, Detail, LogActi
 from posthog.models.activity_logging.utils import activity_storage
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.feature_flags.backend.facade.config import ConfigFormatError, decode_config
+from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.field_snapshots import capture_fields_before_save, snapshot_if_changed
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -249,33 +252,38 @@ def _flag_version_bump_entry(flag: FeatureFlag, old_version: int | None, trigger
     )
 
 
-def _direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
-    """Flag ids this flag has a ``flag_evaluates_to`` release condition on.
+def direct_flag_dependency_ids(flag: FeatureFlag) -> set[int]:
+    """Flag ids this flag's release conditions (v1) or rule targeting (v2) depend on.
 
     Same parse as ``flags_cache._extract_direct_dependency_ids`` (a dependency is keyed by
     the referenced flag's id in ``key``), minus its inactive/deleted short-circuit: a
     disabled flag still ships in the local-evaluation payload so dependencies can resolve
     it, so its dependents still need the bump. Tolerant of malformed values so one bad
-    sibling flag can't break the save that triggered this.
+    sibling flag can't break the save that triggered this. Read by the version-bump path
+    below and by the stale-flags health check.
     """
-    dependency_ids: set[int] = set()
     try:
-        conditions = flag.conditions
-    except Exception:
-        # A sibling flag with malformed filters must neither break the save nor suppress
-        # the bump for healthy flags.
+        return set(references(decode_config(flag.filters)).flag_ids)
+    except ConfigFormatError:
+        return set()
+    except (AttributeError, TypeError):
+        # references() raises these for v1 groups or properties that are not lists of objects.
         logger.exception("flag_version_sync_dependency_parse_failed", flag_id=flag.pk, team_id=flag.team_id)
         capture_exception()
-        return dependency_ids
-    for condition in conditions:
-        for prop in condition.get("properties") or []:
-            if prop.get("type") != "flag":
-                continue
-            try:
-                dependency_ids.add(int(prop["key"]))
-            except (ValueError, KeyError, TypeError):
-                continue
-    return dependency_ids
+        return set()
+
+
+def flags_with_flag_dependencies(project_ids: Collection[int]) -> QuerySet[FeatureFlag]:
+    """Non-deleted flags in these projects whose filters hold a flag-type release condition.
+
+    The jsonb predicate is the one assumption about how a flag dependency is stored in
+    ``filters``; the version-bump path and the stale-flags health check both build on it,
+    so it lives here once.
+    """
+    # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static predicate, no user input)
+    return FeatureFlag.objects.filter(team__project_id__in=project_ids, deleted=False).extra(
+        where=["""jsonb_path_exists(filters, '$.** ? (@.type == "flag")')"""]
+    )
 
 
 def _dependent_flags(sources: list[FeatureFlag], project_id: int) -> list[tuple[FeatureFlag, FeatureFlag]]:
@@ -293,18 +301,15 @@ def _dependent_flags(sources: list[FeatureFlag], project_id: int) -> list[tuple[
     walk below needs no further round trips.
     """
     candidate_flags = list(
-        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static predicate, no user input)
-        FeatureFlag.objects.filter(team__project_id=project_id, deleted=False)
-        .extra(where=["""jsonb_path_exists(filters, '$.** ? (@.type == "flag")')"""])
         # select_related: the activity entry per bumped flag reads flag.team.organization_id.
-        .select_related("team")
+        flags_with_flag_dependencies([project_id]).select_related("team")
     )
     if not candidate_flags:
         return []
 
     dependents_of: dict[int, list[FeatureFlag]] = defaultdict(list)
     for flag in candidate_flags:
-        for dependency_id in _direct_flag_dependency_ids(flag):
+        for dependency_id in direct_flag_dependency_ids(flag):
             dependents_of[dependency_id].append(flag)
 
     dependents: list[tuple[FeatureFlag, FeatureFlag]] = []
@@ -350,10 +355,7 @@ def _flags_referencing_cohort(cohort: Cohort) -> list[FeatureFlag]:
     direct_ids: set[int] = set()
     for flag in candidate_flags:
         try:
-            for condition in flag.conditions:
-                for prop in condition.get("properties", []):
-                    if prop.get("type") == "cohort" and str(prop.get("value")).lstrip("-").isdigit():
-                        direct_ids.add(int(prop["value"]))
+            direct_ids.update(references(decode_config(flag.filters)).cohort_ids)
         except Exception:
             continue
     direct_ids -= seen_cohorts_cache.keys()
@@ -369,6 +371,8 @@ def _flags_referencing_cohort(cohort: Cohort) -> list[FeatureFlag]:
         try:
             if cohort.pk in flag.get_cohort_ids(seen_cohorts_cache=seen_cohorts_cache, stop_traversal_at_static=True):
                 flags.append(flag)
+        except ConfigFormatError:
+            continue
         except Exception:
             # A sibling flag with malformed filters (e.g. a non-numeric cohort value,
             # which get_cohort_ids doesn't tolerate) must neither break the cohort save

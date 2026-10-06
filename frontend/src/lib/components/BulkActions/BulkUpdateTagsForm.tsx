@@ -17,11 +17,17 @@ export interface BulkUpdateTagsResult {
     skipped: Array<{ id: number | string; reason: string }>
 }
 
-export type BulkTaggableResource = 'feature_flags' | 'dashboards' | 'insights' | 'event_definitions'
+export type BulkTaggableResource =
+    | 'feature_flags'
+    | 'dashboards'
+    | 'insights'
+    | 'event_definitions'
+    | 'conversations/tickets'
+    | 'experiments'
 
 export interface BulkUpdateTagsFormProps {
     resource: BulkTaggableResource
-    // Integer PKs for most resources; event definitions are keyed by UUID strings.
+    // Integer PKs for most resources; event definitions and tickets are keyed by UUID strings.
     selectedIds: ReadonlyArray<number | string>
     onSuccess?: (result: BulkUpdateTagsResult) => void
     /** Closes the host (popover or modal). Called on Cancel and after a successful submit. */
@@ -54,6 +60,7 @@ export function BulkUpdateTagsForm({
     const submit = async (): Promise<void> => {
         setLoading(true)
         try {
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
             const response = (await api.create(`api/projects/${currentProjectId}/${resource}/bulk_update_tags/`, {
                 ids: Array.from(selectedIds),
                 action: tagAction,

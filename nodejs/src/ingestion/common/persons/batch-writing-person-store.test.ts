@@ -126,6 +126,7 @@ describe('BatchWritingPersonStore', () => {
         const mockRepo = {
             fetchPerson: jest.fn().mockResolvedValue(person),
             fetchPersonDistinctIds: jest.fn().mockResolvedValue([]),
+            fetchPersonDistinctIdMappings: jest.fn().mockResolvedValue([]),
             fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
             fetchPersonsByPersonIds: jest.fn().mockResolvedValue([]),
             fetchPersonsForUpdateByDistinctIds: jest.fn().mockResolvedValue([]),

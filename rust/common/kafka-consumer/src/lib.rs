@@ -13,5 +13,5 @@ pub use assignment_epoch::AssignmentEpoch;
 pub use charge::Charge;
 pub use config::ConsumerConfigBuilder;
 pub use partition_offset_ledger::{Held, LedgerError, PartitionOffsetLedger, TakenFrontier};
-pub use topic_offset_ledger::{Rejection, Settlement, TopicOffsetLedger, TopicPartition};
+pub use topic_offset_ledger::{Rejection, TopicOffsetLedger, TopicPartition};
 pub use types::{GroupCompletion, Offset, Partition};

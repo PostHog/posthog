@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Iterable, Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -137,18 +137,16 @@ def test_webhook_enabled_deployment_statuses_reconciles_inactive_statuses() -> N
 
 
 @pytest.mark.parametrize(
-    "watermark_offset,expected_parents",
+    "reconcile_since_offset",
     [
-        # No watermark: the recency skip is inert, so the cap is the only bound, and it keeps the
-        # newest parents.
-        (None, ["1", "2"]),
-        # Watermark set: every parent past the skip is known to hold an unseen child, and the run
-        # advances the watermark past it either way, so capping would drop it permanently.
-        (timedelta(days=3), ["1", "2", "3", "4"]),
+        # First sync: no watermark, so the cap is the only bound and keeps the newest parents.
+        None,
+        # Every parent updated since the last sync: the cap still bounds the run.
+        timedelta(days=3),
     ],
 )
 def test_webhook_enabled_deployment_statuses_reconciliation_caps_the_parent_fan_out(
-    watermark_offset: timedelta | None, expected_parents: list[str]
+    reconcile_since_offset: timedelta | None,
 ) -> None:
     now = datetime(2026, 7, 24, 12, 0, 0, tzinfo=UTC)
 
@@ -190,16 +188,114 @@ def test_webhook_enabled_deployment_statuses_reconciliation_caps_the_parent_fan_
             endpoint="deployment_statuses",
             logger=mock.Mock(),
             resumable_source_manager=_no_resume(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None if watermark_offset is None else now - watermark_offset,
             webhook_source_manager=webhook_source_manager,
+            reconcile_since=None if reconcile_since_offset is None else now - reconcile_since_offset,
         )
         result = response.items()
         assert isinstance(result, AsyncIterator)
         asyncio.run(_collect(result))
 
     status_fetches = [url for url in fetch_mock.call_args_list if "/statuses" in url.args[0]]
-    assert [url.args[0].split("/deployments/")[1].split("/")[0] for url in status_fetches] == expected_parents
+    assert [url.args[0].split("/deployments/")[1].split("/")[0] for url in status_fetches] == ["1", "2"]
+
+
+@pytest.mark.parametrize(
+    "reconcile_since_offset, expected_window",
+    [
+        (None, "2026-10-04T12%3A00%3A00Z..2026-10-05T12%3A00%3A00Z"),
+        (timedelta(hours=1), "2026-10-05T10%3A55%3A00Z..2026-10-05T12%3A00%3A00Z"),
+    ],
+)
+def test_webhook_enabled_workflow_runs_polls_startup_failures_after_the_drain(
+    reconcile_since_offset: timedelta | None, expected_window: str
+) -> None:
+    now = datetime(2026, 10, 5, 12, 0, 0, tzinfo=UTC)
+    webhook_table = pa.table({"id": [1], "status": ["queued"]})
+
+    async def webhook_items() -> AsyncIterator[pa.Table]:
+        yield webhook_table
+
+    webhook_source_manager = _webhook_manager(enabled=True, items=webhook_items())
+
+    page = mock.Mock()
+    page.headers = {}
+    page.json.return_value = {
+        "workflow_runs": [{"id": 1, "status": "completed", "conclusion": "startup_failure"}],
+    }
+
+    with (
+        mock.patch.object(github, "_fetch_page", return_value=page) as fetch_mock,
+        mock.patch.object(github, "_now_utc", return_value=now),
+    ):
+        response = github.github_source(
+            personal_access_token="tok",
+            repository="acme/widgets",
+            endpoint="workflow_runs",
+            logger=mock.Mock(),
+            resumable_source_manager=_no_resume(),
+            webhook_source_manager=webhook_source_manager,
+            reconcile_since=None if reconcile_since_offset is None else now - reconcile_since_offset,
+        )
+        result = response.items()
+        assert isinstance(result, AsyncIterator)
+        tables = asyncio.run(_collect(result))
+
+    assert tables[0] is webhook_table
+    polled = pa.concat_tables(tables[1:])
+    assert polled.column("conclusion").to_pylist() == ["startup_failure"]
+    fetched_url = fetch_mock.call_args.args[0]
+    assert "status=startup_failure" in fetched_url
+    assert f"created={expected_window}&" in fetched_url
+
+
+@pytest.mark.parametrize(
+    "runs_per_hour, expected_windows",
+    [
+        (10, [(0, 24)]),
+        (
+            300,
+            [
+                (0, 24),
+                (0, 12),
+                (0, 6),
+                (0, 3),
+                (3, 6),
+                (6, 12),
+                (6, 9),
+                (9, 12),
+                (12, 24),
+                (12, 18),
+                (12, 15),
+                (15, 18),
+                (18, 24),
+                (18, 21),
+                (21, 24),
+            ],
+        ),
+    ],
+)
+def test_startup_failure_poll_splits_only_windows_that_hit_the_cap(
+    runs_per_hour: int, expected_windows: list[tuple[int, int]]
+) -> None:
+    day_start = datetime(2026, 10, 4, 0, 0, 0, tzinfo=UTC)
+    fetched_windows: list[tuple[int, int]] = []
+
+    def url_for_window(window_start: datetime, window_end: datetime) -> str:
+        return f"{(window_start - day_start) // timedelta(hours=1)}..{(window_end - day_start) // timedelta(hours=1)}"
+
+    def fetch_pages(url: str) -> Iterator[tuple[list[dict[str, int]], str]]:
+        start_hour, end_hour = (int(part) for part in url.split(".."))
+        fetched_windows.append((start_hour, end_hour))
+        matching = (end_hour - start_hour) * runs_per_hour
+        yield [{"id": index} for index in range(min(matching, 1000))], url
+
+    list(
+        github._iter_startup_failure_runs(
+            url_for_window, fetch_pages, mock.Mock(), day_start, day_start + timedelta(days=1)
+        )
+    )
+
+    assert fetched_windows == expected_windows
 
 
 def test_poll_mode_workflow_runs_still_polls() -> None:
@@ -229,3 +325,29 @@ def test_poll_mode_workflow_runs_still_polls() -> None:
     # A legacy poll-mode schema is NOT webhook_only, so a reset still wipes and rebuilds.
     assert response.webhook_only is False
     webhook_source_manager.get_items.assert_not_called()
+
+
+def test_startup_failure_poll_drops_runs_seen_in_an_earlier_window() -> None:
+    def page_of(run_ids: Iterable[int]) -> mock.Mock:
+        page = mock.Mock()
+        page.headers = {}
+        page.json.return_value = {"workflow_runs": [{"id": run_id} for run_id in run_ids]}
+        return page
+
+    capped_page = page_of(range(1000))
+    half_page = page_of([7])
+
+    with (
+        mock.patch.object(github, "_fetch_page", side_effect=[capped_page, half_page, half_page]),
+        mock.patch.object(github, "_now_utc", return_value=datetime(2026, 10, 5, 12, 0, 0, tzinfo=UTC)),
+    ):
+        tables = list(
+            github._get_startup_failure_runs(
+                personal_access_token="tok",
+                repository="acme/widgets",
+                logger=mock.Mock(),
+                created_since=datetime(2026, 10, 4, 12, 0, 0, tzinfo=UTC),
+            )
+        )
+
+    assert pa.concat_tables(tables).column("id").to_pylist() == list(range(1000))

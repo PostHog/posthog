@@ -37,8 +37,9 @@ def rehome_billing_alerts_before_team_delete(
     if table_name not in connections[using].introspection.table_names():
         return
 
-    from products.alerts.backend.destinations import soft_delete_alert_destinations_for_alerts  # noqa: PLC0415
-    from products.billing_alerts.backend.alert_destinations import BILLING_ALERT_EVENT_IDS  # noqa: PLC0415
+    # Deferred: this receiver is connected at app start, and the facade drags the alerts
+    # platform onto that path.
+    from products.billing_alerts.backend.facade.api import soft_delete_destinations_for_alerts  # noqa: PLC0415
 
     deleting_team_ids = _deleting_team_ids(origin=origin, instance=instance, using=using)
     replacement_team_id = (
@@ -53,11 +54,7 @@ def rehome_billing_alerts_before_team_delete(
     with transaction.atomic(using=using):
         alerts = BillingAlertConfiguration.objects.using(using).select_for_update().filter(team_id=instance.id)
         alert_ids = [str(alert_id) for alert_id in alerts.values_list("id", flat=True)]
-        soft_delete_alert_destinations_for_alerts(
-            team_id=instance.id,
-            alert_ids=alert_ids,
-            allowed_event_ids=BILLING_ALERT_EVENT_IDS,
-        )
+        soft_delete_destinations_for_alerts(team_id=instance.id, alert_ids=alert_ids)
 
         # Billing alerts evaluate organization-wide data, but HogFunction destinations are team-scoped.
         # Re-home and disable them because team-specific integrations cannot be moved safely.

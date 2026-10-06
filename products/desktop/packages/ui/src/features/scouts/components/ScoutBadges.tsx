@@ -1,60 +1,45 @@
 import type { ScoutConfig } from "@posthog/api-client/posthog-client";
-import { getScoutOrigin } from "@posthog/core/scouts/scoutPresentation";
-import { Badge, Tooltip } from "@radix-ui/themes";
-
-export function ScoutOriginBadge({ config }: { config: ScoutConfig }) {
-  const origin = getScoutOrigin(config);
-  return (
-    <Tooltip
-      content={
-        origin === "canonical"
-          ? "Part of the standard scout fleet built and maintained by PostHog"
-          : "A scout your team created as a signals-scout-* skill in this project"
-      }
-    >
-      <Badge
-        variant="soft"
-        color={origin === "canonical" ? "gray" : "iris"}
-        size="1"
-        className="relative text-[11px]"
-      >
-        {origin === "canonical" ? "Canonical" : "Custom"}
-      </Badge>
-    </Tooltip>
-  );
-}
+import {
+  Badge,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@posthog/quill";
 
 export function DryRunBadge({ config }: { config: ScoutConfig }) {
   if (config.emit) return null;
   return (
-    <Tooltip content="Runs on schedule but signals are not emitted to Self-driving">
-      <Badge
-        variant="soft"
-        color="amber"
-        size="1"
-        className="relative text-[11px]"
-      >
-        Dry run
-      </Badge>
-    </Tooltip>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Badge variant="warning" className="relative text-[11px]">
+              Dry run
+            </Badge>
+          }
+        />
+        <TooltipContent>
+          Runs on schedule, but its signals do not reach Self-driving
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
-const SEVERITY_COLORS: Record<string, "red" | "orange" | "amber" | "gray"> = {
-  P0: "red",
-  P1: "red",
-  P2: "orange",
-  P3: "amber",
-  P4: "gray",
+const SEVERITY_COLORS: Record<string, "destructive" | "warning" | "default"> = {
+  P0: "destructive",
+  P1: "destructive",
+  P2: "warning",
+  P3: "warning",
+  P4: "default",
 };
 
 export function SeverityBadge({ severity }: { severity: string | null }) {
   if (!severity) return null;
   return (
     <Badge
-      variant="soft"
-      color={SEVERITY_COLORS[severity] ?? "gray"}
-      size="1"
+      variant={SEVERITY_COLORS[severity] ?? "default"}
       className="text-[11px]"
     >
       {severity}

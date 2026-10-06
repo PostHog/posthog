@@ -1,11 +1,14 @@
 import { Suspense } from 'react'
 
 import {
+    ActivityChange,
     ActivityLogItem,
+    ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
-    userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -61,6 +64,150 @@ export function DiffLink({ before, after, language, children }: DiffLinkProps): 
     )
 }
 
+type HogFunctionChange = { inline: string | JSX.Element; inlist: string | JSX.Element }
+
+function describeHogFunctionInputs(change: ActivityChange): HogFunctionChange {
+    const beforeValues = isObject(change.before) ? (change.before as Record<string, { value?: unknown }>) : {}
+    const afterValues = isObject(change.after) ? (change.after as Record<string, { value?: unknown }>) : {}
+
+    const changedFields = Object.entries(afterValues)
+        .map(([key, value]) => {
+            const before = JSON.stringify(beforeValues[key]?.value)
+            const after = JSON.stringify(value?.value)
+
+            if (before !== after) {
+                return (
+                    <DiffLink key={key} before={before} after={after}>
+                        {key}
+                    </DiffLink>
+                )
+            }
+            return null
+        })
+        .filter((x): x is JSX.Element => !!x)
+
+    const changedSpans: JSX.Element[] = []
+    for (let index = 0; index < changedFields.length; index++) {
+        if (index !== 0 && index === changedFields.length - 1) {
+            changedSpans.push(<>{' and '}</>)
+        } else if (index > 0) {
+            changedSpans.push(<>{', '}</>)
+        }
+        changedSpans.push(changedFields[index])
+    }
+
+    const inputOrInputs = changedFields.length === 1 ? 'input' : 'inputs'
+
+    return {
+        inline: (
+            <>
+                updated the {inputOrInputs} {changedSpans} for
+            </>
+        ),
+        inlist: (
+            <>
+                updated {inputOrInputs}: {changedSpans}
+            </>
+        ),
+    }
+}
+
+function describeHogFunctionCode(change: ActivityChange, field: string): HogFunctionChange {
+    const code = (
+        <DiffLink
+            language={field === 'hog' ? 'hog' : 'json'}
+            before={typeof change.before === 'string' ? change.before : JSON.stringify(change.before, null, 2)}
+            after={typeof change.after === 'string' ? change.after : JSON.stringify(change.after, null, 2)}
+        >
+            {field === 'hog' ? 'source code' : field === 'inputs_schema' ? 'inputs schema' : field}
+        </DiffLink>
+    )
+
+    return { inline: <>updated {code} for</>, inlist: <>updated {code}</> }
+}
+
+const HOG_FUNCTION_DIFF_FIELDS = new Set(['inputs_schema', 'filters', 'hog', 'name', 'description', 'masking'])
+
+function describeHogFunctionField(change: ActivityChange, objectNoun: string): HogFunctionChange {
+    if (change.field && HOG_FUNCTION_DIFF_FIELDS.has(change.field)) {
+        return describeHogFunctionCode(change, change.field)
+    }
+    switch (change.field) {
+        case 'encrypted_inputs':
+            return { inline: 'updated encrypted inputs for', inlist: 'updated encrypted inputs' }
+        case 'inputs':
+            return describeHogFunctionInputs(change)
+        case 'deleted': {
+            const verb = change.after ? 'deleted' : 'undeleted'
+            return { inline: verb, inlist: `${verb} the ${objectNoun}` }
+        }
+        case 'enabled': {
+            const verb = change.after ? 'enabled' : 'disabled'
+            return { inline: verb, inlist: `${verb} the ${objectNoun}` }
+        }
+        case 'priority':
+            return {
+                inline: (
+                    <>
+                        changed priority from {change.before} to {change.after} for{' '}
+                    </>
+                ),
+                inlist: (
+                    <>
+                        changed priority from {change.before} to {change.after} for{' '}
+                    </>
+                ),
+            }
+        default:
+            return {
+                inline: `updated unknown field: ${change.field}`,
+                inlist: `updated unknown field: ${change.field}`,
+            }
+    }
+}
+
+function describeHogFunctionUpdate(logItem: ActivityLogItem, objectNoun: string): HumanizedChange {
+    const changes: HogFunctionChange[] = []
+    for (const change of logItem.detail.changes ?? []) {
+        // Both are masked server-side, so there is nothing to diff — say the staged config
+        // changed and let the reader open it in the builder. A staged edit usually touches
+        // both fields, so collapse them into one entry.
+        if (change.field === 'draft' || change.field === 'draft_encrypted_inputs') {
+            if (!changes.some((c) => c.inlist === STAGED_CHANGES)) {
+                changes.push({ inline: `${STAGED_CHANGES} on`, inlist: STAGED_CHANGES })
+            }
+            continue
+        }
+        changes.push(describeHogFunctionField(change, objectNoun))
+    }
+    const functionName = nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)
+
+    return {
+        summary: activityLogSummary(
+            logItem,
+            <SentenceList
+                listParts={changes.length ? changes.map((change) => change.inlist) : [`Updated the ${objectNoun}`]}
+            />,
+            functionName
+        ),
+        description:
+            changes.length == 1 ? (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> {changes[0].inline} the {objectNoun}: {functionName}
+                </>
+            ) : (
+                <div>
+                    <ActivityLogUserName logItem={logItem} /> updated the {objectNoun}: {functionName}
+                    <ul className="ml-5 list-disc">
+                        {changes.map((c, i) => (
+                            <li key={i}>{c.inlist}</li>
+                        ))}
+                    </ul>
+                </div>
+            ),
+    }
+}
+
 export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'HogFunction') {
         console.error('HogFunction describer received a non-HogFunction activity')
@@ -72,9 +219,14 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Created the ${objectNoun}`,
+                nameOrLinkToHogFunction(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> created the {objectNoun}:{' '}
+                    <ActivityLogUserName logItem={logItem} /> created the {objectNoun}:{' '}
                     {nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
@@ -83,23 +235,27 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                `Deleted the ${objectNoun}`,
+                logItem.detail.name || 'Untitled hog function'
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong> deleted the {objectNoun}:{' '}
-                    {logItem.detail.name}
+                    <ActivityLogUserName logItem={logItem} /> deleted the {objectNoun}: {logItem.detail.name}
                 </>
             ),
         }
     }
 
     if (logItem.activity == 'restored') {
-        const name = userNameForLogItem(logItem)
         const functionName = nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)
 
         return {
+            summary: activityLogSummary(logItem, `Restored the ${objectNoun}`, functionName),
             description: (
                 <>
-                    <strong className="ph-no-capture">{name}</strong> restored the {objectNoun}: {functionName}
+                    <ActivityLogUserName logItem={logItem} /> restored the {objectNoun}: {functionName}
                 </>
             ),
         }
@@ -113,10 +269,14 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
     }
     if (logItem.activity in draftActivities) {
         return {
+            summary: activityLogSummary(
+                logItem,
+                `${draftActivities[logItem.activity]} the ${objectNoun}`,
+                nameOrLinkToHogFunction(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
-                    <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>{' '}
-                    {draftActivities[logItem.activity]} the {objectNoun}:{' '}
+                    <ActivityLogUserName logItem={logItem} /> {draftActivities[logItem.activity]} the {objectNoun}:{' '}
                     {nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)}
                 </>
             ),
@@ -124,162 +284,7 @@ export function hogFunctionActivityDescriber(logItem: ActivityLogItem, asNotific
     }
 
     if (logItem.activity == 'updated') {
-        const changes: { inline: string | JSX.Element; inlist: string | JSX.Element }[] = []
-        for (const change of logItem.detail.changes ?? []) {
-            switch (change.field) {
-                case 'encrypted_inputs': {
-                    changes.push({
-                        inline: 'updated encrypted inputs for',
-                        inlist: 'updated encrypted inputs',
-                    })
-                    break
-                }
-                // Both are masked server-side, so there is nothing to diff — say the staged config
-                // changed and let the reader open it in the builder. A staged edit usually touches
-                // both fields, so collapse them into one entry.
-                case 'draft':
-                case 'draft_encrypted_inputs': {
-                    if (!changes.some((c) => c.inlist === STAGED_CHANGES)) {
-                        changes.push({ inline: `${STAGED_CHANGES} on`, inlist: STAGED_CHANGES })
-                    }
-                    break
-                }
-                case 'inputs': {
-                    const beforeValues = isObject(change.before)
-                        ? (change.before as Record<string, { value?: unknown }>)
-                        : {}
-                    const afterValues = isObject(change.after)
-                        ? (change.after as Record<string, { value?: unknown }>)
-                        : {}
-
-                    const changedFields = Object.entries(afterValues)
-                        .map(([key, value]) => {
-                            const before = JSON.stringify(beforeValues[key]?.value)
-                            const after = JSON.stringify(value?.value)
-
-                            if (before !== after) {
-                                return (
-                                    <DiffLink key={key} before={before} after={after}>
-                                        {key}
-                                    </DiffLink>
-                                )
-                            }
-                            return null
-                        })
-                        .filter((x): x is JSX.Element => !!x)
-
-                    const changedSpans: JSX.Element[] = []
-                    for (let index = 0; index < changedFields.length; index++) {
-                        if (index !== 0 && index === changedFields.length - 1) {
-                            changedSpans.push(<>{' and '}</>)
-                        } else if (index > 0) {
-                            changedSpans.push(<>{', '}</>)
-                        }
-                        changedSpans.push(changedFields[index])
-                    }
-
-                    const inputOrInputs = changedFields.length === 1 ? 'input' : 'inputs'
-                    changes.push({
-                        inline: (
-                            <>
-                                updated the {inputOrInputs} {changedSpans} for
-                            </>
-                        ),
-                        inlist: (
-                            <>
-                                updated {inputOrInputs}: {changedSpans}
-                            </>
-                        ),
-                    })
-                    break
-                }
-                case 'inputs_schema':
-                case 'filters':
-                case 'hog':
-                case 'name':
-                case 'description':
-                case 'masking': {
-                    const code = (
-                        <DiffLink
-                            language={change.field === 'hog' ? 'hog' : 'json'}
-                            before={
-                                typeof change.before === 'string'
-                                    ? change.before
-                                    : JSON.stringify(change.before, null, 2)
-                            }
-                            after={
-                                typeof change.after === 'string' ? change.after : JSON.stringify(change.after, null, 2)
-                            }
-                        >
-                            {change.field === 'hog'
-                                ? 'source code'
-                                : change.field === 'inputs_schema'
-                                  ? 'inputs schema'
-                                  : change.field}
-                        </DiffLink>
-                    )
-                    changes.push({ inline: <>updated {code} for</>, inlist: <>updated {code}</> })
-                    break
-                }
-                case 'deleted': {
-                    if (change.after) {
-                        changes.push({ inline: 'deleted', inlist: `deleted the ${objectNoun}` })
-                    } else {
-                        changes.push({ inline: 'undeleted', inlist: `undeleted the ${objectNoun}` })
-                    }
-                    break
-                }
-                case 'enabled': {
-                    if (change.after) {
-                        changes.push({ inline: 'enabled', inlist: `enabled the ${objectNoun}` })
-                    } else {
-                        changes.push({ inline: 'disabled', inlist: `disabled the ${objectNoun}` })
-                    }
-                    break
-                }
-                case 'priority': {
-                    changes.push({
-                        inline: (
-                            <>
-                                changed priority from {change.before} to {change.after} for{' '}
-                            </>
-                        ),
-                        inlist: (
-                            <>
-                                changed priority from {change.before} to {change.after} for{' '}
-                            </>
-                        ),
-                    })
-                    break
-                }
-                default:
-                    changes.push({
-                        inline: `updated unknown field: ${change.field}`,
-                        inlist: `updated unknown field: ${change.field}`,
-                    })
-            }
-        }
-        const name = userNameForLogItem(logItem)
-        const functionName = nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name)
-
-        return {
-            description:
-                changes.length == 1 ? (
-                    <>
-                        <strong className="ph-no-capture">{name}</strong> {changes[0].inline} the {objectNoun}:{' '}
-                        {functionName}
-                    </>
-                ) : (
-                    <div>
-                        <strong className="ph-no-capture">{name}</strong> updated the {objectNoun}: {functionName}
-                        <ul className="ml-5 list-disc">
-                            {changes.map((c, i) => (
-                                <li key={i}>{c.inlist}</li>
-                            ))}
-                        </ul>
-                    </div>
-                ),
-        }
+        return describeHogFunctionUpdate(logItem, objectNoun)
     }
     return defaultDescriber(logItem, asNotification, nameOrLinkToHogFunction(logItem?.item_id, logItem?.detail.name))
 }

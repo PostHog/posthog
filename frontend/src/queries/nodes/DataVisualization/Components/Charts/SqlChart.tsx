@@ -8,6 +8,17 @@ import { SqlComboGraph } from './SqlComboGraph'
 import { SqlLineGraph } from './SqlLineGraph'
 import { sqlChartKind } from './sqlLineGraphAdapter'
 
+const SQL_CHART_VISUALIZATION_TYPES: ChartDisplayType[] = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsBarValue,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsStackedBar,
+]
+
+export const isSqlChartVisualizationType = (visualizationType: ChartDisplayType): boolean =>
+    SQL_CHART_VISUALIZATION_TYPES.includes(visualizationType)
+
 export type SqlChartProps = {
     xData: AxisSeries<string> | null
     yData: AxisSeries<number | null>[] | AxisBreakdownSeries<number | null>[]
@@ -18,6 +29,7 @@ export type SqlChartProps = {
     goalLines?: GoalLine[]
     insightNumericId?: number | 'new'
     showAnnotations?: boolean
+    embedded?: boolean
     className?: string
     /** Called when the user clicks a data point. Receives the series key, x-axis index, and label.
      *  When provided, the SQL chart shows a "click to inspect" hint in the tooltip. */

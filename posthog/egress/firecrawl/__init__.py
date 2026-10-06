@@ -3,8 +3,12 @@ from posthog.egress.firecrawl.client import (
     FirecrawlNotConfigured,
     FirecrawlScrape,
     FirecrawlScrapeFailed,
+    FirecrawlSearch,
+    FirecrawlSearchFailed,
+    FirecrawlSearchResult,
     ScrapeFormat,
     scrape,
+    search,
 )
 from posthog.egress.firecrawl.transport import FirecrawlEgressBudgetExhausted, firecrawl_request
 
@@ -14,7 +18,11 @@ __all__ = [
     "FirecrawlNotConfigured",
     "FirecrawlScrape",
     "FirecrawlScrapeFailed",
+    "FirecrawlSearch",
+    "FirecrawlSearchFailed",
+    "FirecrawlSearchResult",
     "ScrapeFormat",
     "firecrawl_request",
     "scrape",
+    "search",
 ]

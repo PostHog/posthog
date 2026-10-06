@@ -26,7 +26,8 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general'
+import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import {
@@ -35,6 +36,7 @@ import {
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { CDC_SOURCE_TYPES } from '../../cdc'
+import { CredentialAccountSelector } from './CredentialAccountSelector'
 import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
@@ -47,7 +49,7 @@ import { supportsDirectQuery } from './schemaGroupingUtils'
 const NO_OP_SET_VALUE = (): void => undefined
 
 export interface SourceFormProps {
-    sourceConfig: SourceConfig
+    sourceConfig: SourceConfigResponseApi
     showPrefix?: boolean
     showDescription?: boolean
     showAccessMethodSelector?: boolean
@@ -141,7 +143,7 @@ export function SourceAccessMethodSelector({
 
 export const sourceFieldToElement = (
     field: SourceFieldConfig,
-    sourceConfig: SourceConfig,
+    sourceConfig: SourceConfigResponseApi,
     lastValue?: any,
     isUpdateMode?: boolean,
     setSourceConnectionDetailsValue?: (key: FieldName, value: any) => void,
@@ -161,35 +163,59 @@ export const sourceFieldToElement = (
         return (
             <React.Fragment key={field.name}>
                 <LemonField name={field.name} label={field.label}>
-                    {({ onChange }) => (
-                        <LemonInput
-                            key={field.name}
-                            className="ph-connection-string"
-                            data-attr={field.name}
-                            placeholder={field.placeholder}
-                            type="text"
-                            onChange={(updatedConnectionString) => {
-                                onChange(updatedConnectionString)
-                                const { isValid, fields } = parseConnectionStringForSource(
-                                    sourceConfig.name,
-                                    updatedConnectionString
-                                )
+                    {({ value, onChange }) => {
+                        const typed = String(value ?? '')
+                        // A half-typed string parses as garbage, so only report a failure once the
+                        // value carries a scheme and reads as a whole connection string.
+                        const looksLikeConnectionString = typed.includes('://')
+                        const unparsed =
+                            looksLikeConnectionString &&
+                            !parseConnectionStringForSource(sourceConfig.name, typed).isValid
+                        return (
+                            <>
+                                <LemonInput
+                                    key={field.name}
+                                    className="ph-connection-string"
+                                    data-attr={field.name}
+                                    placeholder={field.placeholder}
+                                    type="text"
+                                    onChange={(updatedConnectionString) => {
+                                        onChange(updatedConnectionString)
+                                        const { isValid, fields } = parseConnectionStringForSource(
+                                            sourceConfig.name,
+                                            updatedConnectionString
+                                        )
 
-                                if (isValid) {
-                                    for (const { path, value } of fields) {
-                                        if (setSourceConnectionDetailsValue) {
-                                            setSourceConnectionDetailsValue(['payload', ...path], value)
-                                        } else {
-                                            sourceWizardLogic.actions.setSourceConnectionDetailsValue(
-                                                ['payload', ...path],
-                                                value
-                                            )
+                                        if (isValid) {
+                                            for (const { path, value } of fields) {
+                                                if (setSourceConnectionDetailsValue) {
+                                                    setSourceConnectionDetailsValue(['payload', ...path], value)
+                                                } else {
+                                                    sourceWizardLogic.actions.setSourceConnectionDetailsValue(
+                                                        ['payload', ...path],
+                                                        value
+                                                    )
+                                                }
+                                            }
                                         }
-                                    }
-                                }
-                            }}
-                        />
-                    )}
+                                    }}
+                                />
+                                {unparsed && (
+                                    <p className="m-0 mt-1 text-xs text-warning">
+                                        Couldn't read that connection string, so the fields below are still empty.{' '}
+                                        {field.placeholder ? (
+                                            <>
+                                                Check it looks like <code>{field.placeholder}</code>, or fill them in
+                                                yourself.
+                                            </>
+                                        ) : (
+                                            'Fill them in yourself instead.'
+                                        )}
+                                    </p>
+                                )}
+                            </>
+                        )
+                    }}
                 </LemonField>
                 <LemonDivider />
             </React.Fragment>
@@ -299,7 +325,12 @@ export const sourceFieldToElement = (
 
     if (field.type === 'textarea') {
         return (
-            <LemonField key={field.name} name={field.name} label={field.label}>
+            <LemonField
+                key={field.name}
+                name={field.name}
+                label={field.label}
+                help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
+            >
                 {({ value, onChange }) => (
                     <LemonTextArea
                         className="ph-ignore-input"
@@ -364,11 +395,27 @@ export const sourceFieldToElement = (
                 integrationField={field.integrationField}
                 integrationKind={field.integrationKind}
                 sourceType={sourceConfig.name}
-                placeholder={field.placeholder}
-                caption={field.caption}
-                multiple={field.multiple}
+                placeholder={field.placeholder ?? undefined}
+                caption={field.caption ?? undefined}
+                multiple={field.multiple ?? undefined}
                 legacySingleField={legacySingleField}
                 oauthBranch={findOauthBranch(sourceConfig.fields, field.integrationField)}
+            />
+        )
+    }
+
+    // Sources whose credentials live in the form rather than in an OAuth integration: the account
+    // field lists what those credentials can reach, while staying a free-text input.
+    if (field.type === 'credential-account-select') {
+        return (
+            <CredentialAccountSelector
+                key={field.name}
+                fieldName={field.name}
+                fieldLabel={field.label}
+                credentialFields={field.credentialFields}
+                sourceType={sourceConfig.name}
+                placeholder={field.placeholder ?? undefined}
+                caption={field.caption ?? undefined}
             />
         )
     }
@@ -380,7 +427,7 @@ export const sourceFieldToElement = (
                     <div className="bg-fill-input p-2 border rounded-[var(--radius)]">
                         <LemonFileInput
                             value={value}
-                            accept={field.fileFormat.format}
+                            accept={field.fileFormat.format ?? '.json'}
                             multiple={false}
                             onChange={onChange}
                         />
@@ -401,19 +448,24 @@ export const sourceFieldToElement = (
         )
     }
 
+    // Every other field type returned above, so what is left renders as a plain input.
+    const inputField = field
+
     return (
         <LemonField
-            key={field.name}
-            name={field.name}
-            label={field.label}
-            help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
+            key={inputField.name}
+            name={inputField.name}
+            label={inputField.label}
+            help={
+                inputField.caption ? <LemonMarkdown className="text-xs">{inputField.caption}</LemonMarkdown> : undefined
+            }
         >
             {({ value, onChange }) => (
                 <LemonInput
                     className="ph-ignore-input"
-                    data-attr={field.name}
-                    placeholder={field.placeholder}
-                    type={field.type as 'text'}
+                    data-attr={inputField.name}
+                    placeholder={inputField.placeholder}
+                    type={inputField.type as 'text'}
                     value={value || ''}
                     onChange={onChange}
                 />

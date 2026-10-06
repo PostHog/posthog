@@ -74,6 +74,7 @@ class CohortErrorCode(StrEnum):
     INTERRUPTED = "interrupted"
     TIMEOUT = "timeout"
     MEMORY_LIMIT = "memory_limit"
+    DATA_LIMIT = "data_limit"
     QUERY_SIZE = "query_size"
     VALIDATION_ERROR = "validation_error"
     INVALID_REGEX = "invalid_regex"
@@ -92,6 +93,7 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
     CohortErrorCode.INTERRUPTED: "Calculation was interrupted. It will automatically retry.",
     CohortErrorCode.TIMEOUT: "Cohort calculation was terminated for taking too long.",
     CohortErrorCode.MEMORY_LIMIT: "Cohort calculation was terminated for using too much memory.",
+    CohortErrorCode.DATA_LIMIT: "Cohort calculation was terminated for reading too much data. Narrow the matching criteria, for example to a shorter date range.",
     CohortErrorCode.QUERY_SIZE: "The matching criteria produced a query that was too large.",
     CohortErrorCode.INVALID_REGEX: "This cohort contains an invalid regular expression. Please check your regex syntax in the matching criteria.",
     CohortErrorCode.NO_PROPERTIES: "This cohort has no matching criteria defined. Please add at least one.",
@@ -102,9 +104,24 @@ ERROR_CODE_MESSAGES: dict[str, str] = {
 }
 
 
-def get_friendly_error_message(error_code: str | None) -> str | None:
+# Each of these codes ends in an instruction a static cohort cannot follow. CAPACITY and
+# INTERRUPTED promise a retry that only the dynamic recalculation scheduler makes good on: the
+# periodic queue excludes static cohorts, and the stuck-cohort sweeper only matches one still
+# marked is_calculating. FLAG_CHANGED asks for the calculation to be run again, but a static
+# cohort is populated once from the source it was created with. A cohort that nothing will re-run
+# needs the same reason without the instruction.
+NO_RETRY_ERROR_CODE_MESSAGES: dict[str, str] = {
+    CohortErrorCode.CAPACITY: "The system was busy when this cohort was scheduled to calculate.",
+    CohortErrorCode.INTERRUPTED: "Calculation was interrupted before it finished.",
+    CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being populated. Create a new cohort from the flag to snapshot it again.",
+}
+
+
+def get_friendly_error_message(error_code: str | None, *, will_retry: bool = True) -> str | None:
     if error_code is None:
         return None
+    if not will_retry and error_code in NO_RETRY_ERROR_CODE_MESSAGES:
+        return NO_RETRY_ERROR_CODE_MESSAGES[error_code]
     return ERROR_CODE_MESSAGES.get(error_code, ERROR_CODE_MESSAGES[CohortErrorCode.UNKNOWN])
 
 
@@ -113,6 +130,7 @@ def get_friendly_error_message(error_code: str | None) -> str | None:
 _CLICKHOUSE_ERROR_MAPPING: dict[str, CohortErrorCode] = {
     "cannot_compile_regexp": CohortErrorCode.INVALID_REGEX,
     "memory_limit_exceeded": CohortErrorCode.MEMORY_LIMIT,
+    "too_many_bytes": CohortErrorCode.DATA_LIMIT,
     "timeout_exceeded": CohortErrorCode.TIMEOUT,
     "no_common_type": CohortErrorCode.INCOMPATIBLE_TYPES,
 }
@@ -320,7 +338,7 @@ def validate_actors_query_for_cohort(query_dict: dict[str, Any]) -> None:
     if not isinstance(insight, dict) or insight.get("kind") != "TrendsQuery":
         return
 
-    from posthog.hogql_queries.insights.trends.display import (  # noqa: PLC0415 — keeps posthog.schema off the startup path
+    from products.product_analytics.backend.facade.queries import (  # noqa: PLC0415 — keeps posthog.schema off the startup path
         TrendsDisplay,
     )
 
@@ -1176,7 +1194,7 @@ def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team):
     insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
 
 
-def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
+def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int) -> None:
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
@@ -1205,7 +1223,11 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     batch_iterator = CursorBatchIterator(
         fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
     )
-    cohort._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
+    # raise_on_error hands a partial sync to the caller instead of reporting success, which is
+    # what lets the population tasks retry it.
+    cohort._insert_users_list_with_batching(
+        batch_iterator, insert_in_clickhouse=False, team_id=team_id, raise_on_error=True
+    )
 
 
 # ── Cohort membership operations (Postgres / personhog) ───────────────

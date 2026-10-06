@@ -20,25 +20,93 @@ _ACTION_PROMPT = (
 
 
 class TestExtractQuestion(SimpleTestCase):
-    # The forwarded note should quote only the user's question, not the URL-prefixed kickoff prompt,
-    # and degrade to the whole text if the frontend prompt format ever drifts. Behavior that reaches
-    # the scout (targeting, auth gating, best-effort) is covered end to end in the tasks API tests.
     @parameterized.expand(
         [
-            ("strips_url_prefix", _PROMPT, "Is this still happening?"),
-            ("strips_action_capable_prefix", _ACTION_PROMPT, "Create the alert this report recommends"),
+            ("strips_url_prefix", _PROMPT, None, None, "Is this still happening?"),
+            (
+                "strips_action_capable_prefix",
+                _ACTION_PROMPT,
+                None,
+                None,
+                "Create the alert this report recommends",
+            ),
             (
                 "strips_answer_this_question_prefix",
                 "Answer this question about the PostHog Inbox report at https://x.example/r/1:\n\nIs it fixed?",
+                None,
+                None,
                 "Is it fixed?",
             ),
-            ("no_prefix_returns_whole", "Why does stripe not sync?", "Why does stripe not sync?"),
-            ("single_newline_still_strips_prefix", "Let's discuss this PostHog Inbox report: x\nWhy?", "Why?"),
-            ("prefix_with_no_question_returns_blank", "Let's discuss this PostHog Inbox report: x\n\n   ", ""),
+            (
+                "no_prefix_returns_whole",
+                "Why does stripe not sync?",
+                None,
+                None,
+                "Why does stripe not sync?",
+            ),
+            (
+                "single_newline_still_strips_prefix",
+                "Let's discuss this PostHog Inbox report: x\nWhy?",
+                None,
+                None,
+                "Why?",
+            ),
+            (
+                "prefix_with_no_question_returns_blank",
+                "Let's discuss this PostHog Inbox report: x\n\n   ",
+                None,
+                None,
+                "",
+            ),
+            (
+                "desktop_description_returns_question_only",
+                "Discuss report: Checkout errors spiked — Is this still happening?",
+                "Checkout errors spiked",
+                "report-id",
+                "Is this still happening?",
+            ),
+            (
+                "desktop_description_without_question_returns_blank",
+                "Discuss report: Checkout errors spiked",
+                "Checkout errors spiked",
+                "report-id",
+                "",
+            ),
+            (
+                "desktop_description_with_separator_in_title_returns_question_only",
+                "Discuss report: Checkout — errors spiked — Is this still happening?",
+                "Checkout — errors spiked",
+                "report-id",
+                "Is this still happening?",
+            ),
+            (
+                "truncated_desktop_title_without_question_returns_blank",
+                f"Discuss report: {'x' * 300}"[:200],
+                "x" * 300,
+                "report-id",
+                "",
+            ),
+            (
+                "desktop_description_truncated_before_question_returns_blank",
+                f"Discuss report: {'x' * 182} — why?"[:200],
+                "x" * 182,
+                "report-id",
+                "",
+            ),
         ]
     )
-    def test_extract_question(self, _name: str, text: str, expected: str) -> None:
-        self.assertEqual(_extract_question(text), expected)
+    def test_extract_question(
+        self,
+        _name: str,
+        text: str,
+        report_title: str | None,
+        report_id: str | None,
+        expected: str,
+    ) -> None:
+        self.assertEqual(
+            _extract_question(text, report_title=report_title, report_id=report_id),
+            expected,
+        )
 
     def test_note_content_fits_a_note_for_an_oversized_question(self) -> None:
         # The API accepts an unbounded description, and a note over MAX_NOTE_CONTENT_LENGTH is

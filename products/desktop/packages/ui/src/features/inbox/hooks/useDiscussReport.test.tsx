@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const createTask = vi.hoisted(() =>
   vi.fn().mockResolvedValue({
     success: true,
-    task: { id: "task-1" },
+    data: { task: { id: "task-1" }, workspace: null },
   }),
 );
 const getUserIntegrationIdForRepo = vi.hoisted(() => vi.fn(() => "ghu_1"));
@@ -90,7 +90,10 @@ const report = {
 describe("useDiscussReport", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    createTask.mockResolvedValue({ success: true, task: { id: "task-1" } });
+    createTask.mockResolvedValue({
+      success: true,
+      data: { task: { id: "task-1" }, workspace: null },
+    });
     getSignalReportSignals.mockResolvedValue({
       report: null,
       signals: [
@@ -123,6 +126,7 @@ describe("useDiscussReport", () => {
     expect(input.signalReportId).toBe("r1");
     // Routed to the discussion cap, not the report's one-live-PR gate.
     expect(input.signalReportTaskRelationship).toBe("discussion");
+    expect(input.signalReportDiscussionQuestion).toBe("why?");
     // First message: question leading, whole report + evidence behind it.
     expect(input.content).toContain("Answer this first: why?");
     expect(input.content).toContain("# Report: Return 400 instead of 500");

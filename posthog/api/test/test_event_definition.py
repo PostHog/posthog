@@ -3,28 +3,32 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 from uuid import uuid4
 
-from freezegun.api import freeze_time
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.core.cache import cache
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import dateutil.parser
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.event_definition import create_event_definitions_sql
+from posthog.api.event_definition import create_event_definitions_count_sql, create_event_definitions_sql
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.constants import EventDefinitionType
 from posthog.models import ActivityLog, EventDefinition, Organization, Tag, Team
+from posthog.taxonomy import definition_search
 
 from products.actions.backend.models.action import Action
 
 
-@freeze_time("2020-01-02")
+@time_machine.travel("2020-01-02", tick=False)
 class TestEventDefinitionAPI(APIBaseTest):
     demo_team: Team = None  # type: ignore
 
@@ -103,6 +107,50 @@ class TestEventDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("boolean", "true"),
+            ("number", "5"),
+            ("object", '{"a": 1}'),
+        ]
+    )
+    def test_list_event_definitions_ignores_non_list_tags_filter(self, _name, tags_value):
+        response = self.client.get("/api/projects/@current/event_definitions/", data={"tags": tags_value})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    def test_list_event_definitions_filtered_by_tag_pages_in_sql(self):
+        # The tag filter used to read every definition in the project to collect ids. It now pages in
+        # SQL, so the page has to stay bounded, the count has to cover every match, and a definition
+        # that carries two of the filtered tags must still appear once.
+        bulk_url = f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/"
+        tagged_names = ["installed_app", "purchase"]
+        ids = [str(EventDefinition.objects.get(team=self.demo_team, name=name).id) for name in tagged_names]
+        self.client.post(bulk_url, {"ids": ids, "action": "add", "tags": ["billing"]})
+        self.client.post(bulk_url, {"ids": ids[:1], "action": "add", "tags": ["revenue"]})
+
+        response = self.client.get(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/",
+            data={"tags": '["billing", "revenue"]', "limit": "1"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == len(tagged_names)
+        assert [result["name"] for result in response.json()["results"]] == ["installed_app"]
+
+    @parameterized.expand(
+        [
+            ("limit", "limit=9223372036854775808"),
+            ("offset", "offset=9223372036854775808"),
+        ]
+    )
+    def test_list_event_definitions_accepts_out_of_range_bigint_pagination(self, _name, query_string):
+        response = self.client.get(f"/api/projects/@current/event_definitions/?{query_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    @parameterized.expand(
+        [
             ("repeated", "names=installed_app&names=purchase&names=missing_event"),
             ("comma_separated", "names=installed_app,purchase,missing_event"),
         ]
@@ -159,12 +207,187 @@ class TestEventDefinitionAPI(APIBaseTest):
                     ("watched_movie", None),
                 ],
             ),
+            (
+                "ordering=-last_seen_at::date",
+                [
+                    ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("entered_free_trial", "2020-01-01T23:00:00Z"),
+                    ("installed_app", "2020-01-01T00:00:00Z"),
+                    ("purchase", "2019-12-30T00:00:00Z"),
+                    ("rated_app", "2019-12-21T00:00:00Z"),
+                    ("watched_movie", None),
+                ],
+            ),
+            (
+                # The generated client joins `ordering: string[]` with commas.
+                "ordering=-last_seen_at::date,-name",
+                [
+                    ("installed_app", "2020-01-01T00:00:00Z"),
+                    ("entered_free_trial", "2020-01-01T23:00:00Z"),
+                    ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("purchase", "2019-12-30T00:00:00Z"),
+                    ("rated_app", "2019-12-21T00:00:00Z"),
+                    ("watched_movie", None),
+                ],
+            ),
         ]
     )
     def test_list_event_definitions_ordering(self, query_params, expected_results):
         response = self.client.get(f"/api/projects/@current/event_definitions/?{query_params}")
         assert response.status_code == status.HTTP_200_OK
         assert [(r["name"], r["last_seen_at"]) for r in response.json()["results"]] == expected_results
+
+    @parameterized.expand(
+        [
+            (
+                "above_the_name_threshold_pages_by_name",
+                "",
+                2,
+                [
+                    "$pageview",
+                    "aardvark",
+                    "entered_free_trial",
+                    "installed_app",
+                    "purchase",
+                    "rated_app",
+                    "watched_movie",
+                ],
+            ),
+            (
+                "below_the_name_threshold_keeps_recency",
+                "",
+                100,
+                [
+                    "$pageview",
+                    "entered_free_trial",
+                    "installed_app",
+                    "purchase",
+                    "rated_app",
+                    "aardvark",
+                    "watched_movie",
+                ],
+            ),
+            (
+                "explicit_order_is_kept",
+                "?ordering=-name",
+                2,
+                [
+                    "watched_movie",
+                    "rated_app",
+                    "purchase",
+                    "installed_app",
+                    "entered_free_trial",
+                    "aardvark",
+                    "$pageview",
+                ],
+            ),
+            (
+                "unknown_ordering_field_is_not_explicit",
+                "?ordering=event",
+                2,
+                [
+                    "$pageview",
+                    "aardvark",
+                    "entered_free_trial",
+                    "installed_app",
+                    "purchase",
+                    "rated_app",
+                    "watched_movie",
+                ],
+            ),
+        ]
+    )
+    def test_large_project_default_order_and_capped_count(
+        self, _name: str, query_string: str, name_order_min: int, expected_names: list[str]
+    ):
+        # Last seen before every fixture, so recency and name order disagree about where it goes.
+        create_event_definitions(
+            {"name": "aardvark", "last_seen_at": datetime.now() - timedelta(days=200)}, team_id=self.demo_team.pk
+        )
+        # The project's size is cached per project, so an earlier request in this class must not decide it.
+        cache.clear()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch.object(definition_search, "NAME_ORDER_MIN_DEFINITIONS", name_order_min),
+            patch("posthog.api.event_definition.LARGE_PROJECT_COUNT_CAP", 3),
+        ):
+            response = self.client.get(f"/api/projects/@current/event_definitions/{query_string}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == expected_names
+        assert response.json()["count"] == 3
+        assert response.json()["count_is_capped"] is True
+
+    @parameterized.expand(
+        [
+            ("search", {"search": "app"}, 2, True),
+            # Postgres applies the stale cutoff with its own clock, which time_machine does not freeze, so every
+            # dated fixture is stale and only the never-seen definition remains.
+            ("exclude_stale", {"exclude_stale": "true"}, 1, False),
+            ("verified", {"verified": "true"}, 1, False),
+            ("names", {"names": "installed_app,purchase"}, 2, False),
+            ("tags", {"tags": '["billing"]'}, 2, False),
+            ("posthog_events", {"event_type": "event_posthog"}, 1, False),
+        ]
+    )
+    def test_large_project_sparse_filter_counts_exactly(
+        self, _name: str, query: dict[str, str], expected_count: int, sizes_the_project: bool
+    ):
+        ids = [str(EventDefinition.objects.get(team=self.demo_team, name=n).id) for n in ("installed_app", "purchase")]
+        self.client.post(
+            f"/api/projects/{self.demo_team.pk}/event_definitions/bulk_update_tags/",
+            {"ids": ids, "action": "add", "tags": ["billing"]},
+        )
+        cache.clear()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch.object(definition_search, "NAME_ORDER_MIN_DEFINITIONS", 2),
+            patch("posthog.api.event_definition.LARGE_PROJECT_COUNT_CAP", 1),
+        ):
+            response = self.client.get("/api/projects/@current/event_definitions/", data=query)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == expected_count
+        assert response.json()["count_is_capped"] is False
+        size_cache_key = f"taxonomy_definition_count:posthog_eventdefinition:{self.demo_team.project_id}"
+        assert (cache.get(size_cache_key) is not None) is sizes_the_project
+
+    def test_capped_count_is_flagged_and_still_pages(self):
+        cache.clear()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch("posthog.api.event_definition.LARGE_PROJECT_COUNT_CAP", 3),
+        ):
+            response = self.client.get("/api/projects/@current/event_definitions/?limit=3")
+
+        body = response.json()
+        assert response.status_code == status.HTTP_200_OK
+        assert body["count"] == 3
+        assert body["count_is_capped"] is True
+        assert len(body["results"]) == 3
+        assert body["next"] is not None
+
+    def test_capped_count_pages_more_than_one_page_past_the_cap(self):
+        cache.clear()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch("posthog.api.event_definition.LARGE_PROJECT_COUNT_CAP", 1),
+        ):
+            offsets = [
+                self.client.get(f"/api/projects/@current/event_definitions/?limit=1&offset={o}") for o in (1, 2, 3)
+            ]
+
+        for response in offsets:
+            assert response.status_code == status.HTTP_200_OK
+            assert len(response.json()["results"]) == 1, response.json()
+            assert response.json()["next"] is not None
+
+    def test_uncapped_count_reports_the_flag_as_false(self):
+        cache.clear()
+        response = self.client.get("/api/projects/@current/event_definitions/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count_is_capped"] is False
 
     @patch("posthoganalytics.capture")
     def test_delete_event_definition(self, mock_capture):
@@ -235,6 +458,42 @@ class TestEventDefinitionAPI(APIBaseTest):
             assert len(response.json()["results"]) == (100 if i < 2 else 6)  # Each page has 100 except the last one
             assert response.json()["results"][0]["name"] == f"z_event_{event_checkpoints[i]}"
 
+    def test_list_reads_only_the_requested_page_from_postgres(self):
+        EventDefinition.objects.bulk_create(
+            [EventDefinition(team=self.demo_team, name=f"z_event_{i}") for i in range(1, 301)]
+        )
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get("/api/projects/@current/event_definitions/?limit=10")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 306
+        # The large-project probe is a bounded count that also orders by name, so only the page fetches count here.
+        page_fetches = [
+            query["sql"]
+            for query in captured.captured_queries
+            if "FROM posthog_eventdefinition" in query["sql"]
+            and "ORDER BY" in query["sql"]
+            and "count(*)" not in query["sql"]
+        ]
+        assert page_fetches
+        assert all("LIMIT 10" in sql for sql in page_fetches)
+
+        expected_names = sorted(f"z_event_{i}" for i in range(1, 301))
+        for offset in (0, 11, 300, 301):
+            with self.subTest(offset=offset):
+                response = self.client.get(
+                    "/api/projects/@current/event_definitions/",
+                    data={"search": "z_event", "ordering": "-last_seen_at", "limit": 10, "offset": offset},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["count"] == 300
+                assert [row["name"] for row in response.json()["results"]] == expected_names[offset : offset + 10]
+
+        response = self.client.get("/api/projects/@current/event_definitions/?search=missing_event&limit=10")
+        assert response.json()["count"] == 0
+        assert response.json()["results"] == []
+
     def test_cant_see_event_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")
         team = Team.objects.create(organization=org, name="Default Project")
@@ -303,11 +562,17 @@ class TestEventDefinitionAPI(APIBaseTest):
         result_names = [r["name"] for r in response.json()["results"]]
         assert result_names == expected_names
 
-    def test_search_keeps_explicit_ordering(self) -> None:
-        response = self.client.get("/api/projects/@current/event_definitions/?search=app&ordering=name")
+    @parameterized.expand(
+        [
+            ("served_field", "name", ["installed_app", "rated_app"]),
+            ("events_table_unserved_field", "event", ["installed_app", "rated_app"]),
+        ]
+    )
+    def test_search_keeps_explicit_ordering(self, _name: str, ordering: str, expected_names: list[str]) -> None:
+        response = self.client.get(f"/api/projects/@current/event_definitions/?search=app&ordering={ordering}")
         assert response.status_code == status.HTTP_200_OK
         result_names = [r["name"] for r in response.json()["results"]]
-        assert result_names == ["installed_app", "rated_app"]
+        assert result_names == expected_names
 
     def test_whitespace_search_does_not_change_default_ordering(self) -> None:
         default_response = self.client.get("/api/projects/@current/event_definitions/")
@@ -338,6 +603,20 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["name"] == "$pageview"
+
+    def test_unknown_event_type_is_rejected(self):
+        response = self.client.get("/api/projects/@current/event_definitions/?event_type=events")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "event_type"
+
+    @parameterized.expand([("all",), ("action_event",)])
+    def test_legacy_event_type_returns_the_same_rows_as_event(self, event_type: str):
+        baseline = self.client.get("/api/projects/@current/event_definitions/?search=app&event_type=event")
+        response = self.client.get(f"/api/projects/@current/event_definitions/?search=app&event_type={event_type}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [r["name"] for r in response.json()["results"]] == [r["name"] for r in baseline.json()["results"]]
 
     @patch("posthog.settings.EE_AVAILABLE", True)
     @patch("posthog.models.Organization.is_feature_available", return_value=True)
@@ -665,11 +944,40 @@ class TestCreateEventDefinitionsSql(SimpleTestCase):
         assert "LEFT JOIN ee_enterpriseeventdefinition" in sql
         assert "FULL OUTER JOIN" not in sql
 
+    def test_not_null_sort_keys_carry_no_nulls_clause(self):
+        # `name ASC NULLS FIRST` cannot use the unique index, whose default order is NULLS LAST.
+        sql = create_event_definitions_sql(
+            EventDefinitionType.EVENT, order_expressions=[("last_seen_at::date", "DESC"), ("name", "ASC")]
+        )
+        assert "last_seen_at::date DESC NULLS LAST" in sql
+        assert "name ASC" in sql
+        assert "name ASC NULLS" not in sql
+
+    def test_bounded_count_stops_at_the_cap(self):
+        sql = create_event_definitions_count_sql(EventDefinitionType.EVENT, bounded=True)
+        assert sql.startswith("SELECT count(*) FROM (SELECT 1")
+        # The ORDER BY keeps the planner on the project-scoped index instead of a sequential scan with LIMIT.
+        assert "ORDER BY posthog_eventdefinition.name LIMIT %(count_cap)s) bounded" in sql
+
+
+class TestEventDefinitionListStatementTimeout(APIBaseTest):
+    def test_cancelled_list_query_returns_a_retryable_503(self) -> None:
+        slow_count_sql = "SELECT count(*) FROM (SELECT pg_sleep(3)) s WHERE %(project_id)s IS NOT NULL"
+
+        with (
+            patch("posthog.api.event_definition.create_event_definitions_count_sql", return_value=slow_count_sql),
+            patch("posthog.api.event_definition.DEFINITION_LIST_STATEMENT_TIMEOUT_MS", 250),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/event_definitions/")
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json()["code"] == "event_definitions_timeout"
+
 
 class TestEventDefinitionExcludeStale(APIBaseTest):
     """Stale filter tests need real wall-clock times so the Postgres NOW() comparison
     in `exclude_stale` matches the fixture last_seen_at values. The other test class is
-    wrapped in freeze_time which Postgres NOW() does not respect."""
+    wrapped in a frozen clock which Postgres NOW() does not respect."""
 
     @parameterized.expand(
         [

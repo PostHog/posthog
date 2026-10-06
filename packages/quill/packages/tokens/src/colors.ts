@@ -116,6 +116,9 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
 
         // ── Brand (driven by --primary-light / --primary-dark) ─
         primary: ['var(--primary-light)', 'var(--primary-dark)', 'bg-primary'],
+        // Brand text on an inverted surface, such as a tooltip on `--foreground`. It takes the other mode's brand,
+        // so a dark tooltip in light mode gets the yellow, and a light tooltip in dark mode gets the orange.
+        'primary-on-foreground': ['var(--primary-dark)', 'var(--primary-light)', 'text-primary-on-foreground'],
         'primary-foreground': [oklch(1, 0, 0), oklch(0.13, 0.028, 262), 'text-primary-foreground'],
 
         // ── Status (independent of theme hue) ─────────
@@ -141,7 +144,7 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         'completed-foreground': [oklch(0.46, 0.25, 287.35), oklch(0.81, 0.06, 301.45), 'text-completed-foreground'],
 
         // ── Borders & rings (theme-derived) ───────────
-        border: [surface(0.9, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'border-border'],
+        border: [surface(0.88, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'border-border'],
         input: [surface(0.81, 0.5, 'light'), surface(0.3, 1.5, 'dark'), 'border-input'],
         ring: [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'border-ring'],
 
@@ -224,6 +227,7 @@ const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
     'muted',
     'chrome',
     'primary',
+    'primary-on-foreground',
     'border',
     'input',
     // Transitive: reference var(--foreground) / var(--muted) — must also live

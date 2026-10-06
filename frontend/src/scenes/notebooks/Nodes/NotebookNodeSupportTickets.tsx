@@ -5,10 +5,8 @@ import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ConversationsDisabledBanner } from 'products/conversations/frontend/components/ConversationsDisabledBanner/ConversationsDisabledBanner'
-import {
-    SupportTicketsTable,
-    SupportTicketsTableFilters,
-} from 'products/conversations/frontend/scenes/tickets/SupportTicketsScene'
+import { TicketListFilters } from 'products/conversations/frontend/components/TicketListFilters/TicketListFilters'
+import { SupportTicketsTable } from 'products/conversations/frontend/scenes/tickets/SupportTicketsScene'
 import { supportTicketsSceneLogic } from 'products/conversations/frontend/scenes/tickets/supportTicketsSceneLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
@@ -58,7 +56,7 @@ const Settings = ({
 
     return (
         <BindLogic logic={supportTicketsSceneLogic} props={logicProps}>
-            <SupportTicketsTableFilters embedded />
+            <TicketListFilters embedded />
         </BindLogic>
     )
 }

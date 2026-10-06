@@ -35,7 +35,13 @@
             "type": "number"
         },
         "skill_name": {
-            "description": "Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a scout skill (`signals-scout-*`) or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.",
+            "description": "Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a configured scout's skill name or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "text": {
+            "description": "Return only the notes whose content contains this text, case-insensitively. Pass an entity (an error id, a flag key, a page path, an event name) to find the notes about it, including older ones the newest-first cap would hide.",
+            "maxLength": 200,
             "minLength": 1,
             "type": "string"
         }

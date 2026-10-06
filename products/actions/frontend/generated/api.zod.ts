@@ -1301,6 +1301,10 @@ export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
  */
 export const actionsBulkUpdateTagsCreateBodyIdsMax = 500
 
+export const actionsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const actionsBulkUpdateTagsCreateBodyTagsMax = 100
+
 export const ActionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
     ids: zod
         .array(zod.number())
@@ -1312,5 +1316,8 @@ export const ActionsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
         ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
+    tags: zod
+        .array(zod.string().max(actionsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(actionsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })

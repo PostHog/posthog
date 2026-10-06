@@ -51,6 +51,12 @@ if [ -x .github/scripts/check-quill-agents-md.sh ]; then
     .github/scripts/check-quill-agents-md.sh || true
 fi
 
+# Same deal for a comment-heavy staged diff. Run through bash: the script lands
+# without its executable bit.
+if [ -f .github/scripts/check-comment-density.sh ]; then
+    bash .github/scripts/check-comment-density.sh || true
+fi
+
 # Activate Flox environment if available and not already active
 # This ensures lint-staged commands work in GUI Git clients (GitHub Desktop, etc.)
 if command -v flox > /dev/null 2>&1 && [ -d ".flox/cache" ] && [ -z "$FLOX_ENV" ]; then

@@ -196,15 +196,14 @@ def validate_credentials(
     if response.status_code == 402:
         return (
             False,
-            "Mixpanel denied the request (402 Payment Required). Raw data access usually needs a Mixpanel "
-            "plan that includes the data export API, and the account must be in good standing. Check your "
-            "Mixpanel plan and billing, then try again.",
+            "Your Mixpanel plan does not include data export, or its billing is overdue. Upgrade your "
+            "Mixpanel plan or settle its billing, then try again.",
         )
     if response.status_code == 400:
         return (
             False,
-            "Mixpanel rejected the request (400). This usually means the project ID isn't valid for the "
-            "selected region. Check your project ID and region, then try again.",
+            "Mixpanel did not find that project ID in the selected region. Check your project ID and "
+            "region, then try again.",
         )
 
     return (
@@ -258,6 +257,23 @@ def _request(
     return _check_response(response, url, logger)
 
 
+# Mixpanel commits a 200 before it starts streaming, so a server-side abort can only be
+# signalled inside the body: it appends this plain-text marker after the JSONL rows instead
+# of failing the request.
+EXPORT_TERMINATED_MARKER = b"terminated early"
+
+# Stable, date-free prefix of the raised message, so `get_retryable_errors` and the shared
+# transient-message map can both match it.
+EXPORT_TRUNCATED_ERROR = "Mixpanel export: stream ended early"
+
+
+class MixpanelExportTruncatedError(Exception):
+    """Mixpanel aborted the export part-way through a day.
+
+    That leaves a partial day, which is the same situation as a dropped connection and is
+    re-fetched the same way."""
+
+
 # The export body is read lazily while iterating `iter_lines`, i.e. outside `_request`'s
 # retry. A connection dropped mid-day surfaces there (`requests` wraps the underlying
 # `IncompleteRead` as `ChunkedEncodingError`), so it must be retried separately or a single
@@ -267,6 +283,7 @@ _STREAM_RETRYABLE_ERRORS = (
     requests.exceptions.ChunkedEncodingError,
     requests.ConnectionError,
     requests.ReadTimeout,
+    MixpanelExportTruncatedError,
 )
 
 
@@ -294,7 +311,16 @@ def _stream_export_day(
                 for line in response.iter_lines():
                     if not line:
                         continue
-                    batch.append(_flatten_event(orjson.loads(line)))
+                    try:
+                        event = orjson.loads(line)
+                    except orjson.JSONDecodeError as e:
+                        # Only Mixpanel's abort marker means a partial day. Any other line the
+                        # parser rejects is an export shape we do not know, and re-downloading
+                        # the day cannot turn it into events, so let it surface instead.
+                        if EXPORT_TERMINATED_MARKER not in line.lower():
+                            raise
+                        raise MixpanelExportTruncatedError(f"{EXPORT_TRUNCATED_ERROR} for {from_date}") from e
+                    batch.append(_flatten_event(event))
                     if len(batch) >= CHUNK_SIZE:
                         yield batch
                         batch = []

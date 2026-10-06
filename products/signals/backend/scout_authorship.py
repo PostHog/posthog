@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from django.db.models import Q
 
-from products.signals.backend.models import SignalScoutRun
+from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.skills.backend.models.skills import LLMSkill
 
 
@@ -22,21 +22,35 @@ def resolve_report_scout_skill(team_id: int, report_id: str) -> str:
     return resolve_authoring_skill_names(team_id, [report_id]).get(report_id, "")
 
 
-def resolve_touching_scout_skills(team_id: int, report_id: str) -> set[str]:
-    """Every scout whose runs emitted or edited one report.
+def resolve_touching_scout_skills(team_id: int, report_id: str) -> list[str]:
+    """Every scout whose runs emitted or edited one report, emitting scouts first.
 
     The single-owner resolution below prefers the author, but a report's stored reviewers follow
     whichever scout last wrote them — possibly a later editor. Callers that exclude skill owners
-    from autostart identity need the owners of every scout that could have produced the stored
-    reviewers, so this returns the union of touching skills. Deleted skills are kept: their owner
-    rows and stored picks can outlive the skill row, and over-exclusion is the safe direction.
+    from autostart identity, or that address each router of the report, need every touching skill,
+    so this returns their union. Deleted skills are kept: their owner rows and stored picks can
+    outlive the skill row, and over-exclusion is the safe direction for autostart. A caller that
+    writes to the skills filters them itself.
+
+    A caller that addresses each scout separately has to cap the list, so the order decides who is
+    dropped: the scouts that filed the report come first, and each group is sorted, so the same
+    report always resolves the same way.
     """
     # `for_team`, not an ambient-scope filter: the autostart caller runs in a Temporal activity,
     # which sets no team scope, and the fail-closed manager raises there.
     runs = SignalScoutRun.objects.for_team(team_id).filter(
         Q(emitted_report_ids__contains=[report_id]) | Q(edited_report_ids__contains=[report_id])
     )
-    return {skill_name for skill_name in runs.values_list("skill_name", flat=True) if skill_name}
+    emitting: set[str] = set()
+    editing: set[str] = set()
+    for skill_name, emitted_ids in runs.values_list("skill_name", "emitted_report_ids"):
+        if not skill_name:
+            continue
+        if report_id in (emitted_ids or []):
+            emitting.add(skill_name)
+        else:
+            editing.add(skill_name)
+    return [*sorted(emitting), *sorted(editing - emitting)]
 
 
 def resolve_authoring_skill_names(team_id: int, report_ids: list[str]) -> dict[str, str]:
@@ -86,3 +100,31 @@ def resolve_authoring_skill_names(team_id: int, report_ids: list[str]) -> dict[s
         else set()
     )
     return {report_id: (skill_name if skill_name in live else "") for report_id, skill_name in resolved.items()}
+
+
+BACKGROUND_RUN_METADATA = {"managed_by": SignalScoutConfig.ManagedBy.BACKGROUND}
+
+
+def resolve_background_authoring_runs(team_id: int, report_ids: list[str]) -> dict[str, SignalScoutRun]:
+    """Map each report a background-enrolled scout run authored to that run.
+
+    Only authorship counts: a background scout that edited a user scout's report does not make the
+    report a background one. The origin is the one stamped on the run at dispatch, so a person who
+    later takes over, switches off, or deletes the config does not clear it.
+    """
+    if not report_ids:
+        return {}
+    authored = Q()
+    for report_id in report_ids:
+        authored |= Q(emitted_report_ids__contains=[report_id])
+    runs = SignalScoutRun.objects.for_team(team_id).filter(authored, metadata__contains=BACKGROUND_RUN_METADATA)
+    wanted = set(report_ids)
+    resolved: dict[str, SignalScoutRun] = {}
+    for run in runs:
+        for report_id in wanted.intersection(run.emitted_report_ids or []):
+            resolved[report_id] = run
+    return resolved
+
+
+def report_is_from_background_scout(team_id: int, report_id: str) -> bool:
+    return report_id in resolve_background_authoring_runs(team_id, [report_id])

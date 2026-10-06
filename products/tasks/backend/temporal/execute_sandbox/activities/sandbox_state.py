@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.models import TaskRun
@@ -30,9 +31,10 @@ class PersistSandboxIdInput:
     sandbox_id: str
 
 
-@dataclass
+@frozen
 class ClearPersistedSandboxIdInput:
     run_id: str
+    sandbox_id: str | None = None
 
 
 @activity.defn
@@ -65,4 +67,7 @@ def clear_persisted_sandbox_id(input: ClearPersistedSandboxIdInput) -> None:
         "clear_persisted_sandbox_id",
         run_id=input.run_id,
     ):
-        TaskRun.update_state_atomic(input.run_id, remove_keys=[SANDBOX_ID_STATE_KEY])
+        if input.sandbox_id is not None:
+            TaskRun.clear_sandbox_connection_state_atomic(input.run_id, input.sandbox_id)
+        else:
+            TaskRun.update_state_atomic(input.run_id, remove_keys=[SANDBOX_ID_STATE_KEY])

@@ -1,14 +1,19 @@
 import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
 import experimentMetricResultsErrorJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_error.json'
 import experimentMetricResultsSuccessJson from '~/mocks/fixtures/api/experiments/_experiment_metric_results_success.json'
 import { useMocks } from '~/mocks/jest'
+import { tagsModel } from '~/models/tagsModel'
 import {
     Breakdown,
     CachedNewExperimentQueryResponse,
@@ -17,9 +22,12 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { Experiment, MultivariateFlagVariant } from '~/types'
+import { Experiment, ExperimentStatus, MultivariateFlagVariant } from '~/types'
 
-import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
+import type { ExperimentHealthFinding } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
+
+import { ExperimentWarning, experimentLogic } from './experimentLogic'
+import type { ExperimentSavedMetric } from './utils'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -105,6 +113,10 @@ describe('experimentLogic', () => {
             },
         })
         initKeaTests()
+        // The jest posthog-js mock never fires onFeatureFlags, so receivedFeatureFlags stays false and
+        // refreshExperimentResults would defer forever. Simulate the real flag arrival so refreshes run.
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
         logic = experimentLogic()
         logic.mount()
         await expectLogic(userLogic).toFinishAllListeners()
@@ -277,6 +289,147 @@ describe('experimentLogic', () => {
             expect(logic.values.primaryMetricsResultsLoading).toBe(false)
             expect(logic.values.secondaryMetricsResultsLoading).toBe(false)
         })
+
+        it('defers the refresh until feature flags arrive, then replays it once', async () => {
+            // Reinitialize kea so flags start unresolved (receivedFeatureFlags false). The outer beforeEach
+            // marks flags received; here a refresh must not choose a branch yet, since reading the flag as
+            // off would run the failing legacy loaders.
+            logic.unmount()
+            initKeaTests()
+            logic = experimentLogic()
+            logic.mount()
+            await expectLogic(userLogic).toFinishAllListeners()
+
+            logic.actions.setExperiment(experiment)
+
+            // The refresh is deferred: it never starts while flags are unresolved.
+            await expectLogic(logic, () => {
+                logic.actions.refreshExperimentResults(true, 'manual')
+            }).toNotHaveDispatchedActions(['markRefreshStarted'])
+
+            // Once flags arrive, the deferred refresh replays with its original arguments.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([], {})
+            }).toDispatchActions([
+                (action) =>
+                    action.type === logic.actionTypes.refreshExperimentResults &&
+                    action.payload.forceRefresh === true &&
+                    action.payload.triggeredBy === 'manual',
+                'markRefreshStarted',
+            ])
+        })
+
+        it('re-runs the refresh when a later flag update contradicts the value it used', async () => {
+            // The outer beforeEach delivered an empty flag set: flags count as received, but the
+            // recalculation flag reads off, like the bootstrap set of a page load.
+            logic.actions.setExperiment(experiment)
+            useMocks({
+                post: {
+                    '/api/environments/:team/query': () => [
+                        200,
+                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                    ],
+                },
+                get: {
+                    '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                },
+            })
+            // The expectLogic wrapper consumes this refresh's actions from the recorded history, so the
+            // assertions below match only the replayed refresh, not this original one.
+            await expectLogic(logic, async () => {
+                await logic.asyncActions.refreshExperimentResults(true, 'manual')
+            }).toDispatchActions(['refreshExperimentResults', 'markRefreshStarted', 'markRefreshFinished'])
+
+            // The real flag response lands with the flag on. The refresh must re-run with its original
+            // arguments, or the page keeps whatever the wrong branch loaded.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+            }).toDispatchActions([
+                (action) =>
+                    action.type === logic.actionTypes.refreshExperimentResults &&
+                    action.payload.forceRefresh === true &&
+                    action.payload.triggeredBy === 'manual',
+                'markRefreshStarted',
+            ])
+
+            // A repeated update with the same value must not re-run the refresh.
+            await expectLogic(logic, () => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
+                    [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+                })
+            }).toNotHaveDispatchedActions(['refreshExperimentResults'])
+        })
+
+        const unevenExposures = {
+            timeseries: [{ variant: 'control' }, { variant: 'test' }, { variant: '$multiple' }],
+            total_exposures: { control: 600, test: 350, $multiple: 50 },
+            sample_ratio_mismatch: { expected: { control: 475, test: 475 }, p_value: 0.0001 },
+            bias_risk: { multiple_variant_percentage: 5 },
+        }
+
+        it.each([
+            {
+                desc: 'no exposure answer',
+                exposures: null,
+                handling: undefined,
+                expected: { exposures_total: null, exposures_multiple: null, has_srm: null, has_bias_risk: null },
+            },
+            {
+                desc: 'an answer without exposures',
+                exposures: { timeseries: [], total_exposures: {} },
+                handling: undefined,
+                expected: { exposures_total: 0, exposures_multiple: 0, has_srm: false, has_bias_risk: false },
+            },
+            {
+                desc: 'an uneven split with users in several variants',
+                exposures: unevenExposures,
+                handling: 'exclude' as const,
+                expected: { exposures_total: 1000, exposures_multiple: 50, has_srm: true, has_bias_risk: true },
+            },
+            {
+                desc: 'first-seen handling, which hides the users in several variants',
+                exposures: {
+                    timeseries: [{ variant: 'control' }, { variant: 'test' }],
+                    total_exposures: { control: 600, test: 400 },
+                },
+                handling: 'first_seen' as const,
+                expected: { exposures_total: 1000, exposures_multiple: null, has_srm: false, has_bias_risk: false },
+            },
+        ])(
+            'reports the exposure state with the completed refresh: $desc',
+            async ({ exposures, handling, expected }) => {
+                const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+                // The fixture holds legacy metrics, so the refresh keeps the exposures that are set here.
+                logic.actions.setExperiment({
+                    ...experiment,
+                    exposure_criteria: { ...experiment.exposure_criteria, multiple_variant_handling: handling },
+                })
+                if (exposures) {
+                    logic.actions.loadExposuresSuccess(exposures)
+                }
+                useMocks({
+                    post: {
+                        '/api/environments/:team/query': () => [
+                            200,
+                            { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                        ],
+                    },
+                    get: {
+                        '/api/environments/:team/query/:id': () => [200, experimentMetricResultsSuccessJson],
+                    },
+                })
+
+                await logic.asyncActions.refreshExperimentResults(true, 'manual')
+
+                const refreshEvents = captureSpy.mock.calls.filter(
+                    ([event]) => event === 'experiment results refresh completed'
+                )
+                expect(refreshEvents).toHaveLength(1)
+                expect(refreshEvents[0][1]).toMatchObject(expected)
+            }
+        )
     })
 
     describe('updateExperimentMetrics', () => {
@@ -317,6 +470,37 @@ describe('experimentLogic', () => {
                         action.payload.triggeredBy === 'experiment_config_change',
                 ])
                 .toFinishAllListeners()
+        })
+
+        it('addSharedMetricsToExperiment reuses the window (metric_config_change)', async () => {
+            // A keyed logic with a real experiment id so loadExperiment returns the launched experiment
+            // (the default unkeyed logic resolves experimentId to "new" and loads a draft). Mock every
+            // endpoint the follow-up refresh touches so its async work settles before unmount.
+            useMocks({
+                get: { '/api/projects/:team/experiments/:id': experiment },
+                post: {
+                    '/api/environments/:team/query': () => [
+                        200,
+                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                    ],
+                },
+            })
+            jest.spyOn(api, 'update').mockResolvedValue(experiment)
+            const keyed = experimentLogic({ experimentId: experiment.id })
+            keyed.mount()
+            keyed.actions.setExperiment(experiment)
+
+            await expectLogic(keyed, () => {
+                keyed.actions.addSharedMetricsToExperiment([1], { type: 'primary' })
+            })
+                .toDispatchActions([
+                    (action) =>
+                        action.type === keyed.actionTypes.refreshExperimentResults &&
+                        action.payload.triggeredBy === 'metric_config_change',
+                ])
+                .toFinishAllListeners()
+
+            keyed.unmount()
         })
     })
 
@@ -488,7 +672,7 @@ describe('experimentLogic', () => {
                 metric_type: ExperimentMetricType.MEAN,
                 source: { kind: NodeKind.EventsNode, event: '$pageview' },
             },
-            metadata: { type: 'primary', breakdowns: [breakdown] },
+            metadata: { type: 'primary', breakdowns: [breakdown], breakdown_limit: 20 },
             created_at: '2024-01-01T00:00:00Z',
         } as unknown as ExperimentSavedMetric
 
@@ -515,7 +699,7 @@ describe('experimentLogic', () => {
                     metric_type: ExperimentMetricType.MEAN,
                     source: { kind: NodeKind.EventsNode, event: '$pageview' },
                     name: 'Shared conversion metric (copy)',
-                    breakdownFilter: { breakdowns: [breakdown] },
+                    breakdownFilter: { breakdowns: [breakdown], breakdown_limit: 20 },
                 },
             ])
             // The original shared metric link is left untouched
@@ -1033,6 +1217,29 @@ describe('experimentLogic', () => {
                 .toFinishAllListeners()
         })
     })
+    describe('tags refresh', () => {
+        it('reloads tagsModel after an update that changed tags', async () => {
+            logic.actions.setExperiment(experiment)
+            api.update.mockResolvedValue({ ...experiment, tags: ['retention'] })
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ tags: ['retention'] })
+            })
+                .toDispatchActions(['updateExperimentSuccess', tagsModel.actionTypes.loadTags])
+                .toFinishAllListeners()
+        })
+
+        it('does not reload tagsModel when the update did not touch tags', async () => {
+            logic.actions.setExperiment(experiment)
+            api.update.mockResolvedValue({ ...experiment })
+            await expectLogic(logic, () => {
+                logic.actions.updateExperiment({ description: 'updated' })
+            })
+                .toDispatchActions(['updateExperimentSuccess'])
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions([tagsModel.actionTypes.loadTags])
+        })
+    })
+
     describe('reorderMetrics', () => {
         const testExperiment = {
             ...experiment,
@@ -2402,27 +2609,102 @@ describe('experimentLogic', () => {
         })
     })
 
-    describe('getDisplayOrderedIndices', () => {
-        it.each([
-            ['null orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], null, [0, 1, 2]],
-            ['undefined orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], undefined, [0, 1]],
-            ['empty orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], [], [0, 1]],
-            ['reorders by orderedUuids', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], ['c', 'a', 'b'], [2, 0, 1]],
-            [
-                'appends missing metrics at end',
-                [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }],
-                ['c', 'a'],
-                [2, 0, 1, 3],
-            ],
-            ['ignores uuids not in metrics', [{ uuid: 'a' }, { uuid: 'b' }], ['x', 'b', 'y', 'a'], [1, 0]],
-            ['handles metrics without uuids', [{ uuid: 'a' }, {}, { uuid: 'c' }], ['c', 'a'], [2, 0, 1]],
-        ])('%s', (_desc, metrics, orderedUuids, expected) => {
-            expect(getDisplayOrderedIndices(metrics, orderedUuids)).toEqual(expected)
+    describe('health finding events', () => {
+        const findingEvents = (captureSpy: jest.SpyInstance): any[] =>
+            captureSpy.mock.calls
+                .filter(([event]) => String(event).startsWith('experiment health finding'))
+                .map(([event, properties]) => [event, properties])
+
+        it('reports a shown finding once per experiment load, without customer text', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            const draft = { ...experiment, id: 7, status: ExperimentStatus.Draft, start_date: undefined } as Experiment
+            const finding: ExperimentHealthFinding = {
+                code: 'flag_live_before_launch',
+                variant: 'not_started_but_multiple_variants_rolled_out',
+            }
+
+            logic.actions.loadExperimentSuccess(draft)
+            logic.actions.reportHealthFindingShown(finding)
+            logic.actions.reportHealthFindingShown(finding)
+
+            expect(findingEvents(captureSpy)).toEqual([
+                [
+                    'experiment health finding shown',
+                    {
+                        experiment_id: 7,
+                        experiment_status: 'draft',
+                        experiment_days_since_start: null,
+                        finding_code: 'flag_live_before_launch',
+                        finding_variant: 'not_started_but_multiple_variants_rolled_out',
+                        surface: 'experiment_page',
+                        source: 'web',
+                    },
+                ],
+            ])
+
+            logic.actions.loadExperimentSuccess(draft)
+            logic.actions.reportHealthFindingShown(finding)
+
+            expect(findingEvents(captureSpy)).toHaveLength(2)
         })
 
-        it('returns all indices exactly once', () => {
-            const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }, { uuid: 'e' }]
-            expect(getDisplayOrderedIndices(metrics, ['d', 'b']).sort()).toEqual([0, 1, 2, 3, 4])
+        it('reports every use of a finding action', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            logic.actions.setExperiment({
+                ...experiment,
+                id: 7,
+                status: ExperimentStatus.Running,
+                start_date: dayjs().subtract(3, 'day').toISOString(),
+            })
+
+            logic.actions.reportHealthFindingActedOn({ code: 'bias_risk_multiple_excluded' }, 'use_first_seen_variant')
+            logic.actions.reportHealthFindingActedOn({ code: 'bias_risk_multiple_excluded' }, 'use_first_seen_variant')
+
+            expect(findingEvents(captureSpy)).toEqual(
+                Array(2).fill([
+                    'experiment health finding acted on',
+                    {
+                        experiment_id: 7,
+                        experiment_status: 'running',
+                        experiment_days_since_start: 3,
+                        finding_code: 'bias_risk_multiple_excluded',
+                        finding_variant: null,
+                        surface: 'experiment_page',
+                        source: 'web',
+                        action_kind: 'use_first_seen_variant',
+                        action_step: 'started',
+                    },
+                ])
+            )
+        })
+
+        it('reports a finding as shown before it reports the finding as opened', () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+            const running = {
+                ...experiment,
+                id: 7,
+                status: ExperimentStatus.Running,
+                start_date: dayjs().subtract(3, 'day').toISOString(),
+            }
+            const properties = {
+                experiment_id: 7,
+                experiment_status: 'running',
+                experiment_days_since_start: 3,
+                finding_code: 'zero_exposures',
+                finding_variant: null,
+                surface: 'experiment_page',
+                source: 'web',
+            }
+
+            logic.actions.loadExperimentSuccess(running)
+            logic.actions.reportHealthFindingOpened({ code: 'zero_exposures' }, 'evidence')
+            logic.actions.reportHealthFindingOpened({ code: 'zero_exposures' }, 'evidence')
+
+            expect(findingEvents(captureSpy)).toEqual([
+                ['experiment health finding shown', properties],
+                ['experiment health finding opened', { ...properties, open_kind: 'evidence' }],
+                ['experiment health finding opened', { ...properties, open_kind: 'evidence' }],
+            ])
         })
     })
 

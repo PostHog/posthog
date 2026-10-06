@@ -1,3 +1,5 @@
+import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
+
 import { SETTINGS_THEME_ITEM_ID, canOpenInNewTab, filterSearchItems, shouldSearchTickets } from './utils'
 
 interface TestItem {
@@ -122,6 +124,7 @@ describe('canOpenInNewTab', () => {
             false,
         ],
         ['blocks a result with nothing to open', { id: 'no-href' }, false],
+        ['blocks a result whose href is the placeholder', { id: 'starred-1', href: PLACEHOLDER_HREF }, false],
     ]
 
     it.each(cases)('%s', (_label, item, expected) => {

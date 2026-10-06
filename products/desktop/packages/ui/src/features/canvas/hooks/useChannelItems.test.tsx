@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
     channels: [] as {
       id: string;
       name: string;
-      channelType: "public" | "personal";
+      channelType: "public" | "personal" | "private";
       starred: boolean;
     }[],
     isLoading: true,
@@ -36,6 +36,7 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useDashboards", () => ({
   useDashboards: () => mocks.dashboards,
   useDashboardMutations: () => ({ setPinned: mocks.setPinned }),
+  usePrimeCanvasView: () => () => {},
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelFeed", () => ({
   useChannelFeed: () => mocks.feed,

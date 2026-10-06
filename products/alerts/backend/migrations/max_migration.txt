@@ -1,1 +1,1 @@
-0003_alter_alertconfiguration_calculation_interval
+0012_move_platform_models_to_alerts_platform
