@@ -341,4 +341,48 @@ describe('HogFlowBatchPersonQueryService', () => {
             )
         })
     })
+
+    describe('audience fetch duration', () => {
+        const fetchCount = async (endpoint: string, outcome: string): Promise<number> => {
+            const metric = await register.getSingleMetric('cdp_batch_hog_flow_audience_fetch_duration_seconds')?.get()
+            const values = (metric?.values ?? []) as Array<{
+                metricName?: string
+                value: number
+                labels: { endpoint?: string; outcome?: string }
+            }>
+            return (
+                values.find(
+                    (value) =>
+                        value.metricName === 'cdp_batch_hog_flow_audience_fetch_duration_seconds_count' &&
+                        value.labels.endpoint === endpoint &&
+                        value.labels.outcome === outcome
+                )?.value ?? 0
+            )
+        }
+
+        // The alert reads the outcome label; a fetch filed under the wrong one keeps it silent.
+        it.each([
+            [
+                'success',
+                {
+                    fetchResponse: createFetchResponse(200, { users_affected: [], cursor: null, has_more: false }),
+                    fetchError: null,
+                },
+            ],
+            ['error', { fetchResponse: createFetchResponse(500, 'boom'), fetchError: null }],
+            ['error', { fetchResponse: null, fetchError: new Error('network down') }],
+            [
+                'timeout',
+                { fetchResponse: null, fetchError: Object.assign(new Error('aborted'), { name: 'TimeoutError' }) },
+            ],
+        ])('records a %s fetch under its outcome', async (outcome, result) => {
+            const service = createService()
+            const before = await fetchCount('user_blast_radius_persons', outcome)
+
+            fetchMock.mockResolvedValue(result as MockedInternalFetchResult)
+            await service.getBlastRadiusPersons(team, filters).catch(() => undefined)
+
+            expect(await fetchCount('user_blast_radius_persons', outcome)).toBe(before + 1)
+        })
+    })
 })
