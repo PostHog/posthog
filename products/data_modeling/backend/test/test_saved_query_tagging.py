@@ -157,6 +157,7 @@ class TestSavedQueryTagging(APIBaseTest):
                 self.executor(query).execute()
         self.assertEqual(captured, [(self.ids(*views), self.ids(*tables), self.ids(*direct))])
         self.assertEqual(sorted(stats.warehouse_table_ids), self.ids(*tables) or [])
+        self.assertEqual(sorted(stats.saved_query_ids), self.ids(*views) or [])
 
     def test_context_reuse_and_cte_shadowing_do_not_tag(self) -> None:
         context = HogQLContext(team=self.team, database=Database.create_for(team=self.team))

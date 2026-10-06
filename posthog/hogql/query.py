@@ -939,7 +939,10 @@ class HogQLQueryExecutor:
 
             stats = query_stats.get_active()
             if stats is not None:
-                stats.add_warehouse_tables(self.context.referenced_warehouse_table_ids)
+                stats.add_reads(
+                    warehouse_table_ids=self.context.referenced_warehouse_table_ids,
+                    saved_query_ids=self.context.referenced_saved_query_ids,
+                )
             # The rows are read back per thread after the run, so a run ClickHouse stops is still
             # recorded with what it read, and a series running in another thread is not charged here.
             query_stats.reset_last_rows_read()
