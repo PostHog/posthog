@@ -29699,7 +29699,7 @@
                     "type": "string"
                 },
                 "materializeRepeatedCTEs": {
-                    "description": "Reuse eligible bounded event aggregates within one query execution. Default off.",
+                    "description": "Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.",
                     "type": "boolean"
                 },
                 "materializedColumnsOptimizationMode": {

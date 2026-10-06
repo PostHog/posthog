@@ -91,6 +91,12 @@ class TestMaterializedCTEs(SimpleTestCase):
 class TestMaterializedCTEResults(ClickhouseTestMixin, BaseTest):
     allow_dual_schema_snapshots = True
 
+    def test_property_timestamp_does_not_bound_the_event_scan(self) -> None:
+        query = _QUERY.format(body=_BODY.replace("timestamp", "properties.timestamp"))
+        response = execute_hogql_query(query, self.team, modifiers=HogQLQueryModifiers(materializeRepeatedCTEs=True))
+        assert response.clickhouse is not None
+        assert "AS MATERIALIZED" not in response.clickhouse
+
     @parameterized.expand([(False,), (True,)])
     @time_machine.travel("2023-02-03", tick=False)
     def test_reuse_preserves_results_including_empty_data(self, empty: bool) -> None:

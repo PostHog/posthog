@@ -5,6 +5,14 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.dataclasses import frozen
+
+
+@frozen
+class _TimestampBounds:
+    lower: bool = False
+    upper: bool = False
+
 
 class CTEReferences(TraversingVisitor):
     def __init__(self) -> None:
@@ -121,39 +129,47 @@ class _DeterministicEventsAggregate(TraversingVisitor):
             )
         )
 
-    @classmethod
-    def _timestamp(cls, node: ast.Expr) -> bool:
-        node = cls._strip_alias(node)
-        return isinstance(node, ast.Field) and node.chain[-1] == "timestamp"
+    def _timestamp(self, node: ast.Expr) -> bool:
+        node = self._strip_alias(node)
+        source = self.query.select_from
+        return (
+            isinstance(node, ast.Field)
+            and isinstance(node.type, ast.FieldType)
+            and node.type.name == "timestamp"
+            and source is not None
+            and source.table is not None
+            and node.type.table_type is source.table.type
+        )
 
-    @classmethod
-    def _bounds(cls, node: ast.Expr | None) -> tuple[bool, bool]:
+    def _bounds(self, node: ast.Expr | None) -> _TimestampBounds:
         if isinstance(node, ast.And):
-            bounds = [cls._bounds(expr) for expr in node.exprs]
-            return any(lower for lower, _ in bounds), any(upper for _, upper in bounds)
-        if isinstance(node, ast.BetweenExpr) and not node.negated and cls._timestamp(node.expr):
-            return cls._literal_date(node.low), cls._literal_date(node.high)
+            bounds = [self._bounds(expr) for expr in node.exprs]
+            return _TimestampBounds(
+                lower=any(bound.lower for bound in bounds), upper=any(bound.upper for bound in bounds)
+            )
+        if isinstance(node, ast.BetweenExpr) and not node.negated and self._timestamp(node.expr):
+            return _TimestampBounds(lower=self._literal_date(node.low), upper=self._literal_date(node.high))
         if isinstance(node, ast.CompareOperation):
             op = node.op
-            if cls._timestamp(node.right) and cls._literal_date(node.left):
+            if self._timestamp(node.right) and self._literal_date(node.left):
                 op = {
                     ast.CompareOperationOp.Gt: ast.CompareOperationOp.Lt,
                     ast.CompareOperationOp.GtEq: ast.CompareOperationOp.LtEq,
                     ast.CompareOperationOp.Lt: ast.CompareOperationOp.Gt,
                     ast.CompareOperationOp.LtEq: ast.CompareOperationOp.GtEq,
                 }.get(op, op)
-            elif not (cls._timestamp(node.left) and cls._literal_date(node.right)):
-                return False, False
-            return op in {ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq, ast.CompareOperationOp.Eq}, op in {
-                ast.CompareOperationOp.Lt,
-                ast.CompareOperationOp.LtEq,
-                ast.CompareOperationOp.Eq,
-            }
-        return False, False
+            elif not (self._timestamp(node.left) and self._literal_date(node.right)):
+                return _TimestampBounds()
+            return _TimestampBounds(
+                lower=op in {ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq, ast.CompareOperationOp.Eq},
+                upper=op in {ast.CompareOperationOp.Lt, ast.CompareOperationOp.LtEq, ast.CompareOperationOp.Eq},
+            )
+        return _TimestampBounds()
 
     def eligible(self) -> bool:
         query = self.query
         source = query.select_from
+        bounds = self._bounds(ast.And(exprs=[expr for expr in (query.where, query.prewhere) if expr is not None]))
         if (
             source is None
             or source.table is None
@@ -171,9 +187,8 @@ class _DeterministicEventsAggregate(TraversingVisitor):
             or query.window_exprs
             or query.qualify
             or query.settings
-            or not all(
-                self._bounds(ast.And(exprs=[expr for expr in (query.where, query.prewhere) if expr is not None]))
-            )
+            or not bounds.lower
+            or not bounds.upper
         ):
             return False
         for expr in [*query.select, *(query.group_by or []), query.where, query.prewhere, query.having]:
