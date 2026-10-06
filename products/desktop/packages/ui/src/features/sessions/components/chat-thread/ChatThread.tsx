@@ -61,6 +61,7 @@ import { ChatThreadChromeProvider } from "@posthog/ui/features/sessions/componen
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { MessageMinimap } from "@posthog/ui/features/sessions/components/chat-thread/MessageMinimap";
+import { SubagentStatusBar } from "@posthog/ui/features/sessions/components/chat-thread/SubagentStatusBar";
 import { ToolGroup } from "@posthog/ui/features/sessions/components/chat-thread/ToolGroup";
 import { THREAD_HOTKEY_OPTIONS } from "@posthog/ui/features/sessions/components/chat-thread/threadHotkeys";
 import {
@@ -1619,6 +1620,19 @@ function ChatThreadRenderer({
         onFocusMessage={setKeyboardFocusedMessageId}
         // Only the plain body needs it: the windowed body's own jump drops its pin.
         autoFollowRef={jumpToMessage ? undefined : autoFollowRef}
+      />
+      <SubagentStatusBar
+        items={items}
+        rows={rows}
+        jumpToMessage={jumpToMessage}
+        onJumped={setKeyboardFocusedMessageId}
+        onBeforeJump={
+          jumpToMessage
+            ? undefined
+            : () => {
+                autoFollowRef.current = { following: false, leftEnd: true };
+              }
+        }
       />
     </>
   );
