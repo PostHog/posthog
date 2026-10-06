@@ -10,6 +10,7 @@ from requests import PreparedRequest
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    Endpoint,
     EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
@@ -105,11 +106,17 @@ def onehundredms_source(
                 timestamp = timestamp.replace(tzinfo=UTC)
             params["after"] = timestamp.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
+    endpoint_config: Endpoint = {
+        "path": path,
+        "params": params,
+        "data_selector": "data",
+        "data_selector_required": True,
+    }
     resource_config: EndpointResource = {
         "name": inputs.schema_name,
         "table_format": "delta",
         "write_disposition": {"disposition": "merge", "strategy": "upsert"} if incremental else "replace",
-        "endpoint": {"path": path, "params": params, "data_selector": "data", "data_selector_required": True},
+        "endpoint": endpoint_config,
     }
     rest_config: RESTAPIConfig = {
         "client": {
