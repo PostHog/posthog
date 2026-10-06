@@ -85,7 +85,7 @@ describe('drawSankeyHover', () => {
         layout.links[1].color = 'transparent'
         layout.nodes.find((node) => node.id === 'c')!.color = 'transparent'
         const { ctx, strokes, fills } = recordingCtx({ [BACKGROUND]: '#202023' })
-        drawSankeyHover(ctx, layout, sankeyActiveFlow(layout, { kind: 'link', index: 0 }), {
+        drawSankeyHover(ctx, layout, emphasisForHit(layout, { kind: 'link', index: 0 }), {
             linkOpacity: 0.4,
             backgroundColor: BACKGROUND,
             progress: 1,

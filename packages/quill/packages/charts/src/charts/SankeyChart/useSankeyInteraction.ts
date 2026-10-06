@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { originatesInInteractiveOverlay } from '../../core/dom-events'
 import { useLatest } from '../../core/hooks/useLatest'
