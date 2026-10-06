@@ -131,12 +131,17 @@ _REPLAY_UNDERCOUNT = (
     "The replay pipeline marks a session as seen before it parses the first message. "
     "When that message fails, the session writes no usage record, even when later messages record."
 )
+_WORKFLOW_PUSH_UNDERCOUNT = (
+    "The legacy count bills fetch and push dispatches as workflow invocations. "
+    "Push dispatches write `workflow_push_sent` records, so `workflow_billable_invocations` holds only fetches."
+)
 # These counters resolve to `both` when their flag asks for `realtime`, because their usage records undercount.
 # Remove an entry only after the producer bills every unit or a measurement shows the records are more correct.
 RECORD_UNDERCOUNTS = {
     UsageCounter.RECORDINGS: _REPLAY_UNDERCOUNT,
     UsageCounter.MOBILE_RECORDINGS: _REPLAY_UNDERCOUNT,
     UsageCounter.MOBILE_BILLABLE_RECORDINGS: _REPLAY_UNDERCOUNT,
+    UsageCounter.WORKFLOW_INVOCATIONS: _WORKFLOW_PUSH_UNDERCOUNT,
 }
 
 
