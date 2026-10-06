@@ -64,6 +64,217 @@ database "posthog" {
     }
   }
 
+  table "engineering_analytics_ci_jobs_precomputed" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "source_id" {
+      type = "String"
+    }
+    column "repository" {
+      type = "String"
+    }
+    column "ci_engine" {
+      type = "LowCardinality(String)"
+    }
+    column "id" {
+      type = "Int64"
+    }
+    column "run_id" {
+      type = "Int64"
+    }
+    column "run_attempt" {
+      type = "Int64"
+    }
+    column "name" {
+      type = "String"
+    }
+    column "workflow_name" {
+      type = "String"
+    }
+    column "head_sha" {
+      type = "String"
+    }
+    column "head_branch" {
+      type = "String"
+    }
+    column "status" {
+      type = "String"
+    }
+    column "conclusion" {
+      type = "Nullable(String)"
+    }
+    column "labels" {
+      type = "String"
+    }
+    column "runner_name" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "created_at_raw" {
+      type = "String"
+    }
+    column "started_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "completed_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "duration_seconds" {
+      type = "Nullable(Int64)"
+    }
+    column "queue_seconds" {
+      type = "Nullable(Int64)"
+    }
+    column "provisioning_seconds" {
+      type = "Nullable(Int64)"
+    }
+    column "is_rerun_copy" {
+      type = "UInt8"
+    }
+    column "native_run_id" {
+      type = "Nullable(String)"
+    }
+    column "native_workflow_run_id" {
+      type = "Nullable(String)"
+    }
+    column "native_job_id" {
+      type = "Nullable(String)"
+    }
+    column "native_attempt_id" {
+      type = "Nullable(String)"
+    }
+    column "provider" {
+      type = "Nullable(String)"
+    }
+    column "os" {
+      type = "Nullable(String)"
+    }
+    column "vcpu" {
+      type = "Nullable(Int64)"
+    }
+    column "multiplier" {
+      type = "Nullable(Int64)"
+    }
+    column "billable_seconds" {
+      type = "Nullable(Int64)"
+    }
+    column "estimated_cost_usd" {
+      type = "Nullable(Float64)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_engineering_analytics_ci_jobs_precomputed"
+      sharding_key    = "cityHash64(source_id)"
+    }
+  }
+
+  table "engineering_analytics_ci_runs_precomputed" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "source_id" {
+      type = "String"
+    }
+    column "repository" {
+      type = "String"
+    }
+    column "ci_engine" {
+      type = "LowCardinality(String)"
+    }
+    column "id" {
+      type = "Int64"
+    }
+    column "workflow_name" {
+      type = "Nullable(String)"
+    }
+    column "head_sha" {
+      type = "Nullable(String)"
+    }
+    column "head_branch" {
+      type = "Nullable(String)"
+    }
+    column "status" {
+      type = "Nullable(String)"
+    }
+    column "conclusion" {
+      type = "Nullable(String)"
+    }
+    column "run_started_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "run_started_at_raw" {
+      type = "String"
+    }
+    column "updated_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "created_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "run_attempt" {
+      type = "Nullable(Int64)"
+    }
+    column "is_merge_queue" {
+      type = "UInt8"
+    }
+    column "pr_number" {
+      type = "Int64"
+    }
+    column "commit_pr_number" {
+      type = "Nullable(Int64)"
+    }
+    column "duration_seconds" {
+      type = "Nullable(Int64)"
+    }
+    column "repo_owner" {
+      type = "String"
+    }
+    column "repo_name" {
+      type = "String"
+    }
+    column "native_run_id" {
+      type = "Nullable(String)"
+    }
+    column "native_workflow_run_id" {
+      type = "Nullable(String)"
+    }
+    column "is_handoff_shell" {
+      type = "UInt8"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(7)"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "sharded_engineering_analytics_ci_runs_precomputed"
+      sharding_key    = "cityHash64(source_id)"
+    }
+  }
+
   table "error_tracking_fingerprint_issue_state" {
     column "team_id" {
       type = "Int64"
@@ -2042,6 +2253,229 @@ database "posthog" {
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.conversion_goal_attributed_preaggregated"
+      replica_name   = "{replica}-{shard}"
+      version_column = "computed_at"
+    }
+  }
+
+  table "sharded_engineering_analytics_ci_jobs_precomputed" {
+    order_by     = ["team_id", "job_id", "source_id", "ci_engine", "id", "run_attempt"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "expires_at"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "source_id" {
+      type = "String"
+    }
+    column "repository" {
+      type = "String"
+    }
+    column "ci_engine" {
+      type = "LowCardinality(String)"
+    }
+    column "id" {
+      type = "Int64"
+    }
+    column "run_id" {
+      type = "Int64"
+    }
+    column "run_attempt" {
+      type = "Int64"
+    }
+    column "name" {
+      type = "String"
+    }
+    column "workflow_name" {
+      type = "String"
+    }
+    column "head_sha" {
+      type = "String"
+    }
+    column "head_branch" {
+      type = "String"
+    }
+    column "status" {
+      type = "String"
+    }
+    column "conclusion" {
+      type = "Nullable(String)"
+    }
+    column "labels" {
+      type = "String"
+    }
+    column "runner_name" {
+      type = "String"
+    }
+    column "created_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "created_at_raw" {
+      type = "String"
+    }
+    column "started_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "completed_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "duration_seconds" {
+      type = "Nullable(Int64)"
+    }
+    column "queue_seconds" {
+      type = "Nullable(Int64)"
+    }
+    column "provisioning_seconds" {
+      type = "Nullable(Int64)"
+    }
+    column "is_rerun_copy" {
+      type = "UInt8"
+    }
+    column "native_run_id" {
+      type = "Nullable(String)"
+    }
+    column "native_workflow_run_id" {
+      type = "Nullable(String)"
+    }
+    column "native_job_id" {
+      type = "Nullable(String)"
+    }
+    column "native_attempt_id" {
+      type = "Nullable(String)"
+    }
+    column "provider" {
+      type = "Nullable(String)"
+    }
+    column "os" {
+      type = "Nullable(String)"
+    }
+    column "vcpu" {
+      type = "Nullable(Int64)"
+    }
+    column "multiplier" {
+      type = "Nullable(Int64)"
+    }
+    column "billable_seconds" {
+      type = "Nullable(Int64)"
+    }
+    column "estimated_cost_usd" {
+      type = "Nullable(Float64)"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(7)"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.engineering_analytics_ci_jobs_precomputed"
+      replica_name   = "{replica}-{shard}"
+      version_column = "computed_at"
+    }
+  }
+
+  table "sharded_engineering_analytics_ci_runs_precomputed" {
+    order_by     = ["team_id", "job_id", "source_id", "ci_engine", "id"]
+    partition_by = "toYYYYMMDD(expires_at)"
+    ttl          = "expires_at"
+    settings = {
+      index_granularity   = "8192"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "job_id" {
+      type = "UUID"
+    }
+    column "source_id" {
+      type = "String"
+    }
+    column "repository" {
+      type = "String"
+    }
+    column "ci_engine" {
+      type = "LowCardinality(String)"
+    }
+    column "id" {
+      type = "Int64"
+    }
+    column "workflow_name" {
+      type = "Nullable(String)"
+    }
+    column "head_sha" {
+      type = "Nullable(String)"
+    }
+    column "head_branch" {
+      type = "Nullable(String)"
+    }
+    column "status" {
+      type = "Nullable(String)"
+    }
+    column "conclusion" {
+      type = "Nullable(String)"
+    }
+    column "run_started_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "run_started_at_raw" {
+      type = "String"
+    }
+    column "updated_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "created_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "run_attempt" {
+      type = "Nullable(Int64)"
+    }
+    column "is_merge_queue" {
+      type = "UInt8"
+    }
+    column "pr_number" {
+      type = "Int64"
+    }
+    column "commit_pr_number" {
+      type = "Nullable(Int64)"
+    }
+    column "duration_seconds" {
+      type = "Nullable(Int64)"
+    }
+    column "repo_owner" {
+      type = "String"
+    }
+    column "repo_name" {
+      type = "String"
+    }
+    column "native_run_id" {
+      type = "Nullable(String)"
+    }
+    column "native_workflow_run_id" {
+      type = "Nullable(String)"
+    }
+    column "is_handoff_shell" {
+      type = "UInt8"
+    }
+    column "computed_at" {
+      type    = "DateTime64(6, 'UTC')"
+      default = "now()"
+    }
+    column "expires_at" {
+      type    = "Date"
+      default = "today() + toIntervalDay(7)"
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.engineering_analytics_ci_runs_precomputed"
       replica_name   = "{replica}-{shard}"
       version_column = "computed_at"
     }
