@@ -76,6 +76,7 @@ interface OpenApiSchema {
     readOnly?: boolean
     writeOnly?: boolean
     items?: OpenApiSchema | { $ref: string }
+    additionalProperties?: OpenApiSchema | { $ref: string } | boolean
     properties?: Record<string, OpenApiSchema>
     required?: string[]
     $ref?: string
@@ -500,6 +501,55 @@ interface SchemaComposition {
      * `z.preprocess(normalizeParamAliases(...), ...)` when non-empty.
      */
     paramAliases: Record<string, string[]>
+}
+
+function assertExclusionsNameRealFields(
+    name: string,
+    config: ToolConfig,
+    resolved: ResolvedOperation,
+    spec: OpenApiSpec
+): void {
+    const queryParamNames = new Set(
+        (resolved.operation.parameters ?? []).filter((p) => p.in === 'query').map((p) => p.name)
+    )
+    const bodySchema = resolved.operation.requestBody?.content?.['application/json']?.schema
+    for (const entry of config.exclude_params ?? []) {
+        if (!queryParamNames.has(entry) && !schemaHasPath(spec, bodySchema, entry.split('.'))) {
+            throw new Error(
+                `Enabled tool "${name}": exclude_params entry "${entry}" names no query parameter or body field, ` +
+                    'so it hides nothing. Fix the name or remove the entry.'
+            )
+        }
+    }
+}
+
+function schemaHasPath(
+    spec: OpenApiSpec,
+    schemaOrRef: OpenApiSchema | { $ref: string } | undefined,
+    segments: string[]
+): boolean {
+    const schema = schemaOrRef && resolveSchema(spec, schemaOrRef)
+    const [head, ...tail] = segments
+    if (!schema || head === undefined) {
+        return false
+    }
+    const variants = [...(schema.oneOf ?? []), ...(schema.anyOf ?? []), ...(schema.allOf ?? [])]
+    if (variants.some((variant) => schemaHasPath(spec, variant, segments))) {
+        return true
+    }
+    if (head === '*') {
+        return (
+            tail.length > 0 &&
+            [schema.items, schema.additionalProperties].some(
+                (child) => typeof child === 'object' && schemaHasPath(spec, child, tail)
+            )
+        )
+    }
+    const property =
+        schema.properties && Object.prototype.hasOwnProperty.call(schema.properties, head)
+            ? schema.properties[head]
+            : undefined
+    return tail.length === 0 ? property !== undefined : schemaHasPath(spec, property, tail)
 }
 
 function composeToolSchema(
@@ -1834,6 +1884,7 @@ function generateCategoryFile(
             process.exit(1)
         }
         try {
+            assertExclusionsNameRealFields(name, config, resolved, spec)
             enabledTools.push([
                 name,
                 {

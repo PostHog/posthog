@@ -322,7 +322,7 @@ Product teams own their definitions and control which operations are exposed as 
        list: true # marks as a list endpoint
        enrich_url: '{id}' # appended to url_prefix for result URLs
        category: Other product # overrides the file-level category, e.g. for $mcp_tool_category in MCP analytics
-       exclude_params: [field] # hide params from tool input
+       exclude_params: [field, steps.*.secret] # hide params and body fields from tool input (`*` steps into array items and dict values)
        include_params: [field] # whitelist params (excludes all others)
        response: # filter response fields (applied per-item on list endpoints)
          include: [id, key, name] # keep only these fields (dot-path wildcards supported)
@@ -356,6 +356,7 @@ Product teams own their definitions and control which operations are exposed as 
    Conflicting lists fail the build, because those tools share one generated request body schema.
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
+   An `exclude_params` entry that names no query parameter or request body field also fails the build, so a typo cannot leave the field exposed.
 
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument

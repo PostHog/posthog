@@ -4,7 +4,8 @@
  * Supports dot-notation paths for nested field removal:
  *   - `steps.*.selector_regex` — for each item in the `steps` array, remove `selector_regex`
  *   - `steps.*.properties.*.value` — nested arrays
- *   - `*` navigates into array `items`; regular segments navigate into `properties[segment]`
+ *   - `inputs.*.bytecode` — for each value in the `inputs` dict, remove `bytecode`
+ *   - `*` navigates into array `items` and dict `additionalProperties`; regular segments navigate into `properties[segment]`
  *   - `$ref` is resolved via clone-on-write: shared component schemas are never mutated
  *
  * Mutates the operation's schema subtree in place, but leaves shared
@@ -92,9 +93,8 @@ function excludePath(spec, parentObj, parentKey, segments) {
     }
 
     if (head === '*') {
-        if (schema.items) {
-            excludePath(spec, schema, 'items', tail)
-        }
+        excludePath(spec, schema, 'items', tail)
+        excludePath(spec, schema, 'additionalProperties', tail)
         return
     }
 

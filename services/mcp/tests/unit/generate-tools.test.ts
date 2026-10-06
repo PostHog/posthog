@@ -2329,6 +2329,96 @@ describe('optional param with state fallback', () => {
     })
 })
 
+describe('generateCategoryFile exclude_params', () => {
+    const spec = makeSpec({
+        paths: {
+            '/api/projects/{project_id}/things/': {
+                post: {
+                    operationId: 'things_create',
+                    parameters: [
+                        { name: 'project_id', in: 'path', required: true, schema: { type: 'string' } },
+                        { name: 'dry_run', in: 'query', required: false, schema: { type: 'boolean' } },
+                    ],
+                    requestBody: {
+                        content: { 'application/json': { schema: { $ref: '#/components/schemas/Thing' } } },
+                    },
+                },
+            },
+        },
+        components: {
+            schemas: {
+                Thing: {
+                    properties: {
+                        secret: { type: 'string' },
+                        steps: { type: 'array', items: { $ref: '#/components/schemas/Step' } },
+                        inputs: { type: 'object', additionalProperties: { $ref: '#/components/schemas/Input' } },
+                    },
+                },
+                Input: { properties: { bytecode: { type: 'array' } } },
+                Step: {
+                    oneOf: [
+                        { properties: { selector_regex: { type: 'string' } } },
+                        { properties: { url: { type: 'string' } } },
+                    ],
+                },
+            },
+        },
+    })
+
+    function generate(exclude_params: string[]): ReturnType<typeof generateCategoryFile> {
+        const category = {
+            ...defaultCategory,
+            tools: {
+                'things-create': {
+                    operation: 'things_create',
+                    enabled: true,
+                    scopes: ['thing:write'],
+                    annotations: { readOnly: false, destructive: false, idempotent: false },
+                    exclude_params,
+                } as ToolConfig,
+            },
+        }
+        return generateCategoryFile(category, 'products/things/mcp/tools.yaml', 'things', spec, new Set(), () => ({
+            definitions: {},
+        }))
+    }
+
+    afterEach(() => {
+        vi.restoreAllMocks()
+    })
+
+    it.each([['dry_run'], ['secret'], ['steps.*.selector_regex'], ['steps.*.url'], ['inputs.*.bytecode']])(
+        'accepts %s, which names a real field',
+        (entry) => {
+            expect(() => generate([entry])).not.toThrow()
+        }
+    )
+
+    it.each([
+        ['secrte'],
+        ['dryrun'],
+        ['steps.*.selector_regx'],
+        ['stepz.*.selector_regex'],
+        ['steps.*'],
+        ['inputs.*.bytecod'],
+        ['constructor'],
+        ['project_id'],
+    ])('rejects %s, which names no field and would leave the intended one exposed', (entry) => {
+        const errors: string[] = []
+        vi.spyOn(console, 'error').mockImplementation((message: string) => {
+            errors.push(message)
+        })
+        vi.spyOn(process, 'exit').mockImplementation((() => {
+            throw new Error('exit')
+        }) as never)
+
+        expect(() => generate(['secret', entry])).toThrow('exit')
+        expect(errors.join('\n')).toContain(
+            `Enabled tool "things-create": exclude_params entry "${entry}" names no query parameter or body field`
+        )
+    })
+})
+
 describe('composeToolSchema param aliases', () => {
     const resolvedWithIdAndQuery = makeResolved({
         path: '/api/projects/{project_id}/things/{id}/',
