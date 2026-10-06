@@ -94,7 +94,7 @@ To also sync account-level tables, use an OAuth access token instead. Collection
                                             type=SourceFieldInputConfigType.TEXT,
                                             required=False,
                                             placeholder="",
-                                            secret=False,
+                                            secret=True,
                                         ),
                                         SourceFieldInputConfig(
                                             name="consumer_secret",
