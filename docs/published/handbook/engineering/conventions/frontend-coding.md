@@ -78,7 +78,7 @@ Hence the explicit separation between the data and view layers.
 
 #### Deterministic stories
 
-A story renders a light and a dark visual review snapshot on every run that selects it.
+By default a story renders a light and a dark visual review snapshot on every run that selects it (`testOptions.skipLightMode` and `skipDarkMode` turn one off).
 A story that renders two different pictures for the same code blocks unrelated PRs, collects tolerations, and ends up quarantined.
 Every pattern below caused a real quarantine. Each one has a fix that removes the race instead of hiding it.
 
@@ -112,7 +112,7 @@ Wrap the content in a fixed width (`w-[42rem]`), not a `max-w-*`.
 
 ##### Do not let the viewport set the height
 
-The app shell has `min-height: 100vh`. When the content is taller than the viewport, the snapshot height follows the viewport height at capture time, and a taller viewport adds a blank strip.
+The app shell has `min-height: 100vh`. When the viewport at capture time is taller than the content, the shell grows to the viewport height and the snapshot gets a blank strip below the content.
 Let the shell hug the content in that story, for example with a decorator that sets `.Navigation3000 { min-height: 0 }`.
 
 ##### Wait for timers to settle

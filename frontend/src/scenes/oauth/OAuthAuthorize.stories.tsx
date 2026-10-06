@@ -55,9 +55,9 @@ const withPinnedSceneHeight: Decorator = function PinnedSceneHeightDecorator(Sto
     )
 }
 
-// The app shell has a `100vh` min-height, so a card taller than the viewport makes the snapshot
-// height depend on the viewport height at capture time, and a taller one adds a blank strip below
-// the card. Let the shell hug its content so only the card sets the height.
+// The app shell has a `100vh` min-height, so when the viewport at capture time is taller than the
+// card, the shell grows to the viewport and adds a blank strip below the card. Let the shell hug its
+// content so only the card sets the height.
 const withContentSceneHeight: Decorator = function ContentSceneHeightDecorator(Story): JSX.Element {
     return (
         <>
