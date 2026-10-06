@@ -59,6 +59,7 @@ def validate_credentials(config: AstronomerSourceConfig, schema_name: str | None
         auth=BearerTokenAuth(token=config.api_token),
         paginator=SinglePagePaginator(),
         allow_redirects=False,
+        request_timeout=(10, 60),
     )
     permission = endpoint["permission"]
     try:
@@ -137,6 +138,7 @@ def astronomer_source(
             "base_url": BASE_URL,
             "auth": {"type": "bearer", "token": config.api_token},
             "allow_redirects": False,
+            "request_timeout": (10, 60),
             "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": "totalCount"},
         },
         "resources": resources,

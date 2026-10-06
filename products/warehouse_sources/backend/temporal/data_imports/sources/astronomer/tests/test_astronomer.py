@@ -1,4 +1,5 @@
-from typing import Any
+from collections.abc import Iterable
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.astronomer import (
     AstronomerSourceConfig,
 )
@@ -33,6 +35,10 @@ def manager(state: dict[str, Any] | None = None) -> MagicMock:
     return result
 
 
+def items(response: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], response.items())
+
+
 @pytest.mark.parametrize("table", ["deployments", "workspaces", "clusters"])
 @pytest.mark.parametrize("last_page_size", [0, 1, 100])
 @responses.activate
@@ -43,7 +49,7 @@ def test_list_pagination_auth_and_terminal_page(table: str, last_page_size: int)
     checkpoint = manager()
     result = astronomer_source(CONFIG, table, 1, "test-job", checkpoint)
 
-    assert [row for page in result.items() for row in page] == rows
+    assert [row for page in items(result) for row in page] == rows
     assert len(responses.calls) == 2
     for offset, call in zip([0, 100], responses.calls):
         assert call.request.headers["Authorization"] == "Bearer test-token"
@@ -59,7 +65,7 @@ def test_list_pagination_auth_and_terminal_page(table: str, last_page_size: int)
 def test_resume_starts_at_saved_offset() -> None:
     responses.get(f"{BASE}/workspaces", json={"workspaces": [{"id": "last"}], "totalCount": 201})
     result = astronomer_source(CONFIG, "workspaces", 1, "test-job", manager({"offset": 200}))
-    assert [row for page in result.items() for row in page] == [{"id": "last"}]
+    assert [row for page in items(result) for row in page] == [{"id": "last"}]
     assert parse_qs(urlparse(responses.calls[0].request.url).query)["offset"] == ["200"]
 
 
@@ -72,7 +78,7 @@ def test_deploy_history_paginates_each_parent_and_preserves_unique_keys() -> Non
     responses.get(f"{BASE}/deployments/second/deploys", json={"deploys": [{"id": "last"}], "totalCount": 1})
     checkpoint = manager()
     result = astronomer_source(CONFIG, "deploys", 1, "test-job", checkpoint)
-    rows = [row for page in result.items() for row in page]
+    rows = [row for page in items(result) for row in page]
 
     assert len(rows) == 102
     assert rows[-2:] == [{"id": "last", "deploymentId": "first"}, {"id": "last", "deploymentId": "second"}]
@@ -100,7 +106,7 @@ def test_deploy_resume_skips_completed_parents_and_continues_child_page() -> Non
         }
     )
     result = astronomer_source(CONFIG, "deploys", 1, "test-job", checkpoint)
-    assert [row for page in result.items() for row in page] == [{"id": "last", "deploymentId": "second"}]
+    assert [row for page in items(result) for row in page] == [{"id": "last", "deploymentId": "second"}]
     assert len(responses.calls) == 2
     assert parse_qs(urlparse(responses.calls[1].request.url).query)["offset"] == ["100"]
 
@@ -114,7 +120,7 @@ def test_deploys_with_no_rows(empty_parent: bool) -> None:
     if not empty_parent:
         responses.get(f"{BASE}/deployments/first/deploys", json={"deploys": [], "totalCount": 0})
     result = astronomer_source(CONFIG, "deploys", 1, "test-job", manager())
-    assert [row for page in result.items() for row in page] == []
+    assert [row for page in items(result) for row in page] == []
     assert len(responses.calls) == (1 if empty_parent else 2)
 
 
@@ -185,7 +191,7 @@ def test_sync_errors_and_retry_classification(status: int) -> None:
         result = astronomer_source(CONFIG, "deployments", 1, "test-job", manager())
         expected = RESTClientRetryableError if status in (429, 500) else HTTPError
         with pytest.raises(expected) as caught:
-            list(result.items())
+            list(items(result))
     mapped = [
         message
         for pattern, message in AstronomerSource().get_non_retryable_errors().items()
@@ -239,7 +245,7 @@ def test_warehouse_rows_exclude_environment_values_and_upload_urls(table: str) -
     expected = {"id": "row-1", "status": "DEPLOYED"}
     if table == "deploys":
         expected["deploymentId"] = "first"
-    assert [row for page in result.items() for row in page] == [expected]
+    assert [row for page in items(result) for row in page] == [expected]
 
 
 @responses.activate
@@ -247,4 +253,4 @@ def test_missing_collection_fails_instead_of_replacing_table_with_no_rows() -> N
     responses.get(f"{BASE}/deployments", json={"unexpected": []})
     result = astronomer_source(CONFIG, "deployments", 1, "test-job", manager())
     with pytest.raises(ValueError, match="Required data_selector"):
-        list(result.items())
+        list(items(result))
