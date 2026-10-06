@@ -341,17 +341,18 @@ def _fetch_related(
     config: JfrogArtifactoryEndpointConfig,
     parents: list[dict[str, Any]],
     logger: FilteringBoundLogger,
-) -> list[dict[str, Any]]:
+) -> Iterator[list[dict[str, Any]]]:
     try:
         data = _post_aql(session, base_url, access_token, build_related_aql_query(config, parents), logger)
     except JfrogArtifactoryResponseTooLargeError:
         # A few very large builds can push one chunk past the response cap; split until it fits.
+        # Each half yields on its own so split responses never pile up in memory.
         if len(parents) <= 1:
             raise
         middle = len(parents) // 2
-        return _fetch_related(session, base_url, access_token, config, parents[:middle], logger) + _fetch_related(
-            session, base_url, access_token, config, parents[middle:], logger
-        )
+        yield from _fetch_related(session, base_url, access_token, config, parents[:middle], logger)
+        yield from _fetch_related(session, base_url, access_token, config, parents[middle:], logger)
+        return
 
     rows: list[dict[str, Any]] = []
     seen: set[tuple[Any, ...]] = set()
@@ -362,7 +363,8 @@ def _fetch_related(
                 continue
             seen.add(key)
             rows.append(row)
-    return rows
+    if rows:
+        yield rows
 
 
 def _iter_aql_pages(
@@ -527,11 +529,9 @@ def get_rows(
 
     for parents in pages:
         for start in range(0, len(parents), config.aql_related_chunk_size):
-            rows = _fetch_related(
+            yield from _fetch_related(
                 session, base_url, access_token, config, parents[start : start + config.aql_related_chunk_size], logger
             )
-            if rows:
-                yield rows
 
 
 def jfrog_artifactory_source(

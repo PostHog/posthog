@@ -23,7 +23,7 @@ def _datetime_incremental_fields(*names: str) -> list[IncrementalField]:
     ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class JfrogArtifactoryEndpointConfig:
     name: str
     # "rest" endpoints are a single unpaginated GET under /artifactory/api; "aql" endpoints POST an

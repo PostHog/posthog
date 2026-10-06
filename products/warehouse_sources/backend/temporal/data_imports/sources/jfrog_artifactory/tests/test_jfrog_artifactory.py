@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -416,8 +417,8 @@ def _patch_related_aql(monkeypatch: Any, parent_pages: dict[str, dict], related:
 
 class TestGetRowsAqlRelated:
     def test_fetches_related_rows_per_chunk_and_saves_state_per_parent_page(self, monkeypatch: Any) -> None:
-        config = JFROG_ARTIFACTORY_ENDPOINTS["build_promotions"]
-        monkeypatch.setattr(config, "aql_related_chunk_size", 2)
+        config = dataclasses.replace(JFROG_ARTIFACTORY_ENDPOINTS["build_promotions"], aql_related_chunk_size=2)
+        monkeypatch.setitem(JFROG_ARTIFACTORY_ENDPOINTS, "build_promotions", config)
         full_page = [_build(i) for i in range(AQL_PAGE_SIZE)]
         page_1 = build_aql_query(config, offset=0)
         page_2 = build_aql_query(config, offset=AQL_PAGE_SIZE)
