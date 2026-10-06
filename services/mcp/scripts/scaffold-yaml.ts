@@ -640,7 +640,7 @@ function main(): void {
 
     for (let i = 0; i < args.length; i++) {
         const flag = args[i]
-        if (!['--product', '--output', '--add', '--file'].includes(flag)) {
+        if (!flag || !['--product', '--output', '--add', '--file'].includes(flag)) {
             continue
         }
         const value = args[i + 1]
