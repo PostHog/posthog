@@ -484,7 +484,9 @@ impl ActiveState {
         ]
         .into_iter()
         .flatten()
-        .min();
+        .min()
+        // A revoke skips `take_ready`, so a retry time can have passed.
+        .map(|at| at.max(now));
         Ok(())
     }
 
@@ -662,6 +664,26 @@ mod tests {
         let (_, effects) = batcher.on_wakeup(now + FAULT_DELAY, &workers);
         assert!(effects.sends[0].class.replay);
         assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
+    }
+
+    #[test]
+    fn a_revoke_after_a_retry_time_passed_asks_for_a_wakeup_now() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let batcher = batcher(4, now);
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let request = effects.sends[0].request;
+        let (batcher, _) = batcher.on_request_failed(
+            now,
+            &workers,
+            request,
+            FailureCause::Busy,
+            vec![message("a", 0, 1)],
+        );
+
+        let late = now + BUSY_DELAY * 3;
+        let (_, effects) = batcher.on_partitions_revoked(late, &[("events".to_string(), 9)]);
+        assert_eq!(effects.next_wakeup, Some(late));
     }
 
     #[test]
