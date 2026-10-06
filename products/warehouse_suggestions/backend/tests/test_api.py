@@ -1,3 +1,4 @@
+import json
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
@@ -101,6 +102,7 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         assert {field: getattr(low, field) for field in REVIEW_FIELDS} == dict.fromkeys(REVIEW_FIELDS)
         logged = ActivityLog.objects.filter(team_id=self.team.id, scope="WarehouseSuggestion", item_id=str(low.id))
         assert logged.count() == 2
+        assert "We sunset this view" not in json.dumps([entry.detail for entry in logged], default=str)
 
     def test_deciding_a_decided_suggestion_conflicts(self) -> None:
         suggestion = self._suggest(self.view.id)

@@ -91,20 +91,11 @@ def upsert_suggestions(team_id: int, drafts: Sequence[SuggestionDraft]) -> None:
     team_id = resolve_effective_team_id(team_id)
     suggestions = WarehouseSuggestion.objects.for_team(team_id, canonical=True)
     seen_at = timezone.now()
-    known = set(
-        suggestions.filter(fingerprint__in=[draft.fingerprint for draft in drafts]).values_list(
-            "fingerprint", flat=True
-        )
-    )
-    suggestions.bulk_create(
-        [_new_suggestion(team_id, draft, seen_at) for draft in drafts if draft.fingerprint not in known],
-        ignore_conflicts=True,
-    )
+    suggestions.bulk_create([_new_suggestion(team_id, draft, seen_at) for draft in drafts], ignore_conflicts=True)
     for draft in drafts:
-        if draft.fingerprint in known:
-            suggestions.filter(fingerprint=draft.fingerprint, status=WarehouseSuggestionStatus.PROPOSED).update(
-                last_seen_at=seen_at, **_ingest_updates(draft)
-            )
+        suggestions.filter(
+            fingerprint=draft.fingerprint, status=WarehouseSuggestionStatus.PROPOSED, last_seen_at__lt=seen_at
+        ).update(last_seen_at=seen_at, **_ingest_updates(draft))
 
 
 def _new_suggestion(team_id: int, draft: SuggestionDraft, seen_at: datetime) -> WarehouseSuggestion:

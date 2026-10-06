@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
@@ -107,16 +107,25 @@ class TestIngest(BaseTest):
         assert refreshed.score == 7.5
         assert refreshed.last_seen_at > first.last_seen_at
 
-    @parameterized.expand([(WarehouseSuggestionStatus.DISMISSED,), (WarehouseSuggestionStatus.ACCEPTED,)])
-    def test_ingest_leaves_a_decided_suggestion_untouched(self, decided: WarehouseSuggestionStatus) -> None:
+    @parameterized.expand(
+        [
+            ("dismissed", WarehouseSuggestionStatus.DISMISSED, timedelta(0)),
+            ("accepted", WarehouseSuggestionStatus.ACCEPTED, timedelta(0)),
+            ("refreshed_by_a_newer_run", WarehouseSuggestionStatus.PROPOSED, timedelta(hours=1)),
+        ]
+    )
+    def test_ingest_leaves_the_suggestion_untouched(
+        self, _name: str, status: WarehouseSuggestionStatus, newer_by: timedelta
+    ) -> None:
         suggestion = ingest_one(self.team.id, make_draft(score=1.0))
-        transition_to(suggestion.id, self.team.id, decided, user_id=self.user.id)
+        last_seen_at = suggestion.last_seen_at + newer_by
+        WarehouseSuggestion.objects.for_team(self.team.id).filter(id=suggestion.id).update(
+            status=status, last_seen_at=last_seen_at
+        )
 
         after = ingest_one(self.team.id, make_draft(score=9.0))
 
-        assert after.status == decided
-        assert after.score == 1.0
-        assert after.last_seen_at == suggestion.last_seen_at
+        assert (after.status, after.score, after.last_seen_at) == (status, 1.0, last_seen_at)
 
     def test_ingest_keeps_one_row_per_fingerprint_and_logs_no_activity(self) -> None:
         draft = make_draft()

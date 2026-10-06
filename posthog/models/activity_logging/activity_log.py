@@ -361,6 +361,7 @@ common_field_exclusions = [
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
     "AccountView": ["name", "content", "text_content"],
+    "WarehouseSuggestion": ["dismissal_note"],
     "HogFunction": [
         "inputs",
         "mappings",
