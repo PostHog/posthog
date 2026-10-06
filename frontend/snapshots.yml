@@ -1756,6 +1756,10 @@ snapshots:
         hash: v1.k794b7964.695db537c58523ccddbc27ca55efd0c26869b819dd1b61d68c8f62568f95662c.Elw0IPXosIZQX-CTjUA53qCNvx5pzjeDQcVO8ukReTs
     components-mcp-use-case-card--surveys-create--light:
         hash: v1.k794b7964.693a3cba67de29bb7ecea8b07f3ae05b0201c2785fa2f2d4975e481b6fdc349e.ROQjP-mA4zsLzJifJv9uIKLgwuM0h84NwoFZJ90rSyc
+    components-message-tool-calls-editor--editable-tool-calls--dark:
+        hash: v1.k794b7964.7adaad1e91b71d0b933afe541a20fd43112e39d56d6638abadfae6a830bb0c15.TxnbKwXIG1XbB5e4KpRJa4-PA-wl-kKOWbtX1ERVqLU
+    components-message-tool-calls-editor--editable-tool-calls--light:
+        hash: v1.k794b7964.4a10839159f5b3f989112539bb2a720f04460890fae5914a3516457e7cba92f3.Snir6e_iAMVVl1tdItfy70BRcAHw5Zem9Kk0ujjMQIo
     components-navpanelproductpush--all-products--dark:
         hash: v1.k794b7964.d6cc4da0e30950f4e3bf7338d86856529e48c45785bae5a85ccf4fd3ed7c3ad0.8n61Z9x6l3I3qfdAzk46yr7fAFHoYNdo3tjEKyJlcIo
     components-navpanelproductpush--all-products--light:
@@ -2536,6 +2540,10 @@ snapshots:
         hash: v1.k794b7964.e66bf82a582145f768e6a70a9696d7740cb012c2022c398b68a0311ef0aa8a37.yDQ1kPl_Hi9xOUuxr9j5k7-ZlW9fyhYL3VnQRYg0nMk
     components-template-variable-text-area--filled-and-unfilled-variables--light:
         hash: v1.k794b7964.1377bea2cf4a8e52c8da776a97346ea4c8c1becd10a9fe80abbe820d56d666e4.b5L2IxrKavjH9TYToZRloZVq1ZmlgYbvPU90Nc04Otw
+    components-tool-call-display--streamed-tool-call--dark:
+        hash: v1.k794b7964.5d1893cd81b904b00103ea1f5ccc2f6087b9cd55e93c6372ccf77a39102ec1b5.kVv0HwIqvf-w9Xn_R1hEMhy4NDNkqbiT2CJ7V8nP3fQ
+    components-tool-call-display--streamed-tool-call--light:
+        hash: v1.k794b7964.f0d2d11d7c55b1a1982e00b1b331e71616445300b8f892587ded56a153df673d.pu6VpTNncfZsmeCcjfXTKKGPPCBJy_xT5Qc4F7fqNws
     components-tz-label--absolute-timestamp--dark:
         hash: v1.k794b7964.e5939abb9b33f906d4d27d30344bb10dece07742fd0921be4d0875d2d977d81e.0x8wWYgIz71dN5jLN8DG2WgaaSA4lInr-a2JEd4MzuI
     components-tz-label--absolute-timestamp--light:
