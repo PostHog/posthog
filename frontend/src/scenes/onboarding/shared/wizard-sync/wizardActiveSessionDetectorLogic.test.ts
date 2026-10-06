@@ -1,8 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
+import type { ProjectType } from '~/types'
 
 import { wizardSessionsLatestRetrieve } from 'products/wizard/frontend/generated/api'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
@@ -99,6 +101,18 @@ describe('wizardActiveSessionDetectorLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.check()
         }).toFinishAllListeners()
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps one pending poll per project across a project switch and back', () => {
+        const originalProject = projectLogic.values.currentProject as ProjectType
+        mockLatestRetrieve.mockReturnValue(new Promise(() => {}))
+
+        logic.actions.check()
+        projectLogic.actions.loadCurrentProjectSuccess({ ...originalProject, id: originalProject.id + 1 })
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+
+        projectLogic.actions.loadCurrentProjectSuccess(originalProject)
         expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
     })
 
