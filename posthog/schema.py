@@ -1027,6 +1027,10 @@ class ChartSettingsDisplay(BaseModel):
     displayType: DisplayType | None = None
     label: str | None = None
     trendLine: bool | None = None
+    wrapText: bool | None = Field(
+        default=None,
+        description="Show full text and preserve line breaks in table cells.",
+    )
     yAxisPosition: YAxisPosition | None = None
 
 

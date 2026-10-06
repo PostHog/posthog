@@ -1446,6 +1446,8 @@ export interface ChartSettingsFormatting {
 export interface ChartSettingsDisplay {
     color?: string
     label?: string
+    /** Show full text and preserve line breaks in table cells. */
+    wrapText?: boolean
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
     displayType?: 'auto' | 'line' | 'bar' | 'area'

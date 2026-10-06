@@ -305,8 +305,16 @@ export const Table = (props: TableProps): JSX.Element => {
                         )
                     }
 
+                    const sourceSettings = cell.sourceColumnName
+                        ? sourceTabularColumnsByName.get(cell.sourceColumnName)?.settings
+                        : settings
+                    const wrapText = sourceSettings?.display?.wrapText
+
                     return (
-                        <div className="truncate" title={getCellTitle(cell)}>
+                        <div
+                            className={wrapText ? 'whitespace-pre-wrap wrap-anywhere' : 'truncate'}
+                            title={wrapText ? undefined : getCellTitle(cell)}
+                        >
                             {renderColumn(
                                 cell.sourceColumnName ?? column.name,
                                 cell.formattedValue,
@@ -316,7 +324,10 @@ export const Table = (props: TableProps): JSX.Element => {
                                 {
                                     kind: NodeKind.DataTableNode,
                                     source: props.query.source,
-                                }
+                                },
+                                undefined,
+                                undefined,
+                                { wrapText }
                             )}
                         </div>
                     )
