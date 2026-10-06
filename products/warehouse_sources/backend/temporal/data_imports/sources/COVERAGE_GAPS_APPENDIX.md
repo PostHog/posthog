@@ -4589,10 +4589,10 @@ Today (4): `forms`, `questions`, `reports`, `submissions`
 
 Diffed against: <https://api.jotform.com/docs/>
 
-- [ ] `GET /user/usage` — monthly submission, upload, view and payment counts - Jotform's headline account metric (high)
-- [ ] `GET /user/folders` — lookup grouping forms into folders, the org dimension for form reporting (medium)
-- [ ] `GET /user/history` — account activity log (form created/deleted/edited events) (medium)
-- [ ] `GET /user/labels and GET /label/{id}/resources` — label lookup plus the label-to-form/submission edges that resolve tags (medium)
+- [x] `GET /user/usage` — monthly submission, upload, view and payment counts - Jotform's headline account metric (high). Added as `usage` (single-row snapshot of the current month).
+- [ ] `GET /user/folders` — lookup grouping forms into folders, the org dimension for form reporting (medium). Skipped: Jotform marks the folder endpoints deprecated in favor of labels, which `labels` covers.
+- [x] `GET /user/history` — account activity log (form created/deleted/edited events) (medium). Added as `history`.
+- [x] `GET /user/labels and GET /label/{id}/resources` — label lookup plus the label-to-form/submission edges that resolve tags (medium). Added as `labels` (flattened label tree) and `label_resources` (fan-out over `labels`).
 - [ ] `GET /user/subusers` — sub-account users, needed to attribute forms and submissions in team accounts (low)
 - [ ] `GET /user` — account record (plan, limits) as the parent row for usage (low)
 
