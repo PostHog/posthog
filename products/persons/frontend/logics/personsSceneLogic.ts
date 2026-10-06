@@ -36,6 +36,10 @@ function buildDefaultQuery(personLastSeenAtEnabled: boolean): DataTableNode {
 
 export const PEOPLE_LIST_DEFAULT_QUERY = buildDefaultQuery(false)
 
+function asStoredInUrl(query: DataTableNode): DataTableNode {
+    return JSON.parse(JSON.stringify(query))
+}
+
 // The scene's real default gains a `last_seen_at` column when the team turns on that setting,
 // so a caller that checks for an untouched default has to accept both shapes.
 const PEOPLE_LIST_DEFAULT_QUERY_WITH_LAST_SEEN_AT = buildDefaultQuery(true)
@@ -166,23 +170,20 @@ export const personsSceneLogic = kea<personsSceneLogicType>([
 
     urlToAction(({ actions, values }) => ({
         [urls.persons()]: (_, __, { q: queryParam }): void => {
-            if (!equal(queryParam, values.query)) {
-                if (!queryParam) {
-                    actions.setQuery({
-                        ...values.defaultQuery,
-                        defaultColumns: values.defaultColumns,
-                    })
-                } else {
-                    if (typeof queryParam === 'object') {
-                        actions.setQuery({
-                            ...queryParam,
-                            defaultColumns: values.defaultColumns,
-                        })
-                    } else {
-                        lemonToast.error('Invalid query in URL')
-                        console.error({ queryParam })
-                    }
-                }
+            if (queryParam && typeof queryParam !== 'object') {
+                lemonToast.error('Invalid query in URL')
+                console.error({ queryParam })
+                return
+            }
+            const queryFromUrl = {
+                ...(queryParam ?? values.defaultQuery),
+                defaultColumns: values.defaultColumns,
+            }
+            // Every location change on this path runs this handler, also changes that other logics make.
+            // Compare both sides as the URL stores them (JSON drops undefined keys), so a URL that already
+            // shows the current query does not dispatch setQuery again.
+            if (!equal(asStoredInUrl(queryFromUrl), asStoredInUrl(values.query))) {
+                actions.setQuery(queryFromUrl)
             }
         },
     })),
