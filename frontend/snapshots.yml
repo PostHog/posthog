@@ -12302,6 +12302,14 @@ snapshots:
         hash: v1.k794b7964.236c0485a9150c930638669fc0e9e894f5957a2ac2745f29b73ed558ffcd1cdc.yeGKlhnvYq8b01QMsu190pnW-nQwU4cGKsf7aH0Ck8k
     scenes-app-notebooks-run-all-banner--starting--light:
         hash: v1.k794b7964.6c7bd37efe1d58d68070782d7d1d0ce20be5abfebe1f829feb0376b584ad1158.CVBhfDqMZqLLuxmDgkiTAS9Vn2SANiX9cOWDF1Ui8hk
+    scenes-app-notebooks-sql-cell-chart--bar-chart--dark:
+        hash: v1.k794b7964.bd4d4254c1794bb298f47c34419e2f8e0c7d2e10efe1570bfdd36a80413f3fac.rPieyvD-6UoN6s9HLMnMcUgl90BECH0isgly0aAyH-8
+    scenes-app-notebooks-sql-cell-chart--bar-chart--light:
+        hash: v1.k794b7964.7ef266fee657c01bbedd1c6dba696cafdfebd9d2308120ab0afcf97529225859.2cGtOdzHoMDygLpR2rt-V_-rZpgG-3nZkqclz02z0Xs
+    scenes-app-notebooks-sql-cell-chart--line-chart--dark:
+        hash: v1.k794b7964.d79ea486c293d5ac20e5105ae83a477f5cef028c1141496f1818d7e2e7902ad7.v9_Yh7MhzUvKMugwvqSo8NQflvhWkQfKEGHWmFkZNm8
+    scenes-app-notebooks-sql-cell-chart--line-chart--light:
+        hash: v1.k794b7964.648750c02afb7c12d6d006c9eacdd12e476cd256fce98c63e5a8b7e91f7901cb.o_yTtb6Q4tqGEIWUUd-PX7Fkwk-0mcxATG5mH7Owe-U
     scenes-app-notebooks-widget-generation-cost--less-than-one-cent--dark:
         hash: v1.k794b7964.3d7ab4ed80e86dee207323ed0baf83d86a9c0b53c868f64769ddc708b4ab5881.RKwiZJnBL8K4kWfRM3MV6Aruoqr20twxVmepMy_SU6Y
     scenes-app-notebooks-widget-generation-cost--less-than-one-cent--light:

@@ -21,6 +21,13 @@ import {
     startsComponentTag,
     upsertProp,
 } from './cellTags'
+import {
+    applyVisualization,
+    CellVisualizationSchema,
+    storedVisualizationWarnings,
+    VISUALIZATION_PARAM_DESCRIPTION,
+    visualizationWarnings,
+} from './cellVisualization'
 import { applyMarkdownEdit, fetchMarkdownNotebook, notebookPathFor, saveMarkdown } from './markdownDoc'
 import { NOTEBOOK_SHORT_ID_DESCRIPTION, notebookIdAliases } from './notebookId'
 
@@ -41,12 +48,19 @@ const UpdateCellInputSchema = z
         code: z
             .string()
             .optional()
-            .describe('New SQL or Python source. Omit to re-run the cell as-is (e.g. a stale cell).'),
+            .describe(
+                'New SQL or Python source. Omit code and visualization to re-run the cell as-is (e.g. a stale cell).'
+            ),
         markdown: z
             .string()
             .optional()
             .describe(
                 'New markdown for a markdown cell: prose, a heading, a table, or a fenced block. Use this instead of `code` when notebooks-get reports the cell as cell_type "markdown". Pass the replacement only; the surrounding cells are untouched.'
+            ),
+        visualization: CellVisualizationSchema.nullable()
+            .optional()
+            .describe(
+                `${VISUALIZATION_PARAM_DESCRIPTION} Pass null to show the results table again. Without code, the chart changes and the cell does not re-run.`
             ),
     })
     .strict()
@@ -57,6 +71,13 @@ export interface UpdateCellResult {
     node_id: string
     run: ShapedRunResult
     stale_dependents: { node_id: string; dataframe_name?: string }[]
+    visualization_warnings?: string[]
+}
+
+export interface UpdateVisualizationResult {
+    node_id: string
+    updated: true
+    visualization_warnings?: string[]
 }
 
 export interface UpdateProseCellResult {
@@ -98,6 +119,9 @@ async function updateProseCell(
     context: Context,
     params: z.infer<typeof NotebooksUpdateCellSchema>
 ): Promise<UpdateProseCellResult> {
+    if (params.visualization !== undefined) {
+        throw new Error(`Cell ${params.node_id} is a markdown cell. visualization applies to sql cells only.`)
+    }
     if (params.code !== undefined) {
         throw new Error(
             `Cell ${params.node_id} is a markdown cell. Pass its replacement as \`markdown\`, not \`code\`.`
@@ -157,8 +181,11 @@ async function updateProseCell(
 
 export const updateCellHandler: ToolBase<
     typeof NotebooksUpdateCellSchema,
-    UpdateCellResult | UpdateProseCellResult
+    UpdateCellResult | UpdateProseCellResult | UpdateVisualizationResult
 >['handler'] = async (context: Context, params: z.infer<typeof NotebooksUpdateCellSchema>) => {
+    if (params.visualization !== undefined && params.markdown !== undefined) {
+        throw new Error('visualization applies to sql cells only. A markdown cell has no chart.')
+    }
     if (params.code !== undefined && params.markdown !== undefined) {
         throw new Error(
             'Pass either code (a SQL or Python cell) or markdown (a markdown cell), not both. The cell type follows from node_id; read it from notebooks-get.'
@@ -167,7 +194,7 @@ export const updateCellHandler: ToolBase<
     // A prefix only hints at the cell type. A tag holds its id in a prop, and nothing stops that
     // prop from reading like a markdown block id, so the document decides when the two disagree.
     const looksLikeProse = PROSE_NODE_ID_PREFIXES.some((prefix) => params.node_id.startsWith(prefix))
-    if (looksLikeProse && params.code !== undefined) {
+    if (looksLikeProse && (params.code !== undefined || params.visualization !== undefined)) {
         const { markdown } = await fetchMarkdownNotebook(context, params.notebook_id)
         if (!findCellTag(markdown, params.node_id)) {
             return await updateProseCell(context, params)
@@ -189,17 +216,36 @@ export const updateCellHandler: ToolBase<
             `Cell ${params.node_id} is a ${existing.tagName} cell and cannot be updated with this tool — delete and re-add it instead.`
         )
     }
+    if (params.visualization !== undefined && existing.tagName !== 'SQLV2') {
+        throw new Error(
+            `visualization applies to sql cells only, and ${params.node_id} is a python cell. A python cell plots with matplotlib.`
+        )
+    }
 
     let markdown = initial.markdown
     let notebook = initial.notebook
-    if (params.code !== undefined && params.code !== existing.code) {
+    const codeChanged = params.code !== undefined && params.code !== existing.code
+    if (codeChanged || params.visualization !== undefined) {
         const applied = await applyMarkdownEdit(context, params.notebook_id, (current) => {
             const block = findCellTag(current, params.node_id)
             if (!block) {
                 throw new Error(`No cell with node_id ${params.node_id} in notebook ${params.notebook_id}.`)
             }
-            return replaceCellTag(current, block, upsertProp(block.source, 'code', params.code))
+            let source = codeChanged ? upsertProp(block.source, 'code', params.code) : block.source
+            if (params.visualization !== undefined) {
+                source = applyVisualization(source, params.visualization)
+            }
+            return replaceCellTag(current, block, source)
         })
+        if (params.code === undefined) {
+            const updated = findCellTag(applied.markdown, params.node_id)
+            const warnings = updated ? storedVisualizationWarnings(updated.source) : []
+            return wrapRunResultAsInformational({
+                node_id: params.node_id,
+                updated: true as const,
+                ...(warnings.length ? { visualization_warnings: warnings } : {}),
+            })
+        }
         markdown = applied.markdown
         // The save response carries the notebook as it stood when the save committed, so it holds a
         // variable edit that landed after the read above.
@@ -223,6 +269,7 @@ export const updateCellHandler: ToolBase<
         variables: notebook.variables,
     })
     const outcome = await awaitRun(context, notebookPath, runId)
+    let warnings: string[] = []
     await applyMarkdownEdit(context, params.notebook_id, (current) => {
         const block = findCellTag(current, params.node_id)
         if (!block) {
@@ -231,6 +278,8 @@ export const updateCellHandler: ToolBase<
         let source = upsertProp(block.source, 'runId', runId)
         if (outcome.envelope && (outcome.status === 'done' || outcome.status === 'interrupted')) {
             source = upsertProp(source, 'result', buildResultProp(outcome.envelope))
+            // New code can drop a column the stored chart plots, so every run re-checks the chart.
+            warnings = visualizationWarnings(source, outcome.envelope)
         }
         return replaceCellTag(current, block, source)
     })
@@ -240,10 +289,14 @@ export const updateCellHandler: ToolBase<
         run: shapeRunForModel(outcome),
         stale_dependents:
             outcome.status === 'done' ? directDependents(cells, existing.returnVariable, params.node_id) : [],
+        ...(warnings.length ? { visualization_warnings: warnings } : {}),
     })
 }
 
-const tool = (): ToolBase<typeof NotebooksUpdateCellSchema, UpdateCellResult | UpdateProseCellResult> => ({
+const tool = (): ToolBase<
+    typeof NotebooksUpdateCellSchema,
+    UpdateCellResult | UpdateProseCellResult | UpdateVisualizationResult
+> => ({
     name: 'notebooks-update-cell',
     schema: NotebooksUpdateCellSchema,
     handler: updateCellHandler,
