@@ -244,6 +244,76 @@ describe("transcriptFrom shell commands", () => {
   });
 });
 
+describe("transcriptFrom compaction", () => {
+  const lines = (entries: StoredLogEntry[]) =>
+    transcriptFrom("pi", entries).lines.map(({ id: _, ...line }) => line);
+  const compaction = (
+    second: number,
+    reason: string,
+    end?: { tokensBefore?: number; estimatedTokensAfter?: number },
+  ): StoredLogEntry[] => [
+    piEvent(second, {
+      type: "runtime_status",
+      status: "compacting",
+      compaction: {
+        reason,
+        ...(reason === "manual" ? { instructions: "keep the plan" } : {}),
+      },
+    }),
+    piEvent(second + 1, {
+      type: "runtime_status",
+      status: "compacting",
+      isComplete: true,
+      compaction: { reason, ...end },
+    }),
+    piEvent(second + 1, {
+      type: "assistant_message_chunk",
+      content: { type: "text", text: "## Goal\nThe whole summary" },
+    }),
+  ];
+
+  it.each([
+    [
+      "a /compact as sent, then what it freed",
+      compaction(1, "manual", {
+        tokensBefore: 1_240_000,
+        estimatedTokensAfter: 32_000,
+      }),
+      [
+        { kind: "user", text: "/compact keep the plan" },
+        { kind: "notice", text: "Compacted 1.2M → ~32k tokens", tone: "info" },
+      ],
+    ],
+    [
+      "an automatic one as a notice alone",
+      compaction(1, "threshold", { tokensBefore: 180_000 }),
+      [
+        {
+          kind: "notice",
+          text: "Compacted automatically: 180k tokens",
+          tone: "info",
+        },
+      ],
+    ],
+    [
+      "one from a run that predates the sizes",
+      compaction(1, "manual").map((entry) => {
+        const { compaction: _, ...event } = (entry as { event: object })
+          .event as { compaction?: unknown };
+        return { ...entry, event } as StoredLogEntry;
+      }),
+      [{ kind: "notice", text: "Compacted", tone: "info" }],
+    ],
+    [
+      "nothing freed by one that stopped",
+      compaction(1, "threshold").slice(0, 2),
+      [],
+    ],
+  ])("shows %s, without the summary", (_, entries, expected) => {
+    expect(lines(entries)).toEqual(expected);
+  });
+});
+
 describe("transcriptFrom bookkeeping", () => {
   it("hides the agent's task summary updates", () => {
     const entries = [
