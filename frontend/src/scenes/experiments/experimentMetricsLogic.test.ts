@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
-import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched_with_funnel_and_trends.json'
+import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { Experiment } from '~/types'
