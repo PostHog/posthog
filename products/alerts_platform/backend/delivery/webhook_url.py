@@ -87,7 +87,8 @@ class WebhookUrlTransport(ABC):
                     request,
                     stream=True,
                     timeout=(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS),
-                    verify=settings["verify"],
+                    # Typed as optional, but it falls back to the session's own setting, which is True.
+                    verify=True if settings["verify"] is None else settings["verify"],
                     cert=settings["cert"],
                     proxies=settings["proxies"],
                 )
