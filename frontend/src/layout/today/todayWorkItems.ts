@@ -9,6 +9,7 @@ import {
     TaskRunDetailDTOApi,
     TaskUserBasicInfoApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import { presenceTier } from 'products/tasks/frontend/spaces/spacePresence'
 import { TaskPullRequest, taskPullRequests } from 'products/tasks/frontend/spaces/taskPullRequests'
 import { taskUserName } from 'products/tasks/frontend/spaces/TaskUserAvatar'
 
@@ -46,6 +47,7 @@ export interface TodayWorkGroup {
 }
 
 export type TodaySessionBadge =
+    | { kind: 'author'; author: TaskUserBasicInfoApi; live: boolean }
     | { kind: 'source'; source: string }
     | { kind: 'pullRequest'; pullRequest: TaskPullRequest }
     | { kind: 'local' }
@@ -60,6 +62,8 @@ const BADGE_SOURCES = new Set([
     'eval_clusters',
     'task_analysis',
 ])
+
+const MAX_ROW_BADGES = 3
 
 const FINISHED_RUN_STATUSES = new Set(['completed', 'failed', 'cancelled'])
 const ACTIVE_RUN_STATUSES = new Set(['not_started', 'queued', 'in_progress'])
@@ -119,6 +123,13 @@ function finalMessage(output: TaskRunDetailDTOApi['output'] | undefined): string
     return typeof message === 'string' && message.trim() ? message.trim() : null
 }
 
+/** What the session icon reads, from a task's latest run, for a page that has the task but not its work item. */
+export function sessionIconFields(
+    latestRun: { status?: string | null; environment?: string | null } | null | undefined
+): Pick<TodayWorkItem, 'kind' | 'status' | 'runEnvironment'> {
+    return { kind: 'session', status: latestRun?.status ?? null, runEnvironment: latestRun?.environment ?? null }
+}
+
 export function sessionItem(task: TaskListItemApi): TodayWorkItem {
     return {
         kind: 'session',
@@ -163,7 +174,11 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
     }
 }
 
-export function sessionBadges(item: TodayWorkItem): TodaySessionBadge[] {
+export function sessionBadges(
+    item: TodayWorkItem,
+    userId: number | null | undefined,
+    { pinned = false, now = Date.now() }: { pinned?: boolean; now?: number } = {}
+): TodaySessionBadge[] {
     const badges: TodaySessionBadge[] = []
     if (item.originProduct && BADGE_SOURCES.has(item.originProduct)) {
         badges.push({ kind: 'source', source: item.originProduct })
@@ -174,6 +189,14 @@ export function sessionBadges(item: TodayWorkItem): TodaySessionBadge[] {
     }
     if (badges.length === 0 && item.runEnvironment === 'local') {
         badges.push({ kind: 'local' })
+    }
+    const activityAt = item.timestamp ? Date.parse(item.timestamp) : Number.NaN
+    const tier = Number.isNaN(activityAt) ? 'idle' : presenceTier(activityAt, now)
+    if (item.author && item.createdById !== userId && tier !== 'idle') {
+        badges.unshift({ kind: 'author', author: item.author, live: tier === 'live' })
+    }
+    if (badges.length + (pinned ? 1 : 0) > MAX_ROW_BADGES) {
+        return badges.filter((badge) => badge.kind !== 'source')
     }
     return badges
 }
@@ -245,6 +268,17 @@ export function unreadSessionIds(activity: TaskActivityDTOApi[]): Set<string> {
 
 export function unreadSpaceIds(activity: TaskActivityDTOApi[]): Set<string> {
     return new Set(unreadSessionActivity(activity).flatMap((row) => (row.channel_id ? [row.channel_id] : [])))
+}
+
+export function unreadSessionCountsBySpace(activity: TaskActivityDTOApi[]): Record<string, number> {
+    const sessionsBySpace: Record<string, Set<string>> = {}
+    for (const row of unreadSessionActivity(activity)) {
+        if (row.channel_id) {
+            sessionsBySpace[row.channel_id] ??= new Set()
+            sessionsBySpace[row.channel_id].add(row.task_id as string)
+        }
+    }
+    return Object.fromEntries(Object.entries(sessionsBySpace).map(([spaceId, sessions]) => [spaceId, sessions.size]))
 }
 
 /**

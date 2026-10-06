@@ -1,38 +1,54 @@
-import { OBJECT_TAG_PROMPT_KIND_LIST } from "./objectTagKinds.generated";
+import { OBJECT_LINK_PROMPT_PATH_LIST } from "./objectTagKinds.generated";
 
-/**
- * Prompt block teaching an agent the object-tag vocabulary the desktop
- * renders as live references (chips, hover previews, chart cards). Shared by
- * every agent runtime so its syntax stays in sync with what `remarkObjectTags`
- * parses; the kind list itself is generated from the registry
- * (posthog/object_tags/kinds.py) so the prompt cannot drift from what the
- * renderers understand.
- */
-export const RICH_OUTPUT_TAGS_PROMPT = `Embed the PostHog objects behind your conclusions as XML tags, the same convention as \`<file path="..."/>\` attachments. Every tag is a live reference the app resolves when shown - never restate the object's data in your text, and never put tags inside code fences.
-- Inline reference: \`<kind id="...">short human label</kind>\` inside a sentence, e.g. \`The <insight id="9pQx3">checkout funnel</insight> dropped after <flag id="42">new-checkout-flow</flag> rolled out.\` Kinds: ${OBJECT_TAG_PROMPT_KIND_LIST}. Use the object's id (insights: the short id; feature flags: the numeric id, falling back to the key; Inbox reports: the report uuid; persons: the uuid). It renders as a chip with a live hover preview that opens the object in PostHog.
-- Inline SQL: \`<hogql label="signups today">SELECT count() FROM events WHERE ...</hogql>\` - the SQL is the tag body, the label is what the sentence shows. Hovering runs the query live; clicking opens the SQL editor.
-- Full-size chart, for any numeric or time-series answer (always prefer this over a markdown table): a saved insight \`<insight id="9pQx3" display="block"/>\` or a query \`<hogql display="block" title="Daily active users, last 7 days" caption="optional context">SELECT ...</hogql>\`. The chart executes live on every view. Include the time range in the title, and keep blank lines out of the SQL body.
-- Some PostHog MCP query tools render their result as an interactive chart in the conversation, and the tool result says so. When the tool result says the user already sees the result as an interactive view, do not embed the same data again as a \`<hogql>\` chart; write the conclusion in text and let that view carry the data. When it does not, the tool renders nothing on its own, so follow the full-size chart rule above.
-- Recording card: \`<replay id="<session_id>" display="block"/>\` renders the recording's details with a link into PostHog's player. Use it when a specific session is the evidence.`;
+export const RICH_OUTPUT_PROMPT_HEADING = "## Rich output in replies";
+export const RICH_OUTPUT_PROMPT_LEAD =
+  "Link the PostHog objects behind your conclusions as Markdown links";
+
+const FALLBACK_PROJECT_URL = "https://<PostHog host>/project/<project id>";
+const BLOCK_END = String.raw`Use it when a specific session is the evidence\.`;
+const BLOCK_BODY = String.raw`(?:(?!\n## )[\s\S])*?${BLOCK_END}`;
+const OPTIONAL_HEADING = String.raw`(?:\n\n${RICH_OUTPUT_PROMPT_HEADING}\n)?`;
+const LEGACY_TAG_BLOCK = new RegExp(
+  `${OPTIONAL_HEADING}Embed the PostHog objects behind your conclusions as XML tags${BLOCK_BODY}`,
+  "g",
+);
+const LINK_BLOCK = new RegExp(
+  `${OPTIONAL_HEADING}${RICH_OUTPUT_PROMPT_LEAD}${BLOCK_BODY}`,
+  "g",
+);
+
+export function getProjectWebUrl(
+  appUrl: string,
+  projectId: number | string,
+): string {
+  return `${appUrl.replace(/\/+$/, "")}/project/${projectId}`;
+}
+
+export function renderRichOutputPrompt(projectUrl?: string | null): string {
+  const base = projectUrl?.replace(/\/+$/, "") || FALLBACK_PROJECT_URL;
+  return `${RICH_OUTPUT_PROMPT_LEAD} to their pages in this project, ${base}. The app recognizes these links and shows each one as a live object, so never restate the object's data in your text, and never put the links inside code fences or inline code. A link to another host or project stays a plain link.
+- Inline reference: \`[short human label](${base}/<path>)\` inside a sentence, e.g. \`The [checkout funnel](${base}/insights/9pQx3) dropped after [new-checkout-flow](${base}/feature_flags/42) rolled out.\` Paths: ${OBJECT_LINK_PROMPT_PATH_LIST}. Use the object's id (insights: the short id; feature flags: the numeric id, never the key; Inbox reports: the report uuid; persons: the uuid; events: the event definition uuid). When a tool result gives a \`_posthogUrl\` for the object, link to that URL. It renders as a chip with a live hover preview that opens the object in PostHog.
+- Inline SQL: \`[signups today](${base}/sql?open_query=SELECT%20count()%20FROM%20events)\`. Percent-encode the SQL the way encodeURIComponent does: spaces as %20 (never +), and encode every %, #, &, +, ", <, >, [, ] and line break. Hovering runs the query live; clicking opens the SQL editor.
+- Full-size chart, for any numeric or time-series answer (always prefer this over a markdown table): put the link to a saved insight or a SQL query alone in its own paragraph, with a blank line before and after it and not inside a list or table, e.g. \`[Daily active users, last 7 days](${base}/sql?open_query=SELECT%20...)\`. The link text is the chart title, so include the time range. An optional quoted link title adds a caption: \`[title](url "caption")\`. The chart executes live on every view.
+- Some PostHog MCP query tools render their result as an interactive chart in the conversation, and the tool result says so. When the tool result says the user already sees the result as an interactive view, do not link the same query again as a chart; write the conclusion in text and let that view carry the data. When it does not, the tool renders nothing on its own, so follow the full-size chart rule above.
+- Recording card: a link to \`${base}/replay/<session_id>\` alone in its own paragraph renders the recording's details with a link into PostHog's player. Use it when a specific session is the evidence.`;
+}
 
 export function appendRichOutputPrompt(
   prompt: string,
   interactionOrigin?: string | null,
+  projectUrl?: string | null,
 ): string {
+  const withoutLegacy = prompt.replace(LEGACY_TAG_BLOCK, "");
   if (
     interactionOrigin &&
     interactionOrigin !== "desktop" &&
     interactionOrigin !== "signal_report"
   ) {
-    return prompt
-      .replaceAll(
-        `\n\n## Rich output in replies\n${RICH_OUTPUT_TAGS_PROMPT}`,
-        "",
-      )
-      .replaceAll(RICH_OUTPUT_TAGS_PROMPT, "");
+    return withoutLegacy.replace(LINK_BLOCK, "");
   }
-  if (prompt.includes(RICH_OUTPUT_TAGS_PROMPT)) {
-    return prompt;
+  if (!projectUrl && withoutLegacy.search(LINK_BLOCK) !== -1) {
+    return withoutLegacy;
   }
-  return `${prompt}\n\n## Rich output in replies\n${RICH_OUTPUT_TAGS_PROMPT}`;
+  return `${withoutLegacy.replace(LINK_BLOCK, "")}\n\n${RICH_OUTPUT_PROMPT_HEADING}\n${renderRichOutputPrompt(projectUrl)}`;
 }

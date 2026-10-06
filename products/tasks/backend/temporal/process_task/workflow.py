@@ -1,6 +1,6 @@
 import json
 import asyncio
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -405,6 +405,11 @@ _ORIGIN_PRODUCT_SIGNAL_REPORT = "signal_report"
 # Two-step deprecate-then-delete cleanup lifecycle as above.
 _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 
+# Gates the forward of the agent_final_text signal to the Slack relay. A worker without the
+# handler records that signal in history and sends nothing, so a replay that forwards it emits a
+# command the history does not have (TMPRL1100). Same two-step cleanup lifecycle as above.
+_PATCH_ID_SLACK_AGENT_FINAL_TEXT = "tasks-slack-agent-final-text"
+
 # Progress steps of sandbox setup. The Slack plan shows them until the first turn starts.
 _SLACK_SETUP_PROGRESS_STEPS = frozenset({"sandbox", "clone", "checkout", "wizard", "agent"})
 
@@ -595,6 +600,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._sandbox_ttl_snapshot_taken: bool = False
         # Decided once at workflow start; gates the placeholder skip + relay spawn.
         self._is_agent_design_enabled: bool = False
+        # See _PATCH_ID_SLACK_AGENT_FINAL_TEXT.
+        self._forwards_agent_final_text: bool = False
         self._dev_stack_preview_enabled: bool = False
         # Deadline-based so heartbeats waking the event loop don't keep resetting the timer.
         self._self_driving_quota_next_check_at: Optional[datetime] = None
@@ -1340,6 +1347,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
             self._sandbox_url = sandbox_url
             self._sandbox_connect_token = sandbox_connect_token
+            if self._is_agent_design_enabled:
+                self._forwards_agent_final_text = workflow.patched(_PATCH_ID_SLACK_AGENT_FINAL_TEXT)
 
             relay_task: asyncio.Task[None] | None = self._spawn_event_relay(
                 sandbox_url, sandbox_connect_token, sandbox_id
@@ -2735,7 +2744,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "organization": self.context.organization_id,
                 "project": self.context.team_uuid,
             },
-            capture_analytics=capture_analytics,
+            capture_analytics=capture_analytics
+            and not bool(
+                (self.context.state or {}).get("scout_trial") or (self.context.state or {}).get("scout_trial_judge")
+            ),
         )
         await workflow.execute_activity(
             track_workflow_event,
@@ -3568,33 +3580,39 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             execution_timeout=timedelta(hours=6),
         )
 
-    @temporalio.workflow.signal
-    async def agent_status_update(self, payload: dict[str, Any]) -> None:
-        """Forward a {phase} tool-call update to the current per-turn child."""
+    async def _forward_to_slack_relay(self, signal: Callable[..., Any], arg: Any, failure_event: str) -> None:
         if not self._is_agent_design_enabled or not self._current_slack_relay_workflow_id:
             return
         try:
             handle = workflow.get_external_workflow_handle(self._current_slack_relay_workflow_id)
-            await handle.signal(SlackAgentDesignRelayWorkflow.agent_status_update, payload)
+            await handle.signal(signal, arg)
         except Exception as e:
             # Child already gone — drop the update.
             workflow.logger.debug(
-                "slack_status_forward_failed",
+                failure_event,
                 extra={"run_id": self.context.run_id, "error": str(e)},
             )
 
     @temporalio.workflow.signal
+    async def agent_status_update(self, payload: dict[str, Any]) -> None:
+        """Forward a {phase} tool-call update to the current per-turn child."""
+        await self._forward_to_slack_relay(
+            SlackAgentDesignRelayWorkflow.agent_status_update, payload, "slack_status_forward_failed"
+        )
+
+    @temporalio.workflow.signal
     async def agent_text_delta(self, text: str) -> None:
-        if not self._is_agent_design_enabled or not self._current_slack_relay_workflow_id:
+        await self._forward_to_slack_relay(
+            SlackAgentDesignRelayWorkflow.agent_text_delta, text, "slack_text_forward_failed"
+        )
+
+    @temporalio.workflow.signal
+    async def agent_final_text(self, payload: dict[str, Any]) -> None:
+        if not self._forwards_agent_final_text:
             return
-        try:
-            handle = workflow.get_external_workflow_handle(self._current_slack_relay_workflow_id)
-            await handle.signal(SlackAgentDesignRelayWorkflow.agent_text_delta, text)
-        except Exception as e:
-            workflow.logger.debug(
-                "slack_text_forward_failed",
-                extra={"run_id": self.context.run_id, "error": str(e)},
-            )
+        await self._forward_to_slack_relay(
+            SlackAgentDesignRelayWorkflow.agent_final_text, payload, "slack_final_text_forward_failed"
+        )
 
     @temporalio.workflow.signal
     async def turn_completed(self, trace_id: str | None = None) -> None:

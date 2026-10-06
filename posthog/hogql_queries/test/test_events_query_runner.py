@@ -1,4 +1,7 @@
-from datetime import datetime
+import re
+import json
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import time_machine
@@ -22,6 +25,9 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsQuery,
     EventsQueryActionStep,
+    GroupPropertyFilter,
+    HogQLQueryModifiers,
+    PersonPropertyFilter,
     PropertyOperator,
 )
 
@@ -32,10 +38,21 @@ from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Element, Organization, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.event.util import events_only_in_active_schema
+from posthog.models.group.util import create_group
 from posthog.models.person.util import get_person_by_distinct_id
+from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+
+EVENTS_FLAG_KEY = "flag-written-to-events"
+FLAG_EVALUATIONS_FLAG_KEY = "flag-written-to-flag-evaluations"
+FLAG_EVALUATIONS_DISTINCT_ID = "flag-evaluations-user"
+FLAG_EVALUATIONS_EMAIL = "flag-user@example.com"
+FLAG_EVALUATIONS_GROUP_KEY = "flag-org"
+FLAG_CALL_TIMESTAMP = datetime(2020, 1, 11, 12, 0, 1, tzinfo=UTC)
 
 
 class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -1214,6 +1231,317 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0][0]["event"], "$pageview")
 
+    def _set_flag_evaluations_mode(self, mode: FlagEvaluationsMode) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+
+    def _insert_flag_evaluation(
+        self,
+        distinct_id: str,
+        person_id: uuid.UUID,
+        timestamp: datetime = FLAG_CALL_TIMESTAMP,
+        properties: dict[str, Any] | None = None,
+    ) -> uuid.UUID:
+        row_uuid = uuid.uuid4()
+        sync_execute(
+            """
+            INSERT INTO writable_flag_evaluations
+                (uuid, event, properties, timestamp, team_id, distinct_id, created_at, person_id)
+            VALUES
+            """,
+            [
+                (
+                    str(row_uuid),
+                    "$feature_flag_called",
+                    json.dumps(properties or {"$feature_flag": FLAG_EVALUATIONS_FLAG_KEY}),
+                    timestamp,
+                    self.team.pk,
+                    distinct_id,
+                    timestamp,
+                    str(person_id),
+                )
+            ],
+        )
+        return row_uuid
+
+    def _create_flag_calls_in_both_tables(self, person_id: uuid.UUID | None = None) -> uuid.UUID:
+        self._create_events(
+            data=[("events-user", FLAG_CALL_TIMESTAMP.isoformat(), {"$feature_flag": EVENTS_FLAG_KEY})],
+            event="$feature_flag_called",
+        )
+        flush_persons_and_events()
+
+        return self._insert_flag_evaluation(
+            FLAG_EVALUATIONS_DISTINCT_ID,
+            person_id or uuid.uuid4(),
+            properties={
+                "$feature_flag": FLAG_EVALUATIONS_FLAG_KEY,
+                "$feature_flag_response": "variant-a",
+                "$current_url": "https://example.com/pricing",
+                "$lib": "web",
+                "$group_0": FLAG_EVALUATIONS_GROUP_KEY,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "person_property_filter",
+                [PersonPropertyFilter(key="email", value=FLAG_EVALUATIONS_EMAIL, operator=PropertyOperator.EXACT)],
+                False,
+                None,
+            ),
+            ("test_account_filter", [], True, None),
+            (
+                "person_id_pushdown_turned_off",
+                [PersonPropertyFilter(key="email", value=FLAG_EVALUATIONS_EMAIL, operator=PropertyOperator.EXACT)],
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_flag_evaluations_only_organization_reads_flag_calls_from_flag_evaluations(
+        self,
+        _name: str,
+        person_filters: list[PersonPropertyFilter],
+        filter_test_accounts: bool,
+        person_id_pushdown: bool | None,
+    ):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self.team.test_account_filters = [
+            {"key": "email", "type": "person", "value": "test-account", "operator": "not_icontains"}
+        ]
+        self.team.save()
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[FLAG_EVALUATIONS_DISTINCT_ID],
+            properties={"email": FLAG_EVALUATIONS_EMAIL},
+        )
+        create_group_type_mapping(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key=FLAG_EVALUATIONS_GROUP_KEY,
+            properties={"industry": "software"},
+        )
+        test_account = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["flag-test-account"],
+            properties={"email": "tester@test-account.example.com"},
+        )
+        row_uuid = self._create_flag_calls_in_both_tables(person_id=person.uuid)
+        self._insert_flag_evaluation(
+            "flag-test-account",
+            test_account.uuid,
+            properties={"$feature_flag": FLAG_EVALUATIONS_FLAG_KEY, "$group_0": FLAG_EVALUATIONS_GROUP_KEY},
+        )
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=[
+                    "*",
+                    "event",
+                    "person_display_name -- Person",
+                    "coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen",
+                    "properties.$lib",
+                    "timestamp",
+                    "properties.$feature_flag_response",
+                    "elements_chain",
+                    "person_mode",
+                ],
+                event="$feature_flag_called",
+                properties=[
+                    EventPropertyFilter(
+                        key="$feature_flag", value=FLAG_EVALUATIONS_FLAG_KEY, operator=PropertyOperator.EXACT
+                    ),
+                    *person_filters,
+                    GroupPropertyFilter(
+                        key="industry", value="software", operator=PropertyOperator.EXACT, group_type_index=0
+                    ),
+                ],
+                filterTestAccounts=filter_test_accounts,
+                after="-30d",
+                modifiers=HogQLQueryModifiers(personIdPushdown=person_id_pushdown),
+            )
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
+
+        page_queries = [query for query in queries if re.search(r"\bFROM\s+flag_evaluations\b", query)]
+        assert len(page_queries) == 1
+        assert len(re.findall(r"\bAS\s+flag_evaluations__person\s+ON\b", page_queries[0])) == 1
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in response.hogql
+        expect_pushdown = person_id_pushdown is not False
+        assert ("SELECT DISTINCT" in " ".join(page_queries[0].split())) is expect_pushdown
+        assert response.modifiers is not None
+        assert response.modifiers.personIdPushdown is expect_pushdown
+        assert "properties.$feature_flag," not in response.hogql
+        assert len(response.results) == 1
+        star, *columns = response.results[0]
+        assert {
+            "uuid": str(star["uuid"]),
+            "event": star["event"],
+            "distinct_id": star["distinct_id"],
+            "flag_key": star["properties"]["$feature_flag"],
+            "elements_chain": star["elements_chain"],
+        } == {
+            "uuid": str(row_uuid),
+            "event": "$feature_flag_called",
+            "distinct_id": FLAG_EVALUATIONS_DISTINCT_ID,
+            "flag_key": FLAG_EVALUATIONS_FLAG_KEY,
+            "elements_chain": "",
+        }
+        assert columns == [
+            "$feature_flag_called",
+            {
+                "display_name": FLAG_EVALUATIONS_EMAIL,
+                "id": str(person.uuid),
+                "distinct_id": FLAG_EVALUATIONS_DISTINCT_ID,
+            },
+            "https://example.com/pricing",
+            "web",
+            FLAG_CALL_TIMESTAMP,
+            "variant-a",
+            "",
+            "",
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "flag_evaluations_only_with_the_events_list_filter",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                {"events": ["$feature_flag_called"]},
+                FLAG_EVALUATIONS_FLAG_KEY,
+            ),
+            (
+                "events_mode",
+                FlagEvaluationsMode.EVENTS,
+                {"event": "$feature_flag_called"},
+                EVENTS_FLAG_KEY,
+            ),
+            (
+                "read_flag_evaluations_mode",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                {"event": "$feature_flag_called"},
+                EVENTS_FLAG_KEY,
+            ),
+            (
+                "flag_evaluations_only_without_an_event_filter",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                {},
+                EVENTS_FLAG_KEY,
+            ),
+            (
+                "flag_evaluations_only_with_a_second_event_in_the_filter",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                {"event": "$feature_flag_called", "events": ["$pageview"]},
+                EVENTS_FLAG_KEY,
+            ),
+            (
+                "flag_evaluations_only_with_action_steps",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                {"event": "$feature_flag_called", "actionSteps": [EventsQueryActionStep(event="$feature_flag_called")]},
+                EVENTS_FLAG_KEY,
+            ),
+        ]
+    )
+    def test_flag_calls_are_read_from_flag_evaluations_only_for_an_exact_flag_called_filter(
+        self, _name: str, mode: FlagEvaluationsMode, query_filter: dict[str, Any], expected_flag_key: str
+    ):
+        self._set_flag_evaluations_mode(mode)
+        self._create_flag_calls_in_both_tables()
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(kind="EventsQuery", select=["properties.$feature_flag"], after="-30d", **query_filter)
+            response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [row[0] for row in response.results] == [expected_flag_key]
+
+    @snapshot_clickhouse_queries
+    def test_flag_evaluations_person_display_names_resolve_each_rows_person_id(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        first = _create_person(
+            team_id=self.team.pk, distinct_ids=["first-user"], properties={"email": "first-user@example.com"}
+        )
+        merged = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["merged-user", "merged-user-anon"],
+            properties={"email": "merged-user@example.com"},
+        )
+        unnamed = _create_person(team_id=self.team.pk, distinct_ids=["unnamed-user"], properties={"plan": "free"})
+        flush_persons_and_events()
+        orphan_person_id = uuid.UUID("0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
+        self._insert_flag_evaluation("first-user", first.uuid)
+        # The stored person_id has no person row. Only the override resolves this distinct_id to the merged person.
+        self._insert_flag_evaluation("merged-user-anon", uuid.uuid4(), FLAG_CALL_TIMESTAMP + timedelta(seconds=1))
+        self._insert_flag_evaluation("orphan-user", orphan_person_id, FLAG_CALL_TIMESTAMP + timedelta(seconds=2))
+        self._insert_flag_evaluation("first-user", first.uuid, FLAG_CALL_TIMESTAMP + timedelta(seconds=3))
+        self._insert_flag_evaluation("unnamed-user", unnamed.uuid, FLAG_CALL_TIMESTAMP + timedelta(seconds=4))
+        sync_execute(
+            "INSERT INTO person_distinct_id_overrides (team_id, distinct_id, person_id, version, is_deleted) VALUES",
+            [(self.team.pk, "merged-user-anon", str(merged.uuid), 1, 0)],
+        )
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["person_display_name -- Person"],
+                event="$feature_flag_called",
+                orderBy=["timestamp ASC"],
+                after="-30d",
+            )
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
+
+        page_queries = [query for query in queries if re.search(r"\bFROM\s+flag_evaluations\b", query)]
+        assert len(page_queries) == 1
+        assert not re.search(r"\bFROM\s+person\b", page_queries[0])
+        lookup_queries = [query for query in queries if re.search(r"\bFROM\s+person\b", query)]
+        assert len(lookup_queries) == 1
+        assert lookup_queries[0].index("toUUIDOrNull") < lookup_queries[0].index("GROUP BY")
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [row[0] for row in response.results] == [
+            {"display_name": "first-user@example.com", "id": str(first.uuid), "distinct_id": "first-user"},
+            {"display_name": "merged-user@example.com", "id": str(merged.uuid), "distinct_id": "merged-user-anon"},
+            {"display_name": "orphan-user", "id": str(orphan_person_id), "distinct_id": "orphan-user"},
+            {"display_name": "first-user@example.com", "id": str(first.uuid), "distinct_id": "first-user"},
+            {"display_name": "unnamed-user", "id": str(unnamed.uuid), "distinct_id": "unnamed-user"},
+        ]
+
+    @parameterized.expand([("default_order", None), ("requested_order", ["person_display_name -- Person ASC"])])
+    def test_flag_evaluations_sort_by_person_display_name(self, _name: str, order_by: list[str] | None):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        first_by_name = _create_person(
+            team_id=self.team.pk, distinct_ids=["zz-user"], properties={"email": "aa@example.com"}
+        )
+        last_by_name = _create_person(
+            team_id=self.team.pk, distinct_ids=["aa-user"], properties={"email": "zz@example.com"}
+        )
+        flush_persons_and_events()
+        self._insert_flag_evaluation("aa-user", last_by_name.uuid)
+        self._insert_flag_evaluation("zz-user", first_by_name.uuid)
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["person_display_name -- Person"],
+                event="$feature_flag_called",
+                orderBy=order_by,
+                after="-30d",
+            )
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team).run()
+
+        assert len([query for query in queries if re.search(r"\bFROM\s+person\b", query)]) == 1
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [row[0]["display_name"] for row in response.results] == ["aa@example.com", "zz@example.com"]
+
     def _enable_property_access_control(self) -> None:
         from posthog.constants import AvailableFeature
 
@@ -1346,6 +1674,44 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         assert len(response.results) > 0
         assert response.results[0][0]["display_name"] == "Test User"
+
+    def test_flag_evaluations_person_display_names_mask_restricted_person_properties(self):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self._enable_property_access_control()
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[FLAG_EVALUATIONS_DISTINCT_ID],
+            properties={"email": FLAG_EVALUATIONS_EMAIL, "name": "Flag User"},
+        )
+        flush_persons_and_events()
+        self._insert_flag_evaluation(FLAG_EVALUATIONS_DISTINCT_ID, person.uuid)
+        prop_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="email",
+            type=PropertyDefinition.Type.PERSON,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=prop_def,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        with time_machine.travel("2020-01-11T12:01:00Z", tick=False):
+            query = EventsQuery(
+                kind="EventsQuery",
+                select=["person_display_name -- Person"],
+                event="$feature_flag_called",
+                orderBy=["timestamp ASC"],
+                after="-30d",
+            )
+            with self.capture_select_queries() as queries:
+                response = EventsQueryRunner(query=query, team=self.team, user=self.user).run()
+
+        page_queries = [query for query in queries if re.search(r"\bFROM\s+flag_evaluations\b", query)]
+        assert len(page_queries) == 1
+        assert not re.search(r"\bFROM\s+person\b", page_queries[0])
+        assert isinstance(response, CachedEventsQueryResponse)
+        assert [row[0]["display_name"] for row in response.results] == ["Flag User"]
 
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_users_with_different_restrictions_get_different_cache_keys(self):

@@ -47,7 +47,7 @@ export function RateLimitsRecommendationCard({
                     to={RATE_LIMITS_SETTINGS_URL}
                     onClick={() => {
                         posthog.capture('error_tracking_rate_limit_setup_started', {
-                            source: 'recommendation_card',
+                            ui_source: 'recommendation_card',
                             rate_limit_key: rateLimit.key,
                         })
                     }}

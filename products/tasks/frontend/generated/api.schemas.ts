@@ -1340,9 +1340,9 @@ export const SpaceSetupKindEnumApi = {
  * * `week` - Week
  * * `month` - Month
  */
-export type SpaceGoalPeriodEnumApi = (typeof SpaceGoalPeriodEnumApi)[keyof typeof SpaceGoalPeriodEnumApi]
+export type CalendarUnitEnumApi = (typeof CalendarUnitEnumApi)[keyof typeof CalendarUnitEnumApi]
 
-export const SpaceGoalPeriodEnumApi = {
+export const CalendarUnitEnumApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
@@ -1373,7 +1373,7 @@ export interface SpaceGoalWriteApi {
      * * `day` - Day
      * * `week` - Week
      * * `month` - Month */
-    period?: SpaceGoalPeriodEnumApi
+    period?: CalendarUnitEnumApi
     /** Whether the target is a floor ('at_least') or a ceiling ('at_most').
      *
      * * `at_least` - At least
@@ -1453,6 +1453,16 @@ export interface SpaceSetupStartedDTOApi {
  */
 export interface ChannelStarWriteApi {
     starred: boolean
+}
+
+/**
+ * The people who own at least one task or canvas in a channel.
+ */
+export interface ChannelContributorsDTOApi {
+    /** The channel these people worked in. */
+    channel: string
+    /** Everyone who owns at least one task or canvas in the channel, most recently active first. Deleted tasks and canvases do not count. */
+    people: TaskUserBasicInfoApi[]
 }
 
 /**
@@ -4888,6 +4898,22 @@ export interface TasksResolvedAIRunDefaultsApi {
 }
 
 /**
+ * The requesting user's per-project task defaults, shared by PostHog Desktop and the web app.
+ */
+export interface TasksTaskDefaultsApi {
+    /**
+     * When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it.
+     * @nullable
+     */
+    start_in_plan_mode: boolean | null
+    /**
+     * When true, a cloud run that changes code always opens a draft pull request. Null when you never set it.
+     * @nullable
+     */
+    auto_publish_cloud_runs: boolean | null
+}
+
+/**
  * The requesting user's per-project tasks configuration.
  */
 export interface TasksUserConfigResponseApi {
@@ -4895,6 +4921,31 @@ export interface TasksUserConfigResponseApi {
     ai_run_preferences: TasksAIRunPreferencesApi
     /** The defaults a new run will use when no explicit runtime selection is sent. */
     resolved_ai_run_defaults: TasksResolvedAIRunDefaultsApi
+    /** Your personal instructions, which PostHog cloud agents read in Tasks runs you start, after the project instructions. Anyone who continues a task you started can see them. Empty when unset. */
+    agent_instructions: string
+    /** Your per-project defaults for new tasks. Unset defaults are false. */
+    task_defaults: TasksTaskDefaultsApi
+}
+
+/**
+ * Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.
+ */
+export interface TasksAgentInstructionsApi {
+    /**
+     * Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.
+     * @maxLength 20000
+     */
+    agent_instructions: string
+}
+
+/**
+ * A partial update of the requesting user's task defaults. Fields left out keep their stored value.
+ */
+export interface TasksTaskDefaultsUpdateApi {
+    /** When true, new tasks start in plan mode: the agent makes a plan and waits for approval. Null when you never set it. */
+    start_in_plan_mode?: boolean
+    /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
+    auto_publish_cloud_runs?: boolean
 }
 
 /**
@@ -4921,6 +4972,8 @@ export interface WizardCloudRunDTOApi {
 export interface TasksTeamConfigResponseApi {
     /** Project-wide default AI run triple; all fields null when unset. */
     ai_run_preferences: TasksAIRunPreferencesApi
+    /** Project instructions that PostHog cloud agents read in every eligible Tasks run, including autonomous runs such as scouts and loops. Empty when unset. */
+    agent_instructions: string
 }
 
 /**
@@ -6113,18 +6166,14 @@ export type TasksRunsStreamTokenRetrieveParams = {
     resync?: boolean
 }
 
-export type TasksThreadMessagesListParams = {
+export type TasksRunsLivingArtifactsVersionContentParams = {
     /**
-     * Number of results to return per page.
+     * Set to true to save the version. A stored file then redirects to a short-lived presigned URL, so a large file never passes through the app. Leave unset for an inline preview.
      */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
+    download?: boolean
 }
 
-export type TasksMeConfigListParams = {
+export type TasksThreadMessagesListParams = {
     /**
      * Number of results to return per page.
      */
