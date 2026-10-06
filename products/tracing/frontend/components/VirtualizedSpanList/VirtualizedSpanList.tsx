@@ -188,7 +188,7 @@ function spanCellContent(column: SpanColumnConfig, span: Span, showRootTag: bool
                     {span.root_missing && (
                         <Tooltip title="Parent span not found">
                             <LemonTag type="muted" size="small">
-                                Orphan
+                                orphan
                             </LemonTag>
                         </Tooltip>
                     )}
