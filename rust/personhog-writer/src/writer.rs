@@ -47,8 +47,8 @@ const MAX_CONSECUTIVE_FAILURES: u32 = 3;
 const BASE_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(5);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
-/// A flush longer than this is treated as wedged: the lane reports unhealthy
-/// and the manager restarts the pod.
+/// A flush longer than this reports the lane unhealthy. The manager restarts
+/// the pod unless the flush completes before its next health check.
 const FLUSH_HEALTH_BUDGET: Duration = Duration::from_secs(300);
 
 impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
@@ -98,7 +98,7 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
                                     over_budget = true;
                                     warn!(
                                         budget_secs = FLUSH_HEALTH_BUDGET.as_secs(),
-                                        "flush exceeded the health budget, treating the lane as wedged"
+                                        "flush exceeded the health budget, reporting the lane unhealthy"
                                     );
                                     liveness.report_unhealthy();
                                 }
@@ -492,6 +492,7 @@ mod tests {
             .copied()
             .filter(|t| *t <= flush_end)
             .collect();
+        points.insert(0, started);
         points.push(flush_end);
         let gap = largest_gap(&points);
         assert!(
