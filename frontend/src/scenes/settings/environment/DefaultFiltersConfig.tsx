@@ -24,24 +24,26 @@ export function DefaultFiltersConfig(): JSX.Element {
 
     return (
         <div className="mb-4 flex flex-col gap-2">
-            {currentTeam && (
-                <PropertyFilters
-                    pageKey="default-filters"
-                    propertyFilters={currentTeam.default_filters_config?.filters ?? []}
-                    onChange={(filters: AnyPropertyFilter[]) =>
-                        updateCurrentTeam({ default_filters_config: { filters } })
-                    }
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        ...groupsTaxonomicTypes,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                    ]}
-                    disabledReason={restrictedReason ?? undefined}
-                />
-            )}
+            <div className="mb-4 flex flex-col gap-2">
+                {currentTeam && (
+                    <PropertyFilters
+                        pageKey="default-filters"
+                        propertyFilters={currentTeam.default_filters_config?.filters ?? []}
+                        onChange={(filters: AnyPropertyFilter[]) =>
+                            updateCurrentTeam({ default_filters_config: { filters } })
+                        }
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.EventFeatureFlags,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
+                        disabledReason={restrictedReason ?? undefined}
+                    />
+                )}
+            </div>
             <LemonSwitch
                 onChange={(checked) =>
                     updateCurrentTeam({
