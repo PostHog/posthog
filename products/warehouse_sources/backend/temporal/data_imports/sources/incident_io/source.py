@@ -68,7 +68,7 @@ class IncidentIoSource(ResumableSource[IncidentIoSourceConfig, IncidentIoResumeC
 You can create an API key in your [incident.io dashboard](https://app.incident.io/settings/api-keys). API keys have per-resource permissions — grant the `view` scope for each resource you want to sync (incidents, follow-ups, alerts, users, and so on).""",
             iconPath="/static/services/incident_io.png",
             docsUrl="https://posthog.com/docs/cdp/sources/incident-io",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
