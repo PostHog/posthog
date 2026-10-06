@@ -94,28 +94,41 @@ describe('SankeyChart', () => {
             />
         )
         await waitFor(() => expect(getHogChartTooltip()).toBeNull())
+        // The hovered node belonged to the old layout, so the host is told it is gone.
+        expect(onHoverChange).toHaveBeenLastCalledWith(null)
         fireEvent.click(chart.element)
         expect(onNodeClick).not.toHaveBeenCalled()
     })
 
-    it('shows the tooltip on a first tap and fires onNodeClick on the second', async () => {
+    it('shows the tooltip on a first tap, fires onNodeClick on the second, and clears on an empty tap', async () => {
         const onNodeClick = jest.fn()
+        const onHoverChange = jest.fn()
         const { chart } = renderHogChart(
-            <SankeyChart nodes={NODES} links={LINKS} theme={THEME} onNodeClick={onNodeClick} />,
+            <SankeyChart
+                nodes={NODES}
+                links={LINKS}
+                theme={THEME}
+                onNodeClick={onNodeClick}
+                onHoverChange={onHoverChange}
+            />,
             { nativeTooltip: true }
         )
         // A tap sends no mousemove first, so nothing is hovered when the click arrives. jsdom has
         // no PointerEvent, so the pointer type rides on a MouseEvent React reads it from.
-        const tap = (): void => {
+        const tap = (at: { clientX: number; clientY: number }): void => {
             const down = Object.assign(new MouseEvent('pointerdown', { bubbles: true }), { pointerType: 'touch' })
             fireEvent(chart.element, down)
-            fireEvent.click(chart.element, nodeCenter('a'))
+            fireEvent.click(chart.element, at)
         }
-        tap()
+        tap(nodeCenter('a'))
         await waitFor(() => expect(getHogChartTooltip()?.textContent).toContain('Tool A'))
         expect(onNodeClick).not.toHaveBeenCalled()
-        tap()
+        tap(nodeCenter('a'))
         expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }))
+
+        // Inside the margin, outside every node and ribbon.
+        tap({ clientX: 2, clientY: 2 })
+        expect(onHoverChange).toHaveBeenLastCalledWith(null)
     })
 
     it('fires the click on the first tap when the tooltip is disabled', () => {

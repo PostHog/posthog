@@ -96,10 +96,14 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
     const reportedHitRef = useRef<string | null>(null)
 
     // A new layout rebuilds nodes/links with fresh objects, so a stale key can coincidentally
-    // match the next real hit and suppress the hover callback the consumer needs to update.
+    // match the next real hit and suppress the hover callback the consumer needs to update. The
+    // reported hit is gone with the old layout, so the host hears that too.
     useEffect(() => {
-        reportedHitRef.current = null
-    }, [layout])
+        if (reportedHitRef.current !== null) {
+            reportedHitRef.current = null
+            onHoverChangeRef.current?.(null)
+        }
+    }, [layout, onHoverChangeRef])
 
     const reportHover = useCallback(
         (hit: SankeyHit | null) => {
@@ -165,6 +169,7 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
         (e: React.MouseEvent<HTMLDivElement>) => {
             const current = layoutRef.current
             if (current.nodes.length === 0) {
+                reportHover(null)
                 return
             }
             if (originatesInInteractiveOverlay(e)) {
@@ -207,6 +212,7 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
                 hit = sankeyHitAt(current, cursor)
                 if (!hit) {
                     clearTooltip()
+                    reportHover(null)
                     return
                 }
                 if (hitToHoverIndex(current, hit) !== tapDownTooltipIndexRef.current) {
@@ -232,6 +238,7 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
             lastPointerTypeRef,
             tapDownTooltipIndexRef,
             clearTooltip,
+            reportHover,
             showHit,
             showTooltip,
             onNodeClick,

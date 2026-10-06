@@ -135,10 +135,21 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         [nodes, links, dimensions, nodeWidth, nodePadding, nodeAlign, preserveNodeOrder, colorForLabel]
     )
 
-    // The shared draw loop keys repaints on `scales` identity, so wrap the layout in one.
+    // A controlled highlight paints on the static layer, so a change to it is a full repaint
+    // rather than a hover animation frame. The graph is small enough that this is cheap, and it
+    // keeps the hover overlay free to stay dark while the host owns emphasis.
+    const emphasis = useMemo(
+        () => (highlight ? emphasisForHighlight(layout as SankeyChartLayout<unknown, unknown>, highlight) : null),
+        [layout, highlight]
+    )
+    const hasEmphasis = emphasis !== null
+
+    // The shared draw loop keys repaints, including the hover overlay, on `scales` identity. The
+    // overlay must also repaint when `linkOpacity` changes or a controlled highlight starts or
+    // ends under a still cursor.
     const scales = useMemo<ChartScales | null>(
-        () => (dimensions ? { ...NO_SCALES, _private: { __sankey: layout, linkOpacity } } : null),
-        [dimensions, layout, linkOpacity]
+        () => (dimensions ? { ...NO_SCALES, _private: { __sankey: layout, linkOpacity, hasEmphasis } } : null),
+        [dimensions, layout, linkOpacity, hasEmphasis]
     )
 
     const { hoverIndex, hoverPosition, tooltipCtx, handlers } = useSankeyInteraction<NodeMeta, LinkMeta>({
@@ -151,13 +162,6 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         onHoverChange,
     })
 
-    // A controlled highlight paints on the static layer, so a change to it is a full repaint
-    // rather than a hover animation frame. The graph is small enough that this is cheap, and it
-    // keeps the hover overlay free to stay dark while the host owns emphasis.
-    const emphasis = useMemo(
-        () => (highlight ? emphasisForHighlight(layout as SankeyChartLayout<unknown, unknown>, highlight) : null),
-        [layout, highlight]
-    )
     const drawStatic = useCallback(
         ({ ctx: drawCtx, theme: drawTheme }: ChartDrawArgs) =>
             drawSankey(drawCtx, layout as SankeyChartLayout<unknown, unknown>, {
