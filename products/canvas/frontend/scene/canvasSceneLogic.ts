@@ -25,7 +25,7 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { todayViewsLogic } from '~/layout/today/todayViewsLogic'
+import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { Breadcrumb, SidePanelTab } from '~/types'
 
 import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
@@ -201,7 +201,7 @@ export interface canvasSceneLogicActions {
     ) => {
         building: boolean | null
         canvasId: string
-    } // todayViewsLogic
+    } // todayAnalyticsLogic
     buildAction: (
         action: CanvasBuildActionActionEnumApi,
         buildId: string
@@ -384,7 +384,12 @@ export interface canvasSceneLogicMeta {
             isGenerating: boolean,
             buildStatus: CanvasBuildStatus
         ) => boolean
-        breadcrumbs: (canvas: CanvasApi | null, space: CanvasSpace | null, arg: string) => Breadcrumb[]
+        breadcrumbs: (
+            canvas: CanvasApi | null,
+            space: CanvasSpace | null,
+            arg: string,
+            searchParams: Record<string, any>
+        ) => Breadcrumb[]
     }
 }
 
@@ -417,7 +422,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
             ['clearStartHandoff'],
             canvasSidePanelLogic,
             ['openTab'],
-            todayViewsLogic,
+            todayAnalyticsLogic,
             ['setOpenCanvasBuilding'],
         ],
     })),
@@ -719,13 +724,30 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 !!view && (isGenerating || buildStatus === 'building'),
         ],
         breadcrumbs: [
-            (s) => [s.canvas, s.space, (_, props: CanvasSceneLogicProps) => props.id],
-            (canvas: CanvasApi | null, space: CanvasSpace | null, id: string): Breadcrumb[] => [
-                ...(space
-                    ? [{ key: 'canvas-space', name: canvasSpaceLabel(space), path: urls.taskSpace(space.id) }]
-                    : []),
-                { key: ['CanvasDetail', id], name: canvas?.name ?? 'Canvas' },
-            ],
+            (s) => [s.canvas, s.space, (_, props: CanvasSceneLogicProps) => props.id, router.selectors.searchParams],
+            (
+                canvas: CanvasApi | null,
+                space: CanvasSpace | null,
+                id: string,
+                searchParams: Record<string, any>
+            ): Breadcrumb[] => {
+                // A list that opened the canvas can name the way back, like the dashboard scene allows.
+                const backUrl = searchParams.backUrl as string | undefined
+                return [
+                    ...(backUrl
+                        ? [
+                              {
+                                  key: backUrl,
+                                  name: (searchParams.backName as string | undefined) || 'Back',
+                                  path: backUrl,
+                              },
+                          ]
+                        : space
+                          ? [{ key: 'canvas-space', name: canvasSpaceLabel(space), path: urls.taskSpace(space.id) }]
+                          : []),
+                    { key: ['CanvasDetail', id], name: canvas?.name ?? 'Canvas' },
+                ]
+            },
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
@@ -887,7 +909,7 @@ export const canvasSceneLogic = kea<canvasSceneLogicType>([
                 const canvas = await canvasesPartialUpdate(String(values.currentProjectId), props.id, { name: trimmed })
                 actions.canvasUpdated(canvas)
                 // The Views sidebar lists canvases by name.
-                todayViewsLogic.findMounted()?.actions.loadRecentViews()
+                todayAnalyticsLogic.findMounted()?.actions.loadRecentAnalytics()
             } catch (error) {
                 toast.error({
                     title: "Couldn't rename the canvas",

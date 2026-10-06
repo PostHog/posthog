@@ -1109,11 +1109,11 @@ export const ListItemAppearanceDialog: Story = {
 }
 
 export const ViewsAll: Story = {
-    parameters: { pageUrl: urls.views() },
+    parameters: { pageUrl: urls.analyticsList() },
 }
 
 export const ViewsEmpty: Story = {
-    parameters: { pageUrl: urls.views() },
+    parameters: { pageUrl: urls.analyticsList() },
     decorators: [
         mswDecorator({
             get: {
@@ -1126,7 +1126,7 @@ export const ViewsEmpty: Story = {
 }
 
 export const ViewsNewMenu: Story = {
-    parameters: { pageUrl: urls.views() },
+    parameters: { pageUrl: urls.analyticsList() },
     play: async ({ canvasElement }) => {
         const [newView] = await within(canvasElement).findAllByText('New view')
         await userEvent.click(newView)

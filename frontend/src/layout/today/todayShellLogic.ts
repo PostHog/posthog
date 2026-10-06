@@ -8,13 +8,14 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { fromPostHogProducts } from 'scenes/analytics/analyticsUtils'
 import { libraryTypeForPath } from 'scenes/library/libraryUtils'
 import { toolHrefForPath } from 'scenes/tools/toolsUtils'
 import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
-export type TodayRailPane = 'home' | 'spaces' | 'views' | 'library' | 'tools' | 'more'
+export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'library' | 'tools' | 'more'
 
 export const TODAY_MORE_PANES: TodayRailPane[] = ['library', 'tools']
 
@@ -40,7 +41,7 @@ function isUnder(path: string, root: string): boolean {
 const RAIL_PANE_HOME: Record<Exclude<TodayRailPane, 'more'>, () => string> = {
     home: () => urls.projectHomepage(),
     spaces: () => urls.ai(),
-    views: () => urls.viewsNew(),
+    analytics: () => urls.analytics(),
     library: () => urls.library(),
     tools: () => urls.tools(),
 }
@@ -82,12 +83,14 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
         return 'spaces'
     }
     if (
-        isUnder(path, urls.views()) ||
+        isUnder(path, urls.analytics()) ||
         isUnder(path, '/canvases') ||
         isUnder(path, urls.notebooks()) ||
-        isUnder(path, urls.dashboards())
+        isUnder(path, urls.dashboards()) ||
+        isUnder(path, '/insights') ||
+        fromPostHogProducts().some((product) => isUnder(path, product.href.split(/[?#]/)[0]))
     ) {
-        return 'views'
+        return 'analytics'
     }
     if (isUnder(path, urls.library()) || libraryTypeForPath(path)) {
         return 'library'

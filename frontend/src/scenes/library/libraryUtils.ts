@@ -1,3 +1,4 @@
+import { ANALYTICS_FILE_SYSTEM_TYPES } from 'scenes/analytics/analyticsUtils'
 import { routes } from 'scenes/scenes'
 
 import { fileSystemTypes, getTreeItemsMetadata, getTreeItemsProducts } from '~/products'
@@ -6,11 +7,9 @@ import { FileSystemType } from '~/types'
 
 // These file system types are working pages rather than saved objects, so they belong to Tools.
 export const TOOL_FILE_SYSTEM_TYPES = new Set(['endpoints', 'task'])
-// These file system types are views people open and read, so they belong to Views, next to canvases.
-export const VIEW_FILE_SYSTEM_TYPES = new Set(['dashboard', 'notebook'])
 
 // The objects people reach for most come first. Any other type follows in name order.
-const LIBRARY_TYPE_ORDER = ['insight', 'feature_flag', 'experiment', 'survey', 'cohort', 'action']
+const LIBRARY_TYPE_ORDER = ['feature_flag', 'experiment', 'survey', 'cohort', 'action']
 
 export interface LibraryObjectType {
     value: string
@@ -24,9 +23,9 @@ export function baseObjectType(type: string | undefined): string {
     return type?.split('/')[0] ?? ''
 }
 
-/** Whether a file system type shows in Library, rather than in Tools or Views. */
+/** Whether a file system type shows in Library, rather than in Tools or Analytics. */
 export function isLibraryType(type: string): boolean {
-    return !TOOL_FILE_SYSTEM_TYPES.has(type) && !VIEW_FILE_SYSTEM_TYPES.has(type)
+    return !TOOL_FILE_SYSTEM_TYPES.has(type) && !ANALYTICS_FILE_SYSTEM_TYPES.has(type)
 }
 
 export function isLibraryEntry(entry: Pick<FileSystemEntry, 'type'>): boolean {

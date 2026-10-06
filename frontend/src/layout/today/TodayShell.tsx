@@ -30,8 +30,8 @@ import { TodaySidebarFooter } from './TodaySidebarFooter'
 import { TodayTabBar } from './TodayTabBar'
 
 const TodaySpacesPane = lazyWithRetry(() => import('./TodaySpacesPane').then((m) => ({ default: m.TodaySpacesPane })))
-const TodayViewsSidebar = lazyWithRetry(() =>
-    import('./TodayViewsSidebar').then((m) => ({ default: m.TodayViewsSidebar }))
+const TodayAnalyticsSidebar = lazyWithRetry(() =>
+    import('./TodayAnalyticsSidebar').then((m) => ({ default: m.TodayAnalyticsSidebar }))
 )
 const TodayToolsSidebar = lazyWithRetry(() =>
     import('./TodayToolsSidebar').then((m) => ({ default: m.TodayToolsSidebar }))
@@ -49,7 +49,7 @@ const NewSpaceDialog = lazyWithRetry(() =>
 const PANE_LABELS = {
     home: 'Today',
     spaces: 'Spaces',
-    views: 'Views',
+    analytics: 'Analytics',
     library: 'Library',
     tools: 'Tools',
     more: 'More',
@@ -107,8 +107,8 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
                 </TodayPreviewCardProvider>
             ) : activePane === 'spaces' ? (
                 <TodaySpacesPane />
-            ) : activePane === 'views' ? (
-                <TodayViewsSidebar />
+            ) : activePane === 'analytics' ? (
+                <TodayAnalyticsSidebar />
             ) : activePane === 'library' ? (
                 <TodayLibrarySidebar />
             ) : activePane === 'more' ? (

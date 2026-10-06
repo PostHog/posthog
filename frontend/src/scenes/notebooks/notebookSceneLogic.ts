@@ -1,5 +1,6 @@
 import { MakeLogicType, afterMount, connect, kea, key, path, props, selectors } from 'kea'
 import type { BuiltLogic } from 'kea'
+import { router } from 'kea-router'
 
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -56,7 +57,11 @@ export interface notebookSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         notebookId: (shortId: string) => string
         loading: (notebookLoading: boolean, notebooksLoading: boolean) => boolean
-        breadcrumbs: (notebook: NotebookType | null, loading: boolean) => Breadcrumb[]
+        breadcrumbs: (
+            notebook: NotebookType | null,
+            loading: boolean,
+            searchParams: Record<string, any>
+        ) => Breadcrumb[]
         projectTreeRef: (arg: string) => ProjectTreeRef | null
         sidePanelContext: (notebookId: string, isLocalOnly: boolean) => SidePanelSceneContext | null
     }
@@ -91,22 +96,30 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.notebook, s.loading],
-            (notebook: NotebookType | null, loading: boolean): Breadcrumb[] => {
-                const parent: Breadcrumb =
-                    notebook?.parent_resource?.type === 'account'
-                        ? {
-                              key: Scene.CustomerAnalytics,
-                              name: 'Accounts',
-                              path: urls.customerAnalyticsAccount(notebook.parent_resource.id),
-                              iconType: 'group',
-                          }
-                        : {
-                              key: Scene.Notebooks,
-                              name: 'Notebooks',
-                              path: urls.notebooks(),
-                              iconType: 'notebook',
-                          }
+            (s) => [s.notebook, s.loading, router.selectors.searchParams],
+            (notebook: NotebookType | null, loading: boolean, searchParams: Record<string, any>): Breadcrumb[] => {
+                // A list that opened the notebook can name the way back, like the dashboard scene allows.
+                const backUrl = searchParams.backUrl as string | undefined
+                const parent: Breadcrumb = backUrl
+                    ? {
+                          key: backUrl,
+                          name: (searchParams.backName as string | undefined) || 'Back',
+                          path: backUrl,
+                          iconType: 'notebook',
+                      }
+                    : notebook?.parent_resource?.type === 'account'
+                      ? {
+                            key: Scene.CustomerAnalytics,
+                            name: 'Accounts',
+                            path: urls.customerAnalyticsAccount(notebook.parent_resource.id),
+                            iconType: 'group',
+                        }
+                      : {
+                            key: Scene.Notebooks,
+                            name: 'Notebooks',
+                            path: urls.notebooks(),
+                            iconType: 'notebook',
+                        }
                 return [
                     parent,
                     {

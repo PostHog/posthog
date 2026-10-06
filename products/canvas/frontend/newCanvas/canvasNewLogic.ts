@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { toast } from '@posthog/quill'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
@@ -305,7 +306,7 @@ export const canvasNewLogic = kea<canvasNewLogicType>([
         breadcrumbs: [
             () => [],
             (): Breadcrumb[] => [
-                { key: 'views', name: 'Views', path: urls.views() },
+                { key: 'analytics', name: 'Analytics', path: urls.analyticsList() },
                 { key: 'CanvasNew', name: 'New canvas' },
             ],
         ],
@@ -375,7 +376,7 @@ export const canvasNewLogic = kea<canvasNewLogicType>([
                         })
                     }
                     if (stillOnStartPage()) {
-                        router.actions.replace(urls.canvasDetail(canvas.id))
+                        router.actions.replace(withBackLink(urls.canvasDetail(canvas.id)))
                     }
                 } finally {
                     actions.sendFinished()
@@ -417,7 +418,7 @@ export const canvasNewLogic = kea<canvasNewLogicType>([
                         })
                     }
                     if (removeProjectIdIfPresent(router.values.location.pathname) === urls.canvasNew()) {
-                        router.actions.replace(urls.canvasDetail(canvas.id))
+                        router.actions.replace(withBackLink(urls.canvasDetail(canvas.id)))
                     }
                 } finally {
                     actions.startBlankFinished()
