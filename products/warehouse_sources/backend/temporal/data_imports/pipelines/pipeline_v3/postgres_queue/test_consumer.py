@@ -1583,7 +1583,10 @@ class TestStatementTimeoutBackstop:
             await consumer._ensure_poll_conn()
 
         assert "options" not in mock_connect.call_args.kwargs
-        fresh.execute.assert_awaited_once_with("SET statement_timeout = 210000")
+        assert [call.args[0] for call in fresh.execute.await_args_list] == [
+            "SET statement_timeout = 210000",
+            "SET jit = off",
+        ]
 
 
 class TestPollBackoff:
