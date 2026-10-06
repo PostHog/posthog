@@ -8,6 +8,7 @@ from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import (
     HogFlowBatchJobState,
+    HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
 )
@@ -68,6 +69,35 @@ class WorkflowBatchJob:
 
 class WorkflowBatchJobNotFound(Exception):
     pass
+
+
+@frozen
+class WorkflowSchedule:
+    """One recurring schedule of a workflow."""
+
+    id: UUID
+    hog_flow_id: UUID
+    rrule: str
+    starts_at: datetime
+    timezone: str
+    variables: dict[str, Any]
+    status: HogFlowScheduleStatus
+    next_run_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowScheduleNotFound(Exception):
+    pass
+
+
+@frozen
+class ProcessedSchedules:
+    """The schedule ids one scheduler pass fired, initialized, or failed on."""
+
+    processed: list[str]
+    initialized: list[str]
+    failed: list[str]
 
 
 @dataclass(frozen=True)
@@ -294,3 +324,55 @@ class TwilioAccount(TypedDict, total=False):
     """Empty when the Twilio request fails."""
 
     sid: str
+
+
+@frozen
+class WorkflowRevisionSummary:
+    """One entry of a workflow's version history, without the content snapshot."""
+
+    version: int
+    created_at: datetime
+    created_by: "User | None"
+
+
+@frozen
+class WorkflowRevision:
+    version: int
+    created_at: datetime
+    created_by: "User | None"
+    content: dict[str, Any]
+
+
+class WorkflowRevisionNotFound(Exception):
+    pass
+
+
+class WorkflowDraftExists(Exception):
+    """A draft is staged and the caller did not ask to overwrite it."""
+
+
+class WorkflowDraftChanged(Exception):
+    """The staged draft changed since the caller confirmed the overwrite."""
+
+
+@frozen
+class ProposalChanges:
+    """What approving a suggestion would stage. `conflicts` names the steps or fields someone else
+    changed since it was written; approval is refused while there are any."""
+
+    changes: dict
+    conflicts: list[str]
+
+
+@frozen
+class EditedEmailDesign:
+    design: dict[str, Any]
+    warnings: tuple[str, ...]
+
+
+class EmailDesignRenderingNotConfigured(Exception):
+    pass
+
+
+class EmailDesignRenderFailed(Exception):
+    pass

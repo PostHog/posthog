@@ -183,8 +183,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }));
+        // Dense from 250ms to 5s, where merge tails sit.
         const BUCKETS: &[f64] = &[
-            1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
+            1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 750.0, 1000.0, 1500.0, 2000.0, 3000.0,
+            5000.0, 10000.0, 30000.0,
         ];
         // Lifecycle ops span "settled in one drive" (tens of ms) to
         // "abandoned, parked, or leader-blocked and resumed by the sweeper"

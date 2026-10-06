@@ -28,6 +28,7 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     BatchQueue,
     PendingBatch,
     QueueDepth,
+    _claimable_count_sql,
     _orphaned_candidate_runs_sql,
     _queue_depth_sql,
     _queue_freshness_sql,
@@ -2028,6 +2029,8 @@ class TestGetQueueDepth:
             slot_waiting_batches=1,
             serialized_batches=0,
         )
+        assert depth.slot_waiting_batches is not None
+        assert depth.serialized_batches is not None
         assert depth.claimable_batches - freshness.blocked_batches == (
             depth.slot_waiting_batches + depth.serialized_batches
         )
@@ -2049,6 +2052,42 @@ class TestGetQueueDepth:
         assert "sb_claimable_idx" in plan
         assert "sb_run_gate_idx" in plan
         assert "sb_schema_busy_idx" in plan
+
+    @pytest.mark.asyncio
+    async def test_headline_count_is_an_index_only_walk_of_the_claimable_index(self, conn):
+        # The count must stay free of the per-run and per-group probes: it is the
+        # statement that has to finish when a backlog defeats the breakdown.
+        await _insert_batch(conn)
+        await conn.execute("SET enable_seqscan = off")
+        try:
+            cur = await conn.execute("EXPLAIN (FORMAT TEXT) " + _claimable_count_sql())
+            plan = "\n".join(row[0] for row in await cur.fetchall())
+        finally:
+            await conn.execute("SET enable_seqscan = on")
+
+        assert "sb_claimable_idx" in plan
+        assert "sb_run_gate_idx" not in plan
+        assert "sb_schema_busy_idx" not in plan
+        assert "SubPlan" not in plan
+
+    @pytest.mark.asyncio
+    async def test_breakdown_timeout_keeps_the_count_and_blanks_the_split(self, conn):
+        await _insert_batch(conn, batch_index=0, run_uuid="r-a")
+        await _insert_batch(conn, batch_index=1, run_uuid="r-a")
+
+        with patch(
+            "products.warehouse_sources_queue.backend.core.jobs_db._queue_depth_sql",
+            return_value="SELECT pg_sleep(2), 0, 0, 0, 0",
+        ):
+            depth = await BatchQueue.get_queue_depth(conn, statement_timeout_ms=200)
+
+        assert depth == QueueDepth(
+            claimable_batches=2,
+            claimable_groups=None,
+            top_groups_claimable_share=None,
+            slot_waiting_batches=None,
+            serialized_batches=None,
+        )
 
 
 @pytest.mark.django_db(transaction=True)

@@ -126,7 +126,16 @@ These gauges are queue-wide, so one pod per fleet samples them on the reconcile 
 The other pods export NaN, which `max()` skips, so aggregate all of these gauges with `max()`; `sum()` and `avg()` return NaN.
 In multiprocess pods each process is exported separately with a `pid` label, and the same `max()` must aggregate over that label too, so one process's NaN cannot hide the elected process's sample during a restart.
 A pod clears its gauges to NaN before each round, so a value from an earlier round never looks fresh.
-Each gauge statement runs with a 5-second server-side `statement_timeout`; a probe that times out skips its sample, except that the age gauge saturates at the probe window.
+Each gauge statement runs with a 5-second server-side `statement_timeout`; a freshness probe that times out skips its sample, except that the age gauge saturates at the probe window.
+The depth gauges do not go blank on a timeout, because a deep queue is exactly when the probe is slowest and a gap or a 0 reads as "the queue cleared".
+The depth probe runs two statements.
+The first counts the claimable set with an index-only walk of `sb_claimable_idx` and sets `warehouse_pg_queue_claimable_batches`.
+The second splits that set per run and per group (failed-run and executing probes) and sets the four concentration gauges.
+If a statement times out, the sampling pod repeats its last good value for the gauges it could not measure.
+`warehouse_pg_queue_depth_sample_age_seconds` is the seconds since the depth gauges were last measured in full; 0 means this round, and it rises while the probe times out.
+It is NaN when the pod has no sample yet.
+`warehouse_pg_queue_depth_probe_timeouts_total{stage="count"|"breakdown"}` counts the timeouts.
+A pod that does not hold the gauge slot drops its sample and exports NaN, never 0, so panels should aggregate with `max()` and not turn NaN into 0 (for example with `or vector(0)`).
 Failed polls record their elapsed time in `poll_duration_seconds`, so degraded polls stay visible in the latency percentiles; `poll_failures_total` carries the reason label and is the alertable poll-health counter.
 The maintenance queries (sweeps, reconcile passes, probes) report through `warehouse_pg_queue_query_duration_seconds` (labeled per query, observed on failure and timeout too) and `warehouse_pg_queue_query_failures_total`; the August 2026 stall came from a query with no latency signal at all.
 

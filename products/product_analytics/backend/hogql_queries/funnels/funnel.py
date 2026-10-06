@@ -11,7 +11,11 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.utils.breakdowns import NOT_IN_COHORT_ID
 from posthog.utils import DATERANGE_MAP
 
-from products.product_analytics.backend.hogql_queries.funnels.base import JOIN_ALGOS, FunnelBase
+from products.product_analytics.backend.hogql_queries.funnels.base import (
+    JOIN_ALGOS,
+    MISSING_FUNNEL_STEP_MESSAGE,
+    FunnelBase,
+)
 from products.product_analytics.backend.hogql_queries.funnels.funnel_query_context import FunnelQueryContext
 from products.product_analytics.backend.hogql_queries.funnels.funnel_validation_rules import validate_max_funnel_steps
 from products.product_analytics.backend.hogql_queries.funnels.utils import get_breakdown_cohort_name
@@ -346,7 +350,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         funnelStepBreakdown = actorsQuery.funnelStepBreakdown
 
         if funnelStep is None:
-            raise ValueError("Missing funnelStep in actors query")
+            raise ValidationError(MISSING_FUNNEL_STEP_MESSAGE)
 
         conditions: list[ast.Expr] = []
 

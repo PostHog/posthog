@@ -232,6 +232,10 @@ class ReplaceFilters(CloningVisitor):
         # {filters.breakdown(expr AS key, ...)} substitutes the column bound to the selected breakdown.
         if isinstance(node.expr, ast.ExprCall) and isinstance(node.expr.expr, ast.Field):
             call_chain = node.expr.expr.chain
+            if call_chain == ["filters", "native"]:
+                if len(node.expr.args) != 1:
+                    raise QueryError("{filters.native(expr)} requires one date expression or null.")
+                return self._replace_native_filters(node.expr.args[0])
             if call_chain == ["filters", "interval"]:
                 return self._replace_interval(node.expr.args)
             if call_chain == ["filters", "breakdown"]:
@@ -247,93 +251,7 @@ class ReplaceFilters(CloningVisitor):
         no_filters = self.filters is None or not self.filters.model_fields_set
 
         if node.chain == ["filters"]:
-            last_select = self.selects[-1]
-            last_join = last_select.select_from
-            found_events = False
-            found_sessions = False
-            found_logs = False
-            found_traces = False
-            found_groups = False
-            found_persons = False
-            while last_join is not None:
-                if isinstance(last_join.table, ast.Field):
-                    resolved = self._resolve_table(last_join.table.chain)
-                    if isinstance(resolved, (EventsTable, AiEventsTable)):
-                        found_events = True
-                    if isinstance(resolved, SessionsTableV1 | SessionsTableV2 | SessionsTableV3):
-                        found_sessions = True
-                    if isinstance(resolved, (LogsTable, LogAttributesTable)):
-                        found_logs = True
-                    if isinstance(resolved, TraceSpansTable):
-                        found_traces = True
-                    if isinstance(resolved, GroupsTable):
-                        found_groups = True
-                    if isinstance(resolved, PersonsTable):
-                        found_persons = True
-                    if found_events and found_sessions or found_groups:
-                        break
-                last_join = last_join.next_join
-
-            if not any([found_events, found_sessions, found_logs, found_traces, found_groups, found_persons]):
-                raise QueryError(
-                    f"Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces, groups or persons table."
-                )
-
-            # Person semantics apply only when persons is the sole recognized table; any query that also
-            # touches an event-like table keeps its existing scope, so events-joined-to-persons insights
-            # are unaffected.
-            persons_only = found_persons and not any(
-                [found_events, found_sessions, found_logs, found_traces, found_groups]
-            )
-
-            if no_filters:
-                return ast.Constant(value=True)
-
-            assert self.filters is not None
-
-            exprs: list[ast.Expr] = []
-            if self.filters.properties is not None:
-                if found_sessions:
-                    session_properties = [p for p in self.filters.properties if isinstance(p, SessionPropertyFilter)]
-                    non_session_properties = [
-                        p for p in self.filters.properties if not isinstance(p, SessionPropertyFilter)
-                    ]
-                    if non_session_properties and not found_events:
-                        raise QueryError(
-                            "Can only use session properties in a filter when selecting from only the sessions table."
-                        )
-                    exprs.append(property_to_expr(session_properties, self.team, scope="session"))
-                    exprs.append(property_to_expr(non_session_properties, self.team, scope="event"))
-                elif found_groups:
-                    exprs.append(property_to_expr(self.filters.properties, self.team, scope="group"))
-                elif persons_only:
-                    exprs.append(property_to_expr(self.filters.properties, self.team, scope="person"))
-                else:
-                    exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
-
-            timestamp_field = ast.Field(chain=["$start_timestamp"])
-            if found_events or found_logs or found_traces:
-                timestamp_field = ast.Field(chain=["timestamp"])
-            if found_groups or persons_only:
-                timestamp_field = ast.Field(chain=["created_at"])
-
-            exprs.extend(self._date_range_exprs(timestamp_field))
-
-            if self.filters.filterTestAccounts:
-                for prop in self.team.test_account_filters or []:
-                    if persons_only:
-                        try:
-                            exprs.append(property_to_expr(prop, self.team, scope="person"))
-                        except (QueryError, NotImplementedError) as error:
-                            raise self._persons_test_account_filter_error(prop) from error
-                    else:
-                        exprs.append(property_to_expr(prop, self.team, scope="event"))
-
-            if len(exprs) == 0:
-                return ast.Constant(value=True)
-            if len(exprs) == 1:
-                return exprs[0]
-            return ast.And(exprs=exprs)
+            return self._replace_native_filters()
         if node.chain == ["filters", "dateRange", "from"]:
             compare_op_wrapper = self.compare_operations[-1]
 
@@ -384,6 +302,97 @@ class ReplaceFilters(CloningVisitor):
             )
 
         return super().visit_placeholder(node)
+
+    def _replace_native_filters(self, timestamp_override: ast.Expr | None = None) -> ast.Expr:
+        last_select = self.selects[-1]
+        last_join = last_select.select_from
+        found_events = False
+        found_sessions = False
+        found_logs = False
+        found_traces = False
+        found_groups = False
+        found_persons = False
+        while last_join is not None:
+            if isinstance(last_join.table, ast.Field):
+                resolved = self._resolve_table(last_join.table.chain)
+                if isinstance(resolved, (EventsTable, AiEventsTable)):
+                    found_events = True
+                if isinstance(resolved, SessionsTableV1 | SessionsTableV2 | SessionsTableV3):
+                    found_sessions = True
+                if isinstance(resolved, (LogsTable, LogAttributesTable)):
+                    found_logs = True
+                if isinstance(resolved, TraceSpansTable):
+                    found_traces = True
+                if isinstance(resolved, GroupsTable):
+                    found_groups = True
+                if isinstance(resolved, PersonsTable):
+                    found_persons = True
+                if found_events and found_sessions or found_groups:
+                    break
+            last_join = last_join.next_join
+
+        if not any([found_events, found_sessions, found_logs, found_traces, found_groups, found_persons]):
+            raise QueryError(
+                f"Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces, groups or persons table."
+            )
+
+        # Person semantics apply only when persons is the sole recognized table; any query that also
+        # touches an event-like table keeps its existing scope, so events-joined-to-persons insights
+        # are unaffected.
+        persons_only = found_persons and not any([found_events, found_sessions, found_logs, found_traces, found_groups])
+
+        if self.filters is None or not self.filters.model_fields_set:
+            return ast.Constant(value=True)
+
+        assert self.filters is not None
+
+        exprs: list[ast.Expr] = []
+        if self.filters.properties is not None:
+            if found_sessions:
+                session_properties = [p for p in self.filters.properties if isinstance(p, SessionPropertyFilter)]
+                non_session_properties = [
+                    p for p in self.filters.properties if not isinstance(p, SessionPropertyFilter)
+                ]
+                if non_session_properties and not found_events:
+                    raise QueryError(
+                        "Can only use session properties in a filter when selecting from only the sessions table."
+                    )
+                exprs.append(property_to_expr(session_properties, self.team, scope="session"))
+                exprs.append(property_to_expr(non_session_properties, self.team, scope="event"))
+            elif found_groups:
+                exprs.append(property_to_expr(self.filters.properties, self.team, scope="group"))
+            elif persons_only:
+                exprs.append(property_to_expr(self.filters.properties, self.team, scope="person"))
+            else:
+                exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
+
+        timestamp_field = ast.Field(chain=["$start_timestamp"])
+        if found_events or found_logs or found_traces:
+            timestamp_field = ast.Field(chain=["timestamp"])
+        if found_groups or persons_only:
+            timestamp_field = ast.Field(chain=["created_at"])
+
+        if timestamp_override is not None:
+            if not (isinstance(timestamp_override, ast.Constant) and timestamp_override.value is None):
+                exprs.extend(self._date_range_exprs(timestamp_override))
+        else:
+            exprs.extend(self._date_range_exprs(timestamp_field))
+
+        if self.filters.filterTestAccounts:
+            for prop in self.team.test_account_filters or []:
+                if persons_only:
+                    try:
+                        exprs.append(property_to_expr(prop, self.team, scope="person"))
+                    except (QueryError, NotImplementedError) as error:
+                        raise self._persons_test_account_filter_error(prop) from error
+                else:
+                    exprs.append(property_to_expr(prop, self.team, scope="event"))
+
+        if len(exprs) == 0:
+            return ast.Constant(value=True)
+        if len(exprs) == 1:
+            return exprs[0]
+        return ast.And(exprs=exprs)
 
     def _replace_bound_filters(self, call: ast.Call) -> ast.Expr:
         # Parse bindings before the no-filters early return, so malformed usage surfaces in the

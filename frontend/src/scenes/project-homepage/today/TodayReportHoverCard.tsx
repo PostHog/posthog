@@ -23,12 +23,12 @@ import { pluralize } from 'lib/utils/strings'
 
 import type { TodayReportPreview } from '~/layout/today/todayPreviewCards'
 
-import { selectReportCardImpactMetric } from 'products/signals/frontend/inbox/components/cards/ReportCardImpactMetric'
 import { reportChartGraphQuery } from 'products/signals/frontend/inbox/utils/reportChartQuery'
 import {
     asReportMetricAggregateQuery,
     asReportMetricSeriesQuery,
     reportMetricRowParts,
+    selectReportCardImpactMetric,
 } from 'products/signals/frontend/inbox/utils/reportMetrics'
 import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
 

@@ -237,6 +237,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconSQL,
         inMenu: false,
     },
+    [NodeKind.BIVisualizationNode]: {
+        name: 'Business intelligence',
+        description: 'Explore data with a visual worksheet.',
+        icon: IconGraph,
+        inMenu: false,
+    },
     [NodeKind.SavedInsightNode]: {
         name: 'Insight visualization by short id',
         description: 'View your insights.',
@@ -572,6 +578,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.MarketingAnalyticsRetentionQuery]: {
         name: 'Marketing Analytics Retention',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.MarketingAnalyticsSearchQuery]: {
+        name: 'Marketing analytics search performance',
         icon: IconHogQL,
         inMenu: false,
     },

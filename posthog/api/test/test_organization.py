@@ -25,7 +25,6 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization_domain import OrganizationDomain
-from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -752,11 +751,9 @@ class TestOrganizationAPI(APIBaseTest):
                 is_provisioning_partner=True,
             )
             application.update_provisioning(pays_for_customers=True)
-            OrganizationProvisioning.objects.create(
-                organization=self.organization,
-                partner=OrganizationProvisioning.Partner.PROVISIONING_API,
-                application=application,
-            )
+            self.organization.provisioning_source = Organization.ProvisioningSource.PROVISIONING_API
+            self.organization.provisioning_application = application
+            self.organization.save(update_fields=["provisioning_source", "provisioning_application"])
 
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()

@@ -1427,6 +1427,13 @@ class ExternalDataSourceType(LabeledStrEnum):
     EXACTONLINE = "ExactOnline", "ExactOnline"
     LETTRLABS = "LettrLabs", "LettrLabs"
     GRAFANAIRM = "GrafanaIRM", "GrafanaIRM"
+    TESSITURA = "Tessitura", "Tessitura"
+    CHARGEBACKSTOP = "ChargebackStop", "ChargebackStop"
+    CHARGEFLOW = "Chargeflow", "Chargeflow"
+    DREAMDATA = "Dreamdata", "Dreamdata"
+    GOOGLEBUSINESSPROFILE = "GoogleBusinessProfile", "GoogleBusinessProfile"
+    LEDYER = "Ledyer", "Ledyer"
+    SUPERMETRICS = "Supermetrics", "Supermetrics"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

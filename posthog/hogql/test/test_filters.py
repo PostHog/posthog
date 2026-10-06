@@ -663,6 +663,22 @@ class TestFilters(BaseTest):
         ):
             replace_filters(select, HogQLFilters(), self.team)
 
+    @parameterized.expand([("none", "null"), ("custom", "created_at")])
+    def test_native_filters_preserve_properties_with_custom_date_column(self, _name: str, expression: str) -> None:
+        query = self._parse_select("SELECT event FROM events WHERE {filters.native(" + expression + ")}")
+        filters = HogQLFilters(
+            dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-31"),
+            properties=[EventPropertyFilter(key="plan", value="pro", operator="exact")],
+        )
+        sql = self._print_ast(replace_filters(query, filters, self.team))
+        assert "properties.plan" in sql and "'pro'" in sql
+        assert "timestamp" not in sql
+        if expression == "null":
+            assert "2026-01" not in sql
+        else:
+            assert "greaterOrEquals(created_at" in sql
+            assert "2026-01-01" in sql and "2026-01-31" in sql
+
     def test_bound_filters_date_range_and_property(self):
         # persons is a table the plain {filters} placeholder rejects, so this exercises the unlock
         with time_machine.travel("2020-02-15T13:37:42Z", tick=False):

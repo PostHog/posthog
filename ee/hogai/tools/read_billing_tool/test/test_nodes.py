@@ -24,7 +24,7 @@ from posthog.schema import (
 )
 
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization_provisioning import OrganizationProvisioning
+from posthog.models.organization import Organization
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.read_billing_tool.prompts import BILLING_CONTEXT_UNAVAILABLE_PROMPT
@@ -129,11 +129,9 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
             is_provisioning_partner=True,
         )
         application.update_provisioning(pays_for_customers=True)
-        OrganizationProvisioning.objects.create(
-            organization=self.organization,
-            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
-            application=application,
-        )
+        self.organization.provisioning_source = Organization.ProvisioningSource.PROVISIONING_API
+        self.organization.provisioning_application = application
+        self.organization.save(update_fields=["provisioning_source", "provisioning_application"])
 
     async def test_run_with_no_billing_context(self):
         with patch.object(self.tool._context_manager, "get_billing_context", return_value=None):

@@ -38,6 +38,9 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    external_destination_ids_for,
+)
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
     get_worker_shutdown_handoff_metric,
@@ -653,6 +656,10 @@ class ImportJobModels:
     schema: ExternalDataSchema
     source: ExternalDataSource
     table: DataWarehouseTable | None
+    # The run's destinations minus the PostHog warehouse. Resolved here because this is the
+    # run's one async-safe ORM fetch: the pipeline is built inside an async activity, where
+    # the same query raises `SynchronousOnlyOperation`.
+    external_destination_ids: list[str] = dataclasses.field(default_factory=list)
 
 
 @database_sync_to_async_pool
@@ -672,7 +679,13 @@ def _get_models(
         raise Exception("No source attached to job")
 
     table: DataWarehouseTable | None = schema.table
-    return ImportJobModels(job=job, schema=schema, source=source, table=table)
+    return ImportJobModels(
+        job=job,
+        schema=schema,
+        source=source,
+        table=table,
+        external_destination_ids=external_destination_ids_for(job.team_id, list(job.destination_ids or [])),
+    )
 
 
 # What a customer reads when a PostHog-managed credential is unavailable. Deliberately says

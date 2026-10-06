@@ -967,7 +967,6 @@ web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_varia
 web_analytics:backend/hogql_queries/ products.feature_flags.backend.api.test.test_feature_flag drives(TrendsQuery) 6
 web_analytics:backend/hogql_queries/ products.posthog_ai.scripts.hogql_example.test.test_hogql_example drives(TrendsQuery) 3
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.hogql_queries.trends.test.test_trends_data_warehouse_query drives(TrendsQuery) 23
-web_analytics:backend/hogql_queries/ products.product_analytics.backend.hogql_queries.trends.test.test_trends_query_builder drives(TrendsQuery) 7
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.hogql_queries.trends.test.test_trends_query_runner drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight drives(TrendsQuery) 21
 web_analytics:backend/hogql_queries/ products.product_analytics.backend.tests.api.test_insight_metadata drives(TrendsQuery) 5

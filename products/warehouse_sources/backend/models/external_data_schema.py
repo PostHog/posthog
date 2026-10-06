@@ -896,9 +896,52 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         self.sync_type_config["repartition_swap"] = swap
         self._save_sync_type_config()
 
-    def set_repartition_claim(self, claim: dict[str, Any]) -> None:
-        self.sync_type_config["repartition_claim"] = claim
-        self._save_sync_type_config()
+    def set_repartition_claim(self, claim: dict[str, Any]) -> bool:
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        # A timed-out activity may still be running when its retry stakes a newer claim. Merge under
+        # the row lock so the older activity's stale model copy cannot overwrite that newer token (or
+        # any unrelated config written while it was running) and accidentally reclaim the table.
+        def _write(config: dict[str, Any]) -> None:
+            current = config.get("repartition_claim")
+            if isinstance(current, dict):
+                current_claimed_at = current.get("claimed_at")
+                claimed_at = claim.get("claimed_at")
+                if isinstance(current_claimed_at, str) and isinstance(claimed_at, str):
+                    if current_claimed_at > claimed_at:
+                        return
+            config["repartition_claim"] = claim
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
+        )
+        return self.sync_type_config.get("repartition_claim") == claim
+
+    def abandon_repartition_if_claimed(self, claim_token: str) -> bool:
+        from posthog.temporal.common.utils import retry_on_db_connection_drop  # noqa: PLC0415
+
+        def _write(config: dict[str, Any]) -> None:
+            claim = config.get("repartition_claim")
+            if not (isinstance(claim, dict) and claim.get("token") == claim_token):
+                return
+            if config.get("repartition_swap") is not None:
+                return
+            for key in ("repartition_pending", "repartition_swap", "repartition_rewrite"):
+                config.pop(key, None)
+            config["last_repartition_at"] = timezone.now().isoformat()
+
+        self.sync_type_config = retry_on_db_connection_drop(
+            lambda: update_sync_type_config_keys(schema_id=self.id, team_id=self.team_id, mutate=_write)
+        )
+        claim = self.sync_type_config.get("repartition_claim")
+        return (
+            isinstance(claim, dict)
+            and claim.get("token") == claim_token
+            and not any(
+                key in self.sync_type_config
+                for key in ("repartition_pending", "repartition_swap", "repartition_rewrite")
+            )
+        )
 
     def clear_repartition_swap(self) -> None:
         self.sync_type_config.pop("repartition_swap", None)
@@ -1665,6 +1708,58 @@ def finalize_repartition_scheme(
             "repartition_pending",
             "repartition_rewrite",
         ):
+            config.pop(key, None)
+        wrote = True
+
+    schema.sync_type_config = update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return wrote
+
+
+def stage_partition_scheme_for_full_refresh(
+    schema: ExternalDataSchema,
+    *,
+    partitioning_keys: list[str],
+    partition_count: int | None,
+    partition_size: int | None,
+    partition_mode: PartitionMode | None,
+    partition_format: PartitionFormat | None,
+    claim_token: str | None = None,
+) -> bool:
+    """Pin a new partition scheme for the next full refresh to write, and retire the repartition markers.
+
+    A full-refresh sync deletes the table and writes it again, so it can lay out the new scheme with
+    no rewrite at all. The scheme goes in as the `*_override` keys because the reset at the start of
+    that sync removes the plain partition settings, and the overrides are the keys it keeps for the
+    sync to consume (see `update_sync_type_config_for_reset_pipeline` and `set_partitioning_enabled`).
+    `partition_format` survives the reset on its own.
+    """
+    overrides: dict[str, Any] = {
+        "partitioning_keys_override": partitioning_keys or None,
+        "partition_count_override": partition_count,
+        "partition_size_override": partition_size,
+        "partition_mode_override": partition_mode,
+    }
+
+    wrote = False
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal wrote
+        if claim_token is not None:
+            claim = config.get("repartition_claim")
+            if not (claim and claim.get("token") == claim_token):
+                return
+        if config.get("repartition_swap") is not None:
+            return
+        for key, value in overrides.items():
+            if value is None:
+                config.pop(key, None)
+            else:
+                config[key] = value
+        if partition_format is not None:
+            config["partition_format"] = partition_format
+        # The cooldown stops detection from flagging the old layout again before the sync rewrites it.
+        config["last_repartition_at"] = timezone.now().isoformat()
+        for key in ("repartition_swap", "repartition_pending", "repartition_rewrite"):
             config.pop(key, None)
         wrote = True
 

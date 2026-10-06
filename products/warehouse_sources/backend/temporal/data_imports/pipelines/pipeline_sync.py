@@ -469,10 +469,10 @@ async def validate_schema_and_update_table(
                         effective_primary_keys,
                         external_data_schema.incremental_field,
                     )
-                    table_for_update.columns = columns
-                    table_for_update.save(update_fields=["columns"])
+                    table_for_update.set_columns(columns)
+                    table_for_update.save(update_fields=["columns", "column_order"])
                     # Keep local reference in sync
-                    table_created.columns = columns
+                    table_created.set_columns(columns)
 
                     # schema could have been deleted by this point
                     schema_model = (
@@ -611,8 +611,8 @@ async def register_cdc_companion_table(
 
             def _persist_columns() -> None:
                 with transaction.atomic():
-                    companion_table.columns = columns
-                    companion_table.save(update_fields=["columns"])
+                    companion_table.set_columns(columns)
+                    companion_table.save(update_fields=["columns", "column_order"])
 
                     if set_as_schema_table:
                         ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).update(table=companion_table)

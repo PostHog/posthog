@@ -14,9 +14,8 @@ from parameterized import parameterized
 from requests import JSONDecodeError
 from rest_framework import status
 
-from posthog.models import OrganizationMembership, PersonalAPIKey, Team
+from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import BillingReadBurstRateThrottle
 
@@ -125,11 +124,9 @@ class OrganizationBillingTestMixin(APILicensedTest):
             is_provisioning_partner=True,
         )
         application.update_provisioning(pays_for_customers=True)
-        OrganizationProvisioning.objects.create(
-            organization=self.organization,
-            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
-            application=application,
-        )
+        self.organization.provisioning_source = Organization.ProvisioningSource.PROVISIONING_API
+        self.organization.provisioning_application = application
+        self.organization.save(update_fields=["provisioning_source", "provisioning_application"])
 
     def _oauth_token(self, scope: str) -> str:
         app = OAuthApplication.objects.create(
