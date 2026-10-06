@@ -458,7 +458,7 @@ def _reconfirm_emptied_projects_against_primary(
 
 
 def get_group_types_for_projects(
-    project_ids: list[int], *, caller_tag: str | None = None
+    project_ids: list[int], *, caller_tag: str | None = None, invalidate_cached: bool = False
 ) -> dict[int, list[dict[str, Any]]]:
     """Batch fetch group types for multiple projects via personhog, falling back to
     the per-project stale cache on failure.
@@ -471,6 +471,10 @@ def get_group_types_for_projects(
     Raises GroupTypesUnavailable if personhog is unavailable and any requested
     project has no cached last-known-good, rather than returning an all-empty
     mapping. Callers must handle that case.
+
+    With invalidate_cached, a successful read deletes each project's short-lived
+    get_group_types_for_project entry, so the next single-project read fetches fresh
+    data. A result served from the last-known-good fallback keeps those entries.
     """
 
     def _fetch() -> dict[int, list[dict[str, Any]]]:
@@ -492,6 +496,9 @@ def get_group_types_for_projects(
 
     result = _reconfirm_emptied_projects_against_primary(result, project_ids, caller_tag=caller_tag)
     _populate_projects_stale_cache(result)
+    if invalidate_cached:
+        for project_id in project_ids:
+            safe_cache_delete(f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}")
     return result
 
 
