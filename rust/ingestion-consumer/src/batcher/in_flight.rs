@@ -69,7 +69,7 @@ pub enum ResolveError {
 #[derive(Default)]
 pub struct InFlightRequests {
     next_id: u64,
-    requests: HashMap<RequestId, InFlightRequest>,
+    requests: HashMap<RequestId, InFlightRequest, ahash::RandomState>,
 }
 
 impl InFlightRequests {

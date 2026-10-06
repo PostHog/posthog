@@ -120,7 +120,9 @@ struct KeyState {
 /// within a process: the key's messages arrive from its single partition in
 /// offset order, and eviction requires every earlier send to have resolved.
 pub struct KeyOrderSentinel {
-    keys: Mutex<HashMap<String, KeyState>>,
+    /// Keyed by customer-chosen routing keys, so the hasher is seeded per
+    /// map to resist collision flooding.
+    keys: Mutex<HashMap<String, KeyState, ahash::RandomState>>,
     /// Kill switch (`CONSUMER_ORDER_SENTINEL_ENABLED`). When off, checks
     /// no-op and no state accumulates.
     enabled: AtomicBool,
@@ -129,7 +131,7 @@ pub struct KeyOrderSentinel {
 impl Default for KeyOrderSentinel {
     fn default() -> Self {
         Self {
-            keys: Mutex::new(HashMap::new()),
+            keys: Mutex::new(HashMap::default()),
             enabled: AtomicBool::new(true),
         }
     }
@@ -194,7 +196,7 @@ impl KeyOrderSentinel {
 }
 /// A run of sentinel calls under one lock. Disabled, every call is a no-op.
 pub struct SentinelBatch<'a> {
-    keys: Option<MutexGuard<'a, HashMap<String, KeyState>>>,
+    keys: Option<MutexGuard<'a, HashMap<String, KeyState, ahash::RandomState>>>,
 }
 
 impl SentinelBatch<'_> {

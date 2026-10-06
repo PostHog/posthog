@@ -110,7 +110,9 @@ impl KeyState {
 
 #[derive(Default)]
 pub struct KeyQueues {
-    keys: HashMap<Arc<str>, KeyState>,
+    /// Keyed by customer-chosen routing keys, so the hasher is seeded per
+    /// map to resist collision flooding.
+    keys: HashMap<Arc<str>, KeyState, ahash::RandomState>,
     /// Ready keys in the order they became ready, so claims stay fair across
     /// keys. An entry can be stale; `take_ready` skips keys that are no
     /// longer ready.
