@@ -394,6 +394,16 @@ class ModelExplanationField(serializers.Serializer):
         help_text="Optional caveat shown under the chart.",
     )
 
+    def to_internal_value(self, data: Any) -> Any:
+        # DRF drops unknown keys, so an older list key would otherwise store an empty explanation and return 200.
+        if isinstance(data, dict) and "top_features" not in data:
+            legacy_key = next((key for key in ("features", "feature_importances") if key in data), None)
+            if legacy_key is not None:
+                raise serializers.ValidationError(
+                    {"top_features": [f"Send the features as 'top_features', not '{legacy_key}'."]}
+                )
+        return super().to_internal_value(data)
+
     def validate_top_features(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return sorted((dict(f) for f in value), key=lambda f: f["importance"], reverse=True)
 

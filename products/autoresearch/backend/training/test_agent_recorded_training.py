@@ -644,6 +644,11 @@ class TestAgentWriteSerializers(SimpleTestCase):
     @parameterized.expand(
         [
             ("list_shaped", ["top_features"]),
+            ("legacy_features_list", {"features": [{"name": "a", "importance": 0.1, "direction": "positive"}]}),
+            (
+                "legacy_feature_importances_list",
+                {"feature_importances": [{"name": "a", "importance": 0.1, "direction": "positive"}]},
+            ),
             ("legacy_feature_key", {"top_features": [{"feature": "a", "importance": 0.1, "direction": "positive"}]}),
             ("prose_direction", {"top_features": [{"name": "a", "importance": 0.1, "direction": "up"}]}),
             ("negative_importance", {"top_features": [{"name": "a", "importance": -0.1, "direction": "negative"}]}),
