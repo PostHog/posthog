@@ -22,6 +22,7 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.uploaded_media import sniff_image_content_type
+from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 
 from products.surveys.backend.facade.api import (
@@ -233,6 +234,7 @@ class DesktopFeedbackViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except DesktopFeedbackUnavailable as error:
             raise DesktopFeedbackServiceUnavailable from error
         except Exception as error:
+            capture_exception(error)
             raise DesktopFeedbackServiceUnavailable from error
 
         return Response(

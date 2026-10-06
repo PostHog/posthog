@@ -181,11 +181,12 @@ class TestDesktopFeedback(APIBaseTest):
             ("other_organization_role",),
         ]
     )
+    @patch("products.surveys.backend.presentation.desktop_feedback.capture_exception")
     @patch("products.surveys.backend.desktop_feedback.get_client")
     @patch("posthog.models.uploaded_media.object_storage.write")
     @patch("products.surveys.backend.desktop_feedback.object_storage.delete")
     def test_ticket_failure_removes_images_without_survey_fallback(
-        self, failure, delete_object, _write, get_client
+        self, failure, delete_object, _write, get_client, capture_exception
     ) -> None:
         channel = self.configure_feedback_tickets()
         if failure == "disabled":
@@ -225,6 +226,7 @@ class TestDesktopFeedback(APIBaseTest):
         assert not UploadedMedia.objects.exists()
         delete_object.assert_called_once()
         get_client.assert_not_called()
+        capture_exception.assert_called_once()
 
     @parameterized.expand([("bug",), ("feature",), ("general",)])
     def test_preserves_feedback_type_for_ticket_routing(self, feedback_type: str) -> None:
