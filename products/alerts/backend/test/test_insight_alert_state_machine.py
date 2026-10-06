@@ -2,6 +2,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
+
 from posthog.schema_enums import AlertState as InsightAlertState
 
 from products.alerts.backend.insight_alert_state_machine import (
@@ -62,6 +64,37 @@ def test_error_notifies_once_until_a_successful_check_resets_the_streak() -> Non
     alert.state = InsightAlertState.NOT_FIRING
     new_failure = evaluate_alert_check(alert, threshold_breached=False, error_message="query failed", now=NOW)
     assert should_notify(new_failure)
+
+
+@pytest.mark.parametrize(
+    "stored_state,breached,expected",
+    [
+        ("not_firing", True, AlertState.FIRING),
+        ("firing", False, AlertState.NOT_FIRING),
+        ("errored", False, AlertState.NOT_FIRING),
+    ],
+)
+def test_platform_spelling_of_stored_state_still_evaluates(
+    stored_state: str, breached: bool, expected: AlertState
+) -> None:
+    alert = cast(
+        AlertConfiguration,
+        SimpleNamespace(id="alert-1", enabled=True, state=stored_state, last_notified_at=None, snoozed_until=None),
+    )
+
+    outcome = evaluate_alert_check(alert, threshold_breached=breached, error_message=None, now=NOW)
+
+    assert outcome.new_state == expected
+
+
+def test_unknown_stored_state_still_fails() -> None:
+    alert = cast(
+        AlertConfiguration,
+        SimpleNamespace(id="alert-1", enabled=True, state="broken", last_notified_at=None, snoozed_until=None),
+    )
+
+    with pytest.raises(ValueError):
+        evaluate_alert_check(alert, threshold_breached=False, error_message=None, now=NOW)
 
 
 def test_control_plane_transitions_use_shared_outcomes() -> None:

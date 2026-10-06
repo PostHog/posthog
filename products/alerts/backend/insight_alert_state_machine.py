@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
+import structlog
+
 from posthog.schema_enums import AlertState as InsightAlertState
 
 from products.alerts_platform.backend.facade.lifecycle import (
@@ -25,6 +27,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
 if TYPE_CHECKING:
     from products.alerts.backend.models.alert import AlertConfiguration
 
+logger = structlog.get_logger(__name__)
 
 INSIGHT_ALERT_POLICY = AlertPolicy(
     max_consecutive_failures=None,
@@ -35,13 +38,26 @@ INSIGHT_ALERT_POLICY = AlertPolicy(
 )
 
 
+def _insight_state(alert: AlertConfiguration) -> InsightAlertState:
+    try:
+        return InsightAlertState(alert.state)
+    except ValueError:
+        # Some rows hold the platform spelling ("not_firing"). A strict parse fails every check of the alert.
+        platform_state = AlertState(alert.state)
+        if platform_state.name not in InsightAlertState.__members__:
+            raise
+        logger.warning("insight_alert_state_repaired", alert_id=str(alert.id), stored_state=alert.state)
+        return InsightAlertState[platform_state.name]
+
+
 def snapshot_from_alert(alert: AlertConfiguration) -> AlertSnapshot:
+    state = _insight_state(alert)
     return AlertSnapshot(
-        state=AlertState[InsightAlertState(alert.state).name],
+        state=AlertState[state.name],
         cooldown=timedelta(0),
         last_notified_at=alert.last_notified_at,
         snooze_until=alert.snoozed_until,
-        consecutive_failures=1 if alert.state == InsightAlertState.ERRORED else 0,
+        consecutive_failures=1 if state == InsightAlertState.ERRORED else 0,
     )
 
 
