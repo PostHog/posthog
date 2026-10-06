@@ -227,21 +227,23 @@ export function InsightVizDisplay({
     const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
 
+    const insightLoadingState = (
+        <InsightLoadingState
+            queryId={queryId}
+            key={queryId}
+            insightProps={insightProps}
+            renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+            suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
+        />
+    )
+
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (insightDataLoading) {
             if (hasRenderableResults) {
                 return null
             }
-            return (
-                <InsightLoadingState
-                    queryId={queryId}
-                    key={queryId}
-                    insightProps={insightProps}
-                    renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
-                    suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
-                />
-            )
+            return insightLoadingState
         }
 
         // Insight specific empty states - note order is important here
@@ -440,17 +442,7 @@ export function InsightVizDisplay({
             case InsightType.WEB_ANALYTICS:
                 return (
                     <ChunkLoadErrorBoundary>
-                        <Suspense
-                            fallback={
-                                <InsightLoadingState
-                                    queryId={queryId}
-                                    key={queryId}
-                                    insightProps={insightProps}
-                                    renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
-                                    suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
-                                />
-                            }
-                        >
+                        <Suspense fallback={insightLoadingState}>
                             <WebAnalyticsInsight context={context} editMode={editMode} />
                         </Suspense>
                     </ChunkLoadErrorBoundary>
@@ -558,15 +550,7 @@ export function InsightVizDisplay({
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
-        return (
-            <InsightLoadingState
-                queryId={queryId}
-                key={queryId}
-                insightProps={insightProps}
-                renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
-                suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
-            />
-        )
+        return insightLoadingState
     }
 
     return (
