@@ -2,6 +2,41 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "description": "Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.",
     "properties": {
+        "experiment": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "experiment_id": {
+                            "description": "The experiment an experiment scanner watches.",
+                            "minimum": 1,
+                            "type": "number"
+                        },
+                        "variants": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "maxLength": 400,
+                                        "type": "string"
+                                    },
+                                    "minItems": 1,
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "The variant keys it watches. Null or omitted means every variant."
+                        }
+                    },
+                    "required": ["experiment_id"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`."
+        },
         "experiment_targeting": {
             "anyOf": [
                 {

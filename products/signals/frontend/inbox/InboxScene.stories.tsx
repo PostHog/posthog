@@ -159,7 +159,12 @@ const LEGACY_FLAGS = {
 export const Legacy: Story = {
     parameters: {
         featureFlags: LEGACY_FLAGS,
-        testOptions: { waitForLoadersToDisappear: true },
+        testOptions: {
+            waitForLoadersToDisappear: true,
+            // The setup rail loads its own team config and integrations, sometimes after the loader wait.
+            // This button renders only after both loads finish.
+            waitForSelector: '[data-attr="signals-issue-tracker-connect"]',
+        },
     },
     decorators: [routeTo(urls.inbox('pulls'))],
 }

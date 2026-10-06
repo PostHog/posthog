@@ -11,12 +11,13 @@ from slack_sdk.errors import SlackApiError
 from posthog.models.integration import Integration
 from posthog.slack.channels import MAX_HEADER_CHARS, MAX_SECTION_CHARS
 
-from products.alerts_platform.backend.delivery.message import AlertMessage, MessageDetail
+from products.alerts_platform.backend.delivery.message import MessageDetail
 from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData
+from products.alerts_platform.backend.tests.delivery_messages import alert_message
 
-MESSAGE = AlertMessage(
+MESSAGE = alert_message(
     headline="API errors is firing",
     details=(MessageDetail(label="Value", value="300"), MessageDetail(label="Threshold", value="above 100")),
 )
@@ -24,7 +25,7 @@ MESSAGE = AlertMessage(
 
 class TestSlackBlocks(SimpleTestCase):
     def test_the_headline_is_clipped_to_what_slack_accepts(self) -> None:
-        message = AlertMessage(headline="x" * 400, details=())
+        message = alert_message(headline="x" * 400, details=())
 
         header = blocks_for(message)[0]
         assert len(header["text"]["text"]) <= MAX_HEADER_CHARS
@@ -35,7 +36,7 @@ class TestSlackBlocks(SimpleTestCase):
         assert section["text"]["text"] == "*Value:* 300\n*Threshold:* above 100"
 
     def test_a_long_detail_keeps_the_body_inside_what_slack_accepts(self) -> None:
-        message = AlertMessage(
+        message = alert_message(
             headline="API errors could not be checked",
             details=(
                 MessageDetail(label="Error", value="x" * 5000),
@@ -51,7 +52,7 @@ class TestSlackBlocks(SimpleTestCase):
         assert "*Failed checks:* 3" in section["text"]["text"]
 
     def test_a_query_error_cannot_speak_as_slack_markup(self) -> None:
-        message = AlertMessage(
+        message = alert_message(
             headline="API errors could not be checked",
             details=(MessageDetail(label="Error", value="no column <!channel> in <http://x|table>"),),
         )
@@ -62,7 +63,7 @@ class TestSlackBlocks(SimpleTestCase):
         assert "&lt;!channel&gt;" in body
 
     def test_a_message_without_details_carries_no_empty_section(self) -> None:
-        blocks = blocks_for(AlertMessage(headline="API errors is resolved", details=()))
+        blocks = blocks_for(alert_message(headline="API errors is resolved", details=()))
 
         assert [block["type"] for block in blocks] == ["header"]
 

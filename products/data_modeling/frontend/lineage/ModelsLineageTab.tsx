@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useRef } from 'react'
 
 import { IconInfo } from '@posthog/icons'
@@ -164,7 +163,8 @@ export function ModelsLineageTab(): JSX.Element {
                     interactive
                     nodesDraggable={nodesDraggable}
                     nodePositions={nodesDraggable ? nodePositions : undefined}
-                    nodeOpenUrl={nodesDraggable ? lineageNodeUrl : undefined}
+                    nodeOpenUrl={lineageNodeUrl}
+                    selectable
                     onNodeDragStop={nodesDraggable ? (node, position) => nodeDragStopped(node.id, position) : undefined}
                     onResetNodePositions={nodesDraggable ? resetNodePositions : undefined}
                     showControls
@@ -178,7 +178,6 @@ export function ModelsLineageTab(): JSX.Element {
                         isSelected: selectedSearchResult?.id === node.id,
                         isRunning: node.last_run_status === 'Running',
                     })}
-                    onNodeClick={nodesDraggable ? undefined : (node) => router.actions.push(lineageNodeUrl(node))}
                     panels={<NodeTypeLegend collapsed={legendCollapsed} onToggleCollapse={toggleLegendCollapsed} />}
                 />
             </div>

@@ -14,6 +14,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ReviewWorkingStateContent,
     TaskRunArtefact,
     ThreadVerdictArtefact,
+    TurnMarkerArtefact,
     ValidationVerdict,
     artefact_type_for,
 )
@@ -195,6 +196,8 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         # The turn's fetched PR inputs, stored by reference so stage activities reload them from the
         # DB instead of crossing the Temporal workflow boundary with the big pr_files payload.
         PR_SNAPSHOT = "pr_snapshot"
+        # One per executed turn: the ReviewHog version and input fingerprint the turn ran with.
+        TURN_MARKER = "turn_marker"
 
     # Log types accumulate (each call is a new row). Findings and verdicts also append, but their
     # identity is `issue_key` — latest row per key wins at read time — so they get dedicated
@@ -305,6 +308,13 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         cls, *, team_id: int, report_id: str, content: ResolutionRunArtefact, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
         """Append a `resolution_run` (one per run, at prepare; the newest row is the latest run)."""
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
+    def add_turn_marker(
+        cls, *, team_id: int, report_id: str, content: TurnMarkerArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `turn_marker` (one per executed turn; the newest row of a retried turn wins)."""
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod

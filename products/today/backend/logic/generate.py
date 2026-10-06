@@ -57,7 +57,9 @@ def _prepare(team_id: int, briefing_id: str) -> _PreparedRun | None:
         return None
     briefing.status = BriefingStatus.WRITING
     briefing.save(update_fields=["status"])
-    reports = signals.reports_for_briefing(team_id=team.id, user_id=user.id, limit=MAX_ITEMS)
+    # A P0 nobody owns belongs to the project, not to this person, and would sort above every
+    # item that is actually theirs. It stays in the Inbox and in `open_reports_count`.
+    reports = signals.reports_for_briefing(team_id=team.id, user_id=user.id, limit=MAX_ITEMS, include_unowned=False)
     fact_sheet = fact_sheet_for_reports(reports, team.id)
     summaries = {item.key: report.summary for item, report in zip(fact_sheet.items, reports, strict=True)}
     prompt = build_prompt(briefing, user, fact_sheet, summaries, recent_ready_briefings(briefing, RECENT_BRIEFINGS))
