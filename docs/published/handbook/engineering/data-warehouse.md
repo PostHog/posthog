@@ -46,6 +46,8 @@ Use the table picker in the data pane to browse PostHog, warehouse, view, and sy
 The selected table is highlighted; expanding a folder does not select it.
 Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
 
+**Related tables** exposes existing lazy joins, virtual tables, and configured warehouse joins as expandable nodes. Fields reached through a relation keep the original source and a qualified path, so adding a customer's field to a charges worksheet does not switch tables. PostHog property fields, including `person.properties` under events, expand into searchable, paginated property definitions. Numeric definitions become measures; other definitions become dimensions. Restricted and hidden properties are excluded. Warehouse relationships use the existing join configuration; the worksheet does not create joins or infer arbitrary JSON keys.
+
 ## Calculated measures in BI mode
 
 With `SQL_EDITOR_BI_MODE` enabled, open **Business intelligence**, select a table and choose **Add calculated measure** in the data pane.
