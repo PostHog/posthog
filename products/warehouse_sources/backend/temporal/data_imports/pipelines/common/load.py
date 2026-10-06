@@ -79,7 +79,7 @@ _UNRESOLVED = object()
 def _get_json_path_value(raw_value: Any, path: list[str]) -> Any:
     """Walk a JSON string's object members; distinguish a missing member from null."""
     if raw_value is None:
-        return None  # null parent -> null cursor value
+        return _UNRESOLVED  # a null root does not establish that the nested member exists
 
     try:
         value = json.loads(raw_value)
@@ -88,7 +88,7 @@ def _get_json_path_value(raw_value: Any, path: list[str]) -> Any:
 
     for part in path:
         if value is None:
-            return None  # null reached mid-path -> null value
+            return _UNRESOLVED  # null intermediate parent; the leaf was never observed
         if not isinstance(value, dict) or part not in value:
             return _UNRESOLVED  # structurally missing -> unresolvable
         value = value[part]
@@ -141,8 +141,8 @@ def resolve_incremental_values(table: pa.Table, field_name: str) -> list | None:
             # evolve_pyarrow_schema; resolve dotted paths from that representation.
             if len(parts) > 1 and (pa.types.is_string(root_column.type) or pa.types.is_large_string(root_column.type)):
                 root_values = root_column.to_pylist()
-                if not root_values:
-                    return []  # empty batch -> leave the cursor alone
+                if not root_values or all(value is None for value in root_values):
+                    return []  # empty batch or an all-null parent column -> leave the cursor alone
                 values = [_get_json_path_value(v, parts[1:]) for v in root_values]
                 if any(v is not _UNRESOLVED for v in values):
                     return [None if v is _UNRESOLVED else v for v in values]
@@ -150,7 +150,7 @@ def resolve_incremental_values(table: pa.Table, field_name: str) -> list | None:
     # Fallback: a real top-level column. Covers single-segment paths, pre-flattened
     # keys such as "meta_updated_at", and (compatibility) names that are not valid
     # member paths but still normalize onto a real flat column.
-    flat_name = normalize_column_name(field_name)
+    flat_name = normalize_column_name(parts[0] if parts is not None and len(parts) == 1 else field_name)
     if not flat_name or flat_name not in table.column_names:
         return None
 

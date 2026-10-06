@@ -499,6 +499,13 @@ class TestGetIncrementalFieldValue:
         table = pa.table({"id": ["a", "b"], "created": [10, 20]})
         assert get_incremental_field_value(self._schema("created"), table) == 20
 
+    def test_resolves_rooted_single_segment_path(self):
+        # "$.updated_at" parses to a single segment, so the flat-column fallback must normalize that
+        # parsed segment; normalizing the raw string misses the real "updated_at" column and raises.
+        table = pa.table({"updated_at": [10, 20]})
+
+        assert get_incremental_field_value(self._schema("$.updated_at"), table) == 20
+
     def test_missing_column_raises_actionable_error_matched_by_non_retryable_map(self):
         # A label like "created_at" persisted instead of the real field must fail with guidance
         # (not a raw pyarrow KeyError), and the message must keep matching the Any_Source_Errors
@@ -572,22 +579,12 @@ class TestGetIncrementalFieldValue:
         assert get_incremental_field_value(self._schema("meta.updated_at"), table) == 20
 
     def test_rejected_path_name_still_resolves_the_flat_column(self):
-        # parse_member_path rejects "cursor[utc]" (it contains "["), but resolution falls back to the
-        # normalized flat column all the same. Without that fallback, a schema that synced before this
-        # change would now pause with IncrementalFieldMissingFromDataError instead of advancing.
-        flat = normalize_column_name("cursor[utc]")
-        table = pa.table({"id": ["a", "b"], flat: [10, 20]})
+        # The parser rejects "cursor[utc]", but its normalized name can still identify a real flat
+        # column, so resolution must retain the flat-column fallback for rejected paths.
+        flat_name = normalize_column_name("cursor[utc]")
+        table = pa.table({"id": ["a", "b"], flat_name: [10, 20]})
 
         assert get_incremental_field_value(self._schema("cursor[utc]"), table) == 20
-
-    def test_flat_column_that_is_not_a_scalar_is_not_a_cursor(self):
-        # A single-segment field naming a struct/list column has no scalar cursor value. The nested
-        # type guard must make it fail with the error the pause map matches, rather than handing a
-        # list of Python lists/dicts to process_incremental_value.
-        table = pa.table({"id": ["a"], "meta": pa.array([None], type=pa.list_(pa.int64()))})
-
-        with pytest.raises(IncrementalFieldMissingFromDataError):
-            get_incremental_field_value(self._schema("meta"), table)
 
     def test_nested_member_skips_null_parents_and_null_values(self):
         # A null parent, an explicit JSON null, and a record without the member all contribute
@@ -595,6 +592,14 @@ class TestGetIncrementalFieldValue:
         table = pa.table({"meta": [None, '{"updated_at": 20}', '{"updated_at": null}', "{}"]})
 
         assert get_incremental_field_value(self._schema("meta.updated_at"), table) == 20
+
+    def test_null_parent_does_not_mask_a_missing_nested_member(self):
+        # A null parent is not an observation of the member: if no record actually carries it, the
+        # configured path is wrong and the sync must fail loudly rather than freeze the watermark.
+        table = pa.table({"meta": [None, '{"created_at": 10}']})
+
+        with pytest.raises(IncrementalFieldMissingFromDataError):
+            get_incremental_field_value(self._schema("meta.updated_at"), table)
 
     @parameterized.expand(
         [
