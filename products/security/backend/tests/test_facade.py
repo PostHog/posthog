@@ -124,19 +124,25 @@ class TestFacade(BaseTest):
 
     @parameterized.expand(
         [
-            ("surface enforced", ["app"], True),
-            ("another surface enforced", ["signup", "ai_gateway"], False),
-            ("nothing enforced", [], False),
+            ("surface enforced", ["app"], True, True),
+            ("surface enforced, but this request is exempt", ["app"], False, False),
+            ("another surface enforced", ["signup", "ai_gateway"], True, False),
+            ("nothing enforced", [], True, False),
         ]
     )
-    def test_access_refused_only_on_an_enforced_surface(self, _name: str, enforced: list[str], expected: bool) -> None:
+    def test_access_refused_only_on_an_enforced_surface(
+        self, _name: str, enforced: list[str], enforce: bool, expected: bool
+    ) -> None:
         user = User.objects.create_and_join(self.organization, "abuser@example.com", "password1234")
         seed_rules(block_rule(targetType="user_uuid", targetValue=str(user.uuid)))
         refused_before, would_block_before = _refusals("refuse_site"), _would_block("refuse_site")
 
         with enforcing(*enforced):
             result = access_refused(
-                SubjectInput(email=user.email, user_uuid=str(user.uuid)), Surface.APP, call_site="refuse_site"
+                SubjectInput(email=user.email, user_uuid=str(user.uuid)),
+                Surface.APP,
+                call_site="refuse_site",
+                enforce=enforce,
             )
 
         assert result is expected

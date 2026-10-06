@@ -114,6 +114,33 @@ ACCOUNT_BLOCKED_DETAIL = (
 )
 
 
+def refuse_blocked_account(
+    request: Union[HttpRequest, Request], user: User, *, call_site: str, impersonated: bool
+) -> None:
+    """Raise when an enforced access rule blocks this account on the app surface.
+
+    Every authenticator that resolves a user calls this, because DRF stops at the first one that
+    succeeds, so a check in one of them alone leaves the others open. An impersonated request is
+    never refused, so staff can investigate a blocked account; its match counts as a would-block.
+    """
+    try:
+        refused = security_access_refused(
+            SecuritySubject(
+                email=user.email,
+                user_uuid=str(user.uuid),
+                ip=get_trusted_client_ip(getattr(request, "_request", request)),
+            ),
+            SecuritySurface.APP,
+            call_site=call_site,
+            enforce=not impersonated,
+        )
+    except Exception:
+        structlog_logger.exception("security_access_check_site_failed", call_site=call_site)
+        return
+    if refused:
+        raise AuthenticationFailed(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
+
+
 def get_auth_brand_for_client_id(client_id: str | None) -> str | None:
     if not client_id:
         return None
@@ -211,23 +238,7 @@ class SessionAuthentication(
             user, auth = auth_result
             enforce_two_factor(request, user)
             enforce_verified_domain(request, user)
-            try:
-                refused = security_access_refused(
-                    SecuritySubject(
-                        email=user.email,
-                        user_uuid=str(user.uuid),
-                        ip=get_trusted_client_ip(getattr(request, "_request", request)),
-                    ),
-                    SecuritySurface.APP,
-                    call_site="session",
-                )
-            except Exception:
-                structlog_logger.exception("security_access_check_site_failed", call_site="session")
-                refused = False
-            # Staff impersonating a blocked account must still get in to investigate it. The
-            # would-block or refusal is still counted, because the check above already ran.
-            if refused and not is_impersonated_session(request):
-                raise AuthenticationFailed(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
+            refuse_blocked_account(request, user, call_site="session", impersonated=is_impersonated_session(request))
 
             return (user, auth)
 
@@ -370,6 +381,9 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
                 personal_api_key_object.last_used_at = now
                 personal_api_key_object.save(update_fields=["last_used_at"])
             assert personal_api_key_object.user is not None
+            refuse_blocked_account(
+                request, personal_api_key_object.user, call_site="personal_api_key", impersonated=False
+            )
 
             # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.
             tag_authentication(
@@ -745,6 +759,7 @@ class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
             if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
                 raise AuthenticationFailed(detail="ID-JAG (XAA) is not enabled for this organization.")
 
+            refuse_blocked_account(request, user, call_site="id_jag_token", impersonated=False)
             self.id_jag_claims = claims
             self.scopes = str(claims.get("scope") or "").split()
             self.organization_id = organization_id
@@ -1028,6 +1043,9 @@ class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.Bas
         user = access_token.user
         if user is None:
             raise AuthenticationFailed(detail="User associated with access token not found.")
+        refuse_blocked_account(
+            request, user, call_site="oauth_token", impersonated=access_token.impersonated_by_id is not None
+        )
 
         tag_authentication(
             user_id=user.pk,
@@ -1171,6 +1189,7 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
         except (KeyError, PersonalAPIKey.DoesNotExist) as error:
             raise AuthenticationFailed(detail="Source personal API key is no longer valid.") from error
 
+        refuse_blocked_account(request, personal_api_key.user, call_site="personal_api_key", impersonated=False)
         self.personal_api_key = personal_api_key
         tag_authentication(
             user_id=personal_api_key.user.pk,

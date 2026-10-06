@@ -102,10 +102,12 @@ def _record_block(
     )
 
 
-def access_refused(subject: contracts.SubjectInput, surface: Surface, *, call_site: str) -> bool:
+def access_refused(subject: contracts.SubjectInput, surface: Surface, *, call_site: str, enforce: bool = True) -> bool:
     """Whether a block rule refuses this request.
 
     On a surface that is not enforced, a match only records a would-block and returns False.
+    `enforce=False` does the same on an enforced surface, for a request that must get through,
+    such as staff impersonating the account.
     Never raises: a failed decision refuses nobody, so a broken check turns the blocklist off
     instead of locking everyone out. The error counter is what shows that it happened.
     """
@@ -113,7 +115,7 @@ def access_refused(subject: contracts.SubjectInput, surface: Surface, *, call_si
         decision = _counted(decide(subject, surface), call_site)
         if decision.outcome != Outcome.BLOCK:
             return False
-        refused = _is_enforced(surface)
+        refused = enforce and _is_enforced(surface)
         _record_block(decision, subject, call_site, refused=refused)
         return refused
     except Exception:

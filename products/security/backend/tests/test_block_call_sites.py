@@ -1,4 +1,5 @@
 import time
+from datetime import timedelta
 
 import pytest
 import time_machine
@@ -9,6 +10,7 @@ from django.test import RequestFactory
 from django.utils import timezone
 from django.conf import settings
 from django.test import RequestFactory, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -22,7 +24,10 @@ from posthog.api.signup import (
 )
 from posthog.models import Organization, User
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.security.backend.logic import snapshot
 from products.security.backend.tests.helpers import block_rule, enforcing, seed_rules
@@ -124,7 +129,7 @@ class TestBlockCallSites(APIBaseTest):
         [
             ("logged only", [], False, 200, 1),
             ("enforced", ["app"], False, 401, 0),
-            ("enforced, but staff are impersonating", ["app"], True, 200, 0),
+            ("enforced, but staff are impersonating", ["app"], True, 200, 1),
         ]
     )
     def test_blocked_session(
@@ -139,6 +144,58 @@ class TestBlockCallSites(APIBaseTest):
             response = self.client.get("/api/users/@me/")
         assert response.status_code == status, response.json()
         assert _count("app", "session", "email") == before + would_block
+        if status == 401:
+            assert response.json()["code"] == "access_blocked"
+
+    def _bearer(self, kind: str) -> str:
+        if kind == "personal_api_key":
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(key), scopes=["*"])
+            return key
+        application = OAuthApplication.objects.create(
+            name="Test app",
+            client_id="test_client_id",
+            client_secret="test_client_secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            hash_client_secret=True,
+            algorithm="RS256",
+        )
+        token = f"pha_{generate_random_token_personal()}"
+        OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=token,
+            scope="*",
+            expires=timezone.now() + timedelta(hours=1),
+        )
+        return token
+
+    @parameterized.expand(
+        [
+            ("personal API key, logged only", "personal_api_key", [], 200, 1),
+            ("personal API key, enforced", "personal_api_key", ["app"], 401, 0),
+            ("OAuth token, logged only", "oauth_token", [], 200, 1),
+            ("OAuth token, enforced", "oauth_token", ["app"], 401, 0),
+        ]
+    )
+    def test_blocked_bearer_credential(
+        self, _name: str, kind: str, enforced: list[str], status: int, would_block: int
+    ) -> None:
+        # DRF stops at the first authenticator that succeeds, and the bearer ones run before the
+        # session one, so a check on the session alone leaves an existing key or token working.
+        seed_rules(block_rule(targetType="email", targetValue=self.user.email.lower()))
+        token = self._bearer(kind)
+        self.client.logout()
+        before = _count("app", kind, "email")
+
+        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+            response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {token}"})
+
+        assert response.status_code == status, response.json()
+        assert _count("app", kind, "email") == before + would_block
         if status == 401:
             assert response.json()["code"] == "access_blocked"
 
