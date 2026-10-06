@@ -187,7 +187,7 @@ function spanCellContent(column: SpanColumnConfig, span: Span): JSX.Element | nu
                         </LemonTag>
                     )}
                     {span.root_missing && (
-                        <Tooltip title="Root span never arrived. Usually an upstream service started the trace and doesn't send its spans to PostHog.">
+                        <Tooltip title="No root">
                             <LemonTag type="muted" size="small">
                                 no root
                             </LemonTag>
