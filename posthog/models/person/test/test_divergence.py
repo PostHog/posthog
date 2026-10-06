@@ -673,6 +673,13 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         [
             ("within_the_cap", ["target", "other"], 1_000, {"repaired": 1}, (0, 101)),
             (
+                "over_the_cap_with_the_target_in_the_capped_read",
+                ["target", "other", "another"],
+                1,
+                {"repaired": 1},
+                (0, 101),
+            ),
+            (
                 "beyond_the_capped_read",
                 ["other", "another", "target"],
                 1,
