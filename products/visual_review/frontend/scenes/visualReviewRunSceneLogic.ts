@@ -329,12 +329,12 @@ export interface visualReviewRunSceneLogicMeta {
             quarantinedIdentifiers: QuarantinedIdentifierEntryApi[],
             run: RunApi | null
         ) => Record<string, QuarantineLiftEntryApi>
+        cleanQuarantinedSnapshots: (quarantinedRunSnapshots: SnapshotApi[]) => SnapshotApi[]
         cleanQuarantinedGroups: (
             cleanQuarantinedSnapshots: SnapshotApi[],
             liftRequestByIdentifier: Record<string, QuarantineLiftEntryApi>,
             quarantinedIdentifiers: QuarantinedIdentifierEntryApi[]
         ) => CleanQuarantinedGroups
-        cleanQuarantinedSnapshots: (quarantinedRunSnapshots: SnapshotApi[]) => SnapshotApi[]
         selectedLiftRequest: (
             selectedSnapshot: SnapshotApi | null,
             liftRequestByIdentifier: Record<string, QuarantineLiftEntryApi>
