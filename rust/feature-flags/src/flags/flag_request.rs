@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
+use common_cookieless::COOKIELESS_SENTINEL_VALUE;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -244,6 +245,40 @@ impl FlagRequest {
             .or_else(|| self.extract_person_property_string("$device_id"))
     }
 
+    /// Reads `$anon_distinct_id` from person_properties. Backend SDKs set it there instead of
+    /// at the top level.
+    fn person_anon_distinct_id(&self) -> Option<&str> {
+        self.person_properties
+            .as_ref()
+            .and_then(|properties| properties.get("$anon_distinct_id"))
+            .and_then(Value::as_str)
+    }
+
+    /// Extracts the `$anon_distinct_id` the request carried, top level first, then
+    /// person_properties. This is the raw value, so it can differ from the hash key the
+    /// evaluation uses.
+    pub fn extract_anon_distinct_id(&self) -> Option<String> {
+        self.anon_distinct_id
+            .as_deref()
+            .or_else(|| self.person_anon_distinct_id())
+            .map(str::to_string)
+    }
+
+    /// Extracts the experience continuity hash key, with the same precedence as
+    /// `extract_anon_distinct_id`.
+    ///
+    /// The cookieless sentinel is never a hash key, because every cookieless visitor shares it.
+    /// Each candidate is checked on its own, so a sentinel at the top level still falls back to
+    /// the person property a backend SDK set.
+    pub fn extract_hash_key_override(&self) -> Option<String> {
+        let is_usable = |id: &&str| *id != COOKIELESS_SENTINEL_VALUE;
+        self.anon_distinct_id
+            .as_deref()
+            .filter(is_usable)
+            .or_else(|| self.person_anon_distinct_id().filter(is_usable))
+            .map(str::to_string)
+    }
+
     /// Checks if feature flags should be disabled for this request.
     /// Returns true if disable_flags is explicitly set to true.
     pub fn is_flags_disabled(&self) -> bool {
@@ -268,8 +303,66 @@ mod tests {
     };
     use bytes::Bytes;
     use common_cache::NegativeCache;
+    use rstest::rstest;
     use serde_json::json;
     use serde_json::Value;
+
+    #[rstest]
+    #[case::top_level_wins(
+        Some("anon123"),
+        Some(json!({"$anon_distinct_id": "anon456"})),
+        Some("anon123")
+    )]
+    #[case::falls_back_to_person_properties(
+        None,
+        Some(json!({"$anon_distinct_id": "anon456"})),
+        Some("anon456")
+    )]
+    #[case::not_present(None, None, None)]
+    #[case::person_properties_without_the_key(
+        None,
+        Some(json!({"other_property": "value"})),
+        None
+    )]
+    #[case::non_string_person_property(None, Some(json!({"$anon_distinct_id": 123})), None)]
+    #[case::cookieless_sentinel_top_level(Some("$posthog_cookieless"), None, None)]
+    #[case::cookieless_sentinel_person_property(
+        None,
+        Some(json!({"$anon_distinct_id": "$posthog_cookieless"})),
+        None
+    )]
+    #[case::cookieless_sentinel_top_level_falls_back_to_person_property(
+        Some("$posthog_cookieless"),
+        Some(json!({"$anon_distinct_id": "anon456"})),
+        Some("anon456")
+    )]
+    #[case::cookieless_sentinel_on_both_sides(
+        Some("$posthog_cookieless"),
+        Some(json!({"$anon_distinct_id": "$posthog_cookieless"})),
+        None
+    )]
+    fn test_hash_key_override(
+        #[case] top_level: Option<&str>,
+        #[case] person_properties: Option<Value>,
+        #[case] expected: Option<&str>,
+    ) {
+        let request = FlagRequest {
+            anon_distinct_id: top_level.map(str::to_string),
+            person_properties: person_properties.map(|v| {
+                v.as_object()
+                    .expect("person_properties case must be a JSON object")
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect()
+            }),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            request.extract_hash_key_override(),
+            expected.map(str::to_string)
+        );
+    }
 
     #[test]
     fn empty_distinct_id_is_accepted() {

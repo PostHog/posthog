@@ -12,6 +12,7 @@ use tokio_retry::{
 use crate::database::{
     get_connection_with_metrics, get_writer_connection_with_metrics, pool_names, PostgresRouter,
 };
+use common_cookieless::COOKIELESS_SENTINEL_VALUE;
 use common_database::{PostgresReader, PostgresWriter};
 use common_types::{Person, PersonId, TeamId};
 use once_cell::sync::Lazy;
@@ -1216,6 +1217,8 @@ async fn try_set_feature_flag_hash_key_overrides(
         .await?;
 
     // Query 1: Get all person data - person_ids + existing overrides + validation (person pool)
+    // A stored cookieless sentinel does not count as an override, because the matcher ignores
+    // it. Treating it as absent lets the insert below replace it with a real key.
     let person_data_query = r#"
             SELECT DISTINCT
                 p.person_id,
@@ -1224,6 +1227,7 @@ async fn try_set_feature_flag_hash_key_overrides(
             FROM posthog_persondistinctid p
             LEFT JOIN posthog_featureflaghashkeyoverride existing
                 ON existing.person_id = p.person_id AND existing.team_id = p.team_id
+                AND existing.hash_key <> $3
             WHERE p.team_id = $1
                 AND p.distinct_id = ANY($2)
                 AND p.is_deleted = false
@@ -1242,11 +1246,15 @@ async fn try_set_feature_flag_hash_key_overrides(
         "#;
 
     // Query 3: Bulk insert hash key overrides (person pool)
+    // A stored sentinel is not a real continuity key, so this replaces it. Any other stored
+    // key is one the person bucketed on, so it stays.
     let bulk_insert_query = r#"
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
             SELECT $1, person_id, flag_key, $2
             FROM UNNEST($3::bigint[], $4::text[]) AS t(person_id, flag_key)
-            ON CONFLICT DO NOTHING
+            ON CONFLICT (team_id, person_id, feature_flag_key) DO UPDATE
+                SET hash_key = EXCLUDED.hash_key
+                WHERE posthog_featureflaghashkeyoverride.hash_key = $5
         "#;
 
     let result: Result<u64, FlagError> = async {
@@ -1269,6 +1277,7 @@ async fn try_set_feature_flag_hash_key_overrides(
         let person_data_rows = sqlx::query(person_data_query)
             .bind(team_id)
             .bind(distinct_ids)
+            .bind(COOKIELESS_SENTINEL_VALUE)
             .fetch_all(&mut *transaction)
             .await
             .map_err(FlagError::from)?;
@@ -1409,6 +1418,7 @@ async fn try_set_feature_flag_hash_key_overrides(
             .bind(hash_key_override)
             .bind(&person_ids_to_insert)
             .bind(&flag_keys_to_insert)
+            .bind(COOKIELESS_SENTINEL_VALUE)
             .execute(&mut *transaction)
             .await
             .map_err(FlagError::from)?;
@@ -1490,6 +1500,8 @@ async fn try_should_write_hash_key_override(
     distinct_ids: &[String],
 ) -> Result<bool, FlagError> {
     // Query 1: Get person_ids and existing overrides from person pool in one shot
+    // A stored cookieless sentinel does not count as an override, so a person who holds only
+    // sentinel rows still gets a write and ends up with a real key.
     let person_data_query = r#"
         SELECT DISTINCT
             p.person_id,
@@ -1497,6 +1509,7 @@ async fn try_should_write_hash_key_override(
         FROM posthog_persondistinctid p
         LEFT JOIN posthog_featureflaghashkeyoverride existing
             ON existing.person_id = p.person_id AND existing.team_id = p.team_id
+            AND existing.hash_key <> $3
         WHERE p.team_id = $1
             AND p.distinct_id = ANY($2)
             AND p.is_deleted = false
@@ -1573,6 +1586,7 @@ async fn try_should_write_hash_key_override(
         let person_data_rows = sqlx::query(person_data_query)
             .bind(team_id)
             .bind(distinct_ids)
+            .bind(COOKIELESS_SENTINEL_VALUE)
             .fetch_all(&mut *persons_conn)
             .await
             .map_err(|e| {

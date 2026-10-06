@@ -177,14 +177,7 @@ async fn process_request_inner(
         // Populate canonical log with distinct_id, device_id, and anon_distinct_id
         // The raw value the request carried, top-level > person_properties. The hash key the
         // evaluation used can differ, because it rejects the cookieless sentinel.
-        let anon_distinct_id_for_logging = request.anon_distinct_id.clone().or_else(|| {
-            request
-                .person_properties
-                .as_ref()
-                .and_then(|props| props.get("$anon_distinct_id"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        });
+        let anon_distinct_id_for_logging = request.extract_anon_distinct_id();
         let device_id = request.extract_device_id();
         with_canonical_log(|log| {
             log.distinct_id = Some(distinct_id_for_logging.clone());

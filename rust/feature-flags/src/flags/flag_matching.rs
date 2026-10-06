@@ -2936,24 +2936,39 @@ mod tests {
     /// distinct_id and ignore the stale override, otherwise every distinct_id of the
     /// person keeps bucketing on the old key and resolves to the same stale value.
     /// A stored cookieless sentinel is ignored even with continuity on, because every
-    /// cookieless visitor shares it.
+    /// cookieless visitor shares it. Bucketing then falls back to the request's anon id,
+    /// and to the distinct_id when the request carries none.
     #[rstest::rstest]
     #[case::continuity_off_ignores_stale_override(
         Some(false),
         "stale-anon-id",
+        None,
         "logged-in-username"
     )]
-    #[case::continuity_unset_ignores_stale_override(None, "stale-anon-id", "logged-in-username")]
-    #[case::continuity_on_applies_override(Some(true), "stale-anon-id", "stale-anon-id")]
+    #[case::continuity_unset_ignores_stale_override(
+        None,
+        "stale-anon-id",
+        None,
+        "logged-in-username"
+    )]
+    #[case::continuity_on_applies_override(Some(true), "stale-anon-id", None, "stale-anon-id")]
     #[case::continuity_on_ignores_stored_cookieless_sentinel(
         Some(true),
         "$posthog_cookieless",
+        None,
         "logged-in-username"
+    )]
+    #[case::stored_sentinel_falls_back_to_request_override(
+        Some(true),
+        "$posthog_cookieless",
+        Some("request-anon-id"),
+        "request-anon-id"
     )]
     #[tokio::test]
     async fn test_hashed_identifier_respects_current_continuity_for_stored_override(
         #[case] ensure_experience_continuity: Option<bool>,
         #[case] stored_hash_key: &str,
+        #[case] request_hash_key_override: Option<&str>,
         #[case] expected_identifier: &str,
     ) {
         use crate::utils::test_utils::{mock_group_type_cache, TestContext};
@@ -2982,8 +2997,9 @@ mod tests {
             ..Default::default()
         };
 
+        let request_override = request_hash_key_override.map(str::to_string);
         let identifier = matcher
-            .hashed_identifier(&flag, None, Some(&overrides), &None)
+            .hashed_identifier(&flag, None, Some(&overrides), &request_override)
             .unwrap();
 
         assert_eq!(identifier, expected_identifier);
