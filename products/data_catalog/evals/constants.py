@@ -13,6 +13,9 @@ METRICS_CATALOG_MARKER = "information_schema.metrics"
 METRIC_CREATE_TOOL = "data-catalog-metric-create"
 METRIC_UPDATE_TOOL = "data-catalog-metric-update"
 
+# Must match the badge icon in the MCP metric-discovery instructions and the metric-run tool description.
+APPROVED_BADGE_ICON = "\U0001f6e1\ufe0f"
+
 # Deliberately tighter than the server cap (validation.MAX_DESCRIPTION_LENGTH = 1000): the eval
 # catches verbosity the hard cap would still admit.
 EVAL_DESCRIPTION_CHAR_LIMIT = 500
