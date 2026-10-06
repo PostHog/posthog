@@ -65,6 +65,7 @@ def validate_credentials(config: KomodorSourceConfig, api_version: str) -> tuple
     client = RESTClient(
         base_url=base_url,
         auth=APIKeyAuth(api_key=config.api_key, name="X-API-KEY"),
+        allow_redirects=False,
         request_timeout=(10, 60),
     )
     try:
@@ -123,6 +124,7 @@ def komodor_source(
         "client": {
             "base_url": get_base_url(config.region, api_version),
             "auth": {"type": "api_key", "api_key": config.api_key, "name": "X-API-KEY", "location": "header"},
+            "allow_redirects": False,
             "request_timeout": (10, 60),
         },
         "resources": [{"name": endpoint, "endpoint": endpoint_config, "write_disposition": "replace"}],

@@ -78,6 +78,7 @@ def test_pagination_auth_and_checkpoint(
     assert next(pages) == [{"name": "first"}]
     assert list(pages) == [[{"name": "last"}]]
     assert transport.call_count == 2
+    assert all(call.kwargs["allow_redirects"] is False for call in transport.call_args_list)
     assert all(call.kwargs["timeout"] == (10, 60) for call in transport.call_args_list)
     resume.save_state.assert_called_once_with(KomodorResumeConfig(cursor=cursor))
     first, second = [call.args[0] for call in transport.call_args_list]
@@ -127,6 +128,7 @@ def test_credential_probe_is_one_small_request(transport: MagicMock, rows: list[
     assert validate_credentials(KomodorSourceConfig(api_key="test-key", region="eu"), "v2") == (True, None)
     transport.assert_called_once()
     request = transport.call_args.args[0]
+    assert transport.call_args.kwargs["allow_redirects"] is False
     assert transport.call_args.kwargs["timeout"] == (10, 60)
     assert request.url == "https://api.eu.komodor.com/api/v2/services/search"
     assert request.headers["X-API-KEY"] == "test-key"
