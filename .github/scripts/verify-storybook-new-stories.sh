@@ -88,7 +88,8 @@ echo ""
 echo "testPathPatterns: ${pattern_args[*]}"
 echo ""
 
-# Usage: run_stories <browser> <run_name> <snapshot_flag>
+declare -a failed_runs=()
+
 run_stories() {
     local browser="$1" run_name="$2" snapshot_flag="$3"
     echo "=== $run_name ==="
@@ -100,14 +101,18 @@ run_stories() {
     # CI, so finding no matching tests here is not a failure.
     # STORYBOOK_SKIP_TAGS must match the visual-regression shards in ci-storybook.yml,
     # so that a story tagged test-skip-<browser> is skipped here too.
-    STORYBOOK_SKIP_TAGS="test-skip,test-skip-${browser}" \
+    if STORYBOOK_SKIP_TAGS="test-skip,test-skip-${browser}" \
         pnpm --filter=@posthog/storybook exec test-storybook \
         "$snapshot_flag" --no-index-json --maxWorkers=1 \
         --browsers "$browser" \
-        -- "${pattern_args[@]}" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-${run_name}.log"
+        -- "${pattern_args[@]}" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-${run_name}.log"; then
+        echo "$run_name passed"
+    else
+        echo "$run_name failed"
+        failed_runs+=("$run_name")
+    fi
+    echo ""
 }
-
-declare -a failed_runs=()
 
 # Run the stories REPEAT_COUNT times in chromium. Each run does a full snapshot comparison.
 # If any run fails, the story is flaky.
@@ -120,33 +125,19 @@ for run in $(seq 1 "$REPEAT_COUNT"); do
         snapshot_flag="--ci"
     fi
 
-    run_name="chromium-run-$run"
-    if run_stories chromium "$run_name" "$snapshot_flag"; then
-        echo "$run_name passed"
-    else
-        echo "$run_name failed"
-        failed_runs+=("$run_name")
-    fi
-    echo ""
+    run_stories chromium "chromium-run-$run" "$snapshot_flag"
 done
 
 # The merge queue is the first full-matrix run that includes webkit, so a story that breaks
 # only in webkit must fail here. Otherwise it fails the queue batch of every PR behind it.
 # One run is enough, because the stories take no webkit snapshot that a second run could
 # compare against, and the test runner already retries a failed story.
-if run_stories webkit webkit-run-1 --updateSnapshot; then
-    echo "webkit-run-1 passed"
-else
-    echo "webkit-run-1 failed"
-    failed_runs+=(webkit-run-1)
-fi
-echo ""
+run_stories webkit webkit-run-1 --updateSnapshot
 
 if [ "${#failed_runs[@]}" -gt 0 ]; then
     echo "Flake verification failed in: ${failed_runs[*]}"
-    echo "A chromium failure is a flaky or broken snapshot. A webkit failure is a story that does not render or play in webkit."
-    echo "Fix the story before merging."
+    echo "chromium: flaky or broken snapshot. webkit: story does not render or play."
     exit 1
 fi
 
-echo "Flake verification passed — $REPEAT_COUNT chromium run(s) and 1 webkit run stable"
+echo "Flake verification passed"
