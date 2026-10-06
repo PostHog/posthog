@@ -1,6 +1,11 @@
 {
     "id": "019b6f44-f9a3-0000-c4a7-b8050d25d690",
     "name": "Welcome email sequence",
+    "starts_on": {
+        "kind": "event",
+        "events": ["user signed up", "signed_up", "sign_up", "signup", "user_signed_up"],
+        "detail": ""
+    },
     "description": "Welcome new signups with an intro email, then check in on how they are getting on.",
     "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/f_webp,h_270,w_480,c_fill,g_auto,q_auto/growth_think_905cd0fa65?_a=AXAH4nI0",
     "scope": "global",

@@ -37157,6 +37157,24 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface EmailSenderEligibility {
+      /** The project email sender integration ID. */
+      integration_id: number;
+      /** Email provider, such as ses, maildev, or sandbox when available. */
+      provider: string;
+      /** Whether the email sender has completed verification. */
+      is_verified: boolean;
+    }
+
+    export interface EmailReach {
+      /** Active organization members with verified email addresses. Only these recipients can receive sandbox sender email. This is an eligible-recipient count, not a trigger forecast. */
+      verified_member_count: number;
+      /** People in this project with a non-empty email property. These people can receive email from an own-domain sender if they qualify for the workflow. This is not a trigger forecast. */
+      project_email_count: number;
+      /** Project email sender identity and verification state, without configuration or credentials. */
+      email_senders: EmailSenderEligibility[];
+    }
+
     /**
      * How much workflow email this project may send, and how much of that it has used.
      */
@@ -52829,6 +52847,33 @@ export namespace Schemas {
     export type HogFlowTemplateVariablesItem = {[key: string]: string};
 
     /**
+     * * `event` - Event
+     * * `no_event` - No event
+     * * `schedule` - Schedule
+     */
+    export type HogFlowTemplateStartsOnSerializerKindEnum = typeof HogFlowTemplateStartsOnSerializerKindEnum[keyof typeof HogFlowTemplateStartsOnSerializerKindEnum];
+
+
+    export const HogFlowTemplateStartsOnSerializerKindEnum = {
+      Event: 'event',
+      NoEvent: 'no_event',
+      Schedule: 'schedule',
+    } as const;
+
+    export interface HogFlowTemplateStartsOn {
+      /** Whether the template starts on an event, an absence of events, or a schedule.
+       *
+       * * `event` - Event
+       * * `no_event` - No event
+       * * `schedule` - Schedule */
+      kind: HogFlowTemplateStartsOnSerializerKindEnum;
+      /** Event names that can drive the template, in order of preference. Empty for schedules. */
+      events: string[];
+      /** Short qualifier shown with the template's trigger. */
+      detail: string;
+    }
+
+    /**
      * * `team` - Only team
      * * `organization` - Organization
      * * `global` - Global
@@ -52887,6 +52932,8 @@ export namespace Schemas {
       image_url?: string | null;
       /** Tags for filtering templates. */
       tags?: string[];
+      /** What starts a global email template. Null for other templates. */
+      readonly starts_on: HogFlowTemplateStartsOn | null;
       /** Who can use the template: this project only, or every project in the organization.
        *
        * * `team` - Only team
@@ -77399,6 +77446,8 @@ export namespace Schemas {
       image_url?: string | null;
       /** Tags for filtering templates. */
       tags?: string[];
+      /** What starts a global email template. Null for other templates. */
+      readonly starts_on?: HogFlowTemplateStartsOn | null;
       /** Who can use the template: this project only, or every project in the organization.
        *
        * * `team` - Only team

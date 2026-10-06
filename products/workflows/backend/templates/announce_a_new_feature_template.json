@@ -1,6 +1,11 @@
 {
     "id": "019b6fc4-282c-0000-50c9-aef7a834102d",
     "name": "Announce a new feature",
+    "starts_on": {
+        "kind": "event",
+        "events": ["$feature_view"],
+        "detail": ""
+    },
     "description": "Tell people about a new feature, but only the ones who can actually use it.",
     "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/posthog_mobile_sessions_1aa340c741.jpg",
     "scope": "global",

@@ -81,13 +81,18 @@ from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES, compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
-from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaItemSerializer, InputsSerializer
+from posthog.cdp.validation import (
+    HogFunctionFiltersSerializer,
+    InputsSchemaItemSerializer,
+    InputsSerializer,
+    validate_sandbox_email_sender,
+)
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team, User
 from posthog.models.filters import Filter
-from posthog.models.integration import Integration
+from posthog.models.integration import SANDBOX_EMAIL_PROVIDER, Integration
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
@@ -101,6 +106,10 @@ from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse_with_delta_mapping
 
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -140,6 +149,7 @@ from products.workflows.backend.facade.blast_radius import (
 )
 from products.workflows.backend.facade.contracts import StaffPausedError, WorkflowBatchJobNotFound
 from products.workflows.backend.facade.email_health import (
+    EmailReachService,
     fetch_aws_tenant_reputation,
     fetch_email_totals_by_source,
     fetch_isp_metrics,
@@ -850,8 +860,8 @@ def _has_exact_string_filter(filters: dict, key: str) -> bool:
     return False
 
 
-def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]:
-    """Stored email sender overrides keyed by action id, live and draft variants both kept.
+def _existing_email_values_by_action(instance: "HogFlow") -> dict[str, list[dict]]:
+    """Stored email inputs keyed by action id, live and draft variants both kept.
 
     Which variant a save should be compared against depends on how the request routes (a
     builder save targets the draft, a raw API write targets live), so validation grandfathers
@@ -866,8 +876,8 @@ def _existing_email_from_by_action(instance: "HogFlow") -> dict[str, list[dict]]
             email_input = ((stored_action.get("config") or {}).get("inputs") or {}).get("email")
             value = email_input.get("value") if isinstance(email_input, dict) else None
             from_value = value.get("from") if isinstance(value, dict) else None
-            if isinstance(from_value, dict):
-                result.setdefault(stored_action["id"], []).append(from_value)
+            if isinstance(value, dict) and isinstance(from_value, dict):
+                result.setdefault(stored_action["id"], []).append(value)
     return result
 
 
@@ -895,6 +905,25 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
         default=True,
         help_text="Whether the workflow contains an email step. The tiered audience limit only applies to "
         "email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.",
+    )
+
+
+class EmailSenderEligibilitySerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(help_text="The project email sender integration ID.")
+    provider = serializers.CharField(help_text="Email provider, such as ses, maildev, or sandbox when available.")
+    is_verified = serializers.BooleanField(help_text="Whether the email sender has completed verification.")
+
+
+class EmailReachSerializer(serializers.Serializer):
+    verified_member_count = serializers.IntegerField(
+        help_text="Active organization members with verified email addresses. Only these recipients can receive sandbox sender email. This is an eligible-recipient count, not a trigger forecast."
+    )
+    project_email_count = serializers.IntegerField(
+        help_text="People in this project with a non-empty email property. These people can receive email from an own-domain sender if they qualify for the workflow. This is not a trigger forecast."
+    )
+    email_senders = EmailSenderEligibilitySerializer(
+        many=True,
+        help_text="Project email sender identity and verification state, without configuration or credentials.",
     )
 
 
@@ -1614,6 +1643,21 @@ class HogFlowActionSerializer(serializers.Serializer):
             else:
                 input_schema = template.inputs_schema
                 inputs = data.get("config", {}).get("inputs", {})
+                existing_emails = (self.context.get("existing_action_emails") or {}).get(data.get("id")) or []
+                input_context = {
+                    **self.context,
+                    "workflow_action_type": data.get("type"),
+                    "existing_email_values": existing_emails,
+                    # Request-scoped: a drip sequence's steps share senders, and the actions
+                    # list validates one action at a time (mirrors _message_template_cache).
+                    "email_integration_cache": self.context.setdefault("_email_integration_cache", {}),
+                    "sandbox_sender_enabled_cache": self.context.setdefault("_sandbox_sender_enabled_cache", {}),
+                }
+                for schema in input_schema or []:
+                    if schema.get("type") in {"email", "native_email"} and isinstance(inputs, dict):
+                        email_input = inputs.get(schema["key"])
+                        if isinstance(email_input, dict):
+                            validate_sandbox_email_sender(email_input.get("value"), input_context)
 
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={
@@ -1621,6 +1665,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "inputs": inputs,
                     },
                     context={
+                        **input_context,
                         "function_type": template.type,
                         "is_dwh_source": self.context.get("is_dwh_source", False),
                         # The existing (decrypted) secret inputs for this action, so a resent
@@ -1631,14 +1676,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         # sender address is checked against the integration's verified domain at
                         # save time, while an unchanged stored value is grandfathered.
                         "get_team": self.context.get("get_team"),
-                        "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(
-                            data.get("id")
-                        ),
-                        # Request-scoped: a drip sequence's steps share senders, and the actions
-                        # list validates one action at a time (mirrors _message_template_cache).
-                        "email_integration_domain_cache": self.context.setdefault(
-                            "_email_integration_domain_cache", {}
-                        ),
+                        "existing_email_from": [email["from"] for email in existing_emails],
                     },
                 )
 
@@ -2149,6 +2187,7 @@ def _isp_domains(team: Team, user_access_control: UserAccessControl, user_permis
         dict.fromkeys(
             domain
             for domain in Integration.objects.filter(team_id=team.id, kind="email", config__verified=True)
+            .exclude(config__contains={"provider": SANDBOX_EMAIL_PROVIDER})
             .order_by("id")
             .values_list("config__domain", flat=True)
             if domain
@@ -2800,6 +2839,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
+        self.context["workflow_origin_product"] = data.get(
+            "origin_product", instance.origin_product if instance else None
+        )
 
         # Who a "Create AI task" step runs as: the existing creator for an update, or the
         # requesting user for a brand-new flow (matches the `created_by` a create() actually
@@ -2874,7 +2916,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # Stored sender overrides, keyed by action id, so child action validation only holds
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
-            self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
+            self.context["existing_action_emails"] = _existing_email_values_by_action(instance)
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.
@@ -4596,6 +4638,7 @@ class HogFlowViewSet(
         "team_reputation",
         "email_sending_suspension",
         "user_blast_radius",
+        "email_reach",
         "assets",
         "asset_content",
         "revisions",
@@ -4686,6 +4729,8 @@ class HogFlowViewSet(
             if request.method in ("GET", "HEAD", "OPTIONS"):
                 return ["hog_flow:read"]
             return ["hog_flow:write", "person:read"]
+        if self.action == "email_reach":
+            return ["hog_flow:read", "person:read", "integration:read"]
         # Sizing an audience runs a person/group count over caller-supplied filters — that's person-data
         # access, so require person:read on top of workflow read. Without it a hog_flow:read-only token
         # could use this as a person-existence oracle (e.g. "does email X exist?"). The web builder uses
@@ -6434,6 +6479,19 @@ class HogFlowViewSet(
             return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)
 
         return Response(res.json())
+
+    @extend_schema(responses=EmailReachSerializer)
+    @action(methods=["GET"], detail=False)
+    def email_reach(self, request: Request, **kwargs: object) -> Response:
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "viewer"):
+            raise exceptions.PermissionDenied("You do not have access to workflows.")
+        user = cast(User, request.user)
+        restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=self.team.id)
+        if "email" in split_restricted_property_names(restrictions).person:
+            raise exceptions.PermissionDenied(
+                "Email reach is unavailable because you cannot read person email properties."
+            )
+        return Response(EmailReachSerializer(EmailReachService.counts(self.team, user)).data)
 
     @extend_schema(request=BlastRadiusRequestSerializer, responses=BlastRadiusSerializer)
     @action(methods=["POST"], detail=False)

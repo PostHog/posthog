@@ -8,6 +8,21 @@ import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/sche
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const WorkflowsEmailReachSchema = () => z.object({})
+
+const workflowsEmailReach = (): ToolBase<ReturnType<typeof WorkflowsEmailReachSchema>, Schemas.EmailReach> => ({
+    name: 'workflows-email-reach',
+    schema: WorkflowsEmailReachSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsEmailReachSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.EmailReach>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/email_reach/`,
+        })
+        return result
+    },
+})
+
 const BroadcastsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
     return HogFlowsCreateBody
@@ -729,6 +744,7 @@ const workflowsVersionStats = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'workflows-email-reach': workflowsEmailReach,
     'broadcasts-create': broadcastsCreate,
     'workflows-create': workflowsCreate,
     'workflows-discard-draft': workflowsDiscardDraft,

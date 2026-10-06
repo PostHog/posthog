@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import { LemonSkeleton } from '@posthog/lemon-ui'
@@ -9,8 +10,10 @@ import { SetupTaskId } from 'lib/components/ProductSetup'
 import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isSandboxEmailSender } from 'lib/integrations/utils'
 
 import { ChannelSetupModal } from './ChannelSetupModal'
+import { SandboxEmailSenderRow } from './SandboxEmailSenderRow'
 
 const HedgehogReporter = pngHoggie(reporterPng)
 
@@ -18,14 +21,32 @@ const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio', 'firebase', 'apns']
 export type ChannelType = (typeof MESSAGING_CHANNEL_TYPES)[number]
 
 export function MessageChannels(): JSX.Element {
-    const { setupModalOpen, integrations, integrationsLoading, setupModalType, selectedIntegration } =
-        useValues(integrationsLogic)
-    const { openSetupModal, closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
+    const {
+        setupModalOpen,
+        integrations,
+        integrationsLoading,
+        setupModalType,
+        selectedIntegration,
+        sandboxEmailSender,
+        sandboxEmailSenderProvisionResultLoading,
+        currentProjectId,
+    } = useValues(integrationsLogic)
+    const { openSetupModal, closeSetupModal, markTaskAsCompleted, ensureSandboxEmailSender } =
+        useActions(integrationsLogic)
 
-    const allWorkflowIntegrations =
-        integrations?.filter((integration) => MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType)) ?? []
+    useEffect(() => {
+        ensureSandboxEmailSender()
+    }, [ensureSandboxEmailSender, currentProjectId])
 
-    const showProductIntroduction = !integrationsLoading && !allWorkflowIntegrations.length
+    const ownWorkflowIntegrations =
+        integrations?.filter(
+            (integration) =>
+                MESSAGING_CHANNEL_TYPES.includes(integration.kind as ChannelType) && !isSandboxEmailSender(integration)
+        ) ?? []
+
+    const integrationsResolved = integrations !== null || !integrationsLoading
+    const sandboxSenderPending = sandboxEmailSenderProvisionResultLoading && !ownWorkflowIntegrations.length
+    const showProductIntroduction = integrationsResolved && !sandboxSenderPending && !ownWorkflowIntegrations.length
 
     return (
         <>
@@ -41,7 +62,7 @@ export function MessageChannels(): JSX.Element {
             />
 
             <div className="flex flex-col gap-4" data-attr="message-channels">
-                {integrationsLoading && !integrations?.length && (
+                {(!integrationsResolved || sandboxSenderPending) && (
                     <>
                         <LemonSkeleton className="h-20" />
                         <LemonSkeleton className="h-20" />
@@ -58,6 +79,7 @@ export function MessageChannels(): JSX.Element {
                         isEmpty
                     />
                 )}
+                {sandboxEmailSender && <SandboxEmailSenderRow integration={sandboxEmailSender} />}
                 <EmailIntegrationsList />
                 <IntegrationsList titleText="" onlyKinds={MESSAGING_CHANNEL_TYPES.filter((type) => type !== 'email')} />
             </div>

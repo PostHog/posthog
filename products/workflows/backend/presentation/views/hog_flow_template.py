@@ -1,5 +1,7 @@
 from typing import Any, Optional, cast
 
+from django.db import models
+
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
@@ -134,6 +136,23 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
         return data
 
 
+class HogFlowTemplateStartsOnSerializer(serializers.Serializer):
+    class Kind(models.TextChoices):
+        EVENT = "event", "Event"
+        NO_EVENT = "no_event", "No event"
+        SCHEDULE = "schedule", "Schedule"
+
+    kind = serializers.ChoiceField(
+        choices=Kind.choices,
+        help_text="Whether the template starts on an event, an absence of events, or a schedule.",
+    )
+    events = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Event names that can drive the template, in order of preference. Empty for schedules.",
+    )
+    detail = serializers.CharField(allow_blank=True, help_text="Short qualifier shown with the template's trigger.")
+
+
 class HogFlowTemplateSerializer(serializers.Serializer):
     """
     Serializer for creating hog flow templates.
@@ -154,6 +173,12 @@ class HogFlowTemplateSerializer(serializers.Serializer):
     )
     tags = serializers.ListField(
         child=serializers.CharField(), required=False, default=list, help_text="Tags for filtering templates."
+    )
+    starts_on = HogFlowTemplateStartsOnSerializer(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="What starts a global email template. Null for other templates.",
     )
     scope = serializers.ChoiceField(
         choices=HogFlowTemplateScope.choices,
