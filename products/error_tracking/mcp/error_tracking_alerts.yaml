@@ -1,6 +1,6 @@
 # MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
 # List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product error_tracking
-# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product error_tracking
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product error_tracking --file ../../products/error_tracking/mcp/error_tracking_alerts.yaml
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Error tracking alerts
 feature: error_tracking

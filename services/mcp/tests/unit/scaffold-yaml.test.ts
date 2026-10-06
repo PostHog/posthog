@@ -1,3 +1,4 @@
+import path from 'path'
 import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 
@@ -120,6 +121,22 @@ describe('scaffold-yaml', () => {
         expect(CategoryConfigSchema.parse(parseYaml(content)).tools).toEqual({
             'things-create': { operation: 'things_create', enabled: true },
         })
+    })
+
+    it.each([
+        { name: 'the default file', file: '../../products/error_tracking/mcp/tools.yaml', flag: undefined },
+        {
+            name: 'an extra file',
+            file: '../../products/error_tracking/mcp/error_tracking_alerts.yaml',
+            flag: '--file ../../products/error_tracking/mcp/error_tracking_alerts.yaml',
+        },
+    ])('names the target file in the add command only for $name', ({ file, flag }) => {
+        const content = renderCategoryYaml(category({}), 'error_tracking', {}, path.resolve(__dirname, '../..', file))
+        const addLine = content.split('\n').find((line) => line.startsWith('# Add one:'))
+
+        expect(addLine).toBe(
+            `# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product error_tracking${flag ? ` ${flag}` : ''}`
+        )
     })
 
     it.each([

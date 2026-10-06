@@ -64,10 +64,19 @@ interface DiscoveredOperation {
     description?: string | undefined
 }
 
-function yamlHeader(product: string): string {
+// A file other than the product's default `--add` target needs `--file`, or the command fails or writes to tools.yaml.
+function addCommandFlags(product: string, filePath: string | undefined): string {
+    const flags = `--product ${product}`
+    if (!filePath || path.resolve(filePath) === defaultProductFile(product)) {
+        return flags
+    }
+    return `${flags} --file ${path.relative(MCP_ROOT, filePath)}`
+}
+
+function yamlHeader(product: string, filePath: string | undefined): string {
     return `# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
 # List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product ${product}
-# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product ${product}
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> ${addCommandFlags(product, filePath)}
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 `
 }
@@ -182,7 +191,12 @@ function deduplicateOperations(ops: DiscoveredOperation[]): DiscoveredOperation[
     return result
 }
 
-function renderCategoryYaml(existing: CategoryConfig, tag: string, tools: Record<string, unknown>): string {
+function renderCategoryYaml(
+    existing: CategoryConfig,
+    tag: string,
+    tools: Record<string, unknown>,
+    filePath?: string
+): string {
     const sortedTools = Object.fromEntries(Object.entries(tools).sort(([a], [b]) => a.localeCompare(b)))
 
     const merged: Record<string, unknown> = {
@@ -202,7 +216,7 @@ function renderCategoryYaml(existing: CategoryConfig, tag: string, tools: Record
         merged.wrappers = existing.wrappers
     }
 
-    return yamlHeader(tag) + stringifyYaml(merged, { indent: 4, lineWidth: 120 })
+    return yamlHeader(tag, filePath) + stringifyYaml(merged, { indent: 4, lineWidth: 120 })
 }
 
 function generateFreshYaml(tag: string): string {
@@ -244,7 +258,8 @@ function mergeWithExisting(
     ops: DiscoveredOperation[],
     tag: string,
     validOperationIds: Set<string>,
-    subset = false
+    subset = false,
+    filePath?: string
 ): {
     content: string
     updated: number
@@ -290,7 +305,7 @@ function mergeWithExisting(
     }
 
     return {
-        content: renderCategoryYaml(existing, tag, mergedTools),
+        content: renderCategoryYaml(existing, tag, mergedTools, filePath),
         updated,
         matched,
         unmatchedTools,
@@ -509,7 +524,8 @@ function syncAll(spec: OpenApiSpec): void {
             ops,
             product,
             validIds,
-            subset
+            subset,
+            filePath
         )
         fs.writeFileSync(filePath, content)
         writtenFiles.push(filePath)
@@ -570,7 +586,7 @@ function addTool(spec: OpenApiSpec, product: string, operationId: string, filePa
 
     fs.writeFileSync(
         targetFile,
-        renderCategoryYaml(existing, product, { ...existing.tools, [added.toolName]: added.entry })
+        renderCategoryYaml(existing, product, { ...existing.tools, [added.toolName]: added.entry }, targetFile)
     )
     formatWithPrettier([targetFile])
 
@@ -654,7 +670,9 @@ function main(): void {
             loadCategoryConfig(resolvedOutput),
             ops,
             product,
-            validIds
+            validIds,
+            false,
+            resolvedOutput
         )
         fs.writeFileSync(resolvedOutput, content)
         process.stdout.write(`${matched} tool(s), ${droppedDisabledTools.length} removed — ${resolvedOutput}\n`)

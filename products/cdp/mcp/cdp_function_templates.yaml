@@ -1,6 +1,6 @@
 # MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
 # List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product cdp
-# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product cdp
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product cdp --file ../../products/cdp/mcp/cdp_function_templates.yaml
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Function templates
 feature: hog_function_templates
