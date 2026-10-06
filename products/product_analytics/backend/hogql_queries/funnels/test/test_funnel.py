@@ -4261,7 +4261,7 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("text", {"Continue": [2, 1], "Details": [1, 1], "": [2, 1]}),
-            ("tag_name", {"button": [2, 1], "a": [1, 1], "": [2, 1]}),
+            ("tag_name", {"button": [2, 1], "a": [1, 1], "div": [1, 1], "": [1, 0]}),
             ("href", {"/details": [1, 1], "": [4, 2]}),
         ]
     )
