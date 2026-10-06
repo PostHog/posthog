@@ -4528,10 +4528,10 @@ Today (4): `artifacts`, `builds`, `repositories`, `storage_summary`
 
 Diffed against: <https://docs.jfrog.com/artifactory/docs/aql-entities-fields-reference.md>
 
-- [ ] `AQL promotion domain (build promotions)` — build state transition history - when a build moved to which repo, by whom, with what status (high)
-- [ ] `AQL statistic domain (stat.downloads, stat.downloaded, stat.downloaded_by)` — artifact download counts and last-download - the headline consumption metric for a registry (high)
-- [ ] `AQL artifact / module / dependency domains (build artifacts and dependencies)` — line items joining the already-synced builds to the already-synced artifacts, plus the dependency graph (high)
-- [ ] `Xray Get Violations (/xray/api/v1/violations)` — security and license policy violations per artifact/build, the main security-analytics fact table (high)
+- [x] `AQL promotion domain (build promotions)` — build state transition history - when a build moved to which repo, by whom, with what status (high)
+- [x] `AQL statistic domain (stat.downloads, stat.downloaded, stat.downloaded_by)` — artifact download counts and last-download - the headline consumption metric for a registry (high)
+- [x] `AQL artifact / module / dependency domains (build artifacts and dependencies)` — line items joining the already-synced builds to the already-synced artifacts, plus the dependency graph (high)
+- [x] `Xray Get Violations (/xray/api/v1/violations)` — security and license policy violations per artifact/build, the main security-analytics fact table (high)
 - [ ] `AQL property domain (artifact properties)` — key/value metadata on artifacts used for promotion and environment labelling (medium)
 - [ ] `Xray Artifact Summary / Build Summary (/xray/api/v1/summary/*)` — per-artifact and per-build vulnerability and license rollups (medium)
 - [ ] `Release bundles: Get All Bundles / Get All Bundle Versions (AQL release domain)` — release-level grouping of artifacts, the unit teams actually ship (medium)
