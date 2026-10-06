@@ -757,10 +757,9 @@ mod tests {
         let (batcher, effects) = batcher.on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
         assert!(effects.sends.is_empty());
         assert_eq!(batcher.pending_messages(), 1);
-        assert!(effects.next_wakeup.is_some());
+        assert_eq!(effects.next_wakeup, Some(now + NO_WORKER_DELAY));
 
-        let later = now + Duration::from_millis(100);
-        let (_, effects) = batcher.on_wakeup(later, &pool(&["w"]));
+        let (_, effects) = batcher.on_wakeup(now + NO_WORKER_DELAY, &pool(&["w"]));
         assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
     }
 
@@ -924,5 +923,44 @@ mod tests {
         let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
         assert!(matches!(batcher, BatcherStateMachine::Failed));
         assert!(effects.fatal.is_some());
+    }
+
+    #[test]
+    fn an_accepted_request_completes_each_partition_and_acks_only_keyed_messages() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let batcher = batcher(4, now);
+        let keyed = KeyRun {
+            routing_key: "a".into(),
+            messages: vec![message("a", 0, 1), message("a", 1, 2)],
+        };
+        let unkeyed = KeyRun {
+            routing_key: ":2:5".into(),
+            messages: vec![SerializedKafkaMessage {
+                key: None,
+                ..message("unkeyed", 2, 5)
+            }],
+        };
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![keyed, unkeyed]);
+        let (keyed_request, unkeyed_request) = (effects.sends[0].request, effects.sends[1].request);
+
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, keyed_request, 2);
+        let completed: Vec<_> = effects
+            .completions
+            .iter()
+            .map(|completion| (completion.partition.0, completion.offsets.clone()))
+            .collect();
+        assert_eq!(completed, vec![(0, vec![Offset(1)]), (1, vec![Offset(2)])]);
+        assert_eq!(
+            effects.key_acks,
+            vec![KeyAck {
+                routing_key: "a".into(),
+                max_offset: 2
+            }]
+        );
+
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, unkeyed_request, 1);
+        assert_eq!(effects.completions[0].offsets, vec![Offset(5)]);
+        assert!(effects.key_acks.is_empty());
     }
 }

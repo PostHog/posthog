@@ -352,6 +352,8 @@ impl KeyQueues {
 mod tests {
     use std::time::Duration;
 
+    use common_kafka_consumer::{GroupMessage, Partition};
+
     use super::*;
     use crate::batcher::test_support::{message, offsets};
 
@@ -507,5 +509,69 @@ mod tests {
             .settle(&key("a"), vec![message("a", 0, 1)], None, now)
             .is_err());
         assert_eq!(queues.queued_messages(), 1);
+    }
+
+    #[test]
+    fn a_key_split_over_groups_is_one_run_and_an_unkeyed_group_gets_its_own_key() {
+        let group = |partition: i32, key: Option<&str>, offsets: &[i64]| Group {
+            partition: Partition(partition),
+            key: key.map(str::to_string),
+            messages: offsets
+                .iter()
+                .map(|&offset| GroupMessage {
+                    offset: Offset(offset),
+                    message: SerializedKafkaMessage {
+                        key: key.map(str::to_string),
+                        ..message("unused", partition, offset)
+                    },
+                })
+                .collect(),
+        };
+        let runs = KeyRun::from_groups(vec![
+            group(0, Some("a"), &[1]),
+            group(1, None, &[5]),
+            group(2, Some("a"), &[7]),
+        ]);
+        let shapes: Vec<_> = runs
+            .iter()
+            .map(|run| (&*run.routing_key, offsets(&run.messages)))
+            .collect();
+        assert_eq!(shapes, vec![("a", vec![1, 7]), (":1:5", vec![5])]);
+    }
+
+    #[test]
+    fn pushes_of_one_class_before_a_claim_leave_as_one_run() {
+        let now = Instant::now();
+        let mut queues = KeyQueues::new();
+        queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
+        queues.push(key("a"), 0, vec![message("a", 0, 2)], now);
+        assert_eq!(
+            claimed(&queues.take_ready(now)),
+            vec![("a", vec![1, 2], false)]
+        );
+    }
+
+    #[test]
+    fn queued_bytes_follow_messages_through_claim_requeue_and_purge() {
+        let now = Instant::now();
+        let mut queues = KeyQueues::new();
+        queues.push(
+            key("a"),
+            0,
+            vec![message("a", 0, 1), message("a", 1, 2)],
+            now,
+        );
+        queues.take_ready(now);
+        assert_eq!(queues.queued_bytes(), 0);
+
+        let requeued = vec![message("a", 0, 1), message("a", 1, 2)];
+        let requeued_bytes = payload_bytes(&requeued);
+        queues
+            .settle(&key("a"), requeued, None, now)
+            .expect("claimed");
+        assert_eq!(queues.queued_bytes(), requeued_bytes);
+
+        queues.purge(&[("events".to_string(), 0)]);
+        assert_eq!(queues.queued_bytes(), message("a", 1, 2).payload_bytes());
     }
 }
