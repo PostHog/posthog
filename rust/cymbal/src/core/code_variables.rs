@@ -18,7 +18,7 @@ const MAX_DEPTH: usize = 12;
 const SECRET_MIN_LENGTH: usize = 16;
 const SECRET_MIN_ENTROPY_BITS: f64 = 3.8;
 const SECRET_MIN_CHAR_CLASSES: u8 = 3;
-// Shorter values, and lowercase words, are prose such as "the bearer of".
+// Shorter values are prose, such as "the bearer of".
 const AUTH_CREDENTIAL_MIN_LENGTH: usize = 8;
 const PEM_PRIVATE_KEY_MARKER: &str = "PRIVATE KEY-----";
 // Punctuation of reprs and structured strings. A bare token never holds it.
@@ -81,9 +81,12 @@ static URL_CREDENTIALS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)([a-z][a-z0-9+.\-]{0,30}://)([^/\s]*)@").unwrap());
 
 // A header pair list or an ASGI scope holds an `Authorization` value apart from its header
-// name, so the name patterns never see it.
-static AUTH_HEADER_CREDENTIALS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\b(bearer|basic)(\s+)([A-Za-z0-9._~+/-]+=*)").unwrap());
+// name, so the name patterns never see it. The separator also accepts a colon or an opening
+// quote, as in `Bearer: <token>`, but it must not be empty, so that names such as
+// `basicConfig` stay untouched.
+static AUTH_HEADER_CREDENTIALS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)\b(bearer|basic)((?:\s*:\s*|\s+)['"]?)([A-Za-z0-9._~+/-]+=*)"#).unwrap()
+});
 
 static UUID: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
@@ -200,10 +203,7 @@ fn redact_embedded_credentials(value: &str) -> Cow<'_, str> {
 }
 
 fn redact_auth_credential(caps: &Captures) -> String {
-    let credential = &caps[3];
-    if credential.len() < AUTH_CREDENTIAL_MIN_LENGTH
-        || credential.bytes().all(|b| b.is_ascii_lowercase())
-    {
+    if caps[3].len() < AUTH_CREDENTIAL_MIN_LENGTH {
         return caps[0].to_string();
     }
     format!("{}{}{REDACTED}", &caps[1], &caps[2])
@@ -354,6 +354,21 @@ mod tests {
                 json!({"value": format!("Basic {REDACTED}")}),
             ),
             (
+                "credential of lowercase letters only",
+                json!({"value": format!("Bearer {}", fake("zqwklmno", "pxyzrstu"))}),
+                json!({"value": format!("Bearer {REDACTED}")}),
+            ),
+            (
+                "colon between the scheme and the credential",
+                json!({"value": format!("Bearer: {bearer_token}")}),
+                json!({"value": format!("Bearer: {REDACTED}")}),
+            ),
+            (
+                "quote between the scheme and the credential",
+                json!({"value": format!("Bearer '{bearer_token}'")}),
+                json!({"value": format!("Bearer '{REDACTED}'")}),
+            ),
+            (
                 "signed URL",
                 json!({"url": "https://acct.blob.core.windows.net/c/f?sv=2022-11-02&sig=q2VxT8fKz1aB3dE%3D"}),
                 json!({"url": REDACTED}),
@@ -393,6 +408,7 @@ mod tests {
             "design",
             "/signup?step=2",
             "the bearer of bad news",
+            "basicConfig(level=10)",
             "550e8400-e29b-41d4-a716-446655440000",
             "da39a3ee5e6b4b0d3255bfef95601890afd80709",
             "/usr/local/lib/python3.12/site-packages/app/views.py",
