@@ -84,8 +84,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
         self.addCleanup(sync_execute, "SYSTEM START MERGES person")
 
     def _swept_rows(self, rows_by_person: dict[UUID, list[tuple[int, bool, float]]]) -> None:
-        # Lightweight deletes run as mutations, which stopped merges also block, so the rows are
-        # swept in a one-part side table and that part is attached to person.
+        # Stopped merges also block lightweight deletes, which run as mutations, so the rows are deleted
+        # in a one-part side table whose part is then attached to person.
         self._stop_person_merges()
         staging = f"person_divergence_swept_{self.team.pk}"
         sync_execute(f"DROP TABLE IF EXISTS {staging} SYNC")

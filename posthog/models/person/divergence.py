@@ -164,11 +164,7 @@ def _scan_team_ranges(
     on_rows: Callable[[list[Any]], None],
     log: Callable[[str], None],
 ) -> list[int]:
-    """Run ``query`` over [min_team_id, max_team_id) in steps and return the teams it had to skip.
-
-    A range that runs out of memory is split in half until it covers one team. A single team that
-    still runs out of memory is skipped and returned, so the caller can rerun it with more memory.
-    """
+    """Return each team that runs out of memory even when scanned alone, so the caller can rerun it with more memory."""
     skipped: list[int] = []
 
     def scan(lo: int, hi: int) -> None:
@@ -283,9 +279,9 @@ def scan_hidden_persons(
     )
 
 
-# The sweep lightweight-deletes every row of a person whose newest row was a tombstone. A live row
-# that landed after the tombstone was swept with it, which leaves a person live in Postgres with no
-# visible ClickHouse row.
+# The ClickHouse deletion sweep deletes every row of a person whose highest-version row is a tombstone.
+# That includes a live row written after the tombstone at a lower version, so the person stays live in
+# Postgres with no visible ClickHouse row.
 _SWEPT_SQL = """
 SELECT team_id, toString(id), max(version) AS max_version
 FROM person
@@ -309,10 +305,9 @@ def scan_swept_persons(
     on_found: Callable[[DivergentPerson], None],
     log: Callable[[str], None],
 ) -> ScanSummary:
-    """Persons live in Postgres whose ClickHouse rows were all lightweight-deleted, including a live row written after a legacy tombstone.
+    """Live Postgres persons with every ClickHouse row deleted, including a live row written after a legacy tombstone.
 
-    Run it soon after a sweep: once ClickHouse merges remove the masked rows, the person has no
-    ClickHouse rows left and no scan finds it.
+    Run it soon after a ClickHouse deletion sweep: once merges remove the deleted rows, no scan finds the person.
     """
     return _scan_divergent_persons(
         sql=_SWEPT_SQL,
@@ -355,7 +350,7 @@ def scan_stale_persons(
     on_found: Callable[[DivergentPerson], None],
     log: Callable[[str], None],
 ) -> ScanSummary:
-    """Persons whose live ClickHouse winner outranks the live Postgres version, found through a late lower-version row."""
+    """Persons whose live ClickHouse winner outranks Postgres, found through a late lower-version row."""
     return _scan_divergent_persons(
         sql=_STALE_SQL,
         settings=_STALE_SETTINGS,
