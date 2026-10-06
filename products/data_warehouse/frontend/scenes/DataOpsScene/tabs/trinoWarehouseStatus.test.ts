@@ -1,18 +1,22 @@
-import type { WarehouseStatusResponseApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import type {
+    WarehouseStatusResponseApi,
+    WarehouseTrinoStatusApi,
+} from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { trinoCombinedStatus } from './trinoWarehouseStatus'
+import { trinoStatusFixture, warehouseStatusFixture } from './warehouseStatusFixtures'
 
 describe('trinoCombinedStatus', () => {
     const status = (
         state: WarehouseStatusResponseApi['state'],
-        trinoState?: string,
+        trinoState?: WarehouseTrinoStatusApi['state'],
         statusMessage = ''
     ): WarehouseStatusResponseApi =>
-        ({
+        warehouseStatusFixture({
             state,
             status_message: statusMessage,
-            trino: trinoState ? { state: trinoState, ready_at: '2026-09-01T12:00:00Z', connection: null } : null,
-        }) as WarehouseStatusResponseApi
+            trino: trinoState ? trinoStatusFixture({ state: trinoState }) : null,
+        })
 
     it.each([
         {

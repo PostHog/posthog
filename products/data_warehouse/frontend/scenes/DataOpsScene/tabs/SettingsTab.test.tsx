@@ -9,12 +9,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { initKeaTests } from '~/test/init'
 
 import * as dwApi from 'products/data_warehouse/frontend/generated/api'
+import type { WarehouseStatusResponseApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { SettingsTab } from './SettingsTab'
+import { warehouseStatusFixture } from './warehouseStatusFixtures'
 
 describe('SettingsTab', () => {
-    const renderWithStatus = (status: Record<string, unknown>, flags: string[]): void => {
-        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(status as any)
+    const renderWithStatus = (status: WarehouseStatusResponseApi, flags: string[]): void => {
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(status)
         jest.spyOn(dwApi, 'dataWarehouseCheckSchemaNameRetrieve').mockResolvedValue({
             name: '',
             available: true,
@@ -39,7 +41,7 @@ describe('SettingsTab', () => {
 
     it('shows the Trino connection and no Postgres details for a Trino organization', async () => {
         renderWithStatus(
-            {
+            warehouseStatusFixture({
                 state: 'ready',
                 status_message: '',
                 ready_at: '2026-08-01T12:00:00Z',
@@ -56,7 +58,7 @@ describe('SettingsTab', () => {
                         username: 'root',
                     },
                 },
-            },
+            }),
             [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO]
         )
 
@@ -70,7 +72,7 @@ describe('SettingsTab', () => {
 
     it('keeps the Postgres connection for a DuckDB organization', async () => {
         renderWithStatus(
-            {
+            warehouseStatusFixture({
                 state: 'ready',
                 status_message: '',
                 ready_at: '2026-08-01T12:00:00Z',
@@ -78,7 +80,7 @@ describe('SettingsTab', () => {
                 team_onboarded: true,
                 schema_name: 'analytics',
                 trino: null,
-            },
+            }),
             [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]
         )
 
