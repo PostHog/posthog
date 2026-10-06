@@ -18,7 +18,7 @@ use super::state_machine::{BatcherStateMachine, Effects, FailureCause, Send};
 use super::worker_pool::WorkerPoolSource;
 use super::{make_batch_id, BatcherOutputs};
 use crate::grpc_transport::GrpcTransport;
-use crate::order_sentinel::{KeyOrderSentinel, SendKind};
+use crate::order_sentinel::{KeyOrderSentinel, SendKind, SentinelBatch};
 use crate::transport::SendError;
 use crate::types::Accumulator;
 use crate::worker_registry::WorkerId;
@@ -261,17 +261,19 @@ impl BatcherTask {
             fatal,
             next_wakeup,
         } = effects;
+        let key_sentinel = Arc::clone(&self.key_sentinel);
+        let mut sentinel = key_sentinel.batch();
         // An ACK advances before its key is evicted.
         for ack in &key_acks {
-            self.key_sentinel
-                .note_acked(&ack.routing_key, ack.max_offset);
+            sentinel.note_acked(&ack.routing_key, ack.max_offset);
         }
         for key in &evicted_keys {
-            self.key_sentinel.evict(key);
+            sentinel.evict(key);
         }
         for send in sends {
-            self.begin(send);
+            self.begin(send, &mut sentinel);
         }
+        drop(sentinel);
 
         // Within one action a worker can settle its last request and then
         // take a new one, never the reverse, so removals go first.
@@ -315,7 +317,7 @@ impl BatcherTask {
             .store(state.in_flight_messages(), Ordering::Relaxed);
     }
 
-    fn begin(&mut self, send: Send) {
+    fn begin(&mut self, send: Send, sentinel: &mut SentinelBatch<'_>) {
         let kind = if send.class.replay {
             SendKind::Resend
         } else {
@@ -323,8 +325,7 @@ impl BatcherTask {
         };
         let mut messages = Vec::new();
         for run in send.runs {
-            self.key_sentinel
-                .note_sent(&run.routing_key, &run.messages, kind);
+            sentinel.note_sent(&run.routing_key, &run.messages, kind);
             messages.extend(run.messages);
         }
         let pending =

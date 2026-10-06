@@ -135,11 +135,12 @@ impl Harness {
             next_wakeup,
         } = effects;
         assert!(fatal.is_none(), "batcher failed: {fatal:?}");
+        let mut sentinel = self.sentinel.batch();
         for ack in &key_acks {
-            self.sentinel.note_acked(&ack.routing_key, ack.max_offset);
+            sentinel.note_acked(&ack.routing_key, ack.max_offset);
         }
         for key in &evicted_keys {
-            self.sentinel.evict(key);
+            sentinel.evict(key);
         }
         for send in sends {
             let kind = if send.class.replay {
@@ -154,8 +155,7 @@ impl Harness {
             .flatten();
             let mut messages = Vec::new();
             for run in send.runs {
-                self.sentinel
-                    .note_sent(&run.routing_key, &run.messages, kind);
+                sentinel.note_sent(&run.routing_key, &run.messages, kind);
                 messages.extend(run.messages);
             }
             self.in_flight.push(Pending {
@@ -165,6 +165,7 @@ impl Harness {
             });
             drop(messages);
         }
+        drop(sentinel);
         for outcome in worker_outcomes {
             self.registry.record_outcome(&outcome.worker, outcome.fault);
         }
