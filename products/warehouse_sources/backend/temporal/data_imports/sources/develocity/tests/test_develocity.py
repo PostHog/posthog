@@ -1,6 +1,8 @@
 import json
 import socket
+from collections.abc import Iterable
 from http import HTTPStatus
+from typing import Any, cast
 from urllib.parse import parse_qs, urlsplit
 
 from unittest import TestCase
@@ -14,7 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.develocity.develocity import (
     DevelocityResumeConfig,
     develocity_source,
@@ -47,6 +49,10 @@ def build(build_id: str, available_at: int) -> dict[str, object]:
         "buildToolVersion": "9.0",
         "buildAgentVersion": "4.0",
     }
+
+
+def source_items(source: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], source.items())
 
 
 class TestDevelocity(TestCase):
@@ -113,7 +119,7 @@ class TestDevelocity(TestCase):
         self.session.send.side_effect = [response([first]), response([second]), response([])]
 
         source = develocity_source(self.config, self.inputs, self.manager)
-        rows = [row for page in source.items() for row in page]
+        rows = [row for page in source_items(source) for row in page]
 
         assert rows == [first, second]
         params = self.requests()
@@ -151,7 +157,7 @@ class TestDevelocity(TestCase):
         self.inputs.should_use_incremental_field = incremental
         self.inputs.db_incremental_field_last_value = last_value
         self.session.send.return_value = response([])
-        assert list(develocity_source(self.config, self.inputs, self.manager).items()) == []
+        assert list(source_items(develocity_source(self.config, self.inputs, self.manager))) == []
         assert self.requests()[0]["fromInstant"] == [expected]
         self.manager.save_state.assert_not_called()
 
@@ -160,7 +166,7 @@ class TestDevelocity(TestCase):
         self.manager.can_resume.return_value = can_resume
         self.manager.load_state.return_value = DevelocityResumeConfig(cursor=cursor) if cursor else None
         self.session.send.side_effect = [response([build("next-build", 2000)]), response([])]
-        list(develocity_source(self.config, self.inputs, self.manager).items())
+        list(source_items(develocity_source(self.config, self.inputs, self.manager)))
         expected = [cursor] if can_resume and cursor else None
         assert self.requests()[0].get("fromBuild") == expected
         assert self.requests()[1]["fromBuild"] == ["next-build"]
@@ -173,7 +179,7 @@ class TestDevelocity(TestCase):
         self.manager.load_state.return_value = DevelocityResumeConfig(cursor="same-build")
         self.session.send.return_value = response([build("same-build", 1000)])
         with self.assertRaisesRegex(ValueError, "pagination is not advancing"):
-            list(develocity_source(self.config, self.inputs, self.manager).items())
+            list(source_items(develocity_source(self.config, self.inputs, self.manager)))
         assert self.session.send.call_count == (1 if resume else 2)
 
     @parameterized.expand(
@@ -203,7 +209,7 @@ class TestDevelocity(TestCase):
     def test_sync_auth_errors_match_user_message(self, status: int, message: str) -> None:
         self.session.send.return_value = response({}, status)
         with self.assertRaises(HTTPError) as raised:
-            list(develocity_source(self.config, self.inputs, self.manager).items())
+            list(source_items(develocity_source(self.config, self.inputs, self.manager)))
         mapped = [
             value
             for key, value in DevelocitySource().get_non_retryable_errors().items()
@@ -266,7 +272,7 @@ class TestDevelocity(TestCase):
     def test_instance_url_normalization(self, instance_url: str, expected: str) -> None:
         self.config.instance_url = instance_url
         self.session.send.return_value = response([])
-        list(develocity_source(self.config, self.inputs, self.manager).items())
+        list(source_items(develocity_source(self.config, self.inputs, self.manager)))
         assert self.session.send.call_args.args[0].url.split("?")[0] == expected
 
     def test_redirect_is_rejected(self) -> None:
@@ -274,7 +280,7 @@ class TestDevelocity(TestCase):
         redirect.headers["Location"] = "https://other.example.com/api/builds"
         self.session.send.return_value = redirect
         with self.assertRaisesRegex(ValueError, "refusing to follow"):
-            list(develocity_source(self.config, self.inputs, self.manager).items())
+            list(source_items(develocity_source(self.config, self.inputs, self.manager)))
         self.session.send.assert_called_once()
         assert self.session.send.call_args.kwargs["allow_redirects"] is False
 
