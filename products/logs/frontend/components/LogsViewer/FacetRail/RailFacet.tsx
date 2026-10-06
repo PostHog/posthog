@@ -24,7 +24,7 @@ export interface RailFacetProps {
 export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | null {
     // `facet` comes from the memoized visibleFacets selector, so this identity is stable.
     const logicProps = useMemo(() => ({ id, facet }), [id, facet])
-    const { facetValues, facetValuesLoading, facetSearch, collapsed } = useValues(facetValuesLogic(logicProps))
+    const { facetValues, facetValuesLoading, facetSearch, collapsed, fetchFailed } = useValues(facetValuesLogic(logicProps))
     const { setFacetSearch } = useActions(facetValuesLogic(logicProps))
     const { filterGroup } = useValues(logsViewerFiltersLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
@@ -89,6 +89,7 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}
                 dimZeroCounts
+                error={fetchFailed}
                 onRemove={onRemove}
                 removeDisabledReason={removeDisabledReason}
             />
@@ -110,6 +111,7 @@ export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | 
             collapsed={collapsed}
             onToggleCollapsed={onToggleCollapsed}
             maxHeight={facet.maxHeight}
+            error={fetchFailed}
             onRemove={onRemove}
             removeDisabledReason={removeDisabledReason}
         />

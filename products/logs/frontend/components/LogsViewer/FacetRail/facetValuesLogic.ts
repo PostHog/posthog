@@ -159,6 +159,15 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                 clearFetchedSignature: () => null,
             },
         ],
+        // Drives this facet's inline error state, so one broken facet shows in place rather than
+        // as a global toast.
+        fetchFailed: [
+            false,
+            {
+                loadFacetValuesSuccess: () => false,
+                loadFacetValuesFailure: () => true,
+            },
+        ],
     }),
 
     loaders(({ props, values }) => ({
