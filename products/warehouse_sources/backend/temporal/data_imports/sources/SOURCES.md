@@ -824,6 +824,7 @@ the row lists both.
 | us_bea                           | HTTP                        | requests                                                        | ✅                          |
 | us_census                        | HTTP                        | requests                                                        | ✅                          |
 | us_eia                           | HTTP                        | requests                                                        | ✅                          |
+| us_treasury_fiscal_data          | HTTP                        | requests                                                        | ✅                          |
 | usersnap                         | HTTP                        | requests + PyJWT                                                | ✅                          |
 | uservoice                        | HTTP                        | requests                                                        | ✅                          |
 | vantage                          | HTTP                        | requests                                                        | ✅                          |
@@ -1474,7 +1475,6 @@ doesn't conflict with concurrent PRs.
 - uppromote
 - uptick
 - us_bls
-- us_treasury_fiscal_data
 - uservoice
 - vanta
 - vespa
