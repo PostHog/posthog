@@ -17,7 +17,7 @@ use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{BaseConsumer, Consumer, StreamConsumer};
 use rdkafka::message::{Header, OwnedHeaders};
-use rdkafka::producer::{FutureProducer, FutureRecord};
+use rdkafka::producer::{BaseProducer, BaseRecord, FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::TopicPartitionList;
 use rstest::rstest;
@@ -104,6 +104,67 @@ async fn produce(
         )
         .await
         .expect("produce failed");
+}
+
+/// Produce `(distinct_id, seq)` records to one partition in one transaction.
+/// The consumer reads committed records only, so it sees all of them at once
+/// and fetches them into one batch. Awaited one-by-one sends can straddle the
+/// consumer's batch deadline and split the records across batches.
+async fn produce_in_one_transaction(
+    topic: &str,
+    partition: i32,
+    token: &str,
+    records: &[(&str, usize)],
+) {
+    let topic = topic.to_string();
+    let token = token.to_string();
+    let records: Vec<(String, usize)> = records
+        .iter()
+        .map(|&(distinct_id, seq)| (distinct_id.to_string(), seq))
+        .collect();
+    // The transaction calls block, so keep them off the test's runtime thread,
+    // which also serves the fake workers.
+    tokio::task::spawn_blocking(move || {
+        let producer: BaseProducer = ClientConfig::new()
+            .set("bootstrap.servers", KAFKA_BROKERS)
+            .set("message.timeout.ms", "5000")
+            .set("transactional.id", format!("e2e-{}", Uuid::new_v4()))
+            .create()
+            .expect("producer");
+        let timeout = Timeout::After(Duration::from_secs(10));
+        producer
+            .init_transactions(timeout)
+            .expect("init transactions");
+        producer.begin_transaction().expect("begin transaction");
+        for (distinct_id, seq) in &records {
+            let key = format!("{token}:{distinct_id}");
+            let value = format!(r#"{{"seq":{seq}}}"#);
+            let headers = OwnedHeaders::new()
+                .insert(Header {
+                    key: "token",
+                    value: Some(token.as_str()),
+                })
+                .insert(Header {
+                    key: "distinct_id",
+                    value: Some(distinct_id.as_str()),
+                });
+            producer
+                .send(
+                    BaseRecord::to(&topic)
+                        .key(&key)
+                        .payload(&value)
+                        .partition(partition)
+                        .headers(headers),
+                )
+                .map_err(|(err, _)| err)
+                .expect("enqueue failed");
+        }
+        producer
+            .commit_transaction(timeout)
+            .expect("commit transaction");
+    })
+    .await
+    .expect("transactional produce panicked");
 }
 
 /// Produce a record with full control over payload bytes and optional headers —
@@ -1285,26 +1346,27 @@ async fn partial_send_failure_replays_only_the_failed_subbatch(#[case] kind: Sch
     let harness = Harness::start(
         kind,
         &topic,
-        2,
+        1,
         2,
         1,
         Duration::from_secs(60),
         fast_registry_config(),
     )
     .await;
-    let producer = make_producer();
 
     let mut guards: Vec<Option<tokio::sync::OwnedMutexGuard<()>>> = Vec::new();
     for w in &harness.workers {
         guards.push(Some(w.block().await));
     }
 
-    // Two equal-size keys on two partitions → bin-packed one per worker: one
-    // batch, two sub-batches, one per worker.
-    for seq in 0..4usize {
-        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
-        produce(&producer, &topic, 1, "tok", "user-2", seq).await;
-    }
+    // Two equal-size keys → bin-packed one per worker: one batch, two
+    // sub-batches, one per worker. The keys must share one Kafka batch: at
+    // max_in_flight=1 a Kafka batch with only one key blocks the next batch,
+    // so the second worker would never receive a sub-batch.
+    let records: Vec<(&str, usize)> = (0..4usize)
+        .flat_map(|seq| [("user-1", seq), ("user-2", seq)])
+        .collect();
+    produce_in_one_transaction(&topic, 0, "tok", &records).await;
     wait_until(
         Duration::from_secs(10),
         "both workers to receive a sub-batch",
