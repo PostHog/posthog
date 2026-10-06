@@ -7,6 +7,7 @@ from parameterized import parameterized
 from posthog.schema import (
     BIVisualizationNode,
     BreakdownFilter,
+    CompareFilter,
     DashboardFilter,
     DateRange,
     EventPropertyFilter,
@@ -65,6 +66,33 @@ class TestHogQLDashboardFilters(BaseTest):
         assert updated.source.variables is not None
         assert updated.source.variables["plan"].value == "enterprise"
         assert updated.source.variables["plan"].code_name == "plan"
+
+    def test_bi_comparison_uses_dashboard_dates_for_both_periods(self) -> None:
+        runner = self._create_hogql_runner(
+            query="""
+                (SELECT toStartOfDay(timestamp) AS bi_row_timestamp, count() AS count,
+                    'Current period' AS bi_comparison
+                 FROM events WHERE {filters}
+                 GROUP BY toStartOfDay(timestamp), bi_comparison ORDER BY bi_row_timestamp DESC LIMIT 1000)
+                UNION ALL
+                (SELECT toStartOfDay({filters.compareDate(timestamp)}) AS bi_row_timestamp, count() AS count,
+                    'Previous period' AS bi_comparison
+                 FROM events WHERE {filters.previous}
+                 GROUP BY toStartOfDay({filters.compareDate(timestamp)}), bi_comparison ORDER BY bi_row_timestamp DESC LIMIT 1000)
+            """,
+            filters=HogQLFilters(dateRange=DateRange(date_from="-7d"), compareFilter=CompareFilter(compare=True)),
+        )
+        runner.apply_dashboard_filters(DashboardFilter(date_from="2026-02-01", date_to="2026-02-28"))
+        sql = prepare_and_print_ast(
+            runner.to_query(),
+            dialect="clickhouse",
+            context=HogQLContext(team_id=self.team.pk, enable_select_queries=True),
+        )[0]
+        assert "2026-02-01" in sql
+        assert "2026-01-04" in sql
+        assert "addDays" in sql
+        assert "UNION ALL" in sql
+        assert "{filters" not in sql
 
     @parameterized.expand(
         [

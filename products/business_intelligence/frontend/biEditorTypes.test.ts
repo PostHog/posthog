@@ -63,6 +63,41 @@ const countryField: BIField = {
 }
 
 describe('BI editor query generation', () => {
+    it.each(['month', 'quarter', 'year'] as const)(
+        'aligns %s comparison buckets with calendar arithmetic',
+        (dateBucket) => {
+            const result = buildBIQuery({
+                ...DEFAULT_BI_CONFIG,
+                source: eventField.source,
+                dateRange: { date_from: 'mStart' },
+                compareFilter: { compare: true },
+                rows: [{ ...timestampField, dateBucket }],
+                dateField: { ...timestampField, expression: 'created_at' },
+            })!
+            expect(result.query).toContain(`{filters.compareDate(timestamp, '${dateBucket}')}`)
+            expect(result.query).toContain('{filters.previous.native(created_at)}')
+        }
+    )
+    test.each([undefined, '-1y'])('builds and persists period comparisons (%s)', (compare_to) => {
+        const config: BIConfig = {
+            ...DEFAULT_BI_CONFIG,
+            source: eventField.source,
+            dateRange: { date_from: 'mStart' },
+            compareFilter: { compare: true, compare_to },
+            rows: [{ ...timestampField, dateBucket: 'day' }],
+            columns: [eventField],
+            values: [{ field: revenueField, aggregation: 'sum' }],
+        }
+        const result = buildBIQuery(config)!
+        expect(result.query).toContain('UNION ALL')
+        expect(result.query).toContain('toStartOfDay({filters.compareDate(timestamp)}) AS bi_row_timestamp')
+        expect(result.query).toContain('{filters.previous}')
+        expect(result.query).toContain('ORDER BY bi_row_timestamp DESC')
+        expect(result.node.chartSettings?.seriesBreakdownColumn).toBe('bi_comparison')
+        expect(parseBIEditorState(BIEditorView.BI, config)?.config.compareFilter).toEqual(config.compareFilter)
+        expect(buildBIQuery({ ...config, dateRange: { date_from: 'all' } })?.query).not.toContain('UNION ALL')
+    })
+
     test.each(['-28d', 'mStart', '-1mStart', 'qStart', '-1qStart', 'yStart'])(
         'keeps %s relative in query filters instead of hardcoding the date in SQL',
         (date_from) => {
