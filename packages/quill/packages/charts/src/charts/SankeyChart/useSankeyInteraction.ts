@@ -117,6 +117,7 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
     }, [showTooltip, setTooltipCtx])
 
     const hoverIndexRef = useLatest(hoverIndex)
+    const tooltipCtxRef = useLatest(tooltipCtx)
 
     const showHit = useCallback(
         (hit: SankeyHit, cursor: { x: number; y: number }) => {
@@ -158,14 +159,15 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
     // only a tap on the element already showing one fires the click handler. Both refs are read
     // at pointerdown because a tap's compatibility mouse events arrive after pointerup.
     const lastPointerTypeRef = useRef<string>('mouse')
-    const tapDownHoverIndexRef = useRef<number>(-1)
+    const tapDownTooltipIndexRef = useRef<number>(-1)
 
     const onPointerDown = useCallback(
         (e: React.PointerEvent<HTMLDivElement>) => {
             lastPointerTypeRef.current = e.pointerType
-            tapDownHoverIndexRef.current = hoverIndexRef.current
+            // The visible tooltip, not the hover: hover can outlive a tooltip that was just hidden.
+            tapDownTooltipIndexRef.current = tooltipCtxRef.current?.dataIndex ?? -1
         },
-        [hoverIndexRef]
+        [tooltipCtxRef]
     )
 
     const onClick = useCallback(
@@ -180,7 +182,7 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
                     clearTooltip()
                     return
                 }
-                if (hitToHoverIndex(current, hit) !== tapDownHoverIndexRef.current) {
+                if (hitToHoverIndex(current, hit) !== tapDownTooltipIndexRef.current) {
                     showHit(hit, cursor)
                     if (showTooltip) {
                         return

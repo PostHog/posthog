@@ -165,6 +165,12 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
             throw new Error(`Sankey link refers to a missing node: ${link.source} -> ${link.target}`)
         }
     }
+    if (!Number.isFinite(nodeWidth) || nodeWidth <= 0) {
+        throw new Error(`Sankey nodeWidth must be a finite number above 0: ${nodeWidth}`)
+    }
+    if (!Number.isFinite(nodePadding) || nodePadding < 0) {
+        throw new Error(`Sankey nodePadding must be a finite number of 0 or more: ${nodePadding}`)
+    }
     const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, nodes.length - 1))
 
     // The engine mutates its inputs, so hand it fresh objects.
@@ -224,7 +230,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
         }
     })
 
-    const columnCount = Math.max(0, ...graph.nodes.map((node) => node.layer + 1))
+    const columnCount = graph.nodes.reduce((max, node) => Math.max(max, node.layer + 1), 0)
     // Mirrors the engine's column spacing, so a column with no node still gets a position.
     const columnStep = columnCount <= 1 ? 0 : (plot.plotWidth - effectiveNodeWidth) / (columnCount - 1)
     const columnX = Array.from({ length: columnCount }, (_, column) => plot.plotLeft + column * columnStep)

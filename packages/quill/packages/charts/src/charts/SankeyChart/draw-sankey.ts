@@ -1,3 +1,5 @@
+import { color as d3Color } from 'd3-color'
+
 import { mixColors } from '../../core/color-utils'
 import type { SankeyChartLayout, SankeyHit, SankeyLinkDatum, SankeyNodeDatum } from './sankey-data'
 
@@ -80,6 +82,26 @@ export function sankeyActiveFlow(layout: SankeyChartLayout, hit: SankeyHit | nul
     return { hit, links, nodes }
 }
 
+/** A color `mixColors` can interpolate, or `null`. d3-color cannot parse modern CSS syntax such as
+ *  `hsl(235deg 8% 15%)` or `oklch(...)`, so those go through the canvas, which serializes any color
+ *  it accepts to hex or rgba. An invalid color leaves `fillStyle` unchanged, so two different
+ *  sentinels tell it apart from a valid one. */
+function parseableColor(ctx: CanvasRenderingContext2D, color: string): string | null {
+    if (d3Color(color)) {
+        return color
+    }
+    const previous = ctx.fillStyle
+    const read = (sentinel: string): string => {
+        ctx.fillStyle = sentinel
+        ctx.fillStyle = color
+        return String(ctx.fillStyle)
+    }
+    const first = read('#000000')
+    const second = read('#ffffff')
+    ctx.fillStyle = previous
+    return first === second && d3Color(first) ? first : null
+}
+
 /** Hover layer: dims the graph toward the background, then repaints the active flow at full
  *  strength. Returns false when nothing is hovered. */
 export function drawSankeyHover(
@@ -92,25 +114,32 @@ export function drawSankeyHover(
         return false
     }
     const { hit, links: activeLinks, nodes: activeNodes } = flow
-    const dimTarget = options.backgroundColor || HOVER_DIM_TARGET_FALLBACK
+    const dimTarget = parseableColor(ctx, options.backgroundColor || HOVER_DIM_TARGET_FALLBACK)
     const dim = options.progress * HOVER_DIM_AMOUNT
 
     // The dim fill must be opaque: a translucent repaint composites over the full-color static
-    // layer and does not dim at all.
+    // layer and does not dim at all. A ribbon with nothing parseable to mix is left to the static
+    // layer: any repaint over it would either darken it or paint it in the background color.
     for (const link of layout.links) {
-        if (!activeLinks.has(link)) {
-            const resting = mixColors(dimTarget, link.color, options.linkOpacity)
-            strokeLink(ctx, link, mixColors(resting, dimTarget, dim), 1)
+        if (activeLinks.has(link) || !dimTarget) {
+            continue
         }
-    }
-    for (const node of layout.nodes) {
-        if (!activeNodes.has(node)) {
-            fillNode(ctx, node, mixColors(node.color, dimTarget, dim))
+        const linkColor = parseableColor(ctx, link.color)
+        if (linkColor) {
+            const resting = mixColors(dimTarget, linkColor, options.linkOpacity)
+            // Fading the opaque dim in with progress keeps the first frame identical to the static layer.
+            strokeLink(ctx, link, mixColors(resting, dimTarget, dim), options.progress)
         }
     }
     for (const link of activeLinks) {
         const opacity = options.linkOpacity + (HOVER_LINK_OPACITY - options.linkOpacity) * options.progress
         strokeLink(ctx, link, link.color, opacity)
+    }
+    // Nodes go last so a ribbon that skips a column never paints over the node it passes behind.
+    for (const node of layout.nodes) {
+        if (!activeNodes.has(node) && dimTarget) {
+            fillNode(ctx, node, mixColors(node.color, dimTarget, dim))
+        }
     }
     for (const node of activeNodes) {
         const highlight = hit.kind === 'node' && node === layout.nodes[hit.index]

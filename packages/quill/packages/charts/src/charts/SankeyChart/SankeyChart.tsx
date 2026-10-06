@@ -36,9 +36,11 @@ const NO_SCALES: ChartScales = { x: () => undefined, y: () => 0, yTicks: () => [
 
 /** Changes whenever the layout could validate differently, so a corrected graph clears the error. */
 function graphKey(nodes: SankeyNodeInput<unknown>[], links: SankeyLinkInput<unknown>[]): string {
-    const nodeIds = nodes.map((node) => node.id).join(',')
-    const linkKeys = links.map((link) => `${link.source}>${link.target}=${link.value}`).join(',')
-    return `${nodeIds}|${linkKeys}`
+    // Structured serialization: ids are free-form strings, so a delimiter inside one must not collide.
+    return JSON.stringify([
+        nodes.map((node) => node.id),
+        links.map(({ source, target, value }) => [source, target, value]),
+    ])
 }
 
 export function SankeyChart<NodeMeta = unknown, LinkMeta = NodeMeta>({
@@ -72,11 +74,14 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         columnLabels,
         showNodeLabels = true,
         showNodeValues = false,
-        linkOpacity = DEFAULT_LINK_OPACITY,
+        linkOpacity: configuredLinkOpacity = DEFAULT_LINK_OPACITY,
         valueFormatter = defaultValueFormatter,
         tooltip: tooltipConfig,
         margins: marginsOverride,
     } = config ?? {}
+    const linkOpacity = Number.isFinite(configuredLinkOpacity)
+        ? Math.min(1, Math.max(0, configuredLinkOpacity))
+        : DEFAULT_LINK_OPACITY
     const showTooltip = tooltipConfig?.enabled !== false
     const hasColumnLabels = !!columnLabels && columnLabels.length > 0
 
@@ -93,6 +98,9 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
     const colorForLabel = useMemo(() => {
         const slots = new Map<string, string>()
         for (const node of nodes) {
+            if (node.color) {
+                continue
+            }
             const label = node.label ?? node.id
             if (!slots.has(label)) {
                 slots.set(label, theme.colors[slots.size % theme.colors.length])

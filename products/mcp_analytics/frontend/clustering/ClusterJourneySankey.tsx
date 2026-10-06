@@ -48,7 +48,9 @@ function nodeFill(kind: JourneyNodeKind, theme: ChartTheme): string {
 }
 
 // Shares divide by every session in the cluster, not just the displayed top paths, so a subset never reads as 100%.
-function makeJourneyTooltip(totalSessions: number) {
+function makeJourneyTooltip(
+    totalSessions: number
+): (ctx: SankeyTooltipContext<JourneyNodeMeta, JourneyLinkMeta>) => JSX.Element {
     return function JourneyTooltipAdapter({
         hit,
     }: SankeyTooltipContext<JourneyNodeMeta, JourneyLinkMeta>): JSX.Element {

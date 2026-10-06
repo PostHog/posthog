@@ -79,6 +79,14 @@ describe('computeSankeyLayout', () => {
         )
     })
 
+    it.each([
+        ['a zero nodeWidth', { nodeWidth: 0 }, 'nodeWidth'],
+        ['a NaN nodeWidth', { nodeWidth: NaN }, 'nodeWidth'],
+        ['a negative nodePadding', { nodePadding: -1 }, 'nodePadding'],
+    ])('throws on %s so the error boundary reports it', (_name, overrides, message) => {
+        expect(() => layoutOf(overrides)).toThrow(message)
+    })
+
     it('returns an empty layout when all link values are zero', () => {
         const layout = layoutOf({ links: [{ source: 'start', target: 'a', value: 0 }] })
         expect(layout.nodes).toHaveLength(0)
