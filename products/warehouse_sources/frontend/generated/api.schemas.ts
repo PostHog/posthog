@@ -1125,6 +1125,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `SonarCloud` - SonarCloud
  * * `SparkPost` - SparkPost
  * * `SplitIo` - SplitIo
+ * * `Spotify` - Spotify
  * * `SpotifyAds` - SpotifyAds
  * * `SpotlerCRM` - SpotlerCRM
  * * `Squarespace` - Squarespace
@@ -2492,6 +2493,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SonarCloud: 'SonarCloud',
     SparkPost: 'SparkPost',
     SplitIo: 'SplitIo',
+    Spotify: 'Spotify',
     SpotifyAds: 'SpotifyAds',
     SpotlerCRM: 'SpotlerCRM',
     Squarespace: 'Squarespace',
@@ -4006,6 +4008,7 @@ export interface ExternalDataSourceCreateApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
+     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
@@ -5884,6 +5887,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
+     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
@@ -7331,6 +7335,7 @@ export interface DatabaseSchemaRequestApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
+     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
@@ -8702,6 +8707,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
+     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
@@ -10127,6 +10133,7 @@ export interface SourcePreviewRequestApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
+     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
@@ -11533,6 +11540,7 @@ export interface SourceSetupApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
+     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
@@ -12946,6 +12954,7 @@ export interface SourceCredentialCreateApi {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
+     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
@@ -14058,6 +14067,8 @@ export interface SourceConfigResponseApi {
     /** Extra search terms (alternate spellings, acronyms) for the catalog search, e.g. GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category. */
     keywords?: string[] | null
     label?: string | null
+    /** Integration kind that each project member connects their own account with. When set, the source syncs every account of this kind connected in the project, and its configuration page lists those accounts. */
+    memberIntegrationKind?: string | null
     name: ExternalDataSourceTypeEnumApi
     permissionsCaption?: string | null
     releaseStatus?: ReleaseStatusApi | null

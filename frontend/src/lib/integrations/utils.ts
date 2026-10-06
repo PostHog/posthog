@@ -38,6 +38,7 @@ import IconSalesforce from 'public/services/salesforce.png'
 import IconSlack from 'public/services/slack.png'
 import IconSnapchat from 'public/services/snapchat.png'
 import IconSnowflake from 'public/services/snowflake.png'
+import IconSpotify from 'public/services/spotify.png'
 import IconStripe from 'public/services/stripe.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
@@ -85,6 +86,7 @@ export type IntegrationConnectSurface =
     | 'visual_review_settings'
     | 'install_approved_banner'
     | 'unavailable_banner_reconnect'
+    | 'warehouse_source_member_accounts'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,
@@ -132,6 +134,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
     'youtube-analytics': IconYouTubeAnalytics,
+    spotify: IconSpotify,
 }
 
 // Brand marks that are solid black/monochrome on a transparent background — they vanish against a dark

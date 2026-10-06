@@ -318,6 +318,14 @@ class SourceConfig(BaseModel):
         ),
     )
     label: str | None = None
+    memberIntegrationKind: str | None = Field(
+        default=None,
+        description=(
+            "Integration kind that each project member connects their own account with."
+            " When set, the source syncs every account of this kind connected in the project,"
+            " and its configuration page lists those accounts."
+        ),
+    )
     name: InlinedExternalDataSourceType
     permissionsCaption: str | None = None
     releaseStatus: ReleaseStatus | None = None

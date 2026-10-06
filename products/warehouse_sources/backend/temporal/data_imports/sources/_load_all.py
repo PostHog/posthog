@@ -1143,6 +1143,7 @@ from .speedcurve.source import SpeedcurveSource
 from .split_io.source import SplitIoSource
 from .splunk_observability_cloud.source import SplunkObservabilityCloudSource
 from .spot_io.source import SpotIoSource
+from .spotify.source import SpotifySource
 from .spotify_ads.source import SpotifyAdsSource
 from .spotlercrm.source import SpotlerCRMSource
 from .sprig.source import SprigSource

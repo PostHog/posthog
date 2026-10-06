@@ -562,6 +562,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     SONARCLOUD = "SonarCloud", "SonarCloud"
     SPARKPOST = "SparkPost", "SparkPost"
     SPLITIO = "SplitIo", "SplitIo"
+    SPOTIFY = "Spotify", "Spotify"
     SPOTIFYADS = "SpotifyAds", "SpotifyAds"
     SPOTLERCRM = "SpotlerCRM", "SpotlerCRM"
     SQUARESPACE = "Squarespace", "Squarespace"

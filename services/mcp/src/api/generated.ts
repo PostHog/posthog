@@ -8510,6 +8510,7 @@ export namespace Schemas {
       Snowflake: 'snowflake',
       YoutubeAnalytics: 'youtube-analytics',
       TwitterAds: 'twitter-ads',
+      Spotify: 'spotify',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -29960,6 +29961,7 @@ export namespace Schemas {
      * * `SonarCloud` - SonarCloud
      * * `SparkPost` - SparkPost
      * * `SplitIo` - SplitIo
+     * * `Spotify` - Spotify
      * * `SpotifyAds` - SpotifyAds
      * * `SpotlerCRM` - SpotlerCRM
      * * `Squarespace` - Squarespace
@@ -31327,6 +31329,7 @@ export namespace Schemas {
       SonarCloud: 'SonarCloud',
       SparkPost: 'SparkPost',
       SplitIo: 'SplitIo',
+      Spotify: 'Spotify',
       SpotifyAds: 'SpotifyAds',
       SpotlerCRM: 'SpotlerCRM',
       Squarespace: 'Squarespace',
@@ -32708,6 +32711,7 @@ export namespace Schemas {
        * * `SonarCloud` - SonarCloud
        * * `SparkPost` - SparkPost
        * * `SplitIo` - SplitIo
+       * * `Spotify` - Spotify
        * * `SpotifyAds` - SpotifyAds
        * * `SpotlerCRM` - SpotlerCRM
        * * `Squarespace` - Squarespace
@@ -35337,6 +35341,7 @@ export namespace Schemas {
        * * `SonarCloud` - SonarCloud
        * * `SparkPost` - SparkPost
        * * `SplitIo` - SplitIo
+       * * `Spotify` - Spotify
        * * `SpotifyAds` - SpotifyAds
        * * `SpotlerCRM` - SpotlerCRM
        * * `Squarespace` - Squarespace
@@ -46600,6 +46605,7 @@ export namespace Schemas {
        * * `SonarCloud` - SonarCloud
        * * `SparkPost` - SparkPost
        * * `SplitIo` - SplitIo
+       * * `Spotify` - Spotify
        * * `SpotifyAds` - SpotifyAds
        * * `SpotlerCRM` - SpotlerCRM
        * * `Squarespace` - Squarespace
@@ -48001,6 +48007,7 @@ export namespace Schemas {
        * * `SonarCloud` - SonarCloud
        * * `SparkPost` - SparkPost
        * * `SplitIo` - SplitIo
+       * * `Spotify` - Spotify
        * * `SpotifyAds` - SpotifyAds
        * * `SpotlerCRM` - SpotlerCRM
        * * `Squarespace` - Squarespace
@@ -57803,6 +57810,7 @@ export namespace Schemas {
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
      * * `snowflake` - Snowflake
+     * * `spotify` - Spotify
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -57857,6 +57865,7 @@ export namespace Schemas {
       SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
       Snowflake: 'snowflake',
+      Spotify: 'spotify',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
@@ -57911,6 +57920,7 @@ export namespace Schemas {
        * * `slack-posthog-code` - Slack Posthog Code
        * * `snapchat` - Snapchat
        * * `snowflake` - Snowflake
+       * * `spotify` - Spotify
        * * `stripe` - Stripe
        * * `tiktok-ads` - Tiktok Ads
        * * `twilio` - Twilio
@@ -97337,6 +97347,8 @@ export namespace Schemas {
       /** Extra search terms (alternate spellings, acronyms) for the catalog search, e.g. GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category. */
       keywords?: string[] | null;
       label?: string | null;
+      /** Integration kind that each project member connects their own account with. When set, the source syncs every account of this kind connected in the project, and its configuration page lists those accounts. */
+      memberIntegrationKind?: string | null;
       name: ExternalDataSourceTypeEnum;
       permissionsCaption?: string | null;
       releaseStatus?: ReleaseStatus | null;
@@ -97888,6 +97900,7 @@ export namespace Schemas {
        * * `SonarCloud` - SonarCloud
        * * `SparkPost` - SparkPost
        * * `SplitIo` - SplitIo
+       * * `Spotify` - Spotify
        * * `SpotifyAds` - SpotifyAds
        * * `SpotlerCRM` - SpotlerCRM
        * * `Squarespace` - Squarespace
@@ -99305,6 +99318,7 @@ export namespace Schemas {
        * * `SonarCloud` - SonarCloud
        * * `SparkPost` - SparkPost
        * * `SplitIo` - SplitIo
+       * * `Spotify` - Spotify
        * * `SpotifyAds` - SpotifyAds
        * * `SpotlerCRM` - SpotlerCRM
        * * `Squarespace` - Squarespace
@@ -100704,6 +100718,7 @@ export namespace Schemas {
        * * `SonarCloud` - SonarCloud
        * * `SparkPost` - SparkPost
        * * `SplitIo` - SplitIo
+       * * `Spotify` - Spotify
        * * `SpotifyAds` - SpotifyAds
        * * `SpotlerCRM` - SpotlerCRM
        * * `Squarespace` - Squarespace
@@ -120365,6 +120380,7 @@ export namespace Schemas {
      * * `slack-posthog-code` - Slack Posthog Code
      * * `snapchat` - Snapchat
      * * `snowflake` - Snowflake
+     * * `spotify` - Spotify
      * * `stripe` - Stripe
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
@@ -120429,6 +120445,7 @@ export namespace Schemas {
       SlackPosthogCode: 'slack-posthog-code',
       Snapchat: 'snapchat',
       Snowflake: 'snowflake',
+      Spotify: 'spotify',
       Stripe: 'stripe',
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',

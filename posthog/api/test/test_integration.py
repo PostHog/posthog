@@ -7538,11 +7538,12 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert Integration.objects.filter(id=integration.id).exists()
 
-    def test_member_can_delete_own_google_calendar_integration(self) -> None:
+    @parameterized.expand([(Integration.IntegrationKind.GOOGLE_CALENDAR,), (Integration.IntegrationKind.SPOTIFY,)])
+    def test_member_can_delete_own_personal_account_integration(self, kind: str) -> None:
         integration = Integration.objects.create(
             team=self.team,
-            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
-            integration_id="google-user-1",
+            kind=kind,
+            integration_id="account-1",
             created_by=self.user,
         )
 
@@ -7551,12 +7552,13 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
         assert not Integration.objects.filter(id=integration.id).exists()
 
-    def test_member_cannot_delete_another_members_google_calendar_integration(self) -> None:
-        creator = User.objects.create_and_join(self.organization, "calendar-owner@example.com", "test")
+    @parameterized.expand([(Integration.IntegrationKind.GOOGLE_CALENDAR,), (Integration.IntegrationKind.SPOTIFY,)])
+    def test_member_cannot_delete_another_members_personal_account_integration(self, kind: str) -> None:
+        creator = User.objects.create_and_join(self.organization, "account-owner@example.com", "test")
         integration = Integration.objects.create(
             team=self.team,
-            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
-            integration_id="google-user-2",
+            kind=kind,
+            integration_id="account-2",
             created_by=creator,
         )
 

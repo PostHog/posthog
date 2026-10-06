@@ -15,6 +15,7 @@ import { SourceFormComponent } from 'products/data_warehouse/frontend/shared/com
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import { buildKeaFormDefaultFromSourceDetails } from '../../NewSourceScene/sourceWizardLogic'
 import { CDCSection } from './CDCSection'
+import { MemberAccountsSection } from './MemberAccountsSection'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 interface ConfigurationTabProps {
@@ -79,6 +80,15 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
 
     return (
         <>
+            {sourceFieldConfig.memberIntegrationKind ? (
+                <>
+                    <MemberAccountsSection
+                        integrationKind={sourceFieldConfig.memberIntegrationKind}
+                        sourceLabel={sourceFieldConfig.label ?? sourceFieldConfig.name}
+                    />
+                    <LemonDivider className="my-4" />
+                </>
+            ) : null}
             <span className="block mb-2">Overwrite your existing configuration here</span>
             <Form logic={sourceSettingsLogic} formKey="sourceConfig" enableFormOnSubmit>
                 <SourceFormComponent

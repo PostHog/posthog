@@ -1638,6 +1638,13 @@ class IntegrationViewSet(
             raise
         if github_audit:
             github_audit.record("deleted", after_commit=True, customer_visible=True, outcome="disconnected")
+        else:
+            report_user_action(
+                cast(User, self.request.user),
+                "integration deleted",
+                {"integration_kind": instance.kind},
+                team=self.team,
+            )
 
     @action(methods=["GET"], detail=False)
     def authorize(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
