@@ -72,6 +72,8 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
     }
 
     const pathStarts = pathStartCount(allEdges)
+    // The busiest edges can leave out the last steps, so count steps on the full result.
+    const stepCount = allEdges.reduce((max, edge) => Math.max(max, parsePathNodeKey(edge.target).step), 0)
     // Past five steps the chart grows a fifth of the frame per step and scrolls, as the paths
     // insight does, so long paths keep readable columns.
     // Unpinned, the chart lays nodes out by depth, and every edge moves one step on, so the
@@ -121,8 +123,8 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
                         {edges.length === 1 ? '' : 's'}
                     </>
                 )}{' '}
-                across <strong className="text-foreground">{formatNumber(graph.stepCount)}</strong> step
-                {graph.stepCount === 1 ? '' : 's'}
+                across <strong className="text-foreground">{formatNumber(stepCount)}</strong> step
+                {stepCount === 1 ? '' : 's'}
                 {pathStarts > 0 && (
                     <>
                         {' '}
