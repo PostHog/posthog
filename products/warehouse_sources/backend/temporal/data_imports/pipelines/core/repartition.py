@@ -23,7 +23,7 @@ import dataclasses
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import pyarrow as pa
 import deltalake as deltalake
@@ -106,6 +106,12 @@ CLAIM_RECHECK_INTERVAL_SECONDS = 10.0
 # would otherwise leave the rewrite with nothing to resume from.
 CHECKPOINT_INTERVAL_SECONDS = 30.0
 
+# How long a rewrite that must stop keeps working toward its next source-file boundary. The rewrite
+# can only commit there, so a stop inside a file discards the rows read since the last commit. One
+# large source file can take longer to copy than a worker shutdown should wait, so after this long
+# the rewrite stops without the commit and the next attempt reads that file again.
+STOP_GRACE_SECONDS = 120.0
+
 TEMP_URI_SUFFIX = "__repartitioned"
 
 
@@ -172,6 +178,19 @@ class RepartitionBudgetExceededError(Exception):
         self.resumed_from = resumed_from
         self.had_prior_checkpoint = had_prior_checkpoint
         self.checkpoint_saved = checkpoint_saved
+
+
+class RepartitionStoppedError(Exception):
+    """The rewrite stopped early because its caller asked it to, for example on worker shutdown.
+
+    Not a failure. Temp holds every row of the source files its commits record, and the rewrite
+    checkpoint points at it, so the next attempt copies only the other files. `rows_written` counts
+    the rows this attempt committed.
+    """
+
+    def __init__(self, message: str, *, rows_written: int = 0) -> None:
+        super().__init__(message)
+        self.rows_written = rows_written
 
 
 class RepartitionSchemePersistError(Exception):
@@ -918,6 +937,8 @@ async def _rewrite_into_temp(
     deadline: float | None = None,
     total_rows: int | None = None,
     copied_files: frozenset[str] = frozenset(),
+    should_stop: Callable[[], bool] | None = None,
+    stop_grace_seconds: float = STOP_GRACE_SECONDS,
 ) -> tuple[int, RepartitionTarget]:
     """Stream the live table into a temp table under the new partition scheme.
 
@@ -940,6 +961,11 @@ async def _rewrite_into_temp(
 
     `copied_files` resumes a prior attempt: temp already holds every row of these source files (see
     `copied_source_files`), so this call skips them and appends only the rest.
+
+    `should_stop` asks the rewrite to stop early, for example because the worker is shutting down.
+    Once it returns True the rewrite commits at the next source-file boundary, saves a checkpoint and
+    raises `RepartitionStoppedError`. A source file that is still not finished `stop_grace_seconds`
+    later is abandoned with the other uncommitted rows, and the next attempt reads it again.
     """
     budget = budget or rewrite_budget()
     await logger.ainfo(
@@ -1021,8 +1047,8 @@ async def _rewrite_into_temp(
 
     last_checkpoint_at: float | None = None
 
-    async def maybe_checkpoint() -> None:
-        """Persist resumable progress, at most once per `checkpoint_interval_seconds`.
+    async def maybe_checkpoint(force: bool = False) -> None:
+        """Persist resumable progress, at most once per `checkpoint_interval_seconds` unless forced.
 
         Called after a commit lands, so the recorded row count is always backed by data actually in
         temp. Failing to checkpoint must not fail the rewrite: the attempt is still making progress,
@@ -1032,7 +1058,7 @@ async def _rewrite_into_temp(
         if save_checkpoint is None:
             return
         now = time.monotonic()
-        if last_checkpoint_at is not None and now - last_checkpoint_at < checkpoint_interval_seconds:
+        if not force and last_checkpoint_at is not None and now - last_checkpoint_at < checkpoint_interval_seconds:
             return
         last_checkpoint_at = now
         try:
@@ -1120,7 +1146,30 @@ async def _rewrite_into_temp(
         # Feeds the workload reporter bound by the repartition activity; no-op everywhere else.
         report_buffer_bytes(writer.buffered_bytes)
 
+    stop_requested_at: float | None = None
+
+    def stop_requested() -> bool:
+        nonlocal stop_requested_at
+        if should_stop is None or not should_stop():
+            return False
+        if stop_requested_at is None:
+            stop_requested_at = time.monotonic()
+        return True
+
+    async def stop() -> NoReturn:
+        # The throttled checkpoint can be older than the last commit. The next attempt resumes only
+        # from a checkpoint, so save one now. Without a commit from this attempt there is nothing new
+        # to record, and temp may not exist yet.
+        if commits:
+            await maybe_checkpoint(force=True)
+        fields = progress()
+        await logger.ainfo(f"repartition: rewrite stopped early {_format_fields(fields)}", **fields)
+        raise RepartitionStoppedError(
+            f"rewrite stopped early after {rows_written} rows written to {temp_uri}", rows_written=rows_written
+        )
+
     last_claim_check: float | None = None
+    files_left = len(plan)
     sources = reader.iter_sources(plan)
     try:
         while True:
@@ -1149,17 +1198,30 @@ async def _rewrite_into_temp(
                         resolved=resolved,
                         resumed_from=inherited_rows,
                     )
+                if (
+                    stop_requested()
+                    and stop_requested_at is not None
+                    and time.monotonic() - stop_requested_at >= stop_grace_seconds
+                ):
+                    await stop()
                 staged.append(table)
                 staged_bytes += table.nbytes
                 if staged_bytes >= budget.batch_bytes:
                     await write_staged()
             completed_sources.append(source.path)
+            files_left -= 1
+            # After the last file only the final commit is left, so finishing costs less than a stop
+            # and a new attempt.
+            stopping = files_left > 0 and stop_requested()
             if (
                 (writer is not None and writer.bytes_since_commit >= budget.commit_bytes)
                 or len(completed_sources) >= budget.max_source_files_per_commit
                 or time.monotonic() - last_commit_at >= checkpoint_interval_seconds
+                or stopping
             ):
                 await commit()
+            if stopping:
+                await stop()
         await commit()
     except BaseException:
         if writer is not None:
@@ -1256,6 +1318,7 @@ async def repartition_table_in_place(
     budget: StreamBudget | None = None,
     claim_token: str | None = None,
     deadline: float | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Rewrite the schema's Delta table under `target`'s finer partition scheme, in place, from S3.
 
@@ -1276,6 +1339,10 @@ async def repartition_table_in_place(
     `deadline` (a `time.monotonic()` value) bounds the rewrite phase only. The swap that follows
     needs no bound of its own: it records `repartition_swap` before touching live, so a swap cut
     short by the activity timeout resumes from the intact temp table on a later run.
+
+    `should_stop` also applies to the rewrite phase only. When it returns True the rewrite stops after
+    its next commit and raises `RepartitionStoppedError`, with the temp table and its checkpoint kept
+    for the next attempt (see `_rewrite_into_temp`).
     """
     live_uri = await table_ref.get_table_uri()
     storage_options = table_ref.get_storage_options()
@@ -1516,6 +1583,7 @@ async def repartition_table_in_place(
                 deadline=deadline,
                 total_rows=old_row_count,
                 copied_files=copied,
+                should_stop=should_stop,
             )
         except RepartitionBudgetExceededError as e:
             # Only a checkpoint this attempt could build on marks a restart. One the resume path
@@ -1554,7 +1622,7 @@ async def repartition_table_in_place(
                     },
                 )
             raise
-        except (RepartitionSupersededError, RepartitionUnpartitionableError):
+        except (RepartitionSupersededError, RepartitionUnpartitionableError, RepartitionStoppedError):
             raise
         except Exception as e:
             missing_path = _missing_live_object_path(e, live_uri)
