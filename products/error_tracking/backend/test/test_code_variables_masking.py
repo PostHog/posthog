@@ -80,6 +80,8 @@ class TestCodeVariablesMasking(SimpleTestCase):
             ("the bearer of bad news",),
             ("bearer transportation",),
             ("basic: configuration",),
+            ("basic: Configuration",),
+            ("Basic Configuration loaded",),
             ("basicConfig(level=10)",),
             ("550e8400-e29b-41d4-a716-446655440000",),
             ("da39a3ee5e6b4b0d3255bfef95601890afd80709",),

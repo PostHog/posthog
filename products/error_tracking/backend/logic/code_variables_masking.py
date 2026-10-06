@@ -25,10 +25,11 @@ _MAX_DEPTH = 12
 _SECRET_MIN_LENGTH = 16
 _SECRET_MIN_ENTROPY_BITS = 3.8
 _SECRET_MIN_CHAR_CLASSES = 3
-# Shorter values are prose, such as "the bearer of", and so is a lowercase word of up to
-# 15 letters, such as "bearer transportation". A random lowercase token is longer than
-# that. A `Basic` credential of any length is still redacted when it decodes to
-# `user:password`, e.g. `YTpi` for `a:b`.
+# Shorter values are prose, such as "the bearer of", and so is a word of up to 15 letters
+# that is lowercase or starts with a capital, such as "bearer transportation" or
+# "basic: Configuration". A random token mixes case or is longer than that. A `Basic`
+# credential of any length is still redacted when it decodes to `user:password`, e.g.
+# `YTpi` for `a:b`.
 _AUTH_CREDENTIAL_MIN_LENGTH = 8
 _AUTH_PROSE_WORD_MAX_LENGTH = 15
 _PEM_PRIVATE_KEY_MARKER = "PRIVATE KEY-----"
@@ -162,7 +163,12 @@ def _is_basic_credential(credential: str) -> bool:
 def _redact_auth_credential(match: re.Match[str]) -> str:
     credential = match.group(3)
     is_basic_pair = match.group(1).lower() == "basic" and _is_basic_credential(credential)
-    is_prose_word = len(credential) <= _AUTH_PROSE_WORD_MAX_LENGTH and all("a" <= c <= "z" for c in credential)
+    is_prose_word = (
+        len(credential) <= _AUTH_PROSE_WORD_MAX_LENGTH
+        and credential[:1].isascii()
+        and credential[:1].isalpha()
+        and all("a" <= c <= "z" for c in credential[1:])
+    )
     if not is_basic_pair and (len(credential) < _AUTH_CREDENTIAL_MIN_LENGTH or is_prose_word):
         return match.group(0)
     return f"{match.group(1)}{match.group(2)}{REDACTED}"
