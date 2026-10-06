@@ -571,7 +571,8 @@ describe('PostgresPersonRepository', () => {
             )
 
             expect(result).toMatchObject({ success: false, error: 'CreationConflict' })
-            // Unpublished, but above the stray's ClickHouse row, which the sweep removes with its dead owner.
+            // The tombstone is not published. Its version stays above the mapping's ClickHouse row,
+            // and the ClickHouse deletion sweep removes that row with the deleted owner.
             const strayRows = await postgres.query(
                 PostgresUse.PERSONS_WRITE,
                 'SELECT is_deleted, version FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
