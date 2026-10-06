@@ -1,7 +1,31 @@
-//! A key's messages flow one way: a key queue, then a request on the wire.
-//! A request that comes back with returned messages, or fails on the
-//! transport, puts them back at the front of the key's queue with a retry
-//! time. Retried messages leave the queue like fresh ones.
+//! Decides which key runs go to which worker, and when. The batcher task
+//! feeds it polls, worker responses, retry wakeups, revokes and shutdown,
+//! and performs the [`Effects`] each action returns. The state machine does
+//! no I/O.
+//!
+//! The caller performs one action's effects in this order: order-sentinel
+//! ACKs before evictions, then the sends in the order given, which is each
+//! key's send order. `next_wakeup` replaces the previous wakeup; `None` needs
+//! no timer. `fatal` means the state machine failed and the process must
+//! exit and replay.
+//!
+//! - Per-key order: a key has at most one run out at a time, and its later
+//!   messages queue behind that run.
+//! - A response may be partial. The returned messages must be a suffix of
+//!   each key's run, or the state machine fails. They go back to the front of
+//!   the key's queue and are sent again as replay after the retry delay, as
+//!   are all messages of a request that failed on the transport.
+//! - Stall watchdog: when work is pending, nothing is in flight, and no
+//!   message was accepted for `stall_timeout`, the state machine fails, so a
+//!   wedged batcher restarts instead of growing lag. Past that deadline no
+//!   new request starts, so overlapping failures drain to nothing in flight
+//!   and the watchdog can fire. The clock starts when work becomes pending.
+//! - A revoke drops the revoked partitions' pending messages, because the
+//!   new owner replays them. Runs already in flight finish, but their
+//!   returned messages for revoked partitions drop.
+//! - Shutdown takes no new groups; the state machine stops once nothing is
+//!   pending or in flight. A draining worker listed in `idle_workers` has
+//!   finished its work.
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -48,27 +72,17 @@ pub struct WorkerOutcome {
 
 #[derive(Debug, Default)]
 pub struct Effects {
-    /// Sends must begin in this order, which is the per-key send order.
     pub sends: Vec<SendRequest>,
-    /// One completion per partition, so each poll is credited per offset.
     pub completions: Vec<GroupCompletion>,
     pub key_acks: Vec<KeyAck>,
-    /// Keys that left the state machine; their order-sentinel state can go.
     pub evicted_keys: Vec<Arc<str>>,
     pub worker_outcomes: Vec<WorkerOutcome>,
-    /// Workers with nothing left in flight. A draining worker in this list
-    /// has finished its work.
     pub idle_workers: Vec<WorkerId>,
-    /// Workers that had nothing in flight and now have a request.
     pub busy_workers: Vec<WorkerId>,
-    /// Set on the action that fails the state machine. The caller fails the
-    /// process.
     pub fatal: Option<String>,
-    /// When to call [`BatcherStateMachine::on_wakeup`]. `None` needs no timer.
     pub next_wakeup: Option<Instant>,
 }
 
-/// Actions do no I/O: the caller performs the returned [`Effects`].
 pub enum BatcherStateMachine {
     Running(ActiveState),
     Draining(ActiveState),
@@ -77,10 +91,6 @@ pub enum BatcherStateMachine {
 }
 
 impl BatcherStateMachine {
-    /// Stuck work with nothing in flight and no accepted message for
-    /// `stall_timeout` fails the state machine, so a wedged batcher restarts
-    /// loudly instead of growing lag. A zero timeout would fire on every
-    /// action.
     pub fn new(
         assigner: WorkerAssigner,
         retry: RetryPolicy,
@@ -101,7 +111,6 @@ impl BatcherStateMachine {
         }))
     }
 
-    /// One poll's key runs, in poll order, collected under `assignment_epoch`.
     pub fn on_groups(
         self,
         now: Instant,
@@ -121,10 +130,6 @@ impl BatcherStateMachine {
         }
     }
 
-    /// A request got a response, which may be partial. `returned` holds the
-    /// messages the worker did not process; they wait for the timeout delay,
-    /// then go out again as replay. `accepted` is the
-    /// worker's own count of the rest.
     pub fn on_request_succeeded(
         self,
         now: Instant,
@@ -136,8 +141,6 @@ impl BatcherStateMachine {
         self.act(|active| active.on_request_succeeded(now, pool, request, accepted, returned))
     }
 
-    /// A request failed on the transport. `messages` is every message of the
-    /// request, handed back by the transport.
     pub fn on_request_failed(
         self,
         now: Instant,
@@ -157,11 +160,6 @@ impl BatcherStateMachine {
         })
     }
 
-    /// Partitions were revoked, as `(topic, partition)`. Their pending
-    /// messages drop, because the new partition owner replays them. A revoke
-    /// never sends: it runs on the rebalance callback, outside the runtime
-    /// that begins sends. It asks for an immediate wakeup instead when keys
-    /// became ready.
     pub fn on_partitions_revoked(
         self,
         now: Instant,
@@ -248,7 +246,6 @@ pub struct ActiveState {
     keys: KeyQueues,
     assigner: WorkerAssigner,
     in_flight: InFlightRequests,
-    /// Requests that found no worker or no free send slot, oldest first.
     /// Their keys stay claimed.
     unplaced: VecDeque<Request>,
     retry: RetryPolicy,
@@ -266,8 +263,6 @@ impl ActiveState {
                 .sum::<usize>()
     }
 
-    /// No timer runs while nothing can stall, so the stall clock starts when
-    /// work becomes stuck, not at the last action before the quiet period.
     fn restart_stall_clock_if_quiet(&mut self, now: Instant) {
         if self.pending_messages() == 0 && self.in_flight.is_empty() {
             self.last_progress = now;
@@ -454,9 +449,6 @@ impl ActiveState {
         effects: &mut Effects,
     ) -> Result<(), String> {
         self.restart_stall_clock_if_quiet(now);
-        // Past the stall deadline, no new request starts, so overlapping
-        // failures drain to nothing in flight and the watchdog can fire. A
-        // request still in flight may yet be accepted, which resets it.
         let stalled = self.pending_messages() > 0 && now >= self.last_progress + self.stall_timeout;
         if !stalled {
             self.place(now, pool, effects);
@@ -464,7 +456,6 @@ impl ActiveState {
         self.finish(now, effects)
     }
 
-    /// Each claimed key run goes out as a request of its own.
     fn place(&mut self, now: Instant, pool: &WorkerPool, effects: &mut Effects) {
         let mut batch: Vec<Request> = self.unplaced.drain(..).collect();
         batch.extend(self.keys.take_ready(now).into_iter().map(Request::from_run));
@@ -532,8 +523,6 @@ impl ActiveState {
         effects.next_wakeup = [
             self.keys.next_retry_at(),
             (!self.unplaced.is_empty()).then(|| self.retry.retry_at(now, RetryReason::NoWorker)),
-            // The watchdog fires only with nothing in flight. While a request
-            // is out, its response re-checks the stall.
             (pending > 0 && in_flight == 0).then_some(stall_deadline),
         ]
         .into_iter()
