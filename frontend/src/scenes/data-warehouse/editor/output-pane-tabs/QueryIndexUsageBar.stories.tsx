@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import {
     PredicateFixAction,
+    UnprunedTableScan,
     PredicateIndexUsage,
     PredicateIndexVerdict,
     PredicateScope,
@@ -95,10 +96,21 @@ const PREDICATES: PredicateIndexUsage[] = [
     },
 ]
 
+const UNPRUNED_SCANS: UnprunedTableScan[] = [
+    {
+        table_name: 'events',
+        partition_key: 'toYYYYMM(timestamp)',
+        message: 'No filter on events.timestamp, so this reads your full event history.',
+        fix: 'Add WHERE timestamp > now() - INTERVAL 30 DAY to read a recent time range.',
+        start: 21,
+        end: 27,
+    },
+]
+
 export const SomeFiltersScan: Story = {
     render: () => (
         <div className="max-w-3xl">
-            <QueryIndexUsageBar predicates={PREDICATES} onApplyQuickfix={() => {}} onFixWithAI={() => {}} />
+            <QueryIndexUsageBar predicates={PREDICATES} scans={[]} onApplyQuickfix={() => {}} onFixWithAI={() => {}} />
         </div>
     ),
 }
@@ -106,7 +118,7 @@ export const SomeFiltersScan: Story = {
 export const EveryFilterIndexed: Story = {
     render: () => (
         <div className="max-w-3xl">
-            <QueryIndexUsageBar predicates={[PREDICATES[0]]} />
+            <QueryIndexUsageBar predicates={[PREDICATES[0]]} scans={[]} />
         </div>
     ),
 }
@@ -114,7 +126,15 @@ export const EveryFilterIndexed: Story = {
 export const RefreshingAfterAnEdit: Story = {
     render: () => (
         <div className="max-w-3xl">
-            <QueryIndexUsageBar predicates={PREDICATES} refreshing />
+            <QueryIndexUsageBar predicates={PREDICATES} scans={[]} refreshing />
         </div>
     ),
+}
+
+export const EveryFilterIndexedButNoTimeRange: Story = {
+    render: () => <div className="max-w-3xl"><QueryIndexUsageBar predicates={[PREDICATES[0]]} scans={UNPRUNED_SCANS} onApplyFix={() => {}} /></div>,
+}
+
+export const NoTimeRangeAndNoFilters: Story = {
+    render: () => <div className="max-w-3xl"><QueryIndexUsageBar predicates={[]} scans={UNPRUNED_SCANS} onApplyFix={() => {}} /></div>,
 }

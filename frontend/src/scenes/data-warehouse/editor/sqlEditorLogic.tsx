@@ -42,6 +42,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
+import { codePointOffsetToUtf16 } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
 import { characterOffsetToUtf16 } from 'lib/monaco/offsets'
@@ -74,6 +75,7 @@ import {
     HogLanguage,
     HogQLFilters,
     HogQLMetadata,
+    HogQLFixEdit,
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
@@ -576,6 +578,42 @@ export function tabModelPath(tabId: string): string {
 // suggestion: @monaco-editor/react reuses the existing model on remount without re-applying
 // the `value` prop, so the content has to be written onto the model directly. No-ops when the
 // editor isn't mounted yet or the content already matches.
+function applyUndoableRangedEdits(
+    monaco: Monaco | null | undefined,
+    uri: Uri | undefined,
+    edits: HogQLFixEdit[],
+    offset: number,
+    queryText: string
+): void {
+    if (!monaco || !uri || edits.length === 0) {
+        return
+    }
+    const model = monaco.editor.getModel(uri)
+    if (!model) {
+        return
+    }
+    model.pushStackElement()
+    model.pushEditOperations(
+        [],
+        edits.map((edit) => {
+            // Offsets index the metadata query, which is one statement of a multi-statement script.
+            const start = model.getPositionAt(codePointOffsetToUtf16(queryText, edit.start) + offset)
+            const end = model.getPositionAt(codePointOffsetToUtf16(queryText, edit.end) + offset)
+            return {
+                range: {
+                    startLineNumber: start.lineNumber,
+                    startColumn: start.column,
+                    endLineNumber: end.lineNumber,
+                    endColumn: end.column,
+                },
+                text: edit.text,
+            }
+        }),
+        () => null
+    )
+    model.pushStackElement()
+}
+
 function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | undefined, text: string): void {
     if (!monaco || !uri) {
         return
@@ -645,6 +683,7 @@ export interface sqlEditorLogicValues {
     materializationModalOpen: boolean
     materializationModalView: DataWarehouseSavedQuery | null
     metadata: HogQLMetadataResponse | null
+    metadataAnalyzedQuery: string | null
     metadataLoading: boolean
     metricPrefill: MetricFormPrefill | null
     metricUpdating: boolean
@@ -837,6 +876,9 @@ export interface sqlEditorLogicActions {
     }
     applyIndexQuickfix: (quickfix: PredicateQuickfix) => {
         quickfix: PredicateQuickfix
+    }
+    applyQueryFix: (edits: HogQLFixEdit[]) => {
+        edits: HogQLFixEdit[]
     }
     closeAccessControlModal: () => {
         value: true
@@ -1068,6 +1110,9 @@ export interface sqlEditorLogicActions {
     setEditorSource: (source: SqlEditorSource) => {
         source: SqlEditorSource
     }
+    applyQueryFix: (edits: HogQLFixEdit[]) => {
+        edits: HogQLFixEdit[]
+    }
     setError: (error: string | null) => {
         error: string | null
     }
@@ -1109,8 +1154,9 @@ export interface sqlEditorLogicActions {
     setMaterializationModalView: (view: DataWarehouseSavedQuery | null) => {
         view: DataWarehouseSavedQuery | null
     }
-    setMetadata: (metadata: HogQLMetadataResponse | null) => {
+    setMetadata: (metadata: HogQLMetadataResponse | null, analyzedQuery?: string | null) => {
         metadata: HogQLMetadataResponse | null
+        analyzedQuery?: string | null
     }
     setMetadataLoading: (loading: boolean) => {
         loading: boolean
@@ -1392,7 +1438,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({
             sourceQuery,
         }),
-        setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
+        setMetadata: (metadata: HogQLMetadataResponse | null, analyzedQuery?: string | null) => ({ metadata, analyzedQuery }),
         setMetadataLoading: (loading: boolean) => ({ loading }),
         setInsightLoading: (loading: boolean) => ({ loading }),
         setViewLoading: (loading: boolean) => ({ loading }),
@@ -1468,6 +1514,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         applyIndexQuickfix: (quickfix: PredicateQuickfix) => ({ quickfix }),
         fixIndexUsageWithAI: (prompt: string) => ({ prompt }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
+        applyQueryFix: (edits: HogQLFixEdit[]) => ({ edits }),
         runSubquery: true,
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
         enforceConnectionRawQueryMode: true,
@@ -1741,6 +1788,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as HogQLMetadataResponse | null,
             {
                 setMetadata: (_, { metadata }) => metadata,
+            },
+        ],
+        metadataAnalyzedQuery: [
+            null as string | null,
+            {
+                setMetadata: (_, { analyzedQuery }) => analyzedQuery ?? null,
             },
         ],
         editorKey: [`hogql-editor-${props.tabId}`, {}],
@@ -2025,6 +2078,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     source: values.suggestedSource,
                 })
                 actions._setSuggestionPayload(null)
+            },
+            applyQueryFix: ({ edits }) => {
+                const analyzed = values.activeQueryText ?? (values.suggestedQueryInput || values.queryInput) ?? ''
+                if ((values.metadataAnalyzedQuery ?? values.metadata?.query) !== analyzed) {
+                    return
+                }
+                const uri = values.activeTab?.uri ?? props.monaco?.Uri.parse(tabModelPath(props.tabId))
+                applyUndoableRangedEdits(
+                    props.monaco,
+                    uri,
+                    edits,
+                    values.activeQueryOffset,
+                    values.activeQueryText ?? values.queryInput ?? ''
+                )
             },
             onRejectSuggestedQueryInput: () => {
                 values.suggestionPayload?.onReject(actions, values, props)
@@ -3686,14 +3753,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         // in `codeEditorLogic`, which analyzes the whole editor text whenever there is no active
         // statement; comparing against the active statement alone reads as stale forever there.
         indexReportStale: [
-            (s) => [s.metadata, s.activeQueryText, s.queryInput, s.suggestedQueryInput, s.metadataLoading],
+            (s) => [s.metadata, s.metadataAnalyzedQuery, s.activeQueryText, s.queryInput, s.suggestedQueryInput, s.metadataLoading],
             (
                 metadata: HogQLMetadataResponse | null,
+                metadataAnalyzedQuery: string | null,
                 activeQueryText: string | null,
                 queryInput: string | null,
                 suggestedQueryInput: string,
                 metadataLoading: boolean
-            ) => metadataLoading || metadata?.query !== (activeQueryText ?? (suggestedQueryInput || queryInput) ?? ''),
+            ) =>
+                metadataLoading ||
+                (metadataAnalyzedQuery ?? metadata?.query) !== (activeQueryText ?? (suggestedQueryInput || queryInput) ?? ''),
         ],
         isEmbeddedMode: [
             () => [(_, p: SqlEditorLogicProps) => p.mode],
