@@ -1,7 +1,6 @@
 import base64
 import socket
 import typing
-import functools
 import dataclasses
 from io import StringIO
 from typing import IO, Literal
@@ -9,7 +8,11 @@ from typing import IO, Literal
 from cryptography.hazmat.primitives import serialization as crypto_serialization
 from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, rsa
 from paramiko import DSSKey, ECDSAKey, Ed25519Key, PKey, RSAKey, Transport
-from sshtunnel import SSH_TIMEOUT, BaseSSHTunnelForwarderError, SSHTunnelForwarder
+from sshtunnel import (
+    SSH_TIMEOUT,
+    BaseSSHTunnelForwarderError,
+    SSHTunnelForwarder as _UnboundedSSHTunnelForwarder,
+)
 
 from posthog.dataclasses import frozen
 
@@ -54,27 +57,25 @@ SSH_TUNNEL_CONNECT_TIMEOUT_ERROR = (
 )
 
 
-def _bounded_gateway_transport(forwarder: SSHTunnelForwarder) -> Transport:
-    """Open the transport to the SSH server with a limit on every step.
+class SSHTunnelForwarder(_UnboundedSSHTunnelForwarder):
+    """An `sshtunnel` forwarder with a limit on every step of the connection to the SSH server."""
 
-    Replaces `SSHTunnelForwarder._get_transport` for a forwarder that has no proxy. It keeps the
-    transport settings of that method.
-    """
-    try:
-        sock = socket.create_connection(
-            (forwarder.ssh_host, forwarder.ssh_port), timeout=SSH_TUNNEL_CONNECT_TIMEOUT_SECONDS
-        )
-    except TimeoutError as e:
-        raise BaseSSHTunnelForwarderError(SSH_TUNNEL_CONNECT_TIMEOUT_ERROR) from e
-    sock.settimeout(SSH_TIMEOUT)
-    transport = Transport(sock)
-    transport.banner_timeout = SSH_TUNNEL_BANNER_TIMEOUT_SECONDS
-    transport.handshake_timeout = SSH_TUNNEL_HANDSHAKE_TIMEOUT_SECONDS
-    transport.auth_timeout = SSH_TUNNEL_AUTH_TIMEOUT_SECONDS
-    transport.set_keepalive(forwarder.set_keepalive)
-    transport.use_compression(compress=forwarder.compression)
-    transport.daemon = forwarder.daemon_transport
-    return transport
+    def _get_transport(self) -> Transport:
+        # The parent method also handles a proxy. Nothing here configures one, so this keeps only
+        # its direct path and its transport settings.
+        try:
+            sock = socket.create_connection((self.ssh_host, self.ssh_port), timeout=SSH_TUNNEL_CONNECT_TIMEOUT_SECONDS)
+        except TimeoutError as e:
+            raise BaseSSHTunnelForwarderError(SSH_TUNNEL_CONNECT_TIMEOUT_ERROR) from e
+        sock.settimeout(SSH_TIMEOUT)
+        transport = Transport(sock)
+        transport.banner_timeout = SSH_TUNNEL_BANNER_TIMEOUT_SECONDS
+        transport.handshake_timeout = SSH_TUNNEL_HANDSHAKE_TIMEOUT_SECONDS
+        transport.auth_timeout = SSH_TUNNEL_AUTH_TIMEOUT_SECONDS
+        transport.set_keepalive(self.set_keepalive)
+        transport.use_compression(compress=self.compression)
+        transport.daemon = self.daemon_transport
+        return transport
 
 
 class HostKeyParseError(ValueError):
@@ -361,7 +362,7 @@ class SSHTunnel:
             raise Exception("SSHTunnel host key is not valid") from e
 
         if self.auth_type == "password":
-            forwarder = SSHTunnelForwarder(
+            return SSHTunnelForwarder(
                 (ssh_host, int(self.port)),
                 ssh_username=self.username,
                 ssh_password=self.password,
@@ -370,7 +371,7 @@ class SSHTunnel:
                 local_bind_address=("127.0.0.1",),
             )
         else:
-            forwarder = SSHTunnelForwarder(
+            return SSHTunnelForwarder(
                 (ssh_host, int(self.port)),
                 ssh_username=self.username,
                 ssh_pkey=self.parse_private_key(),
@@ -379,6 +380,3 @@ class SSHTunnel:
                 remote_bind_address=(remote_host, remote_port),
                 local_bind_address=("127.0.0.1",),
             )
-        # Set on the instance, so that the forwarder class stays the one the tests replace.
-        forwarder._get_transport = functools.partial(_bounded_gateway_transport, forwarder)
-        return forwarder
