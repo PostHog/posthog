@@ -81,7 +81,7 @@ export function ClusterJourneySankey({ journey }: Props): JSX.Element | null {
 
     const tooltip = useMemo(() => makeJourneyTooltip(journey?.total_sessions ?? 0), [journey?.total_sessions])
 
-    if (!journey || !graph || graph.links.length === 0) {
+    if (!journey || !graph || !graph.links.some((link) => link.value > 0)) {
         return (
             <div className="bg-surface-secondary rounded p-4 text-xs text-muted">
                 Not enough session data yet to plot a journey. Recompute after more sessions are summarised.

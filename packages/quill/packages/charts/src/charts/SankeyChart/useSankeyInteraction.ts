@@ -59,10 +59,11 @@ function buildTooltipCtx<NodeMeta, LinkMeta>(
     // One synthetic series row keeps the shared tooltip plumbing (equivalence checks, the
     // default renderer fallback) working on a chart that has no series.
     const series: Series<NodeMeta | LinkMeta> = { key: `${hit.kind}:${hit.index}`, label, data: [value], color, meta }
+    const fraction = layout.total > 0 ? value / layout.total : 0
     return {
         dataIndex: hitToHoverIndex(layout, hit),
         label,
-        seriesData: [{ series, value, color }],
+        seriesData: [{ series, value, color, fraction }],
         position: anchor,
         hoverPosition: cursor,
         canvasBounds,
@@ -108,15 +109,24 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
         }
     }, [layout, isPinned, clearTooltip])
 
+    // Hidden content must not survive to reappear when tooltips are switched back on.
+    useEffect(() => {
+        if (!showTooltip) {
+            setTooltipCtx(null)
+        }
+    }, [showTooltip, setTooltipCtx])
+
     const hoverIndexRef = useLatest(hoverIndex)
 
     const showHit = useCallback(
         (hit: SankeyHit, cursor: { x: number; y: number }) => {
             setHover(hitToHoverIndex(layoutRef.current, hit), cursor)
-            if (showTooltip) {
-                const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
-                setTooltipCtx(buildTooltipCtx(layoutRef.current, hit, cursor, canvasBounds))
+            if (!showTooltip) {
+                setTooltipCtx(null)
+                return
             }
+            const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
+            setTooltipCtx(buildTooltipCtx(layoutRef.current, hit, cursor, canvasBounds))
         },
         [layoutRef, showTooltip, setHover, setTooltipCtx, canvasRef]
     )

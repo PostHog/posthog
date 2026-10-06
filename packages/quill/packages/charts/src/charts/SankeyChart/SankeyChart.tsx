@@ -11,14 +11,15 @@ import { applyMarginOverride } from '../../core/hooks/useChartMargins'
 import type { ChartDrawArgs, ChartMargins, ChartScales } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
 import { Tooltip } from '../../overlays/Tooltip'
-import { drawSankey, drawSankeyHover } from './draw-sankey'
+import { PieTooltip } from '../PieChart/PieTooltip'
+import { drawSankey, drawSankeyHover, sankeyActiveFlow } from './draw-sankey'
+import type { SankeyActiveFlow } from './draw-sankey'
 import { SankeyLayoutContext } from './sankey-context'
 import type { SankeyLayoutContextValue } from './sankey-context'
 import { computeSankeyLayout, defaultValueFormatter, hoverIndexToHit } from './sankey-data'
-import type { SankeyChartLayout } from './sankey-data'
+import type { SankeyChartLayout, SankeyLinkInput, SankeyNodeInput } from './sankey-data'
 import { SankeyColumnLabels } from './SankeyColumnLabels'
 import { SankeyNodeLabels } from './SankeyNodeLabels'
-import { SankeyTooltip } from './SankeyTooltip'
 import type { SankeyChartProps, SankeyTooltipContext } from './types'
 import { useSankeyInteraction } from './useSankeyInteraction'
 
@@ -33,15 +34,19 @@ const DEFAULT_LABEL_COLOR = 'rgba(0, 0, 0, 0.7)'
 
 const NO_SCALES: ChartScales = { x: () => undefined, y: () => 0, yTicks: () => [] }
 
+/** Changes whenever the layout could validate differently, so a corrected graph clears the error. */
+function graphKey(nodes: SankeyNodeInput<unknown>[], links: SankeyLinkInput<unknown>[]): string {
+    const nodeIds = nodes.map((node) => node.id).join(',')
+    const linkKeys = links.map((link) => `${link.source}>${link.target}=${link.value}`).join(',')
+    return `${nodeIds}|${linkKeys}`
+}
+
 export function SankeyChart<NodeMeta = unknown, LinkMeta = NodeMeta>({
     onError,
     ...rest
 }: SankeyChartProps<NodeMeta, LinkMeta>): React.ReactElement {
     return (
-        <ChartErrorBoundary
-            onError={onError}
-            resetKey={`${rest.nodes.length}:${rest.links.length}:${rest.nodes.map((node) => node.id).join(',')}`}
-        >
+        <ChartErrorBoundary onError={onError} resetKey={graphKey(rest.nodes, rest.links)}>
             <SankeyChartInner {...rest} />
         </ChartErrorBoundary>
     )
@@ -132,14 +137,25 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
             drawSankey(drawCtx, layout as SankeyChartLayout<unknown, unknown>, { linkOpacity }),
         [layout, linkOpacity]
     )
+    // The hover fade repaints every frame; resolve the connected flow once per hovered item.
+    const activeFlowFor = useMemo(() => {
+        let cached: { index: number; flow: SankeyActiveFlow | null } | null = null
+        return (index: number): SankeyActiveFlow | null => {
+            if (cached?.index !== index) {
+                const untyped = layout as SankeyChartLayout<unknown, unknown>
+                cached = { index, flow: sankeyActiveFlow(untyped, hoverIndexToHit(untyped, index)) }
+            }
+            return cached.flow
+        }
+    }, [layout])
     const drawHover = useCallback(
         ({ ctx: drawCtx, hoverIndex: index, hoverProgress, theme: drawTheme }: ChartDrawArgs): boolean =>
-            drawSankeyHover(drawCtx, layout as SankeyChartLayout<unknown, unknown>, hoverIndexToHit(layout, index), {
+            drawSankeyHover(drawCtx, layout as SankeyChartLayout<unknown, unknown>, activeFlowFor(index), {
                 linkOpacity,
                 backgroundColor: drawTheme.backgroundColor,
                 progress: hoverProgress,
             }),
-        [layout, linkOpacity]
+        [layout, linkOpacity, activeFlowFor]
     )
 
     useChartDraw({
@@ -161,7 +177,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         () =>
             tooltip ??
             ((tooltipContext: SankeyTooltipContext<NodeMeta, LinkMeta>): React.ReactNode => (
-                <SankeyTooltip ctx={tooltipContext} valueFormatter={valueFormatter} />
+                <PieTooltip ctx={tooltipContext} valueFormatter={valueFormatter} />
             )),
         [tooltip, valueFormatter]
     )

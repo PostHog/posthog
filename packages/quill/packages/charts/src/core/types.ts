@@ -48,7 +48,7 @@ export interface Series<Meta = unknown> {
     data: number[]
     /** CSS color string (hex, rgb) for the line and associated fill/points. Line, area, and bar
      *  series hand it to the canvas unresolved, so resolve `var(--…)` in the host first; only
-     *  `Heatmap` and `ScatterChart` resolve it themselves. When omitted (or empty), the chart
+     *  `Heatmap`, `ScatterChart`, and `SankeyChart` resolve it themselves. When omitted (or empty), the chart
      *  picks a color from `theme.colors` by series index. */
     color?: string
     /** Bar charts only: per-bar overrides of the series-level `color`/`label`/`meta`, indexed by

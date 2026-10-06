@@ -1,4 +1,4 @@
-import { fireEvent, waitFor } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
 import { getHogChartTooltip, renderHogChart } from '../../testing'
@@ -116,5 +116,19 @@ describe('SankeyChart', () => {
         fireEvent.click(chart.element, nodeCenter('a'))
 
         expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }))
+    })
+
+    it('recovers from an invalid graph when only a link endpoint is corrected', () => {
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        const onError = jest.fn()
+        const broken: SankeyLinkInput[] = [LINKS[0], { source: 'a', target: 'missing', value: 12 }]
+        const { container, rerender } = render(
+            <SankeyChart nodes={NODES} links={broken} theme={THEME} onError={onError} />
+        )
+        expect(onError).toHaveBeenCalled()
+        expect(container.textContent).toContain('Something went wrong')
+
+        rerender(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} onError={onError} />)
+        expect(container.textContent).not.toContain('Something went wrong')
     })
 })

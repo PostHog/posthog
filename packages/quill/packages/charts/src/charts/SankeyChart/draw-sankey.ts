@@ -48,38 +48,52 @@ export function drawSankey(ctx: CanvasRenderingContext2D, layout: SankeyChartLay
     }
 }
 
-/** Hover layer: dims the graph toward the background, then repaints the hovered node or ribbon
- *  and everything connected to it at full strength. Returns false when nothing is hovered. */
-export function drawSankeyHover(
-    ctx: CanvasRenderingContext2D,
-    layout: SankeyChartLayout,
-    hit: SankeyHit | null,
-    options: DrawSankeyOptions & { backgroundColor?: string; progress: number }
-): boolean {
-    if (!hit) {
-        return false
-    }
-    const dimTarget = options.backgroundColor || HOVER_DIM_TARGET_FALLBACK
-    const dim = options.progress * HOVER_DIM_AMOUNT
+export interface SankeyActiveFlow {
+    hit: SankeyHit
+    links: Set<SankeyLinkDatum>
+    nodes: Set<SankeyNodeDatum>
+}
 
-    const activeLinks = new Set<SankeyLinkDatum>()
-    const activeNodes = new Set<SankeyNodeDatum>()
+/** The hovered node or ribbon plus everything connected to it, or `null` when nothing is hovered. */
+export function sankeyActiveFlow(layout: SankeyChartLayout, hit: SankeyHit | null): SankeyActiveFlow | null {
+    if (!hit) {
+        return null
+    }
+    const links = new Set<SankeyLinkDatum>()
+    const nodes = new Set<SankeyNodeDatum>()
     if (hit.kind === 'node') {
         const node = layout.nodes[hit.index]
-        activeNodes.add(node)
+        nodes.add(node)
         for (const link of layout.links) {
             if (link.source === node || link.target === node) {
-                activeLinks.add(link)
-                activeNodes.add(link.source)
-                activeNodes.add(link.target)
+                links.add(link)
+                nodes.add(link.source)
+                nodes.add(link.target)
             }
         }
     } else {
         const link = layout.links[hit.index]
-        activeLinks.add(link)
-        activeNodes.add(link.source)
-        activeNodes.add(link.target)
+        links.add(link)
+        nodes.add(link.source)
+        nodes.add(link.target)
     }
+    return { hit, links, nodes }
+}
+
+/** Hover layer: dims the graph toward the background, then repaints the active flow at full
+ *  strength. Returns false when nothing is hovered. */
+export function drawSankeyHover(
+    ctx: CanvasRenderingContext2D,
+    layout: SankeyChartLayout,
+    flow: SankeyActiveFlow | null,
+    options: DrawSankeyOptions & { backgroundColor?: string; progress: number }
+): boolean {
+    if (!flow) {
+        return false
+    }
+    const { hit, links: activeLinks, nodes: activeNodes } = flow
+    const dimTarget = options.backgroundColor || HOVER_DIM_TARGET_FALLBACK
+    const dim = options.progress * HOVER_DIM_AMOUNT
 
     // The dim fill must be opaque: a translucent repaint composites over the full-color static
     // layer and does not dim at all.
