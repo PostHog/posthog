@@ -108,6 +108,10 @@ That is the same shape as a real regression.
 - A saved funnel with `exclusions` can give a biased trends result: one excluded attempt removes that person's failed entries from every period, which can inflate older baselines.
   Do not author a decline for such a funnel from trends results.
   Name the flow as unscored for this reason in the run summary.
+- A saved funnel with a step marked `optionalInFunnel` cannot run in trends mode, because `query-funnel` rejects the query.
+  Do not remove the optional setting, because that changes the measured flow.
+  Do not fall back to a `steps` query over only the entrant week, because it cuts off late conversions.
+  Name the flow as unscored for this reason in the run summary.
 - Example: a 7-day entrant week of Mon 1 – Sun 7 with a 14-day conversion interval becomes scoreable only after Sun 21 ends.
   From Mon 8 to Sun 21 the week is calendar-complete but not mature, so score the latest mature week instead.
 
