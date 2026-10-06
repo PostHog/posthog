@@ -234,14 +234,12 @@ export function useKeys({
     // Esc stops a running turn; a second Esc straight after clears what is typed.
     if (key?.kind === "dismiss" && !composer.showingSuggestions()) {
       const turn = runningTurns.current.get(paneId);
+      // The chat says "Cancelled" once the turn stops, so only a failed stop needs a notice.
       if (turn && control) {
-        flashNotice("Stopping…", { paneId });
         control(turn.taskId, turn.runId)
           .abort()
-          .then(
-            () => flashNotice("Stopped", { paneId }),
-            (error: unknown) =>
-              flashNotice(`Couldn't stop: ${messageOf(error)}`, { paneId }),
+          .catch((error: unknown) =>
+            flashNotice(`Couldn't stop: ${messageOf(error)}`, { paneId }),
           );
       }
       if (escapes.current.press(Date.now())) composer.clear();
