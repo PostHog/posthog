@@ -90,7 +90,7 @@ export type BroadcastScheduleMode = 'now' | 'later' | 'recurring'
 // `template-email` hog function template's default input shape.
 export interface BroadcastEmailValue {
     to: { email: string; name?: string }
-    from: { integrationId?: number | null }
+    from: { integrationId?: number | null; integrationIds?: number[] }
     replyTo?: string
     cc?: string
     bcc?: string
@@ -967,6 +967,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
 
                 if (!email.from?.integrationId) {
                     errors.content.push('Choose an email sender')
+                } else if (integrations && getMissingSenderIds(email.from, integrations).length > 0) {
+                    // Shown on the content step, where the sender is picked, rather than first at launch.
+                    errors.content.push(DELETED_SENDER_ERROR)
                 }
                 if (!email.subject) {
                     errors.content.push('Add a subject line')
@@ -987,8 +990,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 }
 
                 errors.review = [...errors.recipients, ...errors.goal, ...errors.content, ...errors.schedule]
-                const senderError = getSenderLaunchError(email.from?.integrationId, integrations, integrationsLoading)
-                if (senderError) {
+                const senderError = getSenderLaunchError(email.from, integrations, integrationsLoading)
+                if (senderError && !errors.review.includes(senderError)) {
                     errors.review.push(senderError)
                 }
 
@@ -1748,27 +1751,49 @@ async function patchWithoutClobbering(
 }
 
 export const SENDERS_LOAD_FAILED_ERROR = "Couldn't load your email senders. Reload them to launch."
+export const DELETED_SENDER_ERROR = 'The chosen sender was deleted. Choose another sender.'
 
 /**
  * Why the chosen sender can't send yet, if it can't. A draft can be written with any sender, but a
  * launch whose sender is unverified, deleted, or not yet known would fail every email it sends.
  */
 export function getSenderLaunchError(
-    integrationId: number | null | undefined,
+    from: BroadcastEmailValue['from'] | undefined,
     integrations: IntegrationType[] | null,
     integrationsLoading: boolean
 ): string | null {
-    if (!integrationId) {
+    const senderIds = getSenderIds(from)
+    if (senderIds.length === 0) {
         return null
     }
     if (!integrations) {
         return integrationsLoading ? 'Checking the email sender. Try again in a moment.' : SENDERS_LOAD_FAILED_ERROR
     }
-    const sender = integrations.find((integration) => integration.kind === 'email' && integration.id === integrationId)
-    if (!sender) {
-        return 'The chosen email sender no longer exists. Pick another one on the content step.'
+    if (getMissingSenderIds(from, integrations).length > 0) {
+        return DELETED_SENDER_ERROR
     }
-    return sender.config?.verified === true ? null : "Verify the sender's domain before sending"
+    const allVerified = senderIds.every(
+        (id) =>
+            integrations.find((integration) => integration.kind === 'email' && integration.id === id)?.config
+                ?.verified === true
+    )
+    return allVerified ? null : "Verify the sender's domain before sending"
+}
+
+export function getSenderIds(from: BroadcastEmailValue['from'] | undefined): number[] {
+    if (from?.integrationIds?.length) {
+        return from.integrationIds
+    }
+    return from?.integrationId ? [from.integrationId] : []
+}
+
+export function getMissingSenderIds(
+    from: BroadcastEmailValue['from'] | undefined,
+    integrations: IntegrationType[]
+): number[] {
+    return getSenderIds(from).filter(
+        (id) => !integrations.some((integration) => integration.kind === 'email' && integration.id === id)
+    )
 }
 
 // Serializes the wizard state into the HogFlow the broadcast is stored as: a batch trigger
