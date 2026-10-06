@@ -400,7 +400,6 @@ export function SavedInsights(): JSX.Element {
             <SceneTitleSection
                 name={sceneConfigurations[Scene.SavedInsights].name}
                 description={sceneConfigurations[Scene.SavedInsights].description}
-                noPadding={tab === SavedInsightsTabs.Home && showHomeTab}
                 resourceType={{
                     type: sceneConfigurations[Scene.SavedInsights].iconType || 'default_icon_type',
                 }}
