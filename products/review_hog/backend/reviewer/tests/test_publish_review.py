@@ -203,7 +203,14 @@ class TestPostGithubReview:
         # 422 = GitHub rejected the comment payload itself; a retry would hit the same wall, so the
         # review must still land as body-only rather than failing the publish forever.
         _wire_readbacks(mock_paginated)
-        comments: list[ReviewComment] = [{"path": "a.py", "body": "x", "side": "RIGHT", "line": 1}]
+        comments: list[ReviewComment] = [
+            {
+                "path": "a.py",
+                "body": f"### Token leaks into logs\n\nThe token is logged.\n\n{REVIEW_HOG_FINDING_MARKER}",
+                "side": "RIGHT",
+                "line": 1,
+            }
+        ]
 
         def request(method: str, path: str, **kwargs: Any) -> MagicMock:
             if method == "POST" and path.endswith("/reviews") and "comments" in (kwargs.get("json") or {}):
@@ -230,7 +237,11 @@ class TestPostGithubReview:
         assert first["comments"] == comments
         assert first["body"] == "m"
         assert "comments" not in second
-        assert second["body"] == "body\n\nm"
+        # The inline-only findings must survive in the fallback body, or the review posts a bare tally.
+        assert second["body"].startswith("body\n\nm")
+        assert "### Token leaks into logs" in second["body"]
+        assert "The token is logged." in second["body"]
+        assert REVIEW_HOG_FINDING_MARKER not in second["body"]
 
     def test_skips_when_a_review_with_our_marker_is_already_present(
         self, mock_request: MagicMock, mock_paginated: MagicMock

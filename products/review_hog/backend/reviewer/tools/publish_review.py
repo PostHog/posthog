@@ -396,6 +396,22 @@ def _promo_already_posted(
         return True
 
 
+def _with_inline_findings(body: str, comments: list[ReviewComment]) -> str:
+    """`body` plus every inline comment written out, for the body-only fallback.
+
+    The stored body lists only the off-diff findings, so without this section a fallback post would
+    drop every finding that was meant to go inline.
+    """
+    if not comments:
+        return body
+    lines = [body, "", "## Findings on the changed lines", ""]
+    for comment in comments:
+        # The thread marker belongs only on a real review thread, so the fallback leaves it out.
+        comment_body = comment["body"].replace(REVIEW_HOG_FINDING_MARKER, "").rstrip()
+        lines.extend([f"`{comment['path']}:{comment.get('line', '')}`", "", comment_body, ""])
+    return "\n".join(lines)
+
+
 def _post_github_review(
     owner: str,
     repo: str,
@@ -416,8 +432,9 @@ def _post_github_review(
     """Post the review to GitHub as a PR review, pinned to the reviewed `head_sha`.
 
     `inline_body` replaces `body` when the review posts together with its inline comments. The
-    body-only fallback always posts the full `body`, because without the comments the body is the
-    only place the review shows anything. Both bodies must carry `marker` for the idempotency check.
+    body-only fallback posts the full `body` plus the text of every inline comment, because without
+    the comments the body is the only place the review shows anything. Both bodies must carry
+    `marker` for the idempotency check.
     Returns the posted review's permalink, or None on the marker-found idempotency skip.
     """
     # Idempotency: if our own review for this (report, head) is already on the PR — we posted it but
@@ -505,6 +522,7 @@ def _post_github_review(
             if e.status != 422:
                 raise
             logger.warning(f"Failed to post review with inline comments: {e}. Posting review body only.")
+            review_payload["body"] = _with_inline_findings(body, comments)
 
     review_url = _create_review(review_payload)
     logger.info("Review posted (body only)")
