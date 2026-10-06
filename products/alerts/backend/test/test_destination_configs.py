@@ -4,17 +4,17 @@ import pytest
 
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 
-from products.alerts.backend.facade.contracts import (
-    AlertDestinationAction,
-    AlertDestinationData,
-    DestinationType,
-    EventKindSpec,
-)
 from products.alerts.backend.logic.destination_configs import (
     DESTINATION_SPECS,
     build_alert_destination_config,
     slack_blocks,
     teams_text,
+)
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationAction,
+    AlertDestinationData,
+    DestinationType,
+    EventKindSpec,
 )
 
 DEFAULT_SPEC = EventKindSpec(

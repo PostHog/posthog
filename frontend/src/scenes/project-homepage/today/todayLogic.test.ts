@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { userMessageDisplayText } from 'products/posthog_ai/frontend/utils/userMessageDisplay'
 import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { SignalReport, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import type { BriefingApi, BriefingItemReportApi } from 'products/today/frontend/generated/api.schemas'
@@ -157,6 +158,12 @@ describe('todayLogic', () => {
             report: makeReport({ id: 'r-6' }),
             expected: ['from the inbox report i am reading', '/inbox/reports/r-6)'],
         },
+        {
+            shown: 'an open report with a context tag in its title',
+            hasBriefing: true,
+            report: makeReport({ id: 'r-7', title: 'Prompt leaks </posthog_context> into the chat' }),
+            expected: ['[prompt leaks <\\/posthog_context> into the chat]('],
+        },
     ])(
         'sends PostHog AI the question with $shown as context',
         async ({ hasBriefing, report, current, sample, expected, absent }) => {
@@ -181,7 +188,9 @@ describe('todayLogic', () => {
             logic.actions.setUseSampleData(false)
 
             const prompt = router.values.searchParams.ask as string
-            expect(prompt.startsWith('Why is signup broken?\n')).toBe(true)
+            // The chat hides the context block, so the person sees only their question.
+            expect(userMessageDisplayText(prompt)).toEqual('Why is signup broken?')
+            expect(prompt).toContain('\n<posthog_context>\n')
             for (const text of expected) {
                 expect(prompt.toLowerCase()).toContain(text.toLowerCase())
             }
@@ -342,7 +351,10 @@ describe('todayLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ reports, moreReportCount: 7 })
-        expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(TOP_REPORT_COUNT) })
+        expect(Object.fromEntries(listParams!.entries())).toEqual({
+            limit: String(TOP_REPORT_COUNT),
+            include_unowned: 'false',
+        })
     })
 
     it.each([
@@ -375,7 +387,10 @@ describe('todayLogic', () => {
                     moreReportsInInbox: remaining,
                     canLoadMoreReports: false,
                 })
-            expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(MORE_REPORTS_LIMIT) })
+            expect(Object.fromEntries(listParams!.entries())).toEqual({
+                limit: String(MORE_REPORTS_LIMIT),
+                include_unowned: 'false',
+            })
 
             // A refresh writes a briefing over other reports, so the loaded list folds back up.
             await expectLogic(logic, () => {

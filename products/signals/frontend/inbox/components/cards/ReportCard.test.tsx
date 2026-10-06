@@ -370,9 +370,14 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['with the impact column', true, 'ranking_pr_merged', '41% merge'],
-        ['without the impact column', false, 'ranking_action', '6.2% action'],
-    ] as const)('shows the active head probability in the meta row %s', (_name, impactColumn, sortField, tagText) => {
+        ['with the impact column', true, 'ranking_pr_merged', '2.7x merge'],
+        [
+            'without the impact column, falling back to the probability for a head with no lift',
+            false,
+            'ranking_action',
+            '6.2% action',
+        ],
+    ] as const)('shows the active head lift in the meta row %s', (_name, impactColumn, sortField, tagText) => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
         enableRedesign(impactColumn)
@@ -385,7 +390,7 @@ describe('ReportCard', () => {
                 manifest_version: 'manifest',
                 scored_at: '2026-09-30T12:00:00Z',
                 scores: { pr_merged: 0.41, action: 0.062 },
-                lifts: {},
+                lifts: { pr_merged: 2.7 },
                 readable_heads: ['action', 'pr_merged'],
             },
         })
