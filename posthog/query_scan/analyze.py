@@ -130,14 +130,6 @@ def _findings_for_plan(
     # filter goes unmentioned even when it is nearly as large, because gating each read on its own
     # share would cost a denominator per read.
     plan, tree, event_filter = explained.plan, explained.tree, explained.event_filter
-    heaviest = plan.heaviest_events_read()
-    # A plan that does not read the events table has no denominator and nothing to advise on.
-    if heaviest is None:
-        return []
-
-    is_sql = query_kind == SQL_QUERY_KIND
-    range_share = _share(_read_granules(explained), explained.range_granules)
-    view_name = tree.view_name if tree is not None else None
     findings: list[QueryScanWarning] = []
     if tree is not None and subquery_index is None:
         structures = [
@@ -162,6 +154,14 @@ def _findings_for_plan(
                 findings.append(
                     build_warning(kind=kind, query_kind=query_kind, evidence=evidence, subquery_index=subquery_index)
                 )
+
+    heaviest = plan.heaviest_events_read()
+    if heaviest is None:
+        return findings
+
+    is_sql = query_kind == SQL_QUERY_KIND
+    range_share = _share(_read_granules(explained), explained.range_granules)
+    view_name = tree.view_name if tree is not None else None
 
     # "All time" reaches the plan as a bound at the project's first event, so only the setting
     # says the person chose no start date; it applies to the outer query, not its subqueries. It is

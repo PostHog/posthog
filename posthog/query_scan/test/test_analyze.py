@@ -109,6 +109,12 @@ class TestAnalyze(SimpleTestCase):
                 },
                 ["repeated_cte_expansion", "cross_join_equality", "date_arrays_before_breakdown_limit"],
             ),
+            (
+                "structural findings survive an outer plan without events reads",
+                join_plan(),
+                {"tree": TreeFacts(repeated_cte_expansions=1, cross_join_equalities=1)},
+                ["repeated_cte_expansion", "cross_join_equality"],
+            ),
             ("event filter inside an OR still used", "plan_event_filter_in_or", {}, []),
             ("no date bound is flagged", "plan_no_date_bound", {}, ["no_start_date"]),
             # A date range with a start and an end is bounded, whatever order ClickHouse lists the two
