@@ -3692,10 +3692,10 @@ Today (7): `customers`, `events`, `mandates`, `payments`, `payouts`, `refunds`, 
 
 Diffed against: <https://developer.gocardless.com/api-reference/>
 
-- [ ] `payout_items (/payouts/{id}/items)` — line items that reconcile each payout to its underlying payments, refunds and fees - the core payout reconciliation join (high)
-- [ ] `customer_bank_accounts` — lookup resolving the customer_bank_account IDs carried on every mandate and payment we already sync (high)
-- [ ] `creditors` — lookup resolving the creditor ID on payments, payouts and mandates (high)
-- [ ] `balances` — current available/pending funds per creditor - the headline treasury metric (medium)
+- [x] `payout_items (/payouts/{id}/items)` — line items that reconcile each payout to its underlying payments, refunds and fees - the core payout reconciliation join (high)
+- [x] `customer_bank_accounts` — lookup resolving the customer_bank_account IDs carried on every mandate and payment we already sync (high)
+- [x] `creditors` — lookup resolving the creditor ID on payments, payouts and mandates (high)
+- [x] `balances` — current available/pending funds per creditor - the headline treasury metric (medium)
 - [ ] `instalment_schedules` — payment plans that group the individual payments we sync (medium)
 - [ ] `billing_requests` — the modern checkout/mandate-setup funnel object, needed to measure setup conversion (medium)
 - [ ] `payment_account_transactions` — transaction ledger for embedded payment accounts (medium)
