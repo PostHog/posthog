@@ -27,8 +27,8 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
-from products.managed_warehouse.backend import hogtower
 from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG
+from products.managed_warehouse.backend.presentation import hogtower
 
 logger = structlog.get_logger(__name__)
 
@@ -142,7 +142,7 @@ def _request(
 
     The control plane is duckgres (`DUCKGRES_API_URL`, /api/v1) unless `HOGTOWER_API_URL`
     is set, in which case the same call is served by hogtower's /api/v2 through
-    `products.managed_warehouse.backend.hogtower`, which returns the duckgres v1 body.
+    `products.managed_warehouse.backend.presentation.hogtower`, which returns the duckgres v1 body.
 
     An empty path targets the org resource itself (`/api/v1/orgs/{org}`, e.g. to delete it);
     paths starting with "/" are org-scoped (`/api/v1/orgs/{org}{path}`); others are global

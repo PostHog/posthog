@@ -8,8 +8,11 @@ from django.test import override_settings
 
 import requests
 
-from products.managed_warehouse.backend import cp_teams, hogtower
-from products.managed_warehouse.backend.presentation import views as managed_warehouse
+from products.managed_warehouse.backend import cp_teams
+from products.managed_warehouse.backend.presentation import (
+    hogtower,
+    views as managed_warehouse,
+)
 from products.managed_warehouse.backend.service_credentials import (
     mint_service_credential,
     refresh_service_credential,
@@ -66,7 +69,10 @@ class FakeHogtower:
 def fake(request):
     routes = getattr(request, "param", {})
     fake = FakeHogtower(routes)
-    with HOGTOWER, patch("products.managed_warehouse.backend.hogtower.internal_requests.request", side_effect=fake):
+    with (
+        HOGTOWER,
+        patch("products.managed_warehouse.backend.presentation.hogtower.internal_requests.request", side_effect=fake),
+    ):
         yield fake
 
 
@@ -133,7 +139,9 @@ class TestTransport:
         resp.json.side_effect = ValueError
         with (
             HOGTOWER,
-            patch("products.managed_warehouse.backend.hogtower.internal_requests.request", return_value=resp),
+            patch(
+                "products.managed_warehouse.backend.presentation.hogtower.internal_requests.request", return_value=resp
+            ),
         ):
             out = _mapped("POST", "/reset-password")
 
@@ -437,7 +445,7 @@ class TestViewsUseHogtower:
         with (
             HOGTOWER,
             patch(
-                "products.managed_warehouse.backend.hogtower.internal_requests.request",
+                "products.managed_warehouse.backend.presentation.hogtower.internal_requests.request",
                 side_effect=requests.Timeout,
             ),
         ):
@@ -514,7 +522,7 @@ class TestCPTeamsUseHogtower:
         with (
             HOGTOWER,
             patch(
-                "products.managed_warehouse.backend.hogtower.internal_requests.request",
+                "products.managed_warehouse.backend.presentation.hogtower.internal_requests.request",
                 side_effect=requests.ConnectionError,
             ),
         ):

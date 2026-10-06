@@ -23,7 +23,6 @@ from __future__ import annotations
 import re
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
@@ -31,6 +30,7 @@ from django.conf import settings
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.security.outbound_proxy import internal_requests
 
 logger = structlog.get_logger(__name__)
@@ -50,7 +50,7 @@ def is_configured() -> bool:
     return bool(getattr(settings, "HOGTOWER_API_URL", None))
 
 
-@dataclass
+@frozen(kw_only=False)
 class TranslatedResponse:
     """A control-plane answer in duckgres v1 shape, duck-typed like ``requests.Response``."""
 
@@ -93,7 +93,7 @@ def _send(
     return TranslatedResponse(resp.status_code, body)
 
 
-@dataclass
+@frozen(kw_only=False)
 class _Call:
     """One v1-vocabulary call being translated."""
 

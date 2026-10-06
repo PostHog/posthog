@@ -1,7 +1,7 @@
 """Read-side client for the managed-warehouse control-plane org-teams API.
 
 The control plane is duckgres (``DUCKGRES_API_URL``) unless ``HOGTOWER_API_URL`` is set,
-in which case :mod:`products.managed_warehouse.backend.hogtower` serves the same reads
+in which case :mod:`products.managed_warehouse.backend.presentation.hogtower` serves the same reads
 from hogtower's /api/v2 in the duckgres response shape.
 
 The control plane is the source of truth for per-team managed-warehouse state.
@@ -41,7 +41,7 @@ import requests as http_requests
 
 from posthog.security.outbound_proxy import internal_requests
 
-from products.managed_warehouse.backend import hogtower
+from products.managed_warehouse.backend.presentation import hogtower
 
 logger = logging.getLogger(__name__)
 
