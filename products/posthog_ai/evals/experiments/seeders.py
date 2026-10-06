@@ -48,8 +48,8 @@ INACTIVE_FLAG_EXPERIMENT_NAME = "pricing page redesign"
 ENDED_EXPERIMENT_NAME = "checkout cta v2"
 
 
-# Verbatim string PostHog writes onto a feature flag's `properties[].description`
-# when an experiment is shipped, see the ship_flag_variant call in
+# Verbatim description of the catch-all release condition that PostHog adds to a feature flag
+# when a variant is shipped to all users, see the ship_flag_variant call in
 # products.experiments.backend.experiment_service
 SHIP_VARIANT_FLIP_SIGNATURE = "Added automatically when the experiment was ended to keep only one variant."
 
@@ -172,7 +172,7 @@ def seed_inactive_flag_experiment(context: CustomPromptSandboxContext) -> dict[s
     Carrier scenario for diagnostic group B (empty experiment) — the agent
     should recognise that `feature_flag.active=False` means `$feature_flag_called`
     can never fire, so the exposure-shape snapshot will be empty and the
-    diagnostic is B0 (flag inactive / experiment not actually live).
+    diagnostic is B10 / A5 (flag inactive / experiment not actually live).
     """
     from products.experiments.backend.models.experiment import Experiment
     from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -222,18 +222,18 @@ def seed_ended_experiment_with_flag_flip(context: CustomPromptSandboxContext) ->
     """Seed a *stopped* experiment whose feature flag was rewritten by ship-variant.
 
     Carrier scenario for diagnostic group E (mid-run changes / E7) — after an
-    experiment is ended via `experiment-ship-variant`, PostHog rewrites the
-    flag's `multivariate.variants` rollout to 0/100 favouring the shipped
-    variant AND attaches a verbatim description string ([SHIP_VARIANT_FLIP_SIGNATURE])
-    to the new property entry.
+    experiment is ended via `experiment-ship-variant` in the "all users" mode,
+    PostHog rewrites the flag's `multivariate.variants` rollout to 0/100
+    favouring the shipped variant AND prepends a catch-all release condition
+    that carries a verbatim description string ([SHIP_VARIANT_FLIP_SIGNATURE]).
 
-    The skill's prescribed diagnostic path is to call
-    ``feature-flags-activity-retrieve`` and scan for the verbatim signature in
-    ``detail.changes[].after.groups[].properties[].description``. To make that
-    path testable, this seeder writes an ``ActivityLog`` row with a synthetic
-    "filters changed" diff that mirrors what the production ship-variant flow
-    would emit — before-state is a 50/50 multivariate with no signature
-    properties; after-state is the live 0/100 + signature filters payload.
+    The skill's prescribed diagnostic path is to read the flag's change history
+    and scan for the verbatim signature in
+    ``detail.changes[].after.groups[].description``. To make that path testable,
+    this seeder writes an ``ActivityLog`` row with a synthetic "filters changed"
+    diff that mirrors what the production ship-variant flow emits — before-state
+    is a 50/50 multivariate with one release condition; after-state is the live
+    0/100 payload with the catch-all condition in front.
     """
     from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail
 
@@ -254,17 +254,8 @@ def seed_ended_experiment_with_flag_flip(context: CustomPromptSandboxContext) ->
     }
     after_filters: dict[str, Any] = {
         "groups": [
-            {
-                "properties": [
-                    {
-                        "key": "$feature_enrollment",
-                        "type": "person",
-                        "value": ["test"],
-                        "description": SHIP_VARIANT_FLIP_SIGNATURE,
-                    }
-                ],
-                "rollout_percentage": 100,
-            }
+            {"properties": [], "rollout_percentage": 100, "description": SHIP_VARIANT_FLIP_SIGNATURE},
+            {"properties": [], "rollout_percentage": 100},
         ],
         # Original 50/50 split was rewritten to 0/100 by ship-variant.
         "multivariate": {
