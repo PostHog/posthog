@@ -64,3 +64,12 @@ class TestDiscordTransport(SimpleTestCase):
                     DiscordTransport().deliver(team_id=2, target=target, message=alert_message())
 
         assert session.post.called is posted
+
+    def test_a_send_waits_for_discord_to_save_the_message(self) -> None:
+        url = "https://discord.com/api/webhooks/123/not-a-real-token?thread_id=456"
+        target = cast(AlertDestinationData, {"type": "discord", "webhook_url": url})
+
+        with pinned_post(200) as session:
+            DiscordTransport().deliver(team_id=2, target=target, message=alert_message())
+
+        assert session.post.call_args.args[0] == f"{url}&wait=true"

@@ -6,7 +6,7 @@ Discord channel sees the same kind of message from either path.
 
 import re
 from typing import Any, Final
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.slack.channels import clip_text
@@ -67,6 +67,13 @@ class DiscordTransport(WebhookUrlTransport):
             or not parts.path.startswith("/api/webhooks/")
         ):
             raise refused
+
+    def send_url(self, url: str) -> str:
+        # Without `wait=true` Discord answers before it saves the message, and a message it then
+        # fails to save returns no error, so the send would be recorded as delivered.
+        parts = urlsplit(url)
+        query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key != "wait"]
+        return urlunsplit(parts._replace(query=urlencode([*query, ("wait", "true")])))
 
     def body_for(self, message: AlertMessage) -> dict[str, Any]:
         return {
