@@ -38746,7 +38746,7 @@ export namespace Schemas {
     }
 
     /**
-     * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+     * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID.
      */
     export type ErrorTrackingExternalReferenceCreateConfig = {[key: string]: string};
 
@@ -38775,7 +38775,7 @@ export namespace Schemas {
       readonly title: string;
       /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
       integration_id: number;
-      /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
+      /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. Every kind also accepts an optional assignee key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. */
       config: ErrorTrackingExternalReferenceCreateConfig;
       /** ID of the error tracking issue to link the reference to. */
       issue: string;
@@ -57510,6 +57510,20 @@ export namespace Schemas {
       accounts: IntegrationAccount[];
     }
 
+    export interface IntegrationAssignee {
+      /** Provider user identifier to pass as error tracking config.assignee: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. */
+      id: string;
+      /** User display name. */
+      name: string;
+    }
+
+    export interface IntegrationAssigneesResponse {
+      /** Users who can be assigned an issue, up to 100. */
+      users: IntegrationAssignee[];
+      /** True when the connection lacks the permission to list users. Reconnecting the integration grants it. */
+      reconnect_required: boolean;
+    }
+
     /**
      * Standard Integration serializer.
      */
@@ -73119,7 +73133,7 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
-      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
       ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at: string | null;
@@ -82696,7 +82710,7 @@ export namespace Schemas {
       passkeys_enabled_for_2fa?: boolean | null;
       /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
       hide_mcp_hints?: boolean;
-      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
+      /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
       ui_configuration?: unknown;
       /** @nullable */
       readonly onboarding_skipped_at?: string | null;
@@ -119890,6 +119904,18 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type IntegrationsGithubAssigneesRetrieveParams = {
+    /**
+     * Repository name, or owner/name, whose assignable users to list.
+     * @minLength 1
+     */
+    repository: string;
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string;
+    };
+
     export type IntegrationsGithubBranchesRetrieveParams = {
     /**
      * Maximum number of branches to return
@@ -119951,6 +119977,37 @@ export namespace Schemas {
      * Optional case-insensitive team name or slug search query.
      */
     search?: string;
+    };
+
+    export type IntegrationsGitlabMembersRetrieveParams = {
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string;
+    };
+
+    export type IntegrationsJiraAssignableUsersRetrieveParams = {
+    /**
+     * Jira project key whose assignable users to list.
+     * @minLength 1
+     */
+    project_key: string;
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string;
+    };
+
+    export type IntegrationsLinearTeamMembersRetrieveParams = {
+    /**
+     * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string;
+    /**
+     * Linear team ID whose members to list.
+     * @minLength 1
+     */
+    team_id: string;
     };
 
     export type IntegrationsUsersRetrieveParams = {

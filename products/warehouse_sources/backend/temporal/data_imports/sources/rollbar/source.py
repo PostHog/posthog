@@ -112,10 +112,7 @@ You can find or create a project access token in your Rollbar project under Sett
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_rollbar_credentials(config.access_token):
-            return True, None
-
-        return False, "Invalid Rollbar project access token"
+        return validate_rollbar_credentials(config.access_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[RollbarResumeConfig]:
         return ResumableSourceManager[RollbarResumeConfig](inputs, RollbarResumeConfig)

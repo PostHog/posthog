@@ -5544,6 +5544,15 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     displayLabel?: string
     /** Other terms that find this item in search, for example the names of its tabs or common synonyms */
     searchKeywords?: string[]
+    /** Tabs of this item that search lists as their own results */
+    searchTabs?: FileSystemSearchTab[]
+}
+
+export interface FileSystemSearchTab {
+    name: string
+    href: string
+    flag?: string
+    searchKeywords?: string[]
 }
 
 export interface FileSystemViewLogEntry {
@@ -9084,6 +9093,18 @@ export interface SidebarConfiguration {
     [key: string]: unknown
 }
 
+/** Customization of the SQL editor. Extra keys are tolerated so older servers accept configs written by newer clients. */
+export interface SQLEditorConfiguration {
+    /** Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference. */
+    vim_mode_enabled?: boolean
+    /**
+     * Vim commands to run when Vim mode starts, one per line, such as `imap jj <Esc>` or `set cursorblink`.
+     * @maxLength 10000
+     */
+    vimrc?: string
+    [key: string]: unknown
+}
+
 /**
  * Per-user UI customization, persisted on the User model as a single JSONB blob.
  * A null configuration and any absent key mean "default", which for visibility is "shown",
@@ -9097,6 +9118,7 @@ export interface UserUIConfiguration {
      */
     version: number
     sidebar?: SidebarConfiguration
+    sql_editor?: SQLEditorConfiguration
     [key: string]: unknown
 }
 
