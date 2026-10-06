@@ -2981,6 +2981,21 @@ class RevenueCurrencyPropertyConfig(BaseModel):
     static: CurrencyCode | None = None
 
 
+class SQLEditorConfiguration(BaseModel):
+    vim_mode_enabled: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference."
+        ),
+    )
+    vimrc: constr(max_length=10000) | None = Field(
+        default=None,
+        description=(
+            "Vim commands to run when Vim mode starts, one per line, such as `imap jj <Esc>` or `set cursorblink`."
+        ),
+    )
+
+
 class SampleRatioMismatch(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -25526,6 +25541,7 @@ class UsageMetricsQuery(BaseModel):
 
 class UserUIConfiguration(BaseModel):
     sidebar: SidebarConfiguration | None = None
+    sql_editor: SQLEditorConfiguration | None = None
     version: int = Field(
         ...,
         description=("Schema version of this configuration blob, for future format migrations."),
