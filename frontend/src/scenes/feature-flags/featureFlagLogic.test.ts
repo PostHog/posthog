@@ -1711,29 +1711,6 @@ describe('featureFlagLogic', () => {
         })
     })
 
-    describe('runningExperimentId', () => {
-        it.each([
-            { case: 'no experiment', metadata: null, expected: null },
-            {
-                case: 'a draft or completed experiment',
-                metadata: [{ id: 7, name: 'A', is_running: false }],
-                expected: null,
-            },
-            {
-                case: 'a running experiment among others',
-                metadata: [
-                    { id: 7, name: 'A', is_running: false },
-                    { id: 8, name: 'B', is_running: true },
-                ],
-                expected: 8,
-            },
-        ])('is $expected for a flag with $case', ({ metadata, expected }) => {
-            logic.actions.setFeatureFlag({ ...logic.values.featureFlag, experiment_set_metadata: metadata })
-
-            expect(logic.values.runningExperimentId).toBe(expected)
-        })
-    })
-
     describe('experiment loading', () => {
         it('loads experiment data when feature flag has an experiment linked', async () => {
             const flagWithExperiment = {

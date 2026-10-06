@@ -73,6 +73,8 @@ import {
     MultivariateFlagVariant,
 } from '~/types'
 
+import { runningExperimentId } from 'products/feature_flags/frontend/runningExperimentId'
+
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import {
@@ -176,12 +178,12 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         advancedPanelOpen,
         hasEncryptedPayloadBeenSaved,
         hasEarlyAccessFeatures,
-        runningExperimentId,
         alsoCreateInProjects,
         alsoCreateInProjectOptions,
     } = useValues(featureFlagLogic)
     // The form never mounts for another config version (FeatureFlag.tsx), so the document is v1.
     const featureFlag = loadedFeatureFlag as FeatureFlagWithV1Config
+    const lockedByExperimentId = runningExperimentId(featureFlag)
     const {
         setMultivariateEnabled,
         setFeatureFlag,
@@ -1124,11 +1126,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                             {/* Release conditions card - skip for remote config */}
                             {!featureFlag.is_remote_configuration && (
                                 <div className="rounded border p-3 bg-bg-light flex flex-col gap-2">
-                                    {runningExperimentId !== null && (
+                                    {lockedByExperimentId !== null && (
                                         <LemonBanner type="info">
                                             Release conditions are managed by the running experiment.{' '}
                                             <Link
-                                                to={urls.experiment(runningExperimentId)}
+                                                to={urls.experiment(lockedByExperimentId)}
                                                 data-attr="feature-flag-form-experiment-release-conditions-link"
                                             >
                                                 Edit them in the experiment
@@ -1140,7 +1142,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         flagId={props.id}
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
-                                        readOnly={runningExperimentId !== null}
+                                        readOnly={lockedByExperimentId !== null}
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
                                         bucketingIdentifier={featureFlag.bucketing_identifier}
