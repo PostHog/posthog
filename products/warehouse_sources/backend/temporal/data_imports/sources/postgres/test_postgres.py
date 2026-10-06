@@ -5427,6 +5427,35 @@ class TestValidateCredentialsErrorMapping:
         assert host not in (error or "")
         assert "port field" in (error or "")
 
+    @pytest.mark.parametrize("port", [-5432, 0, 65536])
+    @pytest.mark.parametrize("ssh_tunnel_enabled", [False, True])
+    def test_out_of_range_port_rejected_before_connecting(self, source, port, ssh_tunnel_enabled):
+        config = source.parse_config(
+            {
+                "host": "db.example.com",
+                "port": port,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": ssh_tunnel_enabled,
+                    "host": "bastion.example.com",
+                    "port": "22",
+                    "auth": {"selection": "password", "username": "tunnel", "password": "tunnel"},
+                },
+            }
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", side_effect=AssertionError("should not connect")),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert "between 1 and 65535" in (error or "")
+
     def test_railway_private_host_named_as_such_instead_of_a_spelling_error(self, source):
         config = source.parse_config(
             {
