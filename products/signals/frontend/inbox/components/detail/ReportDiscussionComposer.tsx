@@ -5,9 +5,9 @@ import { IconSparkles } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { Composer } from 'products/posthog_ai/frontend/api/composer'
 import {
     AttachedContextBar,
-    Composer,
     pickHeadline,
     type SuggestionGroup,
     type SuggestionItem,

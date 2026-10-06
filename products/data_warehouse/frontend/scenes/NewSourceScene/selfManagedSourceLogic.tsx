@@ -11,7 +11,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { urls } from 'scenes/urls'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, DataWarehouseTable } from '~/types'
+import { AnyPropertyFilter, DataWarehouseCredential, DataWarehouseTable } from '~/types'
 
 import { sourceSceneLogic } from '../SourceScene/SourceScene'
 
@@ -25,7 +25,8 @@ const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
     name: '',
     url_pattern: '',
     format: 'Parquet',
-    options: { csv_allow_double_quotes: false },
+    // RFC 4180 is what almost every CSV export produces, and save-time validation redirects the rest.
+    options: { csv_allow_double_quotes: true },
     credential: {
         access_key: '',
         access_secret: '',
@@ -80,6 +81,27 @@ export function selfManagedTableFormErrors({
             access_key: !credential?.access_key && 'Please enter an access key.',
         },
         format: !format && 'Please enter the format of your files.',
+    }
+}
+
+export type SelfManagedTableUpdate = Pick<DataWarehouseTable, 'name' | 'url_pattern' | 'format' | 'options'> & {
+    credential?: Partial<DataWarehouseCredential>
+}
+
+export function selfManagedTableUpdatePayload(table: DataWarehouseTable): SelfManagedTableUpdate {
+    return {
+        name: table.name,
+        url_pattern: table.url_pattern,
+        format: table.format,
+        options: table.options,
+        ...(table.credential?.access_key || table.credential?.access_secret
+            ? {
+                  credential: {
+                      ...(table.credential?.access_key ? { access_key: table.credential.access_key } : {}),
+                      ...(table.credential?.access_secret ? { access_secret: table.credential.access_secret } : {}),
+                  },
+              }
+            : {}),
     }
 }
 

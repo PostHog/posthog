@@ -109,6 +109,13 @@ class SharingConfiguration(models.Model):
         return models.Q(enabled=True) & (models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now()))
 
     @classmethod
+    def without_retired_resources_q(cls, prefix: str = "") -> models.Q:
+        """Excludes configs that share a resource of a retired product, so their tokens authenticate
+        nothing and resolve like an unknown token. Every access token lookup must apply it. Pass
+        ``prefix`` (for example ``"sharing_configuration__"``) when filtering a related model."""
+        return models.Q(**{f"{prefix}interviewee_context__isnull": True})
+
+    @classmethod
     def queryset_active_for_resource(cls, **resource_lookup: Any) -> models.QuerySet["SharingConfiguration"]:
         return cls.objects.filter(**resource_lookup, expires_at__isnull=True).order_by("-created_at")
 
@@ -156,8 +163,7 @@ class SharingConfiguration(models.Model):
 
     def _lock_resource_for_rotation(self) -> None:
         # Resolve each parent model from its own FK instead of importing it. This keeps the module
-        # free of product imports (``user_interviews`` only exposes its webhooks via tach's
-        # ``[[interfaces]]``).
+        # free of product imports.
         for field_name in ("dashboard", "insight", "notebook", "recording", "interviewee_context"):
             fk_value = getattr(self, f"{field_name}_id")
             if not fk_value:

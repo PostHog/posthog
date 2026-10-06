@@ -89,6 +89,7 @@ from .athenahealth.source import AthenahealthSource
 from .atlan.source import AtlanSource
 from .attentive.source import AttentiveSource
 from .attio.source import AttioSource
+from .audiogo.source import AudioGOSource
 from .auth0.source import Auth0Source
 from .autodesk_construction_cloud.source import AutodeskConstructionCloudSource
 from .automox.source import AutomoxSource
@@ -372,6 +373,7 @@ from .donorbox.source import DonorboxSource
 from .doorloop.source import DoorloopSource
 from .doppler.source import DopplerSource
 from .dovetail.source import DovetailSource
+from .dragonboat.source import DragonboatSource
 from .drata.source import DrataSource
 from .drchrono.source import DrchronoSource
 from .dremio.source import DremioSource
@@ -412,6 +414,7 @@ from .eventbrite.source import EventbriteSource
 from .eventee.source import EventeeSource
 from .eventzilla.source import EventzillaSource
 from .everhour.source import EverhourSource
+from .exact_online.source import ExactOnlineSource
 from .exchange_rates_api.source import ExchangeRatesApiSource
 from .expensify.source import ExpensifySource
 from .expo.source import ExpoSource
@@ -549,6 +552,7 @@ from .google_webfonts.source import GoogleWebfontsSource
 from .google_workspace_admin_reports.source import GoogleWorkspaceAdminReportsSource
 from .gorgias.source import GorgiasSource
 from .grafana.source import GrafanaSource
+from .grafana_irm.source import GrafanaIRMSource
 from .granola.source import GranolaSource
 from .greenhouse.source import GreenhouseSource
 from .greythr.source import GreytHrSource
@@ -690,6 +694,7 @@ from .leexi.source import LeexiSource
 from .lemlist.source import LemlistSource
 from .lemon_squeezy.source import LemonSqueezySource
 from .less_annoying_crm.source import LessAnnoyingCRMSource
+from .lettrlabs.source import LettrLabsSource
 from .lever.source import LeverSource
 from .lexware_office.source import LexwareOfficeSource
 from .liana.source import LianaSource
@@ -1195,6 +1200,7 @@ from .terabox.source import TeraBoxSource
 from .ternary.source import TernarySource
 from .terra_api.source import TerraApiSource
 from .terraform_cloud.source import TerraformCloudSource
+from .tessitura.source import TessituraSource
 from .testrail.source import TestrailSource
 from .thinkific.source import ThinkificSource
 from .thinkific_courses.source import ThinkificCoursesSource

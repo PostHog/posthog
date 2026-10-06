@@ -7,6 +7,7 @@ from django.core.files.uploadedfile import UploadedFile
 from django.db import IntegrityError, transaction
 from django.db.models.functions import Lower
 
+from posthog.dataclasses import frozen
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -41,7 +42,7 @@ class EmailBody:
     html: str
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
 class ParsedEmail:
     message_id: str
     in_reply_to: str | None
@@ -62,6 +63,7 @@ class ParsedEmail:
     attachments: tuple[UploadedFile, ...]
     forwarding_challenge_tokens: tuple[str, ...] = ()
     auto_generated: bool = False
+    relay_sender: EmailAddress | None = None
 
     def body_with_matching_html(self, *, prefer_stripped: bool) -> "EmailBody":
         """Return the body text we store paired with the HTML of the same scope.

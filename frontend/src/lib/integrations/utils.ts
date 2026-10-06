@@ -41,6 +41,7 @@ import IconSnowflake from 'public/services/snowflake.png'
 import IconStripe from 'public/services/stripe.png'
 import IconTikTok from 'public/services/tiktok.png'
 import IconTwilio from 'public/services/twilio.png'
+import IconTwitterAds from 'public/services/twitter_ads.png'
 import IconVercel from 'public/services/vercel.png'
 import IconYouTubeAnalytics from 'public/services/youtube_analytics.png'
 
@@ -111,6 +112,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     twilio: IconTwilio,
     clickup: IconClickUp,
     'reddit-ads': IconReddit,
+    'twitter-ads': IconTwitterAds,
     databricks: IconDatabricks,
     'tiktok-ads': IconTikTok,
     'bing-ads': IconBingAds,
@@ -156,6 +158,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'LinkedIn Ads'
         case 'reddit-ads':
             return 'Reddit Ads'
+        case 'twitter-ads':
+            return 'X Ads'
         case 'tiktok-ads':
             return 'TikTok Ads'
         case 'bing-ads':

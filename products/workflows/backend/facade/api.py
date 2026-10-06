@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from django.db.models import F
@@ -9,12 +9,18 @@ from posthog.ingress.contracts import WebhookDelivery
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
+    EmailDomainDnsRecord,
+    EmailDomainVerification,
     RecentWorkflow,
     TierDecision,
+    TwilioAccount,
+    TwilioPhoneNumber,
     WorkflowActivitySummary,
     WorkflowSummary,
+    WorkflowTaskDailyLimits,
 )
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
+from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
     get_email_sending_state,
@@ -37,6 +43,7 @@ from products.workflows.backend.utils.rrule_utils import compute_next_occurrence
 __all__ = [
     "MIN_EMAIL_SENDING_TIER",
     "compute_next_occurrences",
+    "create_batch_job",
     "ensure_workflows_config",
     "filter_hog_flow_references_by_access_level",
     "get_email_sending_state",
@@ -128,6 +135,24 @@ def get_workflow_owner_id(*, team_id: int, workflow_id: UUID) -> int | None:
         return HogFlow.objects.values_list("created_by_id", flat=True).get(team_id=team_id, id=workflow_id)
     except HogFlow.DoesNotExist:
         raise WorkflowNotFound() from None
+
+
+def workflow_exists(*, team_id: int, workflow_id: UUID) -> bool:
+    return HogFlow.objects.filter(team_id=team_id, id=workflow_id).exists()
+
+
+def get_workflow_task_daily_limits(*, team_id: int) -> WorkflowTaskDailyLimits:
+    config = (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .only("workflow_task_rate_limit_per_day", "workflow_task_team_rate_limit_per_day")
+        .first()
+    )
+    if config is None:
+        return WorkflowTaskDailyLimits(per_workflow=None, per_team=None)
+    return WorkflowTaskDailyLimits(
+        per_workflow=config.workflow_task_rate_limit_per_day,
+        per_team=config.workflow_task_team_rate_limit_per_day,
+    )
 
 
 def accept_github_event(delivery: WebhookDelivery) -> None:
@@ -265,7 +290,7 @@ def update_ses_mail_from_subdomain(domain: str, *, mail_from_subdomain: str) -> 
     providers.SESProvider().update_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
 
 
-def verify_ses_email_domain(domain: str, *, mail_from_subdomain: str, team_id: int) -> dict[str, Any]:
+def verify_ses_email_domain(domain: str, *, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.SESProvider().verify_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
@@ -277,19 +302,19 @@ def delete_ses_identity(identity: str) -> None:
     providers.SESProvider().delete_identity(identity)
 
 
-def get_maildev_mock_dns_records() -> list[dict[str, Any]]:
+def get_maildev_mock_dns_records() -> list[EmailDomainDnsRecord]:
     from products.workflows.backend import providers  # noqa: PLC0415
 
-    return cast(list[dict[str, Any]], providers.MAILDEV_MOCK_DNS_RECORDS)
+    return providers.MAILDEV_MOCK_DNS_RECORDS
 
 
-def get_twilio_phone_numbers(*, account_sid: str, auth_token: str) -> list[dict]:
+def get_twilio_phone_numbers(*, account_sid: str, auth_token: str) -> list[TwilioPhoneNumber]:
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.TwilioProvider(account_sid=account_sid, auth_token=auth_token).get_phone_numbers()
 
 
-def get_twilio_account_info(*, account_sid: str, auth_token: str) -> dict:
+def get_twilio_account_info(*, account_sid: str, auth_token: str) -> TwilioAccount:
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.TwilioProvider(account_sid=account_sid, auth_token=auth_token).get_account_info()

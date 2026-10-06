@@ -112,6 +112,28 @@ orchestrates these activities:
 The activities live in
 `products/tasks/backend/temporal/process_task/activities/`.
 
+The agent's `finish` tool marks a TaskRun terminal and triggers sandbox cleanup.
+ReviewHog and scout suggestion tasks do not expose it because their callers own session completion.
+ReviewHog receives and validates each turn's JSON before ending the session, and validation can use multiple turns in the same sandbox.
+
+Credential refresh runs in the background. For workflow histories with the `tasks-credential-refresh-propagate-cancel` patch, cancellation stops the loop even during an in-flight refresh activity.
+Other refresh failures retry on the default cadence.
+
+A follow-up command read timeout leaves its turn open, even if an earlier turn's
+completion signal arrived during delivery. This applies to user and peer messages.
+An open turn blocks sandbox rotation. If its sandbox disappears before completion,
+a workflow-origin run fails instead of reporting unfinished work as completed.
+
+With `tasks-rotation-activity-guard`, active heartbeats also block rotation until
+the agent reports idle, including background work after a user turn ends.
+Pi message and tool events mark the agent active. The first activity after a turn
+ends bypasses heartbeat throttling so a quick follow-up cannot look idle.
+Activity during snapshot capture or replacement startup abandons the handoff and
+keeps the live sandbox. The event relay stays active until startup finishes, and
+an abandoned handoff with new activity requests a fresh snapshot.
+Directory resume snapshots cover `/tmp/workspace`, including nested Git worktrees
+and agent state. Paths outside that directory are not included.
+
 ## Running via the UI
 
 This is very minimal at the moment, but the tasks page can be used to see what
@@ -185,13 +207,12 @@ per-run dollar cap. Two JSON object settings can override it:
 
 - `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES` maps team IDs to caps.
 - `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES` maps AI product names to
-  caps and defaults to
-  `{"signals_implementation": "15", "signals_inbox": "75", "signals_chat": "30"}`.
+  caps. It is merged onto the built-in `SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_DEFAULTS`
+  map in `posthog/settings/temporal.py`, and its entry wins per product.
 
-A product override takes precedence over a team override, which takes precedence
-over the default cap. Set the product override to `{}` to disable the built-in
-implementation override. An empty environment value is treated as unset and
-restores the built-in map.
+A product cap takes precedence over a team override, which takes precedence over
+the default cap. An invalid entry, or a value that is not a JSON object, is
+reported to error tracking and ignored, so the product keeps its built-in cap.
 
 ### Which gateway a sandbox run uses
 
@@ -205,8 +226,31 @@ When a run lands on the Python gateway unexpectedly, check those two variables f
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
 
+### ReviewHog project access
+
+The boolean `review-hog` feature flag controls the Code review UI and all project ReviewHog APIs,
+including for staff. Normal membership and API scopes still apply. Set every release condition to the
+**project** group, match its **id** property against the allowed project IDs, and use 100% rollout.
+Replace broader conditions and include existing projects before deployment. Use the `id` property,
+since frontend and backend group keys differ.
+The property identifies the active environment: explicitly include every environment that should have
+access. A parent project's flag does not enable its child environments, even though ReviewHog stores
+their settings and reviews under the shared parent project.
+
+Newly enabled projects get manual review and resolution. The first `REVIEWHOG_TEAM_IDS` entry retains
+Flash and all automation UI (`show_internal_features`); other projects do not query Stamphog.
+Existing Inbox or Stamphog opt-ins remain visible in other projects until the user switches them off.
+Each project needs a GitHub App integration covering the repository; review skills seed automatically.
+Existing automation routing and label secrets stay unchanged.
+
+Use resolution only for explicitly enabled trusted projects reviewing repositories their teams own.
+Ownership does not authenticate commenters: operators must assess repository and comment trust before
+enabling resolution. The current risk acceptance covers this limited manual rollout, including the
+missing commenter authorization and the post-push path check. Public or untrusted use still requires the hardening listed in
+[ReviewHog's architecture](../../products/review_hog/ARCHITECTURE.md#status--next).
+
 ReviewHog Flash uses `gpt-6-luna` for review, blind-spot checks, and validation.
-The **ReviewHog Flash - Experimental** subsection under **What gets reviewed** on the Code review page groups the automatic Flash review toggle and **Flash strength** setting.
+The configured internal project's **ReviewHog Flash - Experimental** subsection under **What gets reviewed** groups the automatic Flash review toggle and **Flash strength** setting.
 These settings apply only to Flash reviews.
 **Flash strength** selects **Medium** (`medium`, the default) or **Extra high** (`xhigh`) for all of your Flash reviews, including automatic, UI, and CLI requests.
 Each turn saves the effort it starts with, so a settings change applies to later turns.
@@ -214,11 +258,11 @@ The shared `FLASH_ARM` and `flash_arm_for_effort` in `products/review_hog/backen
 Flash uses the existing `review_hog` model allowance.
 Both review modes instruct the agent to fetch pinned review and validation skills through the PostHog MCP with `skill-get`.
 The agent can fetch referenced bundled files with `skill-file-get`.
-Choose **Review in Flash mode** from the Code review page's review menu to run it for one turn without changing the PR's full-review configuration.
+On the configured internal project, choose **Review in Flash mode** from the review menu to run it for one turn without changing the PR's full-review configuration.
 Flash requests preserve an existing report's review tier, including when they join a running review.
-Flash labels its GitHub messages with `FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review` and never starts comment resolution.
+Flash marks its status comment header as `PostHog Review (flash)`, skips the clean-review media, and never starts comment resolution.
 
-**Review all your PRs in Flash mode** is off by default.
+**Review all your PRs in Flash mode** is off by default and shown only on the configured internal project.
 Turn it on in Code review to review PRs you author in `PostHog/posthog` when they open or receive new commits, including drafts.
 The head branch must belong to `PostHog/posthog`; fork PRs are excluded.
 Enabling it does not review existing PRs immediately; an existing PR becomes eligible on its next push.
@@ -256,6 +300,8 @@ An active turn keeps its settings snapshot, and an existing report's status comm
 If a review fails, the next attempt keeps cached reviewer results for the same commit, model, and reasoning effort.
 Deduplication retires superseded findings from the unfinished turn and reuses a verdict only when its finding, commit, review mode, and model configurations are unchanged.
 Completed turns remain in the report history.
+Long-running review activities refresh the active report every minute so it remains visible in Code review while an agent works without new results.
+The refresh stops when the activity exits; a report with no new activity still expires from the running list after 30 minutes.
 Review-started, completed, and failed event IDs distinguish Full and Flash retries while preserving the legacy Full IDs.
 When calculating completion rates, match report, turn, and mode, treating an absent mode as Full for legacy events.
 Flash finding-outcome events use the model configuration saved with the finding, even if the Flash defaults change before classification.
@@ -289,6 +335,19 @@ cd services/mcp && cp .env.example .env
 
 Then fill in the secrets. `POSTHOG_UI_APPS_TOKEN` and `POSTHOG_ANALYTICS_API_KEY` are public PostHog `phc_*` project keys — for local dev you can paste the same key you use for analytics, or leave them as the placeholder (analytics calls will no-op). Restart the `mcp` phrocs process after changing `.env`.
 
+### Memory pressure during Claude validation
+
+The memory watchdog stops tool process trees before the sandbox reaches its memory limit. A process stop, including SIGKILL escalation, does not mean the task run died.
+
+Cloud Claude sessions deliver each watchdog warning separately to subagents and their parent. Shell results with exit codes 137, 143, or 144 wait briefly for the watchdog's delayed record; an exit code alone is not treated as proof of an OOM.
+
+Common build, test, and typecheck commands share a sandbox-wide lock, including commands started in the background. When another validation command holds the lock, the shell returns exit code 75 and asks the agent to wait. After the same validation command fails twice during observed watchdog interventions, the session rejects another unchanged attempt. Reduce the command's scope or concurrency, or report the validation limit. This guard is best-effort command recognition, not a resource limit for arbitrary shell programs.
+
+The guard recognizes validation through `timeout`, `npx`, `hogli`, `.codex/with-flox`, and `flox activate -- bash -c '…'`.
+It preserves the command's directory, arguments, and inline shell body when identifying retries.
+Script names such as `backend:test` and `build-storybook`, shell continuations, and command substitutions are recognized. Heredoc bodies are skipped before scanning subsequent commands.
+It does not inspect script files: invoke validation directly or through a supported wrapper instead of hiding it in `bash script.sh`.
+
 ### Local agent packages
 
 Cloud tasks use the published `@posthog/agent` package by default. Set `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` only when you need to test local agent changes.
@@ -298,8 +357,8 @@ For local Docker, the worker builds the packages inside the sandbox image. The f
 ```bash
 # In your .env:
 SANDBOX_PROVIDER=docker
-# The desktop source lives in this repo at products/desktop
-LOCAL_POSTHOG_CODE_MONOREPO_ROOT=./products/desktop
+# The agent workspace lives in this repo at packages/agent
+LOCAL_POSTHOG_CODE_MONOREPO_ROOT=./packages/agent
 ```
 
 Restart the temporal worker after changing `.env`.
@@ -307,7 +366,7 @@ Restart the temporal worker after changing `.env`.
 For local Modal, set `SANDBOX_PROVIDER=MODAL_DOCKER`, build the packages, and restart the temporal worker:
 
 ```bash
-pnpm --dir products/desktop --filter @posthog/agent... build
+pnpm --dir packages/agent build
 ```
 
 ### Sandbox providers
@@ -340,6 +399,18 @@ override all four (`posthog-sandbox-modal-docker-*`, `posthog-sandbox-evals`), s
 in a production app. A new app name has to be a class attribute for that to keep holding.
 
 ### Sandbox templates
+
+Staff can inspect the agent release pipeline at `/admin/tasks/task/infrastructure/` in each region.
+Release reads use the configured GitHub App installation for `PostHog/posthog`, with a temporary token restricted to Contents and Actions reads on that repository. No integration record or installation ID setting is needed. Deployments without GitHub App credentials use `GITHUB_TOKEN` when set.
+The read-only page compares the published package, master version pin, registry platforms, custom-image bases, and the last recorded dev-stack bake.
+Release evidence separates workflow status from image build and base promotion results, including skipped builds.
+Select a custom image to inspect its latest Temporal execution. A failed refresh can leave a ready image on an older base.
+Missing or stale sources remain unverified. This view does not measure versions inside running sandboxes or reconstruct historical rollout completion.
+The Data sources tab lists each source's status and last successful read in UTC. Registry coverage remains unverified when the release source is unavailable or stale.
+Graph release badges compare observed versions with npm latest; cached observations say "Last seen". Select an image for its separate version-pin and base-lineage assessment.
+Source failures include a safe diagnostic; a rejected GitHub credential requires checking the server's App configuration or shared token. Build-history failures leave a successfully read version pin available and show a separate warning.
+Individual job-read failures retain run links and other build results. If the workflow list cannot be read, previous runs remain visible with their original read timestamp. Retained source values are identified as the last successful read, and shared GitHub request-budget limits have a separate diagnostic.
+The dev-stack graph and details share a base-adoption status. "Awaiting refresh" means the last successful bake uses a different digest from the current VM image; the details show both references. A fresh source read does not establish that a bake has finished.
 
 Each sandbox is created from a template that determines its base image and capabilities.
 
@@ -405,7 +476,7 @@ Mirroring failures are logged and never break the run's log write.
 When both `SANDBOX_PROVIDER=MODAL_DOCKER` and `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` are set:
 
 1. The selected sandbox Dockerfile is built in a temporary context
-2. External runtime dependencies from local `packages/agent`, `packages/shared`, and `packages/git` manifests that are missing from the published image are installed at `/scripts`; required system compatibility packages such as musl for Codex are installed with them, while `workspace:*` dependencies continue to resolve through the overlaid packages
+2. External runtime dependencies from local `packages/agent`, `packages/agent-contracts`, and `packages/git` manifests that are missing from the published image are installed at `/scripts`; required system compatibility packages such as musl for Codex are installed with them, while `workspace:*` dependencies continue to resolve through the overlaid packages
 3. Each local package's built `dist/` directory is mounted over the published package's compiled output
 4. The image runs in a separate Modal app (`posthog-sandbox-modal-docker-default`) so it doesn't affect production
 5. The first build takes a few minutes; subsequent builds reuse Modal's layer cache
@@ -413,7 +484,7 @@ When both `SANDBOX_PROVIDER=MODAL_DOCKER` and `LOCAL_POSTHOG_CODE_MONOREPO_ROOT`
 After changing agent-server code, rebuild and restart the worker:
 
 ```bash
-cd products/desktop/packages/agent && pnpm build
+cd packages/agent/packages/agent && pnpm build
 ```
 
 > **Note:** The build context is cached for the lifetime of the worker process (`lru_cache`).

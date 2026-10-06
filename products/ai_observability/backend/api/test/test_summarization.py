@@ -214,6 +214,71 @@ class TestSummarizationAPI(APIBaseTest):
         text_repr = mock_summarize.call_args.kwargs["text_repr"]
         self.assertLessEqual(len(text_repr), TEST_TEXT_REPR_BUDGET)
 
+    @parameterized.expand([("full_context", False, TEST_TEXT_REPR_BUDGET), ("compact_context", True, 1000)])
+    @patch(
+        "products.ai_observability.backend.api.summarization.batch_text_repr_budget",
+        return_value=1000,
+    )
+    @patch(
+        "products.ai_observability.backend.api.summarization.text_repr_budget",
+        return_value=TEST_TEXT_REPR_BUDGET,
+    )
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_compact_context_bounds_the_input_and_caches_separately(
+        self, _name, compact_context, expected_budget, mock_summarize, _mock_budget, _mock_batch_budget
+    ):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        mock_summarize.return_value = SummarizationResponse(
+            title="Bounded",
+            flow_diagram="Start",
+            summary_bullets=[SummaryBullet(text="Bounded", line_refs="L1")],
+            interesting_notes=[],
+        )
+        url = f"/api/environments/{self.team.id}/llm_analytics/summarization/"
+        request = {
+            "summarize_type": "trace",
+            "mode": "minimal",
+            "compact_context": compact_context,
+            "data": _oversized_payload("trace", one_long_line=False),
+        }
+
+        self.assertEqual(self.client.post(url, request, format="json").status_code, status.HTTP_200_OK)
+        text_repr = mock_summarize.call_args.kwargs["text_repr"]
+        self.assertLessEqual(len(text_repr), expected_budget)
+        self.assertEqual(len(text_repr) > 1000, not compact_context)
+
+        titles = self.client.post(url + "batch_check/", {"trace_ids": ["trace-oversized"]}, format="json")
+        self.assertEqual([s["trace_id"] for s in titles.data["summaries"]], ["trace-oversized"])
+
+        # A full-context request must not get the summary of the bounded input from the cache.
+        self.client.post(url, {**request, "compact_context": False}, format="json")
+        self.assertEqual(mock_summarize.call_count, 2 if compact_context else 1)
+
+    @parameterized.expand([("compact_refresh", True), ("full_refresh", False)])
+    @patch("products.ai_observability.backend.api.summarization.summarize")
+    def test_session_titles_follow_the_latest_refresh(self, _name, refresh_is_compact, mock_summarize):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        url = f"/api/environments/{self.team.id}/llm_analytics/summarization/"
+        request = {"summarize_type": "trace", "mode": "minimal", "data": _oversized_payload("trace", False)}
+
+        def summarize_as(title: str, **overrides: bool) -> None:
+            mock_summarize.return_value = SummarizationResponse(
+                title=title,
+                flow_diagram="Start",
+                summary_bullets=[SummaryBullet(text=title, line_refs="L1")],
+                interesting_notes=[],
+            )
+            response = self.client.post(url, {**request, **overrides}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        summarize_as("Stale", compact_context=not refresh_is_compact)
+        summarize_as("Refreshed", compact_context=refresh_is_compact, force_refresh=True)
+
+        titles = self.client.post(url + "batch_check/", {"trace_ids": ["trace-oversized"]}, format="json")
+        self.assertEqual([s["title"] for s in titles.data["summaries"]], ["Refreshed"])
+
     def test_missing_summarize_type(self):
         """Should return 400 for missing summarize_type."""
         self.organization.is_ai_data_processing_approved = True
