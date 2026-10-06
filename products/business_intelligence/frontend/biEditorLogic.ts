@@ -15,7 +15,7 @@ import {
     BIQueryLimit,
     BISort,
 } from '~/queries/schema/schema-business-intelligence'
-import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { CompareFilter, DatabaseSchemaTable, DateRange } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 import { captureBIEditorModeSelected } from 'products/business_intelligence/frontend/biEditorAnalytics'
@@ -40,6 +40,8 @@ import {
     isBIFieldCompatible,
     normalizeBIConfig,
 } from 'products/business_intelligence/frontend/biEditorTypes'
+
+import { getBIDateField } from './biQueryFilters'
 
 export interface BIEditorLogicProps {
     tabId: string
@@ -77,7 +79,9 @@ function setDataSourceInConfig(config: BIConfig, source: BIDataSource): BIConfig
         rows: [],
         columns: [],
         values: [],
-        filters: defaultDateFilter ? [defaultDateFilter] : [],
+        filters: [],
+        dateField: defaultDateFilter?.field ?? getBIDateField({ ...config, source, dateField: undefined }),
+        dateRange: { date_from: defaultDateFilter ? '-7d' : 'all' },
         sort: null,
     }
 }
@@ -343,11 +347,20 @@ export interface biEditorLogicActions {
     setChartType: (chartType: ChartDisplayType) => {
         chartType: ChartDisplayType
     }
+    setCompareFilter: (compareFilter: CompareFilter) => {
+        compareFilter: CompareFilter
+    }
     setDataPaneSearch: (search: string) => {
         search: string
     }
     setDataSource: (source: BIDataSource) => {
         source: BIDataSource
+    }
+    setDateField: (field: BIField | null) => {
+        field: BIField | null
+    }
+    setDateRange: (dateRange: DateRange) => {
+        dateRange: DateRange
     }
     setEditorView: (editorView: BIEditorView) => {
         editorView: BIEditorView
@@ -518,6 +531,9 @@ export const biEditorLogic = kea<biEditorLogicType>([
             target,
         }),
         setChartType: (chartType: ChartDisplayType) => ({ chartType }),
+        setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
+        setDateField: (field: BIField | null) => ({ field }),
         setDataSource: (source: BIDataSource) => ({ source }),
         setValueAggregation: (index: number, aggregation: BIAggregation) => ({ index, aggregation }),
         setFilterOperator: (index: number, operator: BIFilterOperator) => ({ index, operator }),
@@ -637,6 +653,9 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 swapRowsAndColumns: (config) =>
                     normalizeBIConfig({ ...config, rows: config.columns, columns: config.rows }),
                 setChartType: (config, { chartType }) => normalizeBIConfig({ ...config, chartType }),
+                setDateRange: (config, { dateRange }) => ({ ...config, dateRange }),
+                setCompareFilter: (config, { compareFilter }) => ({ ...config, compareFilter }),
+                setDateField: (config, { field }) => ({ ...config, dateField: field }),
                 setDataSource: (config, { source }) => setDataSourceInConfig(config, source),
                 setValueAggregation: (config, { index, aggregation }) => ({
                     ...config,
@@ -823,6 +842,9 @@ export const biEditorLogic = kea<biEditorLogicType>([
         addBlankFieldToShelf: () => actions.runAfterChange(),
         removeFieldFromShelf: () => actions.runAfterChange(),
         setChartType: () => actions.runAfterChange(),
+        setDateRange: () => actions.runAfterChange(),
+        setCompareFilter: () => actions.runAfterChange(),
+        setDateField: () => actions.runAfterChange(),
         setDataSource: () => actions.runAfterChange(),
         setValueAggregation: () => actions.runAfterChange(),
         setFilterOperator: () => actions.runAfterChange(),

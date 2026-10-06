@@ -316,6 +316,18 @@ describe('formatBreakdownLabel()', () => {
         expect(formatBreakdownLabel(42, breakdownFilter, [], identity)).toEqual('42')
     })
 
+    it('skips property-definition formatting for digit-only element breakdown values', () => {
+        // element breakdowns (tag_name/text/href) have no matching property definition, so
+        // propertyFilterTypeToPropertyDefinitionType falls back to Event. A same-named
+        // DateTime/Duration event property must not reformat a numeric-looking element value.
+        const reformatsAsDate = (): any => '2020-01-01'
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'text',
+            breakdown_type: 'element',
+        }
+        expect(formatBreakdownLabel('123', breakdownFilter, [], reformatsAsDate)).toEqual('123')
+    })
+
     it('handles numeric breakdowns for "other" value', () => {
         const breakdownFilter: BreakdownFilter = {
             breakdown: 'coolness_factor',
