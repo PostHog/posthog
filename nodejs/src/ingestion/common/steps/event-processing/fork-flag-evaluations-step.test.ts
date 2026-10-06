@@ -36,7 +36,7 @@ const createProcessedEvent = (overrides: Partial<ProcessedEvent> = {}): Processe
     uuid: 'event-uuid-1',
     event: '$feature_flag_called',
     properties: { $feature_flag: 'my-flag', $feature_flag_response: true },
-    timestamp: '2024-01-15T10:30:00.000Z' as ISOTimestamp,
+    timestamp: DateTime.utc().minus({ hours: 1 }).toISO() as ISOTimestamp,
     team_id: 7,
     project_id: 7 as ProjectId,
     distinct_id: 'distinct-1',
@@ -170,6 +170,32 @@ describe('createForkFlagEvaluationsStep', () => {
             const [, messages] = outputs.queueMessages.mock.calls[0]
             expect(messages).toHaveLength(1)
             expect(messages[0].key).toBe('event-uuid-1')
+        })
+    })
+
+    describe('flag_evaluations retention', () => {
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it.each([
+            // 2026-07-05 is the oldest UTC day a 90-day TTL keeps on 2026-10-02.
+            { timestamp: '2026-07-04T23:59:59.999Z', forked: false, outcome: 'continued_past_retention' },
+            { timestamp: '2026-07-05T00:00:00.000Z', forked: true, outcome: 'dual_written' },
+        ])('forks a call dated $timestamp -> $forked', async ({ timestamp, forked, outcome }) => {
+            jest.useFakeTimers({ now: new Date('2026-10-02T15:00:00.000Z') })
+            const { step, outputs } = createStep(enabledService())
+
+            const result = await step(createInput([createProcessedEvent({ timestamp: timestamp as ISOTimestamp })]))
+
+            expect(isOkResult(result)).toBe(true)
+            if (isOkResult(result)) {
+                await Promise.all(result.sideEffects)
+            }
+            expect(outputs.queueMessages).toHaveBeenCalledTimes(forked ? 1 : 0)
+            expect((await flagEvaluationsEventsTotal.get()).values).toEqual([
+                expect.objectContaining({ labels: { outcome }, value: 1 }),
+            ])
         })
     })
 
@@ -350,7 +376,13 @@ describe('createForkFlagEvaluationsStep', () => {
                 name: 'the flag key is missing',
                 mode: FlagEvaluationsMode.FlagEvaluationsOnly,
                 buildService: () => enabledService(),
-                flagCalledProperties: { $feature_flag_response: true },
+                flagCalledOverrides: { properties: { $feature_flag_response: true } },
+            },
+            {
+                name: 'the call is past the flag_evaluations retention',
+                mode: FlagEvaluationsMode.FlagEvaluationsOnly,
+                buildService: () => enabledService(),
+                flagCalledOverrides: { timestamp: DateTime.utc().minus({ days: 91 }).toISO() as ISOTimestamp },
             },
             {
                 name: 'queueing the row throws',
@@ -363,16 +395,10 @@ describe('createForkFlagEvaluationsStep', () => {
             },
         ])(
             'keeps the $feature_flag_called event in eventsToEmit when $name',
-            async ({ mode, buildService, flagCalledProperties, arrange }) => {
+            async ({ mode, buildService, flagCalledOverrides, arrange }) => {
                 const deps = createStep(buildService())
                 arrange?.(deps)
-                const input = createInput(
-                    [
-                        createProcessedEvent(flagCalledProperties && { properties: flagCalledProperties }),
-                        createExposureDuplicate(),
-                    ],
-                    mode
-                )
+                const input = createInput([createProcessedEvent(flagCalledOverrides), createExposureDuplicate()], mode)
 
                 const result = await deps.step(input)
 

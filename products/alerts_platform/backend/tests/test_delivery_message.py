@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -22,13 +23,16 @@ def _transition(kind: AlertEventKind, **overrides: Any) -> AnnouncedTransition:
         "condition": CONDITION,
         "source_config": {},
         "error_message": None,
+        "occurred_at": datetime(2026, 9, 30, 10, tzinfo=UTC),
     }
     fields.update(overrides)
     return AnnouncedTransition(**fields)
 
 
 def _announcement(consecutive_failures: int = 0) -> EvaluationAnnouncement:
-    return EvaluationAnnouncement(alert_name="API errors", consecutive_failures=consecutive_failures, transitions=())
+    return EvaluationAnnouncement(
+        configuration_id="cfg-1", alert_name="API errors", consecutive_failures=consecutive_failures, transitions=()
+    )
 
 
 class TestAlertMessage:

@@ -547,8 +547,10 @@ export const todayLogic = kea<todayLogicType>([
                         return { results: [], count: 0 }
                     }
                     // The person's own reports, ranked and counted the way the Today briefing ranks them.
+                    // A P0 nobody owns ranks above every one of them, so Today leaves it to the Inbox.
                     const response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
                         limit: TOP_REPORT_COUNT,
+                        include_unowned: false,
                     })
                     // Today passes reports to the Inbox's helpers, which take the handwritten SignalReport. The
                     // generated row type is wider (string status and priority, read-only arrays), so the cast
@@ -567,6 +569,7 @@ export const todayLogic = kea<todayLogicType>([
                     }
                     const response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
                         limit: MORE_REPORTS_LIMIT,
+                        include_unowned: false,
                     })
                     return { results: response.results as unknown as SignalReport[], count: response.count }
                 },

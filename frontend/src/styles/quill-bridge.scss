@@ -195,6 +195,10 @@
     color: var(--primary-foreground);
 }
 
+[data-quill] .text-primary-on-foreground {
+    color: var(--primary-on-foreground);
+}
+
 [data-quill] .text-destructive-foreground {
     color: var(--destructive-foreground);
 }

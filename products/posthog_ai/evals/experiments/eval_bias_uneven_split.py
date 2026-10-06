@@ -1,7 +1,7 @@
 """Eval: agent diagnoses Group A bias mechanisms and surfaces co-occurring findings independently.
 
 Carrier scenarios for diagnostic group A from
-``products/experiments/skills/diagnosing-experiment-results/SKILL.md``.
+``products/experiments/skills/diagnosing-experiment-health/SKILL.md``.
 
 Two cases:
 
@@ -12,9 +12,9 @@ Two cases:
 
 2. ``srm_with_identity_fragmentation`` — anti-bundle test. User reports two
    distinct observations *inline* in their prompt: (a) configured 50/50 but
-   actual exposure ratio is 51.2/48.8 at n=10,000 (chi-squared signature
-   for SRM, A2), AND (b) distinct_id/person ratio is 1.5× (identity
-   fragmentation signature, A3). Both mechanisms are evidence-grounded by
+   actual exposure ratio is 53/47 at n=10,000 (far below the p < 0.001
+   threshold of the sample ratio test, A2), AND (b) distinct_id/person ratio
+   is 1.5× (people evaluating the flag under several ids, A3). Both mechanisms are evidence-grounded by
    the user's own report — no need for `experiment-get` to verify. The
    ``SurfacesAllFindings`` scorer fails the case if the agent collapses
    both observations into a single conclusion or names only one.
@@ -80,7 +80,7 @@ async def eval_bias_uneven_split(ctx: EvalContext) -> None:
             prompt=(
                 f"Looking at my experiment '{ROLLOUT_EXPERIMENT_NAME}'. Configured as a 50/50 split, "
                 "but I've noticed two things and I'm not sure if they're related:\n\n"
-                "1. The actual exposure ratio in the data is 51.2/48.8 across about 10,000 exposures "
+                "1. The actual exposure ratio in the data is 53/47 across about 10,000 exposures "
                 "— close to 50/50 but not exact.\n\n"
                 "2. My `distinct_id` / `person_id` ratio is about 1.5× — some users seem to have "
                 "multiple distinct IDs attached to them.\n\n"
@@ -91,14 +91,14 @@ async def eval_bias_uneven_split(ctx: EvalContext) -> None:
                 "surfaces_all_findings": [
                     (
                         "Sample ratio mismatch (SRM) — the configured 50/50 split vs the observed "
-                        "51.2/48.8 at n=10,000 fails the chi-squared check for randomness, "
+                        "53/47 at n=10,000 fails the chi-squared check for randomness, "
                         "indicating a real assignment or capture problem (not just noise)."
                     ),
                     (
-                        "Identity fragmentation — a distinct_id/person ratio of 1.5× means users are "
-                        "being split across multiple distinct IDs (likely from `identify()` timing, "
-                        "cross-device usage, or an anonymous-to-identified transition), which "
-                        "asymmetrically affects variant assignment."
+                        "Identity fragmentation — a distinct_id/person ratio of 1.5× means people "
+                        "evaluate the flag under several distinct IDs (likely from `identify()` timing, "
+                        "cross-device usage, or an anonymous-to-identified transition). Each ID is "
+                        "hashed separately, so one person can land in two variants."
                     ),
                 ],
             },

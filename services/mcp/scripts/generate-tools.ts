@@ -91,6 +91,8 @@ interface OpenApiOperation {
     operationId: string
     /** Scopes the API requires, written by `posthog/api/documentation.py`. */
     security?: Array<Record<string, string[]>>
+    /** The API picks the scopes per request, so `security` lists only the fallback for human callers. */
+    'x-request-dependent-scopes'?: boolean
     parameters?: OpenApiParam[]
     requestBody?: {
         content?: {
@@ -1739,6 +1741,12 @@ function resolveToolScopes(name: string, config: ToolConfig, resolved: ResolvedO
     if (config.scopes?.length) {
         return config.scopes
     }
+    if (resolved.operation['x-request-dependent-scopes']) {
+        throw new Error(
+            `Enabled tool "${name}" has no "scopes", and the API picks the scopes for "${resolved.operation.operationId}" per request. ` +
+                `The spec lists only the fallback scopes for human callers. Add the scopes the tool's callers need to "scopes" in the tool's YAML.`
+        )
+    }
     const specScopes = getSpecScopes(resolved.operation)
     if (specScopes.length === 0) {
         throw new Error(
@@ -1764,9 +1772,9 @@ function resolveToolAnnotations(name: string, config: ToolConfig, method: string
     return { ...defaults }
 }
 
-/** Scopes the API requires that the YAML list leaves out. A `:write` scope covers `:read`, as at runtime. Empty when the YAML has no list or the spec has none. */
+/** Scopes the API requires that the YAML list leaves out. A `:write` scope covers `:read`, as at runtime. Empty when the YAML has no list, the spec has none, or the API picks the scopes per request. */
 function findMissingSpecScopes(config: ToolConfig, resolved: ResolvedOperation): string[] {
-    if (!config.scopes?.length) {
+    if (!config.scopes?.length || resolved.operation['x-request-dependent-scopes']) {
         return []
     }
     return getSpecScopes(resolved.operation).filter((scope) => !hasScope(config.scopes ?? [], scope))
@@ -1776,9 +1784,9 @@ function reportMissingSpecScopes(name: string, yamlLabel: string, missingScopes:
     const message =
         `Tool "${name}" does not list the scope(s) the API requires: ${missingScopes.join(', ')}. ` +
         `A token without them sees the tool and then gets a 403. Add them to "scopes" or drop "scopes" to use the API's.`
-    process.stdout.write(`WARNING ${yamlLabel}: ${message}\n`)
+    console.error(`ERROR ${yamlLabel}: ${message}`)
     if (process.env.GITHUB_ACTIONS === 'true') {
-        process.stdout.write(`::warning file=${yamlLabel}::${message}\n`)
+        process.stdout.write(`::error file=${yamlLabel}::${message}\n`)
     }
 }
 
@@ -1822,6 +1830,7 @@ function generateCategoryFile(
         const missingScopes = findMissingSpecScopes(config, resolved)
         if (missingScopes.length > 0) {
             reportMissingSpecScopes(name, fileName, missingScopes)
+            process.exit(1)
         }
         try {
             enabledTools.push([
