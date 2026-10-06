@@ -51,6 +51,8 @@ with workflow.unsafe.imports_passed_through():
 
 
 POSTGRES_PROBE_FAILURE = "AlertsPlatformPostgresProbeFailure"
+POSTGRES_PROBE_START_TO_CLOSE_TIMEOUT = dt.timedelta(seconds=10)
+POSTGRES_PROBE_SCHEDULE_TO_CLOSE_TIMEOUT = dt.timedelta(seconds=30)
 
 # A tick stops starting pages once this much of its minute is spent. The schedule's 50-second
 # execution timeout is the backstop, and it spans continued runs.
@@ -204,8 +206,8 @@ class AlertsPlatformEvaluateWorkflow(PostHogWorkflow):
             await workflow.execute_activity(
                 alerts_platform_probe_postgres_activity,
                 task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-                start_to_close_timeout=dt.timedelta(seconds=10),
-                schedule_to_close_timeout=dt.timedelta(seconds=30),
+                start_to_close_timeout=POSTGRES_PROBE_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=POSTGRES_PROBE_SCHEDULE_TO_CLOSE_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except ActivityError as error:
