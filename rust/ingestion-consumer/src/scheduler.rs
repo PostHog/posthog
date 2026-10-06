@@ -686,7 +686,7 @@ mod tests {
 
     fn msg(key: &str) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "test".to_string(),
+            topic: "test".into(),
             partition: 0,
             offset: 0,
             timestamp: 0,

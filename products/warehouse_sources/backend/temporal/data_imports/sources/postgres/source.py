@@ -94,6 +94,10 @@ _HOST_HAS_PORT_ERROR = (
     "in the port field instead."
 )
 
+_PORT_OUT_OF_RANGE_ERROR = (
+    "The port must be between 1 and 65535. Enter the port your database listens on, usually 5432."
+)
+
 # Railway's DATABASE_URL points at the service's private-network host, so it is the value customers
 # paste most often. The name only resolves inside Railway's own network, and the DNS failure that
 # follows asks them to check a spelling that is already correct, so name the public host instead.
@@ -182,6 +186,18 @@ PostgresErrors = {
         "Your database connection pooler couldn't find the tenant or user. This usually means the "
         "database project is paused or deleted, or the pooler username/host is wrong. Check that "
         "your database is active and the connection details are correct."
+    ),
+    # Supavisor runs an `auth_query` against the tenant's database to fetch the user's password
+    # secret. These two "(EAUTHQUERY)" outcomes are permanent, unlike the "secret check timed out"
+    # race `postgres.py` retries: the user doesn't exist, or its password is stored in a format the
+    # pooler can't verify (no password, or a non-SCRAM hash). Setting the password again stores it
+    # as SCRAM.
+    "user not found in the database": (
+        "Your database doesn't have a user with the username you entered. Check the user for this source and try again."
+    ),
+    "unsupported or invalid secret format": (
+        "Your connection pooler can't check this user's password because of how your database "
+        "stores it. Reset the user's password in your database, then try again."
     ),
     # Supabase/Supavisor's shared regional pooler (aws-0-<region>.pooler.supabase.com) can't
     # identify the project from SNI, so the pooler username must embed the project ref (for example
@@ -1688,6 +1704,11 @@ class PostgresSource(
         host_value = config.host.strip()
         if host_value.count(":") == 1 and not host_value.startswith("["):
             return False, _HOST_HAS_PORT_ERROR
+
+        # Out of range, the port reaches sshtunnel as a bare AssertionError or libpq as a connection
+        # failure, and both end in the generic "check all connection details" message.
+        if not 1 <= config.port <= 65535:
+            return False, _PORT_OUT_OF_RANGE_ERROR
 
         # A bastion inside the customer's Railway project can reach the private host, so only reject
         # it for a direct connection.

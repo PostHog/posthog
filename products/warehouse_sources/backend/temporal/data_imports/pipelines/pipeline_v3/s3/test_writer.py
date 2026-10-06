@@ -9,6 +9,9 @@ import pyarrow as pa
 import botocore.exceptions
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    ObjectStorePermissionDeniedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import (
     S3BatchWriter,
     _write_parquet_to_s3,
@@ -148,6 +151,45 @@ class TestBatchByteSize:
         result = writer.write_batch(pa.table({"id": [1]}), 0)
 
         assert result.byte_size == expected
+
+
+class TestWriteBatchPermissionDenied:
+    @parameterized.expand(
+        [
+            ("access_denied", "Access Denied"),
+            # InvalidAccessKeyId: the worker's own access key no longer exists (rotated/revoked).
+            # s3fs collapses this to the same PermissionError type as AccessDenied but with AWS's
+            # own fixed message.
+            ("invalid_access_key_id", "The AWS Access Key Id you provided does not exist in our records."),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer._write_parquet_to_s3"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.ensure_bucket")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.get_s3_client")
+    def test_write_batch_wraps_access_denied_instead_of_raising_raw_error(
+        self,
+        _name: str,
+        error_message: str,
+        _mock_get_s3_client,
+        _mock_ensure_bucket,
+        mock_write,
+    ) -> None:
+        # The data warehouse bucket is PostHog-owned, so a permission refusal writing to it must not
+        # read to the customer as if their source credentials were bad, and error tracking must group
+        # every occurrence under one stable title rather than the raw per-key s3fs message.
+        mock_write.side_effect = PermissionError(error_message)
+
+        job = MagicMock()
+        job.team_id = 1
+        job.created_at = datetime(2026, 8, 5, tzinfo=UTC)
+        writer = S3BatchWriter(MagicMock(), job, schema_id="schema-1", run_uuid="run-1")
+
+        with pytest.raises(ObjectStorePermissionDeniedError) as raised:
+            writer.write_batch(pa.table({"id": [1]}), 0)
+
+        assert raised.value.__cause__ is mock_write.side_effect
 
 
 class TestSchemaAccumulation:

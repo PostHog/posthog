@@ -248,6 +248,14 @@ class TestPagination:
         assert params[0].get("updated_after_utc") == expected_filter
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_lead_statuses_include_the_converted_status(self, MockSession) -> None:
+        session = MockSession.return_value
+        params = _wire(session, [_response([{"LEAD_STATUS_ID": 1}])])
+
+        _rows(_source(_make_manager(), endpoint="LeadStatuses"))
+        assert params[0].get("include_converted") == "true"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_raises_on_non_retryable_error(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(session, [_response([], status=401)])

@@ -186,13 +186,12 @@ class TestEnrichmentPending:
 
 
 class TestBuildSchemaSnapshot:
-    def test_copies_the_config_without_the_per_run_state_blobs(self) -> None:
+    def test_copies_the_config_without_the_column_list(self) -> None:
         config = {
             "incremental_field": "updated_at",
             "incremental_field_last_value": "2026-09-01T00:00:00+00:00",
             "reset_pipeline": True,
             "schema_metadata": {"columns": [{"name": "id", "type": "int"}]},
-            "cdc_deferred_runs": [{"run_id": "r1"}],
         }
         schema = ExternalDataSchema(name="Charge", sync_type="incremental", sync_type_config=dict(config))
 
