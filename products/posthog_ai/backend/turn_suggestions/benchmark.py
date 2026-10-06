@@ -205,6 +205,7 @@ def _transcript_from_case(raw: dict[str, Any]) -> TurnTranscript:
     ]
     return TurnTranscript(
         human_messages=(*(turn.question for turn in earlier), raw["question"]),
+        latest_turn_complete=True,
         assistant_text=raw["answer"],
         tool_calls=tuple(
             TranscriptToolCall(name=tool, args_preview="", status=status) for tool in raw.get("tools", [])
