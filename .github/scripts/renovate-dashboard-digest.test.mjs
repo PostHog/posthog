@@ -28,6 +28,7 @@ const REPORT = {
                             { depName: 'react', updates: [update('renovate/react-monorepo', 'patch')] },
                             { depName: 'react-dom', updates: [update('renovate/react-monorepo', 'minor')] },
                             { depName: 'widget', updates: [update('renovate/widget-5.x', 'major')] },
+                            { depName: 'gadget', deprecationMessage: 'use gizmo', updates: [] },
                         ],
                     },
                 ],
@@ -55,5 +56,9 @@ describe('renovate dashboard digest', () => {
             deprecated: 1,
             lookupWarnings: 1,
         })
+    })
+
+    it('refuses a report with no updates instead of posting an empty table', () => {
+        assert.throws(() => summarize({ repositories: { local: { packageFiles: {} } } }), /did not complete/)
     })
 })

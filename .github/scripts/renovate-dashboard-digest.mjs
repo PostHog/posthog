@@ -19,14 +19,19 @@ const COLUMNS = [...UPDATE_TYPES, 'other', 'total']
 // One Renovate branch is one checkbox on the Dependency Dashboard, so branches are the unit a person acts on.
 // A branch that mixes update types counts once, under its riskiest type.
 export function summarize(report) {
-    const repository = Object.values(report.repositories)[0]
+    const repository = Object.values(report.repositories ?? {})[0]
     const branches = new Map()
-    let deprecated = 0
-    let lookupWarnings = 0
-    for (const [manager, packageFiles] of Object.entries(repository.packageFiles)) {
+    const deprecated = new Set()
+    const lookupWarnings = new Set()
+    for (const [manager, packageFiles] of Object.entries(repository?.packageFiles ?? {})) {
         for (const dep of packageFiles.flatMap((packageFile) => packageFile.deps)) {
-            deprecated += dep.deprecationMessage ? 1 : 0
-            lookupWarnings += dep.warnings?.length ? 1 : 0
+            const depKey = `${manager}:${dep.depName}`
+            if (dep.deprecationMessage) {
+                deprecated.add(depKey)
+            }
+            if (dep.warnings?.length) {
+                lookupWarnings.add(depKey)
+            }
             for (const update of dep.updates ?? []) {
                 const branch = branches.get(update.branchName) ?? { manager, types: new Set() }
                 branch.types.add(update.updateType)
@@ -41,7 +46,11 @@ export function summarize(report) {
         pending[manager][type] += 1
         pending[manager].total += 1
     }
-    return { pending, deprecated, lookupWarnings }
+    // Renovate exits 0 when a lookup aborts, and an empty table would read as a cleared backlog.
+    if (branches.size === 0) {
+        throw new Error('The Renovate report lists no pending updates, so the lookup did not complete')
+    }
+    return { pending, deprecated: deprecated.size, lookupWarnings: lookupWarnings.size }
 }
 
 export function buildBlocks({ pending, deprecated, lookupWarnings }, day) {
@@ -61,7 +70,7 @@ export function buildBlocks({ pending, deprecated, lookupWarnings }, day) {
     return [
         {
             type: 'section',
-            text: { type: 'mrkdwn', text: `*Weekly Renovate, ${day}* _(updates waiting for approval)_` },
+            text: { type: 'mrkdwn', text: `*Weekly Renovate, ${day}* _(pending dependency updates)_` },
         },
         {
             type: 'table',

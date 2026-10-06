@@ -26,8 +26,8 @@ permissions:
     contents: read
 
 jobs:
-    # The Renovate package and its dependency tree come from npm, so this job holds no secret:
-    # the Slack token lives only in the job below, which runs no third-party code.
+    # The Renovate package and its dependency tree come from npm, so this job holds only the
+    # read-only GITHUB_TOKEN. The Slack token lives in the job below, which runs no third-party code.
     lookup:
         runs-on: ubuntu-24.04
         timeout-minutes: 20
