@@ -71,6 +71,7 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     GAUGE_STATEMENT_TIMEOUT_MS,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
+    ClaimCursor,
     FailedRunRef,
     PendingBatch,
     QueueDepth,
@@ -249,6 +250,7 @@ class DeltaBatchConsumerAdapter:
         # slot holder keeps one; it is re-exported while the depth probe times out.
         self._depth_sample: QueueDepth | None = None
         self._depth_sampled_at = 0.0
+        self._claim_cursor = ClaimCursor()
         # job_id -> (is_dead, checked_at via time.monotonic())
         self._job_dead_cache: dict[str, tuple[bool, float]] = {}
         # job_id -> (status, latest_error) for dead jobs only, so the drain decision in
@@ -272,6 +274,7 @@ class DeltaBatchConsumerAdapter:
             lease_ttl_seconds=lease_ttl_seconds,
             sync_types=self._claim_sync_types,
             exclude_sync_types=self._claim_exclude_sync_types,
+            cursor=self._claim_cursor,
         )
 
     async def unlock(
