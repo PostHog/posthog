@@ -62,8 +62,8 @@ function fileList(files, total = files.length) {
 function crossLaneParagraph({ heavyFiles, lightFiles, heavyCount, lightCount }) {
     return (
         `This PR changes Python or frontend code (${fileList(heavyFiles, heavyCount)}) and Node or Rust code (${fileList(lightFiles, lightCount)}) together. ` +
-        'In the merge queue, every Node or Rust PR behind it in the same lane then runs the Django and frontend suites too. ' +
-        'Split it into separate PRs if the two halves can land independently.'
+        'In the merge queue, every Node or Rust PR behind it in the same lane then runs the Django and frontend suites too, ' +
+        'so the cross-lane check fails. Split it, or add the `cross-lane-change` label if the halves must land together.'
     )
 }
 

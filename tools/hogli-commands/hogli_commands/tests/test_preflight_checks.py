@@ -13,6 +13,7 @@ from hogli_commands.preflight_checks import (
     Finding,
     Scope,
     SemgrepUnavailable,
+    check_cross_lane,
     check_merge_queue_lane,
     check_semgrep_devex,
     check_snapshot_baselines,
@@ -286,3 +287,49 @@ class TestMergeQueueLane:
         assert status == expected_status
         if expected_status == "warning":
             assert WORKFLOW in detail
+
+
+class TestCrossLane:
+    @pytest.mark.parametrize(
+        "summary,override,expected_status",
+        [
+            ({"cross_lane": False}, "", "pass"),
+            ({"cross_lane": None}, "", "skipped"),
+            (
+                {
+                    "cross_lane": True,
+                    "cross_lane_heavy_files": [PRODUCT_FILE],
+                    "cross_lane_light_files": ["nodejs/a.ts"],
+                },
+                "",
+                "fail",
+            ),
+            (
+                {
+                    "cross_lane": True,
+                    "cross_lane_heavy_files": [PRODUCT_FILE],
+                    "cross_lane_light_files": ["nodejs/a.ts"],
+                },
+                "1",
+                "warning",
+            ),
+        ],
+    )
+    @patch("hogli_commands.preflight_checks._renamed_from", return_value={})
+    @patch("hogli_commands.preflight_checks.shutil.which", return_value="/usr/bin/node")
+    def test_fails_a_mixed_diff_unless_a_person_allowed_it(
+        self,
+        mock_which: MagicMock,
+        mock_renames: MagicMock,
+        summary: dict[str, object],
+        override: str,
+        expected_status: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("HOGLI_PREFLIGHT_ALLOW_CROSS_LANE", override)
+        with patch("hogli_commands.preflight_checks.subprocess.run", side_effect=[_node_output(summary)]):
+            status, detail = check_cross_lane(_scope([PRODUCT_FILE, "nodejs/a.ts"]))
+
+        assert status == expected_status
+        if expected_status in {"fail", "warning"}:
+            assert PRODUCT_FILE in detail and "nodejs/a.ts" in detail

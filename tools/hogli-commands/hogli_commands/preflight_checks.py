@@ -380,3 +380,40 @@ def check_merge_queue_lane(scope: Scope) -> Outcome:
         f"Without these {len(suspects)} file(s) the other changes claim {len(narrowed)} of {len(targets)} "
         f"lane targets: {', '.join(suspects[:3])}{more}",
     )
+
+
+CROSS_LANE_LABEL = "cross-lane-change"
+CROSS_LANE_OVERRIDE_ENV = "HOGLI_PREFLIGHT_ALLOW_CROSS_LANE"
+
+
+def _first(files: list[str], total: int) -> str:
+    count = max(total, len(files))
+    more = f" (+{count - 2} more)" if count > 2 else ""
+    return ", ".join(files[:2]) + more
+
+
+def check_cross_lane(scope: Scope) -> Outcome:
+    if shutil.which("node") is None:
+        return "skipped", "node not found"
+    changed = sorted({*scope.changed, *_renamed_from(scope).values()})
+    env = {**os.environ, "LANE_MERGE_BASE": scope.merge_base, "IMPACTED_TARGETS": "{}"}
+    lane = _node(LANE_SUMMARY_SCRIPT, changed, env)
+    verdict = lane.get("cross_lane") if isinstance(lane, dict) else None
+    if verdict is False:
+        return "pass", "stays on one side of the merge queue lanes"
+    if verdict is not True:
+        return "skipped", "could not classify the diff by lane side"
+    assert isinstance(lane, dict)
+    mixed = (
+        f"mixes Python or frontend files "
+        f"({_first(lane.get('cross_lane_heavy_files') or [], lane.get('cross_lane_heavy_file_count') or 0)}) "
+        f"with Node or Rust files "
+        f"({_first(lane.get('cross_lane_light_files') or [], lane.get('cross_lane_light_file_count') or 0)})"
+    )
+    if os.environ.get(CROSS_LANE_OVERRIDE_ENV, "").lower() in {"1", "true"}:
+        return "warning", f"{mixed}; allowed by {CROSS_LANE_OVERRIDE_ENV}, so the PR needs the {CROSS_LANE_LABEL} label"
+    return (
+        "fail",
+        f"{mixed}, which fails CI. Split the PR. If the halves must land together, "
+        f"a person decides that: push with {CROSS_LANE_OVERRIDE_ENV}=1 and add the {CROSS_LANE_LABEL} label",
+    )
