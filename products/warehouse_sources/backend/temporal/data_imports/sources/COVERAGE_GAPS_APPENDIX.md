@@ -4609,14 +4609,14 @@ Note: The OpenAPI 3.0 spec (served to ReDoc from https://judge.me/api/docs.yaml)
 
 ## Jumpcloud — **thin**
 
-Today (6): `applications`, `events`, `system_groups`, `systems`, `user_groups`, `users`
+Today (11): `application_user_groups`, `application_users`, `applications`, `events`, `system_group_members`, `system_groups`, `system_users`, `systems`, `user_group_members`, `user_groups`, `users`
 
 Diffed against: <https://docs.jumpcloud.com/api/2.0/index.yaml>
 
-- [ ] `/api/v2/usergroups/{group_id}/members (and /membership)` — the user-to-group edges; user_groups and users are synced but the join between them is not (high)
-- [ ] `/api/v2/systemgroups/{group_id}/members (and /membership)` — the system-to-group edges completing the already-synced system_groups table (high)
-- [ ] `/api/v2/systems/{system_id}/users (or /api/v2/users/{user_id}/systems)` — which users can log into which devices - the central access-review fact table (high)
-- [ ] `/api/v2/applications/{application_id}/users and /usergroups` — SSO application entitlements per user and group, resolving the synced applications table (high)
+- [x] `/api/v2/usergroups/{group_id}/members (and /membership)` — the user-to-group edges; user_groups and users are synced but the join between them is not (high)
+- [x] `/api/v2/systemgroups/{group_id}/members (and /membership)` — the system-to-group edges completing the already-synced system_groups table (high)
+- [x] `/api/v2/systems/{system_id}/users (or /api/v2/users/{user_id}/systems)` — which users can log into which devices - the central access-review fact table (high)
+- [x] `/api/v2/applications/{application_id}/users and /usergroups` — SSO application entitlements per user and group, resolving the synced applications table (high)
 - [ ] `/api/v2/systeminsights/* (apps, programs, os_version, patches, disk_encryption, browser_plugins, chrome_extensions, ...)` — ~60 device inventory and compliance fact tables keyed by system_id - the richest analytical surface in the API (high)
 - [ ] `/api/v2/policies, /api/v2/policyresults, /api/v2/systems/{id}/policystatuses` — policy catalog plus per-device application results - device compliance state over time (high)
 - [ ] `/api/commands and /api/commandresults` — remote command execution history with exit codes and output (medium)
