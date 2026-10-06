@@ -84,6 +84,24 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toMatchValues({ hasActiveSession: true, shouldStream: true })
     })
 
+    it('does not start a second poll while the previous one is still pending', async () => {
+        let release: (value: null) => void = () => {}
+        mockLatestRetrieve.mockReturnValueOnce(new Promise((resolve) => (release = resolve)))
+
+        logic.actions.check()
+        logic.actions.check()
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
+
+        release(null)
+        await expectLogic(logic).toDispatchActions(['markInactive'])
+
+        mockLatestRetrieve.mockResolvedValue(null)
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toFinishAllListeners()
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+    })
+
     it('stays inactive when the poll returns no session (204/null)', async () => {
         mockLatestRetrieve.mockResolvedValue(null)
 

@@ -330,10 +330,18 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
             if (projectId === null) {
                 return
             }
+            // Single-flight per project. The 60s interval keeps firing while a request stalls, and a
+            // stalled request can take minutes to time out at the gateway. Without this guard each
+            // tab stacks another request onto a backend that is already slow. A project switch
+            // still starts a fresh poll, because the pending one answers for the wrong project.
+            if (cache.inFlightPoll?.projectId === projectId) {
+                return
+            }
             // Concurrent-poll guard. The next-poll wins; older resolutions are
             // ignored — without this, an older "empty" can overwrite a newer
             // "active" if responses race.
             const seq = (cache.pollSeq = (cache.pollSeq ?? 0) + 1)
+            cache.inFlightPoll = { projectId, seq }
             // Settled rather than all-or-nothing: one program's failure must not discard another's
             // successful answer, or a flaky response for the SDK install would hide a self-driving
             // run the server reported correctly.
@@ -348,6 +356,9 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                         )) || null
                 )
             )
+            if (cache.inFlightPoll?.seq === seq) {
+                cache.inFlightPoll = undefined
+            }
             if (seq !== cache.pollSeq) {
                 return
             }
