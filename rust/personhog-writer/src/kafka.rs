@@ -1,17 +1,39 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 use common_kafka::config::KafkaConfig;
-use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
+use metrics::counter;
+use rdkafka::consumer::{
+    BaseConsumer, CommitMode, Consumer, ConsumerContext, Rebalance, StreamConsumer,
+};
 use rdkafka::message::BorrowedMessage;
-use rdkafka::{ClientConfig, TopicPartitionList};
+use rdkafka::{ClientConfig, ClientContext, TopicPartitionList};
 
 // ── Consumer ────────────────────────────────────────────────────
+
+/// Records the partitions each rebalance takes away, so the consume loop can
+/// drop their buffered rows before the new owner starts reading them.
+struct RebalanceContext {
+    revoked: Arc<Mutex<Vec<i32>>>,
+}
+
+impl ClientContext for RebalanceContext {}
+
+impl ConsumerContext for RebalanceContext {
+    fn pre_rebalance(&self, _base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
+        if let Rebalance::Revoke(partitions) = rebalance {
+            let mut revoked = self.revoked.lock().unwrap();
+            revoked.extend(partitions.elements().iter().map(|e| e.partition()));
+        }
+    }
+}
 
 /// Wraps a Kafka StreamConsumer with its topic, providing a clean
 /// interface for receiving messages and committing offsets.
 pub struct PersonConsumer {
-    consumer: StreamConsumer,
+    consumer: StreamConsumer<RebalanceContext>,
     topic: String,
+    revoked: Arc<Mutex<Vec<i32>>>,
 }
 
 impl PersonConsumer {
@@ -69,21 +91,54 @@ impl PersonConsumer {
             client_config.set("client.rack", &kafka.kafka_client_rack);
         }
 
-        let consumer: StreamConsumer = client_config.create()?;
-        consumer.subscribe(&[&topic])?;
-        Ok(Self { consumer, topic })
+        Self::new(&client_config, topic)
     }
 
     /// Create from a raw `ClientConfig`. Useful in tests where you control
     /// the config directly (e.g., mock clusters).
     pub fn new(config: &ClientConfig, topic: String) -> Result<Self, rdkafka::error::KafkaError> {
-        let consumer: StreamConsumer = config.create()?;
+        let revoked = Arc::new(Mutex::new(Vec::new()));
+        let consumer: StreamConsumer<RebalanceContext> =
+            config.create_with_context(RebalanceContext {
+                revoked: Arc::clone(&revoked),
+            })?;
         consumer.subscribe(&[&topic])?;
-        Ok(Self { consumer, topic })
+        Ok(Self {
+            consumer,
+            topic,
+            revoked,
+        })
     }
 
     pub async fn recv(&self) -> Result<BorrowedMessage<'_>, rdkafka::error::KafkaError> {
         self.consumer.recv().await
+    }
+
+    pub fn take_revoked(&self) -> Vec<i32> {
+        std::mem::take(&mut *self.revoked.lock().unwrap())
+    }
+
+    pub fn assigned_partitions(&self) -> Result<HashSet<i32>, rdkafka::error::KafkaError> {
+        Ok(self
+            .consumer
+            .assignment()?
+            .elements()
+            .iter()
+            .map(|e| e.partition())
+            .collect())
+    }
+
+    pub fn positions(&self) -> Result<HashMap<i32, i64>, rdkafka::error::KafkaError> {
+        Ok(self
+            .consumer
+            .position()?
+            .elements()
+            .iter()
+            .filter_map(|e| match e.offset() {
+                rdkafka::Offset::Offset(next) => Some((e.partition(), next)),
+                _ => None,
+            })
+            .collect())
     }
 
     pub fn commit_offsets(
@@ -94,9 +149,24 @@ impl PersonConsumer {
             return Ok(());
         }
 
+        // A partition revoked while its batch was in flight belongs to
+        // another pod now; committing it here would move that pod's offset.
+        let assigned = self.assigned_partitions()?;
         let mut tpl = TopicPartitionList::new();
+        let mut skipped: u64 = 0;
         for (partition, offset) in offsets {
+            if !assigned.contains(partition) {
+                skipped += 1;
+                continue;
+            }
             tpl.add_partition_offset(&self.topic, *partition, rdkafka::Offset::Offset(offset + 1))?;
+        }
+        if skipped > 0 {
+            counter!("personhog_writer_offset_commits_skipped_total", "reason" => "unassigned")
+                .increment(skipped);
+        }
+        if tpl.count() == 0 {
+            return Ok(());
         }
 
         self.consumer.commit(&tpl, CommitMode::Async)?;

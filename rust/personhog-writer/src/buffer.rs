@@ -1,5 +1,5 @@
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use metrics::counter;
 use personhog_proto::personhog::types::v1::Person;
@@ -95,6 +95,18 @@ impl PersonBuffer {
     /// Get the current offset for a partition, if tracked.
     pub fn partition_offset(&self, partition: i32) -> Option<i64> {
         self.offsets.get(&partition).copied()
+    }
+
+    pub fn remove_partitions(&mut self, partitions: &[i32]) -> usize {
+        let revoked: HashSet<i32> = partitions.iter().copied().collect();
+        let before = self.entries.len();
+        self.entries
+            .retain(|_, buffered| !revoked.contains(&buffered.partition));
+        for partition in &revoked {
+            self.offsets.remove(partition);
+            self.oldest_ts_ms.remove(partition);
+        }
+        before - self.entries.len()
     }
 
     /// Drain whole partitions — oldest buffered message first — until at
@@ -277,5 +289,25 @@ mod tests {
         assert_eq!(batch.persons[0].id, 2);
         assert_eq!(batch.offsets.len(), 1);
         assert_eq!(batch.offsets[&7], 0);
+    }
+
+    #[test]
+    fn remove_partitions_drops_rows_offsets_and_timestamps() {
+        let mut buf = PersonBuffer::new(100);
+        buf.insert(make_person(1, 1, 1), 0, 10, Some(100));
+        buf.insert(make_person(1, 2, 1), 1, 20, Some(50));
+        buf.insert(make_person(1, 3, 1), 1, 21, Some(60));
+
+        assert_eq!(buf.remove_partitions(&[1]), 2);
+        assert_eq!(buf.len(), 1);
+        assert_eq!(buf.partition_offset(1), None);
+
+        let batch = buf.drain_up_to(usize::MAX).unwrap();
+        assert_eq!(
+            batch.persons.iter().map(|p| p.id).collect::<Vec<_>>(),
+            vec![1]
+        );
+        assert_eq!(batch.offsets, HashMap::from([(0, 10)]));
+        assert_eq!(batch.oldest_message_ts_ms, Some(100));
     }
 }

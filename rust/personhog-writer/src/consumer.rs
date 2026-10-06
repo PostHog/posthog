@@ -22,6 +22,26 @@ pub struct FlushBatch {
     pub oldest_message_ts_ms: Option<i64>,
 }
 
+/// Their offsets were never committed, so the new owner re-reads these rows;
+/// writing them here as well would only race that owner.
+fn drop_revoked_partitions(consumer: &PersonConsumer, lanes: &mut [Lane]) {
+    let revoked = consumer.take_revoked();
+    if revoked.is_empty() {
+        return;
+    }
+    let dropped: usize = lanes
+        .iter_mut()
+        .map(|lane| lane.buffer.remove_partitions(&revoked))
+        .sum();
+    counter!("personhog_writer_partitions_revoked_total").increment(revoked.len() as u64);
+    counter!("personhog_writer_revoked_rows_dropped_total").increment(dropped as u64);
+    info!(
+        partitions = revoked.len(),
+        rows = dropped,
+        "dropped buffered rows for revoked partitions"
+    );
+}
+
 /// One writer lane: a dedup buffer plus the channel to its writer task.
 /// Partitions map to lanes by `partition % lanes`, so a partition's
 /// messages always flow through the same lane — Kafka's cumulative
@@ -140,6 +160,8 @@ impl ConsumerTask {
                             let offset = borrowed_msg.offset();
                             let ts_ms = borrowed_msg.timestamp().to_millis();
 
+                            drop_revoked_partitions(&self.consumer, &mut self.lanes);
+
                             if let Some(payload) = borrowed_msg.payload() {
                                 match Person::decode(payload) {
                                     Ok(person) => {
@@ -204,6 +226,7 @@ impl ConsumerTask {
     /// recorded here, per flush — updating them per message is too
     /// expensive for the consume loop (dynamic-label registry lookups).
     fn take_batch(&mut self, idx: usize) -> Option<FlushBatch> {
+        drop_revoked_partitions(&self.consumer, &mut self.lanes);
         let lane = &mut self.lanes[idx];
         let batch = lane.buffer.drain_up_to(self.flush_buffer_size)?;
 

@@ -1,6 +1,6 @@
 mod common;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,8 +18,9 @@ use personhog_writer::store::{
 };
 use personhog_writer::writer::WriterTask;
 use prost::Message;
+use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::producer::FutureRecord;
-use rdkafka::ClientConfig;
+use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use tokio::sync::mpsc;
 
 // ============================================================
@@ -851,6 +852,153 @@ async fn capped_drains_commit_only_the_partitions_they_carry() {
     // Three messages per partition, offsets 0..=2, all eventually committed.
     assert_eq!(max_offset_seen[&0], 2);
     assert_eq!(max_offset_seen[&1], 2);
+}
+
+async fn wait_until(limit: Duration, mut ready: impl FnMut() -> bool) -> Result<(), ()> {
+    let deadline = tokio::time::Instant::now() + limit;
+    while !ready() {
+        if tokio::time::Instant::now() >= deadline {
+            return Err(());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Ok(())
+}
+
+fn committed_offset(tpl: &TopicPartitionList, partition: i32) -> Option<i64> {
+    tpl.elements()
+        .iter()
+        .find(|e| e.partition() == partition)
+        .and_then(|e| match e.offset() {
+            Offset::Offset(offset) => Some(offset),
+            _ => None,
+        })
+}
+
+/// A second member joining revokes one partition from the first, which must
+/// flush only the partition it kept and leave the revoked one uncommitted.
+#[tokio::test]
+async fn revoked_partitions_are_dropped_and_their_offsets_stay_uncommitted() {
+    let (mock_cluster, producer) = common::create_mock_kafka_with_partitions(2).await;
+    let team_id: i64 = 99_062;
+
+    let member_config = |client_id: &str| {
+        ClientConfig::new()
+            .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+            .set("group.id", "test-revoke")
+            .set("client.id", client_id)
+            .set("auto.offset.reset", "earliest")
+            .set("enable.auto.commit", "false")
+            .set("enable.auto.offset.store", "false")
+            .set("partition.assignment.strategy", "cooperative-sticky")
+            .set("session.timeout.ms", "6000")
+            .set("heartbeat.interval.ms", "1000")
+            .clone()
+    };
+
+    // Two persons per partition, produced before the first member joins so
+    // it reads them as soon as it is assigned. Ids encode the partition.
+    for (partition, id) in [(0, 1), (0, 2), (1, 3), (1, 4)] {
+        let person = make_person(team_id, id, 1);
+        let payload = person.encode_to_vec();
+        let key = format!("{team_id}:{id}");
+        let record = FutureRecord::to(TOPIC)
+            .partition(partition)
+            .key(&key)
+            .payload(&payload);
+        producer
+            .send_result(record)
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    let first = Arc::new(PersonConsumer::new(&member_config("first"), TOPIC.to_string()).unwrap());
+    let (tx, mut rx) = mpsc::channel::<FlushBatch>(4);
+    let mut manager = lifecycle::Manager::builder("test")
+        .with_trap_signals(false)
+        .build();
+    let consumer_handle = manager.register(
+        "consumer",
+        lifecycle::ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+    );
+    let shutdown = consumer_handle.clone();
+    let _monitor = manager.monitor_background();
+
+    // A timer far beyond the test and a size threshold above the row count:
+    // only the shutdown flush drains the buffer.
+    let consumer_task = ConsumerTask::new(
+        Arc::clone(&first),
+        vec![tx],
+        100,
+        Duration::from_secs(600),
+        100,
+        consumer_handle,
+    );
+    tokio::spawn(async move { consumer_task.run().await });
+
+    wait_until(Duration::from_secs(20), || {
+        first
+            .positions()
+            .map(|p| p.get(&0) == Some(&2) && p.get(&1) == Some(&2))
+            .unwrap_or(false)
+    })
+    .await
+    .expect("the first member should consume both partitions");
+
+    // The second member joins and keeps polling so the rebalance completes.
+    let second: Arc<StreamConsumer> = Arc::new(member_config("second").create().unwrap());
+    second.subscribe(&[TOPIC]).unwrap();
+    {
+        let second = Arc::clone(&second);
+        tokio::spawn(async move { while second.recv().await.is_ok() {} });
+    }
+    wait_until(Duration::from_secs(20), || {
+        second.assignment().map(|a| a.count() == 1).unwrap_or(false)
+    })
+    .await
+    .expect("the second member should take one partition");
+    let revoked = second.assignment().unwrap().elements()[0].partition();
+    let kept = 1 - revoked;
+
+    shutdown.request_shutdown();
+    let mut flushed_ids = Vec::new();
+    let mut flushed_partitions = HashSet::new();
+    while let Ok(Some(batch)) = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await {
+        flushed_ids.extend(batch.persons.iter().map(|p| p.id));
+        flushed_partitions.extend(batch.offsets.keys().copied());
+    }
+    flushed_ids.sort_unstable();
+    let kept_ids = if kept == 0 { vec![1, 2] } else { vec![3, 4] };
+    assert_eq!(
+        flushed_ids, kept_ids,
+        "only the kept partition's rows may flush"
+    );
+    assert_eq!(flushed_partitions, HashSet::from([kept]));
+
+    first
+        .commit_offsets(&HashMap::from([(kept, 1), (revoked, 1)]))
+        .unwrap();
+    let mut probe = TopicPartitionList::new();
+    probe.add_partition(TOPIC, kept);
+    probe.add_partition(TOPIC, revoked);
+    wait_until(Duration::from_secs(10), || {
+        second
+            .committed_offsets(probe.clone(), Duration::from_secs(2))
+            .map(|c| committed_offset(&c, kept) == Some(2))
+            .unwrap_or(false)
+    })
+    .await
+    .expect("the kept partition's commit should land");
+    let committed = second
+        .committed_offsets(probe.clone(), Duration::from_secs(2))
+        .unwrap();
+    assert_eq!(
+        committed_offset(&committed, revoked),
+        None,
+        "the revoked partition must stay uncommitted"
+    );
 }
 
 // ============================================================
