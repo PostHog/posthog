@@ -1,4 +1,4 @@
-import { highlightSegments } from './todayFigures'
+import { highlightSegments, quoteSegments } from './todayFigures'
 
 describe('todayFigures', () => {
     test.each([
@@ -19,5 +19,14 @@ describe('todayFigures', () => {
         const segments = highlightSegments(text, values)
         expect(segments.filter((segment) => segment.marked).map((segment) => segment.text)).toEqual(expected)
         expect(segments.map((segment) => segment.text).join('')).toEqual(text)
+    })
+
+    test('emphasizes the exact number a source states when its value repeats', () => {
+        const quote = { excerpt: '4 events came from 4 issues.', highlight: { start: 19, end: 20 } }
+        expect(quoteSegments(quote, '4')).toEqual([
+            { text: '4 events came from ', marked: false },
+            { text: '4', marked: true },
+            { text: ' issues.', marked: false },
+        ])
     })
 })

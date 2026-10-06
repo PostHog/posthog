@@ -74,7 +74,7 @@ def paragraphs(markdown: str) -> list[str]:
     return [paragraph.strip() for paragraph in _PARAGRAPH_BREAK.split(markdown) if paragraph.strip()]
 
 
-def _block_lines(markdown: str) -> list[str]:
+def block_lines(markdown: str) -> list[str]:
     inline_blocks = [token.content for token in MARKDOWN.parse(markdown) if token.type == "inline"]
     return [line.strip() for block in inline_blocks for line in block.split("\n") if line.strip()]
 
@@ -84,7 +84,7 @@ def _balanced(text: str, marker: str) -> str:
 
 
 def concise_text(markdown: str | None, max_chars: int) -> str:
-    lines = [line if line.endswith(_SENTENCE_ENDS) else f"{line}." for line in _block_lines(markdown or "")]
+    lines = [line if line.endswith(_SENTENCE_ENDS) else f"{line}." for line in block_lines(markdown or "")]
     pieces = [sentence.strip() for line in lines for _, sentence in split_markdown_sentences(line) if sentence.strip()]
     text = ""
     for piece in pieces:

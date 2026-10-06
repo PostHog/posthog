@@ -21,7 +21,7 @@ function readableDates(text: string): string {
     return text.replace(ISO_DATE, readableDate)
 }
 
-type TodayInlineSegment = { kind: 'text' | 'code'; text: string } | { kind: 'link'; text: string; href: string }
+export type TodayInlineSegment = { kind: 'text' | 'code'; text: string } | { kind: 'link'; text: string; href: string }
 
 interface MarkdownNode {
     type: string

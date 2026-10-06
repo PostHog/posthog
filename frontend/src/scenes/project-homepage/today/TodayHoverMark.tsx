@@ -24,7 +24,7 @@ function pointerMovedRecently(): boolean {
 }
 
 function cardAnchor(trigger: HTMLElement | null): Element | undefined {
-    return trigger?.closest('li, p') ?? undefined
+    return trigger?.closest('[data-today-figures]') ?? trigger?.closest('li, p') ?? undefined
 }
 
 export function TodayHoverMark({

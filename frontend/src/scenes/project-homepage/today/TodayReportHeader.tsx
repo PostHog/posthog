@@ -14,8 +14,9 @@ import { displayConventionalCommitTitle } from 'products/signals/frontend/inbox/
 
 import { TodayActionButton } from './TodayActionButton'
 import { itemStateLabel } from './todayBriefingItems'
-import { TodayInlineMarkdown } from './TodayInlineMarkdown'
+import { TodayEvidenceAge } from './TodayEvidenceAge'
 import { TodayReportVerdict, todayLogic } from './todayLogic'
+import { TodayMarkedText } from './TodayMarkedText'
 import { resolveDisabledReason } from './todayNextStep'
 import { todayReportLogic } from './todayReportLogic'
 import { SAMPLE_REPORT_REASON } from './todaySampleReports'
@@ -23,7 +24,9 @@ import { priorityBadgeVariant, reportSourceLine, reportTitle } from './todaySign
 
 export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Element {
     const { requestReportVerdict } = useActions(todayLogic)
-    const { lead, reportState, isSample } = useValues(todayReportLogic({ reportId: report.id }))
+    const { lead, leadMarks, shownKeyClauses, reportState, isSample } = useValues(
+        todayReportLogic({ reportId: report.id })
+    )
     const sampleReason = isSample ? SAMPLE_REPORT_REASON : null
     const stateLabel = itemStateLabel({ state: reportState })
     const sources = reportSourceLine(report)
@@ -109,15 +112,23 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                     {capitalizeFirstLetter(displayConventionalCommitTitle(report.title, 'Untitled report'))}
                 </Heading>
                 {lead && (
-                    <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
-                        <TodayInlineMarkdown markdown={lead} />
-                    </Text>
+                    <div data-today-figures>
+                        <Text size="sm" render={<p />} className="leading-relaxed text-pretty">
+                            <TodayMarkedText
+                                markdown={lead}
+                                marked={leadMarks}
+                                keyClauses={shownKeyClauses?.lead ?? []}
+                                reportId={report.id}
+                            />
+                        </Text>
+                    </div>
                 )}
                 {stillInvestigating && (
                     <Text variant="muted" render={<p />}>
                         No summary yet. An agent is still investigating.
                     </Text>
                 )}
+                <TodayEvidenceAge report={report} />
             </div>
         </header>
     )
