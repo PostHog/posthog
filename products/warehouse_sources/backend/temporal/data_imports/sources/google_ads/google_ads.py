@@ -1158,6 +1158,7 @@ def _search_by_campaign(
         campaign_ids = campaign_ids[campaign_ids.index(resume_campaign_id) :]
 
     for index, campaign_id in enumerate(campaign_ids):
+        next_campaign_id = campaign_ids[index + 1] if index + 1 < len(campaign_ids) else None
         yield from _search_as_arrow_tables(
             service,
             customer_id,
@@ -1166,11 +1167,8 @@ def _search_by_campaign(
             resumable_source_manager,
             use_saved_state=index == 0 and resume_campaign_id is not None,
             campaign_id=campaign_id,
+            next_campaign_id=next_campaign_id,
         )
-        if index + 1 < len(campaign_ids):
-            resumable_source_manager.save_state(
-                GoogleAdsResumeConfig(page_token="", campaign_id=campaign_ids[index + 1])
-            )
 
 
 def _search_as_arrow_tables(
@@ -1181,6 +1179,7 @@ def _search_as_arrow_tables(
     resumable_source_manager: ResumableSourceManager[GoogleAdsResumeConfig],
     use_saved_state: bool = True,
     campaign_id: str | None = None,
+    next_campaign_id: str | None = None,
 ) -> collections.abc.Generator[pa.Table]:
     """Paginate ``GoogleAdsService.search`` and yield each page as a ``pyarrow.Table``.
 
@@ -1196,6 +1195,9 @@ def _search_as_arrow_tables(
       names the token we sent (see ``_is_rejected_page_token_error``) — we
       discard the saved token and restart pagination from the first page. The
       same merge semantics make re-yielding already-synced rows safe.
+    * ``next_campaign_id`` is the campaign a campaign-sharded caller reads next. Once this
+      campaign's last page has no further token, we save state pointing at that campaign so a
+      resume does not restart this one.
     """
     # `use_saved_state=False` is passed for every window after the first in a windowed drain: the
     # saved page token belongs to whichever window was in flight last time and is meaningless for a
@@ -1242,6 +1244,10 @@ def _search_as_arrow_tables(
 
         next_page_token = page.next_page_token
         if not next_page_token:
+            if next_campaign_id is not None:
+                resumable_source_manager.save_state(
+                    GoogleAdsResumeConfig(page_token="", campaign_id=next_campaign_id)
+                )
             break
 
         resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token=next_page_token, campaign_id=campaign_id))
