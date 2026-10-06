@@ -18,7 +18,7 @@ A start-day window settles three days after it ends, matching the maximum suppor
 Snapshots computed before that point expire at the settling boundary even when their stored TTL is longer, so a later first pageview cannot leave the window empty for 90 days.
 Before settlement, the normal freshness schedule still applies; session dimensions are not updated on every event.
 The writer respects the team's session table version: v3 when configured, otherwise v2; v1 requests return `ready=False`.
-Resolved query modifiers are part of the cache identity, so different source versions and channel rules cannot reuse the same jobs.
+Resolved query modifiers and the built-in channel and bot classifiers are part of the cache identity, so different source versions, channel rules, cookieless settings, and bot lists cannot reuse the same jobs.
 
 Stored person IDs are snapshots too: a merge after materialization can leave a touchpoint under its previous person ID until refresh.
 Any consumer that attributes events to people must resolve current identity before using these snapshots.

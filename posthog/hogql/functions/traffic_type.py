@@ -23,6 +23,8 @@ ahead of the built-ins rather than merged into the built-in pattern array. A pro
 wins when both match.
 """
 
+import hashlib
+from functools import cache
 from typing import TYPE_CHECKING, Optional
 
 from posthog.hogql import ast
@@ -52,6 +54,16 @@ if TYPE_CHECKING:
 
 
 COOKIELESS_MODE_FIELD = "$cookieless_mode"
+
+
+@cache
+def bot_classifier_fingerprint() -> str:
+    """Hash of the built-in bot lists that `isLikelyBot` expands from.
+
+    Precompute jobs hash their query before HogQL resolves `$virt_is_bot`, so a stored bot flag needs
+    this fingerprint in its job identity to be rebuilt when the lists change.
+    """
+    return hashlib.sha256(repr((BOT_DEFINITIONS, BOT_IP_DEFINITIONS)).encode()).hexdigest()
 
 
 def _custom_groups(modifiers: Optional["HogQLQueryModifiers"]) -> list[CustomBotGroup]:
