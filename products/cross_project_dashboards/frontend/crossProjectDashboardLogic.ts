@@ -18,6 +18,7 @@ import {
     crossProjectDashboardsDestroy,
     crossProjectDashboardsPartialUpdate,
     crossProjectDashboardsRetrieve,
+    crossProjectDashboardsTilesCreate,
     crossProjectDashboardsTilesDestroy,
     crossProjectDashboardsTilesPartialUpdate,
 } from './generated/api'
@@ -118,6 +119,9 @@ export interface crossProjectDashboardLogicActions {
     removeTile: (tileId: string) => {
         tileId: string
     }
+    restoreTile: (tile: CrossProjectDashboardTileApi) => {
+        tile: CrossProjectDashboardTileApi
+    }
     saveLayout: () => {
         value: true
     }
@@ -204,6 +208,7 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
     actions({
         loadDashboard: true,
         removeTile: (tileId: string) => ({ tileId }),
+        restoreTile: (tile: CrossProjectDashboardTileApi) => ({ tile }),
         setDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setInterval: (interval: IntervalType | null) => ({ interval }),
         enterLayoutEdit: true,
@@ -477,10 +482,36 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                 if (!organizationId) {
                     return
                 }
+                const removedTile = values.tiles.find((tile) => tile.id === tileId)
                 try {
                     await crossProjectDashboardsTilesDestroy(organizationId, props.id, tileId)
+                    if (removedTile) {
+                        lemonToast.info('Tile removed from the dashboard', {
+                            button: { label: 'Undo', action: () => actions.restoreTile(removedTile) },
+                        })
+                    }
                 } catch (error: any) {
                     lemonToast.error(error?.detail || 'Could not remove that tile. Try again.')
+                }
+                actions.loadDashboard()
+            },
+            // Removal deletes the tile, so undo adds it back with everything it carried.
+            restoreTile: async ({ tile }) => {
+                const organizationId = organizationLogic.values.currentOrganization?.id
+                if (!organizationId) {
+                    return
+                }
+                try {
+                    await crossProjectDashboardsTilesCreate(organizationId, props.id, {
+                        project_id: tile.project_id,
+                        insight_id: tile.insight_id,
+                        layouts: tile.layouts,
+                        color: tile.color,
+                        filters_overrides: tile.filters_overrides,
+                    })
+                    lemonToast.success('Tile restored')
+                } catch (error: any) {
+                    lemonToast.error(error?.detail || 'Could not restore the tile. Add the insight again.')
                 }
                 actions.loadDashboard()
             },

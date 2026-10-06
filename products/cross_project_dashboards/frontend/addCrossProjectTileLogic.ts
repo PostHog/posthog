@@ -14,11 +14,16 @@ import { crossProjectDashboardsTilesCreate } from './generated/api'
 export interface InsightOption {
     id: number
     name: string
+    /** Shown next to the name, so the picker can tell apart insights that share one. */
+    createdBy?: string
+    lastModifiedAt?: string
 }
 
 export interface InsightPage {
     insights: InsightOption[]
     hasMore: boolean
+    /** Insights in the project that match the search, across all pages. */
+    total?: number
 }
 
 export interface AddCrossProjectTileLogicProps {
@@ -39,10 +44,7 @@ export interface addCrossProjectTileLogicValues {
     isAdding: boolean
     isOpen: boolean
     projectId: number | null
-    projectOptions: {
-        label: string
-        value: number
-    }[]
+    projectOptions: LemonInputSelectOption[]
     selectedInsight: InsightOption | null
 }
 
@@ -108,10 +110,7 @@ export interface addCrossProjectTileLogicActions {
 export interface addCrossProjectTileLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        projectOptions: (currentOrganization: null | import('~/types').OrganizationType) => {
-            label: string
-            value: number
-        }[]
+        projectOptions: (currentOrganization: null | import('~/types').OrganizationType) => LemonInputSelectOption[]
         insightOptions: (insightPage: InsightPage, selectedInsight: InsightOption | null) => LemonInputSelectOption[]
         canAdd: (projectId: number | null, selectedInsight: InsightOption | null) => boolean
     }
@@ -171,8 +170,11 @@ export const addCrossProjectTileLogic = kea<addCrossProjectTileLogicType>([
                 insights: response.results.map((insight) => ({
                     id: insight.id,
                     name: insight.name || insight.derived_name || `Insight ${insight.id}`,
+                    createdBy: insight.created_by?.first_name || insight.created_by?.email || undefined,
+                    lastModifiedAt: insight.last_modified_at ?? undefined,
                 })),
                 hasMore: !!response.next,
+                total: response.count,
             }
         }
 
@@ -201,7 +203,11 @@ export const addCrossProjectTileLogic = kea<addCrossProjectTileLogicType>([
                         if (isStale(projectId, insightSearch)) {
                             return values.insightPage
                         }
-                        return { insights: [...values.insightPage.insights, ...next.insights], hasMore: next.hasMore }
+                        return {
+                            insights: [...values.insightPage.insights, ...next.insights],
+                            hasMore: next.hasMore,
+                            total: next.total,
+                        }
                     },
                 },
             ],
@@ -210,8 +216,10 @@ export const addCrossProjectTileLogic = kea<addCrossProjectTileLogicType>([
     selectors({
         projectOptions: [
             () => [organizationLogic.selectors.currentOrganization],
-            (organization: null | import('~/types').OrganizationType) =>
-                (organization?.projects ?? []).map((project) => ({ value: project.id, label: project.name })),
+            (organization: null | import('~/types').OrganizationType): LemonInputSelectOption[] =>
+                [...(organization?.projects ?? [])]
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((project) => ({ key: String(project.id), label: project.name })),
         ],
         // Keeps the picked insight in the options, so the field still shows its name after the search moves on.
         insightOptions: [
