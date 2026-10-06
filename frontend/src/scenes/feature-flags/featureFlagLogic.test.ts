@@ -4172,8 +4172,9 @@ describe('a flag in config version 2', () => {
         expect(logic.values.originalFeatureFlag?.version).toBe(3)
     })
 
+    const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
     it('sends a tag save made while another is in flight with the version that save returned', async () => {
-        const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
         const firstResponse = deferred()
         const update = jest.spyOn(api, 'update').mockImplementation(async (_url, payload: any) => {
             if (update.mock.calls.length === 1) {
@@ -4197,6 +4198,68 @@ describe('a flag in config version 2', () => {
         ])
         expect(logic.values.featureFlag).toMatchObject({ tags: ['checkout', 'pricing'], version: 5 })
         expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        [
+            'a description save',
+            'a tag save',
+            () => logic.actions.saveTagsInline(['checkout']),
+            () => logic.actions.saveDescriptionInline('Checkout redesign'),
+        ],
+        [
+            'a tag save',
+            'a description save',
+            () => logic.actions.saveDescriptionInline('Checkout redesign'),
+            () => logic.actions.saveTagsInline(['checkout']),
+        ],
+    ])('sends %s made while %s is in flight with the version that save returned', async (_, __, first, second) => {
+        const firstResponse = deferred()
+        const update = jest.spyOn(api, 'update').mockImplementation(async (_url, payload: any) => {
+            if (update.mock.calls.length === 1) {
+                await firstResponse.promise
+            }
+            return { ...V2_FLAG, ...payload, version: payload.version + 1 }
+        })
+
+        first()
+        await wait(300)
+        second()
+        await wait(300)
+        firstResponse.resolve()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(update.mock.calls.map(([, payload]) => (payload as any).version)).toEqual([3, 4])
+        // Each save's response leaves the other save's field alone.
+        expect(logic.values.featureFlag).toMatchObject({ name: 'Checkout redesign', tags: ['checkout'], version: 5 })
+        expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
+    it('keeps the first tag save when the save queued behind it is refused', async () => {
+        const detail = 'Keep at least one tag. This project requires feature flags to stay tagged.'
+        const firstResponse = deferred()
+        const update = jest.spyOn(api, 'update').mockImplementation(async (_url, payload: any) => {
+            if (update.mock.calls.length > 1) {
+                throw new ApiError(undefined, 400, undefined, { detail })
+            }
+            await firstResponse.promise
+            return { ...V2_FLAG, ...payload, version: payload.version + 1 }
+        })
+
+        logic.actions.saveTagsInline(['checkout'])
+        await wait(300)
+        logic.actions.saveTagsInline([])
+        await wait(300)
+        firstResponse.resolve()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(update.mock.calls.map(([, payload]) => payload)).toEqual([
+            { tags: ['checkout'], version: 3 },
+            { tags: [], version: 4 },
+        ])
+        expect(logic.values.featureFlag).toMatchObject({ tags: ['checkout'], version: 4 })
+        expect(logic.values.originalFeatureFlag).toMatchObject({ tags: ['checkout'], version: 4 })
+        expect(lemonToast.error).toHaveBeenCalledWith(detail)
     })
 
     it('starts a blank flag when a duplicate link names this flag', async () => {

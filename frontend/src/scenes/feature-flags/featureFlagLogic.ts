@@ -845,6 +845,13 @@ function reloadIfStaleRowVersion(token: { version?: number }, error: any, reload
     return true
 }
 
+// A v2 write must carry the row version the previous write returned, so inline saves go out one at a time.
+function queueInlineSave<T>(cache: Record<string, any>, send: () => Promise<T>): Promise<T> {
+    const request = (cache.inlineSaveQueue ?? Promise.resolve()).catch(() => null).then(send)
+    cache.inlineSaveQueue = request
+    return request
+}
+
 function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
     const { created_at, id, created_by, last_modified_by, ...cleanedFlag } = flag
     if (cleanedFlag.filters && !isV1FeatureFlagConfig(cleanedFlag.filters)) {
@@ -4469,23 +4476,26 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         saveDescriptionInline: async ({ name }) => {
-            const flag = values.featureFlag
-            if (!flag.id || name === flag.name) {
+            const flagId = values.featureFlag.id
+            if (!flagId || name === values.featureFlag.name) {
                 return
             }
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
-                const savedFlag = await api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
-                    name,
-                    ...values.rowVersionToken,
-                })
-                // A v1 page keeps its loaded version, so the server's stale-write merge still guards a later full save.
+                const savedFlag = await queueInlineSave(cache, () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
+                    api.update(`api/projects/${values.currentProjectId}/feature_flags/${flagId}`, {
+                        name,
+                        ...values.rowVersionToken,
+                    })
+                )
+                // A v1 page keeps the version it loaded. A later full save then sends a version behind the
+                // stored row, so the server's stale-write check drops the fields this page did not change.
                 const persisted = { name: savedFlag.name, ...rowVersionToken(savedFlag) }
-                actions.setFeatureFlag({ ...flag, ...persisted })
+                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
                 if (values.originalFeatureFlag) {
                     actions.setOriginalFeatureFlag({ ...values.originalFeatureFlag, ...persisted })
                 }
-                actions.updateFlag({ ...flag, ...persisted })
+                actions.updateFlag({ ...values.featureFlag, ...persisted })
                 lemonToast.success('Description saved')
             } catch (error: any) {
                 if (!reloadIfStaleRowVersion(values.rowVersionToken, error, actions.refreshFeatureFlag)) {
@@ -4515,18 +4525,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // can land out-of-order and stomp the latest local state when their responses
             // resolve.
             await breakpoint(250)
-            // A v2 write must carry the version the previous write returned, so wait for a save still in flight.
-            await cache.tagSaveInFlight?.catch(() => null)
-            breakpoint()
 
             try {
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
-                const request = api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
-                    tags,
-                    ...values.rowVersionToken,
+                const savedFlag = await queueInlineSave(cache, () => {
+                    breakpoint()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
+                    return api.update(`api/projects/${values.currentProjectId}/feature_flags/${flag.id}`, {
+                        tags,
+                        ...values.rowVersionToken,
+                    })
                 })
-                cache.tagSaveInFlight = request
-                const savedFlag = await request
                 // Store the bumped row version before the breakpoint, because a newer call's write needs it.
                 const savedVersion = rowVersionToken(savedFlag)
                 if (savedVersion.version !== undefined) {
