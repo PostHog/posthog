@@ -5945,6 +5945,12 @@ class HogQLQueryModifiers(BaseModel):
             " one UNION ALL join, so their scans overlap"
         ),
     )
+    optimizeCrossJoins: bool | None = Field(
+        default=None,
+        description=(
+            "Move eligible non-nullable equality filters from CROSS JOIN queries into INNER ALL JOIN constraints"
+        ),
+    )
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     parserMode: ParserMode | None = Field(

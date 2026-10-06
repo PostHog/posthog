@@ -29706,6 +29706,10 @@
                     "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
                     "type": "boolean"
                 },
+                "optimizeCrossJoins": {
+                    "description": "Move eligible non-nullable equality filters from CROSS JOIN queries into INNER ALL JOIN constraints",
+                    "type": "boolean"
+                },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
