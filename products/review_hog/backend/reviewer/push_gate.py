@@ -114,6 +114,12 @@ class _ChangedFile:
 
 
 @frozen
+class _ChangedLine:
+    type: str
+    code: str
+
+
+@frozen
 class _PRDiff:
     """The PR as `base...head`: its commits, the merge commits among them, and its full diff."""
 
@@ -165,15 +171,17 @@ def _changed_files(payload: dict[str, Any]) -> list[_ChangedFile]:
     ]
 
 
-def _own_lines(files: list[_ChangedFile]) -> dict[str, list[tuple[str, str]]] | None:
+def _own_lines(files: list[_ChangedFile]) -> dict[str, list[_ChangedLine]] | None:
     """The PR's added and removed lines per file, without line numbers, which shift when the base moves."""
-    lines: dict[str, list[tuple[str, str]]] = {}
+    lines: dict[str, list[_ChangedLine]] = {}
     for file in files:
         if file.patch is None and file.changes:
             # GitHub left the patch out, so the lines of this file cannot be compared.
             return None
         changes = PRParser.parse_patch(file.patch or "")
-        lines[file.filename] = [(change.type, change.code) for change in changes if change.type != "context"]
+        lines[file.filename] = [
+            _ChangedLine(type=change.type, code=change.code) for change in changes if change.type != "context"
+        ]
     return lines
 
 
