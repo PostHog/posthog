@@ -65,14 +65,22 @@ class IssueSnapshot:
     first_seen: datetime
 
     @classmethod
-    def build(cls, issue: ErrorTrackingIssue, assignee: AssigneeRef | None) -> "IssueSnapshot":
-        # The caller passes the assignee so that a bulk change can load all assignments in one query.
+    def build(
+        cls, issue: ErrorTrackingIssue, *, assignee: AssigneeRef | None, first_seen: datetime | None
+    ) -> "IssueSnapshot":
+        """Build the snapshot after a change.
+
+        The caller loads the assignee and the earliest fingerprint `first_seen`
+        (`ErrorTrackingIssue.objects.with_first_seen()`), so a bulk change needs one query
+        for each instead of one per issue. After a merge, the earliest fingerprint can
+        predate the issue row, so `created_at` is only the fallback.
+        """
         return cls(
             status=Status(issue.status),
             severity=Severity(issue.severity) if issue.severity else None,
             name=_truncate_name(issue.name),
             assignee=assignee,
-            first_seen=issue.created_at,
+            first_seen=first_seen or issue.created_at,
         )
 
     def to_json(self) -> dict[str, Any]:

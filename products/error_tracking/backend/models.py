@@ -1015,7 +1015,7 @@ class ErrorTrackingAlertThread(TeamScopedRootMixin, UUIDTModel):
         ]
 
 
-class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDTModel):
+class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDModel):
     """One change to an issue, written in the same transaction as the change itself.
 
     Rows are an outbox: a dispatcher claims rows where `dispatched_at` is null and
