@@ -101,7 +101,6 @@ impl storage::PersonLookup for FailingStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
-        _mode: storage::DeletePersonsMode,
     ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
         Err(self.error.clone())
     }
@@ -523,7 +522,6 @@ impl storage::PersonLookup for SuccessStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
-        _mode: storage::DeletePersonsMode,
     ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
         Ok(storage::DeletePersonsOutcome::default())
     }
@@ -1004,7 +1002,6 @@ impl storage::PersonLookup for PopulatedStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
-        _mode: storage::DeletePersonsMode,
     ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
         Ok(storage::DeletePersonsOutcome::default())
     }
@@ -1461,7 +1458,6 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         &self,
         _team_id: i64,
         _uuids: &[Uuid],
-        _mode: storage::DeletePersonsMode,
     ) -> storage::StorageResult<storage::DeletePersonsOutcome> {
         Ok(storage::DeletePersonsOutcome::default())
     }

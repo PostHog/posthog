@@ -1,6 +1,6 @@
 import re
 import dataclasses
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, TypeVar, cast
 
 from dateutil.parser import isoparse
@@ -8,6 +8,7 @@ from dateutil.parser import isoparse
 from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
+    DateRange,
     EmptyPropertyFilter,
     HogQLFilters,
     IntervalType,
@@ -31,6 +32,8 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.property import bound_property_to_expr, property_to_expr
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models import Property, Team
 from posthog.utils import relative_date_parse_with_delta_mapping
 
@@ -222,6 +225,8 @@ class ReplaceFilters(CloningVisitor):
         return node
 
     def visit_placeholder(self, node):
+        if node.chain == ["filters", "previous"]:
+            return self._comparison_visitor().visit_placeholder(ast.Placeholder(expr=ast.Field(chain=["filters"])))
         # The column-bound form {filters(expr AS key, ...)}: the query author maps each filter key
         # onto an expression of their own query, so the table restrictions of plain {filters} don't
         # apply. A Call never has a chain, so the chain-based branches below can't match it.
@@ -232,10 +237,16 @@ class ReplaceFilters(CloningVisitor):
         # {filters.breakdown(expr AS key, ...)} substitutes the column bound to the selected breakdown.
         if isinstance(node.expr, ast.ExprCall) and isinstance(node.expr.expr, ast.Field):
             call_chain = node.expr.expr.chain
-            if call_chain == ["filters", "native"]:
+            if call_chain in (["filters", "native"], ["filters", "previous", "native"]):
                 if len(node.expr.args) != 1:
                     raise QueryError("{filters.native(expr)} requires one date expression or null.")
-                return self._replace_native_filters(node.expr.args[0])
+                visitor = self._comparison_visitor() if "previous" in call_chain else self
+                return visitor._replace_native_filters(node.expr.args[0])
+
+            if call_chain == ["filters", "previous"]:
+                return self._comparison_visitor()._replace_bound_filters(ast.Call(name="filters", args=node.expr.args))
+            if call_chain == ["filters", "compareDate"]:
+                return self._replace_comparison_date(node.expr.args)
             if call_chain == ["filters", "interval"]:
                 return self._replace_interval(node.expr.args)
             if call_chain == ["filters", "breakdown"]:
@@ -393,6 +404,79 @@ class ReplaceFilters(CloningVisitor):
         if len(exprs) == 1:
             return exprs[0]
         return ast.And(exprs=exprs)
+
+    def _replace_comparison_date(self, args: list[ast.Expr]) -> ast.Expr:
+        if len(args) not in (1, 2):
+            raise QueryError(
+                "{filters.compareDate(expr, bucket)} requires a date expression and optional calendar bucket."
+            )
+        bucket = None
+        if len(args) == 2:
+            if not isinstance(args[1], ast.Constant) or args[1].value not in ("month", "quarter", "year"):
+                raise QueryError("The comparison bucket must be 'month', 'quarter', or 'year'.")
+            bucket = args[1].value
+        previous = self._comparison_visitor()._resolve_date_from()
+        current = self._resolve_date_from()
+        assert previous is not None and current is not None
+        if bucket is not None:
+            width = {"month": 1, "quarter": 3, "year": 12}[bucket]
+            current_bucket = (current.year * 12 + current.month - 1) // width
+            previous_bucket = (previous.year * 12 + previous.month - 1) // width
+            return ast.Call(
+                name="addMonths",
+                args=[self.visit(args[0]), ast.Constant(value=(current_bucket - previous_bucket) * width)],
+            )
+        midnight = all(date.hour == date.minute == date.second == date.microsecond == 0 for date in (current, previous))
+        return ast.Call(
+            name="addDays" if midnight else "addSeconds",
+            args=[
+                self.visit(args[0]),
+                ast.Constant(
+                    value=(current.date() - previous.date()).days
+                    if midnight
+                    else int((current - previous).total_seconds())
+                ),
+            ],
+        )
+
+    def _comparison_visitor(self) -> "ReplaceFilters":
+        if not self.filters or not self.filters.dateRange or self.filters.dateRange.date_from in (None, "all"):
+            raise QueryError(
+                "Period comparisons require a bounded date range. Choose a start date instead of all time."
+            )
+        compare_to = self.filters.compareFilter.compare_to if self.filters.compareFilter else None
+        date_range = self.filters.dateRange
+        _, delta_mapping = self._parse_date_from()
+        exact = bool(date_range.explicitDate or delta_mapping is None or SUB_DAY_DELTA_KEYS & delta_mapping.keys())
+        interval = IntervalType.MINUTE if exact else IntervalType.DAY
+        if exact:
+            start = self._resolve_date_from()
+            end, inclusive = self._resolve_date_to()
+            assert start is not None
+            end = end or self._current_time()
+            date_range = DateRange(
+                date_from=start.isoformat(),
+                date_to=(end + timedelta(microseconds=1) if inclusive else end).isoformat(),
+                explicitDate=True,
+            )
+        comparison = (
+            QueryCompareToDateRange(date_range, self.team, interval, self._current_time(), compare_to=compare_to)
+            if compare_to
+            else QueryPreviousPeriodDateRange(date_range, self.team, interval, self._current_time())
+        )
+        previous_filters = self.filters.model_copy(
+            update={
+                "dateRange": DateRange(
+                    date_from=comparison.date_from().isoformat(),
+                    date_to=(comparison.date_to() + (timedelta() if exact else timedelta(microseconds=1))).isoformat(),
+                    explicitDate=True,
+                )
+            }
+        )
+        visitor = ReplaceFilters(previous_filters, self.team, self.database)
+        visitor._now = self._current_time()
+        visitor.selects = self.selects
+        return visitor
 
     def _replace_bound_filters(self, call: ast.Call) -> ast.Expr:
         # Parse bindings before the no-filters early return, so malformed usage surfaces in the
