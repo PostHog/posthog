@@ -580,7 +580,7 @@ def test_max_runtime_stops_between_pages_unless_disabled(
         pytest.param(dagster.DagsterRunStatus.STARTED, "mid_run", 1, "sweep_running", id="sweep_starts_mid_run"),
         # A page can outlast the sweep's wait, so the drain also checks before each request.
         pytest.param(dagster.DagsterRunStatus.STARTED, "mid_page", 1, "sweep_running", id="sweep_starts_mid_page"),
-        # A failing request can retry for an hour, so the drain also checks before each retry.
+        # A failing request can retry for the whole retry window, so the drain also checks before each retry.
         pytest.param(
             dagster.DagsterRunStatus.STARTED, "during_retry", 0, "sweep_running", id="sweep_starts_during_a_retry"
         ),

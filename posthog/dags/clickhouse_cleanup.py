@@ -150,7 +150,7 @@ class CleanupConfig(dagster.Config):
         default=DEFAULT_MIN_TOMBSTONE_AGE_SECONDS,
         ge=0,
         description="Snapshot a tombstoned key only when its tombstone was produced to Kafka at least this many "
-        "seconds ago, so every row produced before it has landed. 0 disables the floor.",
+        "seconds ago, so every row produced before it has landed. 0 turns the check off.",
     )
     min_team_id: int = pydantic.Field(default=0, description="Only sweep persons with team_id >= this, 0 to disable.")
     max_team_id: int = pydantic.Field(default=0, description="Only sweep persons with team_id <= this, 0 to disable.")
@@ -260,7 +260,7 @@ class DeletedPersonsTable(SnapshotTable):
         # its tombstones, so the next run picks it up. team_id leads the sort key, which is what
         # lets the range prune the scan rather than only filter it.
         # _timestamp is the Kafka message time of the tombstone, and now() is the ClickHouse
-        # clock, so the age floor does not depend on the clock of the host that runs this op.
+        # clock, so the minimum age does not depend on the clock of the host that runs this op.
         team_filter = ""
         if min_team_id:
             team_filter += f" AND team_id >= {int(min_team_id)}"
@@ -285,7 +285,7 @@ class DeletedPersonsTable(SnapshotTable):
 @dataclass(frozen=True)
 class RevivedPersonsTable(SnapshotTable):
     """Snapshotted persons this run must not delete: revived while the run was in flight, or held
-    back because a distinct id they own waits for the tombstone age floor.
+    back because a distinct id they own waits for the minimum tombstone age.
 
     Every dictionary below reads its source through an anti-join against this table, so recording
     a person here is what excludes it. That keeps the checkpoints free of mutations on the
@@ -321,9 +321,9 @@ class RevivedPersonsTable(SnapshotTable):
         settings: Mapping[str, int] | None = None,
         min_tombstone_age_seconds: int = DEFAULT_MIN_TOMBSTONE_AGE_SECONDS,
     ) -> int:
-        # The keys OrphanedDistinctIdsTable defers for the age floor: their owner waits too, or the
-        # drain would hard-delete the key's Postgres row along with the person. The inner filter only
-        # narrows the scan, because a deferred key's newest version is a young tombstone naming the owner.
+        # A key that OrphanedDistinctIdsTable defers for the minimum tombstone age holds back its owner,
+        # or the drain would hard-delete the key's Postgres row with the person. The inner filter only
+        # narrows the scan: a deferred key's newest version is a recent tombstone that names the owner.
         client.execute(
             f"""
             INSERT INTO {self.qualified_name} (run_id, team_id, person_id)
@@ -360,9 +360,9 @@ class OrphanedDistinctIdsTable(SnapshotTable):
     live data in RevivedDistinctIdsTable rather than from this column, because both the tombstone
     and the owner can change while the run is in flight.
 
-    A key with its own tombstone waits for the tombstone age floor, and holds its owner back with
+    A key with its own tombstone waits for the minimum tombstone age, and holds its owner back with
     it (RevivedPersonsTable.populate_deferred_owners). A live key owned by a snapshotted person
-    does not wait, because that person already passed the floor.
+    does not wait, because that person already met the minimum age.
     """
 
     table_name = CLEANUP_ORPHANED_DISTINCT_IDS_TABLE
@@ -526,7 +526,7 @@ class CleanupRun:
     dry_run: bool
     cleanup: bool
     team_batches: int
-    # A run pickled before this field existed unpickles with the class default.
+    # Keep the default: a run pickled without this field reads the class default when it unpickles.
     min_tombstone_age_seconds: int = DEFAULT_MIN_TOMBSTONE_AGE_SECONDS
     cohort_sweep: bool
     max_cohorts: int
@@ -628,8 +628,8 @@ def _create_dictionary(
 def wait_for_drain_to_stop(context: dagster.OpExecutionContext) -> None:
     """Block until no Postgres drain run executes, so the drain never runs while the sweep does.
 
-    Each side checks after its own run starts, so whichever checks second sees the other; the drain
-    stops before its next attempt, and a terminal status means no drain request is still in flight.
+    Each side checks after its own run starts, so the side that checks second always sees the other.
+    A drain run in a terminal status has no request in flight.
     """
     deadline = time.monotonic() + DRAIN_STOP_TIMEOUT_SECONDS
     while blockers := describe_runs(
@@ -795,8 +795,8 @@ def snapshot_orphaned_distinct_ids(
     run: CleanupRun,
 ) -> CleanupRun:
     """Resolve which distinct ids belong to the snapshotted persons, or tombstoned themselves."""
-    # Ahead of the persons dictionary, so a held-back person reaches neither delete nor the queue, and
-    # ahead of the distinct id snapshot, so a key aging past the floor in between only keeps its owner.
+    # Runs before the persons dictionary, so a held-back person reaches neither delete nor the queue.
+    # Runs before the distinct id snapshot, so a key that reaches the minimum age in between only delays its owner.
     deferred_before = cluster.any_host_by_role(
         partial(run.revived.count, settings=run.query_settings), NodeRole.DATA
     ).result()
@@ -1319,10 +1319,9 @@ def persist_deleted_persons(
 ) -> CleanupRun:
     """Hand the persons that delete_persons removed from ClickHouse to Postgres.
 
-    This op runs after that delete, so the drain never removes a Postgres person whose ClickHouse
-    rows are still there. If it fails after its retries, those persons stay in Postgres as
-    tombstones, which costs storage only: the failure hook counts it, and re-executing the run from
-    this op queues them while the snapshot is inside its TTL.
+    If this op fails after its retries, those persons stay in Postgres as tombstones, which costs
+    only storage. The failure hook counts it, and a re-execution from this op queues them while the
+    snapshot is inside its TTL.
 
     The queue is advisory, never authoritative. Rows sit here until the drain runs, so a person
     can be revived after being queued no matter how carefully this op checks. ClickHouse also
@@ -1488,7 +1487,7 @@ def _sweep_gauges(run: CleanupRun, completed_at: float) -> list[PublishedGauge]:
         ),
         PublishedGauge(
             name="posthog_clickhouse_deletion_sweep_deferred_persons",
-            help_text="Snapshotted persons held back because a distinct id they own waits for the tombstone age floor",
+            help_text="Snapshotted persons held back until a distinct id they own reaches the minimum tombstone age",
             value=run.deferred_person_count,
         ),
         PublishedGauge(
