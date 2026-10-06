@@ -629,6 +629,15 @@ def _build_template_context(
 
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
+            if user.team and (
+                not user_access_control.check_access_level_for_object(user.team, "member")
+                and user_permissions.team(user.team).effective_membership_level is None
+            ):
+                user.current_team = None
+                user.team = None
+                user.save(update_fields=["current_team"])
+                user_permissions = UserPermissions(user=user, team=None)
+                user_access_control = UserAccessControl(user=user, team=None)
             with tracer.start_as_current_span("template.rbac.effective"):
                 effective_access: dict[str, Any] = {}
                 for resource in ACCESS_CONTROL_RESOURCES:
