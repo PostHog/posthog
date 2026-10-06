@@ -592,7 +592,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # the filter. The outer fetch is deliberately left unfiltered — it still prefetches every
         # span of the selected traces so the waterfall gets its children.
         root_only = self.query.rootSpans is True
-        root_top_n = root_only and not by_duration
+        root_top_n = root_only and not by_duration and self.query.traceId is None
 
         subquery_where_exprs: list[ast.Expr] = [self.where()]
         if root_only:
@@ -724,7 +724,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         )
         assert isinstance(query, ast.SelectQuery)
 
-        if root_top_n and not self._unbounded_trace_lookup:
+        if root_top_n:
             assert query.where is not None
             query.where = ast.And(
                 exprs=[

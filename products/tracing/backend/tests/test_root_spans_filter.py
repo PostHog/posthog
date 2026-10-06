@@ -20,6 +20,7 @@ ROOT_NAME = "GET /api"
 CHILD_NAME = "redis_cluster.discovery"
 # Trace B: its root runs on service "worker" (won't match a "web" filter), but a child runs on "web".
 OTHER_ROOT_NAME = "POST /webhook"
+EARLY_CHILD_NAME = "queue.wait"
 
 
 def _b64(raw: bytes) -> str:
@@ -65,6 +66,7 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             _row(1, trace_a, root_a, "", ROOT_NAME, "web", 0),
             _row(2, trace_a, _b64((2).to_bytes(8, "big")), root_a, CHILD_NAME, "web", 10),
             _row(3, trace_a, _b64((3).to_bytes(8, "big")), root_a, "clickhouse.query", "web", 20),
+            _row(6, trace_a, _b64((6).to_bytes(8, "big")), root_a, EARLY_CHILD_NAME, "web", -5 * 60 * 1000),
             # Trace B: root on "worker" (won't match a "web" filter), child on "web" (will).
             _row(4, trace_b, root_b, "", OTHER_ROOT_NAME, "worker", 0),
             _row(5, trace_b, _b64((5).to_bytes(8, "big")), root_b, CHILD_NAME, "web", 10),
@@ -115,3 +117,15 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
             self.assertIn(OTHER_ROOT_NAME, names)
         else:
             self.assertNotIn(OTHER_ROOT_NAME, names)
+
+    def test_single_trace_lookup_keeps_children_that_start_before_the_root(self):
+        query = TraceSpansQuery(
+            dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            traceId=(1).to_bytes(16, "big").hex(),
+            orderBy="timestamp",
+            limit=1,
+            rootSpans=True,
+            prefetchSpans=20,
+        )
+        names = {r["name"] for r in TraceSpansQueryRunner(query, self.team).run().results}
+        self.assertEqual(names, {ROOT_NAME, CHILD_NAME, "clickhouse.query", EARLY_CHILD_NAME})
