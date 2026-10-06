@@ -19,11 +19,8 @@ const MAX_DEPTH: usize = 12;
 const SECRET_MIN_LENGTH: usize = 16;
 const SECRET_MIN_ENTROPY_BITS: f64 = 3.8;
 const SECRET_MIN_CHAR_CLASSES: u8 = 3;
-// Shorter values are prose, such as "the bearer of", and so is a word of up to 15 letters
-// that is lowercase or starts with a capital, such as "bearer transportation" or
-// "basic: Configuration". A random token mixes case or is longer than that. A `Basic`
-// credential of any length is still redacted when it decodes to `user:password`, e.g.
-// `YTpi` for `a:b`.
+// Shorter values are prose, such as "the bearer of". A `Basic` credential of any length is
+// still redacted when it decodes to `user:password`, e.g. `YTpi` for `a:b`.
 const AUTH_CREDENTIAL_MIN_LENGTH: usize = 8;
 const AUTH_PROSE_WORD_MAX_LENGTH: usize = 15;
 const PEM_PRIVATE_KEY_MARKER: &str = "PRIVATE KEY-----";
@@ -211,26 +208,56 @@ fn redact_embedded_credentials(value: &str) -> Cow<'_, str> {
     } else {
         Cow::Borrowed(value)
     };
-    let redacted = match AUTH_HEADER_CREDENTIALS.replace_all(&value, redact_auth_credential) {
-        Cow::Owned(redacted) => Some(redacted),
-        Cow::Borrowed(_) => None,
-    };
-    redacted.map_or(value, Cow::Owned)
+    match redact_auth_credentials(&value) {
+        Some(redacted) => Cow::Owned(redacted),
+        None => value,
+    }
 }
 
-fn redact_auth_credential(caps: &Captures) -> String {
+// `replace_all` cannot see the text after a match, and `is_auth_credential` needs it.
+fn redact_auth_credentials(value: &str) -> Option<String> {
+    let mut redacted = String::new();
+    let mut copied_up_to = 0;
+    for caps in AUTH_HEADER_CREDENTIALS.captures_iter(value) {
+        let whole = caps.get(0).expect("group 0 is the whole match");
+        if !is_auth_credential(&caps, &value[whole.end()..]) {
+            continue;
+        }
+        redacted.push_str(&value[copied_up_to..whole.start()]);
+        redacted.push_str(&caps[1]);
+        redacted.push_str(&caps[2]);
+        redacted.push_str(REDACTED);
+        copied_up_to = whole.end();
+    }
+    if copied_up_to == 0 {
+        return None;
+    }
+    redacted.push_str(&value[copied_up_to..]);
+    Some(redacted)
+}
+
+// A plain word of up to 15 letters is prose only when more text follows it, as in "Basic
+// Configuration loaded". At the end of a value, the same word looks exactly like a header
+// value such as "Bearer Sunflower", so it counts as a credential.
+fn is_auth_credential(caps: &Captures, rest: &str) -> bool {
     let credential = &caps[3];
-    let is_basic_pair = caps[1].eq_ignore_ascii_case("basic") && is_basic_credential(credential);
-    let is_prose_word = credential.len() <= AUTH_PROSE_WORD_MAX_LENGTH
+    if caps[1].eq_ignore_ascii_case("basic") && is_basic_credential(credential) {
+        return true;
+    }
+    if credential.len() < AUTH_CREDENTIAL_MIN_LENGTH {
+        return false;
+    }
+    let is_plain_word = credential.len() <= AUTH_PROSE_WORD_MAX_LENGTH
         && credential
             .bytes()
             .next()
             .is_some_and(|b| b.is_ascii_alphabetic())
         && credential.bytes().skip(1).all(|b| b.is_ascii_lowercase());
-    if !is_basic_pair && (credential.len() < AUTH_CREDENTIAL_MIN_LENGTH || is_prose_word) {
-        return caps[0].to_string();
-    }
-    format!("{}{}{REDACTED}", &caps[1], &caps[2])
+    let more_text_follows = rest.starts_with(char::is_whitespace)
+        && rest
+            .trim_start()
+            .starts_with(|c: char| c.is_ascii_alphabetic());
+    !(is_plain_word && more_text_follows)
 }
 
 fn is_basic_credential(credential: &str) -> bool {
@@ -401,6 +428,16 @@ mod tests {
                 json!({"value": format!("Bearer {REDACTED}://{REDACTED}@db.example.com/app")}),
             ),
             (
+                "one word that ends the value, like a header",
+                json!({"value": "Bearer Sunflower"}),
+                json!({"value": format!("Bearer {REDACTED}")}),
+            ),
+            (
+                "short fragment of a scheme and one word",
+                json!({"value": "basic: configuration"}),
+                json!({"value": format!("basic: {REDACTED}")}),
+            ),
+            (
                 "colon between the scheme and the credential",
                 json!({"value": format!("Bearer: {bearer_token}")}),
                 json!({"value": format!("Bearer: {REDACTED}")}),
@@ -468,9 +505,7 @@ mod tests {
             "design",
             "/signup?step=2",
             "the bearer of bad news",
-            "bearer transportation",
-            "basic: configuration",
-            "basic: Configuration",
+            "bearer transportation services",
             "Basic Configuration loaded",
             "basicConfig(level=10)",
             "550e8400-e29b-41d4-a716-446655440000",
