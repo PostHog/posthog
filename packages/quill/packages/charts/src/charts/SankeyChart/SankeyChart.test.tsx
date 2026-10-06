@@ -118,12 +118,36 @@ describe('SankeyChart', () => {
         expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }))
     })
 
-    it('recovers from an invalid graph when only a link endpoint is corrected', () => {
+    it('ignores hover and clicks from an interactive overlay child', async () => {
+        const onNodeClick = jest.fn()
+        const { chart } = renderHogChart(
+            <SankeyChart nodes={NODES} links={LINKS} theme={THEME} onNodeClick={onNodeClick}>
+                <button data-hog-charts-interactive-overlay>overlay</button>
+            </SankeyChart>,
+            { nativeTooltip: true }
+        )
+        await waitFor(() => {
+            fireEvent.mouseMove(chart.element, nodeCenter('a'))
+            expect(getHogChartTooltip()?.textContent).toContain('Tool A')
+        })
+        const overlay = chart.element.querySelector('[data-hog-charts-interactive-overlay]')!
+        fireEvent.mouseMove(overlay, nodeCenter('a'))
+        await waitFor(() => expect(getHogChartTooltip()).toBeNull())
+        fireEvent.click(overlay, nodeCenter('a'))
+        expect(onNodeClick).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        {
+            name: 'a link endpoint',
+            broken: { links: [LINKS[0], { source: 'a', target: 'missing', value: 12 }] },
+        },
+        { name: 'the node padding', broken: { config: { nodePadding: -1 } } },
+    ])('recovers from an invalid graph when only $name is corrected', ({ broken }) => {
         jest.spyOn(console, 'error').mockImplementation(() => {})
         const onError = jest.fn()
-        const broken: SankeyLinkInput[] = [LINKS[0], { source: 'a', target: 'missing', value: 12 }]
         const { container, rerender } = render(
-            <SankeyChart nodes={NODES} links={broken} theme={THEME} onError={onError} />
+            <SankeyChart nodes={NODES} links={LINKS} theme={THEME} onError={onError} {...broken} />
         )
         expect(onError).toHaveBeenCalled()
         expect(container.textContent).toContain('Something went wrong')

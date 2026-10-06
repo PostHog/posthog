@@ -136,12 +136,12 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
             const current = layoutRef.current
-            if (current.nodes.length === 0 || originatesInInteractiveOverlay(e)) {
+            if (current.nodes.length === 0) {
                 return
             }
             const rect = e.currentTarget.getBoundingClientRect()
             const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-            const hit = sankeyHitAt(current, cursor)
+            const hit = originatesInInteractiveOverlay(e) ? null : sankeyHitAt(current, cursor)
             if (!hit) {
                 clearTooltip()
                 return
@@ -173,6 +173,9 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
 
     const onClick = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
+            if (originatesInInteractiveOverlay(e)) {
+                return
+            }
             const current = layoutRef.current
             const rect = e.currentTarget.getBoundingClientRect()
             const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
