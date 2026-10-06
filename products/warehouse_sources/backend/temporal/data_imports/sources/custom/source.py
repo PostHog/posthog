@@ -379,9 +379,16 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
     from ``setup_incremental_object``, and an unsupported key as a ``TypeError`` from the
     engine's ``Incremental(**config)`` constructor.
     """
-    for resource in manifest.get("resources") or []:
-        if not isinstance(resource, dict):
-            continue
+    # The engine merges resource_defaults into every resource, so its incremental block
+    # reaches the same Incremental(**config) constructor.
+    defaults = manifest.get("resource_defaults")
+    blocks: list[tuple[str, dict[str, Any]]] = [("resource_defaults", defaults)] if isinstance(defaults, dict) else []
+    blocks += [
+        (f"Resource {resource.get('name')!r}", resource)
+        for resource in manifest.get("resources") or []
+        if isinstance(resource, dict)
+    ]
+    for label, resource in blocks:
         endpoint = resource.get("endpoint")
         incremental = endpoint.get("incremental") if isinstance(endpoint, dict) else None
         if not isinstance(incremental, dict):
@@ -389,20 +396,20 @@ def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
         unsupported = sorted(set(incremental) - _SUPPORTED_INCREMENTAL_KEYS)
         if unsupported:
             raise ManifestValidationError(
-                f"Resource {resource.get('name')!r}: endpoint.incremental has unsupported "
+                f"{label}: endpoint.incremental has unsupported "
                 f"{'keys' if len(unsupported) > 1 else 'key'} {', '.join(unsupported)}. "
                 f"Allowed keys: {', '.join(sorted(_SUPPORTED_INCREMENTAL_KEYS))}"
             )
         datetime_format = incremental.get("datetime_format")
         if datetime_format is not None and not isinstance(datetime_format, str):
             raise ManifestValidationError(
-                f"Resource {resource.get('name')!r}: endpoint.incremental.datetime_format must be a string "
+                f"{label}: endpoint.incremental.datetime_format must be a string "
                 'strftime pattern (e.g. "%Y-%m-%dT%H:%M:%SZ")'
             )
         start_param = incremental.get("start_param")
         if not isinstance(start_param, str) or not start_param:
             raise ManifestValidationError(
-                f"Resource {resource.get('name')!r}: endpoint.incremental.start_param is required and must be a "
+                f"{label}: endpoint.incremental.start_param is required and must be a "
                 "non-empty string naming the query parameter used to send the cursor value to the API"
             )
 
@@ -1255,7 +1262,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 *(_without_incremental_config(r) for r in chain.ancestors),
                 _strip_engine_unsupported_incremental_keys(chain.child),
             ]
-            engine_manifest = cast(RESTAPIConfig, {**manifest, "resources": engine_resources})
+            engine_manifest = cast(
+                RESTAPIConfig,
+                {**manifest, "resource_defaults": _engine_resource_defaults(manifest), "resources": engine_resources},
+            )
 
             # Backstop for manifests stored before create-time validation covered this: an
             # endpoint.incremental block missing start_param crashes the engine with a bare,
@@ -1271,12 +1281,17 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # Inside the try block: the engine raises deterministic ValueErrors at
             # build time for config problems the create-time checks can't see
             # (e.g. `include_from_parent` on a resource with no resolve param).
-            resources = rest_api_resources(
-                engine_manifest,
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-                db_incremental_field_last_value=last_value,
-            )
+            try:
+                resources = rest_api_resources(
+                    engine_manifest,
+                    team_id=inputs.team_id,
+                    job_id=inputs.job_id,
+                    db_incremental_field_last_value=last_value,
+                )
+            except TypeError as exc:
+                # The engine builds its config objects with `Class(**config)`, so a key it
+                # does not accept raises a TypeError. A retry cannot fix it.
+                raise ManifestValidationError(f"Invalid resource configuration: {exc}") from exc
         except CustomOAuth2Integration.DoesNotExist as exc:
             # The manifest points at an OAuth2 integration row that no longer resolves for this
             # team (deleted, wrong team, or a dangling auth_oauth2_integration_id). It's a permanent
@@ -1432,6 +1447,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             RESTAPIConfig,
             {
                 **manifest,
+                "resource_defaults": _engine_resource_defaults(manifest),
                 "resources": engine_resources,
                 "client": {
                     **client,
@@ -1450,9 +1466,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 job_id="custom-source-preview",
                 db_incremental_field_last_value=None,
             )
-        except ValueError as exc:
+        except (ValueError, TypeError) as exc:
             # Deterministic build-time config errors the create-time checks can't
-            # see (e.g. include_from_parent on a resource with no resolve param).
+            # see (e.g. include_from_parent on a resource with no resolve param, or
+            # a key that the engine's `Class(**config)` constructors do not accept).
             raise ManifestValidationError(str(exc)) from exc
 
         # Cap how many parent rows each fan-out ancestor emits. The engine issues one
@@ -2080,16 +2097,38 @@ def _format_incremental_cursor(value: Any, chosen: dict[str, Any]) -> Any:
 
 def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict[str, Any]:
     """Return a copy of ``resource`` with REST-engine-incompatible keys removed
-    from ``endpoint.incremental``. The input is left untouched so schema typing
-    can still read the full incremental config."""
+    from ``endpoint.incremental`` and from params-style ``{"type": "incremental"}``
+    specs. The input is left untouched so schema typing can still read the full
+    incremental config."""
     endpoint = resource.get("endpoint")
     if not isinstance(endpoint, dict):
         return resource
+    cleaned = dict(endpoint)
     incremental = endpoint.get("incremental")
-    if not isinstance(incremental, dict) or not _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS.intersection(incremental):
-        return resource
-    cleaned = exclude_keys(incremental, _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS)
-    return {**resource, "endpoint": {**endpoint, "incremental": cleaned}}
+    if isinstance(incremental, dict):
+        cleaned["incremental"] = exclude_keys(incremental, _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS)
+    params = endpoint.get("params")
+    if isinstance(params, dict):
+        cleaned["params"] = {
+            key: exclude_keys(value, _ENGINE_UNSUPPORTED_INCREMENTAL_KEYS)
+            if isinstance(value, dict) and value.get("type") == "incremental"
+            else value
+            for key, value in params.items()
+        }
+    return {**resource, "endpoint": cleaned}
+
+
+def _engine_resource_defaults(manifest: dict[str, Any]) -> dict[str, Any]:
+    """``resource_defaults`` with REST-engine-incompatible incremental keys removed.
+
+    The engine merges ``resource_defaults.endpoint`` into each resource, so its
+    incremental block reaches ``Incremental(**config)`` for every resource that
+    does not declare its own block.
+    """
+    defaults = manifest.get("resource_defaults")
+    if not isinstance(defaults, dict):
+        return {}
+    return _strip_engine_unsupported_incremental_keys(defaults)
 
 
 def _build_resource_graph(

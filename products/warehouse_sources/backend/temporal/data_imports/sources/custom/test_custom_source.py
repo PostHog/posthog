@@ -1790,6 +1790,64 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         threaded_incremental = mock_resources.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
         assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
 
+    @parameterized.expand(
+        [
+            (
+                "resource_defaults_incremental",
+                {"incremental": {"cursor_path": "updated_at", "start_param": "since", "cursor_type": "datetime"}},
+                {},
+            ),
+            (
+                "resource_defaults_params_style",
+                {"params": {"since": {"type": "incremental", "cursor_path": "updated_at", "cursor_type": "datetime"}}},
+                {},
+            ),
+            (
+                "resource_params_style",
+                {},
+                {"params": {"since": {"type": "incremental", "cursor_path": "updated_at", "cursor_type": "datetime"}}},
+            ),
+        ]
+    )
+    def test_cursor_type_outside_resource_incremental_builds_in_real_engine(
+        self, _name, defaults_endpoint, resource_endpoint
+    ):
+        manifest = _minimal_manifest()
+        manifest["resource_defaults"] = {"endpoint": defaults_endpoint}
+        manifest["resources"][0]["endpoint"].update(resource_endpoint)
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        response = source.source_for_pipeline(config, inputs)
+
+        assert response.name == "users"
+
+    def test_engine_type_error_raises_non_retryable(self):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["params"] = {
+            "since": {"type": "incremental", "cursor_path": "updated_at", "upstream_row_order": "asc"}
+        }
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        inputs = MagicMock(
+            team_id=999,
+            schema_name="users",
+            job_id="job-1",
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+        )
+        with self.assertRaises(NonRetryableException) as ctx:
+            source.source_for_pipeline(config, inputs)
+        assert "upstream_row_order" in str(ctx.exception)
+
 
 class TestCustomSourceNonRetryableErrors(SimpleTestCase):
     def test_missing_resource_message_is_classified_non_retryable(self):
@@ -2629,6 +2687,19 @@ class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
         assert ok is False
         assert err is not None and "upstream_row_order" in err and "'users'" in err
 
+    def test_unsupported_key_in_resource_defaults_rejected_at_validation(self):
+        manifest = _minimal_manifest()
+        manifest["resource_defaults"] = {
+            "endpoint": {
+                "incremental": {"cursor_path": "updated_at", "start_param": "since", "upstream_row_order": "asc"}
+            }
+        }
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "upstream_row_order" in err and "resource_defaults" in err
+
 
 class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
     def _manifest(self) -> dict:
@@ -2762,6 +2833,11 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         manifest = _minimal_manifest()
         manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
         manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
+        manifest["resource_defaults"] = {
+            "endpoint": {
+                "incremental": {"cursor_path": "updated_at", "start_param": "since", "cursor_type": "datetime"}
+            }
+        }
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
         source.preview_resource(config, team_id=999, resource_name="users")
@@ -2770,6 +2846,10 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         endpoint = engine_manifest["resources"][0]["endpoint"]
         assert endpoint["paginator"] == {"type": "single_page"}
         assert "incremental" not in endpoint
+        assert engine_manifest["resource_defaults"]["endpoint"]["incremental"] == {
+            "cursor_path": "updated_at",
+            "start_param": "since",
+        }
         assert isinstance(engine_manifest["client"]["session"], _PreviewSession)
         assert engine_manifest["client"]["max_retries"] == 1
         assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] is None
