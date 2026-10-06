@@ -14,7 +14,6 @@ import { userLogic } from 'scenes/userLogic'
 import { UserType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
-import { MCPHintToast } from './MCPHintToast'
 import type { SurfaceKey } from './prompts'
 
 export type MCPHintPlacement = 'toast' | 'card'
@@ -292,7 +291,7 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
         userRole: [(s) => [s.user], (user: UserType | null): string | null => user?.role_at_organization ?? null],
     }),
     listeners(({ values, actions }) => ({
-        tryShowHint: ({ surfaceKey, derivedPrompt }) => {
+        tryShowHint: async ({ surfaceKey, derivedPrompt }) => {
             const now = Date.now()
             const sinceLast = values.lastShownAt ? now - values.lastShownAt : Infinity
             const cooldownActive = values.lastShownAt !== null && sinceLast < COOLDOWN_MS
@@ -301,7 +300,12 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
                 return
             }
 
+            // Record the hint before the toast module loads, so a second action in that gap cannot show a second hint.
+            actions.recordShown(now)
             try {
+                // Many logics import this one to call tryShowMCPHint, so a static import would load the
+                // toast and the agent prompt button with every one of them, including in Jest setup.
+                const { MCPHintToast } = await import('./MCPHintToast')
                 const toastId = `mcp-hint-${surfaceKey}-${now}`
                 toast.info(<MCPHintToast surfaceKey={surfaceKey} derivedPrompt={derivedPrompt} toastId={toastId} />, {
                     toastId,
@@ -326,7 +330,6 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
                         />
                     ),
                 })
-                actions.recordShown(now)
                 actions.reportMCPHintShown(surfaceKey)
             } catch (error) {
                 console.warn('[mcpHint] toast render failed', { surfaceKey, error })

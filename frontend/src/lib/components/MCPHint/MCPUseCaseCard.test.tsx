@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import * as clipboard from 'lib/utils/copyToClipboard'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { initKeaTests } from '~/test/init'
 
@@ -10,23 +10,26 @@ import { mcpHintLogic } from './mcpHintLogic'
 import { MCPUseCaseCard } from './MCPUseCaseCard'
 import { getSurfacePrompts } from './prompts'
 
+jest.mock('lib/utils/copyToClipboard', () => ({
+    copyToClipboard: jest.fn().mockResolvedValue(true),
+}))
+
 describe('MCPUseCaseCard', () => {
     beforeEach(() => {
         initKeaTests()
-        jest.restoreAllMocks()
+        jest.clearAllMocks()
         mcpHintLogic.mount()
     })
 
     afterEach(cleanup)
 
     it('copies a surface configured to display a prompt', () => {
-        const copySpy = jest.spyOn(clipboard, 'copyToClipboard').mockResolvedValue(true)
         const [prompt] = getSurfacePrompts('ai_observability_evaluations.create').examples
 
         render(<MCPUseCaseCard surfaceKey="ai_observability_evaluations.create" forceDisplay />)
         fireEvent.click(screen.getByLabelText('Copy to clipboard'))
 
-        expect(copySpy).toHaveBeenCalledWith(prompt, 'prompt')
+        expect(copyToClipboard).toHaveBeenCalledWith(prompt, 'prompt')
     })
 
     it('keeps a single dynamic SQL example in the list display', () => {
