@@ -21,7 +21,7 @@ enabled: true
 #   members:  every author, no per-user opt-in needed.
 authors: opted_in
 
-# Review draft pull requests.
+# Review draft pull requests. With false, the first review runs when the pull request is marked ready for review.
 drafts: true
 
 # Start a new review on every push to an open pull request, not only when it opens.
@@ -30,10 +30,11 @@ pushes: true
 # fnmatch patterns the pull request's base branch must match.
 base_branches: ['*']
 
-# A pull request carrying any of these labels is skipped.
+# A pull request carrying any of these labels is skipped. Label names are compared without regard to case.
 skip_labels: ['no-reviewhog']
 
-# fnmatch patterns on the author's GitHub login (case-insensitive).
+# Patterns on the author's GitHub login, compared without regard to case. `*` and `?` are wildcards
+# and brackets are literal, so `*[bot]` matches every GitHub App bot.
 ignore_authors: []
 
 flash:
@@ -46,6 +47,7 @@ instructions: ''
 
 Unknown keys make the file invalid.
 An empty file is valid and means every default above.
+A key with no value means that key's default.
 
 ## What happens when the file is wrong
 

@@ -109,6 +109,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
             ("opened", True, "PostHog/posthog"),
             ("synchronize", False, "PostHog/posthog"),
             ("synchronize", True, "PostHog/posthog"),
+            ("ready_for_review", False, "PostHog/posthog"),
             ("opened", False, "PostHog/posthog-js"),
         ]
     )
@@ -159,7 +160,6 @@ class TestAuthoredPRWebhook(SimpleTestCase):
     @parameterized.expand(
         [
             ("label", ("action",), "labeled"),
-            ("ready_for_review", ("action",), "ready_for_review"),
             ("closed", ("pull_request", "state"), "closed"),
             ("merged", ("pull_request", "merged"), True),
             ("fork", ("pull_request", "head", "repo", "full_name"), "octocat/posthog"),
@@ -258,7 +258,7 @@ class TestAuthoredPRReviewTask(BaseTest):
         ]
     )
     @patch(_START)
-    def test_config_gates_run_before_author_checks(
+    def test_config_gates_run_before_the_opt_in_check(
         self, _name: str, config: object, expected_outcome: str, start: MagicMock
     ) -> None:
         if isinstance(config, Exception):
@@ -312,6 +312,8 @@ class TestAuthoredPRReviewTask(BaseTest):
 
         start.assert_not_called()
         assert _dispatch_count(expected_outcome) - outcome_before == 1.0
+        if expected_outcome == "author_unmapped":
+            self.load_config.assert_not_called()
 
     @parameterized.expand(
         [

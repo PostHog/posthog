@@ -27,6 +27,11 @@ class TestParseRepositoryConfig(SimpleTestCase):
         assert config.flash_reasoning_effort is None
         assert config.skip_reason(**_EVENT) is None
 
+    def test_a_key_with_no_value_means_its_default(self) -> None:
+        config = parse_repository_config("base_branches:\nskip_labels:\nignore_authors:\nflash:\ninstructions:\n")
+
+        assert config == RepositoryReviewConfig()
+
     def test_every_option_is_read(self) -> None:
         config = parse_repository_config(
             "enabled: true\nauthors: members\ndrafts: false\npushes: false\nbase_branches: ['release/*']\n"
@@ -59,11 +64,14 @@ class TestParseRepositoryConfig(SimpleTestCase):
             ("draft", "drafts: false", {"draft": True}, "draft_skipped"),
             ("draft_allowed_by_default", "", {"draft": True}, None),
             ("push", "pushes: false", {"action": "synchronize"}, "push_skipped"),
+            ("ready_after_draft_reviews", "", {"action": "ready_for_review"}, "ready_for_review_skipped"),
+            ("ready_starts_the_first_review", "drafts: false", {"action": "ready_for_review"}, None),
             ("base_branch", "base_branches: ['main', 'release/*']", {"base_ref": "master"}, "base_branch_skipped"),
             ("base_branch_glob", "base_branches: ['main', 'release/*']", {"base_ref": "release/1"}, None),
             ("default_skip_label", "", {"labels": ("no-reviewhog",)}, "label_skipped"),
             ("custom_skip_label", "skip_labels: ['chore']", {"labels": ("no-reviewhog", "chore")}, "label_skipped"),
             ("custom_skip_label_replaces_default", "skip_labels: ['chore']", {"labels": ("no-reviewhog",)}, None),
+            ("skip_label_ignores_case", "", {"labels": ("No-ReviewHog",)}, "label_skipped"),
             (
                 "ignored_author_glob",
                 "ignore_authors: ['*[bot]']",

@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, ValidationInfo, field_validator
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import Integration
@@ -25,7 +25,13 @@ AuthorsPolicy = Literal["opted_in", "members"]
 # The values of `ReviewUserSettings.FlashReasoningEffort`, so a config effort can replace a user's.
 FlashEffort = Literal["medium", "xhigh"]
 SkipReason = Literal[
-    "config_disabled", "draft_skipped", "push_skipped", "base_branch_skipped", "label_skipped", "author_ignored"
+    "config_disabled",
+    "draft_skipped",
+    "push_skipped",
+    "ready_for_review_skipped",
+    "base_branch_skipped",
+    "label_skipped",
+    "author_ignored",
 ]
 
 MAX_INSTRUCTIONS_CHARS = 4_000
@@ -34,8 +40,7 @@ MAX_INSTRUCTIONS_CHARS = 4_000
 def _login_matches(login: str, pattern: str) -> bool:
     # Bot logins end in "[bot]", which fnmatch would read as a character class, so brackets are
     # literal here: only "*" and "?" are wildcards in an `ignore_authors` pattern.
-    literal_brackets = re.sub(r"[\[\]]", lambda match: "[[]" if match.group() == "[" else "[]]", pattern.lower())
-    return fnmatch.fnmatchcase(login.lower(), literal_brackets)
+    return fnmatch.fnmatchcase(login.lower(), re.sub(r"[\[\]]", r"[\g<0>]", pattern.lower()))
 
 
 class RepositoryConfigError(ValueError):
@@ -64,7 +69,8 @@ class RepositoryReviewConfig(BaseModel):
     pushes: bool = True
     # fnmatch patterns against the pull request's base branch name.
     base_branches: list[str] = Field(default_factory=lambda: ["*"])
-    # A pull request carrying any of these labels is not reviewed.
+    # A pull request carrying any of these labels is not reviewed. GitHub label names are unique
+    # without regard to case, so the comparison ignores case too.
     skip_labels: list[str] = Field(default_factory=lambda: ["no-reviewhog"])
     # Patterns against the author's GitHub login, compared case-insensitively; "*" and "?" are
     # wildcards and brackets are literal, so "*[bot]" matches every GitHub App bot.
@@ -72,6 +78,15 @@ class RepositoryReviewConfig(BaseModel):
     flash: FlashConfig = Field(default_factory=FlashConfig)
     # Repository-wide guidance added to every review perspective's prompt.
     instructions: str = Field(default="", max_length=MAX_INSTRUCTIONS_CHARS)
+
+    @field_validator("*", mode="before")
+    @classmethod
+    def _empty_value_means_default(cls, value: object, info: ValidationInfo) -> object:
+        # YAML reads a key with no value (`ignore_authors:`) as null. That is the key's default,
+        # not an invalid file that stops every review in the repository.
+        if value is not None or info.field_name is None:
+            return value
+        return cls.model_fields[info.field_name].get_default(call_default_factory=True)
 
     @property
     def author_opt_in_required(self) -> bool:
@@ -91,9 +106,14 @@ class RepositoryReviewConfig(BaseModel):
             return "draft_skipped"
         if action == "synchronize" and not self.pushes:
             return "push_skipped"
+        # Drafts are reviewed as they open and change, so the head is already covered when the
+        # pull request is marked ready. Only a repository that skips drafts starts a review here.
+        if action == "ready_for_review" and self.drafts:
+            return "ready_for_review_skipped"
         if not any(fnmatch.fnmatchcase(base_ref, pattern) for pattern in self.base_branches):
             return "base_branch_skipped"
-        if any(label in self.skip_labels for label in labels):
+        skip_labels = {label.lower() for label in self.skip_labels}
+        if any(label.lower() in skip_labels for label in labels):
             return "label_skipped"
         if any(_login_matches(author_login, pattern) for pattern in self.ignore_authors):
             return "author_ignored"

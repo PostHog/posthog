@@ -15,27 +15,19 @@ from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.repository_config import (
     RepositoryConfigError,
     RepositoryReviewConfig,
+    SkipReason,
     load_repository_config,
 )
 
 logger = logging.getLogger(__name__)
 _otel = OtelInstrumentFactory("review_hog")
 
-AuthoredPRReviewOutcome = Literal[
-    "no_team",
-    "installation_mismatch",
-    "no_config",
-    "config_invalid",
-    "config_disabled",
-    "draft_skipped",
-    "push_skipped",
-    "base_branch_skipped",
-    "label_skipped",
-    "author_ignored",
-    "author_unmapped",
-    "not_opted_in",
-    "started",
-]
+AuthoredPRReviewOutcome = (
+    Literal[
+        "no_team", "installation_mismatch", "no_config", "config_invalid", "author_unmapped", "not_opted_in", "started"
+    ]
+    | SkipReason
+)
 
 # A rejected dispatch returns normally, so Celery records the task as successful and no workflow
 # starts to report the skip. Without this counter a misconfigured deploy, a drifted installation
@@ -65,7 +57,7 @@ def _full_name(value: object) -> str | None:
 def _label_names(value: object) -> tuple[str, ...]:
     if not isinstance(value, list):
         return ()
-    return tuple(str(name) for name in (_mapping(label).get("name") for label in value) if isinstance(name, str))
+    return tuple(name for name in (_mapping(label).get("name") for label in value) if isinstance(name, str))
 
 
 def automatic_review_allowed(*, team_id: int, user_id: int, require_opt_in: bool = True) -> bool:
@@ -100,7 +92,7 @@ class AuthoredPRReview:
     @classmethod
     def from_payload(cls, payload: Mapping[str, object]) -> "AuthoredPRReview | None":
         action = payload.get("action")
-        if action not in ("opened", "synchronize"):
+        if action not in ("opened", "synchronize", "ready_for_review"):
             return None
         pull_request = _mapping(payload.get("pull_request"))
         if pull_request.get("state") != "open" or pull_request.get("merged"):
@@ -197,6 +189,19 @@ class AuthoredPRReview:
             )
             _observe_dispatch("installation_mismatch")
             return
+        # Resolved before the config is read: a bot or outside contributor is the common author
+        # across the installation, and rejecting one here costs a database query instead of a
+        # GitHub API call against the installation's shared budget.
+        author = resolve_org_github_login_to_users(team_id, [self.author_login]).get(self.author_login)
+        if author is None:
+            logger.info(
+                "PR author '%s' is not a PostHog org user on team %s; skipping automatic review of %s",
+                self.author_login,
+                team_id,
+                self.pr_url,
+            )
+            _observe_dispatch("author_unmapped")
+            return
         config = self._load_config(integration)
         if config is None:
             return
@@ -209,16 +214,6 @@ class AuthoredPRReview:
         )
         if skip_reason is not None:
             _observe_dispatch(skip_reason)
-            return
-        author = resolve_org_github_login_to_users(team_id, [self.author_login]).get(self.author_login)
-        if author is None:
-            logger.info(
-                "PR author '%s' is not a PostHog org user on team %s; skipping automatic review of %s",
-                self.author_login,
-                team_id,
-                self.pr_url,
-            )
-            _observe_dispatch("author_unmapped")
             return
         # The high-volume branch: most authors on a repository have not opted in. The counter
         # carries the signal, so this one stays out of the logs.

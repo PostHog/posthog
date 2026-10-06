@@ -231,7 +231,7 @@ class ResolveActingUserInput:
     default_user_id: int | None = None
     # The repository config's say on an automatic turn (`RepositoryReviewPolicy`): whether the
     # author's own opt-in gates the review, and a Flash effort that replaces their setting.
-    # Defaulted to the pre-config behavior so old in-flight payloads keep gating on the opt-in.
+    # Defaulted so payloads serialized before the fields existed still gate on the opt-in.
     author_opt_in_required: bool = True
     flash_reasoning_effort_override: str | None = None
 
