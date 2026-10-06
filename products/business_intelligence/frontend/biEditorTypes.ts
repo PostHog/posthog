@@ -1033,7 +1033,7 @@ function buildOrderByExpression(
     return `${firstValueAlias} DESC`
 }
 
-export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
+export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQueryBuildResult | null {
     config = normalizeBIConfig(config)
     if (!config.source || config.filters.some(getBIFilterValidationError)) {
         return null
@@ -1097,7 +1097,8 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
         queryParts.push(`ORDER BY\n    ${orderByExpression}`)
     }
 
-    queryParts.push(`LIMIT ${normalizeBIConfig(config).limit}`)
+    const resultLimit = normalizeBIConfig(config).limit + (probeForMoreRows ? 1 : 0)
+    queryParts.push(`LIMIT ${resultLimit}`)
 
     let query = queryParts.join('\n')
 
@@ -1150,10 +1151,10 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
                 `WHERE\n    ${[previous ? placeholder.replace('{filters', '{filters.previous') : placeholder, ...filters.map((filter) => `(${filter})`)].join('\n    AND ')}`,
                 ...(expressions.length ? [`GROUP BY ${[...expressions, 'bi_comparison'].join(', ')}`] : []),
                 ...(comparisonOrder ? [`ORDER BY ${comparisonOrder}`] : []),
-                `LIMIT ${config.limit}`,
+                `LIMIT ${resultLimit}`,
             ].join('\n')
         }
-        query = `(${buildPeriod(false)})\nUNION ALL\n(${buildPeriod(true)})`
+        query = `SELECT * FROM ((${buildPeriod(false)})\nUNION ALL\n(${buildPeriod(true)})) LIMIT ${resultLimit}`
         seriesSettings = {
             xAxis: { column: xDimension?.alias ?? 'bi_comparison' },
             xAxisLabel: xDimension ? getBIFieldPillLabel(xDimension.field) : 'Period',
@@ -1194,6 +1195,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
             from: escapePropertyAsHogQLIdentifier(config.source.table),
             where: where(false),
             orderBy: orderByExpression,
+            resultLimit,
             ...(comparing
                 ? {
                       previousWhere: where(true),
@@ -1241,7 +1243,6 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
             source: {
                 kind: NodeKind.HogQLQuery,
                 query,
-                limit: config.limit,
                 connectionId: config.source.connectionId,
                 sendRawQuery: undefined,
                 filters: getBIQueryFilters(config),

@@ -138,20 +138,6 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert normal_response.hasMore is None
         assert query.query.endswith("LIMIT 3 OFFSET 2")
 
-    @parameterized.expand([(3, False, False), (4, True, False), (3, False, True), (4, True, True)])
-    def test_response_limit_probes_one_extra_row(self, row_count: int, has_more: bool, union: bool) -> None:
-        sql = f"SELECT arrayJoin(range({row_count})) AS value ORDER BY value LIMIT 3"
-        if union:
-            sql = f"SELECT * FROM ({sql.replace('LIMIT 3', 'LIMIT 2')}) UNION ALL SELECT 2 AS value"
-            if has_more:
-                sql += " UNION ALL SELECT 3 AS value"
-        query = HogQLQuery(query=sql, limit=3)
-        response = self._create_runner(query).calculate()
-        assert len(response.results) == len(set(response.results)) == 3
-        assert set(response.results) <= {(value,) for value in range(row_count)}
-        assert response.hasMore is has_more
-        assert query.query == sql
-
     def test_hogql_query_filters(self):
         runner = self._create_runner(
             HogQLQuery(

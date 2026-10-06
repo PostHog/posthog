@@ -28,6 +28,7 @@ import { shouldQueryBeAsync } from '~/queries/utils'
 import { ChartDisplayType, ExportContext, ExporterFormat, InsightLogicProps } from '~/types'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+import { getBIVisualizationSource } from 'products/business_intelligence/frontend/biQueryResults'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
@@ -116,7 +117,7 @@ export function DataTableVisualization({
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: query.source,
+        query: getBIVisualizationSource(query),
         key: vizKey,
         cachedResults,
         loadPriority: insightProps.loadPriority,
@@ -137,7 +138,8 @@ export function DataTableVisualization({
         sourceQuery: query,
         setQuery: setQuery,
         onUpdate: (query: VisualizationNode) => {
-            loadData(shouldQueryBeAsync(query.source) ? 'force_async' : 'force_blocking', undefined, query.source)
+            const source = getBIVisualizationSource(query)
+            loadData(shouldQueryBeAsync(source) ? 'force_async' : 'force_blocking', undefined, source)
         },
     }
 

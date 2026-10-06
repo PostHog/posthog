@@ -66,6 +66,7 @@ export interface BIAnalysisInput {
     from: string
     where: string
     orderBy: string | null
+    resultLimit?: number
     previousWhere?: string
     previousDimensions?: string[]
 }
@@ -255,5 +256,5 @@ export function buildBIAnalysisQuery(config: BIConfig, input: BIAnalysisInput): 
             break
         }
     }
-    return `WITH ${ctes.join(',\n')}\nSELECT ${select.join(', ')} FROM ${totals ? 'bi_ranked' : 'bi_calculated'} AS bi_result${totals ? ` WHERE bi_grouping = 0 OR bi_rank <= ${Math.floor(config.limit / 2)}` : ''}${totals || order ? ` ORDER BY ${[...(totals ? ['bi_grouping DESC'] : []), ...(order ? [order] : [])].join(', ')}` : ''} LIMIT ${config.limit}`
+    return `WITH ${ctes.join(',\n')}\nSELECT ${select.join(', ')} FROM ${totals ? 'bi_ranked' : 'bi_calculated'} AS bi_result${totals ? ` WHERE bi_grouping = 0 OR bi_rank <= ${Math.floor(config.limit / 2)}` : ''}${totals || order ? ` ORDER BY ${[...(totals ? ['bi_grouping DESC'] : []), ...(order ? [order] : [])].join(', ')}` : ''} LIMIT ${input.resultLimit ?? config.limit}`
 }

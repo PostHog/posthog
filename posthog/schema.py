@@ -30375,13 +30375,6 @@ class HogQLQuery(BaseModel):
         ),
     )
     kind: Literal["HogQLQuery"] = "HogQLQuery"
-    limit: conint(ge=1) | None = Field(
-        default=None,
-        description=(
-            "Cap returned rows and probe for hasMore when the execution limit permits"
-            " it. Overrides the outer SQL LIMIT."
-        ),
-    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = Field(default=None, description="Client provided name of the query")
     query: str

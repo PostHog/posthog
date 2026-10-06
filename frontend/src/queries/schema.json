@@ -29685,10 +29685,6 @@
                     "const": "HogQLQuery",
                     "type": "string"
                 },
-                "limit": {
-                    "$ref": "#/definitions/positive_integer",
-                    "description": "Cap returned rows and probe for hasMore when the execution limit permits it. Overrides the outer SQL LIMIT."
-                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"

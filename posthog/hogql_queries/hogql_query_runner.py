@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
@@ -276,11 +276,6 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         paginator = None
         if self.limit_context == LimitContext.SQL_ALERT:
-            paginator = HogQLHasMorePaginator.from_alert_query(query, limit_context=self.limit_context)
-        elif self.query.limit is not None:
-            if isinstance(query, ast.SelectSetQuery):
-                query = ast.SelectQuery(select=[ast.Field(chain=["*"])], select_from=ast.JoinExpr(table=query))
-            query.limit = ast.Constant(value=min(self.query.limit, get_max_limit_for_context(self.limit_context)))
             paginator = HogQLHasMorePaginator.from_alert_query(query, limit_context=self.limit_context)
         elif isinstance(query, ast.SelectQuery) and not query.limit:
             paginator = HogQLHasMorePaginator.from_limit_context(limit_context=self.limit_context)

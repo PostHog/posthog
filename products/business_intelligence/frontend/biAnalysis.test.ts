@@ -28,7 +28,8 @@ describe('BI analysis queries', () => {
         const parsed = parseBIEditorState(BIEditorView.BI, JSON.stringify(worksheet))!.config
         expect(parsed.values[0].tableCalculation).toEqual({ type, window: 7 })
         const result = buildBIQuery(parsed)!
-        expect(result.node.source.limit).toBe(worksheet.limit)
+        expect(result.query).toMatch(new RegExp(`LIMIT ${worksheet.limit}$`))
+        expect(buildBIQuery(parsed, true)!.query).toMatch(new RegExp(`LIMIT ${worksheet.limit + 1}$`))
         expect(result.query).toContain('OVER (PARTITION BY bi_column_event')
         expect(result.query.match(/LIMIT/g)).toHaveLength(1)
         if (type === 'percent_change' || type === 'percent_of_total') {
@@ -87,6 +88,28 @@ describe('BI analysis queries', () => {
         expect(result.query).toContain('GROUPING SETS ((bi_row_number, bi_column_event), ())')
         expect(result.query).toContain('WHERE bi_grouping = 0 OR bi_rank <= 50')
         expect(result.query).toContain('ORDER BY bi_grouping DESC, bi_result.bi_row_number ASC LIMIT 100')
+        const probe = buildBIQuery(
+            { ...config, chartType: ChartDisplayType.ActionsTable, limit: 100, totals: { rows: true } },
+            true
+        )!
+        expect(probe.query).toContain('WHERE bi_grouping = 0 OR bi_rank <= 50')
+        expect(probe.query).toMatch(/LIMIT 101$/)
+    })
+
+    it('probes beyond the combined comparison limit without changing the saved query', () => {
+        const worksheet: BIConfig = {
+            ...config,
+            limit: 100,
+            dateRange: { date_from: '-7d' },
+            compareFilter: { compare: true },
+        }
+        const saved = buildBIQuery(worksheet)!
+        const probe = buildBIQuery(worksheet, true)!
+        expect(saved.query).toMatch(/^SELECT \* FROM \(/)
+        expect(saved.query).toMatch(/\)\) LIMIT 100$/)
+        expect(probe.query).toContain('UNION ALL')
+        expect(probe.query.match(/LIMIT 101/g)).toHaveLength(3)
+        expect(probe.query).toMatch(/\)\) LIMIT 101$/)
     })
 
     it.each([undefined, '-1y'])(
