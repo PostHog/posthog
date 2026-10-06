@@ -7,9 +7,6 @@ where each product declares what counts as its data, and it caches its answer pe
 
 from __future__ import annotations
 
-import structlog
-from pydantic import ValidationError
-
 from posthog.data_freshness import get_organization_data_freshness
 from posthog.models import Team
 from posthog.schema_enums import ProductKey
@@ -17,8 +14,6 @@ from posthog.schema_enums import ProductKey
 from products.signals.backend.artefact_schemas import SourceSuggestion
 from products.signals.backend.enums import SuggestedSourceProduct
 from products.signals.backend.models import SignalReportArtefact
-
-logger = structlog.get_logger(__name__)
 
 
 def _opted_in(team: Team, product: SuggestedSourceProduct) -> bool:
@@ -51,20 +46,8 @@ def unused_suggestable_products(team: Team) -> list[SuggestedSourceProduct]:
 
 def current_source_suggestion(team: Team, report_id: str) -> SourceSuggestion | None:
     """The report's latest suggestion, or None when it has none or the team now uses the product."""
-    artefact = (
-        SignalReportArtefact.objects.filter(
-            team_id=team.id, report_id=report_id, type=SignalReportArtefact.ArtefactType.SOURCE_SUGGESTION
-        )
-        .order_by("-created_at")
-        .only("id", "content")
-        .first()
-    )
-    if artefact is None:
-        return None
-    try:
-        suggestion = SourceSuggestion.model_validate_json(artefact.content)
-    except ValidationError:
-        logger.warning("signals.source_suggestion.invalid_content", report_id=report_id, artefact_id=str(artefact.id))
+    suggestion = SignalReportArtefact.latest_content(team_id=team.id, report_id=report_id, model=SourceSuggestion)
+    if suggestion is None:
         return None
     if suggestion.product not in unused_suggestable_products(team):
         return None
