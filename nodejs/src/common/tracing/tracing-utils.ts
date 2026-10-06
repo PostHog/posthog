@@ -106,14 +106,15 @@ export interface DetachedSpan {
 }
 
 /** The span is not made active: work in another async context nests under it through `parentContext`. */
-export function startDetachedSpan(name: string, attrs: Attributes): DetachedSpan | undefined {
+export function startDetachedSpan(name: string, attrs: Attributes, parent?: Context): DetachedSpan | null {
     if (defaultConfig.DISABLE_OPENTELEMETRY_TRACING) {
-        return undefined
+        return null
     }
+    const parentContext = parent ?? context.active()
     const span = trace
         .getTracer('instrumented_function')
-        .startSpan(name, { kind: SpanKind.CLIENT, attributes: attrs, startTime: getHighResTimestamp() })
-    return { span, parentContext: trace.setSpan(context.active(), span) }
+        .startSpan(name, { kind: SpanKind.CLIENT, attributes: attrs, startTime: getHighResTimestamp() }, parentContext)
+    return { span, parentContext: trace.setSpan(parentContext, span) }
 }
 
 export function runInContext<T>(ctx: Context | undefined, fn: () => Promise<T>): Promise<T> {

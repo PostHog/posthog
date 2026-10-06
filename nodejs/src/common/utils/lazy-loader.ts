@@ -1,7 +1,7 @@
 import { Attributes } from '@opentelemetry/api'
 import { Counter, Gauge } from 'prom-client'
 
-import { instrumentFn, setSpanAttributes } from '~/common/tracing/tracing-utils'
+import { instrumentFn, setSpanAttributes, withTracingSpan } from '~/common/tracing/tracing-utils'
 
 import { defaultConfig } from '../config/config'
 import { logger } from './logger'
@@ -233,71 +233,75 @@ export class LazyLoader<T> {
      * If the value is older than the refreshAge, it is loaded from the database.
      */
     private async loadViaCache(keys: string[], options?: LoadOptions): Promise<Record<string, T | null>> {
-        // No prototype, for the same reason as the cache: keys are caller-supplied, and this
-        // object is handed back to callers who may iterate or spread it.
-        const results: Record<string, T | null> = Object.create(null)
-        const keysToLoad = new Set<string>()
+        return await instrumentFn({ key: `lazyLoader.loadViaCache`, tag: this.options.name, span: false }, async () => {
+            // No prototype, for the same reason as the cache: keys are caller-supplied, and this
+            // object is handed back to callers who may iterate or spread it.
+            const results: Record<string, T | null> = Object.create(null)
+            const keysToLoad = new Set<string>()
 
-        for (const key of keys) {
-            const cached = this.cache[key]
+            for (const key of keys) {
+                const cached = this.cache[key]
 
-            if (cached !== undefined) {
-                results[key] = cached.value
-                cached.lastUsed = Date.now()
+                if (cached !== undefined) {
+                    results[key] = cached.value
+                    cached.lastUsed = Date.now()
 
-                const cacheUntil = cached.cacheUntil
-                const backgroundRefreshAfter = cached.backgroundRefreshAfter
+                    const cacheUntil = cached.cacheUntil
+                    const backgroundRefreshAfter = cached.backgroundRefreshAfter
 
-                if (Date.now() > cacheUntil) {
+                    if (Date.now() > cacheUntil) {
+                        keysToLoad.add(key)
+                        lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+                        continue
+                    }
+
+                    if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
+                        void this.load([key]).catch((err) => {
+                            logger.warn(`[LazyLoader:${this.options.name}] Background refresh failed`, {
+                                key,
+                                error: String(err),
+                            })
+                        })
+                        lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit_background' }).inc()
+                        continue
+                    }
+                } else {
                     keysToLoad.add(key)
                     lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
                     continue
                 }
 
-                if (backgroundRefreshAfter && Date.now() > backgroundRefreshAfter) {
-                    void this.load([key]).catch((err) => {
-                        logger.warn(`[LazyLoader:${this.options.name}] Background refresh failed`, {
-                            key,
-                            error: String(err),
-                        })
-                    })
-                    lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit_background' }).inc()
-                    continue
-                }
-            } else {
-                keysToLoad.add(key)
-                lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
-                continue
+                lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
             }
 
-            lazyLoaderCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
-        }
-
-        // No span for a full cache hit: with one span per lookup, hits outnumber every other span in a trace.
-        return await instrumentFn(
-            { key: `lazyLoader.loadViaCache`, tag: this.options.name, span: keysToLoad.size > 0 },
-            async () => {
-                if (keysToLoad.size === 0) {
-                    lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
-                    return results
-                }
-
-                lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
-
-                // A span that only waits on another caller's in-flight load has no query child of its
-                // own, so record the distinction here or it looks like a slow cache lookup.
-                const allPending = Array.from(keysToLoad).every((key) => this.pendingLoads[key] !== undefined)
-                setSpanAttributes(this.spanAttributes(keys, keysToLoad, allPending ? 'waited_pending' : 'loaded'))
-
-                await this.load(Array.from(keysToLoad), options)
-
-                for (const key of keys) {
-                    results[key] = this.cache[key]?.value ?? null
-                }
-
+            if (keysToLoad.size === 0) {
+                lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
                 return results
             }
-        )
+
+            lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+
+            // Only a miss gets a span: with one span per lookup, hits outnumber every other span in a trace.
+            return await withTracingSpan(
+                'instrumented_function',
+                'lazyLoader.loadViaCache',
+                { tag: this.options.name },
+                async () => {
+                    // A span that only waits on another caller's in-flight load has no query child of its
+                    // own, so record the distinction here or it looks like a slow cache lookup.
+                    const allPending = Array.from(keysToLoad).every((key) => this.pendingLoads[key] !== undefined)
+                    setSpanAttributes(this.spanAttributes(keys, keysToLoad, allPending ? 'waited_pending' : 'loaded'))
+
+                    await this.load(Array.from(keysToLoad), options)
+
+                    for (const key of keys) {
+                        results[key] = this.cache[key]?.value ?? null
+                    }
+
+                    return results
+                }
+            )
+        })
     }
 
     private spanAttributes(keys: string[], keysToLoad: Set<string>, outcome: LazyLoaderSpanOutcome): Attributes {

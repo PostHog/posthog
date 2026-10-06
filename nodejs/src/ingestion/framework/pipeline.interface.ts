@@ -58,10 +58,7 @@ export type PipelineContext<C = { message: Message }> = C & {
      * `C` narrows the type via its own `debugContext` declaration.
      */
     debugContext?: unknown
-    /**
-     * Trace context of the batch this item belongs to. Steps parent their spans on it, because
-     * the pump that runs them is a shared loop and not the batch's own async context.
-     */
+    /** The batch's trace context. Steps parent on it because the pump that runs them is a shared loop. */
     traceContext?: Context
     /**
      * Work that outlives the step, drained with the batch. A side effect must

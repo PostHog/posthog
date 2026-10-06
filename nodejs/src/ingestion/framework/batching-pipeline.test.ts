@@ -484,5 +484,46 @@ describe('BatchingPipeline', () => {
             expect(hookSpans).toHaveLength(4)
             expect(hookSpans.map(parentOf).sort()).toEqual([...batchSpanIds, ...batchSpanIds].sort())
         })
+
+        it('gives every batch in a mixed chunk its own chunk span', async () => {
+            function tagChunk(values: any[]): Promise<ReturnType<typeof ok>[]> {
+                return Promise.resolve(values.map((value) => ok(value)))
+            }
+            const collector = newBatchingPipeline<any, any, MsgCtx>(
+                (builder) => builder.pipe(beforeBatchStep),
+                (builder) => builder.pipeChunk(tagChunk),
+                (builder) => builder.pipe(afterBatchStep),
+                { concurrentBatches: Infinity }
+            )
+
+            await collector.feed(makeBatch([1, 2]), {})
+            await collector.feed(makeBatch([3]), {})
+            await drainAll(collector)
+
+            const spans = exporter.getFinishedSpans()
+            const batchSpanIds = spans
+                .filter((span) => span.name === 'batchingPipeline.batch')
+                .map((span) => span.spanContext().spanId)
+            const chunkSpans = spans.filter((span) => span.name === 'tagChunk')
+            expect(chunkSpans.map((span) => span.attributes.chunk_size)).toEqual([3, 3])
+            expect(chunkSpans.map((span) => span.parentSpanContext?.spanId).sort()).toEqual([...batchSpanIds].sort())
+        })
+
+        it('ends the batch span when the pull fails', async () => {
+            function failStep(): Promise<never> {
+                return Promise.reject(new Error('boom'))
+            }
+            const collector = newBatchingPipeline<any, any, MsgCtx>(
+                (builder) => builder.pipe(beforeBatchStep),
+                (builder) => builder.concurrently((b) => b.pipe(failStep)),
+                (builder) => builder.pipe(afterBatchStep),
+                { concurrentBatches: Infinity }
+            )
+
+            await collector.feed(makeBatch([1]), {})
+            await expect(drainAll(collector)).rejects.toThrow('boom')
+
+            expect(exporter.getFinishedSpans().map((span) => span.name)).toContain('batchingPipeline.batch')
+        })
     })
 })

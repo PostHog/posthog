@@ -77,7 +77,7 @@ interface TrackedBatch<TOutput, CBatch, COutput, R extends string = never, CFeed
     inflight: Set<number>
     results: Map<number, PipelineResultWithContext<TOutput, COutput, R>>
     beforeSideEffects: Promise<unknown>[]
-    trace?: DetachedSpan
+    trace: DetachedSpan | null
 }
 
 /**
@@ -299,7 +299,14 @@ export class BatchingPipeline<
         // With one concurrent batch the caller is already sequential, so the
         // mutex is uncontended. Group processing started by the pump runs
         // concurrently in the background regardless of who holds the pump.
-        return this.pumpLimit(() => this.pump())
+        return this.pumpLimit(() =>
+            this.pump().catch((error: unknown) => {
+                for (const batch of this.batches.values()) {
+                    batch.trace?.span.end()
+                }
+                throw error
+            })
+        )
     }
 
     private async pump(): Promise<BatchResult<
