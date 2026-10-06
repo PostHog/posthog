@@ -348,9 +348,9 @@ class TemplateGlobalsValidator(TraversingVisitor):
         if arity is None:
             # The globals check never sees this name, because a call is not a field. Without this the
             # template compiles, and the VM refuses the call on every event that reaches it.
-            # print and the async functions are left out of the runtime table, but the Node VM has
-            # them. Whether an input may call an async function is a separate question.
-            if node.name != "print" and node.name not in CORE_SUPPORTED_FUNCTIONS | PRODUCT_ASYNC_FUNCTIONS:
+            # print is left out of the runtime table, but the Node VM has it. The async functions
+            # (fetch, postHogCapture, product ones) are not exempt: inputs run without them.
+            if node.name != "print":
                 self.invalid_calls.append(f"{node.name} is not a function inputs can use")
             return
         minimum, maximum = arity
