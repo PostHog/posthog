@@ -56,20 +56,20 @@ class TestDiscordTransport(SimpleTestCase):
     def test_only_a_url_discord_issues_is_posted_to(self, _name: str, url: str, posted: bool) -> None:
         target = cast(AlertDestinationData, {"type": "discord", "webhook_url": url})
 
-        with pinned_post(204) as session:
+        with pinned_post(204) as adapter:
             if posted:
                 DiscordTransport().deliver(team_id=2, target=target, message=alert_message())
             else:
                 with pytest.raises(DeliveryError):
                     DiscordTransport().deliver(team_id=2, target=target, message=alert_message())
 
-        assert session.post.called is posted
+        assert bool(adapter.sent) is posted
 
     def test_a_send_waits_for_discord_to_save_the_message(self) -> None:
         url = "https://discord.com/api/webhooks/123/not-a-real-token?thread_id=456"
         target = cast(AlertDestinationData, {"type": "discord", "webhook_url": url})
 
-        with pinned_post(200) as session:
+        with pinned_post(200) as adapter:
             DiscordTransport().deliver(team_id=2, target=target, message=alert_message())
 
-        assert session.post.call_args.args[0] == f"{url}&wait=true"
+        assert adapter.sent[-1].url == f"{url}&wait=true"
