@@ -605,6 +605,7 @@ interface OrganizationMetadata {
 }
 
 export interface OrganizationType extends OrganizationBasicType {
+    membership_joined_at?: string | null
     created_at: string
     updated_at: string
     plugins_access_level: PluginsAccessLevel
