@@ -210,6 +210,7 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
         hasUnsavedChanges,
         nonEmptyVariants,
         hasEarlyAccessFeatures,
+        isSaveInProgress,
     } = useValues(logic)
     const { loadFeatureFlag, setFeatureFlagFilters, submitFeatureFlagWithValidation } = useActions(logic)
 
@@ -242,7 +243,7 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
                         flagId={id}
                         filters={featureFlag.filters}
                         onChange={setFeatureFlagFilters}
-                        readOnly={!!editingDisabledReason}
+                        readOnly={!!editingDisabledReason || isSaveInProgress}
                         variants={nonEmptyVariants}
                         isDisabled={!featureFlag.active}
                         bucketingIdentifier={featureFlag.bucketing_identifier}
@@ -260,6 +261,7 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
                             onClick={() => loadFeatureFlag()}
                             disabledReason={
                                 editingDisabledReason ??
+                                (isSaveInProgress ? 'Saving…' : undefined) ??
                                 (!hasUnsavedChanges ? 'There are no unsaved changes.' : undefined)
                             }
                         >
@@ -268,7 +270,7 @@ function FeatureFlagCompactEditor({ attributes }: NotebookNodeProps<FeatureFlagN
                         <LemonButton
                             type="primary"
                             size="small"
-                            loading={featureFlagLoading}
+                            loading={isSaveInProgress}
                             onClick={() => submitFeatureFlagWithValidation(featureFlag)}
                             disabledReason={
                                 editingDisabledReason ??
