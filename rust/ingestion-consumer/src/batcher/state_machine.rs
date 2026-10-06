@@ -325,23 +325,24 @@ impl ActiveState {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
         let returned_count = returned.len();
-        let outcomes = sent
-            .resolve(returned)
-            .map_err(|err| format!("invalid response: {err}"))?;
-        if accepted as usize != sent.message_count - returned_count {
-            return Err(format!(
-                "worker accepted {accepted} of {} messages but returned {returned_count}",
-                sent.message_count
-            ));
-        }
+        let message_count = sent.message_count;
+        let assignment_epoch = sent.class.assignment_epoch;
         effects.worker_outcomes.push(WorkerOutcome {
             worker: sent.worker.clone(),
             fault: false,
         });
+        let outcomes = sent
+            .resolve(returned)
+            .map_err(|err| format!("invalid response: {err}"))?;
+        if accepted as usize != message_count - returned_count {
+            return Err(format!(
+                "worker accepted {accepted} of {message_count} messages but returned {returned_count}"
+            ));
+        }
         if accepted > 0 {
             self.last_progress = now;
         }
-        effects.completions = completions(sent.class.assignment_epoch, &outcomes);
+        effects.completions = completions(assignment_epoch, &outcomes);
         effects.key_acks = key_acks(&outcomes);
         let retry_at = self.retry.retry_at(now, RetryReason::Returned);
         for outcome in outcomes {
@@ -376,13 +377,13 @@ impl ActiveState {
                 sent.message_count
             ));
         }
-        let outcomes = sent
-            .resolve(messages)
-            .map_err(|err| format!("invalid failed request: {err}"))?;
         effects.worker_outcomes.push(WorkerOutcome {
             worker: sent.worker.clone(),
             fault: cause == FailureCause::Fault,
         });
+        let outcomes = sent
+            .resolve(messages)
+            .map_err(|err| format!("invalid failed request: {err}"))?;
         let retry_at = self.retry.retry_at(
             now,
             match cause {

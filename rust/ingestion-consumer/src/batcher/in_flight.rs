@@ -123,9 +123,20 @@ impl InFlightRequest {
     /// worker processes a key's messages in order. A response that breaks
     /// this is a protocol error.
     pub fn resolve(
-        &self,
+        self,
         returned: Vec<SerializedKafkaMessage>,
     ) -> Result<Vec<KeyOutcome>, ResolveError> {
+        if returned.is_empty() {
+            return Ok(self
+                .runs
+                .into_iter()
+                .map(|run| KeyOutcome {
+                    routing_key: run.routing_key,
+                    accepted: run.messages,
+                    returned: Vec::new(),
+                })
+                .collect());
+        }
         let mut position: HashMap<(&str, i32, i64), (usize, usize)> = HashMap::new();
         for (run_index, run) in self.runs.iter().enumerate() {
             for (message_index, message) in run.messages.iter().enumerate() {
@@ -159,8 +170,9 @@ impl InFlightRequest {
             returned_by_run[run_index].push((message_index, message));
         }
 
+        drop(position);
         self.runs
-            .iter()
+            .into_iter()
             .zip(returned_by_run)
             .map(|(run, mut returned)| {
                 returned.sort_by_key(|(message_index, _)| *message_index);
@@ -171,12 +183,14 @@ impl InFlightRequest {
                     .all(|(rank, (message_index, _))| *message_index == first_returned + rank);
                 if !is_suffix {
                     return Err(ResolveError::NotASuffix {
-                        routing_key: run.routing_key.clone(),
+                        routing_key: run.routing_key,
                     });
                 }
+                let mut accepted = run.messages;
+                accepted.truncate(first_returned);
                 Ok(KeyOutcome {
-                    routing_key: run.routing_key.clone(),
-                    accepted: run.messages[..first_returned].to_vec(),
+                    routing_key: run.routing_key,
+                    accepted,
                     returned: returned.into_iter().map(|(_, message)| message).collect(),
                 })
             })
