@@ -58,10 +58,12 @@ from products.logs.backend.alert_destinations import (
     LOGS_DESTINATION_TYPES,
 )
 from products.logs.backend.alert_state_machine import (
+    FIRING_STATES,
     AlertCheckOutcome,
     AlertSnapshot,
     AlertState,
     CheckResult,
+    IncidentCloseReason,
     InvalidTransition,
     NotificationAction,
     apply_disable,
@@ -73,7 +75,12 @@ from products.logs.backend.alert_state_machine import (
     apply_user_reset,
     evaluate_alert_check,
 )
-from products.logs.backend.facade.api import next_allowed_check_at
+from products.logs.backend.facade.api import (
+    close_incident,
+    close_incident_on_commit,
+    has_incident_destination,
+    next_allowed_check_at,
+)
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
@@ -563,6 +570,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # state at all. All transitions return an Outcome; apply_outcome is the single
             # place that actually writes to `state`/`consecutive_failures`.
             snapshot = instance.to_snapshot()
+            state_before = instance.state
+            close_reason: IncidentCloseReason | None = None
             if enabled_change is True:
                 if instance.first_enabled_at is None:
                     instance.first_enabled_at = timezone.now()
@@ -571,13 +580,19 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 apply_outcome(instance, apply_enable(snapshot), kind=LogsAlertEvent.Kind.ENABLE)
             elif enabled_change is False:
                 apply_outcome(instance, apply_disable(snapshot), kind=LogsAlertEvent.Kind.DISABLE)
+                close_reason = IncidentCloseReason.DISABLED
             elif snooze_data is not _SENTINEL:
                 if snooze_data is None:
                     apply_outcome(instance, apply_unsnooze(snapshot), kind=LogsAlertEvent.Kind.UNSNOOZE)
                 else:
                     apply_outcome(instance, apply_snooze(snapshot), kind=LogsAlertEvent.Kind.SNOOZE)
+                    close_reason = IncidentCloseReason.SNOOZED
             elif threshold_changed:
                 apply_outcome(instance, apply_threshold_change(snapshot), kind=LogsAlertEvent.Kind.THRESHOLD_CHANGE)
+                close_reason = IncidentCloseReason.CONFIG_CHANGED
+            # The edge check inside decides whether a close goes out, so a new branch above that forgets
+            # its reason still closes the incident.
+            close_incident_on_commit(instance, state_before, close_reason or IncidentCloseReason.CONFIG_CHANGED)
 
             # snooze_until is a timestamp column, not a state — carry it alongside the state
             # transition so the serializer's single save persists both.
@@ -1373,6 +1388,10 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._track("updated", serializer.save())
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
+        if instance.state in FIRING_STATES and has_incident_destination(instance):
+            # Best effort. The delete below removes the functions that would deliver this close, and the
+            # CDP consumer drops events for deleted functions, so the close often goes unsent.
+            close_incident(instance, IncidentCloseReason.DELETED)
         with transaction.atomic():
             locked_instance = (
                 LogsAlertConfiguration.objects.select_for_update()

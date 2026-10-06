@@ -29,7 +29,6 @@ from posthog.sync import database_sync_to_async_pool
 
 from products.alerts.backend.facade.destinations import (
     alert_internal_event_delivered,
-    configured_destination_template_ids,
     flush_alert_internal_events,
     produce_alert_internal_event,
 )
@@ -49,6 +48,7 @@ from products.logs.backend.alert_error_classifier import (
     AlertErrorCode,
     classify as classify_alert_error,
 )
+from products.logs.backend.alert_incidents import close_incident, has_incident_destination, incident_closed_properties
 from products.logs.backend.alert_signal_emitter import (
     NotifiedAlert,
     emit_alert_state_change_signal,
@@ -511,7 +511,9 @@ def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
             return
         if incident_edge(state_seen, AlertState.BROKEN) == IncidentEdge.CLOSED:
             alert_for_close = LogsAlertConfiguration.objects.get(pk=alert_id)
-            if _has_incident_destination(alert_for_close) and not _close_incident_for_bad_config(alert_for_close):
+            if has_incident_destination(alert_for_close) and not close_incident(
+                alert_for_close, IncidentCloseReason.BROKEN, flush_timeout_seconds=NOTIFICATION_FLUSH_TIMEOUT_SECONDS
+            ):
                 logger.warning("Deferring BROKEN until the incident close is delivered", alert_id=alert_id)
                 return
         with transaction.atomic():
@@ -542,20 +544,6 @@ def _mark_alert_broken_for_bad_config(alert_id: str, reason: str) -> None:
             error=str(e),
         )
         capture_exception(e)
-
-
-def _close_incident_for_bad_config(alert: LogsAlertConfiguration) -> bool:
-    """Send the close for an alert about to break on bad config. Return whether the broker took it."""
-    produce_result = _emit_incident_closed_event(alert, IncidentCloseReason.BROKEN, datetime.now(UTC))
-    if produce_result is None:
-        return False
-    flush_alert_internal_events(NOTIFICATION_FLUSH_TIMEOUT_SECONDS)
-    return alert_internal_event_delivered(
-        produce_result,
-        team_id=alert.team_id,
-        alert_id=str(alert.id),
-        event_name=LOGS_ALERT_INCIDENT_CLOSED_EVENT,
-    )
 
 
 def _cohort_manifests_from_alerts(
@@ -1115,7 +1103,7 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
         date_to=evaluation.date_to,
     )
     edge = incident_edge(evaluation.state_before, evaluation.outcome.new_state)
-    incident_expected = edge is not None and _has_incident_destination(evaluation.alert)
+    incident_expected = edge is not None and has_incident_destination(evaluation.alert)
     incident_produce_result = _dispatch_incident_edge(edge, evaluation, now) if edge and incident_expected else None
     enqueue_failed = (evaluation.outcome.notification != NotificationAction.NONE and produce_result is None) or (
         incident_expected and incident_produce_result is None
@@ -1125,21 +1113,6 @@ def _dispatch_for_alert(evaluation: _AlertEvaluation, now: datetime) -> _Dispatc
         notification_failed=enqueue_failed,
         produce_result=produce_result,
         incident_produce_result=incident_produce_result,
-    )
-
-
-def _has_incident_destination(alert: LogsAlertConfiguration) -> bool:
-    """Whether a destination of this alert follows the incident kinds.
-
-    An alert without one sends no incident events, so a lost incident event can never roll back a
-    notification its Slack, Teams or webhook destinations already received.
-    """
-    return bool(
-        configured_destination_template_ids(
-            team_id=alert.team_id,
-            alert_id=str(alert.id),
-            allowed_event_ids=(LOGS_ALERT_INCIDENT_OPENED_EVENT, LOGS_ALERT_INCIDENT_CLOSED_EVENT),
-        )
     )
 
 
@@ -1643,13 +1616,7 @@ def _emit_incident_closed_event(
     reason: IncidentCloseReason,
     now: datetime,
 ) -> ProduceResult | None:
-    properties = {
-        "alert_id": str(alert.id),
-        "alert_name": alert.name,
-        "team_id": alert.team_id,
-        "reason": reason.value,
-        "triggered_at": now.isoformat(),
-    }
+    properties = incident_closed_properties(alert, reason, now)
     return _produce_alert_internal_event(alert, LOGS_ALERT_INCIDENT_CLOSED_EVENT, properties, now)
 
 

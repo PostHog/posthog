@@ -49,7 +49,8 @@ export const LOGS_ALERT_EVENT_KIND_META: Record<LogsAlertEventKind, { label: str
     },
     incident_closed: {
         label: 'Resolve incident',
-        description: 'Resolves the incident when the alert stops firing or is auto-disabled.',
+        description:
+            'Resolves the incident when the alert stops firing, including when you disable, snooze, or edit it, or it is auto-disabled.',
     },
 }
 

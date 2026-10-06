@@ -2188,7 +2188,7 @@ class TestDiscoverCohortsActivity(NonAtomicBaseTest):
         )
         _add_incident_destination(broken)
 
-        with patch("products.logs.backend.temporal.activities.produce_alert_internal_event") as mock_produce:
+        with patch("products.logs.backend.alert_incidents.produce_alert_internal_event") as mock_produce:
             if not close_delivered:
                 mock_produce.return_value.get.side_effect = TimeoutError("undelivered")
             result = asyncio.run(discover_cohorts_activity(DiscoverCohortsInput()))
