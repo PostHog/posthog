@@ -466,6 +466,7 @@ the row lists both.
 | knock                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | knowbe4                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | kommo                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| komodor                          | HTTP                        | requests                                                        | ✅                          |
 | koyeb                            | HTTP                        | requests                                                        | ✅                          |
 | kong_konnect                     | HTTP                        | requests                                                        | ✅                          |
 | kubecost                         | HTTP                        | requests                                                        | ✅                          |
@@ -1216,7 +1217,6 @@ doesn't conflict with concurrent PRs.
 - kion
 - kissmetrics
 - klarna
-- komodor
 - koyeb
 - kyve
 - labelbox
