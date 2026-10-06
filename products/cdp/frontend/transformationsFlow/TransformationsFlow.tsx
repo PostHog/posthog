@@ -1,7 +1,8 @@
 import '@xyflow/react/dist/style.css'
 
-import { Background, BackgroundVariant, Controls, NodeTypes, ReactFlow } from '@xyflow/react'
+import { Background, BackgroundVariant, Controls, NodeTypes, ReactFlow, useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
@@ -10,8 +11,20 @@ import { themeLogic } from 'lib/logic/themeLogic'
 import { transformationsFlowLogic } from './transformationsFlowLogic'
 import { TransformationsFlowNode } from './TransformationsFlowNode'
 import { TransformationsFlowPanel } from './TransformationsFlowPanel'
+import { FlowNode } from './transformationsFlowUtils'
 
 const NODE_TYPES: NodeTypes = { flowStep: TransformationsFlowNode }
+const FIT_VIEW_OPTIONS = { padding: 0.15, maxZoom: 1 }
+
+// React Flow fits the view only on the first render. Fit it again when a step is added or removed,
+// so that the whole flow stays visible after a transformation is enabled or disabled.
+function FitViewOnNodeCountChange({ nodeCount }: { nodeCount: number }): null {
+    const { fitView } = useReactFlow()
+    useEffect(() => {
+        void fitView(FIT_VIEW_OPTIONS)
+    }, [nodeCount, fitView])
+    return null
+}
 
 export function TransformationsFlow(): JSX.Element {
     const { graph, transformations, transformationsLoading } = useValues(transformationsFlowLogic)
@@ -41,20 +54,23 @@ export function TransformationsFlow(): JSX.Element {
                         nodes={graph.nodes}
                         edges={graph.edges}
                         nodeTypes={NODE_TYPES}
-                        onNodeClick={(_, node) => selectStep(node.id)}
+                        onNodeClick={(_, node: FlowNode) =>
+                            node.data.step.kind !== 'disabled_label' && selectStep(node.id)
+                        }
                         onPaneClick={() => selectStep(null)}
                         nodesDraggable={false}
                         nodesConnectable={false}
                         elementsSelectable={false}
                         colorMode={isDarkModeOn ? 'dark' : 'light'}
                         fitView
-                        fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+                        fitViewOptions={FIT_VIEW_OPTIONS}
                         minZoom={0.25}
                         maxZoom={1.5}
                         proOptions={{ hideAttribution: true }}
                     >
                         <Background gap={36} variant={BackgroundVariant.Dots} />
                         <Controls showInteractive={false} />
+                        <FitViewOnNodeCountChange nodeCount={graph.nodes.length} />
                     </ReactFlow>
                 </div>
                 <div className="w-120 shrink-0 @max-[56rem]/transformations-flow:w-full">

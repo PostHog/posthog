@@ -197,7 +197,13 @@ export function HogFunctionConfiguration({
                                             disabled={loading}
                                             bordered
                                             fullWidth
-                                            label={type === 'transformation_log' ? 'Enable' : 'Enable destination'}
+                                            label={
+                                                type === 'transformation_log'
+                                                    ? 'Enable'
+                                                    : type === 'transformation'
+                                                      ? 'Enable transformation'
+                                                      : 'Enable destination'
+                                            }
                                             tooltip={
                                                 <>
                                                     {type === 'transformation_log'

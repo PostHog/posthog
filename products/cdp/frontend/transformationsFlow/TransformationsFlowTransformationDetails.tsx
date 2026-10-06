@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { HogFunctionConfiguration } from 'scenes/hog-functions/configuration/HogFunctionConfiguration'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
@@ -10,8 +10,7 @@ import { urls } from 'scenes/urls'
 import { HogFunctionType } from '~/types'
 
 import { transformationsFlowLogic } from './transformationsFlowLogic'
-
-const CONFIGURATION_LOGIC_KEY = 'transformations-flow'
+import { CONFIGURATION_LOGIC_KEY } from './transformationsFlowUtils'
 
 export function TransformationsFlowTransformationDetails({
     hogFunction,
@@ -21,7 +20,7 @@ export function TransformationsFlowTransformationDetails({
     position: number
 }): JSX.Element {
     const { orderedTransformations, transformationsLoading } = useValues(transformationsFlowLogic)
-    const { moveTransformation, syncTransformation } = useActions(transformationsFlowLogic)
+    const { moveTransformation, syncTransformation, setTransformationEnabled } = useActions(transformationsFlowLogic)
     const { hogFunction: savedHogFunction } = useValues(
         hogFunctionConfigurationLogic({ id: hogFunction.id, logicKey: CONFIGURATION_LOGIC_KEY })
     )
@@ -58,6 +57,28 @@ export function TransformationsFlowTransformationDetails({
                     data-attr="transformations-flow-move-later"
                 >
                     Move later
+                </LemonButton>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    status="danger"
+                    loading={transformationsLoading}
+                    onClick={() =>
+                        LemonDialog.open({
+                            title: `Disable ${hogFunction.name}?`,
+                            description:
+                                'Events stop going through this transformation. You can enable it again later, but then it runs last.',
+                            primaryButton: {
+                                children: 'Disable',
+                                status: 'danger',
+                                onClick: () => setTransformationEnabled({ hogFunction, enabled: false }),
+                            },
+                            secondaryButton: { children: 'Cancel' },
+                        })
+                    }
+                    data-attr="transformations-flow-disable"
+                >
+                    Disable
                 </LemonButton>
                 <LemonButton size="small" type="tertiary" to={urls.hogFunction(hogFunction.id)}>
                     Open full page

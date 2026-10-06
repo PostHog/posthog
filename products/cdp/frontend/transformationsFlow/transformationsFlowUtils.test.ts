@@ -1,6 +1,15 @@
+import type { FilterNode } from 'scenes/data-pipelines/event-filtering/eventFilterLogic'
+
 import { CyclotronJobTestInvocationResult, HogFunctionType } from '~/types'
 
-import { TestEvent, getTestStepResult, moveTransformation, sortByExecutionOrder } from './transformationsFlowUtils'
+import {
+    EventFilterConfig,
+    TestEvent,
+    getEventFilterStepResult,
+    getTestStepResult,
+    moveTransformation,
+    sortByExecutionOrder,
+} from './transformationsFlowUtils'
 
 const transformation = (id: string, execution_order: number | undefined, created_at: string): HogFunctionType =>
     ({ id, name: id, execution_order, created_at, enabled: true, type: 'transformation' }) as HogFunctionType
@@ -59,5 +68,38 @@ describe('transformationsFlowUtils', () => {
     ])('getTestStepResult maps a %s response', (_, response, expectedOutcome, expectedOutput) => {
         const result = getTestStepResult(EVENT, { logs: [], ...response } as CyclotronJobTestInvocationResult)
         expect(result).toMatchObject({ outcome: expectedOutcome, output: expectedOutput })
+    })
+
+    const DROP_PAGEVIEWS: FilterNode = {
+        type: 'or',
+        children: [{ type: 'condition', field: 'event_name', operator: 'exact', value: '$pageview' }],
+    }
+
+    it.each([
+        ['a live filter that matches drops the event', { mode: 'live', filter_tree: DROP_PAGEVIEWS }, 'dropped', null],
+        [
+            'a dry run filter that matches keeps the event',
+            { mode: 'dry_run', filter_tree: DROP_PAGEVIEWS },
+            'counted',
+            EVENT,
+        ],
+        ['a disabled filter keeps the event', { mode: 'disabled', filter_tree: DROP_PAGEVIEWS }, 'kept', EVENT],
+        [
+            'a live filter that does not match keeps the event',
+            {
+                mode: 'live',
+                filter_tree: {
+                    type: 'or',
+                    children: [{ type: 'condition', field: 'distinct_id', operator: 'exact', value: 'bot' }],
+                },
+            },
+            'kept',
+            EVENT,
+        ],
+    ])('getEventFilterStepResult: %s', (_, eventFilter, expectedOutcome, expectedOutput) => {
+        expect(getEventFilterStepResult(EVENT, eventFilter as EventFilterConfig | null)).toMatchObject({
+            outcome: expectedOutcome,
+            output: expectedOutput,
+        })
     })
 })

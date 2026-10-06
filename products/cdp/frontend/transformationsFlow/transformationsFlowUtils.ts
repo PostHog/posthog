@@ -2,11 +2,23 @@ import type { Edge, Node } from '@xyflow/react'
 
 import type { LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { objectsEqual } from 'lib/utils/objects'
-import type { EventFilterMode } from 'scenes/data-pipelines/event-filtering/eventFilterLogic'
+import {
+    type EventFilterMode,
+    type FilterNode,
+    evaluateFilterTree,
+} from 'scenes/data-pipelines/event-filtering/eventFilterLogic'
 
 import { CyclotronJobTestInvocationResult, HogFunctionType, LogEntry } from '~/types'
 
-export type FlowStepKind = 'capture' | 'event_filtering' | 'transformation' | 'add' | 'person_processing' | 'stored'
+export type FlowStepKind =
+    | 'capture'
+    | 'event_filtering'
+    | 'transformation'
+    | 'add'
+    | 'person_processing'
+    | 'stored'
+    | 'disabled_label'
+    | 'disabled_transformation'
 
 export type FlowStep = {
     id: string
@@ -24,7 +36,12 @@ export type TestEvent = {
     properties: Record<string, any>
 }
 
-export type TestStepOutcome = 'changed' | 'unchanged' | 'skipped' | 'dropped' | 'error' | 'passed'
+export type TestStepOutcome = 'changed' | 'unchanged' | 'skipped' | 'dropped' | 'error' | 'passed' | 'kept' | 'counted'
+
+export type EventFilterConfig = {
+    mode: EventFilterMode
+    filter_tree: FilterNode | null
+}
 
 export type TestStepResult = {
     outcome: TestStepOutcome
@@ -45,6 +62,10 @@ export const EVENT_FILTERING_STEP_ID = 'event_filtering'
 export const ADD_STEP_ID = 'add'
 export const PERSON_PROCESSING_STEP_ID = 'person_processing'
 export const STORED_STEP_ID = 'stored'
+export const DISABLED_LABEL_STEP_ID = 'disabled_label'
+
+// Shared by the panel and the logic, so that both use the same configuration form instance.
+export const CONFIGURATION_LOGIC_KEY = 'transformations-flow'
 
 export const EVENT_FILTER_MODE_TAGS: Record<EventFilterMode, { label: string; type: LemonTagType }> = {
     live: { label: 'On', type: 'success' },
@@ -55,6 +76,7 @@ export const EVENT_FILTER_MODE_TAGS: Record<EventFilterMode, { label: string; ty
 export const FLOW_NODE_WIDTH = 288
 export const FLOW_NODE_HEIGHT = 64
 const FLOW_NODE_GAP = 40
+const FLOW_COLUMN_GAP = 96
 
 export function getStepText(step: FlowStep): { title: string; description: string } {
     switch (step.kind) {
@@ -73,6 +95,10 @@ export function getStepText(step: FlowStep): { title: string; description: strin
                 title: step.hogFunction?.name ?? 'Transformation',
                 description: `Step ${step.position}${step.hogFunction?.description ? ` · ${step.hogFunction.description}` : ''}`,
             }
+        case 'disabled_label':
+            return { title: 'Disabled transformations', description: 'Events do not go through these' }
+        case 'disabled_transformation':
+            return { title: step.hogFunction?.name ?? 'Transformation', description: 'Disabled · Does not run' }
     }
 }
 
@@ -117,7 +143,40 @@ export function buildFlowSteps(orderedTransformations: HogFunctionType[]): FlowS
     ]
 }
 
-export function buildFlowGraph(steps: FlowStep[]): { nodes: FlowNode[]; edges: Edge[] } {
+export function buildDisabledSteps(disabledTransformations: HogFunctionType[]): FlowStep[] {
+    if (disabledTransformations.length === 0) {
+        return []
+    }
+    return [
+        { id: DISABLED_LABEL_STEP_ID, kind: 'disabled_label' },
+        ...disabledTransformations.map(
+            (hogFunction): FlowStep => ({ id: hogFunction.id, kind: 'disabled_transformation', hogFunction })
+        ),
+    ]
+}
+
+/**
+ * The flow is one column, from capture at the top to storage at the bottom.
+ * Disabled transformations go in a second column next to the transformations, with no edges,
+ * because events never go through them.
+ */
+export function buildFlowGraph(steps: FlowStep[], disabledSteps: FlowStep[]): { nodes: FlowNode[]; edges: Edge[] } {
+    const firstTransformationRow = steps.findIndex((step) => step.kind === 'transformation' || step.kind === 'add')
+    const disabledNodes = disabledSteps.map(
+        (step, index): FlowNode => ({
+            id: step.id,
+            type: 'flowStep',
+            position: {
+                x: FLOW_NODE_WIDTH + FLOW_COLUMN_GAP,
+                y: (firstTransformationRow + index) * (FLOW_NODE_HEIGHT + FLOW_NODE_GAP),
+            },
+            data: { step },
+            width: FLOW_NODE_WIDTH,
+            height: FLOW_NODE_HEIGHT,
+            draggable: false,
+            connectable: false,
+        })
+    )
     const nodes = steps.map(
         (step, index): FlowNode => ({
             id: step.id,
@@ -138,7 +197,7 @@ export function buildFlowGraph(steps: FlowStep[]): { nodes: FlowNode[]; edges: E
             type: 'smoothstep',
         })
     )
-    return { nodes, edges }
+    return { nodes: [...nodes, ...disabledNodes], edges }
 }
 
 /**
@@ -187,6 +246,22 @@ export function getTestStepResult(input: TestEvent, response: CyclotronJobTestIn
         return { ...base, outcome: 'skipped', output }
     }
     return { ...base, outcome: objectsEqual(input, output) ? 'unchanged' : 'changed', output }
+}
+
+/** Mirrors the ingestion event filter, which checks only the event name and the distinct ID. */
+export function getEventFilterStepResult(input: TestEvent, eventFilter: EventFilterConfig | null): TestStepResult {
+    const base = { input, logs: [], errors: [] }
+    const matches =
+        !!eventFilter &&
+        eventFilter.mode !== 'disabled' &&
+        !!eventFilter.filter_tree &&
+        evaluateFilterTree(eventFilter.filter_tree, { event_name: input.event, distinct_id: input.distinct_id })
+    if (!matches) {
+        return { ...base, outcome: 'kept', output: input }
+    }
+    return eventFilter.mode === 'live'
+        ? { ...base, outcome: 'dropped', output: null }
+        : { ...base, outcome: 'counted', output: input }
 }
 
 export function exampleTestEvent(uuid: string, timestamp: string): TestEvent {

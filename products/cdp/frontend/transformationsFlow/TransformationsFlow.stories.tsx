@@ -94,6 +94,41 @@ const testInvocation = async ({ request, params }: MockResolverInfo): Promise<Re
     return { status: 'success', logs: [], result: event }
 }
 
+const EVENT_FILTER = {
+    id: '0196b144-1f82-0000-0d0d-a01de54d6710',
+    mode: 'live',
+    filter_tree: {
+        type: 'or',
+        children: [
+            { type: 'condition', field: 'event_name', operator: 'exact', value: '$internal_ping' },
+            { type: 'condition', field: 'distinct_id', operator: 'contains', value: 'bot-' },
+        ],
+    },
+    test_cases: [
+        { event_name: '$internal_ping', distinct_id: 'user-1', expected_result: 'drop' },
+        { event_name: '$pageview', distinct_id: 'bot-crawler', expected_result: 'drop' },
+        { event_name: '$pageview', distinct_id: 'user-1', expected_result: 'ingest' },
+    ],
+}
+
+// Updates are kept, so that the next read returns the saved state, the same as the real API.
+const savedTransformations = new Map(TRANSFORMATIONS.map((item) => [item.id as string, item]))
+
+const getTransformation = ({ params }: MockResolverInfo): Record<string, unknown> | [number, unknown] =>
+    savedTransformations.get(params.id as string) ?? [404, { detail: 'Not found' }]
+
+// The backend puts a transformation that is enabled again after all the others.
+const updateTransformation = async ({ request, params }: MockResolverInfo): Promise<Record<string, unknown>> => {
+    const body = (await request.json()) as { enabled?: boolean }
+    const updated = {
+        ...savedTransformations.get(params.id as string),
+        ...body,
+        ...(body.enabled ? { execution_order: TRANSFORMATIONS.length + 1 } : {}),
+    }
+    savedTransformations.set(params.id as string, updated)
+    return updated
+}
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Data pipelines/Transformations flow',
@@ -117,15 +152,19 @@ const meta: Meta = {
                     results: TRANSFORMATIONS,
                     next: null,
                 },
-                '/api/projects/:team_id/hog_functions/:id/': ({ params }: MockResolverInfo) =>
-                    TRANSFORMATIONS.find((item) => item.id === params.id) ?? [404, { detail: 'Not found' }],
-                '/api/environments/:team_id/hog_functions/:id/': ({ params }: MockResolverInfo) =>
-                    TRANSFORMATIONS.find((item) => item.id === params.id) ?? [404, { detail: 'Not found' }],
-                '/api/projects/:team_id/event_filter/': { mode: 'live' },
+                '/api/projects/:team_id/hog_functions/:id/': getTransformation,
+                '/api/environments/:team_id/hog_functions/:id/': getTransformation,
+                '/api/projects/:team_id/event_filter/': EVENT_FILTER,
+                '/api/environments/:team_id/event_filter/': EVENT_FILTER,
+            },
+            patch: {
+                '/api/projects/:team_id/hog_functions/:id/': updateTransformation,
+                '/api/environments/:team_id/hog_functions/:id/': updateTransformation,
             },
             post: {
                 '/api/environments/:team_id/hog_functions/:id/invocations/': testInvocation,
                 '/api/projects/:team_id/hog_functions/:id/invocations/': testInvocation,
+                '/api/environments/:team_id/query/:kind/': { results: [] },
             },
         }),
     ],
@@ -135,5 +174,5 @@ export default meta
 type Story = StoryObj<{}>
 
 // Three enabled transformations between the fixed ingestion steps, and one disabled transformation
-// that the panel lists outside the flow.
+// in a separate column outside the flow.
 export const Default: Story = {}

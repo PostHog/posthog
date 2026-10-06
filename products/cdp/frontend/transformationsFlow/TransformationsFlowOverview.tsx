@@ -30,7 +30,7 @@ export function TransformationsFlowOverview(): JSX.Element {
             )}
             {disabledTransformations.length > 0 && (
                 <div className="flex flex-col gap-2">
-                    <LemonLabel info="Disabled transformations do not run, so they are not in the flow.">
+                    <LemonLabel info="Events do not go through disabled transformations. When you enable one, it runs after your other transformations.">
                         Disabled transformations
                     </LemonLabel>
                     {disabledTransformations.map((hogFunction) => (
@@ -42,9 +42,9 @@ export function TransformationsFlowOverview(): JSX.Element {
                                 type="secondary"
                                 loading={transformationsLoading}
                                 onClick={() => setTransformationEnabled({ hogFunction, enabled: true })}
-                                data-attr="transformations-flow-enable"
+                                data-attr="transformations-flow-overview-enable"
                             >
-                                Enable
+                                Enable and add to the end
                             </LemonButton>
                         </div>
                     ))}

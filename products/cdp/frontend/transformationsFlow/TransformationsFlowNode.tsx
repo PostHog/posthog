@@ -2,7 +2,7 @@ import { Handle, NodeProps, Position } from '@xyflow/react'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 
-import { IconDatabase, IconFilter, IconPerson, IconPlus, IconServer } from '@posthog/icons'
+import { IconDatabase, IconFilter, IconPause, IconPerson, IconPlus, IconServer } from '@posthog/icons'
 import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
@@ -17,9 +17,13 @@ const OUTCOME_TAGS: Record<TestStepOutcome, { label: string; type: LemonTagType 
     dropped: { label: 'Dropped', type: 'danger' },
     error: { label: 'Error', type: 'warning' },
     passed: { label: 'Passed', type: 'muted' },
+    kept: { label: 'Kept', type: 'muted' },
+    counted: { label: 'Dry run match', type: 'warning' },
 }
 
-function StepIcon({ step }: { step: FlowStep }): JSX.Element {
+const DISABLED_TAG = { label: 'Disabled', type: 'muted' as LemonTagType }
+
+function StepIcon({ step }: { step: FlowStep }): JSX.Element | null {
     switch (step.kind) {
         case 'capture':
             return <IconServer />
@@ -32,7 +36,10 @@ function StepIcon({ step }: { step: FlowStep }): JSX.Element {
         case 'add':
             return <IconPlus />
         case 'transformation':
+        case 'disabled_transformation':
             return <HogFunctionIcon src={step.hogFunction?.icon_url} size="small" />
+        case 'disabled_label':
+            return null
     }
 }
 
@@ -51,17 +58,36 @@ export function TransformationsFlowNode({ data }: NodeProps<FlowNode>): JSX.Elem
         ? OUTCOME_TAGS[outcome]
         : step.kind === 'event_filtering' && eventFilterMode
           ? EVENT_FILTER_MODE_TAGS[eventFilterMode]
-          : null
+          : step.kind === 'disabled_transformation'
+            ? DISABLED_TAG
+            : null
+
+    if (step.kind === 'disabled_label') {
+        return (
+            <div
+                className="flex flex-col justify-end w-72 h-16 pb-2 cursor-default"
+                data-attr="transformations-flow-disabled-label"
+            >
+                <span className="flex items-center gap-1 font-semibold">
+                    <IconPause />
+                    {title}
+                </span>
+                <span className="text-xs text-secondary">{description}</span>
+            </div>
+        )
+    }
+    const isDisabled = step.kind === 'disabled_transformation'
 
     return (
         <div
             className={clsx(
                 // w-72 and h-16 must match FLOW_NODE_WIDTH and FLOW_NODE_HEIGHT, because React Flow lays out the nodes with those sizes.
                 'flex items-center gap-2 w-72 h-16 px-3 rounded border bg-surface-primary cursor-pointer transition-colors',
-                step.kind === 'add' && 'border-dashed text-secondary',
+                (step.kind === 'add' || isDisabled) && 'border-dashed text-secondary',
+                isDisabled && 'opacity-70',
                 selectedStepId === step.id || isNextTestStep ? 'border-accent' : 'border-primary',
                 isNextTestStep && 'border-2',
-                mode === 'test' && step.kind === 'add' && 'opacity-50'
+                mode === 'test' && (step.kind === 'add' || isDisabled) && 'opacity-50'
             )}
             data-attr={`transformations-flow-node-${step.kind}`}
         >

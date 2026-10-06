@@ -1,17 +1,14 @@
-import { useValues } from 'kea'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-
+import { EventFilterForm } from 'scenes/data-pipelines/event-filtering/EventFilterForm'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { urls } from 'scenes/urls'
 
-import { transformationsFlowLogic } from './transformationsFlowLogic'
+import { TransformationsFlowDisabledDetails } from './TransformationsFlowDisabledDetails'
 import { TransformationsFlowTransformationDetails } from './TransformationsFlowTransformationDetails'
-import { EVENT_FILTER_MODE_TAGS, FlowStep } from './transformationsFlowUtils'
+import { FlowStep } from './transformationsFlowUtils'
 
 export function TransformationsFlowStepDetails({ step }: { step: FlowStep }): JSX.Element {
-    const { eventFilterMode } = useValues(transformationsFlowLogic)
-
     switch (step.kind) {
         case 'capture':
             return (
@@ -22,22 +19,13 @@ export function TransformationsFlowStepDetails({ step }: { step: FlowStep }): JS
             )
         case 'event_filtering':
             return (
-                <div className="flex flex-col gap-2 items-start">
-                    <p className="m-0">
-                        Event filtering runs before your transformations. It drops the events that match your filter, so
-                        your transformations never see them.
-                    </p>
-                    {eventFilterMode && (
-                        <p className="m-0">
-                            Status:{' '}
-                            <LemonTag type={EVENT_FILTER_MODE_TAGS[eventFilterMode].type}>
-                                {EVENT_FILTER_MODE_TAGS[eventFilterMode].label}
-                            </LemonTag>
-                        </p>
-                    )}
-                    <LemonButton size="small" type="secondary" to={urls.eventFiltering()}>
-                        Open event filtering
-                    </LemonButton>
+                <div className="flex flex-col gap-3">
+                    <EventFilterForm />
+                    <div>
+                        <LemonButton size="small" type="tertiary" to={urls.eventFiltering()}>
+                            Open full page
+                        </LemonButton>
+                    </div>
                 </div>
             )
         case 'transformation':
@@ -46,6 +34,14 @@ export function TransformationsFlowStepDetails({ step }: { step: FlowStep }): JS
             ) : (
                 <p className="m-0">This transformation is not available. Refresh the page and try again.</p>
             )
+        case 'disabled_transformation':
+            return step.hogFunction ? (
+                <TransformationsFlowDisabledDetails hogFunction={step.hogFunction} />
+            ) : (
+                <p className="m-0">This transformation is not available. Refresh the page and try again.</p>
+            )
+        case 'disabled_label':
+            return <></>
         case 'add':
             return (
                 <div className="flex flex-col gap-2">

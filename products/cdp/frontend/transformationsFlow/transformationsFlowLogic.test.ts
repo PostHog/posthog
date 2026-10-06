@@ -79,9 +79,35 @@ describe('transformationsFlowLogic', () => {
             testFinished: true,
             testDroppedBy: expect.objectContaining({ id: 'drop' }),
             testResults: {
+                event_filtering: expect.objectContaining({ outcome: 'kept' }),
                 'add-tag': expect.objectContaining({ outcome: 'changed' }),
                 drop: expect.objectContaining({ outcome: 'dropped' }),
             },
+        })
+    })
+
+    it('stops the test at event filtering when a live filter drops the event', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/event_filter/': {
+                    mode: 'live',
+                    filter_tree: {
+                        type: 'or',
+                        children: [{ type: 'condition', field: 'event_name', operator: 'exact', value: '$pageview' }],
+                    },
+                },
+            },
+        })
+        logic.actions.loadEventFilter()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.runAllTestSteps()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(invocationInputs).toEqual([])
+        await expectLogic(logic).toMatchValues({
+            testFinished: true,
+            testDroppedBy: expect.objectContaining({ kind: 'event_filtering' }),
         })
     })
 })

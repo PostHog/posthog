@@ -9,8 +9,11 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils/dom'
 import { tryJsonParse } from 'lib/utils/json'
-import type { EventFilterMode } from 'scenes/data-pipelines/event-filtering/eventFilterLogic'
-import { sanitizeConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { type EventFilterMode, eventFilterLogic } from 'scenes/data-pipelines/event-filtering/eventFilterLogic'
+import {
+    hogFunctionConfigurationLogic,
+    sanitizeConfiguration,
+} from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { shouldShowHogFunction } from 'scenes/hog-functions/list/hogFunctionsListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -18,13 +21,17 @@ import { userLogic } from 'scenes/userLogic'
 import { HogFunctionConfigurationType, HogFunctionType, UserType } from '~/types'
 
 import {
+    CONFIGURATION_LOGIC_KEY,
+    EventFilterConfig,
     FlowNode,
     FlowStep,
     TestEvent,
     TestStepResult,
+    buildDisabledSteps,
     buildFlowGraph,
     buildFlowSteps,
     exampleTestEvent,
+    getEventFilterStepResult,
     getTestStepResult,
     moveTransformation,
     sortByExecutionOrder,
@@ -40,9 +47,11 @@ export interface transformationsFlowLogicValues {
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
     currentTestEvent: TestEvent | null
+    disabledSteps: FlowStep[]
     disabledTransformations: HogFunctionType[]
+    eventFilter: EventFilterConfig | null
+    eventFilterLoading: boolean
     eventFilterMode: EventFilterMode | null
-    eventFilterModeLoading: boolean
     graph: { nodes: FlowNode[]; edges: Edge[] }
     mode: TransformationsFlowMode
     nextTestStep: FlowStep | null
@@ -72,19 +81,19 @@ export interface transformationsFlowLogicActions {
         stepId: string
         result: TestStepResult | null
     }
-    loadEventFilterMode: () => any
-    loadEventFilterModeFailure: (
+    loadEventFilter: () => any
+    loadEventFilterFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadEventFilterModeSuccess: (
-        eventFilterMode: EventFilterMode | null,
+    loadEventFilterSuccess: (
+        eventFilter: EventFilterConfig | null,
         payload?: any
     ) => {
-        eventFilterMode: EventFilterMode | null
+        eventFilter: EventFilterConfig | null
         payload?: any
     }
     loadTransformations: () => any
@@ -227,13 +236,13 @@ export const transformationsFlowLogic = kea<transformationsFlowLogicType>([
                     (values.transformations ?? []).map((item) => (item.id === hogFunction.id ? hogFunction : item)),
             },
         ],
-        eventFilterMode: [
-            null as EventFilterMode | null,
+        eventFilter: [
+            null as EventFilterConfig | null,
             {
-                loadEventFilterMode: async () => {
+                loadEventFilter: async () => {
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const data = await api.get(`api/projects/${values.currentTeamId}/event_filter/`)
-                    return (data?.mode as EventFilterMode | undefined) ?? 'disabled'
+                    return { mode: data?.mode ?? 'disabled', filter_tree: data?.filter_tree ?? null }
                 },
             },
         ],
@@ -299,11 +308,22 @@ export const transformationsFlowLogic = kea<transformationsFlowLogicType>([
             (s) => [s.orderedTransformations],
             (orderedTransformations: HogFunctionType[]): FlowStep[] => buildFlowSteps(orderedTransformations),
         ],
-        graph: [(s) => [s.steps], (steps: FlowStep[]) => buildFlowGraph(steps)],
+        disabledSteps: [
+            (s) => [s.disabledTransformations],
+            (disabledTransformations: HogFunctionType[]): FlowStep[] => buildDisabledSteps(disabledTransformations),
+        ],
+        graph: [
+            (s) => [s.steps, s.disabledSteps],
+            (steps: FlowStep[], disabledSteps: FlowStep[]) => buildFlowGraph(steps, disabledSteps),
+        ],
         selectedStep: [
-            (s) => [s.steps, s.selectedStepId],
-            (steps: FlowStep[], selectedStepId: string | null): FlowStep | null =>
-                steps.find((step) => step.id === selectedStepId) ?? null,
+            (s) => [s.steps, s.disabledSteps, s.selectedStepId],
+            (steps: FlowStep[], disabledSteps: FlowStep[], selectedStepId: string | null): FlowStep | null =>
+                [...steps, ...disabledSteps].find((step) => step.id === selectedStepId) ?? null,
+        ],
+        eventFilterMode: [
+            (s) => [s.eventFilter],
+            (eventFilter: EventFilterConfig | null): EventFilterMode | null => eventFilter?.mode ?? null,
         ],
         // The "add" step is only a place in the canvas. The test event does not pass through it.
         testSteps: [(s) => [s.steps], (steps: FlowStep[]): FlowStep[] => steps.filter((step) => step.kind !== 'add')],
@@ -364,6 +384,12 @@ export const transformationsFlowLogic = kea<transformationsFlowLogicType>([
             }
             actions.selectStep(step.id)
 
+            if (step.kind === 'event_filtering') {
+                const result = getEventFilterStepResult(input, values.eventFilter)
+                actions.completeTestStep(step.id, result)
+                posthog.capture('transformations flow test step run', { kind: step.kind, outcome: result.outcome })
+                return result.outcome !== 'dropped'
+            }
             if (step.kind !== 'transformation' || !step.hogFunction) {
                 actions.completeTestStep(step.id, null)
                 return true
@@ -383,6 +409,7 @@ export const transformationsFlowLogic = kea<transformationsFlowLogicType>([
                 const result = getTestStepResult(input, response)
                 actions.completeTestStep(step.id, result)
                 posthog.capture('transformations flow test step run', {
+                    kind: step.kind,
                     position: step.position,
                     outcome: result.outcome,
                 })
@@ -432,7 +459,7 @@ export const transformationsFlowLogic = kea<transformationsFlowLogicType>([
                 }
             },
             selectStep: ({ id }) => {
-                const step = values.steps.find((item) => item.id === id)
+                const step = [...values.steps, ...values.disabledSteps].find((item) => item.id === id)
                 if (step && !values.testRunning) {
                     posthog.capture('transformations flow step selected', { kind: step.kind })
                 }
@@ -444,7 +471,29 @@ export const transformationsFlowLogic = kea<transformationsFlowLogicType>([
             },
             // A changed order or a changed enabled state makes the test results out of date.
             moveTransformationSuccess: () => actions.resetTest(),
-            setTransformationEnabledSuccess: () => actions.resetTest(),
+            setTransformationEnabledSuccess: ({ payload }) => {
+                actions.resetTest()
+                if (!payload) {
+                    return
+                }
+                const { hogFunction, enabled } = payload
+                posthog.capture('transformations flow enabled changed', { enabled })
+                // The embedded configuration form keeps its own copy. Reload it, so that a later save
+                // in the form does not send the old enabled state.
+                hogFunctionConfigurationLogic
+                    .findMounted({ id: hogFunction.id, logicKey: CONFIGURATION_LOGIC_KEY })
+                    ?.actions.loadHogFunction()
+                actions.selectStep(hogFunction.id)
+                lemonToast.success(
+                    enabled
+                        ? `${hogFunction.name} is enabled. It runs last. Use "Move earlier" to change its position.`
+                        : `${hogFunction.name} is disabled. Events do not go through it now.`
+                )
+            },
+            [eventFilterLogic.actionTypes.submitFilterFormSuccess]: () => {
+                actions.loadEventFilter()
+                actions.resetTest()
+            },
             moveTransformationFailure: () => {
                 lemonToast.error('Could not change the order. Refresh the page and try again.')
             },
@@ -455,7 +504,7 @@ export const transformationsFlowLogic = kea<transformationsFlowLogicType>([
     }),
     afterMount(({ actions }) => {
         actions.loadTransformations()
-        actions.loadEventFilterMode()
+        actions.loadEventFilter()
         posthog.capture('transformations flow view opened')
     }),
 ])

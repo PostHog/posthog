@@ -5,15 +5,18 @@ import { LemonBanner, LemonButton, LemonLabel } from '@posthog/lemon-ui'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { transformationsFlowLogic } from './transformationsFlowLogic'
-import { TestStepOutcome } from './transformationsFlowUtils'
+import { TestStepOutcome, getStepText } from './transformationsFlowUtils'
 
 const OUTCOME_DESCRIPTIONS: Record<TestStepOutcome, string> = {
     changed: 'This transformation changed the event.',
     unchanged: 'This transformation ran and did not change the event.',
     skipped: 'The event does not match the filters of this transformation, so it did not run.',
-    dropped: 'This transformation dropped the event. PostHog does not store it, and the later steps do not run.',
+    dropped: 'This step dropped the event. PostHog does not store it, and the later steps do not run.',
     error: 'This transformation failed. Ingestion sends the event to the next step without changes.',
     passed: 'The test does not simulate this step. The event goes to the next step without changes.',
+    kept: 'The event does not match the event filter, or the filter is off. The event goes to the next step.',
+    counted:
+        'The event matches the event filter. The filter is in dry run, so PostHog only counts the event. The event goes to the next step.',
 }
 
 const READ_ONLY_EDITOR_OPTIONS = {
@@ -51,8 +54,8 @@ export function TransformationsFlowTestPanel(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <p className="m-0">
-                Send an example event through your steps, one at a time. The test uses your saved transformations and
-                does not store any events.
+                Send an example event through your steps, one at a time. The test uses your saved event filter and
+                transformations, and it does not store any events.
             </p>
 
             <div className="flex flex-col gap-1">
@@ -112,8 +115,7 @@ export function TransformationsFlowTestPanel(): JSX.Element {
 
             {testDroppedBy ? (
                 <LemonBanner type="warning">
-                    {testDroppedBy.hogFunction?.name ?? 'A transformation'} dropped the event. PostHog does not store
-                    it.
+                    {getStepText(testDroppedBy).title} dropped the event. PostHog does not store it.
                 </LemonBanner>
             ) : testFinished ? (
                 <LemonBanner type="success">The event went through all the steps.</LemonBanner>
