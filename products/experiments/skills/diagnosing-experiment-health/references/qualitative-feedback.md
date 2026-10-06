@@ -4,7 +4,7 @@ An experiment produces quantitative evidence: how far a number moved, and how su
 A short survey, shown when a user finishes the flow being experimented on, adds the qualitative half — how the change felt to the people who just went through it — readable per variant.
 A single rating question counts as qualitative evidence; open text is optional depth, and most respondents won't type.
 
-Shared by [[diagnosing-experiment-results]], [[analyzing-experiment-session-replays]], [[scanning-experiments-with-replay-vision]], and [[managing-experiment-lifecycle]]; covers only what is experiment-specific.
+Shared by [[diagnosing-experiment-health]], [[analyzing-experiment-session-replays]], [[scanning-experiments-with-replay-vision]], and [[managing-experiment-lifecycle]]; covers only what is experiment-specific.
 General survey mechanics belong to the surveys product ([[debugging-surveys]] covers a survey that isn't showing).
 Facts are tagged by verification strength, as in `SKILL.md`: `[HIGH]` verified in PostHog code, `[MEDIUM]` partially verified, `[LOW]` unverified hypothesis.
 

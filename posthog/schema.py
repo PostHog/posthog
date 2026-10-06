@@ -57,9 +57,14 @@ from posthog.schema_enums import (
     AutocompleteCompletionItemKind as AutocompleteCompletionItemKind,
     BaseMathType as BaseMathType,
     BehavioralEventSource as BehavioralEventSource,
+    BIAggregation as BIAggregation,
+    BIDateBucket as BIDateBucket,
+    BIFilterOperator as BIFilterOperator,
     BillingSpendResponseBreakdownType as BillingSpendResponseBreakdownType,
     BillingUsageResponseBreakdownType as BillingUsageResponseBreakdownType,
     BingAdsDefaultSources as BingAdsDefaultSources,
+    BIQueryLimit as BIQueryLimit,
+    BISortDirection as BISortDirection,
     BounceRatePageViewMode as BounceRatePageViewMode,
     Breakdown1 as Breakdown1,
     BreakdownAttributionType as BreakdownAttributionType,
@@ -299,6 +304,7 @@ from posthog.schema_enums import (
     TraceOrderColumn as TraceOrderColumn,
     TraceSpanBreakdownOrderBy as TraceSpanBreakdownOrderBy,
     TraceSpanBreakdownType as TraceSpanBreakdownType,
+    TwitterAdsDefaultSources as TwitterAdsDefaultSources,
     UrlMatching as UrlMatching,
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
@@ -936,6 +942,14 @@ class AssistantUpdateEvent(BaseModel):
     content: str
     id: str
     tool_call_id: str
+
+
+class BIDataSource(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    connectionId: str | None = None
+    table: str
 
 
 class BaseAssistantMessage(BaseModel):
@@ -2244,6 +2258,21 @@ class MarketingIntegrationConfig12(BaseModel):
     statsTableName: Literal["CampaignPerformance"] = "CampaignPerformance"
 
 
+class MarketingIntegrationConfig13(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    adsetStatsTableName: Literal["line_item_stats"] = "line_item_stats"
+    adsetTableName: Literal["line_items"] = "line_items"
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=4, min_length=4)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["twitter"] = "twitter"
+    sourceType: Literal["TwitterAds"] = "TwitterAds"
+    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+
+
 class MarketingIntegrationConfig(
     RootModel[
         MarketingIntegrationConfig1
@@ -2258,6 +2287,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig10
         | MarketingIntegrationConfig11
         | MarketingIntegrationConfig12
+        | MarketingIntegrationConfig13
     ]
 ):
     root: (
@@ -2273,6 +2303,7 @@ class MarketingIntegrationConfig(
         | MarketingIntegrationConfig10
         | MarketingIntegrationConfig11
         | MarketingIntegrationConfig12
+        | MarketingIntegrationConfig13
     )
 
 
@@ -4944,6 +4975,49 @@ class AutocompleteCompletionItem(BaseModel):
             " fits the comparison being written."
         ),
     )
+
+
+class BIField(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateBucket: BIDateBucket | None = None
+    expression: str
+    id: str
+    name: str
+    source: BIDataSource
+    type: DatabaseSerializedFieldType
+
+
+class BIFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    customExpression: str | None = None
+    enabled: bool | None = None
+    field: BIField
+    operator: BIFilterOperator
+    value: str
+    valueTo: str | None = None
+    values: list[str] | None = None
+
+
+class BISort(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    direction: BISortDirection
+    key: str
+
+
+class BIValue(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation: BIAggregation
+    customExpression: str | None = None
+    field: BIField
+    label: str | None = None
 
 
 class BoxPlotDatum(BaseModel):
@@ -10989,6 +11063,23 @@ class AssistantWebVitalsPathBreakdownQuery(BaseModel):
         max_length=2,
         min_length=2,
     )
+
+
+class BIConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chartType: ChartDisplayType
+    columns: list[BIField]
+    filters: list[BIFilter]
+    limit: BIQueryLimit
+    rows: list[BIField]
+    sort: BISort | None = Field(
+        default=None,
+        description=("null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."),
+    )
+    source: BIDataSource | None = None
+    values: list[BIValue]
 
 
 class BehavioralPropertyFilter(BaseModel):
@@ -30481,6 +30572,19 @@ class TraceSpansTreeQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class BIVisualizationNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chartSettings: ChartSettings | None = None
+    config: BIConfig
+    display: ChartDisplayType | None = None
+    kind: Literal["BIVisualizationNode"] = "BIVisualizationNode"
+    source: HogQLQuery
+    tableSettings: TableSettings | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class DataVisualizationNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -31109,6 +31213,10 @@ class SessionsQuery(BaseModel):
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     where: list[str] | None = Field(default=None, description="HogQL filters to apply on returned data")
+
+
+class VisualizationNode(RootModel[DataVisualizationNode | BIVisualizationNode]):
+    root: DataVisualizationNode | BIVisualizationNode
 
 
 class CalendarHeatmapQuery(BaseModel):
@@ -33456,6 +33564,7 @@ class MaxInsightContext(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33601,6 +33710,7 @@ class QueryRequest(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33738,6 +33848,7 @@ class QuerySchemaRoot(
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33845,6 +33956,7 @@ class QuerySchemaRoot(
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -33957,6 +34069,7 @@ class QueryUpgradeRequest(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -34069,6 +34182,7 @@ class QueryUpgradeResponse(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode
@@ -34226,6 +34340,7 @@ class VisualizationArtifactContent(BaseModel):
         | MarketingAnalyticsRetentionQuery
         | MarketingAnalyticsSearchQuery
         | DataVisualizationNode
+        | BIVisualizationNode
         | DataTableNode
         | SavedInsightNode
         | InsightVizNode

@@ -835,7 +835,7 @@ tools:
         description: >
             The default way to read an experiment's current results. Requires an experiment ID. If you don't have the
             ID, load the finding-experiments skill to resolve the user's reference first. To interpret what the numbers
-            mean, load the diagnosing-experiment-results skill.
+            mean, load the diagnosing-experiment-health skill.
 
 
             Returns the most recent completed metrics run for the experiment: a results array with one entry per metric,
