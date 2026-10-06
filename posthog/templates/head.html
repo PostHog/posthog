@@ -38,6 +38,8 @@
     <meta property="og:image" content="{{ preview_image_url }}">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:site" content="@PostHog">
+    {# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe, generic.html-templates.security.var-in-script-tag.var-in-script-tag (_structured_data_json escapes "<", ">" and "&", so the JSON cannot end the script element) #}
+    <script type="application/ld+json">{{ structured_data_json|safe }}</script>
 {% endif %}
 {% if not opt_out_capture and js_posthog_api_key %}
     {{ posthog_bootstrap|page_json_script:"posthog-user-identity-with-flags" }}

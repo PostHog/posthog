@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from urllib.parse import urlparse
 
@@ -42,6 +43,38 @@ _PUBLIC_PAGE_METADATA: dict[str, _PageMetadata] = {
 }
 
 
+# Matches the Organization that posthog.com publishes, so search engines tie the app to the same entity.
+_POSTHOG_ORGANIZATION: dict[str, Any] = {
+    "@type": "Organization",
+    "name": "PostHog",
+    "url": "https://posthog.com",
+    "logo": "https://posthog.com/brand/posthog-logo-stacked.png",
+    "sameAs": ["https://twitter.com/PostHog", "https://github.com/PostHog", "https://www.linkedin.com/company/posthog"],
+}
+
+
+def _structured_data_json(metadata: _PageMetadata, canonical_url: str) -> str:
+    structured_data = {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        "name": metadata.title,
+        "description": metadata.description,
+        "url": canonical_url,
+        "isPartOf": {"@type": "WebSite", "name": "PostHog", "url": settings.SITE_URL},
+        "about": {
+            "@type": "SoftwareApplication",
+            "name": "PostHog",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "Web",
+            "url": "https://posthog.com",
+            "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+        },
+        "publisher": _POSTHOG_ORGANIZATION,
+    }
+    # The template renders this inside <script> with |safe, so no character may close the element.
+    return json.dumps(structured_data).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+
+
 def public_page_metadata_context(request: HttpRequest) -> dict[str, str]:
     """Template context for the search and link-preview tags of a public page, or an empty
     dict for every other path. The canonical URL drops the query string, so links such as
@@ -50,11 +83,13 @@ def public_page_metadata_context(request: HttpRequest) -> dict[str, str]:
     metadata = _PUBLIC_PAGE_METADATA.get(path)
     if metadata is None:
         return {}
+    canonical_url = f"{settings.SITE_URL}{path}"
     return {
         "page_title": metadata.title,
         "page_description": metadata.description,
-        "canonical_url": f"{settings.SITE_URL}{path}",
+        "canonical_url": canonical_url,
         "preview_image_url": _PREVIEW_IMAGE_URL,
+        "structured_data_json": _structured_data_json(metadata, canonical_url),
     }
 
 

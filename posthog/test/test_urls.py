@@ -1,3 +1,4 @@
+import json
 import uuid
 import importlib.util
 from itertools import product
@@ -235,11 +236,16 @@ class TestPublicPageMetadata(SimpleTestCase):
         if expected_canonical_path is None:
             self.assertNotIn('rel="canonical"', html)
             self.assertNotIn('name="description"', html)
+            self.assertNotIn("application/ld+json", html)
         else:
             canonical_url = f"https://us.example.com{expected_canonical_path}"
             self.assertIn(f'<link rel="canonical" href="{canonical_url}">', html)
             self.assertIn(f'<meta property="og:url" content="{canonical_url}">', html)
             self.assertIn('<meta name="description" content="', html)
+            structured_data = json.loads(html.split('<script type="application/ld+json">')[1].split("</script>")[0])
+            self.assertEqual(structured_data["@type"], "WebPage")
+            self.assertEqual(structured_data["url"], canonical_url)
+            self.assertEqual(structured_data["name"], expected_title)
 
 
 class TestLegacyDuckgresAdminUrls(SimpleTestCase):
