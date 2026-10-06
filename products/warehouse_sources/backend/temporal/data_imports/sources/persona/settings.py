@@ -55,7 +55,7 @@ class PersonaChildList:
     parent_key: str
 
 
-@dataclass
+@dataclass(frozen=True, kw_only=True)
 class PersonaEndpointConfig:
     name: str
     # For a fan-out endpoint this is the parent's list path, not the child's.

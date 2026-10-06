@@ -14,16 +14,16 @@ Reference: <https://docs.withpersona.com/reference> · Base URL: `https://api.wi
 
 ## Endpoints synced
 
-| Endpoint                    | Path                                                              | Sync mode    | Primary key | Partition key        |
-| --------------------------- | ----------------------------------------------------------------- | ------------ | ----------- | -------------------- |
-| `inquiries`                 | `/inquiries`                                                      | Incremental  | `id`        | `created_at`         |
-| `verifications`             | `/inquiries/{id}?include=verifications`                           | Incremental  | `id`        | `inquiry_created_at` |
-| `accounts`                  | `/accounts`                                                       | Incremental  | `id`        | `created_at`         |
-| `cases`                     | `/cases`                                                          | Incremental  | `id`        | `created_at`         |
-| `transactions`              | `/transactions`                                                   | Incremental  | `id`        | `created_at`         |
-| `events`                    | `/events`                                                         | Append only  | `id`        | `created_at`         |
-| `inquiry_templates`         | `/inquiry-templates`                                              | Full refresh | `id`        | —                    |
-| `inquiry_template_versions` | `/inquiry-template-versions?filter[inquiry-template-id]={id}`     | Full refresh | `id`        | —                    |
+| Endpoint                    | Path                                                          | Sync mode    | Primary key | Partition key        |
+| --------------------------- | ------------------------------------------------------------- | ------------ | ----------- | -------------------- |
+| `inquiries`                 | `/inquiries`                                                  | Incremental  | `id`        | `created_at`         |
+| `verifications`             | `/inquiries/{id}?include=verifications`                       | Incremental  | `id`        | `inquiry_created_at` |
+| `accounts`                  | `/accounts`                                                   | Incremental  | `id`        | `created_at`         |
+| `cases`                     | `/cases`                                                      | Incremental  | `id`        | `created_at`         |
+| `transactions`              | `/transactions`                                               | Incremental  | `id`        | `created_at`         |
+| `events`                    | `/events`                                                     | Append only  | `id`        | `created_at`         |
+| `inquiry_templates`         | `/inquiry-templates`                                          | Full refresh | `id`        | —                    |
+| `inquiry_template_versions` | `/inquiry-template-versions?filter[inquiry-template-id]={id}` | Full refresh | `id`        | —                    |
 
 Object ids are globally unique and type-prefixed (`inq_`, `ver_`, `acc_`, `case_`, `txn_`, `evt_`,
 `itmpl_`, `itmplv_`), so `id` is a safe standalone primary key. Persona kebab-case attributes (`created-at`)
