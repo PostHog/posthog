@@ -3169,7 +3169,7 @@ impl FeatureFlagMatcher {
             .group_type_cache
             .get_mappings(self.team_id, self.persons_db_deadline)
             .await;
-        record_persons_db_deadline_exceeded("fetch_group_type_mapping", &mappings);
+        record_persons_db_deadline_exceeded(db_operations::FETCH_GROUP_TYPE_MAPPING, &mappings);
         match mappings {
             Ok(mapping) => {
                 if mapping.is_empty() {
