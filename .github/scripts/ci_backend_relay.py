@@ -31,6 +31,7 @@ import re
 import sys
 import json
 import time
+import subprocess
 import http.client
 import urllib.error
 import urllib.parse
@@ -41,7 +42,21 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Protocol
 
+from ci_backend_depot_failures import depot_ci, explain
+
 DEPOT_APP_ID = 219785
+DEPOT_ORG = "ntsdt08fpt"
+# The PostHog tests GitHub App. Depot's wait and gate jobs post their verdicts with it too, because
+# Depot posts its own checks from a budget that runs out at peak and then delivers them late.
+MIRROR_APP_ID = 2492437
+# The Trunk merge queue tests each batch through a draft pull request on this branch.
+MERGE_QUEUE_PREFIX = "trunk-merge/"
+
+
+def is_merge_queue(head_ref: str) -> bool:
+    return head_ref.startswith(MERGE_QUEUE_PREFIX)
+
+
 DEPOT_WORKFLOW = "Backend CI on Depot"
 WAIT_JOB = "Wait for GitHub Actions to hand off backend tests"
 # Renders the same text as the wait job's name expression in .depot/workflows/ci-backend.yml.
@@ -50,16 +65,45 @@ EVENT_SUFFIX = " (PR {pr}, event {event_at})"
 EVENT_TIME = "%Y-%m-%dT%H:%M:%SZ"
 RACING_EVENT_SECONDS = 2
 GATE_CHECK = f"{DEPOT_WORKFLOW} / Django Tests Pass on Depot"
+# The mirror posts the gate under its own name, so that a pull request does not show two rows with one name.
+MIRRORED_GATE_CHECK = f"{DEPOT_WORKFLOW} / Test results"
+# Every name the mirror posts a check under. A Depot run on a workflow revision without the
+# mirror's gate name posts Depot's name from the mirror.
+MIRROR_NAMES = {GATE_CHECK: (GATE_CHECK, MIRRORED_GATE_CHECK)}
 DEPOT_RUN_URL = re.compile(r"^https://depot\.dev/orgs/([^/?]+)/workflows/([a-z0-9]+)(?:[?/]|$)")
 PENDING_STATES = frozenset({"queued", "in_progress", "pending", "waiting", "requested"})
+CONCLUSIONS = frozenset(
+    {
+        "success",
+        "failure",
+        "cancelled",
+        "skipped",
+        "timed_out",
+        "neutral",
+        "action_required",
+        "stale",
+        "startup_failure",
+    }
+)
 API_ROOT = "https://api.github.com"
 PAGE_SIZE = 100
 # A 403 also covers a secondary rate limit, which clears, so a few refusals in a row are tolerated.
 MAX_REFUSALS = 5
+PREREQUISITES = ("Repo checks (depot-ubuntu-24.04)", "Validate OpenAPI types")
+# Depot's key for the `django_tests` job of .depot/workflows/ci-backend.yml, and how it names job states.
+GATE_JOB_KEY = "ci-backend.yml:django_tests"
+DEPOT_LIVE_STATES = frozenset({"queued", "waiting", "running"})
+DEPOT_JOB_CONCLUSIONS = {"finished": "success", "failed": "failure"}
+# Under the `timeout-minutes` of the `Django Tests Pass` job, so the relay reports before GitHub ends the job.
+GATE_DEADLINE_MINUTES = 90
 
 
 class ReadRefusedError(RuntimeError):
     """The check-runs API keeps refusing the token, so no verdict can be read."""
+
+
+class ReadFailedError(RuntimeError):
+    """One read of the check-runs API failed, so this poll cannot tell which checks exist."""
 
 
 @dataclass(frozen=True)
@@ -68,19 +112,38 @@ class CheckRun:
     # The conclusion once the check completed, its status before that.
     state: str
     details_url: str
+    app_id: int = DEPOT_APP_ID
+    # The job attempt in a mirrored check's URL. Depot's own checks carry none.
+    attempt: str = ""
 
     @classmethod
     def from_api(cls, run: dict[str, Any]) -> "CheckRun":
+        state = (run.get("conclusion") if run.get("status") == "completed" else run.get("status")) or ""
+        url = str(run.get("details_url") or "")
+        parsed = urllib.parse.urlparse(url)
+        query = urllib.parse.parse_qs(parsed.query)
+        match = re.fullmatch(rf"/orgs/{re.escape(DEPOT_ORG)}/workflows/([a-z0-9]+)", parsed.path)
+        attempt = ""
+        if parsed.scheme == "https" and parsed.netloc == "depot.dev" and match:
+            job = query.get("job", [""])[0]
+            url = f"https://depot.dev/orgs/{DEPOT_ORG}/workflows/{match[1]}"
+            if re.fullmatch(r"[a-z0-9]+", job):
+                url += f"?job={job}"
+            attempt = query.get("attempt", [""])[0]
+        else:
+            url = ""
         return cls(
             id=int(run["id"]),
-            state=str((run.get("conclusion") if run.get("status") == "completed" else run.get("status")) or ""),
-            details_url=str(run.get("details_url") or ""),
+            state=state if state in PENDING_STATES | CONCLUSIONS else "unknown",
+            details_url=url,
+            app_id=int(run["app"]["id"]),
+            attempt=attempt if re.fullmatch(r"[a-z0-9]+", attempt) else "",
         )
 
     @property
     def depot_workflow(self) -> str | None:
         match = DEPOT_RUN_URL.match(self.details_url)
-        return match.group(2) if match else None
+        return match.group(2) if match and match.group(1) == DEPOT_ORG else None
 
 
 class Phase(Enum):
@@ -98,16 +161,39 @@ class Progress:
     # The state of the check behind the phase, empty when there is none.
     state: str = ""
     details_url: str = ""
+    root_failure: str = ""
+    root_check_id: int = 0
+
+
+def event_check_name(job: str, pr_number: int, event_at: str) -> str:
+    return f"{DEPOT_WORKFLOW} / {job}{EVENT_SUFFIX.format(pr=pr_number, event_at=event_at)}"
 
 
 def wait_check_name(pr_number: int, event_at: str) -> str:
-    return f"{DEPOT_WORKFLOW} / {WAIT_JOB}{EVENT_SUFFIX.format(pr=pr_number, event_at=event_at)}"
+    return event_check_name(WAIT_JOB, pr_number, event_at)
+
+
+def current_check(checks: Iterable[CheckRun], workflow: str | None) -> CheckRun | None:
+    """The check of the newest attempt of one job in `workflow`, from either app that posts it.
+
+    Depot posts one check per job attempt but can deliver it late, so its check ids do not order
+    its checks against the mirror's. The mirror posts one check per attempt that ran, in order,
+    but a post can fail. The mirror decides while it has posted at least as many attempts as
+    Depot shows. Otherwise the mirror missed an attempt, and Depot's newest check decides.
+    """
+    own = [check for check in checks if workflow is not None and check.depot_workflow == workflow]
+    mirrored = [check for check in own if check.app_id == MIRROR_APP_ID]
+    native = [check for check in own if check.app_id != MIRROR_APP_ID]
+    if mirrored and len(native) <= len({check.attempt or str(check.id) for check in mirrored}):
+        return max(mirrored, key=lambda check: check.id)
+    return max(native, key=lambda check: check.id, default=None)
 
 
 def newest_live(runs: Sequence[CheckRun]) -> CheckRun | None:
     """The newest run that was not cancelled, or the newest cancelled run when every run was."""
-    live = [run for run in runs if run.state != "cancelled"]
-    return max(live or runs, key=lambda run: run.id, default=None)
+    current = [check for workflow in {run.depot_workflow for run in runs} if (check := current_check(runs, workflow))]
+    live = [run for run in current if run.state != "cancelled"]
+    return max(live or current, key=lambda run: run.id, default=None)
 
 
 def progress(wait: CheckRun | None, checks: Iterable[CheckRun]) -> Progress:
@@ -120,13 +206,7 @@ def progress(wait: CheckRun | None, checks: Iterable[CheckRun]) -> Progress:
         return Progress(Phase.STARTING, wait.state, wait.details_url)
     if wait.state != "success":
         return Progress(Phase.DECLINED, wait.state, wait.details_url)
-    workflow = wait.depot_workflow
-    # A retried Depot job posts a new check in the same workflow, so the newest one is current.
-    check = max(
-        (run for run in checks if workflow is not None and run.depot_workflow == workflow),
-        key=lambda run: run.id,
-        default=None,
-    )
+    check = current_check(checks, wait.depot_workflow)
     if check is None or check.state in PENDING_STATES:
         return Progress(Phase.RUNNING, check.state if check else "", wait.details_url)
     if check.state == "cancelled":
@@ -139,7 +219,7 @@ class CheckReader(Protocol):
 
 
 class CheckRunReader:
-    """Reads one commit's Depot check runs by name, with conditional requests.
+    """Reads one commit's Depot check runs by name from each app that posts them, with conditional requests.
 
     A 304 answer is free against the rate limit, so polling stays cheap.
     """
@@ -150,17 +230,21 @@ class CheckRunReader:
         sha: str,
         token: str,
         opener: Callable[..., Any] = urllib.request.urlopen,
+        pr_number: int | None = None,
+        app_ids: Sequence[int] = (MIRROR_APP_ID, DEPOT_APP_ID),
     ) -> None:
         self._repo = repo
         self._sha = sha
         self._token = token
+        self._pr_number = pr_number
         self._opener = opener
-        self._cache: dict[str, tuple[str, list[CheckRun]]] = {}
+        self._app_ids = app_ids
+        self._cache: dict[tuple[str, int], tuple[str, list[CheckRun]]] = {}
         self._refusals = 0
 
-    def _url(self, name: str, page: int) -> str:
+    def _url(self, name: str, app_id: int, page: int) -> str:
         query = urllib.parse.urlencode(
-            {"check_name": name, "app_id": DEPOT_APP_ID, "filter": "all", "per_page": PAGE_SIZE, "page": page}
+            {"check_name": name, "app_id": app_id, "filter": "all", "per_page": PAGE_SIZE, "page": page}
         )
         return f"{API_ROOT}/repos/{self._repo}/commits/{self._sha}/check-runs?{query}"
 
@@ -174,19 +258,38 @@ class CheckRunReader:
             headers["If-None-Match"] = etag
         try:
             with self._opener(urllib.request.Request(url, headers=headers), timeout=30) as response:
-                return response.status, response.headers.get("ETag", ""), json.loads(response.read().decode("utf-8"))
+                raw = response.read(2_000_001)
+                if len(raw) > 2_000_000:
+                    raise ValueError("oversized check response")
+                return response.status, response.headers.get("ETag", ""), json.loads(raw.decode("utf-8"))
         except urllib.error.HTTPError as error:
             return error.code, "", {}
 
     def read(self, name: str) -> list[CheckRun]:
+        """Every app's checks of `name`, under each name the app posts it with.
+
+        `current_check` picks the current one per workflow.
+        A failed read of any app raises, because the other app's checks alone can hold a stale attempt.
+        """
+        runs: list[CheckRun] = []
+        for app_id in self._app_ids:
+            app_names = MIRROR_NAMES.get(name, (name,)) if app_id == MIRROR_APP_ID else (name,)
+            for app_name in app_names:
+                app_runs = self._read_app(app_name, app_id)
+                if app_runs is None:
+                    raise ReadFailedError(f"Cannot read {app_name}")
+                runs.extend(app_runs)
+        return runs
+
+    def _read_app(self, name: str, app_id: int) -> list[CheckRun] | None:
         """Read every page, reusing a cached answer only when the API confirms it with 304."""
-        etag, cached = self._cache.get(name, ("", []))
+        etag, cached = self._cache.get((name, app_id), ("", []))
         raw: list[dict[str, Any]] = []
         page = 1
         new_etag = ""
         try:
             while True:
-                code, page_etag, body = self._get(self._url(name, page), etag if page == 1 else "")
+                code, page_etag, body = self._get(self._url(name, app_id, page), etag if page == 1 else "")
                 if page == 1 and code == 304:
                     self._refusals = 0
                     return cached
@@ -196,21 +299,37 @@ class CheckRunReader:
                         raise ReadRefusedError(f"Cannot read checks for {self._sha}")
                 if code != 200:
                     sys.stdout.write(f"::warning::check-runs API returned {code}\n")
-                    return []
+                    return None
                 self._refusals = 0
                 if page == 1:
                     new_etag = page_etag
                 batch = body["check_runs"]
+                if not isinstance(batch, list) or page > 20:
+                    raise ValueError("invalid or excessive check pages")
                 raw.extend(batch)
                 if len(batch) < PAGE_SIZE:
                     break
                 page += 1
-        except (OSError, http.client.HTTPException, ValueError) as error:
-            sys.stdout.write(f"::warning::check-runs API read failed: {error}\n")
-            return []
-        runs = [CheckRun.from_api(run) for run in raw]
+            runs = [
+                CheckRun.from_api(run)
+                for run in raw
+                # One malformed record is skipped rather than discarding the whole answer.
+                if isinstance(run, dict)
+                and (run.get("app") or {}).get("id") == app_id
+                and run.get("name") == name
+                and run.get("head_sha") == self._sha
+                and (
+                    not run.get("pull_requests")
+                    or self._pr_number is None
+                    or any(pr.get("number") == self._pr_number for pr in run["pull_requests"])
+                )
+            ]
+            runs = [run for run in runs if run.depot_workflow is not None]
+        except (OSError, http.client.HTTPException, KeyError, TypeError, ValueError, AttributeError):
+            sys.stdout.write("::warning::check-runs API read failed\n")
+            return None
         # One page's ETag cannot validate the other pages of a paginated response.
-        self._cache[name] = (new_etag if page == 1 else "", runs)
+        self._cache[(name, app_id)] = (new_etag if page == 1 else "", runs)
         return runs
 
 
@@ -221,6 +340,7 @@ class Event:
     pr_number: int
     # The pull request's `updated_at` in this event's payload.
     event_at: str
+    merge_queue: bool = False
 
 
 def racing_wait(reader: CheckReader, event: Event, followed: set[str]) -> str | None:
@@ -234,6 +354,14 @@ def racing_wait(reader: CheckReader, event: Event, followed: set[str]) -> str | 
         if progress(wait, ()).phase in (Phase.STARTING, Phase.RUNNING):
             return name
     return None
+
+
+def prerequisite_failure(reader: CheckReader, wait: CheckRun, current: Progress) -> Progress:
+    for name in PREREQUISITES:
+        latest = current_check(reader.read(f"{DEPOT_WORKFLOW} / {name}"), wait.depot_workflow)
+        if latest and latest.state == "failure":
+            return Progress(Phase.FINISHED, "failure", current.details_url, name, latest.id)
+    return current
 
 
 def poll(
@@ -255,22 +383,32 @@ def poll(
     start = clock()
     event_name = wait_check_name(event.pr_number, event.event_at)
     followed = {event_name}
+    current = Progress(Phase.ABSENT)
     while True:
-        wait = newest_live(reader.read(event_name))
-        checks = reader.read(check_name) if wait and wait.state == "success" else []
-        current = progress(wait, checks)
-        sys.stdout.write(f"Depot run for this event: {current.phase.value} {current.state}".rstrip() + "\n")
-        elapsed = clock() - start
-        if current.phase in (Phase.FINISHED, Phase.DECLINED):
-            return current
-        if current.phase in (Phase.ABSENT, Phase.CANCELLED) and elapsed >= absent_minutes * 60:
-            racing = racing_wait(reader, event, followed)
-            if racing is None:
+        try:
+            wait = newest_live(reader.read(event_name))
+            checks = reader.read(check_name) if wait and wait.state == "success" else []
+            current = progress(wait, checks)
+            # Depot cancels its own run only after a deterministic prerequisite failure. A gate that
+            # failed without the cancel can follow a retryable one, so it keeps the retry options.
+            if current.phase == Phase.CANCELLED and wait and wait.state == "success":
+                current = prerequisite_failure(reader, wait, current)
+            sys.stdout.write(f"Depot run for this event: {current.phase.value} {current.state}".rstrip() + "\n")
+            elapsed = clock() - start
+            if current.phase in (Phase.FINISHED, Phase.DECLINED):
                 return current
-            sys.stdout.write(f"Depot kept a racing event of this commit instead. Following: {racing}\n")
-            followed.add(racing)
-            event_name = racing
-            continue
+            if current.phase in (Phase.ABSENT, Phase.CANCELLED) and elapsed >= absent_minutes * 60:
+                racing = racing_wait(reader, event, followed)
+                if racing is None:
+                    return current
+                sys.stdout.write(f"Depot kept a racing event of this commit instead. Following: {racing}\n")
+                followed.add(racing)
+                event_name = racing
+                continue
+        except ReadFailedError as error:
+            # A failed read says nothing about the run, so it must not end the wait as absent.
+            sys.stdout.write(f"::warning::{error}. Reading again.\n")
+            elapsed = clock() - start
         if elapsed >= deadline_minutes * 60:
             return current
         # The checked job only posts its check when the matrix is done, so once Depot has
@@ -278,28 +416,102 @@ def poll(
         sleep(60 if current.phase == Phase.RUNNING else 30)
 
 
-def retry_instructions(event: Event, details_url: str, run_id: str) -> list[str]:
-    lines = [
-        f"Backend tests for {event.sha} ran on Depot CI, not GitHub Actions. Re-running this job alone reads the same result.",
-        f"Depot run: {details_url or 'not found'}",
+def retry_failed_jobs(
+    org: str,
+    workflow: str,
+    *,
+    depot: Callable[..., Any] = depot_ci,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Progress | None:
+    """Retries the workflow's failed jobs on Depot and returns the gate's new verdict, or None when Depot cannot be reached.
+
+    Depot refuses a retry while the workflow runs, so the retry waits for the workflow to finish.
+    A retry adds one execution to the workflow and queues the gate job in the same call. So the gate's
+    state is the new verdict once the workflow has more executions than it had when the retry was sent.
+    A gate that another retry turned green in the meantime is relayed as it is.
+    """
+    start = clock()
+    url = f"https://depot.dev/orgs/{org}/workflows/{workflow}"
+    executions_at_retry: int | None = None
+    failures = 0
+    while True:
+        sending = False
+        try:
+            shown = depot("workflow", "show", workflow, "--org", org)
+            gate = next(job["status"] for job in shown["jobs"] if job["job_key"] == GATE_JOB_KEY)
+            executions = len(shown["executions"])
+            status = shown["workflow"]["status"]
+            sys.stdout.write(f"Depot workflow: {status}, gate {gate}\n")
+            retried = executions_at_retry is not None and executions > executions_at_retry
+            if gate == "finished" or (retried and gate not in DEPOT_LIVE_STATES):
+                phase = Phase.CANCELLED if gate == "cancelled" else Phase.FINISHED
+                return Progress(phase, DEPOT_JOB_CONCLUSIONS.get(gate, gate), url)
+            failures = 0
+            if executions_at_retry is None and status not in DEPOT_LIVE_STATES:
+                sending = True
+                depot("retry", shown["run"]["run_id"], "--workflow", workflow, "--org", org, "--failed")
+                executions_at_retry = executions
+                sys.stdout.write(f"Depot retries the failed jobs: {url}\n")
+        except (subprocess.SubprocessError, OSError, ValueError, LookupError, TypeError, StopIteration) as error:
+            failures += 1
+            sys.stdout.write(f"::warning::Depot CLI call failed: {type(error).__name__}\n")
+            # A retry that failed is not sent again, because Depot can have accepted it.
+            if sending or failures >= MAX_REFUSALS:
+                return None
+        if clock() - start >= GATE_DEADLINE_MINUTES * 60:
+            return Progress(Phase.RUNNING, details_url=url)
+        sleep(30)
+
+
+def gate_verdict(
+    reader: CheckReader,
+    event: Event,
+    *,
+    rerun: bool,
+    retry: Callable[[str, str], Progress | None] = retry_failed_jobs,
+) -> Progress:
+    """The gate verdict that this attempt of the relay job reports.
+
+    A GitHub re-run starts nothing on Depot. So when a re-run finds a gate that already failed,
+    the relay retries the failed Depot jobs and reports the new verdict. A failed prerequisite
+    is not retried, because it fails the same way until a commit fixes it.
+    """
+    if rerun:
+        settled = poll(reader, event, GATE_CHECK, deadline_minutes=0, absent_minutes=0)
+        target = DEPOT_RUN_URL.match(settled.details_url)
+        if target and settled.phase == Phase.FINISHED and settled.state != "success" and not settled.root_failure:
+            retried = retry(*target.groups())
+            if retried:
+                return retried
+            sys.stdout.write("::warning::Cannot retry on Depot CI. This is the earlier verdict.\n")
+            return settled
+    return poll(reader, event, GATE_CHECK, deadline_minutes=GATE_DEADLINE_MINUTES, absent_minutes=15)
+
+
+def retry_instructions(event: Event, details_url: str, run_id: str = "") -> list[str]:
+    """The ways to run the tests again. A GitHub re-run retries a failed Depot run, so it is listed with a `run_id`."""
+    rerun = [
+        "Re-run this job on GitHub to retry the failed Depot jobs:",
+        f"  gh run rerun {run_id} --repo {event.repo} --failed",
         "",
     ]
-    match = DEPOT_RUN_URL.match(details_url)
-    if match:
-        org, workflow = match.groups()
-        lines += [
-            f"Retry through the Depot CLI (needs access to the Depot org {org}):",
-            f"  depot ci diagnose --org {org} --workflow {workflow}   # the failures, and the run ID on the 'Run:' line",
-            f"  depot ci retry <run ID> --org {org} --workflow {workflow} --failed",
-            f"  depot ci status <run ID> --org {org}   # repeat until the run finishes",
-            f"  gh run rerun {run_id} --repo {event.repo} --failed   # relays the new Depot result",
-            "",
+    lines = [
+        f"Backend tests for {event.sha} ran on Depot CI, not GitHub Actions.",
+        f"Depot run: {details_url or 'not found'}",
+        "",
+        *(rerun if run_id else []),
+    ]
+    # Labels do not route a merge queue batch, and a push to its branch ends the queue attempt.
+    if event.merge_queue:
+        return [
+            *lines,
+            "Run on GitHub Actions instead: CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT=0 keeps new merge queue batches there.",
+            f"  gh variable set CI_BACKEND_DEPOT_MERGE_QUEUE_PERCENT --repo {event.repo} --body 0",
+            "Then queue the pull request again.",
         ]
     return [
         *lines,
-        "Retry without Depot access: a new commit starts a fresh run.",
-        "  git commit --allow-empty -m 'chore: retry backend ci' && git push",
-        "",
         "Run on GitHub Actions instead: the ci-backend-github label routes the next commit of this PR there.",
         f"  gh pr edit {event.pr_number} --repo {event.repo} --add-label ci-backend-github",
         "  git commit --allow-empty -m 'chore: retry backend ci on github actions' && git push",
@@ -310,6 +522,11 @@ def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[s
     """The exit code and log lines of the `Django Tests Pass` relay for the gate's progress."""
     if result.phase == Phase.FINISHED and result.state == "success":
         return 0, []
+    if result.root_failure:
+        return 1, [
+            f"::error::{result.root_failure} failed on Depot (check {result.root_check_id}). "
+            "Push a fix; a retry will not help."
+        ]
     if result.phase == Phase.FINISHED:
         return 1, [
             f"::error::Backend tests on Depot CI concluded {result.state}. This step's log lists the retry options.",
@@ -318,7 +535,7 @@ def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[s
     if result.phase == Phase.CANCELLED:
         return 1, [
             f"::error::Depot CI cancelled its run for this event of {event.sha} and started no replacement.",
-            *retry_instructions(event, result.details_url, run_id),
+            *retry_instructions(event, result.details_url),
         ]
     if result.phase == Phase.DECLINED:
         return 1, [f"::error::Depot declined the hand-off for {event.sha} (wait job: {result.state})"]
@@ -332,14 +549,22 @@ def main(argv: Sequence[str]) -> int:
         sys.stderr.write("usage: ci_backend_relay.py gate\n")
         return 2
     env = os.environ
-    event = Event(repo=env["REPO"], sha=env["SHA"], pr_number=int(env["PR_NUMBER"]), event_at=env["EVENT_AT"])
-    reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"])
+    event = Event(
+        repo=env["REPO"],
+        sha=env["SHA"],
+        pr_number=int(env["PR_NUMBER"]),
+        event_at=env["EVENT_AT"],
+        merge_queue=is_merge_queue(env.get("HEAD_REF", "")),
+    )
+    reader = CheckRunReader(event.repo, event.sha, env["GH_TOKEN"], pr_number=event.pr_number)
     try:
-        result = poll(reader, event, GATE_CHECK, deadline_minutes=90, absent_minutes=15)
+        result = gate_verdict(reader, event, rerun=env.get("GITHUB_RUN_ATTEMPT", "1") != "1")
     except ReadRefusedError as error:
         sys.stdout.write(f"::error::{error}\n")
         return 1
     code, lines = relay_gate(result, event, env.get("GITHUB_RUN_ID", ""))
+    if code and result.phase == Phase.FINISHED and (match := DEPOT_RUN_URL.match(result.details_url)):
+        lines += explain(*match.groups())
     sys.stdout.writelines(f"{line}\n" for line in lines)
     return code
 

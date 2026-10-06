@@ -55,12 +55,24 @@ export function useDashboardLayoutInteraction({
                     return compactor.compact(layout, cols)
                 }
 
-                const restoredLayout = restoreUnmovedItemPositions(layout, baseline, activeTileId, baselineById.current)
+                const restoredLayout = restoreUnmovedItemPositions(
+                    layout,
+                    baseline,
+                    activeTileId,
+                    baselineById.current,
+                    layoutCompaction === DashboardGridCompaction.Stable && interactionKind.current === 'drag'
+                )
                 const resizedLayout =
                     interactionKind.current === 'resize'
                         ? resizeNeighborToFitRow(restoredLayout, baseline, activeTileId, resizeNeighbors.current)
                         : restoredLayout
-                return compactor.compactInteraction(cols, activeTileId, restoredLayout, resizedLayout)
+                return compactor.compactInteraction(
+                    cols,
+                    activeTileId,
+                    restoredLayout,
+                    resizedLayout,
+                    interactionKind.current === 'drag'
+                )
             },
         }
     }, [layoutCompaction])

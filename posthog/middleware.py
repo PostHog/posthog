@@ -590,6 +590,8 @@ class CHQueries:
         try:
             response: HttpResponse = self.get_response(request)
             status_class = f"{response.status_code // 100}xx"
+            if get_query_tag_value("is_scout_experiment") is True:
+                response["X-PostHog-Suppress-Analytics"] = "true"
 
             if is_api_request:
                 statsd.incr(
@@ -1213,7 +1215,7 @@ class AutoLogoutImpersonateMiddleware:
 
 class Fix204Middleware:
     """
-    Remove the 'Content-Type' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
+    Remove the 'Content-Type', 'Content-Length' and 'X-Content-Type-Options: nosniff' headers and set content to empty string for HTTP 204 response (and only those).
     """
 
     def __init__(self, get_response):
@@ -1224,7 +1226,8 @@ class Fix204Middleware:
 
         if response.status_code == 204:
             response.content = b""
-            for h in ["Content-Type", "X-Content-Type-Options"]:
+            # Envoy rejects a 204 that has a non-zero Content-Length, then retries the request.
+            for h in ["Content-Type", "Content-Length", "X-Content-Type-Options"]:
                 response.headers.pop(h, None)
 
         return response
@@ -1250,6 +1253,16 @@ class OAuthCoopMiddleware:
         "/api/agentic/authorize",
         "/api/agentic/oauth/",
     )
+
+    SIGNUP_AND_LOGIN_PATHS = (
+        "/login",
+        "/login/",
+        "/signup",
+        "/signup/",
+        "/organization/confirm-creation",
+    )
+
+    SIGNUP_PATH_PREFIXES = ("/verify_email/",)
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1284,7 +1297,7 @@ class OAuthCoopMiddleware:
             session = getattr(request, "session", None)
             session_next = session.get("next", "") if session is not None else ""
             return self._targets_oauth_flow(request.GET.get("next", "")) or self._targets_oauth_flow(session_next)
-        if path in ("/login", "/login/", "/signup", "/signup/"):
+        if path in self.SIGNUP_AND_LOGIN_PATHS or self._matches_oauth_prefix(path, self.SIGNUP_PATH_PREFIXES):
             return self._targets_oauth_flow(request.GET.get("next", ""))
         return False
 
@@ -1300,8 +1313,9 @@ def _session_credential(request: HttpRequest, session_user_pk: object) -> Activi
     the request.
 
     DRF writes the principal of the authentication class that succeeded back onto `request.user`.
-    Another principal there means that a class which records no credential of its own (a sharing
-    link, a widget token) authenticated the request, so the row must not name the session cookie.
+    An authentication class that records its own credential replaces this resolver. Another
+    principal here means that a class authenticated the request without recording a credential,
+    so the row must not name the session cookie.
     The check compares primary keys, not objects, because later middleware such as django-otp's
     wraps the same user in a new object.
     """

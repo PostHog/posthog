@@ -122,16 +122,25 @@ class TestValidateManifest(SimpleTestCase):
             validate_manifest(manifest)
         assert expected_substring in str(ctx.exception)
 
-    def test_empty_required_strings_give_plain_message(self):
-        # Empty required fields used to surface pydantic's raw "String should have at
-        # least 1 character" with positional paths; assert the friendlier, JSON-mirroring form.
-        manifest = {"client": {"base_url": ""}, "resources": [{"name": "", "endpoint": {"path": ""}}]}
+    @parameterized.expand(
+        [
+            (
+                {"client": {"base_url": ""}, "resources": [{"name": "", "endpoint": {"path": ""}}]},
+                "These required fields are empty: base URL, table 1 name, table 1 path. Fill them in, then try again.",
+            ),
+            (
+                {
+                    "client": {"base_url": "https://x"},
+                    "resources": [{"name": "users", "endpoint": {"path": "/users"}}, {"name": "", "endpoint": {}}],
+                },
+                "resources[1].name: must not be empty; resources[1].endpoint.path: Field required",
+            ),
+        ]
+    )
+    def test_empty_required_strings_give_plain_message(self, manifest, expected_message):
         with self.assertRaises(ManifestValidationError) as ctx:
             validate_manifest(manifest)
-        message = str(ctx.exception)
-        assert "client.base_url: must not be empty" in message
-        assert "resources[0].name: must not be empty" in message
-        assert "resources[0].endpoint.path: must not be empty" in message
+        assert str(ctx.exception) == expected_message
 
     def test_rejects_duplicate_resource_names(self):
         manifest = _minimal_manifest()
@@ -1754,18 +1763,21 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         threaded_config = mock_resources.call_args.args[0]
         assert threaded_config["client"]["paginator"] == paginator_config
 
+    @parameterized.expand([("on_resource",), ("in_resource_defaults",)])
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_cursor_type_stripped_before_rest_engine(self, mock_resources):
+    def test_cursor_type_stripped_before_rest_engine(self, location, mock_resources):
         # cursor_type informs schema field typing but is not a valid kwarg for the
         # engine's Incremental(**config) — it must be removed before the manifest
-        # reaches the REST engine, while the other incremental keys survive.
+        # reaches the REST engine, while the other incremental keys survive. The engine
+        # merges resource_defaults into each resource itself, so the defaults must not
+        # carry it either.
         mock_resources.return_value = [_fake_resource("users")]
         manifest = _minimal_manifest()
-        manifest["resources"][0]["endpoint"]["incremental"] = {
-            "cursor_path": "updated_at",
-            "start_param": "since",
-            "cursor_type": "integer",
-        }
+        incremental = {"cursor_path": "updated_at", "start_param": "since", "cursor_type": "integer"}
+        if location == "on_resource":
+            manifest["resources"][0]["endpoint"]["incremental"] = incremental
+        else:
+            manifest["resource_defaults"] = {"endpoint": {"incremental": incremental}}
 
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
@@ -1778,8 +1790,12 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         )
         source.source_for_pipeline(config, inputs)
 
-        threaded_incremental = mock_resources.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
-        assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
+        threaded_manifest = mock_resources.call_args.args[0]
+        assert threaded_manifest["resources"][0]["endpoint"]["incremental"] == {
+            "cursor_path": "updated_at",
+            "start_param": "since",
+        }
+        assert "incremental" not in threaded_manifest.get("resource_defaults", {}).get("endpoint", {})
 
 
 class TestCustomSourceNonRetryableErrors(SimpleTestCase):
@@ -2620,6 +2636,34 @@ class TestCustomSourceIncrementalUnsupportedKeys(SimpleTestCase):
         assert ok is False
         assert err is not None and "upstream_row_order" in err and "'users'" in err
 
+    @parameterized.expand(
+        [
+            (
+                "endpoint_incremental",
+                {"incremental": {"cursor_path": "updated_at", "start_param": "since", "cursor_type": "integer"}},
+            ),
+            (
+                "params_incremental",
+                {"params": {"since": {"type": "incremental", "cursor_path": "updated_at", "cursor_type": "integer"}}},
+            ),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_incremental_in_resource_defaults_rejected(self, _name, default_endpoint, mock_resources):
+        manifest = _minimal_manifest()
+        manifest["resource_defaults"] = {"endpoint": default_endpoint}
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+
+        with self.assertRaises(ManifestValidationError) as ctx:
+            source.preview_resource(config, team_id=999, resource_name="users")
+        assert "resource_defaults" in str(ctx.exception)
+        mock_resources.assert_not_called()
+
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok is False
+        assert err is not None and "resource_defaults" in err
+
 
 class TestCustomSourcePaginatorUnsupportedKeys(SimpleTestCase):
     def _manifest(self) -> dict:
@@ -2753,6 +2797,9 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         manifest = _minimal_manifest()
         manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
         manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
+        manifest["resource_defaults"] = {
+            "endpoint": {"incremental": {"cursor_path": "id", "start_param": "after", "cursor_type": "integer"}}
+        }
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
         source.preview_resource(config, team_id=999, resource_name="users")
@@ -2761,6 +2808,7 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         endpoint = engine_manifest["resources"][0]["endpoint"]
         assert endpoint["paginator"] == {"type": "single_page"}
         assert "incremental" not in endpoint
+        assert "incremental" not in engine_manifest["resource_defaults"]["endpoint"]
         assert isinstance(engine_manifest["client"]["session"], _PreviewSession)
         assert engine_manifest["client"]["max_retries"] == 1
         assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] is None

@@ -989,7 +989,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 # resumable allowance to every one of its runs, including the ones that restart from
                 # row 0 on each of those extra attempts.
                 is_resumable_source = isinstance(source, ResumableSource) and source.resume_covers_run(
-                    incremental_or_append=incremental_or_append
+                    incremental_or_append=incremental_or_append,
+                    schema_name=schema_name,
                 )
 
             max_resumable_attempts = MAX_RESUMABLE_SOURCE_RETRIES

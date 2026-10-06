@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { PersonUpdate } from '~/common/persons/person-update-batch'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { TransactionClient } from '~/common/utils/db/postgres'
 import { Properties } from '~/plugin-scaffold'
@@ -69,6 +70,25 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
 
     async isPersonLive(person: InternalPerson): Promise<boolean> {
         return await this.repository.isPersonLive(person, this.transaction)
+    }
+
+    async readMergeRows(teamId: number, targetId: string, sourceIds: string[]): Promise<InternalPerson[]> {
+        return await this.repository.readMergeRows(teamId, targetId, sourceIds, this.transaction)
+    }
+
+    async updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
+        Map<
+            string,
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                person?: InternalPerson
+                error?: Error
+            }
+        >
+    > {
+        return await this.repository.updatePersonsBatch(personUpdates, this.transaction)
     }
 
     async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {

@@ -43,7 +43,7 @@ can prune on — the parsed ``created_at`` stays the precise filter, the raw twi
 A caller's own outer ``created_at_raw`` predicate can prune the jobs scan, but never the duplicate
 scan, which reads no ``created_at_raw``. Windowed callers therefore pass ``created_floor=True`` and
 register the ``{job_created_floor}`` placeholder (see ``run_started_floor_constant``, shared with
-the runs builder). The floor is a prefilter on the RAW column inside the shared table source, so it
+the runs builder). The floor is a prefilter on the RAW column inside the source of each scan, so it
 bounds both scans. The trade is exact: a run whose
 earlier attempt falls below the floor loses the evidence that its later attempt is a copy, so a
 boundary re-run reads as billable — the same coarseness the floor already has, and why the floor sits
@@ -51,6 +51,8 @@ a day below the window.
 
 Embedded as a subquery by the jobs query module (see ``_curated``); nothing registers a global view.
 """
+
+from posthog.dataclasses import frozen
 
 # The moment the job actually began running: the first entry of the ``steps`` JSON array. ``steps`` is
 # a Nullable JSON string, and ClickHouse rejects an Array nested inside a Nullable, so it is
@@ -70,14 +72,34 @@ def branch(jobs_alias: str, runs_alias: str) -> str:
     return f"coalesce(nullIf({jobs_alias}.head_branch, ''), {runs_alias}.head_branch)"
 
 
-def build_query(table_name: str, *, created_floor: bool = False) -> str:
+@frozen
+class JobsTable:
+    """The jobs a read returns, and the source of the builder's duplicate scan.
+
+    ``duplicates`` may hold runs that ``rows`` leaves out, because the join only gives a job row the first
+    attempt of its own run. A source that pays to leave runs out, like the hand-off shell filter, then pays
+    once per jobs read.
+    """
+
+    rows: str
+    duplicates: str
+
+    @classmethod
+    def of(cls, table: str) -> "JobsTable":
+        """One table for both scans."""
+        return cls(rows=table, duplicates=table)
+
+
+def build_query(table: JobsTable, *, created_floor: bool = False) -> str:
     # The floor must live in its OWN innermost SELECT on the raw string column, like the runs
     # builder's: the parsing SELECT below aliases parseDateTimeBestEffort(created_at) AS created_at,
-    # so a WHERE there would compare the parsed DateTime against the floor string. Both the jobs scan
-    # and the duplicate scan read this source, so the one floor bounds both.
-    table_source = (
-        f"(SELECT * FROM {table_name} WHERE created_at >= {{job_created_floor}})" if created_floor else table_name
-    )
+    # so a WHERE there would compare the parsed DateTime against the floor string. The jobs scan and
+    # the duplicate scan each read a floored source, so the one floor bounds both.
+    def floored(source: str) -> str:
+        return f"(SELECT * FROM {source} WHERE created_at >= {{job_created_floor}})" if created_floor else source
+
+    rows_source = floored(table.rows)
+    duplicates_source = floored(table.duplicates)
     return f"""
         SELECT
             job.id AS id,
@@ -110,10 +132,16 @@ def build_query(table_name: str, *, created_floor: bool = False) -> str:
             -- timestamps, which never match the join keys) reads first_attempt as NULL, so the
             -- comparison yields 0. min(run_attempt) stays Nullable, which makes the LEFT JOIN
             -- non-match default NULL rather than 0 (a 0 default would flag every unmatched row).
-            ifNull(job.run_attempt > dupes.first_attempt, 0) AS is_rerun_copy
+            ifNull(job.run_attempt > dupes.first_attempt, 0) AS is_rerun_copy,
+            job.ci_engine AS ci_engine,
+            job.native_run_id AS native_run_id,
+            job.native_workflow_run_id AS native_workflow_run_id,
+            job.native_job_id AS native_job_id,
+            job.native_attempt_id AS native_attempt_id
         FROM (
             SELECT
                 id,
+                ci_engine, native_run_id, native_workflow_run_id, native_job_id, native_attempt_id,
                 run_id,
                 run_attempt,
                 name,
@@ -131,7 +159,7 @@ def build_query(table_name: str, *, created_floor: bool = False) -> str:
                 parseDateTimeBestEffort(started_at) AS started_at,
                 parseDateTimeBestEffort(completed_at) AS completed_at,
                 {_FIRST_STEP_STARTED_AT} AS first_step_started_at
-            FROM (SELECT *, created_at AS created_at_raw FROM {table_source})
+            FROM (SELECT *, created_at AS created_at_raw FROM {rows_source})
         ) AS job
         -- The duplicated (run_id, name, started_at, completed_at) groups: the re-run copies plus
         -- their originals, from a scan that reads only these five columns. The HAVING drops the
@@ -140,16 +168,17 @@ def build_query(table_name: str, *, created_floor: bool = False) -> str:
         -- GROUP BY unambiguously names the parsed values.
         LEFT JOIN (
             SELECT
+                ci_engine,
                 run_id,
                 name,
                 parseDateTimeBestEffort(started_at) AS started_key,
                 parseDateTimeBestEffort(completed_at) AS completed_key,
                 min(run_attempt) AS first_attempt
-            FROM {table_source}
-            GROUP BY run_id, name, started_key, completed_key
+            FROM {duplicates_source}
+            GROUP BY ci_engine, run_id, name, started_key, completed_key
             HAVING count() > 1 AND started_key IS NOT NULL AND completed_key IS NOT NULL
         ) AS dupes
-            ON job.run_id = dupes.run_id
+            ON job.run_id = dupes.run_id AND job.ci_engine = dupes.ci_engine
             AND job.name = dupes.name
             AND job.started_at = dupes.started_key
             AND job.completed_at = dupes.completed_key

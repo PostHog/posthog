@@ -9,6 +9,8 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 from parameterized import parameterized
 from pydantic import ValidationError
 
+from posthog.hogql.cost.fingerprint import fingerprint_query
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
@@ -188,14 +190,14 @@ async def test_async_tasks_have_isolated_tags():
 
     async def task_a():
         # Task A sets its tags first
-        tag_queries(team_id=100, user_id=1)
+        tag_queries(team_id=100, user_id=1, is_scout_experiment=True)
         task_a_set_tags.set()
 
         # Wait for Task B to set its tags
         await task_b_set_tags.wait()
 
         tags = get_query_tags()
-        results["task_a"] = {"team_id": tags.team_id, "user_id": tags.user_id}
+        results["task_a"] = {"team_id": tags.team_id, "user_id": tags.user_id, "private": tags.is_scout_experiment}
 
     async def task_b():
         # Wait for Task A to set its tags first
@@ -206,7 +208,7 @@ async def test_async_tasks_have_isolated_tags():
         task_b_set_tags.set()
 
         tags = get_query_tags()
-        results["task_b"] = {"team_id": tags.team_id, "user_id": tags.user_id}
+        results["task_b"] = {"team_id": tags.team_id, "user_id": tags.user_id, "private": tags.is_scout_experiment}
 
     task_a_handle = asyncio.create_task(task_a())
     task_b_handle = asyncio.create_task(task_b())
@@ -217,9 +219,11 @@ async def test_async_tasks_have_isolated_tags():
     # Each task should see its own values, not contaminated by the other
     assert results["task_a"]["team_id"] == 100
     assert results["task_a"]["user_id"] == 1
+    assert results["task_a"]["private"] is True
 
     assert results["task_b"]["team_id"] == 200
     assert results["task_b"]["user_id"] == 2
+    assert results["task_b"]["private"] is None
 
 
 @pytest.mark.asyncio
@@ -426,6 +430,18 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert comment["source_file"] == "posthog/clickhouse/test/test_query_tagging.py"
         assert comment["source_line"] > 0
 
+    def test_execute_hogql_query_populates_plan_fingerprint(self):
+        marker = str(uuid.uuid4())
+        # An explicit LIMIT keeps the executor from adding its default one, so both sides hash the same shape.
+        sql = f"SELECT count() FROM events WHERE event = '{marker}' LIMIT 100"  # noqa: S608
+        reset_query_tags()
+        tag_queries(kind="request", id="test")
+        execute_hogql_query(sql, team=self.team, query_type="HogQLQuery")
+
+        comment = self._get_log_comment(marker)
+
+        assert comment["plan_fingerprint"] == fingerprint_query(parse_select(sql))
+
     @parameterized.expand([("approved", True), ("not_approved", False)])
     def test_sync_execute_preserves_ai_data_processing_approved_tag(self, _name, approved):
         marker = str(uuid.uuid4())
@@ -590,7 +606,9 @@ class TestAddFallbackQueryTags(BaseTest):
         assert tags.product == Product.PRODUCT_ANALYTICS
         assert tags.feature is None
 
-    @parameterized.expand([("MCPMissingCapabilitiesQuery",), ("MCPModelBreakdownQuery",)])
+    @parameterized.expand(
+        [("MCPMissingCapabilitiesQuery",), ("MCPModelBreakdownQuery",), ("MCPProtocolVersionBreakdownQuery",)]
+    )
     def test_mcp_analytics_kind_attributes_to_mcp_analytics(self, query_type: str) -> None:
         tags = QueryTags(query_type=query_type)
         add_fallback_query_tags(tags)
