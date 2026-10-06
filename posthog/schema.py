@@ -7234,14 +7234,6 @@ class QueryStatus(BaseModel):
             " code, or the ClickHouse error name."
         ),
     )
-    error_http_status: int | None = Field(
-        default=None,
-        description=(
-            "HTTP status chosen when the query failed, independently of whether a safe"
-            " explanation is available. Older cached query statuses do not include this"
-            " field."
-        ),
-    )
     error_message: str | None = None
     expiration_time: AwareDatetime | None = None
     id: str

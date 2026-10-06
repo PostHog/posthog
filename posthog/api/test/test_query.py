@@ -138,7 +138,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "If the query uses a view, check that the view still matches its source table.",
             ),
             ("unsupported_method", 1, "ClickHouse rejected the query with error UNSUPPORTED_METHOD."),
-            ("syntax_error", 62, "ClickHouse rejected the query with error SYNTAX_ERROR."),
+            ("syntax_error", 62, "ClickHouse error while executing query."),
             ("unknown_code", 999_999, "ClickHouse error while executing query."),
         ]
     )
@@ -1389,7 +1389,7 @@ class TestQueryRetrieve(APIBaseTest):
         [
             (
                 "server_failure",
-                None,
+                "too_many_parts",
                 "The database had a temporary problem while it ran this query. Wait a few minutes, "
                 "then run the query again. If the problem continues, contact support.",
             ),
@@ -1407,9 +1407,8 @@ class TestQueryRetrieve(APIBaseTest):
                 "id": self.valid_query_id,
                 "team_id": self.team_id,
                 "error": True,
-                "error_message": message,
+                "error_message": None,
                 "error_code": error_code,
-                "error_http_status": 500,
             }
         ).encode()
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
@@ -1417,18 +1416,27 @@ class TestQueryRetrieve(APIBaseTest):
         self.assertEqual(response.json()["query_status"]["error_message"], message)
         self.assertEqual(response.json()["query_status"]["error_code"], error_code)
 
-    def test_failed_query_with_exposed_error(self):
+    @parameterized.expand(
+        [
+            ("validation", "Try changing the time range", None),
+            ("timeout", "Query timed out", "error"),
+            ("memory_limit", "Query memory limit exceeded", "clickhouse_memory_limit_exceeded"),
+        ]
+    )
+    def test_failed_query_with_exposed_error(self, _name, message, error_code):
         self.redis_client_mock.get.return_value = json.dumps(
             {
                 "id": self.valid_query_id,
                 "team_id": self.team_id,
                 "error": True,
-                "error_message": "Try changing the time range",
+                "error_message": message,
+                "error_code": error_code,
             }
         ).encode()
         response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 400)
         self.assertTrue(response.json()["query_status"]["error"])
+        self.assertEqual(response.json()["query_status"]["error_message"], message)
 
     def test_destroy(self):
         self.redis_client_mock.get.return_value = json.dumps(
