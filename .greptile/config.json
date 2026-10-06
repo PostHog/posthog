@@ -1,10 +1,9 @@
 {
-    "autoReview": [],
     "strictness": 2,
     "triggerOnUpdates": false,
     "triggerOnDrafts": true,
     "fileChangeLimit": 100,
-    "disabledLabels": ["no-greptile"],
+    "disabledLabels": ["skip-agent-review"],
     "instructions": "Be direct and concise: state the issue, its impact, and the fix, with no preamble or praise. Do not comment on alphabetical sorting, trailing commas, or formatting. Linters catch these. Judge code by four simplicity rules: it passes all the tests, expresses every idea it needs to express, says everything once and only once, and has no superfluous parts. Prefer parameterised tests over near-duplicate test functions. In async Python, flag blocking synchronous calls such as ORM queries, HTTP requests, file I/O, and sleep.",
     "shouldUpdateDescription": false,
     "summarySection": {

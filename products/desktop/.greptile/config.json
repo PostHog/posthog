@@ -1,4 +1,3 @@
 {
-  "autoReview": [],
-  "disabledLabels": ["no-greptile"]
+  "disabledLabels": ["skip-agent-review"]
 }
