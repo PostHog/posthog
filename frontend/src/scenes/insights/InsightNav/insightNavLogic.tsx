@@ -259,20 +259,22 @@ interface InsightTypeCapabilities {
 
 const downgradeMinuteInterval = (interval: IntervalType): IntervalType => (interval === 'minute' ? 'hour' : interval)
 
+const clearBreakdown = (bf: BreakdownFilter): BreakdownFilter => ({
+    ...bf,
+    breakdowns: undefined,
+    breakdown: undefined,
+    breakdown_type: undefined,
+    breakdown_group_type_index: undefined,
+    breakdown_histogram_bin_count: undefined,
+    breakdown_normalize_url: undefined,
+    breakdown_path_cleaning: undefined,
+})
+
 const truncateToSingleBreakdown = (bf: BreakdownFilter): BreakdownFilter => {
     if (bf.breakdowns?.length) {
-        const first = bf.breakdowns[0]
-        if (first.type === 'element') {
-            return {
-                ...bf,
-                breakdowns: undefined,
-                breakdown: undefined,
-                breakdown_type: undefined,
-                breakdown_group_type_index: undefined,
-                breakdown_histogram_bin_count: undefined,
-                breakdown_normalize_url: undefined,
-                breakdown_path_cleaning: undefined,
-            }
+        const first = bf.breakdowns.find((b) => b.type !== 'element')
+        if (!first) {
+            return clearBreakdown(bf)
         }
         return {
             ...bf,
@@ -285,15 +287,7 @@ const truncateToSingleBreakdown = (bf: BreakdownFilter): BreakdownFilter => {
         }
     }
     if (bf.breakdown_type === 'element') {
-        return {
-            ...bf,
-            breakdown: undefined,
-            breakdown_type: undefined,
-            breakdown_group_type_index: undefined,
-            breakdown_histogram_bin_count: undefined,
-            breakdown_normalize_url: undefined,
-            breakdown_path_cleaning: undefined,
-        }
+        return clearBreakdown(bf)
     }
     return { ...bf, breakdowns: undefined }
 }
