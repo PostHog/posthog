@@ -2476,6 +2476,10 @@ snapshots:
         hash: v1.k794b7964.c5f45d681dad559cdf8bed1c8e9d31c5dca4d0973e1fbf5d1515ab30c393b554.SYg7auYBsl2kTK9lzMylWzKKRJ9Bf3sT0lwtvlfXx24
     components-slack-channel-picker--alphabetical--light:
         hash: v1.k794b7964.726967267332758d5771d2230a569cf7a29bdb38d1244aeb8dcacd86f25f433e.n9EALYKR_pt88G2ZCdyZ4V12Br9qoNbP3w7j2bNQ0Wk
+    components-slack-channel-picker--missing-app-in-channel--dark:
+        hash: v1.k794b7964.38c8b5516744caf6b0d4497e37e96c84dad27af6c1b6f2d3b0798377b7ce77ca.zcp2aiv59l5oZLpcdiTzS0jrBbFcT_Nt2xmRfa8wG1I
+    components-slack-channel-picker--missing-app-in-channel--light:
+        hash: v1.k794b7964.77b1ae6246ae53d3a86fbe872d519c47df3b4c17a85c20089085dccd72ff081c.1Ehyk4lGEihuDr4kYg7SaPSsBUEwoPQBri5rrnnsJK4
     components-slack-channel-picker--multiple-selection--dark:
         hash: v1.k794b7964.2706bc3f6a6a560eeb7c2a7b25b0feafb0438bb7f2b94aa6f584de1eed7338a2.WscXFEXWmTCQX3rgoirWxfA_iSvW47pO5ZaLo7TFx3U
     components-slack-channel-picker--multiple-selection--light:
@@ -11402,6 +11406,10 @@ snapshots:
         hash: v1.k794b7964.b47818f5f154dfd4d14fe525e714980ec9f06e8c29802231d4e1ebf6df7a0de2.ru2rUWCNxUOD8UACkmW8-dfV0Q4rNvf-D-E7ut9kdXI
     scenes-app-inbox-slacknotificationssection--direct-message-to-me--light:
         hash: v1.k794b7964.97016ccf994141237de98a7decd5fa540f8b8fecc6f9b67b6fe070e6fc86c6f6.YSImf6N-fF_YX2F4QDRwBpaQBi2b5C7UgU_s4h3xTDg
+    scenes-app-inbox-slacknotificationssection--direct-message-unavailable--dark:
+        hash: v1.k794b7964.c0919593bf744127f368ed20b2cedf1cfa22e5f1af5ab217374b09e5b3a42967.iWW0VeeKA_6NsRR91wa3UUSdLiW25JlMYf7pKlRi44Y
+    scenes-app-inbox-slacknotificationssection--direct-message-unavailable--light:
+        hash: v1.k794b7964.f0c171d1358f663f0cc699e8b012228fa2c6204569f66e99f5b0ff391ee587f2.n4pCX7buo8bGOu_BswREY22LJiyjDkbuauKq4nDiKCk
     scenes-app-inbox-slacknotificationssection--not-connected--dark:
         hash: v1.k794b7964.28ba7f9bff784013ccce1e2a2fc0130d6bb7ce265f501308f221cbdf902614ad.Ou8BqYO_9RvcgnW9eECuR7tiWOtkJbX8mFSUXEkXzWw
     scenes-app-inbox-slacknotificationssection--not-connected--light:
