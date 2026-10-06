@@ -31,7 +31,10 @@ jobs:
     lookup:
         runs-on: ubuntu-24.04
         timeout-minutes: 20
-        if: github.repository == 'PostHog/posthog'
+        # Manual dispatch is master-only so branch-controlled code can't run with the Slack token.
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -60,8 +63,6 @@ jobs:
         needs: lookup
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        # Manual dispatch is master-only so branch-controlled code can't run with the Slack token.
-        if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:

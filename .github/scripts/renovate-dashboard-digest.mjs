@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { pathToFileURL } from 'node:url'
 
 import {
     DRY_RUN,
@@ -96,6 +96,6 @@ async function main() {
     await postToSlack(blocks, 'Weekly Renovate digest', { channel: process.env.SLACK_CHANNEL || TEAM_DEVEX_CHANNEL })
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
     await main()
 }
