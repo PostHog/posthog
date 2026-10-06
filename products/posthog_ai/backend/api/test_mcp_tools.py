@@ -178,7 +178,7 @@ class TestMCPToolsAPI(APIBaseTest):
                 "query_memory_limit",
                 ClickHouseQueryMemoryLimitExceeded("private backend detail"),
                 "memory_limit",
-                "Tool failed: MaxToolRetryableError: This query ran out of memory before it could finish, usually because it's scanning too much data. Try a shorter date range or narrower filters, or see our docs for more ways to speed it up: https://posthog.com/docs/product-analytics/troubleshooting#how-do-i-speed-up-my-insights-and-queries. You may retry with adjusted inputs.",
+                "Tool failed: MaxToolFatalError: Reading the schema ran out of memory. This tool does not support date filters. Use execute-sql with a short, explicit date range for a targeted lookup.",
             ),
             (
                 "cluster_memory_limit",

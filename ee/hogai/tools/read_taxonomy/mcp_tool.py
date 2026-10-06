@@ -8,7 +8,7 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
-from ee.hogai.tool_errors import MaxToolRetryableError, MaxToolTransientError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 
 from .core import ReadTaxonomyToolArgs, execute_taxonomy_query
 
@@ -49,8 +49,10 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
                 ClickHouseClusterMemoryLimitExceeded.default_detail.rstrip("."), error_type="rate_limited"
             ) from e
         except ClickHouseQueryMemoryLimitExceeded as e:
-            raise MaxToolRetryableError(
-                ClickHouseQueryMemoryLimitExceeded.default_detail.rstrip("."), error_type="memory_limit"
+            raise MaxToolFatalError(
+                "Reading the schema ran out of memory. This tool does not support date filters. "
+                "Use execute-sql with a short, explicit date range for a targeted lookup",
+                error_type="memory_limit",
             ) from e
         except OperationalError as e:
             # Only a statement cancelled by statement_timeout (SQLSTATE 57014) is worth a retry.
