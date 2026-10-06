@@ -140,10 +140,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ("unsupported_method", 1, "ClickHouse rejected the query with error UNSUPPORTED_METHOD."),
             ("syntax_error", 62, "ClickHouse error while executing query."),
             ("unknown_code", 999_999, "ClickHouse error while executing query."),
+            *[
+                (
+                    storage_error,
+                    499,
+                    "PostHog couldn't read from storage while running this query. Wait a few minutes, "
+                    "then run the query again. If the problem continues, contact support.",
+                    f"DB::Exception: {storage_error} reading managed/table.parquet (S3_ERROR)",
+                )
+                for storage_error in ["SlowDown", "InternalError"]
+            ],
         ]
     )
-    def test_internal_clickhouse_error_hides_raw_message(self, _name, code, expected_detail):
-        error = InternalCHQueryError("DB::Exception: raw server detail", code=code)
+    def test_internal_clickhouse_error_hides_raw_message(
+        self, _name, code, expected_detail, raw_message="DB::Exception: raw server detail"
+    ):
+        error = InternalCHQueryError(raw_message, code=code)
 
         with (
             patch("posthog.api.query.process_query_model", side_effect=error),
