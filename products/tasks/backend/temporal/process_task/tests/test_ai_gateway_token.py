@@ -14,7 +14,7 @@ from django.test import override_settings
 
 from posthog.constants import AvailableFeature
 from posthog.llm.gateway_client import GatewayNotConfiguredError
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend import model_catalog
@@ -242,6 +242,14 @@ class TestMintScopedToken:
         assert len(pin) == len(set(pin))
         assert set(pin) == {model for model in registry if "/" not in model} | set(SDK_IMPLICIT_MODELS)
         assert any("/" in model for model in registry), "the catalog no longer offers a gateway-served model"
+
+    def test_limit_tier_is_sent_only_when_given(self, mint_settings):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(201, {"token": "phe_abc"})
+            mint_scoped_token(ai_product="posthog_code", team_id=123, limit_tier="power")
+            assert post.call_args.kwargs["json"]["limit_tier"] == "power"
+            mint_scoped_token(ai_product="signals_scout", team_id=123)
+            assert "limit_tier" not in post.call_args.kwargs["json"]
 
     def test_non_pinned_products_send_no_allowed_models(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
@@ -1483,8 +1491,11 @@ class TestPosthogCodeSandboxMint:
             ) as flag,
             patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token"),
         ):
+            User.objects.create(email="runner@example.com", distinct_id="run-user-distinct-id")
             ai_gateway_env_vars(team_id=team.id, origin_product="user_created", distinct_id="run-user-distinct-id")
         assert flag.call_args.args[1] == "run-user-distinct-id"
+        # The account email, never the person's stored one.
+        assert flag.call_args.kwargs["person_properties"] == {"email": "runner@example.com"}
 
     @pytest.mark.django_db
     def test_off_pin_model_refuses(self):
@@ -1513,8 +1524,13 @@ class TestPosthogCodeSandboxMint:
             ) as mint,
         ):
             env = ai_gateway_env_vars(team_id=team.id, origin_product="user_created", model="@cf/zai-org/glm-5.2")
+        # An org with no synced billing mints provisional.
         mint.assert_called_once_with(
-            ai_product="posthog_code", team_id=team.id, user=None, allowed_models=FREE_TIER_MODELS
+            ai_product="posthog_code",
+            team_id=team.id,
+            user=None,
+            allowed_models=FREE_TIER_MODELS,
+            limit_tier="provisional",
         )
         assert env["AI_GATEWAY_PRODUCT"] == "posthog_code"
         assert env[utils._PIN_KEY_ENV] == FREE_TIER_PIN_KEY
@@ -1531,9 +1547,42 @@ class TestPosthogCodeSandboxMint:
             ) as mint,
         ):
             env = ai_gateway_env_vars(team_id=team.id, origin_product="loop", model="claude-opus-5")
-        mint.assert_called_once_with(ai_product="posthog_code", team_id=team.id, user=None)
+        mint.assert_called_once_with(ai_product="posthog_code", team_id=team.id, user=None, limit_tier="provisional")
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         assert utils._PIN_KEY_ENV not in env
+
+    @pytest.mark.django_db
+    def test_the_run_user_reaches_the_limit_tier(self, mint_settings):
+        team = self._team(paid=True)
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "posthog_code"
+        with (
+            patch(_ROLLOUT, return_value=True),
+            patch(_CREDIT_LOOKUP, return_value=None),
+            patch(
+                "products.tasks.backend.temporal.process_task.utils.posthog_code_limit_tier", return_value="power"
+            ) as tier,
+            patch(
+                "products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_abc"
+            ) as mint,
+        ):
+            ai_gateway_env_vars(team_id=team.id, origin_product="user_created", distinct_id="run-user")
+        tier.assert_called_once_with(team.id, "run-user")
+        assert mint.call_args.kwargs["limit_tier"] == "power"
+
+    @pytest.mark.django_db
+    def test_the_worker_tier_uses_the_account_email_not_the_person(self):
+        from products.tasks.backend.temporal.process_task.ai_gateway_token import posthog_code_limit_tier
+
+        team = self._team(paid=True)
+        user = User.objects.create(email="staff@posthog.com", distinct_id="run-user")
+        with patch(
+            "products.tasks.backend.temporal.process_task.ai_gateway_token.desktop_limit_tier", return_value="exempt"
+        ) as tier:
+            assert posthog_code_limit_tier(team.id, user.distinct_id) == "exempt"
+            assert tier.call_args.kwargs["email"] == "staff@posthog.com"
+            assert tier.call_args.kwargs["distinct_id"] == "run-user"
+            posthog_code_limit_tier(team.id, "nobody")
+            assert tier.call_args.kwargs["email"] is None
 
     def test_run_state_stamps_the_product_pin(self, mint_settings):
         env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "posthog_code"}
