@@ -73,7 +73,12 @@ export function buildBIConnections(
         name ? (tables[name] ?? tables[name.replaceAll('`', '')] ?? null) : null
     const getTableLookup = (tableName: string, fields: DatabaseSchemaField[]): TableLookup => {
         const lookup: TableLookup = Object.create(tables)
-        lookup[tableName] = { name: tableName, fields: Object.fromEntries(fields.map((field) => [field.name, field])) }
+        Object.defineProperty(lookup, tableName, {
+            value: { name: tableName, fields: Object.fromEntries(fields.map((field) => [field.name, field])) },
+            enumerable: true,
+            configurable: true,
+            writable: true,
+        })
         return lookup
     }
     const visit = (
