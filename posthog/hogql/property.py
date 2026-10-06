@@ -639,9 +639,14 @@ def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeG
     return True
 
 
-def _coerce_between_bounds(
-    expr: ast.Expr, value: list, property: Property, team: Team
-) -> tuple[ast.Expr, int | float | str, int | float | str]:
+@frozen
+class _BetweenComparison:
+    left: ast.Expr
+    low: int | float | str
+    high: int | float | str
+
+
+def _coerce_between_bounds(expr: ast.Expr, value: list, property: Property, team: Team) -> _BetweenComparison:
     """Coerce a between/not_between comparison against a String LHS to numeric.
 
     _validate_between_values already guaranteed both bounds parse as numbers, so a String
@@ -649,12 +654,12 @@ def _coerce_between_bounds(
     bounds are parsed with it, or a numeric-text bound ('10') would compare as String
     against the Float64 LHS."""
     if not _property_lhs_stays_string(property, team):
-        return expr, value[0], value[1]
+        return _BetweenComparison(left=expr, low=value[0], high=value[1])
 
     def _parse(v: object) -> int | float:
         return float(v) if isinstance(v, str) else cast(int | float, v)
 
-    return ast.Call(name="toFloat", args=[expr]), _parse(value[0]), _parse(value[1])
+    return _BetweenComparison(left=ast.Call(name="toFloat", args=[expr]), low=_parse(value[0]), high=_parse(value[1]))
 
 
 def _multi_search_found(search_call: ast.Call) -> ast.CompareOperation:
@@ -895,25 +900,33 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
-        left, low, high = _coerce_between_bounds(expr, value, property, team)
+        between = _coerce_between_bounds(expr, value, property, team)
         return ast.And(
             exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=left, right=ast.Constant(value=low)),
-                ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=left, right=ast.Constant(value=high)),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq, left=between.left, right=ast.Constant(value=between.low)
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq, left=between.left, right=ast.Constant(value=between.high)
+                ),
             ]
         )
     elif operator == PropertyOperator.NOT_BETWEEN:
         _validate_between_values(value, operator)
         assert isinstance(value, list)
-        left, low, high = _coerce_between_bounds(expr, value, property, team)
+        between = _coerce_between_bounds(expr, value, property, team)
         return ast.Or(
             exprs=[
-                ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=left, right=ast.Constant(value=low)),
-                ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=left, right=ast.Constant(value=high)),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt, left=between.left, right=ast.Constant(value=between.low)
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Gt, left=between.left, right=ast.Constant(value=between.high)
+                ),
                 # A missing property makes both comparisons NULL and drops the row; keep it, matching
                 # every other negative operator. With a coerced LHS this also keeps rows whose value
                 # does not parse as a number: they match no range, so "not between" holds for them.
-                ast.Call(name="isNull", args=[left]),
+                ast.Call(name="isNull", args=[between.left]),
             ]
         )
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
