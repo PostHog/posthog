@@ -23,10 +23,9 @@ const TOP_LABEL_LANE_OFFSET = 10
  * from an edge, a centered label leaves the plot.
  */
 const STEP_LABEL_EDGE_PAD = 65
+const LABEL_FONT_SIZE = 9
 /** Average width of one label character at the 9px size, taken from the 120-unit measure above. */
 const LABEL_CHAR_WIDTH = 4.5
-/** Two step labels whose baselines sit closer than the 9px label size share a row. */
-const STEP_LABEL_ROW_HEIGHT = 9
 
 type LabelAnchor = 'start' | 'middle' | 'end'
 
@@ -127,6 +126,8 @@ interface PlacedLabel {
     text: string
     y: number
     anchor: LabelAnchor
+    left: number
+    right: number
 }
 
 /** Where each occurrence's marks and labels land, resolved before render so the JSX map stays pure. */
@@ -136,9 +137,11 @@ interface OccurrenceLayout {
     timeLabel: string | null
     /** Alternates between two heights when top-lane markers land near the same x. */
     topLabelY: number
+    /** The step mark's y. Null for a marker. */
+    stepY: number | null
     /**
-     * Null for a marker, and for a step label that would overlap an earlier one in its row. Steps on
-     * one level share a row. Nearby dates on a flat plan would otherwise stack their text.
+     * Null for a marker, and for a step label that would overlap an earlier step label whose baseline
+     * sits within one font size of its own. Nearby dates on a flat plan would otherwise stack their text.
      */
     placedStepLabel: PlacedLabel | null
 }
@@ -186,7 +189,7 @@ export function ScheduleTimeline({
     let lastTimeLabelX = -Infinity
     let lastTopLabelX = -Infinity
     let topLabelLane = 0
-    const shownStepLabels: { y: number; left: number; right: number }[] = []
+    const shownStepLabels: PlacedLabel[] = []
     occurrences.forEach((occurrence, index) => {
         const x = xFor(times[index])
         const timeLabel = x - lastTimeLabelX >= TIME_LABEL_MIN_GAP ? relativeLabel(times[index], now) : null
@@ -194,19 +197,23 @@ export function ScheduleTimeline({
             lastTimeLabelX = x
         }
         let topLabelY = MARGIN.top - 8
+        let stepY: number | null = null
         let placedStepLabel: PlacedLabel | null = null
         const rollout = occurrence.projected.rolloutPercentage
         if (occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition && rollout !== null) {
+            stepY = yForRollout(rollout)
             const text = stepLabel(occurrence, rollout)
-            const y = yForRollout(rollout) - 7
             const anchor = stepLabelAnchor(x)
-            const { left, right } = labelExtent(x, anchor, text)
+            const label = { text, y: stepY - 7, anchor, ...labelExtent(x, anchor, text) }
             const collides = shownStepLabels.some(
-                (shown) => Math.abs(shown.y - y) < STEP_LABEL_ROW_HEIGHT && left < shown.right && right > shown.left
+                (shown) =>
+                    Math.abs(shown.y - label.y) < LABEL_FONT_SIZE &&
+                    label.left < shown.right &&
+                    label.right > shown.left
             )
             if (!collides) {
-                shownStepLabels.push({ y, left, right })
-                placedStepLabel = { text, y, anchor }
+                shownStepLabels.push(label)
+                placedStepLabel = label
             }
         } else {
             // Two lanes clear the common case of a pair landing together. Three or more markers
@@ -216,7 +223,7 @@ export function ScheduleTimeline({
             lastTopLabelX = x
             topLabelY -= topLabelLane * TOP_LABEL_LANE_OFFSET
         }
-        layouts.push({ x, timeLabel, topLabelY, placedStepLabel })
+        layouts.push({ x, timeLabel, topLabelY, stepY, placedStepLabel })
     })
 
     // Step-line segments, split so an approval-blocked step dashes its jump and not its run.
@@ -297,7 +304,7 @@ export function ScheduleTimeline({
                                 x={MARGIN.left - 4}
                                 y={yForRollout(rollout) + 3}
                                 textAnchor="end"
-                                fontSize={9}
+                                fontSize={LABEL_FONT_SIZE}
                                 fill="var(--color-text-secondary)"
                             >
                                 {rollout}%
@@ -318,10 +325,8 @@ export function ScheduleTimeline({
                     ))}
 
                     {occurrences.map((occurrence, index) => {
-                        const { x, timeLabel, topLabelY, placedStepLabel } = layouts[index]
+                        const { x, timeLabel, topLabelY, stepY, placedStepLabel } = layouts[index]
                         const blocked = occurrence.needsApproval
-                        const isRolloutStep = occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition
-                        const rollout = occurrence.projected.rolloutPercentage
                         // A browser shows only the first <title> child as the hover tooltip.
                         const title = markTitle(occurrence)
                         return (
@@ -334,11 +339,11 @@ export function ScheduleTimeline({
                                     y2={BASELINE_Y + 4}
                                     stroke="var(--color-border-primary)"
                                 />
-                                {isRolloutStep && rollout !== null ? (
+                                {stepY !== null ? (
                                     <>
                                         <circle
                                             cx={x}
-                                            cy={yForRollout(rollout)}
+                                            cy={stepY}
                                             r={3.5}
                                             fill="var(--data-color-1)"
                                             stroke="var(--color-bg-surface-primary)"
@@ -350,7 +355,7 @@ export function ScheduleTimeline({
                                                 x={x}
                                                 y={placedStepLabel.y}
                                                 textAnchor={placedStepLabel.anchor}
-                                                fontSize={9}
+                                                fontSize={LABEL_FONT_SIZE}
                                                 fill="var(--color-text-secondary)"
                                             >
                                                 {placedStepLabel.text}
@@ -371,7 +376,7 @@ export function ScheduleTimeline({
                                             x={x}
                                             y={topLabelY}
                                             textAnchor={stepLabelAnchor(x)}
-                                            fontSize={9}
+                                            fontSize={LABEL_FONT_SIZE}
                                             fill="var(--color-text-secondary)"
                                         >
                                             {markerLabel(occurrence)}
@@ -384,7 +389,7 @@ export function ScheduleTimeline({
                                         x={x}
                                         y={BASELINE_Y + 15}
                                         textAnchor="middle"
-                                        fontSize={9}
+                                        fontSize={LABEL_FONT_SIZE}
                                         fill="var(--color-text-secondary)"
                                     >
                                         {timeLabel}
