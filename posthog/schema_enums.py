@@ -2141,6 +2141,7 @@ class NativeMarketingSource(StrEnum):
     OPEN_AI_ADS = "OpenAIAds"
     AMAZON_ADS = "AmazonAds"
     ROKT_ADS = "RoktAds"
+    TWITTER_ADS = "TwitterAds"
 
 
 class NodeKind(StrEnum):
@@ -3016,6 +3017,13 @@ class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
+
+
+class TwitterAdsDefaultSources(StrEnum):
+    TWITTER = "twitter"
+    X = "x"
+    TWITTER_ADS = "twitter_ads"
+    X_ADS = "x_ads"
 
 
 class UsageMetricDisplay(StrEnum):

@@ -3516,6 +3516,7 @@ export interface CredentialApi {
  * * `ExactOnline` - ExactOnline
  * * `LettrLabs` - LettrLabs
  * * `GrafanaIRM` - GrafanaIRM
+ * * `Tessitura` - Tessitura
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4876,6 +4877,7 @@ export const ExternalDataSourceTypeEnumApi = {
     ExactOnline: 'ExactOnline',
     LettrLabs: 'LettrLabs',
     GrafanaIRM: 'GrafanaIRM',
+    Tessitura: 'Tessitura',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

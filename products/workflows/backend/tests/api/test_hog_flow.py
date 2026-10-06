@@ -5471,7 +5471,7 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
 
     @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
     @patch(
-        "products.workflows.backend.presentation.views.hog_flow.fetch_app_metric_totals",
+        "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",
         side_effect=Exception("clickhouse is down"),
     )
     def test_a_producer_cannot_pass_off_its_own_numbers_as_posthogs(self, _mock_totals, _mock_flag):
