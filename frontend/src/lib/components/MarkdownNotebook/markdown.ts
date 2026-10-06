@@ -2017,48 +2017,26 @@ export function escapeMarkdownLineStart(line: string): string {
 
 const COMPONENT_TAG_LINE_START = /^(<[A-Z]|<!--)/
 const COMPONENT_TAG_OPENER = /^\\?(<[A-Z][A-Za-z0-9]*|<!--)/
+// The notebooks backend reads a cell after Python's `str.strip()`, which also removes `\x1c` to `\x1f`
+// and `\x85`. The editor lifts a quoted tag out of its blockquote, so `>` markers count as a prefix too.
+const COMPONENT_TAG_LINE_PREFIX = /^[\s\x1c-\x1f\x85>]*/
 
-// The parser lifts a quoted tag out of its blockquote, so the check runs after any `>` markers too.
-// A backslash is not enough: the parser recovers a `\<Tag` that spans lines, because the prose
-// serializer writes multiline components that way. So a backslash opener is neutralized too.
-// Inline code cannot be recovered into a tag.
+// A backslash is not enough: both parsers recover a `\<Tag` that spans lines, because the prose
+// serializer writes multiline components that way. Inline code cannot be recovered into a tag.
 function escapeComponentTagLineStart(line: string): string {
-    const prefix = line.match(/^[\s>]*/)?.[0] ?? ''
+    const prefix = line.match(COMPONENT_TAG_LINE_PREFIX)?.[0] ?? ''
     const content = line.slice(prefix.length)
     const match = content.match(COMPONENT_TAG_OPENER)
     return match ? `${prefix}\`${match[1]}\`${content.slice(match[0].length)}` : line
 }
 
 // For markdown the author meant to render: only a line that would parse as a component tag or a
-// comment is neutralized, so headings and lists stay live.
+// comment is neutralized, so headings and lists stay live. Lines inside code fences are neutralized
+// too, because the editor and the notebooks backend disagree on where a fence ends, and a fence can
+// span the blocks a caller joins. The cost is a stray pair of backticks in a code sample.
+// The notebooks backend reads `\r` as a line break, so it is one here too.
 export function escapeComponentTagLines(markdown: string): string {
-    const lines: string[] = []
-    let openFence: string | null = null
-    // The notebooks backend closes a fence on any line that starts with three backticks, so a line
-    // this parser reads as code can be a live cell in the backend's run-all plan. A line stays as
-    // written only when both parsers read it as code.
-    let backendFenceOpen = false
-    for (const line of markdown.split('\n')) {
-        const trimmed = line.trim()
-        const codeForBoth = openFence !== null && backendFenceOpen
-        if (openFence) {
-            if (/^`+$/.test(trimmed) && trimmed.length >= openFence.length) {
-                openFence = null
-            }
-        } else if (trimmed.startsWith('```')) {
-            openFence = trimmed.match(/^`+/)?.[0] ?? '```'
-        }
-        if (trimmed.startsWith('```')) {
-            backendFenceOpen = !backendFenceOpen
-        }
-        lines.push(codeForBoth ? line : escapeComponentTagLineStart(line))
-    }
-    // A fence left open would otherwise close on a fence in the next joined block, and the lines
-    // after it, which were skipped here, would parse as live markdown.
-    if (openFence) {
-        lines.push(openFence)
-    }
-    return lines.join('\n')
+    return markdown.replace(/\r\n?/g, '\n').split('\n').map(escapeComponentTagLineStart).join('\n')
 }
 
 function getCodeBlockFence(text: string): string {

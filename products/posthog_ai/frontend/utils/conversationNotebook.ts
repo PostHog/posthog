@@ -81,7 +81,11 @@ export function collectConversationBlocks(
         if (item.type === 'human_message' && item.text?.trim()) {
             messageCount += 1
             // A question is plain text, so it is escaped in full; the answer is markdown by design.
-            blocks.push(`**You asked:** ${escapeMarkdownBlockLines(escapeInlineMarkdownText(item.text.trim()))}`)
+            blocks.push(
+                escapeComponentTagLines(
+                    `**You asked:** ${escapeMarkdownBlockLines(escapeInlineMarkdownText(item.text.trim()))}`
+                )
+            )
         } else if (item.type === 'assistant_message' && item.text?.trim()) {
             messageCount += 1
             blocks.push(escapeComponentTagLines(item.text.trim()))
@@ -132,6 +136,13 @@ export function buildConversationNotebook({
     const lead = summary.trim() ? [escapeComponentTagLines(summary.trim())] : []
     const serialized = blocks.map(serializeBlock)
     const body = incident ? incidentSections(incident, serialized) : serialized
-    const markdown = [`# ${escapeInlineMarkdownText(title.trim())}`, ...lead, ...body].join('\n\n')
+    // A line break in the title would start a line the heading marker does not cover.
+    const heading = `# ${escapeInlineMarkdownText(
+        title
+            .split(/[\s\x1c-\x1f\x85]+/)
+            .join(' ')
+            .trim()
+    )}`
+    const markdown = [heading, ...lead, ...body].join('\n\n')
     return { markdown, content: buildMarkdownNotebookContent(markdown) }
 }
