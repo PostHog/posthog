@@ -92,6 +92,9 @@ That is the same shape as a real regression.
   A `steps` query over only the entrant week cuts off conversions at the week's end, so late entrants never get the full interval.
   To score maturity correctly, run `query-funnel` with `funnelVizType: trends`, `interval: week` (or `day`), and a `dateRange` that ends now.
   Each point is one entrant period, and its conversions can fall after the period ends.
+  Pass `output_format: "json"`, because the default optimized output shows only rates and no entrant counts.
+  Each result holds `days`, `data` (conversion %), `reached_from_step_count` (entrants) and `reached_to_step_count`, with matching indexes.
+  Use `reached_from_step_count` for the minimum-entrant floor, the steady-denominator check and the report evidence.
   Score only the points whose entrant period ended at least one conversion interval ago, and use the older mature points as the baseline.
   For one step-to-step rate, set `funnelFromStep` / `funnelToStep`.
 - Example: a 7-day entrant week of Mon 1 – Sun 7 with a 14-day conversion interval becomes scoreable only after Sun 21 ends.
