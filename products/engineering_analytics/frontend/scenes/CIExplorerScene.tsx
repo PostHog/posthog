@@ -95,7 +95,7 @@ export function CIExplorerScene(): JSX.Element {
                     data-attr="ci-explorer-views"
                 />
                 <div className="flex items-center gap-2 pb-1 text-xs text-secondary">
-                    <Tooltip title="When the stored CI data was last synced from its source. Refresh reads the stored data again. It does not start a sync.">
+                    <Tooltip title="Last sync of the stored CI data. Refresh reloads it and does not start a sync.">
                         <span>
                             {syncedAt ? (
                                 <>

@@ -50,8 +50,7 @@ export function CIExplorerOverview(): JSX.Element {
                         'data-attr': 'ci-explorer-retry-jobs',
                     }}
                 >
-                    Couldn't load the jobs of {pluralize(failedJobRuns.length, 'workflow')}. Their tiles show no job
-                    graph.
+                    Couldn't load jobs for {pluralize(failedJobRuns.length, 'workflow')}
                 </LemonBanner>
             )}
             {jobTimeOpen && <CIExplorerShare />}

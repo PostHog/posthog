@@ -69,7 +69,7 @@ export function CIExplorerDrawer({ maxHeight }: { maxHeight: number }): JSX.Elem
                 ) : focusedJob ? (
                     <CIExplorerJobDetails job={focusedJob.job} run={focusedJob.run} />
                 ) : (
-                    <p className="m-0 text-xs text-secondary">Select a job to see its details.</p>
+                    <p className="m-0 text-xs text-secondary">Select a job</p>
                 )}
             </div>
         </aside>

@@ -31,12 +31,12 @@ export function CIExplorerActivityCommit({ commit }: { commit: CIActivityCommit 
             <span className="flex flex-wrap items-center gap-x-3 text-xs tabular-nums text-secondary">
                 <span>{pluralize(commit.runs, 'workflow run')}</span>
                 {commit.failed > 0 && (
-                    <Tooltip title="Workflow runs that failed on this commit, re-runs included. It is not the commit's latest result.">
+                    <Tooltip title="Failed runs on this commit, including re-runs">
                         <span className="text-danger">{commit.failed} failed</span>
                     </Tooltip>
                 )}
                 {commit.elapsedSeconds !== null && (
-                    <Tooltip title="First run start to last run update, with re-runs and idle gaps">
+                    <Tooltip title="First run start to last run update">
                         <span className="font-mono">
                             Elapsed {humanFriendlyDuration(commit.elapsedSeconds, { maxUnits: 2 })}
                         </span>

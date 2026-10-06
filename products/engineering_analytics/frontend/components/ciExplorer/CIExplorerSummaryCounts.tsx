@@ -17,7 +17,7 @@ export function CIExplorerSummaryCounts(): JSX.Element {
         [summary.other, 'cancelled or skipped', 'text-secondary'],
     ]
     return (
-        <Tooltip title="The latest run of each workflow on this commit. Required checks are not synced, so these counts are not a merge verdict.">
+        <Tooltip title="Latest run of each workflow. Not a merge verdict: required checks are not synced.">
             <span className="flex flex-wrap gap-x-3 text-xs font-medium tabular-nums" data-attr="ci-explorer-summary">
                 {counts
                     .filter(([count]) => count > 0)

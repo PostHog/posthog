@@ -14,7 +14,7 @@ export function CIExplorerContext(): JSX.Element {
     const { retry } = useActions(ciExplorerContextLogic)
 
     if (!selection) {
-        return <p className="m-0 text-xs text-secondary">Select a workflow or a job to compare it.</p>
+        return <p className="m-0 text-xs text-secondary">Select a workflow or job</p>
     }
     return (
         <>

@@ -12,7 +12,7 @@ const LOG_CLASS =
 export function CIExplorerFailureLog(): JSX.Element {
     const { focusedJobFailure, failureLogs, failureLogsLoading, failureLogsFailed } = useValues(ciExplorerLogic)
     if (failureLogsFailed) {
-        return <p className="m-0 text-xs text-secondary">Log unavailable. Open the job at its source.</p>
+        return <p className="m-0 text-xs text-secondary">Log unavailable</p>
     }
     if (failureLogs === null || failureLogsLoading) {
         return (
@@ -23,7 +23,7 @@ export function CIExplorerFailureLog(): JSX.Element {
     }
     const excerpt = focusedJobFailure ? failureExcerpt(focusedJobFailure.lines) : null
     if (!excerpt) {
-        return <p className="m-0 text-xs text-secondary">No error excerpt stored for this job. Open its log.</p>
+        return <p className="m-0 text-xs text-secondary">No error excerpt</p>
     }
     return (
         <>

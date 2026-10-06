@@ -22,9 +22,7 @@ export function CIExplorerShare(): JSX.Element {
     return (
         <section aria-label="Share of job time" className="flex flex-col gap-2">
             <div className="flex items-center gap-3">
-                <Tooltip
-                    title={`Every job of this commit adds up to ${humanFriendlyDuration(total)} of job time. Jobs run in parallel, so this is more than the elapsed time, and it is not the billed time.`}
-                >
+                <Tooltip title="Sum of all job durations. Not elapsed time, and not billed time.">
                     <div className="relative h-5 flex-1 overflow-hidden rounded bg-fill-secondary">
                         {levels.map((level, index) => (
                             <i
