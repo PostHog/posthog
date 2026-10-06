@@ -264,9 +264,6 @@ class TestInstantly:
 
     @pytest.mark.parametrize("should_use_incremental_field", [False, True])
     def test_account_daily_analytics_full_refresh_splits_into_bounded_windows(self, should_use_incremental_field):
-        # Regression test: a full-history pull used to send one unbounded request (start_date only,
-        # no end_date), which Instantly rejected with "413 Payload Too Large" once a workspace had
-        # enough history. The range must come back split into DATE_WINDOW_SIZE_DAYS-bounded windows.
         client = _FakeClient({"/api/v2/accounts/analytics/daily": [[]]})
 
         with (
@@ -282,14 +279,18 @@ class TestInstantly:
                 should_use_incremental_field=should_use_incremental_field,
                 db_incremental_field_last_value=None,
             )
-            list(response.items())
+            items = response.items()
+            assert isinstance(items, Iterable)
+            list(items)
 
         assert client.calls == [
             (
                 "/api/v2/accounts/analytics/daily",
-                {"start_date": ANALYTICS_HISTORY_START_DATE, "end_date": "2020-03-30"},
+                {"start_date": ANALYTICS_HISTORY_START_DATE, "end_date": "2020-01-31"},
             ),
-            ("/api/v2/accounts/analytics/daily", {"start_date": "2020-03-31", "end_date": "2020-04-15"}),
+            ("/api/v2/accounts/analytics/daily", {"start_date": "2020-02-01", "end_date": "2020-03-02"}),
+            ("/api/v2/accounts/analytics/daily", {"start_date": "2020-03-03", "end_date": "2020-04-02"}),
+            ("/api/v2/accounts/analytics/daily", {"start_date": "2020-04-03", "end_date": "2020-04-15"}),
         ]
 
     def test_probe_sends_required_campaign_id_for_subsequences(self):

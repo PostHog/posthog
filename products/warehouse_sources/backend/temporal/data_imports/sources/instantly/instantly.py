@@ -54,10 +54,8 @@ SYNC_REQUEST_TIMEOUT_SECONDS = (10, 120)
 # thousands of webhooks, so this is a defensive cap, not an expected limit.
 MAX_WEBHOOK_LIST_PAGES = 10
 
-# Date-windowed analytics responses scale with accounts * days in range; an unbounded full-history
-# request (since 2020) grows large enough to trip the API's payload-size limit, so the range is
-# walked in bounded windows instead of one request.
-DATE_WINDOW_SIZE_DAYS = 90
+# Instantly limits daily analytics requests to 31 days.
+DATE_WINDOW_SIZE_DAYS = 31
 
 WEBHOOK_NAME = "PostHog data warehouse"
 # Instantly deliveries are unsigned, but webhooks accept static custom headers — we attach a
