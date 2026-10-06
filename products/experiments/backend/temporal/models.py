@@ -35,9 +35,9 @@ METRICS_RECALCULATION_WORKFLOW_NAME = "experiment-metrics-recalculation-workflow
 # Max attempts per metric before it's marked failed on the recalculation workflow.
 MAX_METRIC_ATTEMPTS = 8
 
-# Retry delay for a calc attempt that bounced off the per-org ClickHouse concurrency limiter or the cluster's
-# at-capacity guard, applied via ApplicationError(next_retry_delay=...) instead of the retry policy's 5s
-# exponential schedule.
+# Retry delay for a calc attempt that bounced off the per-org ClickHouse concurrency limiter, the cluster's
+# at-capacity guard, or the cluster-wide memory ceiling, applied via ApplicationError(next_retry_delay=...) instead
+# of the retry policy's 5s exponential schedule.
 CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS = 60
 
 RECALCULATION_RETRY_INITIAL_INTERVAL_SECONDS = 5

@@ -24,7 +24,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.event_usage import groups
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
@@ -875,7 +875,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
             )
             return _fail(recalculation_id, metric_uuid, "calculation", message, error_type="insufficient_data")
 
-        except (ConcurrencyLimitExceeded, ClickHouseAtCapacity) as e:
+        except (ConcurrencyLimitExceeded, ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded) as e:
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             if is_final_attempt:
                 record_terminal_error(message, classify_experiment_query_error(e), retriable=True)
