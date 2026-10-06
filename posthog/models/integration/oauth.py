@@ -1417,10 +1417,14 @@ class OauthIntegration:
             )
         elif kind == "stripe":
             # Stripe Apps OAuth: secret as HTTP Basic username, no client_id/client_secret in body.
+            # Stripe rolls the refresh token on every exchange. If the response is lost after
+            # Stripe committed the roll, the stored token is dead and only a reconnect recovers.
+            # A key derived from the token makes the next attempt replay Stripe's saved response.
             return requests.post(
                 oauth_config.token_url,
                 auth=HTTPBasicAuth(client_secret, ""),
                 data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                headers={"Idempotency-Key": hashlib.sha256(refresh_token.encode()).hexdigest()},
                 timeout=10,
             )
         else:
