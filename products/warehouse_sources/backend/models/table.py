@@ -19,7 +19,7 @@ from clickhouse_driver.errors import ServerException as ClickHouseServerExceptio
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import is_reserved_models_name
+from posthog.hogql.database.database import MODELS_NAMESPACE_TABLE_ERROR, is_reserved_models_name
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.direct_motherduck_table import DirectMotherDuckTable
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
@@ -62,7 +62,11 @@ from products.warehouse_sources.backend.models.util import (
     remove_named_tuples,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.types import DataWarehouseTableCreatedVia, DataWarehouseTableFormat
+from products.warehouse_sources.backend.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceAccessMethod,
+)
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables, get_hogql_column_name_mapping, resolve_external_table_fields
@@ -491,13 +495,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             return
         if not is_reserved_models_name(self.name):
             return
+        if (
+            self.external_data_source_id
+            and self.external_data_source.access_method == ExternalDataSourceAccessMethod.DIRECT
+        ):
+            return
         # A table saved with this name before the reservation existed must stay editable and deletable.
         # soft_delete() calls save(), so rejecting an unchanged name would leave the table stuck.
         if not self._state.adding and type(self).raw_objects.filter(pk=self.pk, name=self.name).exists():
             return
-        raise ValidationError(
-            {"name": "The models namespace is reserved for data models. Choose a different table name."}
-        )
+        raise ValidationError({"name": MODELS_NAMESPACE_TABLE_ERROR})
 
     def _reject_client_supplied_url_pattern_change(self, update_fields: Iterable[str] | None) -> None:
         """Block a url_pattern change on a table with no credential, unless the caller declares the

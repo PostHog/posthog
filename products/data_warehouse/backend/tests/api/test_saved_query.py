@@ -31,6 +31,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.data_warehouse.backend.presentation.views.saved_query.editing import DataWarehouseSavedQuerySerializer
 from products.data_warehouse.backend.presentation.views.saved_query.viewset import (
     SavedQueryMaterializeSerializer,
     SavedQueryResumeSchedulesRequestSerializer,
@@ -2609,6 +2610,11 @@ class TestSavedQuery(APIBaseTest):
 
 
 class TestSavedQueryNameValidation(SimpleTestCase):
+    def test_unchanged_legacy_root_name_is_allowed_by_serializer(self) -> None:
+        instance = DataWarehouseSavedQuery(name="models", origin=DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE)
+        serializer = DataWarehouseSavedQuerySerializer(instance=instance, partial=True)
+        assert serializer.to_internal_value({"name": "models"}) == {"name": "models"}
+
     @parameterized.expand(
         [
             ("authored", "models.revenue", DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE),

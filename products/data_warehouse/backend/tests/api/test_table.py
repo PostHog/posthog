@@ -53,6 +53,11 @@ class TestResolveCreatedVia(SimpleTestCase):
 
 class TestTableNameValidation(SimpleTestCase):
     @parameterized.expand([("root", "models"), ("nested", "models.revenue")])
+    def test_unchanged_legacy_name_is_allowed(self, _case: str, name: str) -> None:
+        instance = DataWarehouseTable(name=name)
+        assert TableSerializer(instance=instance).validate_name(name) == name
+
+    @parameterized.expand([("root", "models"), ("nested", "models.revenue")])
     def test_models_namespace_is_reserved(self, _case: str, name: str) -> None:
         with self.assertRaises(ValidationError):
             TableSerializer().validate_name(name)
