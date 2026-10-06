@@ -3033,7 +3033,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             ),
         ]
     )
-    def test_page_load_team_follows_the_usage_tab_switch(self, _name, stored_mode, expected_mode):
+    def test_page_load_team_follows_the_reads_switch(self, _name, stored_mode, expected_mode):
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
             flag_evaluations_mode=stored_mode
         )
@@ -3041,7 +3041,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         request.user = self.user
         request.session = self.client.session
 
-        with override_instance_config("FLAG_EVALUATIONS_USAGE_TAB_FORCE_EVENTS", True):
+        with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", True):
             context = get_context_for_template("index.html", request)
 
         self.assertEqual(context["posthog_app_context"]["current_team"]["flag_evaluations_mode"], expected_mode)
