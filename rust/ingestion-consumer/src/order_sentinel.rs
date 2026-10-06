@@ -236,6 +236,9 @@ impl SentinelBatch<'_> {
         let mut violations = Vec::new();
         let mut first: Option<&SerializedKafkaMessage> = None;
         let mut last: Option<&SerializedKafkaMessage> = None;
+        // The watermark tracks one partition; a key run merged across
+        // partitions must not mix another partition's offset into it.
+        let mut last_on_first_partition = None;
         let mut unkeyed = 0usize;
         for message in messages {
             if message.key.is_none() {
@@ -255,13 +258,16 @@ impl SentinelBatch<'_> {
                     });
                 }
             }
-            first.get_or_insert(message);
+            let first = first.get_or_insert(message);
+            if message.partition == first.partition {
+                last_on_first_partition = Some(message.offset);
+            }
             last = Some(message);
         }
         if unkeyed > 0 {
             counter!("ingestion_consumer_key_sentinel_unkeyed_total").increment(unkeyed as u64);
         }
-        let (Some(first), Some(last)) = (first, last) else {
+        let (Some(first), Some(last_sent)) = (first, last_on_first_partition) else {
             return violations;
         };
 
@@ -271,7 +277,7 @@ impl SentinelBatch<'_> {
                     key.to_shared(),
                     KeyState {
                         partition: first.partition,
-                        last_sent: last.offset,
+                        last_sent,
                         last_acked: None,
                     },
                 );
@@ -286,12 +292,12 @@ impl SentinelBatch<'_> {
                     counter!("ingestion_consumer_key_partition_moves_total").increment(1);
                     *state = KeyState {
                         partition: first.partition,
-                        last_sent: last.offset,
+                        last_sent,
                         last_acked: None,
                     };
                 } else if first.offset > state.last_sent {
                     // Normal forward progress.
-                    state.last_sent = last.offset;
+                    state.last_sent = last_sent;
                 } else if state.last_acked.is_some_and(|acked| first.offset <= acked) {
                     violations.push(KeyOrderViolation {
                         kind: KeyOrderViolationKind::ResendAfterAck,
@@ -299,12 +305,12 @@ impl SentinelBatch<'_> {
                         partition: first.partition,
                         offset: first.offset,
                     });
-                    state.last_sent = state.last_sent.max(last.offset);
+                    state.last_sent = state.last_sent.max(last_sent);
                 } else if kind == SendKind::Resend {
                     // Replay of a not-yet-ACKed range: the legal retry path
                     // (send failure → defer → flush re-routes the same messages).
                     counter!("ingestion_consumer_key_replays_total").increment(1);
-                    state.last_sent = state.last_sent.max(last.offset);
+                    state.last_sent = state.last_sent.max(last_sent);
                 } else {
                     // A fresh send regressed: a newer batch's assignment for
                     // this key overtook an older batch's. (A rebalance racing
@@ -317,7 +323,7 @@ impl SentinelBatch<'_> {
                         partition: first.partition,
                         offset: first.offset,
                     });
-                    state.last_sent = state.last_sent.max(last.offset);
+                    state.last_sent = state.last_sent.max(last_sent);
                 }
             }
         }
@@ -747,6 +753,19 @@ mod tests {
         assert!(sentinel
             .batch()
             .note_sent("t:a", &[msg_at(3, 1)], SendKind::Fresh)
+            .is_empty());
+    }
+
+    #[test]
+    fn a_send_spanning_two_partitions_keeps_the_first_partitions_watermark() {
+        let sentinel = KeyOrderSentinel::new();
+        assert!(sentinel
+            .batch()
+            .note_sent("t:a", &[msg_at(1, 5), msg_at(0, 100)], SendKind::Fresh)
+            .is_empty());
+        assert!(sentinel
+            .batch()
+            .note_sent("t:a", &[msg_at(1, 6)], SendKind::Fresh)
             .is_empty());
     }
 
