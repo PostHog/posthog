@@ -69,6 +69,7 @@ describe('groupLogic', () => {
 
         it.each([
             { status: 404, reported: false },
+            { status: 405, reported: true },
             { status: 500, reported: true },
         ])('toasts and reports a $status from the group lookup: $reported', async ({ status, reported }) => {
             const error = new ApiError('Request failed', status, undefined, { detail: 'Request failed' })

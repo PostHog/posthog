@@ -205,8 +205,10 @@ export function initKea({
                 // uses the distinct `impersonation_read_only` code and still toasts.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
+                // A 405 on the group lookup is a routing defect, not a missing group, so it stays reportable
                 const isSelfHandledNotFound =
-                    NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
+                    NOT_FOUND_SELF_HANDLED.has(String(actionKey)) &&
+                    (actionKey === 'loadGroup' ? error?.status === 404 : isUnavailableEndpointError(error))
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
