@@ -33,6 +33,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -46,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     RepartitionAttemptsExhausted,
     RepartitionBudgetExceededError,
     RepartitionSchemePersistError,
+    RepartitionStoppedError,
     RepartitionSupersededError,
     RepartitionTarget,
     RepartitionTooLargeForBudgetError,
@@ -473,7 +475,9 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
     start = time.monotonic()
     try:
         # HeartbeaterSync heartbeats on a background thread while the (possibly long) rewrite streams,
-        # and on worker shutdown, so Temporal reschedules us instead of timing the activity out.
+        # so Temporal does not time the activity out. The shutdown monitor lets the rewrite stop at
+        # its next commit when the worker shuts down, so a rewrite does not hold a draining worker
+        # for hours.
         # The workload reporter makes the rewrite visible to pod co-tenant accounting (see
         # `workload_report.py`): without it a rewrite-heavy pod looks idle to the OOM classifier's
         # culprit rule. The run_id is prefixed because the sync's import activity reports under the
@@ -481,6 +485,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # read this rewrite's report as its own last words.
         with (
             HeartbeaterSync(logger=logger),
+            ShutdownMonitor() as shutdown_monitor,
             workload_reporting(
                 team_id=inputs.team_id,
                 schema_id=inputs.schema_id,
@@ -497,7 +502,20 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 logger=logger,
                 claim_token=claim_token,
                 deadline=_rewrite_deadline(activity_started),
+                should_stop=shutdown_monitor.is_worker_shutdown,
             )
+    except RepartitionStoppedError as e:
+        # The worker is shutting down and the rewrite stopped at a commit. Temp and its checkpoint
+        # stay, so the retry that Temporal starts on another worker copies only the source files that
+        # are left. This is not a failed attempt, so it must not count toward the give-up cap.
+        logger.info(
+            f"repartition: stopped at a commit for worker shutdown, handing off rows_written={e.rows_written}",
+            rows_written=e.rows_written,
+        )
+        DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="handed_off").inc()
+        _refund_attempt(schema, charged_attempts, logger)
+        _capture_stood_down(schema, inputs, trigger_reason, "worker_shutdown", logger)
+        raise WorkerShuttingDownError.from_activity_context() from e
     except RepartitionBudgetExceededError as e:
         # The rewrite didn't fit in one activity's budget. Checkpoint/resume lets a large table
         # converge across runs, so an attempt that advanced the checkpoint is progress, not a failure,
