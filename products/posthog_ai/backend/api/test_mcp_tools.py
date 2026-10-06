@@ -187,9 +187,15 @@ class TestMCPToolsAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("without_code", None, {}),
+            ("with_code", "unknown_identifier", {"error_code": "unknown_identifier"}),
+        ]
+    )
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
-    def test_invoke_tool_error_returns_error_response(self, mock_execute):
-        mock_execute.side_effect = MaxToolRetryableError("Query validation failed: syntax error")
+    def test_invoke_tool_error_returns_error_response(self, _name, error_code, expected_extra, mock_execute):
+        mock_execute.side_effect = MaxToolRetryableError("Query validation failed: syntax error", error_code=error_code)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
@@ -204,6 +210,7 @@ class TestMCPToolsAPI(APIBaseTest):
                 "success": False,
                 "content": "Tool failed: MaxToolRetryableError: Query validation failed: syntax error. You may retry with adjusted inputs.",
                 "error_type": "validation",
+                **expected_extra,
             },
         )
 

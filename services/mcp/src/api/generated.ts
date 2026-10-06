@@ -62020,6 +62020,8 @@ export namespace Schemas {
       success: boolean;
       /** Failure category for MCP analytics. */
       error_type?: MCPToolResponseErrorType;
+      /** Machine-readable name of the leaf failure for MCP analytics, such as a ClickHouse error name. */
+      error_code?: string | null;
     }
 
     /**

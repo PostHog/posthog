@@ -455,6 +455,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         self.assertEqual(str(context.exception), error_message)
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
         self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.error_code, error_code)
 
     @parameterized.expand(
         [
@@ -503,6 +504,10 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIs(type(context.exception), expected_type)
         self.assertEqual(getattr(context.exception, "error_type", None), expected_error_type)
+        self.assertEqual(
+            getattr(context.exception, "error_code", None),
+            error_code if expected_type is MaxToolRetryableError else None,
+        )
         for text in expected_texts:
             self.assertIn(text, str(context.exception))
 
@@ -537,6 +542,10 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIs(type(context.exception), expected_type)
         self.assertIn(expected_text, str(context.exception))
+        self.assertEqual(
+            getattr(context.exception, "error_code", None),
+            error.code_name if expected_type is MaxToolRetryableError else None,
+        )
         if hidden_text:
             self.assertNotIn(hidden_text, str(context.exception))
 

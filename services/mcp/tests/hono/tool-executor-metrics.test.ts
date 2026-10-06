@@ -44,6 +44,7 @@ import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import {
+    MCPToolResultError,
     PostHogApiError,
     PostHogRateLimitError,
     PostHogValidationError,
@@ -291,6 +292,47 @@ describe('ToolExecutor metrics', () => {
             })
             // The detail body echoes caller input, so it must never ride along.
             expect(JSON.stringify(extras)).not.toContain("'from' property")
+        })
+
+        // A tool that fails inside PostHog's backend answers with an error type and, when the
+        // backend knows it, the leaf failure name. Without the name every such failure reads
+        // as one `internal` or `validation` bucket.
+        it.each([
+            ['a code from the backend', 'unknown_identifier', 'unknown_identifier'],
+            ['a code with control characters', 'bad\ncode ', 'badcode'],
+        ])('stamps $mcp_error_code for an MCPToolResultError with %s', async (_label, errorCode, expected) => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new MCPToolResultError('Tool failed', 'validation', errorCode)
+                }) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
+
+            expect(trackToolCallExtras('fail-tool')).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_error_code: expected,
+            })
+        })
+
+        it('omits $mcp_error_code for an MCPToolResultError without a code', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new MCPToolResultError('Tool failed', 'internal')
+                }) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({ $mcp_error_type: 'internal' })
+            expect(extras).not.toHaveProperty('$mcp_error_code')
         })
 
         it.each([
