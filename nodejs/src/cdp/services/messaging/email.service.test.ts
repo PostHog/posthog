@@ -3,8 +3,12 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
-import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import {
+    CyclotronInvocationQueueParametersEmailSchema,
+    CyclotronInvocationQueueParametersEmailType,
+} from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
@@ -20,6 +24,7 @@ import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-
 import { EmailService, parseAddressList, sanitizeEmailSubject, teamEmailCapBuckets } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
+import { MessageAssetsService } from './message-assets.service'
 
 class ThrottlingException extends Error {
     constructor(message: string) {
@@ -1350,22 +1355,23 @@ describe('EmailService', () => {
             ])
         })
 
-        it('should send plaintext-only email when html is empty', async () => {
+        it.each([
+            ['text only', { html: '', text: 'Hello, this is a plain text email.' }, ['Text']],
+            ['html only, no text', { html: '<p>Hello</p>', text: undefined }, ['Html']],
+            ['html only, empty text', { html: '<p>Hello</p>', text: '' }, ['Html']],
+        ])('sends only the parts that have content: %s', async (_name, content, expectedParts) => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
-            invocation.queueParameters = createEmailParams({
-                from: { integrationId: 1 },
-                html: '',
-                text: 'Hello, this is a plain text email.',
-            })
+            invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse(
+                createEmailParams({ from: { integrationId: 1 }, ...content })
+            )
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            expect(sentCommand.input.Content.Simple.Body.Text).toEqual({
-                Data: 'Hello, this is a plain text email.',
-                Charset: 'UTF-8',
-            })
-            expect(sentCommand.input.Content.Simple.Body.Html).toBeUndefined()
+            expect(Object.keys(sentCommand.input.Content.Simple.Body)).toEqual(expectedParts)
+            if (content.text) {
+                expect(sentCommand.input.Content.Simple.Body.Text).toEqual({ Data: content.text, Charset: 'UTF-8' })
+            }
         })
 
         it('should not include preheader span if not in params', async () => {
@@ -1479,6 +1485,52 @@ describe('EmailService', () => {
                 // set still emits delivery events, and the webhook needs this header to attribute them.
                 const headerNames = sentCommand.input.Content.Simple.Headers.map((h: { Name: string }) => h.Name)
                 expect(headerNames).toContain('X-PostHog-Tracking-Code')
+            })
+
+            it.each([
+                {
+                    case: 'the workflow and step names',
+                    utmParams: undefined,
+                    query: 'utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale&amp;utm_content=Welcome',
+                },
+                {
+                    case: 'rendered custom values',
+                    utmParams: { utm_source: 'newsletter', utm_campaign: '{{ "pro" | upcase }}' },
+                    query: 'utm_source=newsletter&amp;utm_medium=email&amp;utm_campaign=PRO&amp;utm_content=Welcome',
+                },
+                {
+                    case: 'a rendered value with characters HTML escapes',
+                    utmParams: { utm_campaign: '{{ "Starter & Premium" }}' },
+                    query: 'utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Starter%20%26%20Premium&amp;utm_content=Welcome',
+                },
+                {
+                    case: 'the default for a value with a Liquid error',
+                    utmParams: { utm_campaign: '{{ person.properties.plan' },
+                    query: 'utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale&amp;utm_content=Welcome',
+                },
+            ])('tags the links with $case when the step turns UTM tags on', async ({ utmParams, query }) => {
+                invocation.hogFunction.metadata = {
+                    tracking_enabled: false,
+                    utm_tags_enabled: true,
+                    utm_params: utmParams,
+                    hog_flow_name: 'Spring sale',
+                    hog_flow_action_name: 'Welcome',
+                }
+                const messageAssets = new MessageAssetsService({
+                    produce: jest.fn().mockResolvedValue(undefined),
+                } as unknown as IngestionOutputs<'message_assets'>)
+                const buildRowForEmail = jest.spyOn(messageAssets, 'buildRowForEmail').mockReturnValue(null)
+                service['messageAssetsService'] = messageAssets
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                const taggedHtml = `<body>Hi! <a href="https://example.com?${query}">Click me</a></body>`
+                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(taggedHtml)
+                // The stored copy behind "View email" shows the links the recipient got.
+                expect(buildRowForEmail).toHaveBeenCalledWith(
+                    expect.anything(),
+                    expect.objectContaining({ html: taggedHtml })
+                )
             })
 
             it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {

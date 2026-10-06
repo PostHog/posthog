@@ -468,11 +468,15 @@ class TestDiscoverCanonicalSkills:
                 "extras/notes.txt": "ignored\n",
             },
         )
+        bytecode = tmp_path / "signals-scout-bar" / "scripts" / "__pycache__" / "check.cpython-313.pyc"
+        bytecode.parent.mkdir()
+        bytecode.write_bytes(b"\x00\xff\x0d\x0a")
         skills = discover_canonical_skills(tmp_path)
         files_by_path = {f.path: f for f in skills[0].files}
         assert "references/playbook.md" in files_by_path
         assert files_by_path["references/playbook.md"].content == "# Playbook\n"
         assert "scripts/check.py" in files_by_path
+        assert not any(path.startswith("scripts/__pycache__/") for path in files_by_path)
         # Files outside the allowlist must not leak in — guards the consumer divergence.
         assert "assets/template.txt" not in files_by_path
         assert "extras/notes.txt" not in files_by_path

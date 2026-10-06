@@ -53,6 +53,7 @@ import type { PendingAttachment } from '../utils/attachments'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { submitWithWarmRunRetry } from '../utils/warmRunSubmission'
 import { attachedContextLogic } from './attachedContextLogic'
+import { codexBillingLogic, pickedCodexModelAccess, usesChatGptPlan } from './codexBillingLogic'
 import { composerAttachmentsLogic } from './composerAttachmentsLogic'
 import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { type CancellationState, runCancellationLogic } from './runCancellationLogic'
@@ -89,6 +90,8 @@ export interface RunInteractionLogicProps {
     currentMode?: string | null
     /** The harness the run booted on. Authoritative — a live run can't be moved to another one. */
     currentRuntimeAdapter?: string | null
+    /** Who pays for the run's Codex model use, from the run state. A live run keeps it. */
+    currentCodexModelAccess?: string | null
     /** Called with the new run's id after a terminal-run send starts a fresh run, so the surface can
      * re-point selection to it (the run lifecycle / selection is a tasks-scene concern, injected here). */
     onRunStarted?: (runId: string, handoff?: RunContinuationHandoff) => void
@@ -1175,8 +1178,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 values.selectedMode,
                 { resume_from_run_id: props.runId }
             )
+            // A run on the ChatGPT plan boots cold, so its draft releases the warm like an empty one.
             getWarmLogic()?.actions.noteDraft(
-                Boolean(values.composerForm.draft.trim()),
+                Boolean(values.composerForm.draft.trim()) &&
+                    !usesChatGptPlan(getRuntimeAdapterForModel(values.catalogue, values.selectedModel)),
                 createRequest as WarmTaskResumeRequestApi
             )
         }
@@ -1483,6 +1488,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
 
             setEffort: noteTerminalDraft,
             setMode: noteTerminalDraft,
+            [codexBillingLogic.actionTypes.setPreferredCodexModelAccess]: noteTerminalDraft,
             setComposerFormValue: noteTerminalDraft,
             setComposerFormValues: noteTerminalDraft,
             handleTerminalStatus: () => {
@@ -1534,7 +1540,10 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     // Same endpoint as the "Run again" button, but seeded with the user's message and chained
                     // from the finished run so the new run continues the thread, and carrying the picked model /
                     // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
-                    // carries the new run id as `latest_run`; the consumer-provided `onRunStarted` re-points to it.
+                    // carries the new run as `run`; the consumer-provided `onRunStarted` re-points to it.
+                    const codexModelAccess = pickedCodexModelAccess(
+                        getRuntimeAdapterForModel(values.catalogue, values.selectedModel)
+                    )
                     const createRequest = buildRunCreateRequest(
                         values.catalogue,
                         values.selectedModel,
@@ -1543,6 +1552,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         {
                             resume_from_run_id: props.runId,
                             pending_user_message: wrapWithPosthogContext(content, pendingContext),
+                            ...(codexModelAccess ? { codex_model_access: codexModelAccess } : {}),
                         }
                     )
                     // The task already exists here, so staged artifacts hold the files whether this request
@@ -1582,8 +1592,9 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     if (!isCurrent()) {
                         return
                     }
-                    getWarmLogic()?.actions.consumeWarm(warmSubmission, result.latest_run?.id ?? null)
-                    const run = result.latest_run
+                    // `?? latest_run` covers the deploy skew window where this bundle outruns the backend.
+                    const run = result.run ?? result.latest_run
+                    getWarmLogic()?.actions.consumeWarm(warmSubmission, run?.id ?? null)
                     if (!run?.id) {
                         throw new Error('The run response did not include a run')
                     }

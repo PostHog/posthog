@@ -8,14 +8,17 @@ use anyhow::anyhow;
 use apache_avro::{Codec, Schema, Writer, ZstandardSettings};
 use capture::config::KafkaConfig;
 use chrono::Utc;
+use common_kafka::error::error_code_tag;
 use health::HealthHandle;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
 use rdkafka::message::{Header, OwnedHeaders};
+use rdkafka::producer::future_producer::OwnedDeliveryResult;
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use std::result::Result::Ok;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::log::{debug, info};
 
@@ -117,6 +120,12 @@ pub struct KafkaSink {
     logs_topic: String,
     traces_topic: String,
     metrics_topic: String,
+    // Shared, because `KafkaSink` is cloned into every request's state and a `Schema` clone is
+    // a few hundred allocations.
+    logs_schema: Arc<Schema>,
+    traces_schema: Arc<Schema>,
+    metrics_schema: Arc<Schema>,
+    logs_message_max_bytes: usize,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -194,6 +203,43 @@ async fn build_producer(
     };
 
     Ok(producer)
+}
+
+fn count_produce_error(topic: &str, reason: &'static str) {
+    counter!(
+        "capture_kafka_produce_errors_total",
+        "topic" => Arc::<str>::from(topic),
+        "reason" => reason
+    )
+    .increment(1);
+}
+
+/// `None` means the delivery report never arrived, which is what a producer teardown
+/// with the batch still in flight looks like. A `message.timeout.ms` expiry is not this
+/// case: librdkafka always reports it, as an inner `MessageTimedOut`.
+fn interpret_delivery_result(
+    result: Option<OwnedDeliveryResult>,
+    topic: &str,
+) -> Result<(), anyhow::Error> {
+    match result {
+        None => {
+            count_produce_error(topic, "delivery_cancelled");
+            Err(anyhow!(
+                "kafka error: the producer dropped the batch without a delivery report"
+            ))
+        }
+        Some(Err((err, _))) => {
+            count_produce_error(topic, kafka_error_tag(&err));
+            Err(anyhow!("kafka error: delivery failed: {err}"))
+        }
+        Some(Ok(_)) => Ok(()),
+    }
+}
+
+fn kafka_error_tag(err: &KafkaError) -> &'static str {
+    err.rdkafka_error_code()
+        .map(error_code_tag)
+        .unwrap_or("rdkafka_other")
 }
 
 impl KafkaSink {
@@ -323,7 +369,17 @@ impl KafkaSink {
             logs_topic: config.kafka_topic,
             traces_topic: config.kafka_traces_topic,
             metrics_topic: config.kafka_metrics_topic,
+            logs_schema: Arc::new(Schema::parse_str(AVRO_SCHEMA)?),
+            traces_schema: Arc::new(Schema::parse_str(TRACES_AVRO_SCHEMA)?),
+            metrics_schema: Arc::new(Schema::parse_str(METRICS_AVRO_SCHEMA)?),
+            logs_message_max_bytes: config.kafka_producer_message_max_bytes as usize,
         })
+    }
+
+    /// The producer's `message.max.bytes` for the logs topic, so an intake that chunks a large
+    /// delivery can size its batches against the real cap instead of a guess.
+    pub fn logs_message_max_bytes(&self) -> usize {
+        self.logs_message_max_bytes
     }
 
     pub fn flush(&self) -> Result<(), KafkaError> {
@@ -338,16 +394,15 @@ impl KafkaSink {
         &self,
         producer: &FutureProducer<KafkaContext>,
         topic: &str,
-        avro_schema_str: &str,
+        schema: &Schema,
         token: &str,
         rows: &[T],
         uncompressed_bytes: u64,
         records_uncompressed_bytes: Option<u64>,
         timestamps_overridden: u64,
     ) -> Result<(), anyhow::Error> {
-        let schema = Schema::parse_str(avro_schema_str)?;
         let mut writer = Writer::with_codec(
-            &schema,
+            schema,
             Vec::new(),
             Codec::Zstandard(ZstandardSettings::new(1)),
         );
@@ -406,13 +461,14 @@ impl KafkaSink {
                     })
             }),
         }) {
-            Err((err, _)) => Err(anyhow!(format!("kafka error: {err}"))),
+            Err((err, _)) => {
+                count_produce_error(topic, "enqueue");
+                Err(anyhow!("kafka error: {err}"))
+            }
             Ok(delivery_future) => Ok(delivery_future),
         }?;
 
-        drop(future.await?);
-
-        Ok(())
+        interpret_delivery_result(future.await.ok(), topic)
     }
 
     pub async fn write(
@@ -442,7 +498,7 @@ impl KafkaSink {
         self.write_avro_batch(
             &self.logs_producer,
             &self.logs_topic,
-            AVRO_SCHEMA,
+            &self.logs_schema,
             token,
             &rows,
             uncompressed_bytes,
@@ -472,7 +528,7 @@ impl KafkaSink {
         self.write_avro_batch(
             &self.traces_producer,
             &self.traces_topic,
-            TRACES_AVRO_SCHEMA,
+            &self.traces_schema,
             token,
             &rows,
             uncompressed_bytes,
@@ -502,7 +558,7 @@ impl KafkaSink {
         self.write_avro_batch(
             &self.metrics_producer,
             &self.metrics_topic,
-            METRICS_AVRO_SCHEMA,
+            &self.metrics_schema,
             token,
             &rows,
             uncompressed_bytes,
@@ -512,5 +568,57 @@ impl KafkaSink {
         .await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rdkafka::error::RDKafkaErrorCode;
+    use rdkafka::message::OwnedMessage;
+    use rdkafka::Timestamp;
+
+    fn rejected_by_broker(code: RDKafkaErrorCode) -> Option<OwnedDeliveryResult> {
+        Some(Err((
+            KafkaError::MessageProduction(code),
+            OwnedMessage::new(
+                None,
+                None,
+                "logs".to_string(),
+                Timestamp::NotAvailable,
+                0,
+                0,
+                None,
+            ),
+        )))
+    }
+
+    #[test]
+    fn a_failed_delivery_is_never_reported_as_a_write() {
+        assert!(interpret_delivery_result(None, "logs").is_err());
+        assert!(interpret_delivery_result(
+            rejected_by_broker(RDKafkaErrorCode::MessageTimedOut),
+            "logs"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn a_delivered_batch_is_reported_as_a_write() {
+        assert!(interpret_delivery_result(Some(Ok((0, 42))), "logs").is_ok());
+    }
+
+    #[test]
+    fn a_broker_error_is_tagged_with_the_shared_vocabulary() {
+        assert_eq!(
+            kafka_error_tag(&KafkaError::MessageProduction(
+                RDKafkaErrorCode::MessageSizeTooLarge
+            )),
+            "message_size_too_large"
+        );
+        assert_eq!(
+            kafka_error_tag(&KafkaError::NoMessageReceived),
+            "rdkafka_other"
+        );
     }
 }

@@ -144,10 +144,12 @@ class _MetricClauseSerializer(serializers.Serializer):
 
 
 class MetricQueryInterval(models.TextChoices):
-    SECOND = "second", "second"
+    SECOND_15 = "second_15", "second_15"
+    SECOND_30 = "second_30", "second_30"
     MINUTE = "minute", "minute"
     MINUTE_5 = "minute_5", "minute_5"
     MINUTE_15 = "minute_15", "minute_15"
+    MINUTE_30 = "minute_30", "minute_30"
     HOUR = "hour", "hour"
     HOUR_6 = "hour_6", "hour_6"
     DAY = "day", "day"
@@ -527,7 +529,7 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=None,
-        help_text="Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 7 days ago.",
+        help_text="Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 24 hours ago.",
     )
     dateTo = serializers.DateTimeField(
         required=False,
@@ -560,7 +562,7 @@ class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         default=None,
-        help_text="Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.",
+        help_text="Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 24 hours ago.",
     )
     dateTo = serializers.DateTimeField(
         required=False,
@@ -581,9 +583,7 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
     )
-    value_count = serializers.IntegerField(
-        help_text="Number of distinct values for this attribute in recent series metadata."
-    )
+    value_count = serializers.IntegerField(help_text="Number of distinct values for this attribute in recent data.")
 
 
 class _MetricAttributeKeysResponseSerializer(serializers.Serializer):

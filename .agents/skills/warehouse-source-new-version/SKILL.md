@@ -48,6 +48,7 @@ changelog or the docs URL. A vendor's new generation often covers only part of i
 section keeps printing v1 request lines for everything v2 never replaced; a source that reads only the untouched part
 gets no new version at all. For the same reason, a dated announcement that retires individual endpoints is not a
 version sunset - confirm the version itself stops being served before deprecating it or writing a repin.
+The opposite gap also occurs: a reference rendered from one version-blind OpenAPI spec can keep the old version's limits (a page-size ceiling, say) after the changelog narrows them for the new label. When the two disagree, follow the stricter one under the new pin, and use the vendor's public source code as the tiebreaker if there is one.
 
 ## Adding a new version, step by step
 

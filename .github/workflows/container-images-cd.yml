@@ -511,6 +511,17 @@ jobs:
                         - 'nodejs/src/scripts/record-replay*'
                         - 'nodejs/src/scripts/record-replay*/**'
 
+                      selfDriving:
+                        - 'products/signals/backend/**'
+                        - 'products/signals/skills/**'
+                        - 'products/autoresearch/backend/**'
+                        - 'posthog/settings/temporal.py'
+                        - 'posthog/temporal/common/**'
+                        - 'posthog/management/commands/start_temporal_worker.py'
+                        - pyproject.toml
+                        - bin/temporal-django-worker
+                        - 'posthog/clickhouse/migrations/**'
+
                       sessionReplay:
                         - 'posthog/temporal/session_replay/**'
                         - 'products/signals/backend/**'
@@ -602,6 +613,7 @@ jobs:
                       # this replaces matched as one prefix.
                       dataWarehouse:
                         - 'posthog/hogql*/**'
+                        - 'products/warehouse_sources_queue/**'
                         - 'posthog/temporal/data_modeling/**'
                         - 'products/customer_analytics/backend/**'
                         - 'products/warehouse_sources/backend/temporal/data_imports/**'
@@ -614,6 +626,7 @@ jobs:
 
                       warehouseSourcesLoad:
                         - 'products/warehouse_sources/backend/**'
+                        - 'products/warehouse_sources_queue/**'
                         - 'posthog/warehouse/**'
                         - 'products/data_warehouse/backend/**'
                         - pyproject.toml
@@ -727,27 +740,6 @@ jobs:
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
-                        "timestamp": "${{ github.event.head_commit.timestamp }}"
-                      }
-
-            - name: Trigger Batch Exports Sync Temporal Worker Cloud deployment
-              if: steps.check_temporal_worker_changes.outputs.batchExports == 'true'
-              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
-              with:
-                  token: ${{ steps.deployer.outputs.token }}
-                  repository: PostHog/charts
-                  event-type: commit_state_update
-                  client-payload: |
-                      {
-                        "values": {
-                          "image": {
-                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
-                          }
-                        },
-                        "release": "temporal-worker",
-                        "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
-                        "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
@@ -904,6 +896,27 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-video-export",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Trigger Self-Driving Temporal Worker Cloud deployment
+              if: steps.check_temporal_worker_changes.outputs.selfDriving == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-self-driving",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

@@ -514,8 +514,10 @@ class TestKnowledgeDocumentWindowAPI(APIBaseTest):
             "heading_path",
             "source_name",
             "document_title",
+            "url",
         }
         assert first["source_name"] == "Docs"
+        assert first["url"] == ""
 
     def test_window_defaults_radius(self, _ff) -> None:
         doc = self._ready_safe_document(paragraphs=20)
@@ -644,8 +646,10 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
             "heading_path",
             "content",
             "is_generated",
+            "url",
         }
         assert first["source_name"] == "Docs"
+        assert first["url"] == ""
         assert first["is_generated"] is False
         assert "pricing" in first["content"].lower() or "Pricing" in first["content"]
 
@@ -709,7 +713,7 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
     @patch("products.business_knowledge.backend.logic.rerank_chunks")
     def test_search_rerank_param_calls_reranker(self, mock_rerank, _embed, _ff) -> None:
         self._ready_safe_source(text="Return policy details " * 60)
-        mock_rerank.side_effect = lambda _team, query, results, *, top_k: list(reversed(results))
+        mock_rerank.side_effect = lambda _team, query, results, *, top_k, trace: list(reversed(results))
 
         response = self.client.get(self.url, {"query": "return policy", "rerank": "true"})
         assert response.status_code == status.HTTP_200_OK, response.content

@@ -1,5 +1,16 @@
 # Accounts table
 
+## Default pinned account properties
+
+Project admins choose an ordered set of default pinned properties under Customer analytics > Accounts settings.
+The defaults can include account custom properties and relationships.
+They appear in account detail sidebars and expanded Accounts rows until a user saves a personal selection.
+
+The user configuration inherits when it has no personal selection, including historical empty lists without an override marker or legacy pinned IDs.
+Reads resolve the current project defaults without copying them into the user row, so later project changes reach every user who still inherits.
+A personal save stores the complete ordered list and an override marker.
+A saved empty list means the user chose no pinned properties and no longer inherits project changes.
+
 ## Query scheduling
 
 Account row and overview requests use a dedicated frontend queue with two concurrent slots.
@@ -10,7 +21,16 @@ Other query types keep their existing global or scene-specific concurrency limit
 
 The Accounts list keeps unsaved filters when a user opens an account and returns to the list.
 The draft includes search, tags, assignment filters, account property and relationship filters, and the selected overview tile filter.
+Account property, relationship, and custom-property filters can be placed in OR groups.
+Filters within each group use AND, while search, tags, assignment status, and selected overview tile filters apply to every group.
+Saved views and shared links keep the groups; older views without groups retain their AND behavior.
+A group that filters on churned or ignored accounts includes them only in that group; other groups still exclude them by default.
+When a saved condition refers to a deleted property, the list keeps the valid conditions in that group.
 It also keeps sorting, selected columns, column display settings, and overview tile settings.
+
+The toolbar keeps a Filters button with a spaced, theme-aware accent count. The button highlights while the compact groups are open in a bordered area below it.
+Restored filters start collapsed. Relationship pills show member names using the same member list as the value picker. Adding the first condition opens the groups, and removing the last group restores the Filter button.
+Empty OR groups do not affect results. Search, tags, and assignment controls remain outside the editor.
 
 The browser stores one draft per project and user in `sessionStorage`.
 Draft restoration waits for the loaded project and user IDs before deciding whether to apply a saved view.
@@ -77,14 +97,30 @@ Measurements run after render, reuse widths while the sampled markup is unchange
 Automatic widths stay local to the mounted table and are not saved to browser storage.
 
 Users can still drag column header boundaries to resize columns, including beyond 200px.
+The tag editor fits the current tag column width, even after a resize.
+Long tags truncate inside the editor instead of spilling into the next cell.
 `accountsViewsLogic` stores manual widths per team and column in browser local storage, independently of saved views.
 Hiding a column does not discard its saved width.
 Automatic sizing uses the existing resized-table layout and does not change scroll controls.
 
 The `ManyColumns` story in `AccountsTab.stories.tsx` covers six added custom properties alongside native and relationship columns.
 Its browser assertions check content-dependent widths, the 200px cap, horizontal scrolling, and the row expansion control.
-At narrow widths, it also covers custom-property inline editing: the input fits the available column width, and Save and Cancel stay together below it when needed, aligned to the right.
+At narrow widths, it also covers custom-property inline editing: the input and Clear value action fit the available column width, and Save and Cancel stay together below it when needed, aligned to the right.
+Wrapped editor controls have an 8px gap between rows.
 The row grows without widening the column.
+
+## Clearing custom properties
+
+Every editable custom-property cell offers Clear value, including select, boolean, numeric, date, and datetime properties.
+The action asks for confirmation before saving `null` through the existing custom-property-values endpoint.
+Canceling the confirmation keeps the value unchanged.
+A cleared cell shows an unset value while the table refreshes, rather than falling back to its stale value.
+A failed write restores the previous value and lets the user try again.
+Canonical and warehouse-backed properties remain read-only.
+Workflow-backed properties remain editable, with the existing warning that a future workflow run can overwrite a manual change.
+
+The `ClearCustomProperties` story checks clearing every display type and canceling the confirmation.
+It includes zero and false values, which must stay distinct from an unset value.
 
 ## Relationship member pickers
 

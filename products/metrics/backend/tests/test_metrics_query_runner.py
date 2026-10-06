@@ -51,7 +51,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     groupBy=[MetricsQueryGroupBy(key="namespace")],
                 )
             ],
-            dateRange=DateRange(date_from="2026-07-01T00:00:00Z", date_to="2026-07-01T01:00:00Z"),
+            dateRange=DateRange(date_from="2026-09-19T00:00:00Z", date_to="2026-09-19T01:00:00Z"),
             interval="minute",
             formula=None,
         )
@@ -69,7 +69,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert request.interval == "minute"
         assert (request.date_to - request.date_from) == dt.timedelta(hours=1)
 
-    @time_machine.travel("2026-07-01T12:00:00Z", tick=False)
+    @time_machine.travel("2026-09-19T12:00:00Z", tick=False)
     def test_default_date_range_is_last_24_hours(self) -> None:
         query = MetricsQuery(
             clauses=[MetricsQueryClause(name="a", metricName="http_requests_total", aggregation="sum")]
@@ -79,9 +79,9 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert (request.date_to - request.date_from) == dt.timedelta(hours=24)
 
-    @time_machine.travel("2026-07-01T12:00:00Z", tick=False)
+    @time_machine.travel("2026-09-19T12:00:00Z", tick=False)
     def test_calculate_returns_one_series_per_group(self) -> None:
-        base = dt.datetime(2026, 7, 1, 11, 30, tzinfo=dt.UTC)
+        base = dt.datetime(2026, 9, 19, 11, 30, tzinfo=dt.UTC)
         for container, value in (("capture", 5.0), ("ingestion", 7.0)):
             seed_metric(
                 team_id=self.team.pk,
@@ -100,7 +100,7 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     groupBy=[MetricsQueryGroupBy(key="container")],
                 )
             ],
-            dateRange=DateRange(date_from="2026-07-01T11:00:00Z", date_to="2026-07-01T12:00:00Z"),
+            dateRange=DateRange(date_from="2026-09-19T11:00:00Z", date_to="2026-09-19T12:00:00Z"),
         )
 
         response = self._runner(query).calculate()
@@ -124,21 +124,27 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == 200, response.json()
         assert "results" in response.json()
 
-    def test_generic_query_endpoint_rejects_unknown_formula_alias_with_400(self) -> None:
-        # The facade reports a bad formula as ValueError; without the runner's
-        # translation to an exposed error, /query would surface it as a 500.
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/query/",
-            {
-                "query": {
-                    "kind": "MetricsQuery",
-                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
-                    "formula": "a / b",
-                }
-            },
-        )
+    @parameterized.expand([("unknown_alias", "a / b", None), ("non_finite_literal", "9" * 400, "Use a smaller number")])
+    def test_generic_query_endpoint_rejects_invalid_formula_before_querying(
+        self, _name: str, formula: str, expected_message: str | None
+    ) -> None:
+        with patch("products.metrics.backend.facade.api.build_metric_query_runner") as build_runner:
+            build_runner.return_value.run.return_value = []
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/query/",
+                {
+                    "query": {
+                        "kind": "MetricsQuery",
+                        "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+                        "formula": formula,
+                    }
+                },
+            )
 
-        assert response.status_code == 400, response.json()
+            assert response.status_code == 400, response.json()
+            if expected_message is not None:
+                assert expected_message in response.json()["detail"]
+            build_runner.assert_not_called()
 
     def test_insight_saves_with_metrics_query(self) -> None:
         response = self.client.post(

@@ -94,6 +94,9 @@ export const manifest: ProductManifest = {
         '/data-warehouse/sources': () => urls.sources(),
         '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
+        // Every scene route under a source names a tab, so trimming one off a shared link or the
+        // address bar lands on a path no route matches. Send it to the source's first tab.
+        '/data-management/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     },
     urls: {
         dataOps: (tab?: string): string => {
@@ -191,6 +194,7 @@ export const manifest: ProductManifest = {
             iconType: 'data_source',
             iconColor: ['var(--color-product-sources-light)', 'var(--color-product-sources-dark)'],
             href: urls.sources(),
+            searchKeywords: ['data warehouse', 'warehouse', 'connectors', 'import data'],
             sceneKey: 'Sources',
             sceneKeys: ['Sources'],
         },

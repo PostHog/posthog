@@ -4,6 +4,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from django.conf import settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -16,6 +17,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
+from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -72,40 +74,72 @@ class TestMetricsRecalculationAPI(APIBaseTest):
     # POST /metrics_recalculation/
     # ------------------------------------------------------------------
 
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
     def test_post_creates_and_starts_workflow(self, mock_run, mock_connect):
         exp = self._launched_experiment()
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
         body = resp.json()
         assert body["status"] == "pending"
-        assert body["trigger"] == "manual"
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
         assert mock_run.called
+        mock_connect.return_value.start_workflow.assert_called_once_with(
+            "experiment-metrics-recalculation-workflow",
+            ExperimentMetricsRecalculationWorkflowInputs(
+                recalculation_id=body["id"], fairness_key=str(self.organization.id)
+            ),
+            id=f"experiment-metrics-recalculation-{body['id']}",
+            task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
+        )
 
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
     def test_post_from_mcp_client_attributes_trigger_to_agent(self, mock_run, mock_connect):
         exp = self._launched_experiment()
         resp = self.client.post(self._post_url(exp.id), format="json", headers={"X-PostHog-Client": "mcp"})
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
-        assert resp.json()["trigger"] == ExperimentMetricsRecalculation.Trigger.AGENT_MCP
         assert (
             ExperimentMetricsRecalculation.objects.get(experiment=exp).trigger
             == ExperimentMetricsRecalculation.Trigger.AGENT_MCP
         )
 
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
     def test_post_without_mcp_header_honors_body_trigger(self, mock_run, mock_connect):
         exp = self._launched_experiment()
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
-        assert resp.json()["trigger"] == ExperimentMetricsRecalculation.Trigger.MANUAL
+        assert (
+            ExperimentMetricsRecalculation.objects.get(experiment=exp).trigger
+            == ExperimentMetricsRecalculation.Trigger.MANUAL
+        )
 
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
+    def test_each_endpoint_returns_only_its_own_fields(self, mock_run, mock_connect):
+        exp = self._launched_experiment()
+        created = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json").json()
+        assert "is_existing" in created
+        assert {"results", "rows_read", "active_run", "result_source", "trigger"}.isdisjoint(created)
+
+        by_id = self.client.get(self._by_id_url(exp.id, created["id"])).json()
+        assert "results" in by_id
+        assert {"is_existing", "active_run", "result_source", "trigger"}.isdisjoint(by_id)
+
+        latest = self.client.get(self._latest_url(exp.id)).json()
+        assert "results" in latest
+        assert latest["active_run"] == {"id": created["id"], "status": "pending"}
+        assert {"is_existing", "trigger"}.isdisjoint(latest)
+
+    def test_post_rejects_server_only_trigger(self):
+        exp = self._launched_experiment()
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "timeseries_sync"}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.content
+        assert not ExperimentMetricsRecalculation.objects.filter(experiment=exp).exists()
+
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
     def test_post_is_idempotent_returns_200(self, mock_run, mock_connect):
         exp = self._launched_experiment()
         first = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
@@ -115,8 +149,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert second.json()["id"] == first.json()["id"]
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
     def test_post_rejects_unlaunched_experiment(self, mock_run, mock_connect):
         exp = Experiment.objects.create(
             team=self.team, created_by=self.user, feature_flag=self._flag("unlaunched"), name="draft"
@@ -124,10 +158,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    @mock.patch(
-        "products.experiments.backend.presentation.views.sync_connect", side_effect=RuntimeError("temporal down")
-    )
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    @mock.patch("products.experiments.backend.recalculation.sync_connect", side_effect=RuntimeError("temporal down"))
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
     def test_post_marks_failed_when_workflow_start_errors(self, mock_run, mock_connect):
         # When the workflow start fails, the view marks the freshly-created row FAILED then re-raises.
         # The DRF test client converts the exception into a 500 response rather than propagating it.
@@ -137,8 +169,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         row = ExperimentMetricsRecalculation.objects.get(experiment=exp)
         assert row.status == ExperimentMetricsRecalculation.Status.FAILED
 
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
-    @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.asyncio.run")
     def test_post_rollback_spares_row_already_started_by_workflow(self, mock_run, mock_connect):
         # start_workflow can raise after Temporal accepted the start (RPC failure on the response leg).
         # By then the worker may have run mark_started; flipping that row to FAILED would release the
@@ -294,6 +326,8 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.status_code == status.HTTP_200_OK, resp.content
         body = resp.json()
         assert body["result_source"] == "timeseries_fallback"
+        # The latest response type declares metric_retries; the fallback has no run, so it reports none.
+        assert body["metric_retries"] == {}
         assert body["status"] == "completed"
         assert len(body["results"]) == 1
         assert body["results"][0]["result"] == {"ok": True}
@@ -320,7 +354,7 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
     @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
-    @mock.patch("products.experiments.backend.presentation.views.sync_connect")
+    @mock.patch("products.experiments.backend.recalculation.sync_connect")
     def test_get_latest_fallback_does_not_start_a_workflow(self, mock_connect):
         # GET stays a pure read: the fallback path must never connect to Temporal.
         exp = self._launched_experiment(flag_key="ts-pure-read")

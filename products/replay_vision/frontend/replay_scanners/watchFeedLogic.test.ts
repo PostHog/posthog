@@ -41,7 +41,10 @@ describe('watchFeedLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadFeed', 'loadFeedSuccess']).toFinishAllListeners()
         expect(logic.values.feedItems).toHaveLength(2)
         expect(new URL(feedSpy.mock.calls[0][0].request.url).searchParams.get('date_from')).toBe('-7d')
+        // A response without a ranker (an older API) reads as the default arm.
+        expect(logic.values.feedRanker).toBe('weighted-score')
 
+        feedSpy.mockImplementation(() => [200, { results: [item('o1', 'jev_watchable')], ranker: 'jev' }])
         await expectLogic(logic, () => {
             logic.actions.setScannerTypeFilter('monitor')
         })
@@ -49,6 +52,11 @@ describe('watchFeedLogic', () => {
             .toFinishAllListeners()
         const lastUrl = new URL(feedSpy.mock.calls.at(-1)[0].request.url)
         expect(lastUrl.searchParams.get('scanner_type')).toBe('monitor')
+        // The response names the ranker, which picks the card layout. The jev arm's tiles only come as a
+        // grid, so a saved list choice is ignored.
+        expect(logic.values.feedRanker).toBe('jev')
+        expect(logic.values.view).toBe('list')
+        expect(logic.values.displayView).toBe('grid')
 
         await expectLogic(logic, () => {
             logic.actions.setDateRange('-30d', null)
@@ -125,6 +133,36 @@ describe('watchFeedLogic', () => {
         })
             .toMatchValues({ scannerIdsFilter: [], tagsFilter: [], search: '', hasFeedFilters: false })
             .toFinishAllListeners()
+    })
+
+    it('defaults to the list view and keeps the chosen view when filters clear', async () => {
+        logic.mount()
+        expect(logic.values.view).toBe('list')
+        logic.actions.setView('grid')
+        await expectLogic(logic, () => {
+            logic.actions.clearFeedFilters()
+        })
+            .toMatchValues({ view: 'grid' })
+            .toFinishAllListeners()
+    })
+
+    it('names the empty reason only once the fleet and budget have answered', async () => {
+        feedSpy.mockImplementation(() => [200, { results: [] }])
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/scanners/': () => [
+                    200,
+                    { results: [{ id: 'scanner-a', enabled: false, limit_reached: false }], next: null },
+                ],
+                '/api/projects/:team/vision/quota/': () => [200, { exhausted: false }],
+            },
+        })
+        logic.mount()
+        // A reader with scanners must never be shown the no-scanners screen while the list is in flight.
+        expect(logic.values.emptyReason).toBeNull()
+
+        await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
+        expect(logic.values.emptyReason).toBe('all-disabled')
     })
 
     it('flags a failed load and clears the flag on retry', async () => {

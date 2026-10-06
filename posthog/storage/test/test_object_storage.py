@@ -52,7 +52,7 @@ class TestStorage(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
-    @patch("posthog.storage.object_storage.client")
+    @patch("boto3.client")
     def test_does_not_create_client_if_storage_is_disabled(self, patched_s3_client) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             assert not health_check()
@@ -165,13 +165,15 @@ class TestStorage(APIBaseTest):
                 "test_storage_bucket/a_shared_prefix/c",
             ]
 
-    def test_can_list_unknown_prefix(self) -> None:
+    @patch("posthog.storage.object_storage.capture_exception")
+    def test_can_list_unknown_prefix(self, mock_capture_exception) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
             shared_prefix = str(uuid.uuid4())
 
             listing = list_objects(prefix=shared_prefix)
 
             assert listing is None
+            mock_capture_exception.assert_not_called()
 
     def test_can_copy_objects_between_prefixes(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
@@ -315,7 +317,7 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         assert is_usable_endpoint(endpoint) is expected
 
     @patch("posthog.storage.object_storage.capture_exception")
-    @patch("posthog.storage.object_storage.client")
+    @patch("boto3.client")
     def test_bad_public_endpoint_does_not_crash_read_path(self, patched_client, patched_capture) -> None:
         # A bad public endpoint must never raise out of the factory — readers route through it.
         with self.settings(
@@ -333,7 +335,7 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         patched_capture.assert_called_once()
 
     @patch("posthog.storage.object_storage.capture_exception")
-    @patch("posthog.storage.object_storage.client")
+    @patch("boto3.client")
     def test_boto_failure_building_presigned_client_degrades(self, patched_client, patched_capture) -> None:
         internal_client = MagicMock()
         patched_client.side_effect = [internal_client, ValueError("Invalid endpoint")]
@@ -350,7 +352,7 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         assert storage.presigned_client is internal_client
         patched_capture.assert_called_once()
 
-    @patch("posthog.storage.object_storage.client")
+    @patch("boto3.client")
     def test_valid_public_endpoint_builds_separate_presigned_client(self, patched_client) -> None:
         internal_client = MagicMock()
         presigned_client = MagicMock()

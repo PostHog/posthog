@@ -13,6 +13,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { isApprovalRequiredError } from 'lib/api-error'
@@ -22,7 +23,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
@@ -58,7 +59,6 @@ import {
     ExperimentTrendsQuery,
     FunnelsQuery,
     InsightVizNode,
-    isExperimentFunnelMetric,
     NodeKind,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
@@ -83,6 +83,15 @@ import {
     MetricInsightId,
 } from 'products/experiments/frontend/constants'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
+import {
+    type ExperimentHealthFinding,
+    type ExperimentHealthFindingActionKind,
+    type ExperimentHealthFindingOpenKind,
+    captureExperimentHealthFindingActedOn,
+    captureExperimentHealthFindingOpened,
+    captureExperimentHealthFindingShown,
+    exposureHealthEventProperties,
+} from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 import {
     legacyExpectedRunningTime,
     legacyMinimumSampleSizePerVariant,
@@ -126,6 +135,7 @@ import { modalsLogic } from './modalsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
+    type ExperimentSavedMetric,
     type ExperimentUpdatePayload,
     getDisplayOrderedIndices,
     getExperimentVariants,
@@ -133,6 +143,8 @@ import {
     conflictPreservedFields,
     isExperimentConflictError,
     isLegacyExperiment,
+    resolveSharedMetric,
+    sharedMetricsToExperimentMetrics,
     toConcurrencyPayload,
     toFlagVariantsInput,
     withoutProjectedFlagConfig,
@@ -175,9 +187,10 @@ export type ExperimentTriggeredBy =
     | 'experiment_config_change'
     | 'metric_config_change'
 
-// Triggers that kick off a metrics recalculation. Each is also a valid API ExperimentMetricsRecalculationTriggerEnumApi value, so a
-// narrowed triggeredBy passes straight to triggerRecalculation. page_load and manual are handled elsewhere.
-const RECALCULATION_TRIGGERS = ['experiment_config_change', 'metric_config_change', 'auto_refresh'] as const
+// Triggers that kick off a metrics recalculation. Each is also a valid ExperimentMetricsRecalculationRequestTriggerEnumApi
+// value, so a narrowed triggeredBy passes straight to triggerRecalculation. page_load and manual are handled elsewhere;
+// auto_refresh is analytics-only and the API rejects it.
+const RECALCULATION_TRIGGERS = ['experiment_config_change', 'metric_config_change'] as const
 
 const isRecalculationTrigger = (
     triggeredBy: ExperimentTriggeredBy
@@ -417,53 +430,6 @@ export function experimentResultsAreStale(
     return dayjs().diff(freshest, 'minute', true) >= staleAfterMinutes
 }
 
-const sharedMetricsToExperimentMetrics = (
-    sharedMetrics: ExperimentSavedMetric[],
-    type: 'primary' | 'secondary'
-): ExperimentMetric[] =>
-    sharedMetrics
-        .filter(({ metadata }) => metadata.type === type)
-        .map(({ query, metadata }) => ({
-            ...query,
-            /**
-             * for funnel shared metrics, merge the breakdown attribution from metadata into the query
-             */
-            ...(metadata?.breakdownAttributionType !== undefined &&
-                isExperimentFunnelMetric(query) && {
-                    breakdownAttributionType: metadata.breakdownAttributionType,
-                    breakdownAttributionValue: metadata.breakdownAttributionValue,
-                }),
-            // Merge breakdowns from metadata into the query
-            /**
-             * merge breakdown limits from metadata into the query
-             */
-            breakdownFilter: {
-                ...query?.breakdownFilter,
-                breakdowns: metadata?.breakdowns || [],
-                ...(metadata?.breakdown_limit !== undefined && { breakdown_limit: metadata.breakdown_limit }),
-            },
-        }))
-
-/**
- * We need a proper Saved Metric type. This is what comes back from the API.
- * TODO: We should probably refactor this for more general use.
- */
-export type ExperimentSavedMetric = {
-    id: number
-    experiment: number
-    saved_metric: number
-    metadata: {
-        type: 'primary' | 'secondary'
-        breakdowns?: Breakdown[]
-        breakdownAttributionType?: BreakdownAttributionType
-        breakdownAttributionValue?: number
-        breakdown_limit?: number
-    }
-    created_at: string
-    query: ExperimentMetric
-    name: string
-}
-
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface experimentLogicValues {
     billing: BillingType | null // billingLogic
@@ -493,6 +459,7 @@ export interface experimentLogicValues {
     excludedVariants: string[]
     experiment: Experiment
     experimentId: Experiment['id']
+    experimentLoadCount: number
     experimentLoading: boolean
     experimentMissing: boolean
     experimentUpdate: Experiment | null
@@ -568,23 +535,6 @@ export interface experimentLogicActions {
     reportExperimentAiSummaryRequested: (experiment: Experiment) => {
         experiment: Experiment
     } // eventUsageLogic
-    reportExperimentCreated: (
-        experiment: Experiment,
-        metadata?:
-            | {
-                  creation_source?: string
-                  has_linked_flag?: boolean
-              }
-            | undefined
-    ) => {
-        experiment: Experiment
-        metadata:
-            | {
-                  creation_source?: string | undefined
-                  has_linked_flag?: boolean | undefined
-              }
-            | undefined
-    } // eventUsageLogic
     reportExperimentDashboardCreated: (
         experiment: Experiment,
         dashboardId: number
@@ -630,39 +580,7 @@ export interface experimentLogicActions {
         isPrimary: boolean
         metricUuid: string
     } // eventUsageLogic
-    reportExperimentMetricsRefreshed: (
-        experiment: Experiment,
-        forceRefresh: boolean,
-        context?:
-            | {
-                  auto_refresh_enabled?: boolean
-                  auto_refresh_interval?: number
-                  previous_refresh_age_ms?: number | null
-                  previous_refresh_id?: string | null
-                  previous_refresh_state?: string | null
-                  previous_refresh_triggered_by?: string | null
-                  triggered_by: 'auto-refresh' | 'manual'
-              }
-            | undefined
-    ) => {
-        context:
-            | {
-                  auto_refresh_enabled?: boolean | undefined
-                  auto_refresh_interval?: number | undefined
-                  previous_refresh_age_ms?: number | null | undefined
-                  previous_refresh_id?: string | null | undefined
-                  previous_refresh_state?: string | null | undefined
-                  previous_refresh_triggered_by?: string | null | undefined
-                  triggered_by: 'auto-refresh' | 'manual'
-              }
-            | undefined
-        experiment: Experiment
-        forceRefresh: boolean
-    } // eventUsageLogic
     reportExperimentReleaseConditionsViewed: (experimentId: ExperimentIdType) => {
-        experimentId: ExperimentIdType
-    } // eventUsageLogic
-    reportExperimentResultsLoadingTimeout: (experimentId: ExperimentIdType) => {
         experimentId: ExperimentIdType
     } // eventUsageLogic
     reportExperimentSharedMetricAssigned: (
@@ -967,6 +885,50 @@ export interface experimentLogicActions {
     ) => {
         isSecondary: boolean
         orderedUuids: string[]
+    }
+    reportExperimentMetricsRefreshed: (
+        experiment: Experiment,
+        forceRefresh: boolean,
+        context?: {
+            auto_refresh_enabled?: boolean
+            auto_refresh_interval?: number
+            previous_refresh_age_ms?: number | null
+            previous_refresh_id?: string | null
+            previous_refresh_state?: string | null
+            previous_refresh_triggered_by?: string | null
+            triggered_by: 'auto-refresh' | 'manual'
+        }
+    ) => {
+        context:
+            | {
+                  auto_refresh_enabled?: boolean | undefined
+                  auto_refresh_interval?: number | undefined
+                  previous_refresh_age_ms?: number | null | undefined
+                  previous_refresh_id?: string | null | undefined
+                  previous_refresh_state?: string | null | undefined
+                  previous_refresh_triggered_by?: string | null | undefined
+                  triggered_by: 'auto-refresh' | 'manual'
+              }
+            | undefined
+        experiment: Experiment
+        forceRefresh: boolean
+    }
+    reportHealthFindingActedOn: (
+        finding: ExperimentHealthFinding,
+        actionKind: ExperimentHealthFindingActionKind
+    ) => {
+        actionKind: ExperimentHealthFindingActionKind
+        finding: ExperimentHealthFinding
+    }
+    reportHealthFindingOpened: (
+        finding: ExperimentHealthFinding,
+        openKind: ExperimentHealthFindingOpenKind
+    ) => {
+        finding: ExperimentHealthFinding
+        openKind: ExperimentHealthFindingOpenKind
+    }
+    reportHealthFindingShown: (finding: ExperimentHealthFinding) => {
+        finding: ExperimentHealthFinding
     }
     resetRunningExperiment: () => {
         value: true
@@ -1358,12 +1320,10 @@ export const experimentLogic = kea<experimentLogicType>([
             ['loadTags'],
             eventUsageLogic,
             [
-                'reportExperimentCreated',
                 'reportExperimentViewed',
 
                 'reportExperimentExposureCohortCreated',
                 'reportExperimentVariantScreenshotUploaded',
-                'reportExperimentResultsLoadingTimeout',
                 'reportExperimentReleaseConditionsViewed',
                 'reportExperimentHoldoutAssigned',
                 'reportExperimentSharedMetricAssigned',
@@ -1371,7 +1331,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',
-                'reportExperimentMetricsRefreshed',
                 'reportExperimentMetricBreakdownAdded',
                 'reportExperimentMetricBreakdownRemoved',
             ],
@@ -1397,6 +1356,28 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     })),
     actions({
+        reportExperimentMetricsRefreshed: (
+            experiment: Experiment,
+            forceRefresh: boolean,
+            context?: {
+                triggered_by: 'manual' | 'auto-refresh'
+                auto_refresh_enabled?: boolean
+                auto_refresh_interval?: number
+                previous_refresh_id?: string | null
+                previous_refresh_age_ms?: number | null
+                previous_refresh_state?: string | null
+                previous_refresh_triggered_by?: string | null
+            }
+        ) => ({ experiment, forceRefresh, context }),
+        reportHealthFindingShown: (finding: ExperimentHealthFinding) => ({ finding }),
+        reportHealthFindingOpened: (finding: ExperimentHealthFinding, openKind: ExperimentHealthFindingOpenKind) => ({
+            finding,
+            openKind,
+        }),
+        reportHealthFindingActedOn: (
+            finding: ExperimentHealthFinding,
+            actionKind: ExperimentHealthFindingActionKind
+        ) => ({ finding, actionKind }),
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1634,6 +1615,15 @@ export const experimentLogic = kea<experimentLogicType>([
                 toggleDebugPanel: (state) => !state,
             },
         ],
+        // A health finding is reported at most once per load, the unit of `experiment viewed`. A load
+        // without the finding's event does not mean that the finding is gone: only the flag-state
+        // banner renders on every tab. `experiment results refresh completed` holds the state per load.
+        experimentLoadCount: [
+            0,
+            {
+                loadExperimentSuccess: (state) => state + 1,
+            },
+        ],
         currentRefresh: [
             null as CurrentRefreshSnapshot | null,
             {
@@ -1826,19 +1816,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     const query = savedMetric.query
                     const name = `${savedMetric.name || getDefaultMetricTitle(query)} (copy)`
 
-                    /**
-                     * Build a single-use (inline) copy of the shared metric. The shared metric's
-                     * breakdowns live on the join metadata, so merge them into breakdownFilter here
-                     * the same way we do when rendering shared metrics.
-                     */
                     const newMetric = {
-                        ...query,
+                        ...resolveSharedMetric(savedMetric),
                         uuid: newUuid,
                         name,
-                        breakdownFilter: {
-                            ...query?.breakdownFilter,
-                            breakdowns: savedMetric.metadata?.breakdowns || [],
-                        },
                     }
                     metrics.push(newMetric)
 
@@ -2252,6 +2233,39 @@ export const experimentLogic = kea<experimentLogicType>([
         ],
     }),
     listeners(({ values, actions, asyncActions, cache, props }) => ({
+        reportExperimentMetricsRefreshed: ({ experiment, forceRefresh, context }) => {
+            posthog.capture('experiment metrics refreshed', {
+                ...getEventPropertiesForExperiment(experiment),
+                force_refresh: forceRefresh,
+                triggered_by: context?.triggered_by || 'manual',
+                auto_refresh_enabled: context?.auto_refresh_enabled,
+                auto_refresh_interval: context?.auto_refresh_interval,
+                previous_refresh_id: context?.previous_refresh_id ?? null,
+                previous_refresh_age_ms: context?.previous_refresh_age_ms ?? null,
+                previous_refresh_state: context?.previous_refresh_state ?? null,
+                previous_refresh_triggered_by: context?.previous_refresh_triggered_by ?? null,
+            })
+        },
+        reportHealthFindingShown: ({ finding }) => {
+            // The page remounts its warnings within one load, for example on a tab change or after
+            // a save, and each mount reports again.
+            const key = `${values.experimentLoadCount}:${finding.code}:${finding.variant ?? ''}`
+            cache.shownHealthFindingKeys ??= new Set<string>()
+            if (cache.shownHealthFindingKeys.has(key)) {
+                return
+            }
+            cache.shownHealthFindingKeys.add(key)
+            captureExperimentHealthFindingShown(values.experiment, finding)
+        },
+        reportHealthFindingOpened: ({ finding, openKind }) => {
+            // Zero exposures has no sign in the collapsed panel, so the reader opens it before the
+            // page reports it. Report "shown" first to keep the order of the two events.
+            actions.reportHealthFindingShown(finding)
+            captureExperimentHealthFindingOpened(values.experiment, finding, openKind)
+        },
+        reportHealthFindingActedOn: ({ finding, actionKind }) => {
+            captureExperimentHealthFindingActedOn(values.experiment, finding, actionKind)
+        },
         beforeUnmount: () => {
             clearTimeout(cache.notificationOfferTimer)
         },
@@ -2320,13 +2334,25 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: async ({ startDate }) => {
             await asyncActions.updateExperiment({ start_date: startDate, update_feature_flag_params: false })
             // eslint-disable-next-line no-unused-expressions
-            values.experiment && eventUsageLogic.actions.reportExperimentStartDateChange(values.experiment, startDate)
+            if (values.experiment) {
+                posthog.capture('experiment start date changed', {
+                    ...getEventPropertiesForExperiment(values.experiment),
+                    old_start_date: values.experiment.start_date,
+                    new_start_date: startDate,
+                })
+            }
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         changeExperimentEndDate: async ({ endDate }) => {
             await asyncActions.updateExperiment({ end_date: endDate, update_feature_flag_params: false })
             // eslint-disable-next-line no-unused-expressions
-            values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
+            if (values.experiment) {
+                posthog.capture('experiment end date changed', {
+                    ...getEventPropertiesForExperiment(values.experiment),
+                    old_end_date: values.experiment.end_date,
+                    new_end_date: endDate,
+                })
+            }
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         endExperiment: async ({ openCleanupPr, repository, setRepositoryAsTeamDefault }) => {
@@ -2534,29 +2560,31 @@ export const experimentLogic = kea<experimentLogicType>([
                     const erroredCount = refreshSummaries.reduce((sum, s) => sum + s.erroredCount, 0)
                     const cachedCount = refreshSummaries.reduce((sum, s) => sum + s.cachedCount, 0)
 
-                    eventUsageLogic.actions.reportExperimentResultsRefreshCompleted(
-                        values.experimentId,
-                        values.currentTeamId,
-                        {
-                            total_duration_ms: totalDurationMs,
-                            primary_metrics_count: primaryCount,
-                            secondary_metrics_count: secondaryCount,
-                            successful_count: successfulCount,
-                            errored_count: erroredCount,
-                            cached_count: cachedCount,
-                            triggered_by: triggeredBy ?? 'manual',
-                            force_refresh: !!forceRefresh,
-                            refresh_id: refreshId,
-                            experiment_duration_hours: values.experiment?.start_date
-                                ? Math.round(
-                                      (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
-                                  )
-                                : null,
-                            experiment_status: values.experiment?.status ?? null,
-                            total_metrics_count: primaryCount + secondaryCount,
-                            execution_mode: getExperimentExecutionMode(values.featureFlags),
-                        }
-                    )
+                    posthog.capture('experiment results refresh completed', {
+                        experiment_id: values.experimentId,
+                        team_id: values.currentTeamId,
+                        total_duration_ms: totalDurationMs,
+                        primary_metrics_count: primaryCount,
+                        secondary_metrics_count: secondaryCount,
+                        successful_count: successfulCount,
+                        errored_count: erroredCount,
+                        cached_count: cachedCount,
+                        triggered_by: triggeredBy ?? 'manual',
+                        force_refresh: !!forceRefresh,
+                        refresh_id: refreshId,
+                        experiment_duration_hours: values.experiment?.start_date
+                            ? Math.round(
+                                  (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
+                              )
+                            : null,
+                        experiment_status: values.experiment?.status ?? null,
+                        total_metrics_count: primaryCount + secondaryCount,
+                        execution_mode: getExperimentExecutionMode(values.featureFlags),
+                        ...exposureHealthEventProperties(
+                            values.exposures,
+                            values.exposureCriteria?.multiple_variant_handling
+                        ),
+                    })
 
                     const finalState: FinishedRefreshState = caughtError
                         ? 'errored'

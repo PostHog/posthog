@@ -30,13 +30,14 @@ from posthog.temporal.experiments.models import (
     ExperimentSavedMetricInput,
     ExperimentSavedMetricResult,
 )
-from posthog.temporal.experiments.utils import DEFAULT_EXPERIMENT_RECALCULATION_HOUR, check_significance_transition
+from posthog.temporal.experiments.utils import check_significance_transition, recalculation_hour_filter
 
 from products.experiments.backend.facade.timeseries import (
     backfill_experiment_timeseries,
     build_metric,
     is_daily_timeseries_metric,
-    merge_saved_metric_breakdowns,
+    is_scheduled_metric,
+    resolve_saved_metric_definition,
     sync_timeseries_recalculation,
 )
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
@@ -75,19 +76,8 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
 
     experiment_metrics: list[ExperimentRegularMetricInput] = []
 
-    # Build time filter - teams with NULL recalculation_time default to hour 2 (02:00 UTC)
-    # The filter traverses Experiment -> Team -> TeamExperimentsConfig via Django's reverse relation
-    if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
-        time_filter = (
-            Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
-            | Q(team__teamexperimentsconfig__experiment_recalculation_time__isnull=True)
-            | Q(team__teamexperimentsconfig__isnull=True)
-        )
-    else:
-        time_filter = Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
-
     experiments = Experiment.objects.filter(
-        time_filter,
+        recalculation_hour_filter(hour),
         deleted=False,
         status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
@@ -106,6 +96,8 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
                     "Metric has no UUID, skipping",
                     experiment_id=experiment.id,
                 )
+                continue
+            if not is_scheduled_metric(metric):
                 continue
 
             fingerprint = compute_metric_fingerprint(
@@ -389,17 +381,8 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
 
     experiment_metrics: list[ExperimentSavedMetricInput] = []
 
-    if hour == DEFAULT_EXPERIMENT_RECALCULATION_HOUR:
-        time_filter = (
-            Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
-            | Q(team__teamexperimentsconfig__experiment_recalculation_time__isnull=True)
-            | Q(team__teamexperimentsconfig__isnull=True)
-        )
-    else:
-        time_filter = Q(team__teamexperimentsconfig__experiment_recalculation_time__hour=hour)
-
     experiments = Experiment.objects.filter(
-        time_filter,
+        recalculation_hour_filter(hour),
         deleted=False,
         status=Experiment.Status.RUNNING,
         start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
@@ -417,12 +400,14 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
                     saved_metric_id=saved_metric.id,
                 )
                 continue
+            if not is_scheduled_metric(saved_metric.query):
+                continue
 
-            # Fingerprint the effective config (with link-metadata breakdowns), the same dict the calc
+            # Fingerprint the effective definition (with the link overrides), the same dict the calc
             # activity computes and every reader (timeseries sync, chart read) resolves. Hashing the raw
-            # saved query here would file breakdown-configured metrics under a hash no reader looks up.
+            # saved query here would file override-configured metrics under a hash no reader looks up.
             fingerprint = compute_metric_fingerprint(
-                merge_saved_metric_breakdowns(saved_metric.query, exp_to_saved_metric.metadata),
+                resolve_saved_metric_definition(saved_metric.query, exp_to_saved_metric.metadata),
                 experiment.start_date,
                 get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
@@ -499,12 +484,12 @@ def _calculate_experiment_saved_metric_sync(
         )
 
     # The frontend receives saved metrics with two extra fields injected before
-    # they get posted back to /query: a breakdownFilter wrapper (from the link
-    # metadata, via sharedMetricsToExperimentMetrics in experimentLogic.tsx) and
+    # they get posted back to /query: the link overrides (via resolveSharedMetric
+    # in experiments/utils.ts, which mirrors resolve_saved_metric_definition) and
     # a fingerprint (added by the experiment API serializer). The activity must
     # apply both or the response cache key diverges from /query's.
     query = {
-        **merge_saved_metric_breakdowns(saved_metric.query, saved_metric_metadata),
+        **resolve_saved_metric_definition(saved_metric.query, saved_metric_metadata),
         "fingerprint": fingerprint,
     }
     metric_type = query.get("metric_type")
