@@ -1,5 +1,7 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { MakeLogicType, kea, path } from 'kea'
+import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -106,6 +108,25 @@ describe('apiStatusLogic', () => {
 
         const blockedWrite = (): Promise<unknown> => api.update('api/users/@me/', {}).catch(() => null)
 
+        const loaderThatWrites = async (): Promise<void> => {
+            const writeLogic = kea<MakeLogicType<{ savedUser: null }, { saveUser: () => void }>>([
+                path(['lib', 'logic', 'apiStatusLogic', 'test', 'writeLogic']),
+                loaders({
+                    savedUser: [
+                        null,
+                        {
+                            saveUser: async () => {
+                                await api.update('api/users/@me/', {})
+                                return null
+                            },
+                        },
+                    ],
+                }),
+            ])
+            writeLogic.mount()
+            await expectLogic(writeLogic, () => writeLogic.actions.saveUser()).toDispatchActions(['saveUserFailure'])
+        }
+
         const clickThatWrites = async (tag: 'button' | 'a', beforeWrite?: () => void): Promise<void> => {
             const element = document.createElement(tag)
             if (tag === 'a') {
@@ -154,6 +175,7 @@ describe('apiStatusLogic', () => {
 
         it.each([
             ['no click started it', blockedWrite],
+            ['a kea loader sent it', loaderThatWrites],
             ['a link click started it', () => clickThatWrites('a')],
             ['the click navigated first', () => clickThatWrites('button', () => router.actions.push('/elsewhere'))],
             [
