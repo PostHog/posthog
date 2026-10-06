@@ -236,10 +236,6 @@ class _EmitResult:
     score_distribution: dict[str, Any]
 
 
-# Set on the metrics of a shadow model's inference run, so readers of the champion's runs can tell them apart.
-SHADOW_RUN_METRIC_KEY = "shadow"
-
-
 def create_inference_run(
     *,
     pipeline: AutoresearchPipeline,
@@ -256,7 +252,8 @@ def create_inference_run(
         "horizon_days": pipeline.horizon_days,
     }
     if shadow:
-        metrics[SHADOW_RUN_METRIC_KEY] = True
+        # Readers of the champion's runs, such as the manual-scoring dedupe, skip a run with this key.
+        metrics["shadow"] = True
     return AutoresearchRun.objects.create(
         pipeline=pipeline,
         model=model,
