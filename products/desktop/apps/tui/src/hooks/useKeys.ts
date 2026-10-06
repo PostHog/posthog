@@ -50,6 +50,7 @@ export function useKeys({
   control,
   paneAtDrop,
   toggleSidebar,
+  repoPickerKey,
   notice: { flashNotice, clearNotice },
 }: {
   layout: LayoutState;
@@ -63,6 +64,8 @@ export function useKeys({
   control: ((taskId: string, runId: string) => PiControl) | undefined;
   paneAtDrop: () => string | undefined;
   toggleSidebar: () => void;
+  // Gives a key to the pane's open /repo picker; false when it has none.
+  repoPickerKey: (paneId: string, sequence: string) => boolean;
   notice: Notice;
 }): Keys {
   const { exit } = useApp();
@@ -207,6 +210,7 @@ export function useKeys({
       composerFor(paneId).handleInput(sequence);
       return;
     }
+    if (repoPickerKey(paneId, sequence)) return;
     const key = sheetKey(sequence);
     const modal = modalFor(paneId);
     if (modal?.submitText && key?.kind !== "dismiss") {

@@ -9,11 +9,28 @@ export interface Prefs {
   newChatPlace: ChatPlace;
   // The sidebar shrunk to its logo's width with Ctrl+B.
   narrowSidebar: boolean;
+  // The repositories each pane's new cloud chats clone, by pane id, from /repo.
+  paneRepositories: Record<string, string[]>;
 }
 
 const PREFS_PATH = join(homedir(), ".config", "posthog-tui", "prefs.json");
 
-const DEFAULT_PREFS: Prefs = { newChatPlace: "cloud", narrowSidebar: false };
+const DEFAULT_PREFS: Prefs = {
+  newChatPlace: "cloud",
+  narrowSidebar: false,
+  paneRepositories: {},
+};
+
+const repositoriesOf = (saved: unknown): Record<string, string[]> =>
+  saved && typeof saved === "object"
+    ? Object.fromEntries(
+        Object.entries(saved).filter(
+          (entry): entry is [string, string[]] =>
+            Array.isArray(entry[1]) &&
+            entry[1].every((repo) => typeof repo === "string"),
+        ),
+      )
+    : {};
 
 export function loadPrefs(path: string = PREFS_PATH): Prefs {
   try {
@@ -21,6 +38,7 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
     return {
       newChatPlace: saved.newChatPlace === "local" ? "local" : "cloud",
       narrowSidebar: saved.narrowSidebar === true,
+      paneRepositories: repositoriesOf(saved.paneRepositories),
     };
   } catch {
     return DEFAULT_PREFS;

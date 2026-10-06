@@ -17,6 +17,14 @@ const PR_STATES = {
 const repoName = (repository: string | null | undefined): string | null =>
   repository ? (repository.split("/").at(-1) ?? null) : null;
 
+// The repositories a new chat clones, as the header names them: the first, and how many more.
+export const repoLabel = (repositories: string[]): string | null =>
+  repositories.length === 0
+    ? null
+    : repositories.length === 1
+      ? repositories[0]
+      : `${repositories[0]} +${repositories.length - 1}`;
+
 // Where a chat runs, its repository and its pull request, for the pane's title row.
 // Without a server task (a new chat, or a local one), it describes where the chat runs from `place` and `newChatRepository`.
 export function statusChips(

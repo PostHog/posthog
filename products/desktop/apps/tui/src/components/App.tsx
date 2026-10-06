@@ -10,6 +10,7 @@ import { useModels } from "../hooks/useModels";
 import { noticeIn, useNotice } from "../hooks/useNotice";
 import { usePaneViews } from "../hooks/usePaneViews";
 import { usePointer } from "../hooks/usePointer";
+import { useRepoPicker } from "../hooks/useRepoPicker";
 import { useSearch } from "../hooks/useSearch";
 import { type Send, useSend } from "../hooks/useSend";
 import { useSheets } from "../hooks/useSheets";
@@ -34,7 +35,7 @@ import type { PiControl } from "../models";
 import type { MouseEvents } from "../mouse";
 import { loadPrefs, savePrefs } from "../prefs";
 import type { CloudRuns } from "../runs";
-import { statusChips } from "../status";
+import { repoLabel, statusChips } from "../status";
 import { applyBackground, backgroundFromReply } from "../theme";
 import type { WorkList } from "../work";
 import { Pane } from "./Pane";
@@ -220,6 +221,12 @@ export function App({
     flashNotice,
   });
 
+  const repoPicker = useRepoPicker({
+    search: chats ? (query) => chats.searchRepositories(query) : null,
+    defaultRepo: newChatRepository,
+    flashNotice,
+  });
+
   const { onSubmit, pending, reopening, undelivered } = useSend({
     layout,
     setLayout,
@@ -236,6 +243,7 @@ export function App({
     openEffortSheet,
     compact,
     openSearch: search.toggle,
+    repos: repoPicker,
     onChatStarted,
     setTitles,
     runShell,
@@ -305,6 +313,7 @@ export function App({
       setNarrowSidebar(!narrowSidebar);
       savePrefs({ narrowSidebar: !narrowSidebar });
     },
+    repoPickerKey: repoPicker.onKey,
     notice,
   });
   useTerminalInput(mouse, { ...pointer, onKey });
@@ -341,6 +350,7 @@ export function App({
       composer={composerFor(node.id)}
       pending={pending.get(node.taskId ?? node.id) ?? null}
       reopening={node.taskId ? reopening.has(node.taskId) : false}
+      repoPicker={repoPicker.pickerFor(node.id) ?? null}
       onUndelivered={(at) =>
         node.taskId && undelivered(node.id, node.taskId, at)
       }
@@ -356,7 +366,9 @@ export function App({
         isLocal(node.taskId) || !node.taskId
           ? statusChips(
               undefined,
-              newChatRepository,
+              isLocal(node.taskId) || placeFor(node.id) === "local"
+                ? newChatRepository
+                : repoLabel(repoPicker.reposFor(node.id)),
               isLocal(node.taskId) ? "local" : placeFor(node.id),
             )
           : taskOf(node.taskId)

@@ -60,6 +60,7 @@ describe("PiChats", () => {
     expect(api.createTask).toHaveBeenCalledWith({
       description: "Fix the flaky test",
       repository: "posthog/posthog",
+      repositories: ["posthog/posthog"],
       runtime: "pi",
     });
     expect(api.createTaskRun).toHaveBeenCalledWith("t1", {
@@ -71,6 +72,28 @@ describe("PiChats", () => {
       pendingUserMessage: "Fix the flaky test",
     });
     expect(started.latest_run?.status).toBe("queued");
+  });
+
+  it.each([
+    [
+      "the repositories picked for it",
+      ["posthog/posthog-js", "posthog/posthog"],
+      {
+        repository: "posthog/posthog-js",
+        repositories: ["posthog/posthog-js", "posthog/posthog"],
+      },
+    ],
+    ["no repository when none was picked", [], { repository: undefined }],
+  ])("starts a cloud chat with %s", async (_, repositories, expected) => {
+    const { api, chats } = setup();
+
+    await chats.start("Look into it", [], repositories);
+
+    expect(api.createTask).toHaveBeenCalledWith({
+      description: "Look into it",
+      runtime: "pi",
+      ...expected,
+    });
   });
 
   it("starts a local chat as a pi task with no run", async () => {

@@ -20,6 +20,7 @@ import type { ChatPlace } from "../prefs";
 import type { Sheet } from "../sheet";
 import { parseShell } from "../shell";
 import type { Notice } from "./useNotice";
+import type { RepoPicker } from "./useRepoPicker";
 import type { OpenModal } from "./useSheets";
 
 export interface Send {
@@ -55,6 +56,7 @@ export function useSend({
   openSearch,
   onChatStarted,
   runShell,
+  repos,
   notice: { flashNotice, showNotice },
   login,
   logout,
@@ -91,6 +93,7 @@ export function useSend({
     instructions: string,
   ) => void;
   openSearch: () => void;
+  repos: Pick<RepoPicker, "open" | "reposFor">;
   onChatStarted: (paneId: string, taskId: string) => void;
   runShell: (
     paneId: string,
@@ -250,6 +253,15 @@ export function useSend({
         );
       return;
     }
+    if (slash?.command === "repo") {
+      if (
+        isLocal(pane?.taskId ?? null) ||
+        (!pane?.taskId && places.placeFor(paneId) === "local")
+      )
+        flashNotice("A local chat works in the folder it runs in", here);
+      else repos.open(paneId);
+      return;
+    }
     if (slash?.command === "local" || slash?.command === "cloud") {
       const mode = slash.command;
       places.setPlace(paneId, mode);
@@ -344,7 +356,7 @@ export function useSend({
           if (resumed)
             setFresh((tasks) => new Map(tasks).set(resumed.id, resumed));
         })
-      : chats.start(text, images)
+      : chats.start(text, images, repos.reposFor(paneId))
     ).then(
       (task) => {
         if (current) reopened(current.id, false);
