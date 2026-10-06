@@ -356,6 +356,7 @@ the row lists both.
 | g2                               | HTTP                        | requests                                                        | ✅                          |
 | gainsight_cs                     | HTTP                        | requests                                                        | ✅                          |
 | gainsight_px                     | HTTP                        | requests                                                        | ✅                          |
+| gcore                            | HTTP                        | requests                                                        | ✅                          |
 | genesys_cloud                    | HTTP                        | requests                                                        | ✅                          |
 | gerrit                           | HTTP                        | requests                                                        | ✅                          |
 | getdx                            | HTTP                        | requests                                                        | ✅                          |
@@ -1121,7 +1122,6 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - freshservice
 - fulcrum
-- gcore
 - gcp_apigee
 - gcp_artifact_registry
 - gcp_bigtable
