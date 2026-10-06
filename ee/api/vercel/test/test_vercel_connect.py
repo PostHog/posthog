@@ -13,7 +13,6 @@ from rest_framework import status
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
-from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
 
 from ee.api.vercel.crypto import encrypt_payload
@@ -406,7 +405,8 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert org_integration.config["type"] == "connectable"
         assert org_integration.sensitive_config["credentials"]["access_token"] == "vercel_token_123"
         assert org_integration.integration_id == "icfg_connect_test"
-        assert not OrganizationProvisioning.objects.filter(organization=self.organization).exists()
+        self.organization.refresh_from_db()
+        assert (self.organization.provisioning_source, self.organization.provisioning_application_id) == (None, None)
 
         resource = Integration.objects.get(
             team=self.team,
