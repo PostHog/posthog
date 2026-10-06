@@ -7,9 +7,12 @@ import { LemonButton, LemonDivider, LemonInput, LemonModal, Link } from '@postho
 import { pendingInvitesLogic } from 'lib/components/Account/pendingInvitesLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 export function CreateOrganizationModal({
     isVisible,
@@ -21,9 +24,11 @@ export function CreateOrganizationModal({
     inline?: boolean
 }): JSX.Element {
     const { createOrganization } = useActions(organizationLogic)
-    const { currentOrganizationLoading, isCurrentOrganizationUnavailable } = useValues(organizationLogic)
+    const { currentOrganization, currentOrganizationLoading, isCurrentOrganizationUnavailable } =
+        useValues(organizationLogic)
+    const { preflight } = useValues(preflightLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
-    const { user } = useValues(userLogic)
+    const { user, hasAvailableFeature } = useValues(userLogic)
     const { logout } = useActions(userLogic)
     const [name, setName] = useState<string>('')
 
@@ -31,6 +36,12 @@ export function CreateOrganizationModal({
     // Only stuck users see this: no organization membership and no invite waiting. Someone deliberately creating an
     // additional org from the account menu still has a current org, so this guidance stays hidden for them.
     const showNoInviteHelp = !hasPendingInvites && isCurrentOrganizationUnavailable
+    // Users who hit the project limit often create an organization when they wanted more projects.
+    const showSeparateOrganizationNote = !isCurrentOrganizationUnavailable && !!currentOrganization
+    const isAtProjectLimit =
+        showSeparateOrganizationNote &&
+        !!preflight?.cloud &&
+        !hasAvailableFeature(AvailableFeature.ORGANIZATIONS_PROJECTS, currentOrganization?.teams?.length ?? 0)
 
     const closeModal: () => void = () => {
         if (onClose) {
@@ -90,6 +101,36 @@ export function CreateOrganizationModal({
                         <Link onClick={() => logout()}>log out</Link> and sign back in with that email. Otherwise,
                         create your own organization below.
                     </p>
+                </LemonBanner>
+            )}
+            {showSeparateOrganizationNote && (
+                <LemonBanner type="warning" className="mb-4">
+                    <p className="mb-2">
+                        PostHog switches you to the new organization, which starts with one empty project. Your existing
+                        projects stay in <strong>{currentOrganization?.name}</strong>. To go back, switch organizations
+                        in the account menu.
+                    </p>
+                    <p className="mb-0">
+                        Plans and billing are separate for each organization. An upgrade in the new organization does
+                        not apply to <strong>{currentOrganization?.name}</strong>.
+                    </p>
+                    {isAtProjectLimit && (
+                        <div className="mt-2">
+                            <p className="mb-2">
+                                <strong>{currentOrganization?.name}</strong> is at its project limit. To add more
+                                projects there, upgrade it instead.
+                            </p>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                to={urls.organizationBilling()}
+                                onClick={closeModal}
+                                data-attr="create-organization-upgrade-current-organization"
+                            >
+                                Upgrade current organization
+                            </LemonButton>
+                        </div>
+                    )}
                 </LemonBanner>
             )}
             {hasPendingInvites && (

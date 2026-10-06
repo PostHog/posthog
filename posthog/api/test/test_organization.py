@@ -117,6 +117,25 @@ class TestOrganizationAPI(APIBaseTest):
         else:
             mock_group_identify.assert_not_called()
 
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_create_organization_reports_previous_organization(self, mock_capture):
+        with self.is_cloud(True):
+            response = self.client.post("/api/organizations/", {"name": "New org"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        created_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "organization created"]
+        self.assertEqual(len(created_calls), 1)
+        self.assertEqual(
+            created_calls[0].kwargs["properties"],
+            {
+                "organization_id": response.json()["id"],
+                "had_existing_organization": True,
+                "previous_organization_id": str(self.organization.id),
+                "previous_organization_project_count": 1,
+                "user_number_of_org_membership": 2,
+            },
+        )
+
     def test_cannot_create_organization_with_default_role(self):
         role = Role.objects.create(name="Existing organization role", organization=self.organization)
 

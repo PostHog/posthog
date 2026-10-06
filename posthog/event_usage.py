@@ -135,6 +135,33 @@ def report_user_joined_organization(organization: Organization, current_user: Us
     )
 
 
+def report_organization_created(
+    organization: Organization,
+    current_user: User,
+    previous_organization: Optional[Organization],
+) -> None:
+    """
+    Triggered after a user creates an organization through the API.
+    """
+    if not current_user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=current_user.distinct_id,
+        event="organization created",
+        properties={
+            "organization_id": str(organization.id),
+            "had_existing_organization": previous_organization is not None,
+            "previous_organization_id": str(previous_organization.id) if previous_organization else None,
+            "previous_organization_project_count": (
+                previous_organization.teams.count() if previous_organization else None
+            ),
+            "user_number_of_org_membership": current_user.organization_memberships.count(),
+        },
+        groups=groups(organization),
+    )
+
+
 def report_user_logged_in(
     user: User,
     social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)

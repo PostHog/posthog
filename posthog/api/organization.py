@@ -32,6 +32,7 @@ from posthog.event_usage import (
     exclude_internal_organization_from_crm,
     groups,
     report_organization_action,
+    report_organization_created,
     report_organization_deleted,
     report_organization_deletion_initiated,
 )
@@ -322,8 +323,11 @@ class OrganizationSerializer(
     def create(self, validated_data: dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         user = self.context["request"].user
+        # bootstrap() moves the user to the new organization, so read the previous one first.
+        previous_organization = user.organization
         organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
         exclude_internal_organization_from_crm(organization, user)
+        report_organization_created(organization, user, previous_organization)
         return organization
 
     @tracer.start_as_current_span("organization_serializer.membership_level")
