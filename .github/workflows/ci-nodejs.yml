@@ -127,6 +127,8 @@ jobs:
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
+                        # Wrapper that setup_test_environment runs to build the ClickHouse test database
+                        - 'bin/clickhouse-schema'
                         - 'posthog/migrations/**'
                         - 'posthog/plugins/**'
                         # Django reads this to decide which filter globals it accepts, and the only
