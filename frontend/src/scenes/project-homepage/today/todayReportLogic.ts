@@ -110,6 +110,9 @@ export interface todayReportLogicActions {
     askAboutReport: (question: string) => {
         question: string
     }
+    codeQuoteCleared: (signalId: string) => {
+        signalId: string
+    }
     codeQuoteRead: (
         signalId: string,
         quote: TodayCodeQuoteState
@@ -246,6 +249,7 @@ export const todayReportLogic = kea<todayReportLogicType>([
         }),
         readCode: (signal: SignalViewApi, files: CodeFileApi[]) => ({ signal, files }),
         codeQuoteRead: (signalId: string, quote: TodayCodeQuoteState) => ({ signalId, quote }),
+        codeQuoteCleared: (signalId: string) => ({ signalId }),
         askAboutReport: (question: string) => ({ question }),
         expandEvidence: (signalId: string) => ({ signalId }),
         collapseEvidence: (signalId: string) => ({ signalId }),
@@ -292,7 +296,13 @@ export const todayReportLogic = kea<todayReportLogicType>([
         ],
         codeQuotes: [
             {} as Record<string, TodayCodeQuoteState>,
-            { codeQuoteRead: (state, { signalId, quote }) => ({ ...state, [signalId]: quote }) },
+            {
+                codeQuoteRead: (state, { signalId, quote }) => ({ ...state, [signalId]: quote }),
+                codeQuoteCleared: (state, { signalId }) => {
+                    const { [signalId]: _, ...rest } = state
+                    return rest
+                },
+            },
         ],
         expandedEvidence: [
             {} as Record<string, boolean>,
@@ -372,7 +382,10 @@ export const todayReportLogic = kea<todayReportLogicType>([
             if (!cache.fileReads.has(key)) {
                 cache.fileReads.set(
                     key,
-                    businessKnowledgeRepositoriesFileRetrieve(String(values.currentProjectId), file).catch(() => null)
+                    businessKnowledgeRepositoriesFileRetrieve(String(values.currentProjectId), file).catch(() => {
+                        cache.fileReads.delete(key)
+                        return null
+                    })
                 )
             }
             return cache.fileReads.get(key)
@@ -384,7 +397,12 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 }
                 actions.codeQuoteRead(signal.signal_id, 'loading')
                 const reads = await Promise.all(files.map(readFile))
-                actions.codeQuoteRead(signal.signal_id, findCodeQuote(files, reads, codeIdentifiers(signal.content)))
+                const quote = findCodeQuote(files, reads, codeIdentifiers(signal.content))
+                if (!quote && reads.includes(null)) {
+                    actions.codeQuoteCleared(signal.signal_id)
+                    return
+                }
+                actions.codeQuoteRead(signal.signal_id, quote)
             },
             askAboutReport: ({ question }) => {
                 const report = values.currentReport

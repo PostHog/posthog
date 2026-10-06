@@ -39,8 +39,9 @@ export function dailyTrend(metric: Pick<ReportMetricApi, 'series' | 'value_at' |
         return null
     }
     const query = isObject(metric.query) ? (metric.query as { source?: { interval?: unknown } }) : {}
-    const first = series.findIndex((point) => point > 0)
-    if (query.source?.interval !== 'day' || !metric.value_at || first < 0) {
+    const daily = (query.source?.interval ?? 'day') === 'day'
+    const first = series.findIndex((point) => point !== 0)
+    if (!daily || !metric.value_at || first < 0) {
         return { data: series, since: null, start: null }
     }
     const start = dayjs(metric.value_at).subtract(series.length - 1 - first, 'day')
@@ -64,13 +65,26 @@ function trendRange(trend: TodayDailyTrend | null): { from: string; to: string }
     return { from: shortDate(trend.start), to: `${shortDate(lastDay)} (partial)` }
 }
 
-function trendWindow(trend: TodayDailyTrend | null): string | null {
+function shownValue(metric: ReportMetricApi, value: number | null | undefined): string | null {
+    const parts = reportMetricRowParts(metric, value)
+    if (!parts) {
+        return null
+    }
+    const format = metric.value_format ?? 'number'
+    const formatCarriesUnit = format === 'currency' || format.startsWith('percentage')
+    const titleNamesUnit = metric.title.toLowerCase().includes(parts.unit.toLowerCase())
+    return parts.unit && !formatCarriesUnit && !titleNamesUnit ? `${parts.value} ${parts.unit}` : parts.value
+}
+
+function trendWindow(metric: ReportMetricApi, trend: TodayDailyTrend | null): string | null {
     if (!trend?.start) {
         return null
     }
+    const additive = reportMetricChartType(metric) === 'bar'
     const peak = Math.max(...trend.data)
     const peakDay = shortDate(dayjs(trend.start).add(trend.data.indexOf(peak), 'day'))
-    return peak > 0 ? `in total · peak ${peak.toLocaleString('en-US')} on ${peakDay}` : 'in total'
+    const peakText = peak > 0 || !additive ? `peak ${shownValue(metric, peak)} on ${peakDay}` : null
+    return [additive ? 'in total' : null, peakText].filter(Boolean).join(' · ') || null
 }
 
 function metricChart(metric: ReportMetricApi, trend: TodayDailyTrend | null): TodayImpactNumber['chart'] {
@@ -89,8 +103,8 @@ function shownWindow(trend: TodayDailyTrend | null, window: string | null): stri
 
 function metricNumber(report: Pick<SignalReport, 'metrics'>): TodayImpactNumber | null {
     const metric = selectReportCardImpactMetric(report.metrics)
-    const parts = metric ? reportMetricRowParts(metric, metric.value) : null
-    if (!metric || !parts) {
+    const value = metric ? shownValue(metric, metric.value) : null
+    if (!metric || !value) {
         return null
     }
     const trend = dailyTrend(metric)
@@ -98,18 +112,19 @@ function metricNumber(report: Pick<SignalReport, 'metrics'>): TodayImpactNumber 
     const query = asReportMetricTrendsQuery(metric.query)
     return {
         key: 'metric',
-        value: parts.value,
+        value,
         label: asSentence(metric.title.trim()),
         window: shownWindow(trend, window),
         chart: metricChart(metric, trend),
         content: {
             kind: 'metric',
-            total: parts.value,
+            total: value,
             at: metric.value_at ?? null,
             range: trendRange(trend),
             caption: metric.caption ?? null,
-            window: trendWindow(trend) ?? window,
+            window: trendWindow(metric, trend) ?? window,
             trend: trend?.data ?? null,
+            chartType: reportMetricChartType(metric),
             link: query ? chartOpenTarget(query) : null,
         },
     }
