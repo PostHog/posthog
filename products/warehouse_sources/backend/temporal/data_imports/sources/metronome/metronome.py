@@ -1,7 +1,7 @@
 import threading
 import dataclasses
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -517,7 +517,7 @@ def _parallel_usage_pages(
     walk: "MetronomeWalkStart",
     stage_checkpoint: Callable[[Optional[str], tuple[str, ...]], None],
     safe_point: Callable[[], None] = lambda: None,
-) -> Iterator[list[Any]]:
+) -> Generator[list[Any]]:
     """Walk each customer's usage separately, several at a time, and yield whole customers.
 
     `customer_ids` makes each customer's walk independent, which is the only parallelism this
