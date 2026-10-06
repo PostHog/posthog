@@ -35,10 +35,17 @@ class MessageDetail:
 
 @frozen
 class AlertMessage:
-    """One notification, before a provider formats it."""
+    """One notification, before a provider formats it.
+
+    `headline` and `details` are the copy, and a provider that renders text uses only those. The
+    other fields are the facts the copy was written from, for a provider whose body is data.
+    """
 
     headline: str
     details: tuple[MessageDetail, ...]
+    configuration_id: str
+    alert_name: str
+    transition: AnnouncedTransition
 
 
 def _number(value: float) -> str:
@@ -95,4 +102,10 @@ def build_message(announcement: EvaluationAnnouncement, transition: AnnouncedTra
         if transition.kind in failure_kinds
         else _breach_details(transition)
     )
-    return AlertMessage(headline=headline.format(name=announcement.alert_name), details=tuple(details))
+    return AlertMessage(
+        headline=headline.format(name=announcement.alert_name),
+        details=tuple(details),
+        configuration_id=announcement.configuration_id,
+        alert_name=announcement.alert_name,
+        transition=transition,
+    )

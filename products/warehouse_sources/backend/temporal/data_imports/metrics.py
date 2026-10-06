@@ -131,10 +131,9 @@ def emit_data_import_app_metrics(job: "ExternalDataJob") -> None:
     # Each destination is also keyed on its own, without a schema. A source-level surface wants one
     # series per destination across every table, and the API filters `instance_id` by equality, so
     # without this row it would have to ask once per schema per destination.
-    # `destination_ids_for_run` returns an empty list when a schema resolves to the PostHog
-    # warehouse alone, so the run stays byte-for-byte on the path it took before destinations
-    # existed. Without this fallback those runs report no destination at all, and a project
-    # that never configured one sees an empty rows-by-destination chart.
+    # A run still reaches here with no ids: a job that predates destinations, a CDC companion
+    # lane, or a run of a team the flag was off for. Without this fallback those runs report no
+    # destination at all, and a project sees a gap in its rows-by-destination chart.
     destination_ids = list(job.destination_ids or [])
     if not destination_ids:
         try:
