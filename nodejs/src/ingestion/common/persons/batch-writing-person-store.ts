@@ -154,6 +154,8 @@ class BatchWritingPersonsCache {
     private personCheckCache = new Map<string, InternalPerson | null>()
     private distinctIdToPersonId = new Map<string, string>()
     private personUpdateCache = new Map<string, PersonUpdate | null>()
+    /** Distinct keys the primary had no row for; the update cache is keyed by person id and cannot hold them. */
+    private absentOnPrimary = new Set<string>()
     private batchDistinctKeys = new Map<number, Set<string>>()
     private distinctKeyRefCount = new Map<string, number>()
     private deferredEvictions = new Set<string>()
@@ -289,6 +291,10 @@ class BatchWritingPersonsCache {
     getCachedPersonForUpdateByDistinctId(teamId: number, distinctId: string): PersonUpdate | null | undefined {
         const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
         const personId = this.distinctIdToPersonId.get(cacheKey)
+        if (personId === undefined && this.absentOnPrimary.has(cacheKey)) {
+            this.cacheMetrics.updateCacheHits++
+            return null
+        }
 
         return this.getCachedPersonForUpdateByPersonId(teamId, personId)
     }
@@ -297,6 +303,7 @@ class BatchWritingPersonsCache {
         const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
 
         if (person === null) {
+            this.absentOnPrimary.add(cacheKey)
             const existingPersonId = this.distinctIdToPersonId.get(cacheKey)
             this.distinctIdToPersonId.delete(cacheKey)
             if (existingPersonId) {
@@ -305,6 +312,7 @@ class BatchWritingPersonsCache {
             return
         }
 
+        this.absentOnPrimary.delete(cacheKey)
         this.distinctIdToPersonId.set(cacheKey, person.id)
 
         const existingPersonUpdate = this.personUpdateCache.get(this.getPersonIdCacheKey(teamId, person.id))
@@ -322,7 +330,9 @@ class BatchWritingPersonsCache {
     }
 
     setDistinctIdToPersonId(teamId: number, distinctId: string, personId: string): void {
-        this.distinctIdToPersonId.set(this.getDistinctCacheKey(teamId, distinctId), personId)
+        const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
+        this.absentOnPrimary.delete(cacheKey)
+        this.distinctIdToPersonId.set(cacheKey, personId)
     }
 
     clearPersonCacheForPersonId(teamId: number, personId: string): void {
@@ -354,12 +364,17 @@ class BatchWritingPersonsCache {
         const personId = this.distinctIdToPersonId.get(cacheKey)
 
         this.distinctIdToPersonId.delete(cacheKey)
+        this.absentOnPrimary.delete(cacheKey)
 
         if (personId) {
             this.clearPersonCacheForPersonId(teamId, personId)
         }
 
         this.personCheckCache.delete(cacheKey)
+    }
+
+    forgetAbsentOnPrimary(teamId: number, distinctId: string): void {
+        this.absentOnPrimary.delete(this.getDistinctCacheKey(teamId, distinctId))
     }
 
     releaseBatchId(batchId: number): void {
@@ -455,6 +470,7 @@ class BatchWritingPersonsCache {
         }
 
         this.personCheckCache.delete(distinctKey)
+        this.absentOnPrimary.delete(distinctKey)
     }
 
     private mergeUpdateIntoCachedPersonUpdate(existingPersonUpdate: PersonUpdate, person: PersonUpdate): PersonUpdate {
@@ -1249,6 +1265,9 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         cache.setCachedPersonForUpdate(teamId, distinctId, personUpdate)
                     } else {
                         cache.setCheckCachedPerson(teamId, distinctId, null)
+                        if (cache.getCachedPersonForUpdateByDistinctId(teamId, distinctId) === undefined) {
+                            cache.setCachedPersonForUpdate(teamId, distinctId, null)
+                        }
                     }
                 }
 
@@ -1914,6 +1933,11 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     fromInternalPerson(person, extraDistinctId.distinctId),
                     batchId
                 )
+            }
+        } else if (result.error === 'CreationConflict') {
+            for (const { distinctId } of [primaryDistinctId, ...(extraDistinctIds || [])]) {
+                this.personCache.forgetAbsentOnPrimary(teamId, distinctId)
+                this.getCheckCache().delete(this.getDistinctCacheKey(teamId, distinctId))
             }
         }
 

@@ -2588,7 +2588,7 @@ describe('BatchWritingPersonStore', () => {
             expect(personStoreForBatch.getUpdateCache().get(`${teamId}:2`)).toBeDefined()
         })
 
-        it('should cache null in check cache only for persons not found', async () => {
+        it('should remember a person the primary did not have so fetchForUpdate skips its own read', async () => {
             const personStoreForBatch = getPersonsStore()
 
             const person1 = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
@@ -2606,9 +2606,12 @@ describe('BatchWritingPersonStore', () => {
             expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-1`)).toEqual(expectedPerson1)
             expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-2`)).toBeNull()
 
-            // Update cache: only person1 should be cached (no null for missing)
+            // Update cache: only person1 should be cached
             expect(personStoreForBatch.getUpdateCache().get(`${teamId}:1`)).toBeDefined()
             expect(personStoreForBatch.getUpdateCache().has(`${teamId}:2`)).toBe(false)
+
+            await expect(personStoreForBatch.fetchForUpdate(teamId, 'user-2', 0)).resolves.toBeNull()
+            expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
         })
 
         it('should skip entries already in check cache', async () => {
@@ -2805,6 +2808,52 @@ describe('BatchWritingPersonStore', () => {
             expect(batchDistinctKeys.has(0)).toBe(false)
             const distinctKeyRefCount = (personStoreForBatch as any)['distinctKeyRefCount'] as Map<string, number>
             expect(distinctKeyRefCount.has(`${teamId}:user-1`)).toBe(false)
+        })
+
+        it('should read the primary again after a creation conflict for a distinct id the prefetch found absent', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([])
+            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1', batchId: 0 }])
+
+            mockRepo.createPerson.mockResolvedValueOnce({
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['user-1'],
+            })
+            await personStoreForBatch.createPerson(
+                DateTime.now(),
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                'uuid-1',
+                { distinctId: 'user-1' },
+                [],
+                undefined,
+                0
+            )
+            expect(personStoreForBatch.getCheckCache().has(`${teamId}:user-1`)).toBe(false)
+
+            const existingPerson = { ...person, id: '7', uuid: 'uuid-1' }
+            mockRepo.fetchPerson.mockResolvedValueOnce(existingPerson)
+
+            await expect(personStoreForBatch.fetchForUpdate(teamId, 'user-1', 0)).resolves.toEqual(existingPerson)
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
+        })
+
+        it('should forget an absent distinct id once its batch is released', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([])
+            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1', batchId: 0 }])
+            personStoreForBatch.releaseBatch(0)
+
+            mockRepo.fetchPerson.mockResolvedValueOnce(undefined)
+            await expect(personStoreForBatch.fetchForUpdate(teamId, 'user-1', 1)).resolves.toBeNull()
+            expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
         })
 
         it('should resolve (not reject) on a transient persons-Postgres failure', async () => {
