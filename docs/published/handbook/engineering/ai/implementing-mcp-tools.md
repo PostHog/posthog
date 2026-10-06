@@ -338,6 +338,8 @@ Product teams own their definitions and control which operations are exposed as 
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
    An `exclude_params` entry that names no query parameter or request body field also fails the build, so a typo cannot leave the field exposed.
+   The other settings that name a field fail the same way when the name matches nothing: `include_params`, `param_overrides` keys and `exclude_properties`, `inject_body`, `rename_params`, `required_when_set`, a `soft_delete` field, `response.include` / `exclude` / `text_include`, `enrich_url`, `confirmed_action.message` placeholders, and a query wrapper's `exclude_properties` and `property_defaults`.
+   A response path is not checked where the response schema is missing or free-form.
 
    For generated list apps, `generate:ui-apps` also checks `detail_tool` and the
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument

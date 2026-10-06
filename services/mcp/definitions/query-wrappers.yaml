@@ -23,8 +23,6 @@ wrappers:
         ui_resource_uri: ui://posthog/query-results.html
         use_optimized_output: true
         exclude_properties:
-            - response
-            - modifiers
             - samplingFactor
 
     query-funnel:
@@ -42,8 +40,6 @@ wrappers:
         ui_resource_uri: ui://posthog/query-results.html
         use_optimized_output: true
         exclude_properties:
-            - response
-            - modifiers
             - samplingFactor
 
     query-retention:
@@ -61,8 +57,6 @@ wrappers:
         ui_resource_uri: ui://posthog/query-results.html
         use_optimized_output: true
         exclude_properties:
-            - response
-            - modifiers
             - samplingFactor
 
     query-stickiness:
@@ -80,8 +74,6 @@ wrappers:
         ui_resource_uri: ui://posthog/query-results.html
         use_optimized_output: true
         exclude_properties:
-            - response
-            - modifiers
             - samplingFactor
 
     query-paths:
@@ -99,8 +91,6 @@ wrappers:
         ui_resource_uri: ui://posthog/query-results.html
         use_optimized_output: true
         exclude_properties:
-            - response
-            - modifiers
             - samplingFactor
 
     query-lifecycle:
@@ -118,8 +108,6 @@ wrappers:
         ui_resource_uri: ui://posthog/query-results.html
         use_optimized_output: true
         exclude_properties:
-            - response
-            - modifiers
             - samplingFactor
 
     query-trends-actors:
@@ -137,9 +125,6 @@ wrappers:
         system_prompt_hint: List persons behind a trends data point
         ui_resource_uri: ui://posthog/insight-actors.html
         use_optimized_output: true
-        exclude_properties:
-            - response
-            - modifiers
 
     query-lifecycle-actors:
         schema_ref: AssistantLifecycleActorsQuery
@@ -156,9 +141,6 @@ wrappers:
         system_prompt_hint: List persons in a lifecycle bucket (new/returning/resurrecting/dormant) for a given day
         ui_resource_uri: ui://posthog/insight-actors.html
         use_optimized_output: true
-        exclude_properties:
-            - response
-            - modifiers
 
     query-paths-actors:
         schema_ref: AssistantPathsActorsQuery
@@ -175,9 +157,6 @@ wrappers:
         system_prompt_hint: List persons who traversed the paths defined by a paths insight
         ui_resource_uri: ui://posthog/insight-actors.html
         use_optimized_output: true
-        exclude_properties:
-            - response
-            - modifiers
 
     query-retention-actors:
         schema_ref: AssistantRetentionActorsQuery
@@ -194,9 +173,6 @@ wrappers:
         system_prompt_hint: List persons in a retention acquisition cohort and which intervals they returned in
         ui_resource_uri: ui://posthog/insight-actors.html
         use_optimized_output: true
-        exclude_properties:
-            - response
-            - modifiers
 
     query-stickiness-actors:
         schema_ref: AssistantStickinessActorsQuery
@@ -213,9 +189,6 @@ wrappers:
         system_prompt_hint: List persons who were active in a given number of intervals (one stickiness bar)
         ui_resource_uri: ui://posthog/insight-actors.html
         use_optimized_output: true
-        exclude_properties:
-            - response
-            - modifiers
 
     query-funnel-actors:
         schema_ref: AssistantFunnelsActorsQuery
@@ -232,6 +205,3 @@ wrappers:
         system_prompt_hint: List persons who converted through or dropped off at a given funnel step
         ui_resource_uri: ui://posthog/insight-actors.html
         use_optimized_output: true
-        exclude_properties:
-            - response
-            - modifiers

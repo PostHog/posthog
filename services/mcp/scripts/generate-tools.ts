@@ -29,6 +29,7 @@ import {
     CategoryConfigSchema,
     type EnabledToolConfig,
     type EnabledQueryWrapperToolConfig,
+    type QueryWrapperToolConfig,
     type QueryWrappersConfig,
     QueryWrappersConfigSchema,
     type ToolConfig,
@@ -936,6 +937,269 @@ function composeToolSchema(
         renamedFields,
         paramFallbacks,
         paramAliases,
+    }
+}
+
+// ------------------------------------------------------------------
+// YAML name checks: every setting that names a field must name a real one
+// ------------------------------------------------------------------
+
+/**
+ * Like `schemaHasPath`, but true wherever the schema does not pin the keys down: no schema, a
+ * free-form object, or an object with open `additionalProperties`. A response can then carry
+ * any field, so the check cannot call the path wrong.
+ */
+function responseMayHavePath(
+    spec: OpenApiSpec,
+    schemaOrRef: OpenApiSchema | { $ref: string } | undefined,
+    segments: string[]
+): boolean {
+    const schema = schemaOrRef && resolveSchema(spec, schemaOrRef)
+    const [head, ...tail] = segments
+    if (!schema || head === undefined) {
+        return true
+    }
+    const variants = [...(schema.oneOf ?? []), ...(schema.anyOf ?? []), ...(schema.allOf ?? [])]
+    if (variants.some((variant) => responseMayHavePath(spec, variant, segments))) {
+        return true
+    }
+    const children = [schema.items, schema.additionalProperties].filter(
+        (child): child is OpenApiSchema | { $ref: string } => typeof child === 'object'
+    )
+    const isFreeFormObject =
+        variants.length === 0 &&
+        !schema.properties &&
+        children.length === 0 &&
+        (schema.type === undefined || schema.type === 'object')
+    const acceptsAnyKey = isFreeFormObject || schema.additionalProperties === true
+    if (head === '*') {
+        if (children.length === 0) {
+            return acceptsAnyKey
+        }
+        return tail.length === 0 || children.some((child) => responseMayHavePath(spec, child, tail))
+    }
+    const property =
+        schema.properties && Object.prototype.hasOwnProperty.call(schema.properties, head)
+            ? schema.properties[head]
+            : undefined
+    if (property === undefined) {
+        return acceptsAnyKey || typeof schema.additionalProperties === 'object'
+    }
+    return tail.length === 0 || responseMayHavePath(spec, property, tail)
+}
+
+/**
+ * The schema that `response` filters and `enrich_url` read: the success response, or each
+ * `results` item for a list tool. A soft-delete tool sends a PATCH, so its response is the PATCH's.
+ */
+function findResponseItemSchema(
+    config: ToolConfig,
+    resolved: ResolvedOperation,
+    spec: OpenApiSpec
+): OpenApiSchema | { $ref: string } | undefined {
+    const operation = config.soft_delete ? spec.paths[resolved.path]?.['patch'] : resolved.operation
+    const responseSchema = ['200', '201']
+        .map((status) => operation?.responses?.[status]?.content?.['application/json']?.schema)
+        .find((schema) => schema !== undefined)
+    if (!config.list || !responseSchema) {
+        return responseSchema
+    }
+    const resolvedResponse = resolveSchema(spec, responseSchema)
+    return resolvedResponse?.properties?.['results']?.items ?? resolvedResponse?.items
+}
+
+function definesProperty(schema: { properties?: Record<string, unknown> } | undefined, name: string): boolean {
+    return !!schema?.properties && Object.prototype.hasOwnProperty.call(schema.properties, name)
+}
+
+function unknownNameError(toolName: string, setting: string, entry: string, missing: string, effect: string): Error {
+    return new Error(
+        `Enabled tool "${toolName}": ${setting} entry "${entry}" names no ${missing}, so ${effect}. ` +
+            'Fix the name or remove the entry.'
+    )
+}
+
+/**
+ * Fails when a YAML setting names a parameter, body field, response field or schema property that
+ * does not exist. Codegen skips such an entry without a warning, so a typo silently changes the
+ * tool: an `include_params` typo drops the parameter it means to keep, and a `param_overrides`
+ * typo leaves the parameter without its override. `exclude_params` has its own check in
+ * `assertExclusionsNameRealFields`, and `composeToolSchema` checks `aliases`.
+ */
+function assertSettingsNameRealFields(
+    name: string,
+    config: ToolConfig,
+    resolved: ResolvedOperation,
+    spec: OpenApiSpec,
+    getQuerySchema: () => JsonSchemaRoot
+): void {
+    const queryParamNames = new Set(
+        (resolved.operation.parameters ?? []).filter((p) => p.in === 'query').map((p) => p.name)
+    )
+    const bodySchema = resolved.operation.requestBody?.content?.['application/json']?.schema
+
+    for (const entry of config.include_params ?? []) {
+        if (!queryParamNames.has(entry) && !schemaHasPath(spec, bodySchema, [entry])) {
+            throw unknownNameError(
+                name,
+                'include_params',
+                entry,
+                'query parameter or body field',
+                'the tool leaves out the parameter it means to keep'
+            )
+        }
+    }
+    for (const key of Object.keys(config.inject_body ?? {})) {
+        if (!schemaHasPath(spec, bodySchema, [key])) {
+            throw unknownNameError(name, 'inject_body', key, 'body field', 'the API ignores the value')
+        }
+    }
+    for (const original of Object.keys(config.rename_params ?? {})) {
+        if (!schemaHasPath(spec, bodySchema, [original])) {
+            throw unknownNameError(name, 'rename_params', original, 'body field', 'it renames nothing')
+        }
+    }
+    if (typeof config.soft_delete === 'string') {
+        const patchBody = spec.paths[resolved.path]?.['patch']?.requestBody?.content?.['application/json']?.schema
+        if (patchBody && !schemaHasPath(spec, patchBody, [config.soft_delete])) {
+            throw unknownNameError(
+                name,
+                'soft_delete',
+                config.soft_delete,
+                'PATCH body field',
+                'the delete request changes nothing'
+            )
+        }
+    }
+
+    const responseItemSchema = findResponseItemSchema(config, resolved, spec)
+    const responseFilters = [
+        ['include', config.response?.include, 'the tool never returns the field it means'],
+        ['exclude', config.response?.exclude, 'the field it means stays in the response'],
+        ['text_include', config.response?.text_include, 'the text projection leaves out the field it means'],
+    ] as const
+    for (const [setting, entries, effect] of responseFilters) {
+        for (const entry of entries ?? []) {
+            // Enrichment adds `_posthogUrl` to each row before the text projection reads it.
+            const addedByEnrichment = setting === 'text_include' && entry === '_posthogUrl'
+            if (!addedByEnrichment && !responseMayHavePath(spec, responseItemSchema, entry.split('.'))) {
+                throw unknownNameError(name, `response.${setting}`, entry, 'response field', effect)
+            }
+        }
+    }
+
+    // A tool with `input_schema` takes a hand-written schema, so the names below cannot be checked.
+    if (config.input_schema) {
+        return
+    }
+    const composition = composeToolSchema(config, resolved, spec, getQuerySchema)
+    const toolParamNames = new Set([
+        ...composition.pathParamNames,
+        ...composition.queryParamNames,
+        ...composition.bodyFieldNames,
+    ])
+
+    if (config.enrich_url) {
+        const { field, source } = parseEnrichUrl(config.enrich_url)
+        const fieldExists =
+            source === 'params'
+                ? toolParamNames.has(field)
+                : responseMayHavePath(spec, responseItemSchema, field.split('.'))
+        if (!fieldExists) {
+            throw unknownNameError(
+                name,
+                'enrich_url',
+                config.enrich_url,
+                source === 'params' ? 'parameter of the tool' : 'response field',
+                'the link points nowhere'
+            )
+        }
+    }
+
+    for (const [paramName, override] of Object.entries(config.param_overrides ?? {})) {
+        if (override.schema_ref) {
+            const definition = getQuerySchema().definitions[override.schema_ref]
+            if (!definition) {
+                throw unknownNameError(
+                    name,
+                    `param_overrides.${paramName}.schema_ref`,
+                    override.schema_ref,
+                    'definition in schema.json',
+                    'the parameter has no schema'
+                )
+            }
+            for (const property of override.exclude_properties ?? []) {
+                if (!definesProperty(definition, property)) {
+                    throw unknownNameError(
+                        name,
+                        `param_overrides.${paramName}.exclude_properties`,
+                        property,
+                        `top-level property of ${override.schema_ref}`,
+                        'the property it means stays in the tool input'
+                    )
+                }
+            }
+        }
+        // `input_schema` and `schema_ref` add the parameter, so only the other overrides need it to exist.
+        if (!override.input_schema && !override.schema_ref && !toolParamNames.has(paramName)) {
+            throw unknownNameError(
+                name,
+                'param_overrides',
+                paramName,
+                'parameter of the tool',
+                'the override is never applied'
+            )
+        }
+    }
+
+    for (const [paramName, requiredParams] of Object.entries(config.required_when_set ?? {})) {
+        for (const entry of [paramName, ...requiredParams]) {
+            if (!toolParamNames.has(entry)) {
+                throw unknownNameError(
+                    name,
+                    'required_when_set',
+                    entry,
+                    'parameter of the tool',
+                    'callers are told to set an input that does not exist'
+                )
+            }
+        }
+    }
+
+    for (const [placeholder, paramName] of (config.confirmed_action?.message ?? '').matchAll(
+        /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g
+    )) {
+        if (!toolParamNames.has(paramName!)) {
+            throw unknownNameError(
+                name,
+                'confirmed_action.message',
+                placeholder,
+                'parameter of the tool',
+                'the prompt shows the placeholder instead of a value'
+            )
+        }
+    }
+}
+
+function assertWrapperSettingsNameRealProperties(
+    name: string,
+    config: QueryWrapperToolConfig,
+    querySchema: JsonSchemaRoot
+): void {
+    const definition = querySchema.definitions[config.schema_ref]
+    const namedProperties = [
+        ['exclude_properties', config.exclude_properties ?? [], 'the property it means stays in the tool input'],
+        ['property_defaults', Object.keys(config.property_defaults ?? {}), 'the default is never applied'],
+    ] as const
+    for (const [setting, properties, effect] of namedProperties) {
+        for (const property of properties) {
+            if (!definesProperty(definition, property)) {
+                throw new Error(
+                    `Enabled query wrapper "${name}": ${setting} entry "${property}" names no top-level property ` +
+                        `of ${config.schema_ref}, so ${effect}. Fix the name or remove the entry.`
+                )
+            }
+        }
     }
 }
 
@@ -1875,6 +2139,7 @@ function generateCategoryFile(
         }
         try {
             assertExclusionsNameRealFields(name, config, resolved, spec)
+            assertSettingsNameRealFields(name, config, resolved, spec, getQuerySchema)
             enabledTools.push([
                 name,
                 {
@@ -1910,6 +2175,12 @@ function generateCategoryFile(
                 console.error(
                     `Query wrapper "${name}": schema_ref "${wrapperConfig.schema_ref}" not found in schema.json`
                 )
+                process.exit(1)
+            }
+            try {
+                assertWrapperSettingsNameRealProperties(name, wrapperConfig, querySchema)
+            } catch (error) {
+                console.error(error instanceof Error ? error.message : String(error))
                 process.exit(1)
             }
             enabledWrappers.push([name, wrapperConfig as EnabledQueryWrapperToolConfig])
@@ -2373,6 +2644,12 @@ function generateQueryWrapperFile(
         }
         if (!querySchema.definitions[toolConfig.schema_ref]) {
             console.error(`Query wrapper "${name}": schema_ref "${toolConfig.schema_ref}" not found in schema.json`)
+            process.exit(1)
+        }
+        try {
+            assertWrapperSettingsNameRealProperties(name, toolConfig, querySchema)
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error))
             process.exit(1)
         }
         enabledWrappers.push([name, toolConfig as EnabledQueryWrapperToolConfig])
