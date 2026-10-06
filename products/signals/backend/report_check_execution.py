@@ -358,6 +358,7 @@ def record_check_verdict(
         current.last_outcome_reason = verdict.reason
         if verdict.outcome == "errored":
             current.consecutive_errors += 1
+            current.last_error = verdict.explanation
         elif verdict.outcome != "inconclusive":
             current.consecutive_errors = 0
         current.consecutive_inconclusive = (
@@ -376,6 +377,7 @@ def record_check_verdict(
                 "last_run_at",
                 "last_outcome",
                 "last_outcome_reason",
+                "last_error",
                 "consecutive_errors",
                 "consecutive_inconclusive",
                 "next_run_at",

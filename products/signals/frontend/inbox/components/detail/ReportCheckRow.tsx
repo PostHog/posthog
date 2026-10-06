@@ -8,18 +8,23 @@ import { ReportCheckRowData } from './reportCheckPresentation'
 /**
  * One follow-up check on the report rail: what it claims, where it stands, and the one thing a
  * reader can still do about it. The Stop button appears on hover and confirms first, because a
- * cancelled check is terminal and its author has to write a new one to get the answer back.
+ * cancelled check is terminal and its author has to write a new one to get the answer back. A check
+ * that errored or expired shows Retry, which writes a new check and keeps this one as the record.
  */
 export function ReportCheckRow({
     row,
     cancelling,
     onCancel,
+    retrying = false,
+    onRetry,
 }: {
     row: ReportCheckRowData
     cancelling: boolean
     onCancel: (checkId: string) => void
+    retrying?: boolean
+    onRetry?: (checkId: string) => void
 }): JSX.Element {
-    const { check, tag, detail, cancelled, cancellable } = row
+    const { check, tag, detail, cancelled, cancellable, retryable } = row
 
     return (
         <div
@@ -69,6 +74,19 @@ export function ReportCheckRow({
                         }
                     >
                         Stop
+                    </LemonButton>
+                )}
+                {retryable && onRetry && (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        loading={retrying}
+                        disabledReason={retrying ? 'Scheduling this check again' : undefined}
+                        data-attr="signals-report-check-retry"
+                        className="shrink-0"
+                        onClick={() => onRetry(check.id)}
+                    >
+                        Retry
                     </LemonButton>
                 )}
             </div>

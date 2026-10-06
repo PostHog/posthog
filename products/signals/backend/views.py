@@ -142,6 +142,7 @@ from products.signals.backend.report_check_authoring import (
     CheckQueryAccessError,
     cancel_check,
     replace_metric_check,
+    retry_check,
 )
 from products.signals.backend.report_claims import (
     actor_owns_claim,
@@ -4831,6 +4832,19 @@ def _record_reviewer_edit(
         responses={200: SignalReportCheckSerializer},
         operation_id="signals_report_checks_destroy",
     ),
+    retry=extend_schema(
+        summary="Retry a check",
+        description=(
+            "Write a new check that asks the same question as an `errored` or `expired` check. The old check "
+            "and its results stay on the report, and the new check's `check_scheduled` artefact names the "
+            "check it replaces. The new check runs at the next coordinator tick on a resolved report, and "
+            "waits for the resolve on an open one."
+        ),
+        request=None,
+        parameters=[_REPORT_ID_PARAMETER],
+        responses={201: SignalReportCheckSerializer},
+        operation_id="signals_report_checks_retry",
+    ),
 )
 class SignalReportCheckViewSet(
     TeamAndOrgViewSetMixin,
@@ -4839,13 +4853,14 @@ class SignalReportCheckViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Checks attached to a signal report: read, approve, replace metrics, and cancel.
+    """Checks attached to a signal report: read, approve, replace metrics, cancel, and retry.
 
     There is no create here. A check is authored by a scout run or by the research pipeline, both
     through `report_check_authoring.create_check`. An `agent` check puts its author's prose in front
     of a privileged scout run, and `task:write` does not authorize that, so no caller-facing
     endpoint accepts one. Anyone who can read the report can read its checks, and a person can
-    still stop one.
+    still stop one. A person can also retry a check that errored or expired: the retry copies the
+    stored check verbatim, so it re-runs prose its original author wrote and adds none.
 
     There is no in-place update: a check is a claim about the future, and editing its threshold
     after a result would make the recorded verdict unreadable. Replacing an open metric check
@@ -4949,6 +4964,15 @@ class SignalReportCheckViewSet(
         except CheckCreationError as error:
             return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(replacement).data)
+
+    @action(detail=True, methods=["post"], required_scopes=["task:write"])
+    def retry(self, request: Request, *args, **kwargs) -> Response:
+        check = cast(SignalReportCheck, self.get_object())
+        try:
+            replacement = retry_check(check, attribution=resolve_request_attribution(request, self.team.id))
+        except CheckCreationError as error:
+            return Response({"error": str(error)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(replacement).data, status=status.HTTP_201_CREATED)
 
 
 @extend_schema_view(

@@ -1960,6 +1960,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: SignalReportCheck) -> dict[str, object]:
         representation = dict(super().to_representation(instance))
+        policy = report_metric_access_policy(self.context)
         config = representation.get("config")
         if isinstance(config, Mapping):
             config = dict(config)
@@ -1978,7 +1979,14 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
                     for field, source in (("metric_kind", "kind"), ("value_format", "value_format"), ("unit", "unit")):
                         if config.get(field) is None:
                             config[field] = metric.get(source)
-            representation["config"] = redact_check_config(config, report_metric_access_policy(self.context))
+            representation["config"] = redact_check_config(config, policy)
+        # Same gate as the `check_result` artefact that carries the same line.
+        if (
+            representation.get("last_error")
+            and instance.kind != SignalReportCheck.Kind.AGENT
+            and not (isinstance(instance.config, Mapping) and policy.may_read_snapshot(instance.config))
+        ):
+            representation["last_error"] = CHECK_RESULT_HIDDEN_EXPLANATION
         return representation
 
     class Meta:
@@ -1998,6 +2006,7 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "expires_at",
             "last_run_at",
             "last_outcome",
+            "last_error",
             "dispatched_at",
             "consecutive_errors",
             "created_at",
@@ -2031,6 +2040,12 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             "expires_at": {"help_text": "Horizon after which the check retires without running again."},
             "last_run_at": {"help_text": "When the check last ran; null before its first run."},
             "last_outcome": {"help_text": "Verdict of the most recent run."},
+            "last_error": {
+                "help_text": (
+                    "Why the most recent `errored` run could not measure the check. Null when no run errored. "
+                    "Kept after a later clean run."
+                )
+            },
             "dispatched_at": {
                 "help_text": (
                     "When the `agent` check's scout run started, cleared as soon as a verdict is recorded. "

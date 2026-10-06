@@ -52,6 +52,10 @@ logger = structlog.get_logger(__name__)
 
 _METRIC_DISPLAY_FIELDS = frozenset({"metric_kind", "value_format", "unit"})
 
+# A check that ended without a verdict. A check that passed, failed or ended inconclusive answered
+# its question, so it has nothing to retry.
+RETRYABLE_CHECK_STATUSES = (SignalReportCheck.Status.ERRORED, SignalReportCheck.Status.EXPIRED)
+
 
 class CheckCreationError(ValueError):
     """A check that cannot be written: a bad config, an unresolvable metric, or a full report."""
@@ -74,6 +78,7 @@ def create_check(
     run_interval_minutes: int | None = None,
     runs_remaining: int = 1,
     expires_at: datetime | None = None,
+    replaces_check_id: str | None = None,
 ) -> SignalReportCheck:
     """Write one check on a report, armed or pending.
 
@@ -167,7 +172,7 @@ def create_check(
         )
         # In the same transaction as the row, so the log can never show a watch the report does not
         # carry, nor carry one the log never opened.
-        write_check_scheduled(check, attribution)
+        write_check_scheduled(check, attribution, replaces_check_id=replaces_check_id)
         # Reported from the shared write so every author is counted: the REST endpoint, the scout
         # tool and the research pipeline. Post-commit, so a check the cap or a rollback rejected is
         # never counted as written.
@@ -390,6 +395,38 @@ def replace_metric_check(
             run_interval_minutes=locked.run_interval_minutes,
             runs_remaining=locked.runs_remaining,
         )
+
+
+def retry_check(check: SignalReportCheck, *, attribution: ArtefactAttribution) -> SignalReportCheck:
+    """Write a new check that asks the same question as a check that errored or expired.
+
+    Terminal statuses are final, so the failed row and its result artefacts stay as they are, and the
+    new row's scheduled artefact names the check it replaces. The new row copies the stored title,
+    rationale, kind and config verbatim, so a retry cannot put new prose in front of a scout run.
+
+    On a resolved report the new check runs at the next coordinator tick. On an open report it waits
+    for the resolve with the soak its predecessor had.
+    """
+    if check.status not in RETRYABLE_CHECK_STATUSES:
+        raise CheckCreationError(f"Only an errored or expired check can be retried. This check is '{check.status}'.")
+    config = dict(check.config or {})
+    # `create_check` copies a metric's query onto the row again, so it refuses a config that carries both.
+    if config.get("metric_id") is not None:
+        config.pop("query", None)
+    resolved = check.report.status == SignalReport.Status.RESOLVED
+    return create_check(
+        report=check.report,
+        title=check.title,
+        rationale=check.rationale,
+        kind=check.kind,
+        config=config,
+        attribution=attribution,
+        run_interval_minutes=check.run_interval_minutes,
+        runs_remaining=max(1, check.runs_remaining),
+        next_run_at=timezone.now() if resolved else None,
+        soak_minutes=None if resolved else check.soak_minutes or DEFAULT_CHECK_SOAK_HOURS * 60,
+        replaces_check_id=str(check.id),
+    )
 
 
 def cancel_check(

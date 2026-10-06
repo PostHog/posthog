@@ -10,6 +10,7 @@ import { DetailSection } from './DetailSection'
 import {
     buildReportCheckRows,
     latestCheckExplanations,
+    replacedCheckIds,
     reportChecksMeta,
     splitReportCheckRows,
 } from './reportCheckPresentation'
@@ -25,10 +26,10 @@ import { ReportCheckRow } from './ReportCheckRow'
  * rail does not grow an empty section on the reports that carry none.
  */
 export function ReportChecksSection({ report }: { report: SignalReport }): JSX.Element | null {
-    const { reportChecks, reportChecksLoading, reportArtefacts, cancellingCheckIds } = useValues(
+    const { reportChecks, reportChecksLoading, reportArtefacts, cancellingCheckIds, retryingCheckIds } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
-    const { cancelReportCheck } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { cancelReportCheck, retryReportCheck } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
     const [showRetired, setShowRetired] = useState(false)
 
     if (reportChecksLoading && !reportChecks) {
@@ -43,7 +44,11 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
         return null
     }
 
-    const rows = buildReportCheckRows(reportChecks, latestCheckExplanations(reportArtefacts ?? []))
+    const rows = buildReportCheckRows(
+        reportChecks,
+        latestCheckExplanations(reportArtefacts ?? []),
+        replacedCheckIds(reportArtefacts ?? [])
+    )
     const { visible, hidden } = splitReportCheckRows(rows)
 
     return (
@@ -60,6 +65,8 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
                         row={row}
                         cancelling={cancellingCheckIds.includes(row.check.id)}
                         onCancel={cancelReportCheck}
+                        retrying={retryingCheckIds.includes(row.check.id)}
+                        onRetry={retryReportCheck}
                     />
                 ))}
                 {hidden.length > 0 && !showRetired && (
