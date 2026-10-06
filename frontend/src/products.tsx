@@ -112,6 +112,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/autoresearch': ['Autoresearch', 'autoresearch'],
     '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
     '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
+    '/bi': ['BusinessIntelligence', 'businessIntelligence'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
     '/business-knowledge/playground': ['BusinessKnowledgePlayground', 'businessKnowledgePlayground'],
@@ -667,6 +668,14 @@ export const productConfiguration: Record<string, any> = {
     },
     AutoresearchNew: { name: 'New model', projectBased: true },
     AutoresearchPipeline: { name: 'Autoresearch model', projectBased: true },
+    BusinessIntelligence: {
+        name: 'Business intelligence',
+        projectBased: true,
+        layout: 'app-raw-no-header',
+        hideProjectNotice: true,
+        description: 'Explore data and build charts with a visual worksheet.',
+        iconType: 'business_intelligence',
+    },
     BusinessKnowledge: {
         name: 'Business knowledge',
         projectBased: true,
@@ -1310,6 +1319,7 @@ export const productUrls = {
     autoresearch: (): string => '/autoresearch',
     autoresearchNew: (): string => '/autoresearch/new',
     autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
+    businessIntelligence: (): string => '/bi',
     businessKnowledge: (): string => '/business-knowledge',
     businessKnowledgeSettings: (): string => '/business-knowledge/settings',
     businessKnowledgePlayground: (chatId?: string): string =>
@@ -2106,6 +2116,7 @@ export type ProductTreePath =
     | 'Apps'
     | 'Autoresearch'
     | 'Broadcasts'
+    | 'Business intelligence'
     | 'Business knowledge'
     | 'Clusters'
     | 'Code review'
@@ -2201,6 +2212,20 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
         sceneKey: 'Broadcasts',
         sceneKeys: ['Workflows', 'Workflow', 'WorkflowsLibraryTemplate', 'Broadcasts', 'Broadcast'],
+    },
+    {
+        path: 'Business intelligence',
+        intents: [],
+        category: ProductItemCategory.DATA,
+        iconType: 'business_intelligence',
+        iconColor: [
+            'var(--color-product-business-intelligence-light)',
+            'var(--color-product-business-intelligence-dark)',
+        ],
+        href: urls.businessIntelligence(),
+        flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
+        sceneKey: 'BusinessIntelligence',
+        sceneKeys: ['BusinessIntelligence'],
     },
     {
         path: 'Business knowledge',
@@ -2302,7 +2327,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'data_catalog',
         iconColor: ['var(--color-product-data-catalog-light)', 'var(--color-product-data-catalog-dark)'],
         href: urls.dataCatalog(),
-        searchKeywords: ['semantic layer', 'metrics', 'certification'],
+        searchKeywords: ['semantic layer', 'metrics'],
+        searchTabs: [
+            { name: 'Relationships', href: urls.dataCatalog('relationships') },
+            { name: 'Certifications', href: urls.dataCatalog('certifications') },
+        ],
         tags: ['beta'],
         sceneKey: 'DataCatalog',
         sceneKeys: ['DataCatalog', 'DataCatalogMetric'],
@@ -3060,7 +3089,16 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         iconType: 'data_modeling',
         iconColor: ['var(--color-product-models-light)', 'var(--color-product-models-dark)'],
         href: urls.models(),
-        searchKeywords: ['data quality', 'lineage', 'materialized views', 'materialization', 'tests'],
+        searchKeywords: ['materialized views', 'materialization'],
+        searchTabs: [
+            { name: 'Lineage', href: urls.models('lineage') },
+            {
+                name: 'Data quality',
+                href: urls.models('data-quality'),
+                flag: FEATURE_FLAGS.DATA_QUALITY_CHECKS,
+                searchKeywords: ['tests'],
+            },
+        ],
         sceneKey: 'Models',
         sceneKeys: ['Models'],
     },

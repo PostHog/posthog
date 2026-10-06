@@ -1,11 +1,12 @@
 ---
 name: diagnosing-experiment-results
-description: "Diagnoses bias, anomalies, and strange results on a PostHog experiment. Covers 0-exposure experiments, sample ratio mismatch, identity fragmentation, multi-variant exposure, uneven-split exclusion bias, significance traps (peeking, A/A, Bayesian vs Frequentist), PostHog-vs-SQL discrepancies, surprises after mid-run edits, and qualitative follow-up via a variant-split survey.\nTRIGGER when: user asks 'is my experiment biased?' or 'why 0 exposures?', references the bias banner, says a variant looks strange / wrong / off, sees significance flipping or A/A significance, finds PostHog numbers disagreeing with their SQL, reports surprises after mid-run edits, or wants qualitative feedback or a survey for an experiment.\nDO NOT TRIGGER when: creating an experiment (use creating-experiments), only configuring rollout (use configuring-experiment-rollout) or metrics (use configuring-experiment-analytics), or only asking lifecycle questions (use managing-experiment-lifecycle)."
+description: "Runs diagnostics and a health check on a PostHog experiment whose results look wrong, biased, empty or stale. Covers 0 exposures, sample ratio mismatch, lost or uneven exposures, users in multiple variants, identity faults, significance traps (peeking, A/A, 'target reached', Bayesian vs Frequentist, sequential testing, CUPED), PostHog-vs-SQL or dashboard discrepancies, mid-run edits, pause and freeze, and qualitative follow-up via a survey.\nTRIGGER when: user asks 'is my experiment healthy / biased?' or 'why 0 exposures?', mentions the bias or mismatch warning, an uneven split, a variant that looks wrong, significance that flips, numbers that disagree with their SQL or insight, results that changed after an edit, or wants user feedback on an experiment.\nDO NOT TRIGGER when: creating an experiment (use creating-experiments), only configuring rollout (use configuring-experiment-rollout) or metrics (use configuring-experiment-analytics), or only asking lifecycle questions (use managing-experiment-lifecycle)."
 ---
 
 # Diagnosing experiment results
 
 This skill answers: **My PostHog experiment results look wrong, biased, or empty — what's going on?**
+It is the diagnostics and health check for one experiment: its setup, its exposures, its results and what changed during the run.
 
 Match the user's complaint in the dispatch table, then read the matching reference file for the
 diagnostic.
@@ -22,23 +23,41 @@ resolve it to a concrete ID.
 
 Call `experiment-get` and pull these fields. They are inputs for almost every diagnostic:
 
-- `feature_flag.filters.multivariate.variants[].rollout_percentage` — the variant split
-- `exposure_criteria.multiple_variant_handling` — defaults to `"exclude"` if absent
-- `exposure_criteria.exposure_config.event` — unset means the default exposure event; read which one
-  from `resolved_exposure_event` (`$feature_flag_called` or `$experiment_exposure` — resolved
-  server-side, same properties either way)
-- `exposure_criteria.filterTestAccounts` — defaults to `true`
-- `feature_flag.active`, status (`draft` / `running` / `paused` / `exposure_frozen` / `stopped`), `start_date`, `end_date`
+- `status` (`draft` / `running` / `paused` / `exposure_frozen` / `stopped`), `start_date`, `end_date`, `is_legacy`
+- `feature_flag.active`, and `feature_flag.filters.multivariate.variants[]` — the variant keys and the split (`rollout_percentage`).
+  This is the flag as it is now. After a ship or an edit, the split of the run is in the change history (Step 1.5).
+- `feature_flag.filters.aggregation_group_type_index` — when set, the experiment's unit is a group, not a person
 - `feature_flag.filters.groups[]` — for each group read `variant`, `properties`, and
   `rollout_percentage` (that group's rollout, % of the matched bucketing units — persons, or groups
-  when `feature_flag.filters.aggregation_group_type_index` is set — that enter the experiment; each
+  when the flag or the group is aggregated by a group type — that enter the experiment; each
   group has its own, so there is no single overall rollout unless the flag has one unconditional
-  group). Any non-null `variant` is a forced-variant override on the matched cohort
+  group). A non-null `variant` that is one of the flag's variant keys is a forced-variant override on the matched cohort
   (release-condition assignment, not randomized) — surfaces A7. Watch for the severe shape (A7b): a
   variant-pinned group with broad/empty `properties` at high rollout, or no group left randomized
   (`variant: null`) / no release path to one arm — that starves the other variant (one arm gets ~0
   analyzable exposures). See `references/bias-and-skew.md`.
-- `stats_config` — Bayesian (default) or Frequentist
+- `feature_flag.bucketing_identifier` and `feature_flag.ensure_experience_continuity` — what the flag hashes (A3, A6, A8, A10)
+- `holdout` and `excluded_variants` — people and arms that are outside the analysis on purpose
+- `exposure_criteria.multiple_variant_handling` — defaults to `"exclude"` if absent
+- `exposure_criteria.exposure_config` — the exposure event and its property filters.
+  Unset, or naming `$feature_flag_called`, means the default exposure event: read which one
+  from `resolved_exposure_event`.
+  A config that names `$experiment_exposure` counts that event, whatever `resolved_exposure_event` says.
+  Any other event, or an action, is a _custom exposure event_.
+  Property filters in the config apply to either (B12).
+  The table in `references/diagnostic-snapshot.md` says which property carries the variant.
+- `exposure_criteria.activation_config` — an activation event, or an action, on top of the default exposure.
+  When it is set, a person counts as exposed only from their first activation event at or after their first flag exposure, and the time of that event is the exposure time.
+  It does not combine with a custom exposure event.
+- `exposure_criteria.filterTestAccounts` — defaults to `true`
+- `metrics` and `metrics_secondary`, with shared metrics — for each: the name, the type and the definition.
+  Describe a metric from its definition, not from its name (D13).
+- `stats_config` — `method` (Bayesian or Frequentist), the confidence level (`bayesian.ci_level`, `frequentist.alpha`), `frequentist.sequential_testing_enabled`, `cuped`, `baseline_variant_key`.
+  A missing `method` reads as Bayesian and a missing confidence level as 95%. Sequential testing and CUPED fall back to the project default (C13).
+- `running_time_calculation` — the target sample (a total across all variants), the days still missing to reach it, and the minimum detectable effect.
+  When the estimate comes from numbers the user typed, or was written at creation and never refreshed by the page, the days are the whole estimated length (C12).
+  A duplicated experiment starts with the values of its source until the page refreshes them.
+- `only_count_matured_users` — E11
 
 ## Step 1.5 — Pull a diagnostic snapshot (verify before asking)
 
@@ -46,14 +65,21 @@ Before asking the user clarifying questions, pull the diagnostic snapshot in
 [references/diagnostic-snapshot.md](references/diagnostic-snapshot.md). Most diagnostics in this skill
 can be confirmed or ruled out from that data without an interview.
 
+Read the cheap sources first, in every diagnosis: the stored results, then the change history.
+When the user reports a surprising change, read the change history before the stored results.
+Then the exposure data, when the diagnosis needs what only it holds.
+Query raw events only for what those cannot show.
+
 ## Step 2 — Match symptom to diagnostic
 
 | User says...                                                                               | Diagnostic group                             |
 | ------------------------------------------------------------------------------------------ | -------------------------------------------- |
 | "Smaller variant looks biased" / banner says bias                                          | A — bias & skew                              |
-| "Variant ratio doesn't match my split" / SRM warning                                       | A — bias & skew                              |
-| "Why isn't it 50/50?" / "users in both groups"                                             | A — bias & skew                              |
+| "Variant ratio doesn't match my split" / mismatch warning / "is 58/42 normal?"             | A — bias & skew                              |
+| "Why isn't it 50/50?" / "one variant gets fewer users every day"                           | A — bias & skew                              |
 | "Users in both control and test" / high `$multiple` %                                      | A — bias & skew                              |
+| "Our own analytics show an even split and PostHog doesn't"                                 | A — bias & skew                              |
+| "Most responses on the flag are false" / "users saw the new UI for a second, then lost it" | A — bias & skew                              |
 | Multi-variant exposure on a server-rendered app                                            | A — bias & skew                              |
 | Banner about feature-flag/experiment state mismatch                                        | A — bias & skew                              |
 | "Migrating distinct_id" / "switching from anonymous to user_id" mid-run                    | A — bias & skew                              |
@@ -61,35 +87,51 @@ can be confirmed or ruled out from that data without an interview.
 | "Experiment shows 0 / not enough data" / empty                                             | B — empty experiment                         |
 | "Variant always undefined / false"                                                         | B — empty experiment                         |
 | "$feature_flag_called fires but no exposures show up"                                      | B — empty experiment                         |
+| "Exposures dropped to zero after I added a filter" / "the copied experiment is empty"      | B — empty experiment                         |
+| "Plenty of exposures, zero conversions"                                                    | B — empty experiment (then D11)              |
 | "Experiment says running but exposures haven't moved in weeks/months"                      | B — empty experiment                         |
 | "Significance keeps flipping as we run longer"                                             | C — interpretation traps                     |
 | "Significance was declared, then it wasn't significant anymore"                            | C — interpretation traps                     |
+| "It's been running one day, can we read it?"                                               | C — interpretation traps                     |
 | "30/16 split at 46 exposures, is this broken?"                                             | C — interpretation traps                     |
+| "It says complete / target reached and nothing is significant"                             | C — interpretation traps                     |
 | "A/A test is showing significant results"                                                  | C — interpretation traps                     |
 | "Many metrics — some significant, some not"                                                | C — interpretation traps                     |
+| "The test variant does worse, is it set up correctly?" / "can you check this experiment?"  | Step 3 — the two checks, then C and D12      |
 | "Bayesian says 96% chance to win — should we ship?"                                        | C — interpretation traps                     |
 | "Confidence intervals overlap — does that mean not significant?"                           | C — interpretation traps                     |
+| "The p-value is exactly 1" / "control shows a lift"                                        | C — interpretation traps                     |
 | "An external tool (significance calculator or AI agent) disagrees with PostHog"            | C — interpretation traps                     |
 | "Should I ship? Primary is up but a secondary is down"                                     | C — interpretation traps                     |
 | "PostHog numbers ≠ my SQL count"                                                           | D — numbers vs SQL                           |
 | "Funnel says X% but my raw event count says Y"                                             | D — numbers vs SQL                           |
+| "The experiment says flat and our dashboard shows a drop"                                  | D — numbers vs SQL                           |
 | "Sum of revenue looks wrong" / "breakdown shows 'none'"                                    | D — numbers vs SQL                           |
-| "Recordings panel doesn't match the stats"                                                 | D — numbers vs SQL                           |
+| "The metric's name says one thing and the number says another"                             | D — numbers vs SQL                           |
+| "Recordings don't match the stats" / "no recordings for exposed users"                     | D — numbers vs SQL                           |
 | "I applied a filter but the user count didn't change"                                      | D — numbers vs SQL                           |
 | "I want to slice results by current person properties (as of now, not as of exposure)"     | D — numbers vs SQL                           |
+| "The results haven't updated" / "refresh changes nothing"                                  | D — numbers vs SQL                           |
 | "Changed split / rollout / metric / criteria mid-run, now odd"                             | E — mid-run changes                          |
+| "The numbers changed overnight and nobody touched it"                                      | E — mid-run changes, then D8 in D            |
+| "We paused it for a few days, can we still trust it?"                                      | E — mid-run changes                          |
+| "Froze the experiment" / "after the freeze users lost the variant" / "freeze was refused"  | E — mid-run changes                          |
 | "Ended/shipped — flag now flipped to 0/100 unexpectedly"                                   | E — mid-run changes                          |
+| "We shipped the variant and some users still don't get it"                                 | E — mid-run changes                          |
 | "Long-term metric moves opposite from primary"                                             | E — mid-run changes                          |
 | "Retention metric counts users I didn't expect"                                            | E — mid-run changes                          |
 | "Can't convert the feature flag back to a simple (boolean) flag after the experiment ends" | E — mid-run changes                          |
 | "How do I restart an experiment with new variants?"                                        | E — mid-run changes                          |
-| Metric line is rendered but the result block is empty / no chance-to-win or significance   | E — mid-run changes (E13 legacy methodology) |
+| "It says this is a legacy experiment" / metrics can't be edited                            | E — mid-run changes (E13 legacy experiments) |
 | "Results won't load" / many metric rows show `data: null` (not a legacy experiment)        | Step 1.5 — diagnostic snapshot (null rows)   |
 | "What do users think of the new flow?" / wants qualitative feedback on an experiment       | F — qualitative feedback                     |
 | "Why did users prefer control?" / "what did they dislike about the test variant?"          | F — qualitative feedback                     |
 
 If the symptom is unclear, ask one clarifying question before picking. Most diagnostics have different fixes
 — do not guess.
+A complaint that matches rows of several groups gets each of them read (Step 3).
+
+A report from a scout or another automated check names its finding: route by the finding, and reuse the report's numbers before pulling them again.
 
 ## Step 3 — Surface every diagnostic the evidence supports
 
@@ -103,18 +145,28 @@ _systematic_ bias (e.g. uneven-split + Exclude) doesn't resolve by waiting; a _s
 bundled advice.
 
 Only list mechanisms that have a path to verification in the project state — config (from
-`experiment-get`), snapshot data, activity log, or repo source. Config-derived mechanisms count: an
+`experiment-get`), snapshot data, activity log, or repo source (when the agent has the repository). Config-derived mechanisms count: an
 80/20 split with default `multiple_variant_handling="exclude"` is visible in `experiment-get` and is
 therefore enumerable. Naming a mechanism with no source (e.g. SRM when the snapshot shows a clean
 variant ratio) is not.
+
+Two checks belong to every diagnosis, whatever the complaint:
+
+- **How young is the experiment?** State its age (`start_date`) and its share of the target sample (the exposed total against `running_time_calculation.recommended_sample_size`) before reading a result (C1 in `references/interpretation.md`).
+  The page takes the exposed total from the first primary metric: the sum of its `number_of_samples` over all variants in the stored results, not `exposures.total_exposures`.
+  `recommended_sample_size` is the target the page saved when it last computed the estimate.
+  When it is absent, no target was saved: say so.
+- **Who is exposed?** Compare the exposed population (`exposure_criteria` and the flag's release conditions) with the people the decision is about before calling the setup sound (D12 in `references/numbers-vs-sql.md`).
+  Default exposure settings are not evidence that the right people are in the experiment.
+  When nothing says who the decision is about, ask.
 
 ## Diagnostic groups
 
 ### A — Bias & skew
 
 Variants don't look balanced, one variant looks biased, the in-app warning banner appeared, or users are
-showing up under multiple variants. Covers the uneven-split + Exclude interaction, SRM, identity
-fragmentation, bootstrap × `/decide` mismatch, and flag/experiment state inconsistency.
+showing up under multiple variants. Covers the uneven-split + Exclude interaction, the sample ratio mismatch and its causes, exposure events that are lost or sent unevenly between the arms, flags that return no variant for part of the audience, identity
+fragmentation, bootstrap × `/flags` mismatch, mid-run flag edits, forced variants, and flag/experiment state inconsistency.
 
 → See [references/bias-and-skew.md](references/bias-and-skew.md)
 
@@ -122,16 +174,14 @@ fragmentation, bootstrap × `/decide` mismatch, and flag/experiment state incons
 
 A frequent pain point. Covers SDK call (wrong evaluation method, `identify()` timing, dedup),
 exposure capture (custom event missing variant property, required properties, ad-blockers), and
-exposure-criteria match (test-account filter, eligibility ordering, events firing before exposure).
+exposure-criteria match (test-account filter, filters that cannot match, eligibility ordering, events firing before exposure).
 
 → See [references/empty-experiment.md](references/empty-experiment.md)
 
 ### C — Significance / interpretation traps
 
 Significance flipping, A/A test showing significance, Bayesian vs Frequentist confusion, multiple
-comparisons, low-volume variance, peeking / early stopping. Includes the legacy stats issue (A/A tests
-historically over-fired before the new Bayesian module) and how the win-probability methodology changed in
-Jan 2025 (single test vs control, not control vs all variants).
+comparisons, low-volume variance, peeking / early stopping. Includes the running-time estimate ("target reached" is not a result) and the statistics settings that change how a result reads: sequential testing, CUPED, the confidence level and the baseline variant.
 
 → See [references/interpretation.md](references/interpretation.md)
 
@@ -140,15 +190,15 @@ Jan 2025 (single test vs control, not control vs all variants).
 The experiment page applies an exposure scope, `$multiple` exclusion, test-account filter, and date range
 that ad-hoc SQL almost never replicates. Covers funnel attribution (only first→last step counts for stats),
 breakdowns (read from the exposure event, not the metric event), the "sum of revenue" mean-of-per-user
-confusion, and the recordings-panel-vs-stats divergence.
+confusion, stale stored results, the Recordings tab against the stats, an insight that counts a narrower population than the experiment, and a metric whose title does not match its definition.
 
 → See [references/numbers-vs-sql.md](references/numbers-vs-sql.md)
 
 ### E — Surprises after mid-run changes (incl. lifecycle and retention quirks)
 
 Increasing rollout is safe; decreasing is caution; changing the variant split is an anti-pattern; adding
-metrics mid-run is p-hacking; ship-variant can rewrite the flag in surprising ways; reset clears
-results not the flag. Also covers retention-metric quirks (first-event-must-be-after-exposure design),
+metrics mid-run is p-hacking; ship-variant rewrites the flag and ending alone does not; reset clears
+results not the flag (apart from removing an exposure freeze); a pause, a freeze and an unfreeze can each bias the result; a changed start date moves the whole analysis. Also covers retention-metric quirks,
 "matured users" filtering, and long-term vs short-term metric divergence.
 
 → See [references/mid-run-changes.md](references/mid-run-changes.md)
@@ -176,12 +226,17 @@ Surface diagnostics first (Step 3). Then recommend — but scope what you recomm
 experiment's current state permits.
 
 - **Draft** — config changes are free; recommend and apply.
-- **Running** — every change has a tradeoff. Explain the mid-run impact (anti-pattern? safe?
+  The flag of a draft can still serve users: a draft made by a reset, or created on an existing flag, can have `feature_flag.active` true, and an edit of that flag reaches those users at once.
+- **Running** (and `paused` or `exposure_frozen`, which are launched and not ended) — every change has a tradeoff. Explain the mid-run impact (anti-pattern? safe?
   user-visible?) before recommending. See `configuring-experiment-rollout` and its reference file
   `references/changing-distribution-after-launch.md` for the mid-run rules.
+  A pause, a freeze, an unfreeze and a reset are changes too: each one interrupts the run and can bias the result (E8, E9 and E16 in `references/mid-run-changes.md`).
 - **Stopped / archived** — the experiment AND its feature flag represent the documented outcome of
   the run. Recommendations are scoped to (a) interpretation of the existing data, (b) what to do for
   the _next_ experiment, or (c) explaining what happened.
+
+A diagnosis ends with findings and a recommendation.
+A change to a running experiment or to its flag (a new metric, new exposure criteria, a reset, a relaunch, a flag edit) is the user's decision: say what the change does to the data collected so far, and make it only on an explicit instruction.
 
 On a stopped or archived experiment, don't preemptively offer reversal of a state mutation
 (ship-variant flag rewrite, manual flag edit, reset, archive). If the user asks "why did X happen?",
@@ -191,9 +246,9 @@ count as preemptive too — only the user explicitly naming the reversal action 
 "can I roll back ship-variant?", "how do I get the 50/50 split back?") is a request to surface
 reversal mechanics.
 
-Use consistent terminology: variant _split_ (between variants) is distinct from _rollout_ (overall %
-entering); the _default exposure event_ (`resolved_exposure_event`) is distinct from a _custom exposure event_; the
-_Exclude_ / _First seen_ options control multivariate handling, not exposure.
+Use consistent terminology: variant _split_ (between variants) is distinct from _rollout_ (the share of a release condition's audience that
+enters); the _default exposure event_ (`resolved_exposure_event`) is distinct from a _custom exposure event_; the
+_Exclude from analysis_ / _Use first seen variant_ options of _Multiple variant handling_ (`exposure_criteria.multiple_variant_handling`) decide how people exposed to several variants are counted, not which event is the exposure.
 
 ## Related skills
 
@@ -201,3 +256,4 @@ _Exclude_ / _First seen_ options control multivariate handling, not exposure.
 - **`configuring-experiment-rollout`** — split-change anti-patterns and safe rollout adjustments
 - **`managing-experiment-lifecycle`** — reset, end, or restart when the experiment can't be salvaged in place
 - **`analyzing-experiment-session-replays`** — when the numbers are fine but you need to see the behavior behind them
+- **`debugging-experiments`** — when the question arrives as a support request about someone else's experiment and the answer is a written reply

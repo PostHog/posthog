@@ -32,6 +32,7 @@ describe('marketing analytics utils', () => {
         ['OpenAIAds', FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS],
         ['AmazonAds', FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS],
         ['RoktAds', FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS],
+        ['TwitterAds', FEATURE_FLAGS.MARKETING_ANALYTICS_TWITTER_ADS],
     ] as const)('getEnabledNativeMarketingSources: %s', (sourceType, flag) => {
         it.each([undefined, false, true, 'test'])('gates the source when its flag is %s', (enabled) => {
             const flags: Record<string, boolean | string> = {
@@ -39,6 +40,7 @@ describe('marketing analytics utils', () => {
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_TWITTER_ADS]: true,
             }
             if (enabled === undefined) {
                 delete flags[flag]
@@ -312,6 +314,7 @@ describe('marketing analytics utils', () => {
             ],
             AppleSearchAds: ['local_spend', 'impressions', 'taps', 'total_installs'],
             OpenAIAds: ['campaign_id', 'start_time', 'spend', 'impressions', 'clicks', 'currency_code'],
+            TwitterAds: ['entity_id', 'date', 'billed_charge_local_micro', 'impressions', 'clicks', 'currency'],
             GoogleAds: [
                 'metrics_cost_micros',
                 'metrics_impressions',
@@ -367,6 +370,7 @@ describe('marketing analytics utils', () => {
             RoktAds: ['campaign_id', 'datetime', 'currency_code', 'gross_cost', 'impressions', 'referrals'],
             AppleSearchAds: ['local_spend', 'impressions', 'taps'],
             OpenAIAds: ['campaign_id', 'start_time', 'spend', 'impressions', 'clicks', 'currency_code'],
+            TwitterAds: ['entity_id', 'date', 'billed_charge_local_micro', 'impressions', 'clicks', 'currency'],
             GoogleAds: ['metrics_cost_micros', 'metrics_impressions', 'metrics_clicks', 'customer_currency_code'],
             RedditAds: ['spend', 'impressions', 'clicks', 'currency'],
             LinkedinAds: ['cost_in_usd', 'impressions', 'clicks'],
@@ -490,28 +494,35 @@ describe('marketing analytics utils', () => {
             expect(result?.table_name).toBe(source.tables[0].name)
         })
 
-        it.each(['campaign_budget_currency_code', 'date', 'campaign_id', 'cost', 'impressions', 'clicks'])(
-            'omits Amazon monetary tiles missing %s',
-            (field) => {
-                const source = makeMockSource(
-                    'AmazonAds',
-                    sourceFields.AmazonAds.filter((name) => name !== field)
-                )
-                for (const column of [
-                    MarketingAnalyticsColumnsSchemaNames.Cost,
-                    MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
-                    'roas',
-                    'cost_per_reported_conversion',
-                ] as const) {
-                    expect(createMarketingTile(source, column, 'EUR')).toBeNull()
-                }
-            }
-        )
-
-        it('keeps Amazon impressions available without currency', () => {
+        it.each(
+            (['AmazonAds', 'TwitterAds'] as const).flatMap((sourceType) =>
+                (sourceType === 'AmazonAds'
+                    ? ['campaign_budget_currency_code', 'date', 'campaign_id', 'cost', 'impressions', 'clicks']
+                    : ['currency', 'date', 'entity_id', 'billed_charge_local_micro', 'impressions', 'clicks']
+                ).map((field) => [sourceType, field] as const)
+            )
+        )('omits %s monetary tiles missing %s', (sourceType, field) => {
             const source = makeMockSource(
-                'AmazonAds',
-                sourceFields.AmazonAds.filter((name) => name !== 'campaign_budget_currency_code')
+                sourceType,
+                sourceFields[sourceType].filter((name) => name !== field)
+            )
+            for (const column of [
+                MarketingAnalyticsColumnsSchemaNames.Cost,
+                MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+                'roas',
+                'cost_per_reported_conversion',
+            ] as const) {
+                expect(createMarketingTile(source, column, 'EUR')).toBeNull()
+            }
+        })
+
+        it.each([
+            ['AmazonAds', 'campaign_budget_currency_code'],
+            ['TwitterAds', 'currency'],
+        ] as const)('keeps %s impressions available without currency', (sourceType, currencyColumn) => {
+            const source = makeMockSource(
+                sourceType,
+                sourceFields[sourceType].filter((name) => name !== currencyColumn)
             )
             expect(createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Impressions, 'EUR')).not.toBeNull()
         })

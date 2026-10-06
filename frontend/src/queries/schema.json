@@ -27189,6 +27189,7 @@
                 "managed_viewsets",
                 "endpoints",
                 "sql_editor",
+                "business_intelligence",
                 "web_analytics",
                 "error_tracking",
                 "heatmap",
@@ -27359,6 +27360,13 @@
                     },
                     "type": "array"
                 },
+                "searchTabs": {
+                    "description": "Tabs of this item that search lists as their own results",
+                    "items": {
+                        "$ref": "#/definitions/FileSystemSearchTab"
+                    },
+                    "type": "array"
+                },
                 "shortcut": {
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
@@ -27385,6 +27393,28 @@
                 }
             },
             "required": ["path"],
+            "type": "object"
+        },
+        "FileSystemSearchTab": {
+            "additionalProperties": false,
+            "properties": {
+                "flag": {
+                    "type": "string"
+                },
+                "href": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "searchKeywords": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "href"],
             "type": "object"
         },
         "FileSystemViewLogEntry": {
@@ -37379,6 +37409,78 @@
                         "primarySource"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "adsetStatsTableName": {
+                            "const": "line_item_stats",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "line_items",
+                            "type": "string"
+                        },
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "twitter",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "x",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "twitter_ads",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "x_ads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 4,
+                            "minItems": 4,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "twitter",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "TwitterAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "defaultSources",
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName"
+                    ],
+                    "type": "object"
                 }
             ]
         },
@@ -39298,7 +39400,8 @@
                 "AppleSearchAds",
                 "OpenAIAds",
                 "AmazonAds",
-                "RoktAds"
+                "RoktAds",
+                "TwitterAds"
             ],
             "type": "string"
         },
@@ -51556,6 +51659,22 @@
                 }
             ]
         },
+        "SQLEditorConfiguration": {
+            "additionalProperties": {},
+            "description": "Customization of the SQL editor. Extra keys are tolerated so older servers accept configs written by newer clients.",
+            "properties": {
+                "vim_mode_enabled": {
+                    "description": "Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference.",
+                    "type": "boolean"
+                },
+                "vimrc": {
+                    "description": "Vim commands to run when Vim mode starts, one per line, such as `imap jj <Esc>` or `set cursorblink`.",
+                    "maxLength": 10000,
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "SampleRatioMismatch": {
             "additionalProperties": false,
             "properties": {
@@ -56289,6 +56408,10 @@
             "required": ["kind"],
             "type": "object"
         },
+        "TwitterAdsDefaultSources": {
+            "enum": ["twitter", "x", "twitter_ads", "x_ads"],
+            "type": "string"
+        },
         "UIVisibilityConfig": {
             "additionalProperties": false,
             "description": "Visibility of a single customizable UI element. An absent config or an absent `visible` means the element is shown.",
@@ -56523,6 +56646,9 @@
             "properties": {
                 "sidebar": {
                     "$ref": "#/definitions/SidebarConfiguration"
+                },
+                "sql_editor": {
+                    "$ref": "#/definitions/SQLEditorConfiguration"
                 },
                 "version": {
                     "description": "Schema version of this configuration blob, for future format migrations.",

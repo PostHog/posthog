@@ -5433,6 +5433,7 @@ export type FileSystemIconType =
     | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
+    | 'business_intelligence'
     | 'web_analytics'
     | 'error_tracking'
     | 'heatmap'
@@ -5543,6 +5544,15 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     /** Display label override — when set, shown in the nav instead of the last segment of `path` */
     displayLabel?: string
     /** Other terms that find this item in search, for example the names of its tabs or common synonyms */
+    searchKeywords?: string[]
+    /** Tabs of this item that search lists as their own results */
+    searchTabs?: FileSystemSearchTab[]
+}
+
+export interface FileSystemSearchTab {
+    name: string
+    href: string
+    flag?: string
     searchKeywords?: string[]
 }
 
@@ -8555,6 +8565,7 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'OpenAIAds',
     'AmazonAds',
     'RoktAds',
+    'TwitterAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -8754,6 +8765,17 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         defaultSources: ['amazon', 'amazon_ads'] as const,
         primarySource: 'amazon',
     },
+    TwitterAds: {
+        sourceType: 'TwitterAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_stats',
+        defaultSources: ['twitter', 'x', 'twitter_ads', 'x_ads'] as const,
+        primarySource: 'twitter',
+        adsetTableName: 'line_items' as const,
+        adsetStatsTableName: 'line_item_stats' as const,
+    },
     RoktAds: {
         sourceType: 'RoktAds' as const,
         nameField: 'campaign_name',
@@ -8768,6 +8790,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
 
 export type AmazonAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['AmazonAds']['defaultSources'][number]
+export type TwitterAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['TwitterAds']['defaultSources'][number]
 export type RoktAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RoktAds']['defaultSources'][number]
 export type AppleSearchAdsDefaultSources =
     (typeof MARKETING_INTEGRATION_CONFIGS)['AppleSearchAds']['defaultSources'][number]
@@ -9084,6 +9107,18 @@ export interface SidebarConfiguration {
     [key: string]: unknown
 }
 
+/** Customization of the SQL editor. Extra keys are tolerated so older servers accept configs written by newer clients. */
+export interface SQLEditorConfiguration {
+    /** Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference. */
+    vim_mode_enabled?: boolean
+    /**
+     * Vim commands to run when Vim mode starts, one per line, such as `imap jj <Esc>` or `set cursorblink`.
+     * @maxLength 10000
+     */
+    vimrc?: string
+    [key: string]: unknown
+}
+
 /**
  * Per-user UI customization, persisted on the User model as a single JSONB blob.
  * A null configuration and any absent key mean "default", which for visibility is "shown",
@@ -9097,6 +9132,7 @@ export interface UserUIConfiguration {
      */
     version: number
     sidebar?: SidebarConfiguration
+    sql_editor?: SQLEditorConfiguration
     [key: string]: unknown
 }
 

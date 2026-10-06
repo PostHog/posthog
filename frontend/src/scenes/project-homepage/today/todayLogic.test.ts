@@ -351,7 +351,10 @@ describe('todayLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ reports, moreReportCount: 7 })
-        expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(TOP_REPORT_COUNT) })
+        expect(Object.fromEntries(listParams!.entries())).toEqual({
+            limit: String(TOP_REPORT_COUNT),
+            include_unowned: 'false',
+        })
     })
 
     it.each([
@@ -384,7 +387,10 @@ describe('todayLogic', () => {
                     moreReportsInInbox: remaining,
                     canLoadMoreReports: false,
                 })
-            expect(Object.fromEntries(listParams!.entries())).toEqual({ limit: String(MORE_REPORTS_LIMIT) })
+            expect(Object.fromEntries(listParams!.entries())).toEqual({
+                limit: String(MORE_REPORTS_LIMIT),
+                include_unowned: 'false',
+            })
 
             // A refresh writes a briefing over other reports, so the loaded list folds back up.
             await expectLogic(logic, () => {
