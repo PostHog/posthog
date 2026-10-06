@@ -1609,7 +1609,7 @@ SELECT
   distinct_id,
   created_at,
   person_id,
-  if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
+  now64() AS inserted_at,
   _timestamp,
   _offset,
   _partition
@@ -1641,7 +1641,7 @@ SQL
       type = "UUID"
     }
     column "inserted_at" {
-      type = "Nullable(DateTime64(6, 'UTC'))"
+      type = "DateTime64(3)"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"

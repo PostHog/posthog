@@ -1463,27 +1463,27 @@ describe('accountsLogic', () => {
     })
 
     describe('updateAccountCustomProperty', () => {
-        it('writes the value and masks stale query data with the saved value', async () => {
+        it.each([42, 0, false, null])('writes %s and masks stale query data with the saved value', async (value) => {
             const definition = buildCustomPropertyDefinition()
             const capture = jest.spyOn(posthog, 'capture').mockImplementation()
             mockCustomPropertyValuesCreate.mockResolvedValue({
                 id: 'value-1',
                 account_id: 'acc-1',
                 definition_id: definition.id,
-                value: 42,
+                value: value ?? 42,
                 created_at: '2026-01-01T00:00:00Z',
                 created_by_id: 1,
             })
 
-            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            logic.actions.updateAccountCustomProperty('acc-1', definition, value)
 
-            expect(logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]).toBe(42)
+            expect(logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]).toBe(value)
 
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockCustomPropertyValuesCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
                 definition: definition.id,
-                value: 42,
+                value,
             })
             expect(
                 logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]
@@ -1495,11 +1495,72 @@ describe('accountsLogic', () => {
             })
         })
 
+        it('blocks duplicate clear requests while a write is pending', async () => {
+            const definition = buildCustomPropertyDefinition()
+            let finishWrite!: (value: Awaited<ReturnType<typeof accountsCustomPropertyValuesCreate>>) => void
+            mockCustomPropertyValuesCreate.mockImplementationOnce(
+                () =>
+                    new Promise<Awaited<ReturnType<typeof accountsCustomPropertyValuesCreate>>>(
+                        (resolve) => (finishWrite = resolve)
+                    )
+            )
+
+            logic.actions.updateAccountCustomProperty('acc-1', definition, null)
+            logic.actions.updateAccountCustomProperty('acc-1', definition, null)
+
+            expect(mockCustomPropertyValuesCreate).toHaveBeenCalledTimes(1)
+            expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(true)
+            expect(logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]).toBeNull()
+
+            finishWrite({
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: definition.id,
+                value: 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(false)
+        })
+
+        it('clears only refreshed overrides when the refresh of an earlier write lands during a pending write', async () => {
+            const saved = buildCustomPropertyDefinition()
+            const pending = buildCustomPropertyDefinition({ id: 'custom-property-2' })
+            const pendingKey = customPropertySavingKey('acc-1', pending.id)
+            const writeResult: Awaited<ReturnType<typeof accountsCustomPropertyValuesCreate>> = {
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: saved.id,
+                value: 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            }
+            let finishPendingWrite!: (value: typeof writeResult) => void
+            mockCustomPropertyValuesCreate
+                .mockResolvedValueOnce(writeResult)
+                .mockImplementationOnce(() => new Promise((resolve) => (finishPendingWrite = resolve)))
+
+            logic.actions.updateAccountCustomProperty('acc-1', saved, null)
+            logic.actions.updateAccountCustomProperty('acc-1', pending, null)
+            await expectLogic(logic).toDispatchActions(['listLoadDataSuccess'])
+
+            expect(logic.values.isCustomPropertySaving('acc-1', pending.id)).toBe(true)
+            expect(logic.values.customPropertyOverrides).toEqual({ [pendingKey]: null })
+
+            finishPendingWrite({ ...writeResult, definition_id: pending.id })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.customPropertyOverrides).toEqual({})
+        })
+
         it.each([
-            ['canonical', buildCustomPropertyDefinition({ is_canonical: true })],
-            ['data warehouse managed', buildCustomPropertyDefinition({ source: createCustomPropertySource() })],
-        ])('does not write a %s property', async (_, definition) => {
-            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            ['canonical', buildCustomPropertyDefinition({ is_canonical: true }), 42],
+            ['canonical', buildCustomPropertyDefinition({ is_canonical: true }), null],
+            ['data warehouse managed', buildCustomPropertyDefinition({ source: createCustomPropertySource() }), 42],
+            ['data warehouse managed', buildCustomPropertyDefinition({ source: createCustomPropertySource() }), null],
+        ] as const)('does not write a %s property', async (_, definition, value) => {
+            logic.actions.updateAccountCustomProperty('acc-1', definition, value)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockCustomPropertyValuesCreate).not.toHaveBeenCalled()
@@ -1530,11 +1591,11 @@ describe('accountsLogic', () => {
             })
         })
 
-        it('reverts the optimistic override after a failed write', async () => {
+        it.each([42, null])('reverts the optimistic override after a failed write of %s', async (value) => {
             const definition = buildCustomPropertyDefinition()
             mockCustomPropertyValuesCreate.mockRejectedValueOnce(new Error('boom'))
 
-            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            logic.actions.updateAccountCustomProperty('acc-1', definition, value)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(

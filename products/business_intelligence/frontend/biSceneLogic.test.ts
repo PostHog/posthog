@@ -7,9 +7,9 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { BIConfig, BIField, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { DatabaseSchemaQuery, NodeKind } from '~/queries/schema/schema-general'
+import { DatabaseSchemaQuery, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 
@@ -33,6 +33,7 @@ const timestampField: BIField = {
 }
 const config: BIConfig = {
     source: { table: 'events' },
+    dateRange: { date_from: 'all' },
     chartType: ChartDisplayType.ActionsBar,
     rows: [eventField],
     columns: [timestampField],
@@ -164,6 +165,8 @@ describe('biSceneLogic', () => {
         editor.actions.setChartType(ChartDisplayType.ActionsStackedBar)
         expect(logic.values.hasUnsavedChanges).toBe(true)
         expect(logic.values.worksheet.chartSettings?.yAxis?.[0].settings?.formatting?.prefix).toBe('$')
+        editor.actions.setDateRange({ date_from: '-30d' })
+        expect(logic.values.worksheet.chartSettings?.yAxis?.[0].settings?.formatting?.prefix).toBe('$')
         logic.actions.discardChanges()
         expect(logic.values.worksheet.config).toEqual(config)
         expect(logic.values.hasUnsavedChanges).toBe(false)
@@ -180,6 +183,43 @@ describe('biSceneLogic', () => {
         await expectLogic(logic, () => logic.actions.exportView()).toFinishAllListeners()
         expect(exportedPayload).toEqual({ name: 'revenue_view', query: JSON.parse(JSON.stringify(worksheet().source)) })
         expect(save).not.toHaveBeenCalled()
+    })
+
+    it('preserves an unfinished calculated measure when chart settings update', () => {
+        logic.actions.restoreWorksheet(worksheet())
+        editor.actions.setCalculatedMeasureDraft({
+            index: null,
+            name: 'Revenue per user',
+            expression: 'sum(revenue) /',
+        })
+        const draft = editor.values.calculatedMeasureDraft
+        logic.actions.setVisualization({ ...logic.values.worksheet, tableSettings: { conditionalFormatting: [] } })
+        expect(editor.values.calculatedMeasureDraft).toEqual(draft)
+    })
+
+    it('reruns unchanged SQL for a date change while preserving dashboard properties', async () => {
+        const properties: HogQLFilters['properties'] = [
+            { type: PropertyFilterType.Event, key: 'plan', value: 'pro', operator: PropertyOperator.Exact },
+        ]
+        const node = worksheet()
+        node.source.filters = { dateRange: { date_from: '-7d' }, properties }
+        logic.actions.restoreWorksheet(node)
+        expect(editor.values.config.dateRange).toEqual({ date_from: '-7d' })
+        const sql = logic.values.worksheet.source.query
+        const data = dataNodeLogic({ key: logic.values.dataNodeKey, query: node.source, autoLoad: false })
+        data.mount()
+        data.actions.setResponse({ results: [[1]], columns: ['count'], types: [['count', 'Int64']] })
+        jest.useFakeTimers()
+        try {
+            editor.actions.setAutoUpdate(true)
+            editor.actions.setDateRange({ date_from: '-30d' })
+            await jest.advanceTimersByTimeAsync(500)
+            expect(logic.values.lastRunQuery?.source.query).toBe(sql)
+            expect(logic.values.lastRunQuery?.source.filters).toEqual({ dateRange: { date_from: '-30d' }, properties })
+        } finally {
+            jest.useRealTimers()
+            data.unmount()
+        }
     })
 
     it('restores legacy BI links and persists edits as a wrapper', async () => {

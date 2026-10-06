@@ -96,7 +96,7 @@ class MetricQueryRequest:
     `interval` is on the request (not per clause) so every series in the
     response shares one bucket grid — required for a formula like "a / b"
     to align, and the right default anyway. None means auto-pick from the
-    range. `min_interval` is a floor for the auto pick and for `interval`.
+    range.
     """
 
     clauses: tuple[MetricQueryClause, ...]
@@ -104,7 +104,6 @@ class MetricQueryRequest:
     date_to: dt.datetime
     interval: str | None = None
     formula: str | None = None
-    min_interval: str | None = None
 
     def __post_init__(self) -> None:
         if not self.clauses:

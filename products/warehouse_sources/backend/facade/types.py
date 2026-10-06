@@ -1313,6 +1313,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     WHATSAPPBUSINESSMANAGEMENT = "WhatsappBusinessManagement", "WhatsappBusinessManagement"
     WHOGHO = "WhoGho", "WhoGho"
     WHOP = "Whop", "Whop"
+    WISTIA = "Wistia", "Wistia"
     WIZ = "Wiz", "Wiz"
     WOMPI = "Wompi", "Wompi"
     WORKIZ = "Workiz", "Workiz"
@@ -1428,6 +1429,13 @@ class ExternalDataSourceType(LabeledStrEnum):
     LETTRLABS = "LettrLabs", "LettrLabs"
     GRAFANAIRM = "GrafanaIRM", "GrafanaIRM"
     TESSITURA = "Tessitura", "Tessitura"
+    CHARGEBACKSTOP = "ChargebackStop", "ChargebackStop"
+    CHARGEFLOW = "Chargeflow", "Chargeflow"
+    DREAMDATA = "Dreamdata", "Dreamdata"
+    GOOGLEBUSINESSPROFILE = "GoogleBusinessProfile", "GoogleBusinessProfile"
+    LEDYER = "Ledyer", "Ledyer"
+    SUPERMETRICS = "Supermetrics", "Supermetrics"
+    SQLITE = "SQLite", "SQLite"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

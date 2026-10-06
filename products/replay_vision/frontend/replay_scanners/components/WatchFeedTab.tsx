@@ -11,13 +11,7 @@ import { FilterPill } from '../../components/FilterPill'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { SCANNER_TYPE_OPTIONS, ScannerType } from '../types'
 import { type WatchFeedView, watchFeedLogic } from '../watchFeedLogic'
-import {
-    FILLER_REASON_KINDS,
-    JevWatchFeedCard,
-    JevWatchFeedGridCard,
-    WatchFeedCard,
-    WatchFeedGridCard,
-} from './WatchFeedCard'
+import { FILLER_REASON_KINDS, JevWatchFeedTile, WatchFeedCard, WatchFeedGridCard } from './WatchFeedCard'
 import { WatchFeedEmptyState } from './WatchFeedEmptyState'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
@@ -77,6 +71,7 @@ export function WatchFeedTab(): JSX.Element {
         hasFeedFilters,
         emptyReason,
         view,
+        displayView,
         feedRanker,
     } = useValues(watchFeedLogic)
     const {
@@ -102,9 +97,8 @@ export function WatchFeedTab(): JSX.Element {
     // Every card carrying a no-evidence reason means the window produced no findings. A feed that mixes a
     // finding with padding needs no explaining, so this stays off unless the whole feed is padding.
     const onlyFiller = items.length > 0 && items.every((item) => FILLER_REASON_KINDS.has(item.reason.kind))
-    // The jev arm gets the simplified card, so the experiment compares rankings and layouts as one arm.
-    const ListCard = feedRanker === 'jev' ? JevWatchFeedCard : WatchFeedCard
-    const GridCard = feedRanker === 'jev' ? JevWatchFeedGridCard : WatchFeedGridCard
+    // The jev arm gets its own tile, so the experiment compares rankings and layouts as one arm.
+    const GridCard = feedRanker === 'jev' ? JevWatchFeedTile : WatchFeedGridCard
 
     return (
         <div className="@container flex flex-col gap-4">
@@ -168,30 +162,32 @@ export function WatchFeedTab(): JSX.Element {
                             Clear filters
                         </LemonButton>
                     )}
-                    <LemonSegmentedButton<WatchFeedView>
-                        size="xsmall"
-                        value={view}
-                        onChange={setView}
-                        options={[
-                            {
-                                value: 'grid',
-                                icon: <IconGridMasonry />,
-                                tooltip: 'Thumbnails',
-                                'data-attr': 'vision-watch-feed-view-grid',
-                            },
-                            {
-                                value: 'list',
-                                icon: <IconList />,
-                                tooltip: 'List',
-                                'data-attr': 'vision-watch-feed-view-list',
-                            },
-                        ]}
-                    />
+                    {feedRanker !== 'jev' && (
+                        <LemonSegmentedButton<WatchFeedView>
+                            size="xsmall"
+                            value={view}
+                            onChange={setView}
+                            options={[
+                                {
+                                    value: 'grid',
+                                    icon: <IconGridMasonry />,
+                                    tooltip: 'Thumbnails',
+                                    'data-attr': 'vision-watch-feed-view-grid',
+                                },
+                                {
+                                    value: 'list',
+                                    icon: <IconList />,
+                                    tooltip: 'List',
+                                    'data-attr': 'vision-watch-feed-view-list',
+                                },
+                            ]}
+                        />
+                    )}
                 </div>
             </div>
 
             {feedItemsLoading && feedItems === null ? (
-                <FeedSkeleton view={view} />
+                <FeedSkeleton view={displayView} />
             ) : (
                 <div className="flex flex-col gap-3">
                     {/* kea-loaders keeps the last value on failure, so a later filter or date change can fail
@@ -217,7 +213,7 @@ export function WatchFeedTab(): JSX.Element {
                         </p>
                     )}
                     {items.length > 0 ? (
-                        view === 'grid' ? (
+                        displayView === 'grid' ? (
                             <div className={GRID_CLASS_NAME}>
                                 {items.map((item, index) => (
                                     <GridCard key={item.observation.id} item={item} position={index} />
@@ -225,7 +221,7 @@ export function WatchFeedTab(): JSX.Element {
                             </div>
                         ) : (
                             items.map((item, index) => (
-                                <ListCard key={item.observation.id} item={item} position={index} />
+                                <WatchFeedCard key={item.observation.id} item={item} position={index} />
                             ))
                         )
                     ) : feedFailed ? null : emptyReason ? (

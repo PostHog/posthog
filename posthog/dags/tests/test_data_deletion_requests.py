@@ -31,9 +31,11 @@ from posthog.dags.data_deletion_requests import (
     PersonRemovalContext,
     PropertyRemovalTarget,
     _cleaned_select_list,
+    _presence_params,
     _property_removal_where,
     _refuse_property_removal_unsweepable,
     _ShardStaging,
+    _target_presence_clause,
     auto_approve_deletion_requests_job,
     auto_approve_deletion_requests_schedule,
     cleanup_property_removal_staging,
@@ -3019,6 +3021,37 @@ def test_native_property_removal_gate_checks_retained_copies(
     cluster.any_host_by_role.side_effect = execute_query
     with pytest.raises(dagster.Failure, match="cannot be deleted") if refuses else nullcontext():
         _refuse_property_removal_unsweepable(cluster, [EVENTS_JSON], request, marker)
+
+
+@pytest.mark.parametrize(
+    "properties,person_properties,stored_properties,present",
+    [
+        ([], ["email"], '{"$unparseable_properties":"malformed $set email"}', True),
+        ([], ["email"], '{"other":"value"}', False),
+    ],
+)
+def test_json_target_presence_clause_sees_quarantine_on_person_only_requests(
+    properties: list[str], person_properties: list[str], stored_properties: str, present: bool
+) -> None:
+    # A copy that kept quarantined raw properties would pass this check and be reinserted past the
+    # marker, where the final verification no longer looks.
+    request = _property_removal_ctx(properties=properties, person_properties=person_properties)
+    target = PropertyRemovalTarget(table=EVENTS_JSON.data_table, shard=1, json_schema=True)
+    clause = _target_presence_clause(request, target, [])
+    [[matched]] = sync_execute(
+        f"""WITH rows AS (
+            SELECT CAST(%(properties)s, %(event_type)s) AS properties,
+                CAST('{{}}', %(person_type)s) AS person_properties,
+                CAST('{{}}', 'JSON(max_dynamic_paths=32)') AS temporary_properties
+        ) SELECT countIf({clause}) FROM rows""",
+        {
+            **_presence_params(request),
+            "properties": stored_properties,
+            "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
+            "person_type": PERSON_PROPERTIES_JSON_TYPE(),
+        },
+    )
+    assert bool(matched) is present
 
 
 def test_property_removal_where_scopes_to_events_by_default():
