@@ -56,10 +56,7 @@ export function SkillsSceneShell({
                 resourceType={{ type: 'llm_analytics' }}
                 actions={actions}
             />
-            {/* The bar carries no tab content, so `content` keeps its place in the tree when the
-                category counts land and the bar appears. Only surface the bar once there's
-                somewhere else to go — otherwise the lone "Skills" tab is noise. */}
-            {tabs.length > 1 && <LemonTabs activeKey={activeTabKey} data-attr="skills-tabs" tabs={tabs} sceneInset />}
+            <LemonTabs activeKey={activeTabKey} data-attr="skills-tabs" tabs={tabs} sceneInset />
             {content}
         </SceneContent>
     )
