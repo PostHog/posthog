@@ -294,6 +294,19 @@ class CuratedGitHubSource:
         depot = self._depot_job_attempts()
         return f"{self._tables.workflow_runs}|{self._tables.workflow_jobs or ''}|{depot.table if depot else ''}"
 
+    def may_read_ci_tables(self) -> bool:
+        """Whether this reader's catalog grants every table a CI read uses.
+
+        A cached CI answer skips the query that would have applied the table permissions, so a caller must
+        ask this before it serves one.
+        """
+        depot = self._depot_job_attempts()
+        tables = [self._tables.pull_requests, self._tables.workflow_runs, self._tables.workflow_jobs]
+        if depot is not None:
+            tables.append(depot.table)
+        catalog = self._catalog()
+        return all(catalog.has_table(table) and not catalog.is_table_access_denied(table) for table in tables if table)
+
     def ci_data_freshness(self) -> CIDataFreshness:
         """When the runs and jobs this handle reads were last synced from their sources."""
         return resolve_ci_data_freshness(

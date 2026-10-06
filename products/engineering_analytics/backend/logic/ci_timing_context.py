@@ -198,7 +198,7 @@ def build_ci_timing_context(
         f"{_cache_prefix(curated, owner, name)}:ci_timing_context:{_CACHE_VERSION}"
         f":{hashlib.sha256(selection_key.encode()).hexdigest()}"
     )
-    cached = _cache_get(cache_key)
+    cached = _cache_get(curated, cache_key)
     if isinstance(cached, dict):
         return CITimingContext(**cached)
     context = _timing_context(
@@ -307,7 +307,7 @@ def _without_samples(
 
 def _default_branch(curated: CuratedGitHubSource, repo: RepoRef) -> str | None:
     cache_key = f"{_cache_prefix(curated, repo.owner, repo.name)}:default_branch"
-    cached = _cache_get(cache_key)
+    cached = _cache_get(curated, cache_key)
     if isinstance(cached, str):
         return cached
     wanted = (repo.owner.casefold(), repo.name.casefold())
@@ -327,7 +327,10 @@ def _cache_prefix(curated: CuratedGitHubSource, owner: str, name: str) -> str:
     return f"engineering_analytics:{curated.team.pk}:{curated.source_id}:{scope}"
 
 
-def _cache_get(cache_key: str) -> object:
+def _cache_get(curated: CuratedGitHubSource, cache_key: str) -> object:
+    # A cached answer skips the queries that apply table permissions, so the reader's access is checked here.
+    if not curated.may_read_ci_tables():
+        return None
     try:
         return cache.get(cache_key)
     except Exception:
