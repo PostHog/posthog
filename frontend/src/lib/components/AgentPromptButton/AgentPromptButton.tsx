@@ -24,6 +24,7 @@ import {
     type ButtonProps as QuillButtonProps,
 } from 'lib/ui/quill'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
@@ -69,6 +70,11 @@ export interface AgentPromptButtonProps {
     defaultAgentKey?: AgentPromptDestination
     agentKeys?: AgentPromptDestination[]
     agentSelectionMode?: 'select' | 'run'
+    /** `destination` names the agent on the main button ("Open in Cursor") instead of the prompt ("Open Fix prompt"). */
+    labelMode?: 'action' | 'destination'
+    /** Extra classes for the dropdown menu, e.g. a higher z-index when the button sits inside a toast. */
+    menuClassName?: string
+    onOpenChange?: (open: boolean) => void
     size?: AgentPromptButtonSize
     variant?: NonNullable<QuillButtonProps['variant']>
     /** Renders the dropdown open on first paint. Useful for visual regression snapshots. */
@@ -269,6 +275,9 @@ export function AgentPromptButton({
     defaultAgentKey,
     agentKeys,
     agentSelectionMode = 'select',
+    labelMode = 'action',
+    menuClassName,
+    onOpenChange,
     size = 'default',
     variant = 'default',
     defaultOpen = false,
@@ -304,7 +313,10 @@ export function AgentPromptButton({
             ? defaultAgent
             : ((remembered?.agentKey ? availableAgents.find((a) => a.key === remembered.agentKey) : null) ??
               defaultAgent)
-    const buttonLabel = `${activeAgent.verb} ${activeAction.label}`
+    const buttonLabel =
+        labelMode === 'destination' && activeAgent.key !== 'clipboard'
+            ? `Open in ${activeAgent.name}`
+            : `${activeAgent.verb} ${activeAction.label}`
 
     const selectAction = (actionKey: string): void => {
         setRemembered({ actionKey, agentKey: remembered?.agentKey ?? null })
@@ -337,7 +349,13 @@ export function AgentPromptButton({
     }
 
     return (
-        <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenu
+            open={open}
+            onOpenChange={(nextOpen) => {
+                setOpen(nextOpen)
+                onOpenChange?.(nextOpen)
+            }}
+        >
             <QuillButtonGroup>
                 <QuillButton
                     variant={variant}
@@ -365,7 +383,7 @@ export function AgentPromptButton({
                 </DropdownMenuTrigger>
             </QuillButtonGroup>
 
-            <DropdownMenuContent align="end" className="w-60 max-w-none">
+            <DropdownMenuContent align="end" className={cn('w-60 max-w-none', menuClassName)}>
                 {actions.length > 1 && (
                     <>
                         <DropdownMenuLabel>Content</DropdownMenuLabel>

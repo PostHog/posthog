@@ -14,8 +14,9 @@ import { userLogic } from 'scenes/userLogic'
 import { UserType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
-import { MCPHintToast } from './MCPHintToast'
 import type { SurfaceKey } from './prompts'
+
+export type MCPHintPlacement = 'toast' | 'card'
 
 function reportMCPHintDismissed(dismissType: 'surface' | 'all', surfaceKey?: string): void {
     posthog.capture('mcp hint dismissed', {
@@ -98,6 +99,9 @@ export interface mcpHintLogicActions {
             | 'surveys.create'
             | 'workflows.create'
     }
+    keepHintOpen: (toastId: string) => {
+        toastId: string
+    }
     loadTopEvents: () => any
     loadTopEventsFailure: (
         error: string,
@@ -118,6 +122,54 @@ export interface mcpHintLogicActions {
     }
     reenable: () => {
         value: true
+    }
+    reportAgentOpened: (
+        surfaceKey: SurfaceKey,
+        placement: MCPHintPlacement,
+        agentKey: string
+    ) => {
+        agentKey: string
+        placement: MCPHintPlacement
+        surfaceKey:
+            | 'actions.create'
+            | 'ai_observability_evaluations.create'
+            | 'alerts.create'
+            | 'annotations.create'
+            | 'cohorts.create'
+            | 'dashboards.create'
+            | 'data_warehouse_sources.create'
+            | 'data_warehouse_sources.update'
+            | 'early_access_features.create'
+            | 'error_tracking.assign'
+            | 'experiments.create'
+            | 'experiments.launch'
+            | 'feature_flags.create'
+            | 'feature_flags.update'
+            | 'insights.create'
+            | 'sql.execute'
+            | 'surveys.create'
+            | 'workflows.create'
+    }
+    reportUseCaseCardShown: (surfaceKey: SurfaceKey) => {
+        surfaceKey:
+            | 'actions.create'
+            | 'ai_observability_evaluations.create'
+            | 'alerts.create'
+            | 'annotations.create'
+            | 'cohorts.create'
+            | 'dashboards.create'
+            | 'data_warehouse_sources.create'
+            | 'data_warehouse_sources.update'
+            | 'early_access_features.create'
+            | 'error_tracking.assign'
+            | 'experiments.create'
+            | 'experiments.launch'
+            | 'feature_flags.create'
+            | 'feature_flags.update'
+            | 'insights.create'
+            | 'sql.execute'
+            | 'surveys.create'
+            | 'workflows.create'
     }
     tryShowHint: (
         surfaceKey: SurfaceKey,
@@ -173,6 +225,13 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
         dismissSurface: (surfaceKey: SurfaceKey) => ({ surfaceKey }),
         dismissAll: true,
         reenable: true,
+        reportAgentOpened: (surfaceKey: SurfaceKey, placement: MCPHintPlacement, agentKey: string) => ({
+            surfaceKey,
+            placement,
+            agentKey,
+        }),
+        reportUseCaseCardShown: (surfaceKey: SurfaceKey) => ({ surfaceKey }),
+        keepHintOpen: (toastId: string) => ({ toastId }),
     }),
     reducers({
         lastShownAt: [
@@ -232,7 +291,7 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
         userRole: [(s) => [s.user], (user: UserType | null): string | null => user?.role_at_organization ?? null],
     }),
     listeners(({ values, actions }) => ({
-        tryShowHint: ({ surfaceKey, derivedPrompt }) => {
+        tryShowHint: async ({ surfaceKey, derivedPrompt }) => {
             const now = Date.now()
             const sinceLast = values.lastShownAt ? now - values.lastShownAt : Infinity
             const cooldownActive = values.lastShownAt !== null && sinceLast < COOLDOWN_MS
@@ -241,9 +300,15 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
                 return
             }
 
+            // Record the hint before the toast module loads, so a second action in that gap cannot show a second hint.
+            actions.recordShown(now)
             try {
-                toast.info(<MCPHintToast surfaceKey={surfaceKey} derivedPrompt={derivedPrompt} />, {
-                    toastId: `mcp-hint-${surfaceKey}-${now}`,
+                // Many logics import this one to call tryShowMCPHint, so a static import would load the
+                // toast and the agent prompt button with every one of them, including in Jest setup.
+                const { MCPHintToast } = await import('./MCPHintToast')
+                const toastId = `mcp-hint-${surfaceKey}-${now}`
+                toast.info(<MCPHintToast surfaceKey={surfaceKey} derivedPrompt={derivedPrompt} toastId={toastId} />, {
+                    toastId,
                     autoClose: AUTO_DISMISS_MS,
                     closeOnClick: false,
                     draggable: false,
@@ -265,7 +330,6 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
                         />
                     ),
                 })
-                actions.recordShown(now)
                 actions.reportMCPHintShown(surfaceKey)
             } catch (error) {
                 console.warn('[mcpHint] toast render failed', { surfaceKey, error })
@@ -281,6 +345,17 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
         },
         reenable: () => {
             actions.updateUser({ hide_mcp_hints: false })
+        },
+        // pinned: analytics event names and properties
+        reportAgentOpened: ({ surfaceKey, placement, agentKey }) => {
+            posthog.capture('mcp hint agent opened', { surface_key: surfaceKey, placement, agent: agentKey })
+        },
+        keepHintOpen: ({ toastId }) => {
+            // The agent menu renders outside the toast, so hovering it does not pause the auto-dismiss timer.
+            toast.update(toastId, { autoClose: false })
+        },
+        reportUseCaseCardShown: ({ surfaceKey }) => {
+            posthog.capture('mcp use case card shown', { surface_key: surfaceKey })
         },
     })),
 ])
