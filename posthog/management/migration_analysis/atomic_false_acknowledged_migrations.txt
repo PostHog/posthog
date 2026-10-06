@@ -50,4 +50,4 @@ ee.0064_split_identity_provider_config_scopes
 # Retires scanners that target an experiment through the legacy column and copies that targeting into
 # their observations' snapshots in id-ordered batches. Re-running is a no-op: each pass writes the same
 # config keys from the unchanged column, and cancelled backfills are no longer active.
-replay_vision.0106_retire_legacy_experiment_targeting
+replay_vision.0110_retire_legacy_experiment_targeting
