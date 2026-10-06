@@ -362,3 +362,17 @@ class ProposalChanges:
 
     changes: dict
     conflicts: list[str]
+
+
+@frozen
+class EditedEmailDesign:
+    design: dict[str, Any]
+    warnings: tuple[str, ...]
+
+
+class EmailDesignRenderingNotConfigured(Exception):
+    pass
+
+
+class EmailDesignRenderFailed(Exception):
+    pass

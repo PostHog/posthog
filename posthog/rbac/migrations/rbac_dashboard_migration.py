@@ -1,3 +1,5 @@
+from typing import Literal
+
 from django.db import transaction
 
 import structlog
@@ -5,13 +7,49 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
 
+from products.access_control.backend.facade.user_access_control import ordered_access_levels
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)
 
 
-def rbac_dashboard_access_control_migration(organization_id: int):
+def _ensure_dashboard_access_control(
+    dashboard: Dashboard,
+    organization_member: OrganizationMembership | None,
+    access_level: Literal["viewer", "editor"],
+) -> None:
+    access_control = AccessControl.objects.filter(
+        team_id=dashboard.team_id,
+        resource="dashboard",
+        resource_id=str(dashboard.id),
+        organization_member=organization_member,
+        role__isnull=True,
+    ).first()
+    if access_control is None:
+        AccessControl.objects.create(
+            team_id=dashboard.team_id,
+            access_level=access_level,
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            organization_member=organization_member,
+        )
+        return
+
+    if access_control.access_level in ordered_access_levels("dashboard"):
+        return
+
+    logger.warning(
+        "Replacing invalid dashboard access level during migration",
+        access_control_id=access_control.id,
+        invalid_access_level=access_control.access_level,
+        replacement_access_level=access_level,
+    )
+    access_control.access_level = access_level
+    access_control.save(update_fields=["access_level"])
+
+
+def rbac_dashboard_access_control_migration(organization_id: int) -> None:
     """
     This migration converts legacy dashboard permissions to the new RBAC system.
 
@@ -37,29 +75,10 @@ def rbac_dashboard_access_control_migration(organization_id: int):
 
             for dashboard in restricted_dashboards:
                 try:
-                    # Skip if access control already exists for this dashboard
-                    if AccessControl.objects.filter(
-                        team_id=dashboard.team_id,
-                        resource="dashboard",
-                        resource_id=str(dashboard.id),
-                    ).exists():
-                        logger.info(
-                            "Skipping dashboard - access control already exists",
-                            dashboard_id=dashboard.id,
-                            team_id=dashboard.team_id,
-                        )
-                        continue
-
-                    # Create default access control entry for the dashboard (view access for all)
-                    AccessControl.objects.create(
-                        team_id=dashboard.team_id,
+                    _ensure_dashboard_access_control(
+                        dashboard,
+                        organization_member=None,
                         access_level="viewer",
-                        resource="dashboard",
-                        resource_id=str(dashboard.id),
-                    )
-
-                    logger.info(
-                        "Created default dashboard access control", dashboard_id=dashboard.id, team_id=dashboard.team_id
                     )
 
                     # Convert dashboard privileges to access control entries
@@ -83,24 +102,19 @@ def rbac_dashboard_access_control_migration(organization_id: int):
                                     )
                                     continue
 
-                                # Create access control entry for the user with edit access
-                                AccessControl.objects.create(
-                                    team_id=dashboard.team_id,
-                                    access_level="editor",
-                                    resource="dashboard",
-                                    resource_id=str(dashboard.id),
+                                _ensure_dashboard_access_control(
+                                    dashboard,
                                     organization_member=org_membership,
+                                    access_level="editor",
                                 )
 
+                                privilege.delete()
                                 logger.info(
                                     "Migrated dashboard privilege to access control",
                                     dashboard_id=dashboard.id,
                                     user_id=privilege.user.id,
                                     team_id=dashboard.team_id,
                                 )
-
-                                # Remove the original privilege entry
-                                privilege.delete()
 
                             except Exception as e:
                                 error_message = f"Failed to migrate dashboard privilege for user {privilege.user.id}"
