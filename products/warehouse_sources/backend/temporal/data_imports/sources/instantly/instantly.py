@@ -330,6 +330,11 @@ def _date_windows(start_date: str, end: date) -> Iterator[tuple[str, str]]:
     current = datetime.strptime(start_date, "%Y-%m-%d").date()
     while current <= end:
         window_end = min(current + timedelta(days=DATE_WINDOW_SIZE_DAYS - 1), end)
+        if window_end == current:
+            # The API rejects start_date == end_date; a window landing exactly on "end" (the
+            # incremental watermark caught up to today) only happens on the final window, so
+            # extending one day past it is safe — a future date just returns no rows.
+            window_end = current + timedelta(days=1)
         yield current.isoformat(), window_end.isoformat()
         current = window_end + timedelta(days=1)
 

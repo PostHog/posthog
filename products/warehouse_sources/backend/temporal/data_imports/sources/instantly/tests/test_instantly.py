@@ -293,6 +293,32 @@ class TestInstantly:
             ("/api/v2/accounts/analytics/daily", {"start_date": "2020-04-03", "end_date": "2020-04-15"}),
         ]
 
+    def test_account_daily_analytics_same_day_watermark_does_not_send_equal_dates(self):
+        # Instantly rejects start_date == end_date, so a watermark that already caught up to
+        # "today" must not request a zero-length window.
+        client = _FakeClient({"/api/v2/accounts/analytics/daily": [[]]})
+
+        with (
+            mock.patch(f"{MODULE}._make_client", return_value=client),
+            mock.patch(f"{MODULE}._today", return_value=date(2026, 3, 10)),
+        ):
+            response = instantly_source(
+                api_key="key",
+                endpoint="account_daily_analytics",
+                team_id=1,
+                job_id="job",
+                resumable_source_manager=mock.MagicMock(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=date(2026, 3, 10),
+            )
+            items = response.items()
+            assert isinstance(items, Iterable)
+            list(items)
+
+        assert client.calls == [
+            ("/api/v2/accounts/analytics/daily", {"start_date": "2026-03-10", "end_date": "2026-03-11"})
+        ]
+
     def test_probe_sends_required_campaign_id_for_subsequences(self):
         session = mock.MagicMock()
 
