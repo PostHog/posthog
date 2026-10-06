@@ -248,7 +248,11 @@ describe('EmailService with local SES', () => {
 
     describe('provider outcomes', () => {
         it.each([
-            ['M6: unknown provider reports sent without delivery; flip in Silthus/posthog#311', 'unknown', undefined],
+            [
+                'M6: unknown provider fails without delivery',
+                'unknown',
+                'Email provider not recognized. Select a different email integration.',
+            ],
             ['M7: unsupported provider fails', 'unsupported', 'Email delivery mode not supported'],
         ])('%s', async (_name, provider, error) => {
             await setProvider(provider!)
@@ -258,6 +262,9 @@ describe('EmailService with local SES', () => {
             const success = error === undefined
             expect(result.finished).toBe(true)
             expect(result.error).toBe(error)
+            expect(result.logs).toEqual(
+                expect.arrayContaining([expect.objectContaining({ level: 'error', message: error })])
+            )
             expect(result.invocation.queueParameters).toBeUndefined()
             expect(result.invocation.queueScheduledAt).toBeUndefined()
             expect(result.invocation.state.vmState?.stack).toEqual([{ success }])

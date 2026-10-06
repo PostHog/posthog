@@ -610,6 +610,8 @@ export class EmailService {
 
                 case 'unsupported':
                     throw new Error('Email delivery mode not supported')
+                default:
+                    throw new Error('Email provider not recognized. Select a different email integration.')
             }
 
             // Emit the `[Email:…]` token in the success log only when an asset row

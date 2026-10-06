@@ -132,7 +132,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                 'test-pause-workflow-email'
             )
             const reloaded = new Promise<void>((resolve) => {
-                hub.pubSub.on('reload-hog-flows', () => resolve())
+                hub.pubSub['eventEmitter'].once('reload-hog-flows', () => resolve())
             })
             await hub.pubSub.publish(
                 'reload-hog-flows',
