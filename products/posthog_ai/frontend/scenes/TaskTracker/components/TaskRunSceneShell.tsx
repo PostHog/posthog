@@ -155,7 +155,7 @@ export function TaskRunSceneShell({
                                 isMobile && !todayPhone ? (
                                     <Button
                                         variant="default"
-                                        size="icon-sm"
+                                        size="icon"
                                         nativeButton={false}
                                         render={<LinkPrimitive to={urls.ai()} />}
                                         aria-label="Back to PostHog AI"
@@ -166,7 +166,7 @@ export function TaskRunSceneShell({
                                     <Button
                                         variant="default"
                                         size="icon-lg"
-                                        className="-ml-2 rounded-full"
+                                        className="-ml-2"
                                         aria-label="Back"
                                         onClick={goBackOnPhone}
                                         data-attr="today-phone-back"

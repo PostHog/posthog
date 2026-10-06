@@ -242,6 +242,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
                 RunInferenceInput(pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11"),
             )
             assert mock_inference.call_args.kwargs["query_context"] == BATCH_QUERY
+            assert mock_inference.call_args.kwargs["scheduled"] is True
         else:
             env.run(activity_run_validation, RunValidationInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
             assert mock_validation.call_args.kwargs["query_context"] == BATCH_QUERY

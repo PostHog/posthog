@@ -141,6 +141,9 @@ class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthen
     cannot reveal that the key exists or which scopes it carries."""
 
     activity_credential_type = "project_secret_key"
+    # A migrated legacy token (#63111) must keep the legacy path: account updates accept
+    # it there but refuse PSAKs.
+    defer_migrated_team_tokens = True
 
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
         result = super().authenticate(request)

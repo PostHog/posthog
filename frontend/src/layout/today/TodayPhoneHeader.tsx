@@ -35,13 +35,7 @@ export function TodayPhoneHeader(): JSX.Element {
 
     return (
         <header className="TodayPhoneHeader" data-scrolled={scrolled} data-quill>
-            <Button
-                size="icon-lg"
-                className="rounded-full"
-                aria-label="Back"
-                data-attr="today-phone-back"
-                onClick={goBackOnPhone}
-            >
+            <Button size="icon-lg" aria-label="Back" data-attr="today-phone-back" onClick={goBackOnPhone}>
                 <IconChevronLeft />
             </Button>
             <Text
@@ -55,7 +49,6 @@ export function TodayPhoneHeader(): JSX.Element {
             {!onAiPage && (
                 <Button
                     size="icon-lg"
-                    className="rounded-full"
                     aria-label="Open context panel"
                     data-attr="today-phone-context-panel"
                     onClick={() => openSidePanel(scenePanelIsPresent ? SidePanelTab.Info : SidePanelTab.Max)}

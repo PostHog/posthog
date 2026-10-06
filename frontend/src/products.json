@@ -64,6 +64,13 @@
             "intents": ["autoresearch"]
         },
         {
+            "path": "Business intelligence",
+            "category": "Data",
+            "iconType": "business_intelligence",
+            "type": null,
+            "intents": []
+        },
+        {
             "path": "Business knowledge",
             "category": "Data",
             "iconType": "business_knowledge",
@@ -169,13 +176,6 @@
             "intents": ["marketing_analytics"]
         },
         { "path": "Inbox", "category": "Tools", "iconType": null, "type": null, "intents": [] },
-        {
-            "path": "Live Debugger",
-            "category": "Unreleased",
-            "iconType": "live_debugger",
-            "type": "live_debugger",
-            "intents": ["live_debugger"]
-        },
         { "path": "Logs", "category": "Monitoring", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Marketing analytics",

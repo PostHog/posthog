@@ -1203,7 +1203,7 @@ export const getSignalsReportsForYouRetrieveUrl = (projectId: string, params?: S
 }
 
 /**
- * The open, actionable reports for the current user, best first, and how many there are in total. Uses the same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them.
+ * The open, actionable reports for the current user, best first, and how many there are in total. Uses the same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them. Pass `include_unowned=false` to leave out the P0 reports nobody owns, which belong to the project rather than to this person.
  * @summary List the reports that matter most to the current user
  */
 export const signalsReportsForYouRetrieve = async (
@@ -2113,7 +2113,7 @@ export const getSignalsScoutEditReportUrl = (projectId: string, runId: string) =
 }
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
  * @summary Edit an existing report for a run
  */
 export const signalsScoutEditReport = async (

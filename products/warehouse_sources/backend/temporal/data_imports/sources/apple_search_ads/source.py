@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apple_sear
     AppleSearchAdsResumeConfig,
     apple_search_ads_source,
     readable_ad_accounts,
+    token_exchange_error_message,
     validate_credentials as validate_apple_search_ads_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.settings import (
@@ -291,9 +292,7 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
         except AppleSearchAdsAuthError as e:
             raise IntegrationAccountListingError(str(e)) from e
         except requests.RequestException as e:
-            raise IntegrationAccountListingError(
-                f"Could not exchange the Apple Ads credentials for an access token: {e}"
-            ) from e
+            raise IntegrationAccountListingError(token_exchange_error_message(e)) from e
 
         # None means the ACL lookup itself failed. The picker has no better answer than an empty
         # list either way, and its field stays free text, so the user can still type an id.

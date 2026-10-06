@@ -351,24 +351,55 @@ class TestGroupMembersFanOut:
         assert [_query(u)["offset"] for u in urls[1:]] == [["0"], ["2"]]
 
 
-class TestSecretScanningFindingsFanOut:
-    def test_only_secret_scanning_projects_are_queried_by_project_id(self):
-        # The findings endpoint rejects other project types with a 400, which would fail the sync.
+class TestProjectTypeScopedFanOut:
+    @pytest.mark.parametrize(
+        "endpoint, project_type, path, data_key",
+        [
+            ("secret_scanning_findings", "secret-scanning", "/api/v2/secret-scanning/findings", "findings"),
+            ("secret_syncs", "secret-manager", "/api/v1/secret-syncs", "secretSyncs"),
+        ],
+    )
+    def test_only_matching_projects_are_queried_by_project_id(self, endpoint, project_type, path, data_key):
+        # These endpoints reject other project types with a 400, which would fail the sync.
         projects = _response(
             json_data={
                 "projects": [
-                    {"id": "p1", "orgId": "org-123", "type": "secret-manager"},
-                    {"id": "p2", "orgId": "org-123", "type": "secret-scanning"},
+                    {"id": "p1", "orgId": "org-123", "type": "cert-manager"},
+                    {"id": "p2", "orgId": "org-123", "type": project_type},
                 ]
             }
         )
-        findings = _response(json_data={"findings": [{"id": "f1", "projectId": "p2"}]})
-        rows, session, _manager = _run_get_rows([_login_response(), projects, findings], "secret_scanning_findings")
+        children = _response(json_data={data_key: [{"id": "c1", "projectId": "p2"}]})
+        rows, session, _manager = _run_get_rows([_login_response(), projects, children], endpoint)
 
-        assert [r["id"] for r in rows] == ["f1"]
-        findings_url = _get_urls(session)[1]
-        assert urlparse(findings_url).path == "/api/v2/secret-scanning/findings"
-        assert _query(findings_url) == {"projectId": ["p2"]}
+        assert [r["id"] for r in rows] == ["c1"]
+        child_url = _get_urls(session)[1]
+        assert urlparse(child_url).path == path
+        assert _query(child_url) == {"projectId": ["p2"]}
+
+
+class TestProjectEnvironmentsFanOut:
+    def test_fetches_each_embedded_environment_of_the_org_projects(self):
+        projects = _response(
+            json_data={
+                "projects": [
+                    {"id": "p1", "orgId": "org-123", "environments": [{"id": "e1"}, {"id": "e2"}]},
+                    {"id": "p2", "orgId": "other-org", "environments": [{"id": "e3"}]},
+                    {"id": "p3", "orgId": "org-123", "environments": []},
+                ]
+            }
+        )
+        env1 = _response(json_data={"environment": {"id": "e1", "slug": "dev", "projectId": "p1"}})
+        env2 = _response(status_code=404)
+        rows, session, _manager = _run_get_rows([_login_response(), projects, env1, env2], "project_environments")
+
+        # A single-object body becomes one row; an environment deleted mid-sync is skipped.
+        assert rows == [{"id": "e1", "slug": "dev", "projectId": "p1"}]
+        assert [urlparse(u).path for u in _get_urls(session)] == [
+            "/api/v1/projects",
+            "/api/v1/projects/p1/environments/e1",
+            "/api/v1/projects/p1/environments/e2",
+        ]
 
 
 class TestOrgScoping:
@@ -676,12 +707,18 @@ class TestValidateCredentials:
         result, _session = self._run([_response(status_code=status_code)])
         assert result == (False, INVALID_CREDENTIALS_ERROR)
 
-    def test_scoped_probe_success(self):
-        result, session = self._run(
-            [_login_response(), _response(json_data={"auditLogs": []})], schema_name="audit_logs"
-        )
+    @pytest.mark.parametrize(
+        "schema_name, body, expected_path",
+        [
+            ("audit_logs", {"auditLogs": []}, "/api/v1/organization/audit-logs"),
+            # Fan-out tables probe the parent list, never a path with unfilled placeholders.
+            ("project_environments", {"projects": []}, "/api/v1/projects"),
+        ],
+    )
+    def test_scoped_probe_success(self, schema_name, body, expected_path):
+        result, session = self._run([_login_response(), _response(json_data=body)], schema_name=schema_name)
         assert result == (True, None)
-        assert "/api/v1/organization/audit-logs" in _get_urls(session)[0]
+        assert urlparse(_get_urls(session)[0]).path == expected_path
 
     def test_scoped_probe_403_names_the_table(self):
         result, _session = self._run([_login_response(), _response(status_code=403)], schema_name="audit_logs")
