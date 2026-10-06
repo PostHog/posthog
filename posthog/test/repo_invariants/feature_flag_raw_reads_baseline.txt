@@ -17,12 +17,11 @@ products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py:
 products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py::ExperimentExposuresQueryRunner._calculate_srm::(self.query.feature_flag.get('filters') or {}).get('multivariate')
 products/experiments/backend/hogql_queries/experiment_exposures_query_runner.py::ExperimentExposuresQueryRunner._evaluate_bias_risk::(self.query.feature_flag.get('filters') or {}).get('multivariate')
 products/experiments/backend/presentation/serializers.py::ExperimentBaseSerializer._project_feature_flag_config::flag.get_filters()
-products/experiments/backend/replay_linkage.py::resolve_exposure_linkage::(flag.filters or {}).get('aggregation_group_type_index')
+products/experiments/backend/replay_linkage.py::_validated_scope::(flag.filters or {}).get('aggregation_group_type_index')
 products/experiments/backend/replay_linkage.py::targetable_experiments::(flag.filters or {}).get('aggregation_group_type_index')
 products/experiments/backend/setup_context.py::get_previous_experiments::flag_filters = flag.filters or {}
 products/feature_flags/backend/api/feature_flag.py::FeatureFlagSerializer._apply_stored_filter_rules::(instance.filters or {}).get('payloads')
 products/feature_flags/backend/api/feature_flag.py::FeatureFlagSerializer._apply_stored_filter_rules::(instance.filters or {}).get('payloads')
-products/feature_flags/backend/api/feature_flag.py::FeatureFlagSerializer._find_disabled_dependencies::filters = flag_to_check.filters or {}
 products/feature_flags/backend/api/feature_flag.py::FeatureFlagSerializer._validate_filters_inner::(self.instance.filters or {}).get('early_exit')
 products/feature_flags/backend/api/feature_flag.py::FeatureFlagSerializer._validate_filters_inner::(self.instance.filters or {}).get('groups')
 products/feature_flags/backend/api/feature_flag.py::FeatureFlagSerializer._validate_filters_inner::(self.instance.filters or {}).get('multivariate')
