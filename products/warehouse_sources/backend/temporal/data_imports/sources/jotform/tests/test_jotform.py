@@ -320,7 +320,8 @@ class TestLabelResourcesFanOut:
         ]
         capture = _wire(session, [_response(tree), _response(root_assets), _response(child_assets)])
 
-        rows = _rows(_source("label_resources", _make_manager()))
+        manager = _make_manager()
+        rows = _rows(_source("label_resources", manager))
 
         assert [(r["label_id"], r["assetType"], r["id"]) for r in rows] == [
             ("root", "form", "251453058472053"),
@@ -335,6 +336,10 @@ class TestLabelResourcesFanOut:
         ]
         assert capture.params[1]["orderby"] == "created_at"
         assert capture.params[1]["offset"] == 0
+        saved_states = [c.args[0].fanout_state for c in manager.save_state.call_args_list]
+        assert set(saved_states[-1]["completed"]) == {"/label/root/resources", "/label/child/resources"}
+        assert saved_states[-1]["current"] is None
+        assert saved_states[-1]["child_state"] is None
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_paginates_each_label_until_partial_page(self, MockSession):

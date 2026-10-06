@@ -18,7 +18,7 @@ CREATED_AT_INCREMENTAL = _datetime_field("created_at")
 UPDATED_AT_INCREMENTAL = _datetime_field("updated_at")
 
 
-@dataclass
+@dataclass(frozen=False)
 class JotformEndpointConfig:
     name: str
     # Path relative to the regional API host. A `{form_id}` placeholder marks a per-form fan-out
