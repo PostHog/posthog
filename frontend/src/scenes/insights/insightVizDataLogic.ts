@@ -2993,29 +2993,30 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as LifecycleQuery).samplingFactor = undefined
     }
 
+    const nextRetentionFilter = isRetentionQuery(currentState)
+        ? (maybeChangedInsightFilter as RetentionFilter | undefined)
+        : undefined
+
     // Switching a retention entity away from the data warehouse invalidates the "Custom entities"
     // aggregation target, which the backend rejects for non-warehouse entities.
-    if (isRetentionQuery(currentState) && maybeChangedInsightFilter) {
-        const nextRetentionFilter = maybeChangedInsightFilter as RetentionFilter
-        if (
-            nextRetentionFilter.customAggregationTarget &&
-            (nextRetentionFilter.targetEntity?.type !== 'data_warehouse' ||
-                nextRetentionFilter.returningEntity?.type !== 'data_warehouse')
-        ) {
-            ;(mergedUpdate as RetentionQuery).retentionFilter = {
-                ...nextRetentionFilter,
-                customAggregationTarget: undefined,
-            }
+    if (
+        nextRetentionFilter?.customAggregationTarget &&
+        (nextRetentionFilter.targetEntity?.type !== 'data_warehouse' ||
+            nextRetentionFilter.returningEntity?.type !== 'data_warehouse')
+    ) {
+        ;(mergedUpdate as RetentionQuery).retentionFilter = {
+            ...nextRetentionFilter,
+            customAggregationTarget: undefined,
         }
     }
 
     // We do not support properties, filtering test accounts, and sampling for DWH nodes
     // Disable them if there are any
-    if (
-        isTrendsQuery(currentState) &&
-        (currentState.filterTestAccounts || currentState.properties) &&
-        maybeChangedSeries?.some(isAnyDataWarehouseNode)
-    ) {
+    const addsDataWarehouseSeries =
+        !!maybeChangedSeries?.some(isAnyDataWarehouseNode) ||
+        nextRetentionFilter?.targetEntity?.type === 'data_warehouse' ||
+        nextRetentionFilter?.returningEntity?.type === 'data_warehouse'
+    if (addsDataWarehouseSeries && (currentState.filterTestAccounts || currentState.properties)) {
         lemonToast.info(
             'Filter groups and test accounts are not supported for Data Warehouse series and have been disabled.'
         )

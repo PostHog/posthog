@@ -1,6 +1,10 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
+import {
+    FLAG_EVALUATIONS_SERIES_FIELDS,
+    FLAG_EVALUATIONS_TABLE,
+} from 'lib/components/TaxonomicFilter/utils/featureFlagCallsGroup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -190,14 +194,19 @@ const cleanDataWarehouseNode = (
         created_at_field,
         ...baseEntity
     } = entity as EntityNode & DataWarehouseNodeSharedFields
+    // A flag calls series has a known column for each field. It does not copy one field into another.
+    const knownFields: DataWarehouseNodeSharedFields =
+        entity.table_name === FLAG_EVALUATIONS_TABLE ? FLAG_EVALUATIONS_SERIES_FIELDS : {}
+    const idField = id_field ?? knownFields.id_field
 
     if (dataWarehouseNodeKind === NodeKind.DataWarehouseNode) {
         return {
             ...baseEntity,
             kind: NodeKind.DataWarehouseNode,
-            ...(id_field ? { id_field } : {}),
+            ...(idField ? { id_field: idField } : {}),
             distinct_id_field:
                 distinct_id_field ??
+                knownFields.distinct_id_field ??
                 (isFunnelsDataWarehouseNode(entity) || isLifecycleDataWarehouseNode(entity)
                     ? entity.aggregation_target_field
                     : undefined),
@@ -208,9 +217,11 @@ const cleanDataWarehouseNode = (
         return {
             ...baseEntity,
             kind: NodeKind.FunnelsDataWarehouseNode,
-            ...(id_field ? { id_field } : {}),
+            ...(idField ? { id_field: idField } : {}),
             aggregation_target_field:
-                aggregation_target_field ?? (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
+                aggregation_target_field ??
+                knownFields.aggregation_target_field ??
+                (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
         } as FunnelsDataWarehouseNode | GroupNode
     }
 
@@ -218,8 +229,10 @@ const cleanDataWarehouseNode = (
         ...baseEntity,
         kind: NodeKind.LifecycleDataWarehouseNode,
         aggregation_target_field:
-            aggregation_target_field ?? (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
-        created_at_field: created_at_field ?? entity.timestamp_field,
+            aggregation_target_field ??
+            knownFields.aggregation_target_field ??
+            (isDataWarehouseNode(entity) ? entity.distinct_id_field : undefined),
+        created_at_field: created_at_field ?? knownFields.created_at_field ?? entity.timestamp_field,
     } as LifecycleDataWarehouseNode | GroupNode
 }
 

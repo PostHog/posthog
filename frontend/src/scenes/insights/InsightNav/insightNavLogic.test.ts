@@ -1671,6 +1671,66 @@ describe('insightNavLogic', () => {
                         funnelsFilter: { funnelVizType: 'steps' },
                     },
                 },
+                {
+                    label: 'trends flag calls to funnels',
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                id: 'posthog.flag_evaluations',
+                                name: 'posthog.flag_evaluations',
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                distinct_id_field: 'distinct_id',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.FUNNELS,
+                    expectedSource: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.FunnelsDataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                            },
+                        ],
+                    },
+                },
+                {
+                    label: 'lifecycle flag calls to trends',
+                    source: {
+                        kind: NodeKind.LifecycleQuery,
+                        series: [
+                            {
+                                kind: NodeKind.LifecycleDataWarehouseNode,
+                                id: 'posthog.flag_evaluations',
+                                name: 'posthog.flag_evaluations',
+                                table_name: 'posthog.flag_evaluations',
+                                timestamp_field: 'timestamp',
+                                aggregation_target_field: 'person_id',
+                                created_at_field: 'timestamp',
+                            },
+                        ],
+                    },
+                    targetView: InsightType.TRENDS,
+                    expectedSource: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.DataWarehouseNode,
+                                table_name: 'posthog.flag_evaluations',
+                                id_field: 'uuid',
+                                timestamp_field: 'timestamp',
+                                distinct_id_field: 'distinct_id',
+                            },
+                        ],
+                    },
+                },
             ]
 
             it.each(dataWarehouseTestCases)('converts $label', async ({ source, targetView, expectedSource }) => {

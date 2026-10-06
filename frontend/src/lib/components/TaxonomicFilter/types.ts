@@ -334,6 +334,8 @@ export enum TaxonomicFilterGroupType {
     ScreenEvents = 'screen_events',
     EmailAddresses = 'email_addresses',
     AutocaptureEvents = 'autocapture_events',
+    // Selecting it builds a data warehouse series on posthog.flag_evaluations.
+    FeatureFlagCalls = 'feature_flag_calls',
     CustomEvents = 'custom_events',
     Wildcards = 'wildcard',
     GroupsPrefix = 'groups',

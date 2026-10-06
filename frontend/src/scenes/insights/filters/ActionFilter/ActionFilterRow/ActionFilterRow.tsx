@@ -21,6 +21,11 @@ import {
     isQuickFilterItem,
     quickFilterToPropertyFilters,
 } from 'lib/components/TaxonomicFilter/types'
+import {
+    FEATURE_FLAG_CALLS_LABEL,
+    FLAG_EVALUATIONS_SERIES_FIELDS,
+    FLAG_EVALUATIONS_TABLE,
+} from 'lib/components/TaxonomicFilter/utils/featureFlagCallsGroup'
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
@@ -158,9 +163,11 @@ export function ActionFilterRow({
     } = useActions(logic)
     const { actions } = useValues(actionsModel({ shouldLoad: isActionsSeriesNode(node) }))
     const { mathDefinitions } = useValues(mathsLogic)
-    const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { allTablesMap } = useValues(databaseTableListLogic)
     const { ensureAllTableFields } = useActions(databaseTableListLogic)
     const isDataWarehouseFilter = isWarehouseSeriesNode(node)
+    // The data warehouse map leaves out PostHog tables, which a flag calls series reads.
+    const seriesTable = isDataWarehouseFilter ? allTablesMap[node.table_name] : undefined
     useEffect(() => {
         if (isDataWarehouseFilter) {
             ensureAllTableFields()
@@ -261,6 +268,15 @@ export function ActionFilterRow({
                         type: PropertyFilterType.Event,
                     },
                 ])
+                return
+            }
+            if (taxonomicGroupType === TaxonomicFilterGroupType.FeatureFlagCalls) {
+                updateSeriesEntity(index, {
+                    kind: dataWarehouseNodeKind ?? NodeKind.DataWarehouseNode,
+                    key: FLAG_EVALUATIONS_TABLE,
+                    name: FEATURE_FLAG_CALLS_LABEL,
+                    ...FLAG_EVALUATIONS_SERIES_FIELDS,
+                })
                 return
             }
             if (taxonomicGroupType === TaxonomicFilterGroupType.AutocaptureEvents) {
@@ -628,10 +644,8 @@ export function ActionFilterRow({
                                                 onMathPropertySelect={onMathPropertySelect}
                                                 showNumericalPropsOnly={isBoxPlotContext || showNumericalPropsOnly}
                                                 schemaColumns={
-                                                    isDataWarehouseFilter && node.name
-                                                        ? Object.values(
-                                                              dataWarehouseTablesMap[node.name]?.fields ?? []
-                                                          ).filter(
+                                                    seriesTable
+                                                        ? Object.values(seriesTable.fields).filter(
                                                               (field) =>
                                                                   !(isBoxPlotContext || showNumericalPropsOnly) ||
                                                                   NUMERIC_SCHEMA_FIELD_TYPES.includes(field.type)
@@ -732,12 +746,13 @@ export function ActionFilterRow({
                                   ? getEventNamesForAction(node.id, actions)
                                   : []
                         }
-                        schemaColumns={
-                            isDataWarehouseFilter && node.name
-                                ? Object.values(dataWarehouseTablesMap[node.name]?.fields ?? [])
-                                : []
+                        schemaColumns={seriesTable ? Object.values(seriesTable.fields) : []}
+                        // The property values endpoint only serves warehouse tables and views.
+                        dataWarehouseTableName={
+                            seriesTable?.type === 'data_warehouse' || seriesTable?.type === 'view'
+                                ? seriesTable.name
+                                : undefined
                         }
-                        dataWarehouseTableName={isDataWarehouseFilter ? (node.name ?? undefined) : undefined}
                         addFilterDocLink={addFilterDocLink}
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}

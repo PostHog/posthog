@@ -27,6 +27,11 @@ const EVENTS_HIDDEN_IN_QUERY_BUILDERS: { name: string; searchTerms: string[] }[]
 
 const HIDDEN_EVENT_NAMES = EVENTS_HIDDEN_IN_QUERY_BUILDERS.map(({ name }) => name)
 
+/** The lowercased name and label a user may type to look for a hidden event. Empty for any other event. */
+export function hiddenEventSearchTerms(eventName: string): string[] {
+    return EVENTS_HIDDEN_IN_QUERY_BUILDERS.find(({ name }) => name === eventName)?.searchTerms ?? []
+}
+
 /**
  * Names the Events group adds to its own exclusions.
  *
@@ -69,6 +74,19 @@ export function hiddenEventMatchingSearch(
     }
     const match = EVENTS_HIDDEN_IN_QUERY_BUILDERS.find(({ searchTerms }) => searchTerms.includes(query))
     return match && excludedEventNames.includes(match.name) ? match.name : null
+}
+
+const HIDDEN_EVENT_EXPLANATION =
+    "PostHog still collects this event, but you can't build a saved query on it. Its data is moving, so a saved query would stop returning results."
+
+/**
+ * The text a picker shows under a search that only a hidden event matched. A picker that offers the
+ * "Feature flag calls" group points there. That group charts the same calls.
+ */
+export function hiddenEventExplanation(taxonomicGroupTypes: readonly TaxonomicFilterGroupType[]): string {
+    return taxonomicGroupTypes.includes(TaxonomicFilterGroupType.FeatureFlagCalls)
+        ? `${HIDDEN_EVENT_EXPLANATION} To chart flag calls, pick Feature flag calls instead.`
+        : `${HIDDEN_EVENT_EXPLANATION} To see how a flag is used, open the flag and check its Usage tab.`
 }
 
 /**

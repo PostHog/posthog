@@ -1,4 +1,4 @@
-import { MOCK_GROUP_TYPES } from '~/lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_GROUP_TYPES } from '~/lib/api.mock'
 
 import '@testing-library/jest-dom'
 
@@ -10,8 +10,10 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { EntityFilterProps, entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
@@ -73,13 +75,16 @@ const INLINE_CONTEXT = {
     mathAvailability: MathAvailability.None,
 }
 
-function setup(seriesOverride?: SeriesNode[]): {
+function setup(
+    seriesOverride?: SeriesNode[],
+    logicProps: Partial<EntityFilterProps> = {}
+): {
     logic: ReturnType<typeof entityFilterLogic.build>
     onChange: jest.Mock
 } {
     const series = seriesOverride ?? legacyFiltersToSeries(filtersJson as FilterType)
     const onChange = jest.fn()
-    const logic = entityFilterLogic({ onChange, series, typeKey: 'test-key' })
+    const logic = entityFilterLogic({ onChange, series, typeKey: 'test-key', ...logicProps })
     logic.mount()
     return { logic, onChange }
 }
@@ -849,6 +854,70 @@ describe('ActionFilterRow', () => {
                             }),
                         ])
                     )
+                })
+            }
+        )
+    })
+
+    describe('feature flag calls series', () => {
+        // entityFilterLogic copies only the warehouse fields named in its own popover fields. Each case
+        // passes the editor's fields to the logic as well as to the row.
+        it.each([
+            {
+                insight: 'trends',
+                mathAvailability: MathAvailability.None,
+                dataWarehousePopoverFields: undefined,
+                expected: {
+                    kind: NodeKind.DataWarehouseNode,
+                    table_name: 'posthog.flag_evaluations',
+                    timestamp_field: 'timestamp',
+                    id_field: 'uuid',
+                    distinct_id_field: 'distinct_id',
+                },
+            },
+            {
+                insight: 'funnels',
+                mathAvailability: MathAvailability.FunnelsOnly,
+                dataWarehousePopoverFields: [
+                    { key: 'id_field', label: 'Unique ID' },
+                    { key: 'timestamp_field', label: 'Timestamp' },
+                    { key: 'aggregation_target_field', label: 'Aggregation target', allowHogQL: true },
+                ],
+                expected: {
+                    table_name: 'posthog.flag_evaluations',
+                    timestamp_field: 'timestamp',
+                    id_field: 'uuid',
+                    aggregation_target_field: 'person_id',
+                },
+            },
+        ])(
+            'selecting it after a search for the hidden event builds the series for $insight',
+            async ({ mathAvailability, dataWarehousePopoverFields, expected }) => {
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...MOCK_DEFAULT_TEAM,
+                    flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number1,
+                })
+                const { logic, onChange } = setup(undefined, { dataWarehousePopoverFields })
+                renderRow(logic, {
+                    ...INLINE_CONTEXT,
+                    mathAvailability,
+                    dataWarehousePopoverFields,
+                    actionsTaxonomicGroupTypes: [
+                        TaxonomicFilterGroupType.Events,
+                        TaxonomicFilterGroupType.Actions,
+                        TaxonomicFilterGroupType.FeatureFlagCalls,
+                        TaxonomicFilterGroupType.DataWarehouse,
+                    ],
+                })
+
+                await userEvent.click(screen.getByTestId('trend-element-subject-0'))
+                await userEvent.type(await screen.findByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+                const [entry] = await screen.findAllByText('Feature flag calls')
+                await userEvent.click(entry)
+
+                await waitFor(() => {
+                    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]
+                    expect(lastCall?.[0]).toEqual(expect.objectContaining(expected))
                 })
             }
         )

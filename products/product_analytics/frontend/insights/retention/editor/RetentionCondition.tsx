@@ -30,6 +30,7 @@ const retentionDataWarehousePopoverFields: DataWarehousePopoverField[] = [
 const actionsTaxonomicGroupTypes = [
     TaxonomicFilterGroupType.Events,
     TaxonomicFilterGroupType.Actions,
+    TaxonomicFilterGroupType.FeatureFlagCalls,
     TaxonomicFilterGroupType.DataWarehouse,
 ]
 

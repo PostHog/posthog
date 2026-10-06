@@ -54663,6 +54663,7 @@
                 "screen_events",
                 "email_addresses",
                 "autocapture_events",
+                "feature_flag_calls",
                 "custom_events",
                 "wildcard",
                 "groups",

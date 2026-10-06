@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { QuerySourceUpdate, insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
@@ -341,62 +341,63 @@ describe('insightVizDataLogic', () => {
             })
         })
 
-        it('disables filterTestAccounts and properties when adding a data warehouse series to trends', () => {
-            builtInsightVizDataLogic.actions.updateQuerySource({
-                filterTestAccounts: true,
-                properties: [
-                    {
-                        type: 'event',
-                        key: 'browser',
-                        value: 'Chrome',
-                        operator: 'exact',
-                    },
-                ],
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        name: '$pageview',
-                        event: '$pageview',
-                    },
-                ],
-            } as TrendsQuery)
-
-            expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
-                filterTestAccounts: true,
-                properties: [expect.objectContaining({ key: 'browser' })],
-            })
-
-            expectLogic(builtInsightDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateQuerySource({
-                    series: [
-                        {
-                            kind: NodeKind.DataWarehouseNode,
-                            id: 'warehouse_orders',
-                            table_name: 'warehouse_orders',
-                            name: 'Orders',
-                            timestamp_field: 'created_at',
-                            id_field: 'order_id',
-                            distinct_id_field: 'customer_id',
-                        },
-                    ],
-                } as TrendsQuery)
-            }).toMatchValues({
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: expect.objectContaining({
-                        kind: NodeKind.TrendsQuery,
-                        filterTestAccounts: false,
-                        properties: undefined,
-                        series: [
-                            expect.objectContaining({
-                                kind: NodeKind.DataWarehouseNode,
-                                table_name: 'warehouse_orders',
-                            }),
-                        ],
-                    }),
-                },
-            })
+        const warehouseSeries = {
+            id: 'warehouse_orders',
+            table_name: 'warehouse_orders',
+            name: 'Orders',
+            timestamp_field: 'created_at',
+            id_field: 'order_id',
+        }
+        const warehouseEntity = {
+            id: 'warehouse_orders',
+            type: 'data_warehouse' as const,
+            table_name: 'warehouse_orders',
+            timestamp_field: 'created_at',
+            aggregation_target_field: 'customer_id',
+        }
+        const addsWarehouseSeries = (kind: NodeKind, warehouseKind: NodeKind): Record<string, any> => ({
+            kind,
+            initial: { series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }] },
+            update: { series: [{ ...warehouseSeries, kind: warehouseKind }] },
         })
+
+        // The backend rejects these settings for every insight with a data warehouse series.
+        it.each([
+            addsWarehouseSeries(NodeKind.TrendsQuery, NodeKind.DataWarehouseNode),
+            addsWarehouseSeries(NodeKind.FunnelsQuery, NodeKind.FunnelsDataWarehouseNode),
+            addsWarehouseSeries(NodeKind.StickinessQuery, NodeKind.DataWarehouseNode),
+            {
+                kind: NodeKind.RetentionQuery,
+                initial: { retentionFilter: { targetEntity: { id: '$pageview', type: 'events' } } },
+                update: { retentionFilter: { targetEntity: warehouseEntity } },
+            },
+        ])(
+            'disables filterTestAccounts and properties when adding a data warehouse series to $kind',
+            ({ kind, initial, update }) => {
+                const initialSource: Record<string, unknown> = {
+                    kind,
+                    filterTestAccounts: true,
+                    properties: [{ type: 'event', key: 'browser', value: 'Chrome', operator: 'exact' }],
+                    ...initial,
+                }
+                builtInsightVizDataLogic.actions.updateQuerySource(initialSource as QuerySourceUpdate)
+
+                expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
+                    kind,
+                    filterTestAccounts: true,
+                    properties: [expect.objectContaining({ key: 'browser' })],
+                })
+
+                const updateSource: Record<string, unknown> = { kind, ...update }
+                builtInsightVizDataLogic.actions.updateQuerySource(updateSource as QuerySourceUpdate)
+
+                expect(builtInsightVizDataLogic.values.querySource).toMatchObject({
+                    kind,
+                    filterTestAccounts: false,
+                    properties: undefined,
+                })
+            }
+        )
     })
 
     describe('updateDateRange', () => {

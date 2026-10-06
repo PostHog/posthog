@@ -77,6 +77,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                         ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
                         ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
                         TaxonomicFilterGroupType.AutocaptureEvents,
+                        TaxonomicFilterGroupType.FeatureFlagCalls,
                         TaxonomicFilterGroupType.DataWarehouse,
                     ]}
                     definitionPopoverRenderer={FunnelDataWarehouseStepDefinitionPopover}

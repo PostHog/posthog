@@ -5,6 +5,7 @@
 // Titles differ on purpose: update_feature_flag_dashboard looks tiles up by name, so the Python
 // names are pinned, while these use sentence case. The interval here follows the user's date range
 // rather than the template's fixed "day".
+import { FLAG_EVALUATIONS_TABLE } from 'lib/components/TaxonomicFilter/utils/featureFlagCallsGroup'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
@@ -184,10 +185,6 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
         { kind: NodeKind.EventsNode, event, name: `${seriesLabel} - Unique users`, math: BaseMathType.UniqueUsers },
     ]
 }
-
-// Not a root table, so the `posthog.` prefix is part of the name. A team on the Events mode without
-// the flag-evaluations-hogql-table flag has no such table, and these queries fail to resolve for it.
-const FLAG_EVALUATIONS_TABLE = 'posthog.flag_evaluations'
 
 // The table stores a JSON-null $feature_flag_response as 'null' and a missing one as ''. The events-mode
 // breakdown puts both cases in one bucket labelled BREAKDOWN_NULL_DISPLAY, so these charts do the same.
