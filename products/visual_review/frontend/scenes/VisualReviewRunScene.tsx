@@ -17,6 +17,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CleanQuarantinedSnapshots } from '../components/CleanQuarantinedSnapshots'
+import { CleanQuarantinedToggle } from '../components/CleanQuarantinedToggle'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from '../components/SnapshotChangeBadge'
 import { SnapshotDiffViewer } from '../components/SnapshotDiffViewer'
 import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
@@ -133,35 +134,6 @@ function SnapshotThumbnail({
                 )}
                 <span className={`text-[11px] truncate ${isSelected ? 'font-medium' : 'text-muted'}`}>{shortName}</span>
             </div>
-        </button>
-    )
-}
-
-function CleanQuarantinedToggle({
-    cleanCount,
-    loadFailed,
-    isExpanded,
-    onClick,
-}: {
-    cleanCount: number
-    loadFailed: boolean
-    isExpanded: boolean
-    onClick: () => void
-}): JSX.Element {
-    if (loadFailed) {
-        return <span>Couldn't load the quarantined stories. Reload the page.</span>
-    }
-    return (
-        <button
-            type="button"
-            onClick={onClick}
-            aria-expanded={isExpanded}
-            data-attr="visual-review-toggle-clean-quarantined"
-            className="shrink-0 text-xs text-muted hover:text-default hover:underline underline-offset-2 transition-colors"
-        >
-            {isExpanded
-                ? 'Hide clean quarantined stories'
-                : `${cleanCount} quarantined ${cleanCount === 1 ? 'story' : 'stories'} rendered clean`}
         </button>
     )
 }
