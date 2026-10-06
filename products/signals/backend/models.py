@@ -2275,6 +2275,9 @@ class SignalReportCheck(UUIDModel):
     last_outcome = models.CharField(max_length=20, choices=Outcome, null=True, blank=True)
     # Set only when `last_outcome` is `inconclusive`.
     last_outcome_reason = models.CharField(max_length=30, choices=InconclusiveReason, null=True, blank=True)
+    # The explanation of the most recent `errored` run. Kept after a later clean run, so a check that
+    # retired as `errored` or `expired` still says why it could not be measured.
+    last_error = models.TextField(null=True, blank=True)
     # When an `agent` check's scout run was dispatched, cleared as soon as a verdict is recorded.
     # It is what makes the dispatch closable: `scout-check-record-result` refuses a check no run is
     # waiting on, and the coordinator reads a stale value as a run that ended without answering.

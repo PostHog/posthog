@@ -523,13 +523,14 @@ export const SignalsReportChecksListQueryParams = () => zod.object({
 })
 
 /**
- * Checks attached to a signal report: read, approve, replace metrics, and cancel.
+ * Checks attached to a signal report: read, approve, replace metrics, cancel, and retry.
  *
  * There is no create here. A check is authored by a scout run or by the research pipeline, both
  * through `report_check_authoring.create_check`. An `agent` check puts its author's prose in front
  * of a privileged scout run, and `task:write` does not authorize that, so no caller-facing
  * endpoint accepts one. Anyone who can read the report can read its checks, and a person can
- * still stop one.
+ * still stop one. A person can also retry a check that errored or expired: the retry copies the
+ * stored check verbatim, so it re-runs prose its original author wrote and adds none.
  *
  * There is no in-place update: a check is a claim about the future, and editing its threshold
  * after a result would make the recorded verdict unreadable. Replacing an open metric check

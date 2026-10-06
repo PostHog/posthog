@@ -1167,6 +1167,37 @@ class TestReportCheckAPI(APIBaseTest):
         check.refresh_from_db()
         assert check.status == SignalReportCheck.Status.ACTIVE
 
+    def test_an_errored_check_shows_its_reason_and_retries_as_a_linked_new_check(self) -> None:
+        failed = self._create()
+        with patch(_MEASURE, side_effect=ValueError("the metric has no series")):
+            for _ in range(MAX_CONSECUTIVE_CHECK_ERRORS):
+                SignalReportCheck.objects.for_team(self.team.id).filter(id=failed.id).update(
+                    next_run_at=timezone.now() - timedelta(minutes=1)
+                )
+                run_due_report_checks()
+        failed.refresh_from_db()
+        assert failed.status == SignalReportCheck.Status.ERRORED
+
+        listed = self.client.get(self.url).json()["results"]
+        assert listed[0]["last_error"] == "Checkout errors stay low could not be measured: the metric has no series"
+
+        retried = self.client.post(f"{self.url}{failed.id}/retry/")
+
+        assert retried.status_code == status.HTTP_201_CREATED
+        replacement = SignalReportCheck.objects.for_team(self.team.id).get(id=retried.json()["id"])
+        assert replacement.status == SignalReportCheck.Status.ACTIVE
+        assert replacement.next_run_at <= timezone.now()
+        assert (replacement.title, replacement.config) == (failed.title, failed.config)
+        failed.refresh_from_db()
+        assert failed.status == SignalReportCheck.Status.ERRORED
+        scheduled = SignalReportArtefact.objects.filter(
+            report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_SCHEDULED
+        ).order_by("-created_at")[0]
+        assert json.loads(scheduled.content)["replaces_check_id"] == str(failed.id)
+
+        still_open = self.client.post(f"{self.url}{replacement.id}/retry/")
+        assert still_open.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_a_created_check_is_reported_for_adoption(self) -> None:
         with patch(_CAPTURE) as capture:
             with self.captureOnCommitCallbacks(execute=True):
@@ -1693,12 +1724,49 @@ class TestAgentCheckDispatch(APIBaseTest):
         if lane_enabled:
             assert summary.errored == 1
             assert check.consecutive_errors == 1
-            assert "ended without recording a result" in self._results()[0].content
+            assert "the follow-up run did not start." in self._results()[0].content
         else:
             assert summary.deferred == 1
             assert check.consecutive_errors == 0
             assert self._results() == []
             assert check.next_run_at > now + CHECK_DISPATCH_DEFER_AFTER - timedelta(minutes=5)
+
+    @parameterized.expand(
+        [
+            ("no_run_started", None, "the follow-up run did not start."),
+            ("run_failed", TaskRun.Status.FAILED, "the follow-up run failed before it recorded a result."),
+            ("run_finished", TaskRun.Status.COMPLETED, "the follow-up run finished without recording a result."),
+        ]
+    )
+    def test_a_run_that_never_records_a_result_errors_the_check_and_says_why(
+        self, _name: str, run_status: str | None, expected_reason: str
+    ) -> None:
+        now = timezone.now()
+        check = self._check(dispatched_at=now - AGENT_CHECK_RESULT_WINDOW, next_run_at=now - timedelta(minutes=1))
+        run = None
+        if run_status is not None:
+            task = Task.objects.create(team=self.team, title="t", description="d")
+            run = SignalScoutRun.objects.create(
+                task_run=TaskRun.objects.create(task=task, team=self.team, status=run_status),
+                team=self.team,
+                skill_name=FALLBACK_CHECK_SKILL_NAME,
+                skill_version=1,
+                metadata={"check_id": str(check.id)},
+            )
+
+        with patch(_CONNECT), patch(_DISPATCH) as dispatch:
+            summary = run_due_report_checks()
+
+        dispatch.assert_not_called()
+        check.refresh_from_db()
+        assert check.dispatched_at is None
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert summary.errored == 1
+        assert check.consecutive_errors == 1
+        assert check.last_error == f"Checkout 500s stay gone could not be checked: {expected_reason}"
+        result = CheckResult.model_validate_json(self._results()[0].content)
+        assert result.explanation == check.last_error
+        assert result.run_id == (str(run.id) if run is not None else None)
 
     @parameterized.expand(
         [

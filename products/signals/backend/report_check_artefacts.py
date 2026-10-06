@@ -52,7 +52,9 @@ def _skill_name(check: SignalReportCheck) -> str | None:
     return skill_name if isinstance(skill_name, str) else None
 
 
-def write_check_scheduled(check: SignalReportCheck, attribution: ArtefactAttribution) -> None:
+def write_check_scheduled(
+    check: SignalReportCheck, attribution: ArtefactAttribution, *, replaces_check_id: str | None = None
+) -> None:
     """Record that a check now watches this report.
 
     A pending check gets this entry at creation and not a second one when the resolve arms it: the
@@ -71,6 +73,7 @@ def write_check_scheduled(check: SignalReportCheck, attribution: ArtefactAttribu
             soak_minutes=check.soak_minutes,
             skill_name=_skill_name(check),
             runs=check.runs_remaining,
+            replaces_check_id=replaces_check_id,
         ),
         attribution,
     )

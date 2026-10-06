@@ -135,6 +135,7 @@ export interface CheckScheduledContent extends CheckLifecycleContent {
     soak_minutes?: number | null
     skill_name?: string | null
     runs?: number
+    replaces_check_id?: string | null
 }
 
 export interface CheckExpiredContent extends CheckLifecycleContent {

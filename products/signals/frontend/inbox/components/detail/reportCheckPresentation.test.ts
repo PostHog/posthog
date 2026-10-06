@@ -105,6 +105,17 @@ describe('reportCheckPresentation', () => {
                 'Sep 27 · 11 rageclicks in the last 14 days.',
             ],
             [
+                'an errored check prefers the stored failure reason over the artefact line',
+                {
+                    status: 'errored',
+                    last_run_at: '2026-09-27T09:00:00Z',
+                    consecutive_errors: 3,
+                    last_error: 'The follow-up run failed before it recorded a result.',
+                },
+                "Couldn't measure",
+                'Gave up after 3 tries · Sep 27 · The follow-up run failed before it recorded a result.',
+            ],
+            [
                 'a check that expired before its first run says so',
                 { status: 'expired', updated_at: '2026-10-27T09:00:00Z' },
                 'Never ran',
@@ -115,6 +126,18 @@ describe('reportCheckPresentation', () => {
                 { status: 'expired', last_run_at: '2026-09-27T09:00:00Z', updated_at: '2026-10-27T09:00:00Z' },
                 'Expired',
                 'Last ran Sep 27 · expired Oct 27',
+            ],
+            [
+                'a check that errored its way to its expiry says why',
+                {
+                    status: 'expired',
+                    last_run_at: '2026-09-27T09:00:00Z',
+                    updated_at: '2026-10-27T09:00:00Z',
+                    last_outcome: 'errored',
+                    last_error: 'The follow-up run did not start.',
+                },
+                'Expired',
+                'Last ran Sep 27 · expired Oct 27 · The follow-up run did not start.',
             ],
             [
                 'a cancelled check says when it was stopped',
@@ -171,6 +194,16 @@ describe('reportCheckPresentation', () => {
         ])('offers Stop on %s', (_name, status, cancellable) => {
             const [row] = buildReportCheckRows([makeCheck({ status })], new Map())
             expect(row.cancellable).toEqual(cancellable)
+        })
+
+        it.each<[string, SignalReportCheckApi['status'], string[], boolean]>([
+            ['an errored check', 'errored', [], true],
+            ['an expired check', 'expired', [], true],
+            ['an errored check a later check already retries', 'errored', ['check-1'], false],
+            ['a check that already decided', 'failed', [], false],
+        ])('offers Retry on %s', (_name, status, replaced, retryable) => {
+            const [row] = buildReportCheckRows([makeCheck({ status })], new Map(), new Set(replaced))
+            expect(row.retryable).toEqual(retryable)
         })
     })
 

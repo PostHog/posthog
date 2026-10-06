@@ -2989,6 +2989,11 @@ export interface SignalReportCheckApi {
      * * `inconclusive` - Inconclusive */
     readonly last_outcome: SignalReportCheckOutcomeEnumApi | null
     /**
+     * Why the most recent `errored` run could not measure the check. Null when no run errored. Kept after a later clean run.
+     * @nullable
+     */
+    readonly last_error: string | null
+    /**
      * When the `agent` check's scout run started, cleared as soon as a verdict is recorded. A non-null value is what tells a reader the check is running rather than waiting, because dispatch also pushes `next_run_at` out to the result window. Always null on a `metric_threshold` check, which is measured in the tick that collects it.
      * @nullable
      */

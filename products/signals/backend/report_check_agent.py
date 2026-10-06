@@ -29,12 +29,19 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck, SignalScoutConfig
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportCheck,
+    SignalScoutConfig,
+    SignalScoutRun,
+)
 from products.signals.backend.report_check_telemetry import capture_report_check_dispatch
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_run_in_flight, check_spend_gates
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.models import TaskRun
 
 logger = structlog.get_logger(__name__)
 
@@ -392,6 +399,36 @@ def _defer(check: SignalReportCheck, now: datetime) -> None:
     ).update(next_run_at=now + CHECK_DISPATCH_DEFER_AFTER, updated_at=now)
 
 
+def _dispatched_run(check: SignalReportCheck, canonical_team_id: int) -> SignalScoutRun | None:
+    """The newest scout run started for this check's open dispatch, or None if no run started."""
+    assert check.dispatched_at is not None
+    return (
+        SignalScoutRun.objects.for_team(canonical_team_id)
+        .filter(created_at__gte=check.dispatched_at, metadata__check_id=str(check.id))
+        .select_related("task_run")
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def _unreported_run_reason(run: SignalScoutRun | None) -> str:
+    """Why a dispatched run gave no verdict, in words a report reader can act on.
+
+    The run's own error text stays out: it can carry model or sandbox output, and the artefact log
+    is permanent and rendered as written. The run id on the result points to the full run log.
+    """
+    if run is None:
+        return "the follow-up run did not start."
+    status = run.task_run.status
+    if status == TaskRun.Status.FAILED:
+        return "the follow-up run failed before it recorded a result."
+    if status == TaskRun.Status.CANCELLED:
+        return "the follow-up run was cancelled before it recorded a result."
+    if status == TaskRun.Status.COMPLETED:
+        return "the follow-up run finished without recording a result."
+    return "the follow-up run did not finish in time to record a result."
+
+
 def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) -> str:
     """Advance one due `agent` check by one step. Returns `dispatched`, `deferred`, or `errored`.
 
@@ -419,19 +456,23 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
         # The window passed with the row still stamped, so the run this check was waiting on ended
         # without calling the tool: it crashed, ran out of budget, or finished on something else.
         # That is an errored run, so it retries on the next window and retires after three.
+        report_team = check.report.team
+        run = _dispatched_run(check, report_team.parent_team_id or report_team.id)
         logger.warning(
             "signals.report_check.agent_run_never_reported",
             check_id=str(check.id),
             team_id=check.team_id,
             dispatched_at=check.dispatched_at.isoformat(),
+            run_id=str(run.id) if run is not None else None,
         )
         record_check_verdict(
             check,
             CheckVerdict(
                 outcome="errored",
-                explanation=f"{check.title} could not be checked: the follow-up run ended without recording a result.",
+                explanation=f"{check.title} could not be checked: {_unreported_run_reason(run)}",
             ),
             now=now,
+            run_id=str(run.id) if run is not None else None,
         )
         return "errored"
 
