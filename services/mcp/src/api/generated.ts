@@ -22091,6 +22091,18 @@ export namespace Schemas {
       CustomSql: 'custom_sql',
     } as const;
 
+    /**
+     * * `code` - Code
+     * * `slack` - Slack
+     */
+    export type CitedSourceEnum = typeof CitedSourceEnum[keyof typeof CitedSourceEnum];
+
+
+    export const CitedSourceEnum = {
+      Code: 'code',
+      Slack: 'slack',
+    } as const;
+
     export interface TagCount {
       /** The tag value. */
       tag: string;
@@ -22656,6 +22668,13 @@ export namespace Schemas {
       LimitReached: 'limit_reached',
       StaleVersion: 'stale_version',
     } as const;
+
+    export interface CodeFile {
+      /** The repository as owner/name. */
+      repo: string;
+      /** The file path in the repository. */
+      path: string;
+    }
 
     /**
      * * `connected` - Connected
@@ -41797,6 +41816,29 @@ export namespace Schemas {
       readonly docs_url: string;
     }
 
+    export interface ExcerptChoice {
+      /**
+         * The excerpt that shows what the finding describes, or null when unsure.
+         * @nullable
+         */
+      index: number | null;
+    }
+
+    export interface ExcerptChoiceRequest {
+      /**
+         * The finding the code excerpts should show.
+         * @maxLength 6000
+         */
+      finding: string;
+      /**
+         * Candidate code excerpts, best scored first.
+         * @minItems 2
+         * @maxItems 5
+         * @items.maxLength 2000
+         */
+      excerpts: string[];
+    }
+
     export interface ExecuteTestClusterRequest {
       /**
          * ClickHouse SQL to run against the test cluster.
@@ -50204,6 +50246,162 @@ export namespace Schemas {
     }
 
     /**
+     * * `lead` - Lead
+     * * `impact` - Impact
+     */
+    export type FigureTextEnum = typeof FigureTextEnum[keyof typeof FigureTextEnum];
+
+
+    export const FigureTextEnum = {
+      Lead: 'lead',
+      Impact: 'impact',
+    } as const;
+
+    /**
+     * * `signal` - Signal
+     * * `research` - Agent's research
+     */
+    export type FigureSourceKindEnum = typeof FigureSourceKindEnum[keyof typeof FigureSourceKindEnum];
+
+
+    export const FigureSourceKindEnum = {
+      Signal: 'signal',
+      Research: 'research',
+    } as const;
+
+    export interface RecordingTarget {
+      /** The recording's session id. */
+      session_id: string;
+      /**
+         * Where the player starts, a few seconds before the finding.
+         * @nullable
+         */
+      start_at: string | null;
+      /**
+         * The finding's time in the recording, as MM:SS.
+         * @nullable
+         */
+      offset: string | null;
+      /**
+         * Where the player starts, in seconds from the recording start. Null without an offset.
+         * @nullable
+         */
+      seek_seconds: number | null;
+    }
+
+    export interface PageLink {
+      /** Where the link goes, outside PostHog. */
+      url: string;
+      /** The link text. */
+      text: string;
+    }
+
+    export interface PreviewLine {
+      /** One line of the preview block. */
+      text: string;
+      /** Whether the line is secondary, such as a stack frame. */
+      quiet: boolean;
+    }
+
+    export interface SignalPreview {
+      /** What expanding the signal shows, such as 'Show the stack trace'. */
+      hint: string;
+      /** Repository files to quote, the finding's own file first. */
+      code: CodeFile[];
+      /** A preformatted block, such as a stack trace or a query. */
+      block: PreviewLine[];
+      /** The finding's text beyond its first sentence. */
+      text: string;
+      /** Short facts about the source. */
+      facts: string[];
+      /** A link that replaces the signal's own destination. */
+      link: PageLink | null;
+      /**
+         * A label that replaces the label of the signal's own destination.
+         * @nullable
+         */
+      link_label: string | null;
+    }
+
+    /**
+     * The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON.
+     */
+    export type SignalViewExtra = { [key: string]: unknown };
+
+    export interface SignalView {
+      /** The signal's id. */
+      signal_id: string;
+      /** The product that emitted the signal. */
+      source_product: string;
+      /** The kind of signal within its product. */
+      source_type: string;
+      /** The id of the source object, such as an issue or a ticket. */
+      source_id: string;
+      /** The signal's text as emitted. */
+      content: string;
+      /** When the signal happened. */
+      timestamp: string;
+      /** The emitter's extra fields as it sent them, used to link to the source object. Values are any JSON. */
+      extra: SignalViewExtra;
+      /** The signal as one short line. */
+      headline: string;
+      /** The signal's first sentence. */
+      lead: string;
+      /** Identifiers such as a pull request or ticket number, joined by dots. */
+      meta: string;
+      /** What a scout finding cites: code or a Slack thread.
+       *
+       * * `code` - Code
+       * * `slack` - Slack */
+      cited: CitedSourceEnum | null;
+      /** The recording the signal plays, if any. */
+      recording: RecordingTarget | null;
+      /** Where a scout finding links outside PostHog, if anywhere. */
+      link: PageLink | null;
+      /** What expanding the signal shows, if anything. */
+      preview: SignalPreview | null;
+    }
+
+    export interface FigureQuote {
+      /** Where the number comes from: a signal or the agent's research.
+       *
+       * * `signal` - Signal
+       * * `research` - Agent's research */
+      kind: FigureSourceKindEnum;
+      /** The signal that states the number. Null when the agent's research states it. */
+      signal: SignalView | null;
+      /** When the source was written. */
+      at: string;
+      /** The source sentence that states the number. */
+      sentence: string;
+      /** Where the number starts in the sentence. */
+      start: number;
+      /** Where the number ends in the sentence. */
+      end: number;
+    }
+
+    export interface FigureMark {
+      /** The page text the number is in: the lead or the impact sentence.
+       *
+       * * `lead` - Lead
+       * * `impact` - Impact */
+      text: FigureTextEnum;
+      /** Where the number starts in that text, as the reader sees it. */
+      start: number;
+      /** Where the number ends in that text. */
+      end: number;
+      /** The number as the page shows it. */
+      figure: string;
+      /** The sentence that states the same result. */
+      quote: FigureQuote;
+    }
+
+    export interface FigureMarks {
+      /** The numbers to mark, at most 4, each with its source. */
+      marks: FigureMark[];
+    }
+
+    /**
      * * `hogql` - hogql
      */
     export type FileDownloadHogQLModelEnum = typeof FileDownloadHogQLModelEnum[keyof typeof FileDownloadHogQLModelEnum];
@@ -57015,6 +57213,43 @@ export namespace Schemas {
     }
 
     /**
+     * * `tickets` - Support tickets
+     * * `query-hours` - Database hours
+     */
+    export type ImpactNumberKeyEnum = typeof ImpactNumberKeyEnum[keyof typeof ImpactNumberKeyEnum];
+
+
+    export const ImpactNumberKeyEnum = {
+      Tickets: 'tickets',
+      QueryHours: 'query-hours',
+    } as const;
+
+    export interface ImpactWorking {
+      /** How the number is worked out, such as '120 ms × 30,000 calls'. */
+      expression: string;
+      /** What the working comes to, such as '1.00 hours a day'. */
+      result: string;
+    }
+
+    export interface ImpactNumber {
+      /** Which number this is: distinct support tickets or database hours a day.
+       *
+       * * `tickets` - Support tickets
+       * * `query-hours` - Database hours */
+      key: ImpactNumberKeyEnum;
+      /** The number as shown, such as '2' or '1 hour'. */
+      value: string;
+      /** The sentence that follows the number. */
+      sentence: string;
+      /** The signal the number comes from, if one does. */
+      signal: SignalView | null;
+      /** The figures in the signal's headline to mark. */
+      values: string[];
+      /** How the number is worked out, if it is. */
+      working: ImpactWorking | null;
+    }
+
+    /**
      * Coarse type per candidate, keyed by column name: datetime, date, integer, decimal, float, string, or uuid. A candidate with no entry has a type the check could not determine.
      */
     export type IncrementalEligibilityKeyCandidateTypes = {[key: string]: string};
@@ -58006,6 +58241,35 @@ export namespace Schemas {
       product_title: string | null;
       verified: string | null;
       created_at: string | null;
+    }
+
+    /**
+     * * `problem` - Problem
+     * * `cause` - Cause
+     * * `fix` - Fix
+     */
+    export type KeyClauseRoleEnum = typeof KeyClauseRoleEnum[keyof typeof KeyClauseRoleEnum];
+
+
+    export const KeyClauseRoleEnum = {
+      Problem: 'problem',
+      Cause: 'cause',
+      Fix: 'fix',
+    } as const;
+
+    export interface KeyClause {
+      /** Where the clause starts in its text, as the reader sees it. */
+      start: number;
+      /** Where the clause ends in its text. */
+      end: number;
+      /** What the clause tells the reader.
+       *
+       * * `problem` - Problem
+       * * `cause` - Cause
+       * * `fix` - Fix */
+      role: KeyClauseRoleEnum;
+      /** Sentences from the report that explain the clause further. */
+      expansion: string[];
     }
 
     /**
@@ -86338,6 +86602,13 @@ export namespace Schemas {
       window_days: number;
     }
 
+    export interface PullRequestLink {
+      /** The pull request on GitHub. */
+      url: string;
+      /** The pull request number. */
+      number: number;
+    }
+
     export interface PullRequestList {
       /** This page of pull requests, newest first, capped at `limit`. */
       items: PullRequestListItem[];
@@ -90349,6 +90620,15 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface ReportKeyClauses {
+      /** The clauses that state the problem or its cause in the lead. */
+      lead: KeyClause[];
+      /** The clauses that state the problem or its cause in the impact sentence. */
+      impact: KeyClause[];
+      /** The clause that states the fix in the proposal. */
+      proposal: KeyClause[];
+    }
+
     /**
      * One impact measurement shown on a report.
      */
@@ -90447,6 +90727,30 @@ export namespace Schemas {
          * @nullable
          */
       minimum_data_points?: number | null;
+    }
+
+    export interface ReportPage {
+      /** The summary's opening paragraph, as markdown. */
+      lead: string;
+      /** The proposed fix cut to whole sentences, as markdown. Empty when the report proposes none. */
+      proposal: string;
+      /** The impact section cut to whole sentences, as markdown, when it states a measurement. Empty otherwise. */
+      impact_sentence: string;
+      /** The pull request the proposal names, or else the summary, when it names exactly one. */
+      named_pull_request: PullRequestLink | null;
+      /** Whether the proposal names any pull request. */
+      solution_names_pull_request: boolean;
+      /** The signals to show as evidence, at most 3, newest first, one per source first. */
+      evidence: SignalView[];
+      /** How many distinct source objects the report's newest 100 signals come from. The impact numbers and last seen use the same signals. */
+      source_count: number;
+      /** Numbers the signals size the problem with, such as distinct support tickets. */
+      impact_numbers: ImpactNumber[];
+      /**
+         * When the newest session, ticket or alert behind the report happened.
+         * @nullable
+         */
+      last_seen: string | null;
     }
 
     export type ReportPriority = typeof ReportPriority[keyof typeof ReportPriority];
@@ -124029,6 +124333,13 @@ export namespace Schemas {
      * @maxLength 64
      */
     timezone?: string;
+    };
+
+    export type TodayReportsKeyClausesRetrieveParams = {
+    /**
+     * Whether to mark the impact sentence. Pass false when the page shows an impact number instead.
+     */
+    include_impact?: boolean;
     };
 
     export type TracingRetentionRulesListParams = {
