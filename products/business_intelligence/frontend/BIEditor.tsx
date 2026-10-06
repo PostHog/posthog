@@ -1,9 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { resizerLogic, ResizerLogicProps } from 'lib/components/Resizer/resizerLogic'
 import { IconTableChart } from 'lib/lemon-ui/icons'
-import { editorSizingLogic } from 'scenes/data-warehouse/editor/editorSizingLogic'
 
 import { BICalculatedMeasureModal } from 'products/business_intelligence/frontend/BICalculatedMeasureModal'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
@@ -27,7 +27,15 @@ import { BIToolbar } from 'products/business_intelligence/frontend/components/BI
 export function BIEditor({ tabId, children }: { tabId: string; children: ReactNode }): JSX.Element {
     const { config, showMeOpen, dragSessionId } = useValues(biEditorLogic({ tabId }))
     const { removeFieldFromShelf, setActiveDropShelf } = useActions(biEditorLogic({ tabId }))
-    const { biSidePaneWidth, biEditorResizerProps } = useValues(editorSizingLogic)
+    const containerRef = useRef<HTMLDivElement>(null)
+    const biEditorResizerProps: ResizerLogicProps = {
+        logicKey: 'bi-editor-side-pane',
+        placement: 'right',
+        containerRef,
+        persistent: true,
+    }
+    const { desiredSize } = useValues(resizerLogic(biEditorResizerProps))
+    const biSidePaneWidth = Math.min(400, Math.max(180, desiredSize ?? 240))
 
     return (
         <BindLogic logic={biEditorLogic} props={{ tabId }}>
