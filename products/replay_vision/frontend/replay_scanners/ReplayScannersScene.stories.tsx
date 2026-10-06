@@ -71,7 +71,8 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         emits_signals: false,
         scanner_version: 1,
         last_swept_at: '2026-05-12T00:00:00Z',
-        created_at: '2026-05-12T00:00:00Z',
+        // Older than the Overview's 14-day default, so its range matches the 14 days in the trend mock.
+        created_at: '2026-04-01T00:00:00Z',
         updated_at: '2026-05-12T00:00:00Z',
         created_by: null,
         credits_this_month: 0,
