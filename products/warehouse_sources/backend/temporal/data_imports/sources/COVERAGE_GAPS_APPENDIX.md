@@ -3692,10 +3692,10 @@ Today (7): `customers`, `events`, `mandates`, `payments`, `payouts`, `refunds`, 
 
 Diffed against: <https://developer.gocardless.com/api-reference/>
 
-- [ ] `payout_items (/payouts/{id}/items)` — line items that reconcile each payout to its underlying payments, refunds and fees - the core payout reconciliation join (high)
-- [ ] `customer_bank_accounts` — lookup resolving the customer_bank_account IDs carried on every mandate and payment we already sync (high)
-- [ ] `creditors` — lookup resolving the creditor ID on payments, payouts and mandates (high)
-- [ ] `balances` — current available/pending funds per creditor - the headline treasury metric (medium)
+- [x] `payout_items (/payouts/{id}/items)` — line items that reconcile each payout to its underlying payments, refunds and fees - the core payout reconciliation join (high)
+- [x] `customer_bank_accounts` — lookup resolving the customer_bank_account IDs carried on every mandate and payment we already sync (high)
+- [x] `creditors` — lookup resolving the creditor ID on payments, payouts and mandates (high)
+- [x] `balances` — current available/pending funds per creditor - the headline treasury metric (medium)
 - [ ] `instalment_schedules` — payment plans that group the individual payments we sync (medium)
 - [ ] `billing_requests` — the modern checkout/mandate-setup funnel object, needed to measure setup conversion (medium)
 - [ ] `payment_account_transactions` — transaction ledger for embedded payment accounts (medium)
@@ -4491,10 +4491,10 @@ Today (9): `allocations_by_investment_category`, `allocations_by_person`, `alloc
 
 Diffed against: <https://raw.githubusercontent.com/Jellyfish-AI/jellyfish-mcp/main/README.md>
 
-- [ ] `metrics/person_metrics` — per-engineer engineering metrics; we sync engineers and company_metrics but nothing in between (high)
-- [ ] `metrics/team_metrics` — per-team metrics for the teams we already sync — the main breakdown dimension (high)
-- [ ] `allocations/details/work_category (+ by_person, by_team)` — allocation split by work category; we sync the work_categories lookup and investment-category allocations but not the work-category allocations themselves (high)
-- [ ] `delivery/deliverable_scope_and_effort_history` — scope and effort change history for the deliverables we sync — the state-transition record behind delivery risk (high)
+- [x] `metrics/person_metrics` — per-engineer engineering metrics; we sync engineers and company_metrics but nothing in between (high)
+- [x] `metrics/team_metrics` — per-team metrics for the teams we already sync — the main breakdown dimension (high)
+- [x] `allocations/details/work_category (+ by_person, by_team)` — allocation split by work category; we sync the work_categories lookup and investment-category allocations but not the work-category allocations themselves (high)
+- [x] `delivery/deliverable_scope_and_effort_history` — scope and effort change history for the deliverables we sync — the state-transition record behind delivery risk (high)
 - [ ] `metrics/team_sprint_summary` — sprint-level throughput and commitment per team (medium)
 - [ ] `allocations/details/investment_category_person and investment_category_team` — finer-grained investment-category breakdown than the flat allocations table we have (medium)
 - [ ] `allocations/summary/investment_category and summary/work_category` — prebuilt allocation rollups for dashboards without re-aggregating detail rows (medium)
@@ -4528,10 +4528,10 @@ Today (4): `artifacts`, `builds`, `repositories`, `storage_summary`
 
 Diffed against: <https://docs.jfrog.com/artifactory/docs/aql-entities-fields-reference.md>
 
-- [ ] `AQL promotion domain (build promotions)` — build state transition history - when a build moved to which repo, by whom, with what status (high)
-- [ ] `AQL statistic domain (stat.downloads, stat.downloaded, stat.downloaded_by)` — artifact download counts and last-download - the headline consumption metric for a registry (high)
-- [ ] `AQL artifact / module / dependency domains (build artifacts and dependencies)` — line items joining the already-synced builds to the already-synced artifacts, plus the dependency graph (high)
-- [ ] `Xray Get Violations (/xray/api/v1/violations)` — security and license policy violations per artifact/build, the main security-analytics fact table (high)
+- [x] `AQL promotion domain (build promotions)` — build state transition history - when a build moved to which repo, by whom, with what status (high)
+- [x] `AQL statistic domain (stat.downloads, stat.downloaded, stat.downloaded_by)` — artifact download counts and last-download - the headline consumption metric for a registry (high)
+- [x] `AQL artifact / module / dependency domains (build artifacts and dependencies)` — line items joining the already-synced builds to the already-synced artifacts, plus the dependency graph (high)
+- [x] `Xray Get Violations (/xray/api/v1/violations)` — security and license policy violations per artifact/build, the main security-analytics fact table (high)
 - [ ] `AQL property domain (artifact properties)` — key/value metadata on artifacts used for promotion and environment labelling (medium)
 - [ ] `Xray Artifact Summary / Build Summary (/xray/api/v1/summary/*)` — per-artifact and per-build vulnerability and license rollups (medium)
 - [ ] `Release bundles: Get All Bundles / Get All Bundle Versions (AQL release domain)` — release-level grouping of artifacts, the unit teams actually ship (medium)
