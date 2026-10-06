@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useCallback } from 'react'
 
 import { Search } from 'lib/components/Search/Search'
-import { SearchItem } from 'lib/components/Search/searchLogic'
+import { SearchItem } from 'lib/components/Search/searchItems'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
