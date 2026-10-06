@@ -29707,7 +29707,7 @@
                     "type": "boolean"
                 },
                 "optimizeCrossJoins": {
-                    "description": "Move eligible non-nullable equality filters from CROSS JOIN queries into INNER ALL JOIN constraints",
+                    "description": "Move eligible non-nullable equality filters from CROSS JOIN queries into ALL INNER JOIN constraints",
                     "type": "boolean"
                 },
                 "optimizeJoinedFilters": {
