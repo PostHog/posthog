@@ -15,7 +15,6 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.organization_integration import OrganizationIntegration
-from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -94,6 +93,9 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
         assert output["would create"] == "1"
         assert output["would fill"] == "1"
         assert output["provisioning_api organizations, would create"] == "1"
+        assert not ActivityLog.objects.filter(
+            organization_id=self.organization.id, scope="Organization", activity="updated"
+        ).exists()
 
     def test_live_run_skips_unresolvable_rows_and_attributes_the_rest(self):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
@@ -173,7 +175,22 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
         self._run_command(rows, "--live-run")
 
         assert self._recorded_creator() == expected
-        assert not OrganizationProvisioning.objects.exists()
+        logs = ActivityLog.objects.filter(
+            organization_id=self.organization.id, scope="Organization", activity="updated"
+        )
+        assert logs.count() == int(expected is not None)
+        if expected is not None:
+            detail = logs.get().detail
+            assert detail is not None
+            assert detail["trigger"]["job_id"] == "backfill_agentic_provisioning_attribution"
+            assert all(change["action"] == "created" for change in detail["changes"])
+            assert {change["field"]: change["after"] for change in detail["changes"]} == {
+                "provisioning_source": expected[0],
+                "provisioning_application": {
+                    "id": str(self.apps["partner"].id),
+                    "name": self.apps["partner"].name,
+                },
+            }
 
     def test_live_run_never_replaces_recorded_organization_creator(self):
         Organization.objects.filter(id=self.organization.id).update(
@@ -185,90 +202,6 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
 
         assert self._recorded_creator() == ("provisioning_api", "other_partner")
         assert output["provisioning_api organizations, skipped_other_partner"] == "1"
-
-    @parameterized.expand(
-        [
-            ("api", "provisioning_api", "partner", None, True, ("provisioning_api", "partner"), "create"),
-            ("stripe", "stripe_projects", "partner", None, True, ("stripe_projects", "partner"), "create"),
-            ("vercel", "vercel", None, None, True, ("vercel", None), "create"),
-            ("dry_run", "provisioning_api", "partner", None, False, None, "would create"),
-            (
-                "same_creator",
-                "provisioning_api",
-                "partner",
-                "partner",
-                True,
-                ("provisioning_api", "partner"),
-                "already_recorded",
-            ),
-            (
-                "different_creator",
-                "provisioning_api",
-                "partner",
-                "other_partner",
-                True,
-                ("provisioning_api", "other_partner"),
-                "skipped_other_partner",
-            ),
-        ]
-    )
-    def test_copies_existing_organization_attribution(
-        self,
-        _name: str,
-        source: str,
-        application: str | None,
-        existing_application: str | None,
-        live_run: bool,
-        expected: tuple[str, str | None] | None,
-        outcome: str,
-    ) -> None:
-        OrganizationProvisioning.objects.create(
-            organization=self.organization,
-            partner=source,
-            application=self.apps[application] if application else None,
-        )
-        if existing_application:
-            Organization.objects.filter(id=self.organization.id).update(
-                provisioning_source=Organization.ProvisioningSource.PROVISIONING_API,
-                provisioning_application=self.apps[existing_application],
-            )
-
-        output = self._run_command([], *(["--live-run"] if live_run else []))
-
-        assert self._recorded_creator() == expected
-        assert output[f"Existing organization attribution, {outcome}"] == "1"
-        logs = ActivityLog.objects.filter(
+        assert not ActivityLog.objects.filter(
             organization_id=self.organization.id, scope="Organization", activity="updated"
-        )
-        assert logs.count() == int(live_run and outcome == "create")
-        if live_run and outcome == "create":
-            detail = logs.get().detail
-            assert detail is not None
-            assert detail["trigger"]["job_id"] == "backfill_agentic_provisioning_attribution"
-            assert all(change["action"] == "created" for change in detail["changes"])
-            assert {change["field"]: change["after"] for change in detail["changes"]} == {
-                "provisioning_source": source,
-                **(
-                    {
-                        "provisioning_application": {
-                            "id": str(self.apps[application].id),
-                            "name": self.apps[application].name,
-                        }
-                    }
-                    if application
-                    else {}
-                ),
-            }
-
-    @parameterized.expand([("live", True), ("dry", False)])
-    def test_existing_attribution_takes_precedence_over_inferred_creator(self, _name: str, live_run: bool) -> None:
-        OrganizationProvisioning.objects.create(
-            organization=self.organization,
-            partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
-            application=self.apps["other_partner"],
-        )
-
-        output = self._run_command([(self.team.id, self.apps["partner"].id)], *(["--live-run"] if live_run else []))
-
-        assert self._recorded_creator() == (("stripe_projects", "other_partner") if live_run else None)
-        assert output["provisioning_api organizations, skipped_other_partner"] == "1"
+        ).exists()
