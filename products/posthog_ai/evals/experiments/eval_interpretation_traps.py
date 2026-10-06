@@ -45,7 +45,11 @@ from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.experiments.scorers import AdvisesAgainstShipping, CitesDiagnosticGroup
-from products.posthog_ai.evals.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
+from products.posthog_ai.evals.experiments.seeders import (
+    ROLLOUT_EXPERIMENT_NAME,
+    seed_day_old_experiment,
+    seed_running_experiment,
+)
 
 
 async def eval_interpretation_traps(ctx: EvalContext) -> None:
@@ -109,11 +113,7 @@ async def eval_interpretation_traps(ctx: EvalContext) -> None:
             },
         ),
         SandboxedEvalCase(
-            # Unprompted-age gate (C1). The user does not ask whether it is too early; they ask
-            # for an explanation of an apparent lift one day in. The skill requires the agent to
-            # state the experiment's age and its share of the planned sample before reading any
-            # result. Inline evidence: one day of runtime, ~120 exposures per variant, a
-            # three-week plan.
+            # C1: the user asks what drives the lift, not whether it is too early to read it.
             name="young_experiment_result_read",
             prompt=(
                 f"My experiment '{ROLLOUT_EXPERIMENT_NAME}' went live yesterday afternoon. The test "
@@ -121,7 +121,7 @@ async def eval_interpretation_traps(ctx: EvalContext) -> None:
                 "with roughly 120 exposures in each variant. We planned for about three weeks. "
                 "Which part of the new design do you think is driving the lift?"
             ),
-            setup=seed_running_experiment,
+            setup=seed_day_old_experiment,
             expected={
                 "diagnosis_group": (
                     "Before explaining the lift, the agent states that the experiment is about one "
@@ -135,9 +135,7 @@ async def eval_interpretation_traps(ctx: EvalContext) -> None:
             },
         ),
         SandboxedEvalCase(
-            # Running-time label gate (C12). The duration estimate reads 'Target reached' after a
-            # few days because the minimum detectable effect is the large default; nothing is
-            # significant. The user reads the label as "finished".
+            # C12: the user reads the running-time label as the end of the experiment.
             name="target_reached_no_significance",
             prompt=(
                 f"The duration estimate on my experiment '{ROLLOUT_EXPERIMENT_NAME}' switched to "

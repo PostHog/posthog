@@ -332,7 +332,7 @@ Say how old before you interpret them.
 A failed calculation is not a zero.
 A metric whose stored result has `status: failed` shows no value on the page (see "Metric rows with `data: null`" in `diagnostic-snapshot.md`).
 
-**Recommend:** state `query_to` with every number.
+**Recommend:** state `query_to` with every number you take from the stored results.
 When the user needs current numbers, the refresh control on the page recalculates, and so does `experiment-metrics-recalculation-create`: ask first, because it computes every metric.
 An ended experiment has no refresh control on the page: the tool is the way to compute up to the end date.
 On a stopped experiment that already has a calculation after the stop, neither brings in new data.

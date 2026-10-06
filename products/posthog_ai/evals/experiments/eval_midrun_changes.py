@@ -58,6 +58,7 @@ from products.posthog_ai.evals.experiments.seeders import (
     ENDED_EXPERIMENT_NAME,
     ROLLOUT_EXPERIMENT_NAME,
     seed_ended_experiment_with_flag_flip,
+    seed_paused_and_resumed_experiment,
     seed_running_experiment,
 )
 
@@ -124,9 +125,7 @@ async def eval_midrun_changes(ctx: EvalContext) -> None:
             },
         ),
         SandboxedEvalCase(
-            # Interruption gate (E9). A pause in the middle of a run, then a resume, with nothing
-            # else changed. The tempting wrong answer is "the split did not change, so the result
-            # is unaffected". Inline evidence: 5 paused days inside a 14-day run.
+            # E9: the tempting wrong answer is "the split did not change, so the result is unaffected".
             name="pause_inside_the_run",
             prompt=(
                 f"We paused my experiment '{ROLLOUT_EXPERIMENT_NAME}' for five days in the middle "
@@ -134,7 +133,7 @@ async def eval_midrun_changes(ctx: EvalContext) -> None:
                 "unchanged and nothing else was edited. Can I read the results as if it had run "
                 "the whole two weeks?"
             ),
-            setup=seed_running_experiment,
+            setup=seed_paused_and_resumed_experiment,
             expected={
                 "diagnosis_group": (
                     "The agent explains that a pause turns the flag off, so people in the test "

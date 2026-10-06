@@ -73,7 +73,7 @@ Moves bucket boundaries; users may be reassigned between variants. Reassigned us
 get excluded (default) or attributed to first-seen. Either way, introduces bias.
 The product allows the edit on a running experiment, with a warning only.
 
-After a split change the sample ratio test compares the whole run against the new split and reports a mismatch (A2 in `bias-and-skew.md`).
+After a split change the sample ratio test compares the whole run against the new split, and can report a mismatch that the assignment never had (A2 in `bias-and-skew.md`), depending on how far the counts of the run sit from the new split.
 
 **Recommend:** reset the experiment if early; end and start a new one if significant data exists.
 Where the data before the change is not worth keeping, moving the start date to the change is the smaller step (E17).

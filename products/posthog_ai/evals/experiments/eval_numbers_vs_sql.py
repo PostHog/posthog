@@ -125,11 +125,7 @@ async def eval_numbers_vs_sql(ctx: EvalContext) -> None:
             },
         ),
         SandboxedEvalCase(
-            # Population gate (D12). The experiment and the team's own insight disagree because
-            # they count different people. The user offers the tempting wrong conclusion: the
-            # exposure settings are defaults, so the setup must be fine. The skill requires the
-            # agent to compare the exposed population with the population the decision is about
-            # before calling the setup sound.
+            # D12: the user offers the wrong conclusion that default exposure settings make the setup sound.
             name="insight_counts_narrower_population",
             prompt=(
                 f"My experiment '{ROLLOUT_EXPERIMENT_NAME}' changes our signup page. The experiment "
