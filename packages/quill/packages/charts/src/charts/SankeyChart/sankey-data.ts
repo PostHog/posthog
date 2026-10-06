@@ -19,7 +19,6 @@ export interface SankeyNodeInput<Meta = unknown> {
 export interface SankeyLinkInput<Meta = unknown> {
     source: string
     target: string
-    /** Flow magnitude. Drives the ribbon width and the node heights. */
     value: number
     /** CSS color for the ribbon. Defaults to the source node's color. */
     color?: string
@@ -30,13 +29,11 @@ export interface SankeyLinkInput<Meta = unknown> {
 /** How nodes spread across columns when a flow ends early. Mirrors d3-sankey's alignments. */
 export type SankeyNodeAlign = 'left' | 'right' | 'center' | 'justify'
 
-/** A laid-out node: the input plus its pixel box, column, and total flow. */
 export interface SankeyNodeDatum<Meta = unknown> {
     id: string
     label: string
     color: string
     meta?: Meta
-    /** Zero-based column, left to right. */
     column: number
     /** Sum of the larger side's link values (in or out). */
     value: number
@@ -62,7 +59,6 @@ export interface SankeyLinkDatum<NodeMeta = unknown, LinkMeta = NodeMeta> {
 export interface SankeyChartLayout<NodeMeta = unknown, LinkMeta = NodeMeta> {
     nodes: SankeyNodeDatum<NodeMeta>[]
     links: SankeyLinkDatum<NodeMeta, LinkMeta>[]
-    /** Number of columns the nodes occupy. */
     columnCount: number
     /** Pixel x of each column's left edge, so overlays can place column headers. */
     columnX: number[]
@@ -86,9 +82,7 @@ export interface ComputeSankeyLayoutOptions<NodeMeta, LinkMeta = NodeMeta> {
     nodeWidth: number
     nodePadding: number
     nodeAlign: SankeyNodeAlign
-    /** Keep the input order of nodes within a column instead of sorting by flow position. */
     preserveNodeOrder: boolean
-    /** Resolves a node's fill when it sets no `color`. Receives the node's label. */
     colorForLabel: (label: string) => string
     /** Applied to every color before it reaches the canvas, so `var(--…)` inputs resolve. */
     resolveColor: (color: string) => string

@@ -3,7 +3,6 @@ import type React from 'react'
 import type { ChartMargins, ChartTheme, TooltipContext } from '../../core/types'
 import type { SankeyLinkDatum, SankeyLinkInput, SankeyNodeAlign, SankeyNodeDatum, SankeyNodeInput } from './sankey-data'
 
-/** What the cursor is over, with the laid-out datum attached. */
 export type SankeyTooltipHit<NodeMeta = unknown, LinkMeta = NodeMeta> =
     | { kind: 'node'; node: SankeyNodeDatum<NodeMeta> }
     | { kind: 'link'; link: SankeyLinkDatum<NodeMeta, LinkMeta> }
@@ -28,7 +27,7 @@ export interface SankeyChartConfig {
     preserveNodeOrder?: boolean
     /** Header text for each column, left to right. Reserves room above the plot. */
     columnLabels?: string[]
-    /** Draw each node's label beside it. Defaults to true. */
+    /** Defaults to true. */
     showNodeLabels?: boolean
     /** Append the node's value to its label. Defaults to false. */
     showNodeValues?: boolean
@@ -52,12 +51,10 @@ export interface SankeyChartProps<NodeMeta = unknown, LinkMeta = NodeMeta> {
     links: SankeyLinkInput<LinkMeta>[]
     theme: ChartTheme
     config?: SankeyChartConfig
-    /** Replaces the default tooltip content. */
     tooltip?: (ctx: SankeyTooltipContext<NodeMeta, LinkMeta>) => React.ReactNode
     onNodeClick?: (node: SankeyNodeDatum<NodeMeta>) => void
     onLinkClick?: (link: SankeyLinkDatum<NodeMeta, LinkMeta>) => void
     className?: string
-    /** `data-attr` applied to the chart wrapper. */
     dataAttr?: string
     /** Overlays rendered above the canvas. Read the layout with `useSankeyLayout()`. */
     children?: React.ReactNode
