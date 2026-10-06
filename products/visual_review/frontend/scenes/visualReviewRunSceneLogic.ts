@@ -764,8 +764,13 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         ],
         cleanQuarantinedSnapshots: [
             (s) => [s.quarantinedRunSnapshots],
+            // `unchanged` also covers tolerated variants, and a lift needs the exact baseline picture.
             (quarantinedRunSnapshots: SnapshotApi[]): SnapshotApi[] =>
-                quarantinedRunSnapshots.filter((s) => s.result === 'unchanged'),
+                quarantinedRunSnapshots.filter((s) => {
+                    const renderedHash = s.current_artifact?.content_hash
+                    const baselineHash = s.baseline_artifact?.content_hash
+                    return s.result === 'unchanged' && (!renderedHash || !baselineHash || renderedHash === baselineHash)
+                }),
         ],
         cleanQuarantinedGroups: [
             (s) => [s.cleanQuarantinedSnapshots, s.liftRequestByIdentifier, s.quarantinedIdentifiers],
