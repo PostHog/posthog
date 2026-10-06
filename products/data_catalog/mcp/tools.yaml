@@ -180,8 +180,9 @@ tools:
             overrides, so report the window the definition itself covers, or ask for a parameterized metric. Either way,
             do not re-derive the series by hand. A null 'row_limit' means no row cap was reported for that run, so
             'has_more' is false and the response cannot tell you whether the results are complete. Put
-            'provenance.label' word for word on every number in the answer that this result produced. The server picks 🛡️
-            approved or 📝 not approved from the metric's status and drift, so never write or upgrade a label yourself.
+            'provenance.label' word for word on every number in the answer that this result produced. The server picks
+            🛡️ approved or 📝 not approved from the metric's status and drift, so never write or upgrade a label
+            yourself.
     data-catalog-metric-update:
         operation: data_catalog_metrics_partial_update
         enabled: true
