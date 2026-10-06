@@ -403,6 +403,15 @@ describe('annotationsOverlayLogic', () => {
                     },
                 },
             })
+            // The same insight already shows on its own project's page, for example in another scene tab.
+            const ownProjectLogic = annotationsOverlayLogic({
+                dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+                insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+                dashboardId: MOCK_DASHBOARD_ID,
+                dates: ['2022-01-01', '2023-01-01'],
+                ticks: [{ value: 0 }, { value: 1 }],
+            })
+            ownProjectLogic.mount()
 
             logic = annotationsOverlayLogic({
                 dashboardItemId: MOCK_INSIGHT_SHORT_ID,
@@ -423,6 +432,7 @@ describe('annotationsOverlayLogic', () => {
                 readOnly: true,
                 relevantAnnotations: [deserializeAnnotation(MOCK_ANNOTATION_FROM_OTHER_PROJECT, 'Europe/Moscow')],
             })
+            ownProjectLogic.unmount()
         })
 
         it.each([

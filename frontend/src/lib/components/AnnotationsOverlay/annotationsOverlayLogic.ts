@@ -212,7 +212,12 @@ export type annotationsOverlayLogicType = MakeLogicType<
 export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
     path((key) => ['lib', 'components', 'Annotations', 'annotationsOverlayLogic', key]),
     props({ dashboardId: undefined, sourceProject: undefined } as AnnotationsOverlayLogicProps),
-    key(({ insightNumericId, kind }) => (kind ? `${insightNumericId}::${kind}` : insightNumericId)),
+    key(({ insightNumericId, kind, sourceProject }) => {
+        const key = kind ? `${insightNumericId}::${kind}` : insightNumericId
+        // The connected annotation source is fixed when the logic is built, and one insight can show in its own
+        // project and on a cross-project dashboard at once, in two scene tabs.
+        return sourceProject ? `${key}@${sourceProject.id}` : key
+    }),
     connect((props: AnnotationsOverlayLogicProps) => ({
         values: [
             insightLogic,
