@@ -121,6 +121,19 @@ describe('computeSankeyLayout', () => {
         expect(dense.nodeWidth).toBe(10)
     })
 
+    it('caps node width by the furthest pin when pins add columns past the longest path', () => {
+        const pinned = layoutOf({
+            nodes: [
+                { id: 'x', column: 0 },
+                { id: 'y', column: 99 },
+            ],
+            links: [{ source: 'x', target: 'y', value: 1 }],
+            nodeAlign: 'left',
+        })
+        expect(pinned.columnCount).toBe(100)
+        expect(pinned.nodeWidth).toBeCloseTo(600 / 99)
+    })
+
     it('returns an empty layout without links and throws on a link to a missing node', () => {
         expect(layoutOf({ links: [] }).nodes).toHaveLength(0)
         expect(() => layoutOf({ links: [{ source: 'start', target: 'nope', value: 1 }] })).toThrow(

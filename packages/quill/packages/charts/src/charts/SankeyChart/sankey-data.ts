@@ -139,6 +139,12 @@ export const EMPTY_SANKEY_LAYOUT: SankeyChartLayout<never> = {
     nodeWidth: 0,
 }
 
+/** Columns the layout will use: the longest path, or more when a pin reaches further right. */
+function columnCountOf(nodes: readonly SankeyNodeInput<unknown>[], links: readonly SankeyLinkInput<unknown>[]): number {
+    const pinned = nodes.reduce((max, node) => (node.column === undefined ? max : Math.max(max, node.column + 1)), 0)
+    return Math.max(longestPathLength(nodes, links), pinned)
+}
+
 /** Nodes on the longest path through the graph, which is the column count the layout engine
  *  gives it. A cycle stops the count early; the engine reports the cycle itself. */
 function longestPathLength(
@@ -222,7 +228,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     if (!Number.isFinite(nodePadding) || nodePadding < 0) {
         throw new Error(`Sankey nodePadding must be a finite number of 0 or more: ${nodePadding}`)
     }
-    const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, longestPathLength(nodes, links) - 1))
+    const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, columnCountOf(nodes, links) - 1))
 
     // The engine mutates its inputs, so hand it fresh objects.
     const engineNodes: LayoutNodeProps[] = nodes.map((node) => {
