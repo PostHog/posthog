@@ -622,6 +622,13 @@ CONVERSATIONS_TICKETS_JWT_SECRETS = get_list(
     get_from_env("CONVERSATIONS_TICKETS_JWT_SECRET", "local-dev-conversations-tickets-jwt" if DEBUG or TEST else "")
 )
 
+CONVERSATIONS_WORKFLOW_EMAILS_JWT_SECRETS = get_list(
+    get_from_env(
+        "CONVERSATIONS_WORKFLOW_EMAILS_JWT_SECRET",
+        "local-dev-conversations-workflow-emails-jwt" if DEBUG or TEST else "",
+    )
+)
+
 # Account actions and customer task creation share these keys but require distinct JWT audiences.
 # The worker mints, Django verifies. Comma-separated, newest first. Empty outside dev/test,
 # so scoped routes fail closed until provisioned. Account actions retain their legacy auth
