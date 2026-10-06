@@ -14,17 +14,17 @@ class WarehouseSuggestionStatus(LabeledStrEnum):
     ACCEPTED = "accepted"
     DISMISSED = "dismissed"
     EXPIRED = "expired"
-    AUTO_RESOLVED = "auto_resolved"
+    AUTO_RESOLVED = ("auto_resolved", "Auto-resolved")
 
 
 class WarehouseSuggestionSubjectKind(LabeledStrEnum):
-    SAVED_QUERY = "saved_query"
+    SAVED_QUERY = ("saved_query", "Saved query")
     TABLE = "table"
 
 
 class WarehouseSuggestionDismissalReason(LabeledStrEnum):
-    NOT_USEFUL = "not_useful"
-    NOT_NOW = "not_now"
+    NOT_USEFUL = ("not_useful", "Not useful")
+    NOT_NOW = ("not_now", "Not now")
     OTHER = "other"
 
 

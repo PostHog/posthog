@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -17,6 +18,7 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionDismissalReason,
+    WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
 )
@@ -104,15 +106,47 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         assert logged.count() == 2
         assert "We sunset this view" not in json.dumps([entry.detail for entry in logged], default=str)
 
-    def test_deciding_a_decided_suggestion_conflicts(self) -> None:
+    @parameterized.expand(
+        [
+            ("dismiss_a_dismissed_one", WarehouseSuggestionStatus.DISMISSED, "dismiss"),
+            ("resume_an_expired_one", WarehouseSuggestionStatus.EXPIRED, "resume"),
+        ]
+    )
+    def test_a_move_people_may_not_make_conflicts(
+        self, _name: str, current: WarehouseSuggestionStatus, action: str
+    ) -> None:
         suggestion = self._suggest(self.view.id)
-        self.client.post(f"{self.url}/{suggestion.id}/dismiss/", {"reason": WarehouseSuggestionDismissalReason.NOT_NOW})
+        WarehouseSuggestion.objects.for_team(self.team.id).filter(id=suggestion.id).update(status=current)
 
-        again = self.client.post(
-            f"{self.url}/{suggestion.id}/dismiss/", {"reason": WarehouseSuggestionDismissalReason.NOT_NOW}
+        response = self.client.post(
+            f"{self.url}/{suggestion.id}/{action}/", {"reason": WarehouseSuggestionDismissalReason.NOT_NOW}
         )
 
-        assert again.status_code == status.HTTP_409_CONFLICT, again.json()
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+
+    @parameterized.expand(
+        [
+            ("by_kind", "kind=deprecate", status.HTTP_200_OK, ["table"]),
+            ("by_status", "status=dismissed", status.HTTP_200_OK, ["table"]),
+            ("by_kind_and_status", "kind=certify&status=dismissed", status.HTTP_200_OK, []),
+            ("unknown_status", "status=bogus", status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    def test_list_filters(self, _name: str, query: str, expected_status: int, expected: list[str] | None) -> None:
+        ids = {
+            "view": self._suggest(self.view.id).id,
+            "table": self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE).id,
+        }
+        WarehouseSuggestion.objects.for_team(self.team.id).filter(id=ids["table"]).update(
+            kind=WarehouseSuggestionKind.DEPRECATE, status=WarehouseSuggestionStatus.DISMISSED
+        )
+
+        response = self.client.get(f"{self.url}/?{query}")
+
+        assert response.status_code == expected_status, response.json()
+        if expected is not None:
+            assert response.json()["count"] == len(expected)
+            assert [row["id"] for row in response.json()["results"]] == [str(ids[name]) for name in expected]
 
     def test_the_flag_off_forbids_the_endpoint(self) -> None:
         with patch(FLAG, return_value=False):

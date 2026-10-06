@@ -42,6 +42,9 @@ EDIT_ACCESS_REQUIRED = {
 
 
 class SuggestionPagination(LimitOffsetPagination):
+    default_limit = DEFAULT_PAGE_SIZE
+    max_limit = DEFAULT_PAGE_SIZE
+
     def paginate(self, request: Request, fetch_page: Callable[[int, int], SuggestionPage]) -> Response:
         self.request = request
         self.limit = self.get_limit(request) or DEFAULT_PAGE_SIZE

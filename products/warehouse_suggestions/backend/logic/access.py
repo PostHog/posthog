@@ -1,6 +1,6 @@
 from collections import defaultdict
-from collections.abc import Callable, Collection, Mapping
-from typing import TYPE_CHECKING
+from collections.abc import Collection, Mapping
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
 from django.db.models import Q, QuerySet
@@ -16,7 +16,17 @@ from ..models import WarehouseSuggestion
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 
-AllowedSubjectIds = Callable[..., frozenset[UUID]]
+
+class AllowedSubjectIds(Protocol):
+    def __call__(
+        self,
+        team_id: int,
+        user_access_control: "UserAccessControl",
+        *,
+        required_level: "AccessControlLevel" = ...,
+        ids: Collection[UUID] | None = ...,
+    ) -> frozenset[UUID]: ...
+
 
 ALLOWED_SUBJECT_IDS: Mapping[WarehouseSuggestionSubjectKind, AllowedSubjectIds] = {
     WarehouseSuggestionSubjectKind.SAVED_QUERY: allowed_saved_query_ids,

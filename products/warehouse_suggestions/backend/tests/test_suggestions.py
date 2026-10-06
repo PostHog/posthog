@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
@@ -18,26 +19,28 @@ from products.warehouse_suggestions.backend.models import WarehouseSuggestion
 
 WINDOW_START = datetime(2026, 9, 1, tzinfo=UTC)
 WINDOW_END = datetime(2026, 9, 30, tzinfo=UTC)
+SUBJECT_ID = UUID("01a11171-0000-7000-8000-000000000001")
 
 
 def make_draft(
     *,
     fingerprint: str = "certify:orders",
     subject_kind: WarehouseSuggestionSubjectKind = WarehouseSuggestionSubjectKind.SAVED_QUERY,
-    subject_id: UUID | None = None,
+    subject_id: UUID = SUBJECT_ID,
     score: float = 1.0,
+    evidence_window_end: datetime = WINDOW_END,
 ) -> SuggestionDraft:
     return SuggestionDraft(
         kind=WarehouseSuggestionKind.CERTIFY,
         fingerprint=fingerprint,
         subject_kind=subject_kind,
-        subject_id=subject_id or uuid4(),
+        subject_id=subject_id,
         payload={"name": "orders"},
         payload_version=1,
         rules_version="abc123",
         evidence={"distinct_readers": 4},
         evidence_window_start=WINDOW_START,
-        evidence_window_end=WINDOW_END,
+        evidence_window_end=evidence_window_end,
         score=score,
         score_inputs={"readers": 4},
         run_id="run-1",
@@ -109,23 +112,21 @@ class TestIngest(BaseTest):
 
     @parameterized.expand(
         [
-            ("dismissed", WarehouseSuggestionStatus.DISMISSED, timedelta(0)),
-            ("accepted", WarehouseSuggestionStatus.ACCEPTED, timedelta(0)),
-            ("refreshed_by_a_newer_run", WarehouseSuggestionStatus.PROPOSED, timedelta(hours=1)),
+            ("dismissed", {"status": WarehouseSuggestionStatus.DISMISSED}, {}),
+            ("accepted", {"status": WarehouseSuggestionStatus.ACCEPTED}, {}),
+            ("draft_with_older_evidence", {}, {"evidence_window_end": WINDOW_END - timedelta(days=1)}),
+            ("draft_about_another_subject", {}, {"subject_id": uuid4()}),
         ]
     )
     def test_ingest_leaves_the_suggestion_untouched(
-        self, _name: str, status: WarehouseSuggestionStatus, newer_by: timedelta
+        self, _name: str, row_changes: dict[str, Any], draft_changes: dict[str, Any]
     ) -> None:
         suggestion = ingest_one(self.team.id, make_draft(score=1.0))
-        last_seen_at = suggestion.last_seen_at + newer_by
-        WarehouseSuggestion.objects.for_team(self.team.id).filter(id=suggestion.id).update(
-            status=status, last_seen_at=last_seen_at
-        )
+        WarehouseSuggestion.objects.for_team(self.team.id).filter(id=suggestion.id).update(**row_changes)
 
-        after = ingest_one(self.team.id, make_draft(score=9.0))
+        after = ingest_one(self.team.id, make_draft(score=9.0, **draft_changes))
 
-        assert (after.status, after.score, after.last_seen_at) == (status, 1.0, last_seen_at)
+        assert (after.subject_id, after.score, after.last_seen_at) == (SUBJECT_ID, 1.0, suggestion.last_seen_at)
 
     def test_ingest_keeps_one_row_per_fingerprint_and_logs_no_activity(self) -> None:
         draft = make_draft()

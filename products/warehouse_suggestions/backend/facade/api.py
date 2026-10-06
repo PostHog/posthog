@@ -99,7 +99,15 @@ def _decide(
     row, access = _visible_suggestion(team_id, user_access_control, suggestion_id)
     if not access.can_act_on(row):
         raise SubjectEditAccessRequiredError(WarehouseSuggestionSubjectKind(row.subject_kind))
-    decided = suggestions.transition_to(row.id, team_id, new_status, user_id=user_id, reason=reason, note=note)
+    decided = suggestions.transition_to(
+        row.id,
+        team_id,
+        new_status,
+        user_id=user_id,
+        reason=reason,
+        note=note,
+        transitions=suggestions.HUMAN_TRANSITIONS,
+    )
     return _to_contract(decided, access)
 
 

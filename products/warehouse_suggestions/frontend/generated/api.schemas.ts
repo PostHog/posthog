@@ -31,7 +31,7 @@ export const WarehouseSuggestionKindEnumApi = {
 } as const
 
 /**
- * * `saved_query` - Saved Query
+ * * `saved_query` - Saved query
  * * `table` - Table
  */
 export type WarehouseSuggestionSubjectKindEnumApi =
@@ -47,7 +47,7 @@ export const WarehouseSuggestionSubjectKindEnumApi = {
  * * `accepted` - Accepted
  * * `dismissed` - Dismissed
  * * `expired` - Expired
- * * `auto_resolved` - Auto Resolved
+ * * `auto_resolved` - Auto-resolved
  */
 export type WarehouseSuggestionStatusEnumApi =
     (typeof WarehouseSuggestionStatusEnumApi)[keyof typeof WarehouseSuggestionStatusEnumApi]
@@ -61,8 +61,8 @@ export const WarehouseSuggestionStatusEnumApi = {
 } as const
 
 /**
- * * `not_useful` - Not Useful
- * * `not_now` - Not Now
+ * * `not_useful` - Not useful
+ * * `not_now` - Not now
  * * `other` - Other
  */
 export type WarehouseSuggestionDismissalReasonEnumApi =
@@ -124,7 +124,7 @@ export interface WarehouseSuggestionApi {
     kind: WarehouseSuggestionKindEnumApi
     /** Whether the subject is a saved query (view) or a warehouse table.
      *
-     * * `saved_query` - Saved Query
+     * * `saved_query` - Saved query
      * * `table` - Table */
     subject_kind: WarehouseSuggestionSubjectKindEnumApi
     /** proposed until someone accepts or dismisses it, or the job expires it.
@@ -133,12 +133,12 @@ export interface WarehouseSuggestionApi {
      * * `accepted` - Accepted
      * * `dismissed` - Dismissed
      * * `expired` - Expired
-     * * `auto_resolved` - Auto Resolved */
+     * * `auto_resolved` - Auto-resolved */
     status: WarehouseSuggestionStatusEnumApi
     /** Why the suggestion was dismissed.
      *
-     * * `not_useful` - Not Useful
-     * * `not_now` - Not Now
+     * * `not_useful` - Not useful
+     * * `not_now` - Not now
      * * `other` - Other */
     dismissal_reason: WarehouseSuggestionDismissalReasonEnumApi | null
     /** What happened to the asset an accepted suggestion created.
@@ -192,8 +192,8 @@ export interface PaginatedWarehouseSuggestionListApi {
 export interface DismissWarehouseSuggestionApi {
     /** Why the suggestion is dismissed.
      *
-     * * `not_useful` - Not Useful
-     * * `not_now` - Not Now
+     * * `not_useful` - Not useful
+     * * `not_now` - Not now
      * * `other` - Other */
     reason: WarehouseSuggestionDismissalReasonEnumApi
     /**
@@ -228,7 +228,7 @@ export type WarehouseSuggestionsListParams = {
      * * `accepted` - Accepted
      * * `dismissed` - Dismissed
      * * `expired` - Expired
-     * * `auto_resolved` - Auto Resolved
+     * * `auto_resolved` - Auto-resolved
      * @minLength 1
      */
     status?: WarehouseSuggestionsListStatus

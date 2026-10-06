@@ -1,7 +1,6 @@
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -13,7 +12,9 @@ from ..facade.contracts import SuggestionAlreadyDecidedError, SuggestionDraft
 from ..facade.enums import WarehouseSuggestionDismissalReason, WarehouseSuggestionStatus
 from ..models import WarehouseSuggestion
 
-ALLOWED_TRANSITIONS: Mapping[WarehouseSuggestionStatus, frozenset[WarehouseSuggestionStatus]] = {
+Transitions = Mapping[WarehouseSuggestionStatus, frozenset[WarehouseSuggestionStatus]]
+
+ALLOWED_TRANSITIONS: Transitions = {
     WarehouseSuggestionStatus.PROPOSED: frozenset(
         {
             WarehouseSuggestionStatus.ACCEPTED,
@@ -24,6 +25,13 @@ ALLOWED_TRANSITIONS: Mapping[WarehouseSuggestionStatus, frozenset[WarehouseSugge
     ),
     WarehouseSuggestionStatus.DISMISSED: frozenset({WarehouseSuggestionStatus.PROPOSED}),
     WarehouseSuggestionStatus.EXPIRED: frozenset({WarehouseSuggestionStatus.PROPOSED}),
+}
+
+HUMAN_TRANSITIONS: Transitions = {
+    WarehouseSuggestionStatus.PROPOSED: frozenset(
+        {WarehouseSuggestionStatus.ACCEPTED, WarehouseSuggestionStatus.DISMISSED}
+    ),
+    WarehouseSuggestionStatus.DISMISSED: frozenset({WarehouseSuggestionStatus.PROPOSED}),
 }
 
 HUMAN_DECISIONS = frozenset({WarehouseSuggestionStatus.ACCEPTED, WarehouseSuggestionStatus.DISMISSED})
@@ -49,11 +57,12 @@ def transition_to(
     user_id: int | None,
     reason: WarehouseSuggestionDismissalReason | None = None,
     note: str | None = None,
+    transitions: Transitions = ALLOWED_TRANSITIONS,
 ) -> WarehouseSuggestion:
     with transaction.atomic():
         suggestion = WarehouseSuggestion.objects.for_team(team_id).select_for_update().get(id=suggestion_id)
         current = WarehouseSuggestionStatus(suggestion.status)
-        if new_status not in ALLOWED_TRANSITIONS.get(current, frozenset()):
+        if new_status not in transitions.get(current, frozenset()):
             raise SuggestionAlreadyDecidedError(current, new_status)
         suggestion.status = new_status
         if new_status == WarehouseSuggestionStatus.PROPOSED:
@@ -91,16 +100,36 @@ def upsert_suggestions(team_id: int, drafts: Sequence[SuggestionDraft]) -> None:
     team_id = resolve_effective_team_id(team_id)
     suggestions = WarehouseSuggestion.objects.for_team(team_id, canonical=True)
     seen_at = timezone.now()
-    suggestions.bulk_create([_new_suggestion(team_id, draft, seen_at) for draft in drafts], ignore_conflicts=True)
-    for draft in drafts:
-        suggestions.filter(
-            fingerprint=draft.fingerprint, status=WarehouseSuggestionStatus.PROPOSED, last_seen_at__lt=seen_at
-        ).update(last_seen_at=seen_at, **_ingest_updates(draft))
+    drafts_by_fingerprint = {draft.fingerprint: draft for draft in drafts}
+    with transaction.atomic():
+        suggestions.bulk_create(
+            [_new_suggestion(team_id, draft, seen_at) for draft in drafts_by_fingerprint.values()],
+            ignore_conflicts=True,
+        )
+        candidates = suggestions.select_for_update().filter(
+            fingerprint__in=drafts_by_fingerprint,
+            status=WarehouseSuggestionStatus.PROPOSED,
+            last_seen_at__lt=seen_at,
+        )
+        refreshed = [
+            _refresh(row, drafts_by_fingerprint[row.fingerprint], seen_at)
+            for row in candidates
+            if _is_refreshed_by(row, drafts_by_fingerprint[row.fingerprint])
+        ]
+        suggestions.bulk_update(refreshed, [*DRAFT_FIELDS_UPDATED_ON_INGEST, "last_seen_at"])
+
+
+def _is_refreshed_by(row: WarehouseSuggestion, draft: SuggestionDraft) -> bool:
+    same_subject = (row.kind, row.subject_kind, row.subject_id) == (draft.kind, draft.subject_kind, draft.subject_id)
+    return same_subject and draft.evidence_window_end >= row.evidence_window_end
+
+
+def _refresh(row: WarehouseSuggestion, draft: SuggestionDraft, seen_at: datetime) -> WarehouseSuggestion:
+    for field in DRAFT_FIELDS_UPDATED_ON_INGEST:
+        setattr(row, field, getattr(draft, field))
+    row.last_seen_at = seen_at
+    return row
 
 
 def _new_suggestion(team_id: int, draft: SuggestionDraft, seen_at: datetime) -> WarehouseSuggestion:
     return WarehouseSuggestion(team_id=team_id, last_seen_at=seen_at, **asdict(draft))
-
-
-def _ingest_updates(draft: SuggestionDraft) -> dict[str, Any]:
-    return {field: getattr(draft, field) for field in DRAFT_FIELDS_UPDATED_ON_INGEST}

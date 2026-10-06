@@ -36155,8 +36155,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `not_useful` - Not Useful
-     * * `not_now` - Not Now
+     * * `not_useful` - Not useful
+     * * `not_now` - Not now
      * * `other` - Other
      */
     export type WarehouseSuggestionDismissalReasonEnum = typeof WarehouseSuggestionDismissalReasonEnum[keyof typeof WarehouseSuggestionDismissalReasonEnum];
@@ -36171,8 +36171,8 @@ export namespace Schemas {
     export interface DismissWarehouseSuggestion {
       /** Why the suggestion is dismissed.
        *
-       * * `not_useful` - Not Useful
-       * * `not_now` - Not Now
+       * * `not_useful` - Not useful
+       * * `not_now` - Not now
        * * `other` - Other */
       reason: WarehouseSuggestionDismissalReasonEnum;
       /**
@@ -73983,7 +73983,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `saved_query` - Saved Query
+     * * `saved_query` - Saved query
      * * `table` - Table
      */
     export type WarehouseSuggestionSubjectKindEnum = typeof WarehouseSuggestionSubjectKindEnum[keyof typeof WarehouseSuggestionSubjectKindEnum];
@@ -73999,7 +73999,7 @@ export namespace Schemas {
      * * `accepted` - Accepted
      * * `dismissed` - Dismissed
      * * `expired` - Expired
-     * * `auto_resolved` - Auto Resolved
+     * * `auto_resolved` - Auto-resolved
      */
     export type WarehouseSuggestionStatusEnum = typeof WarehouseSuggestionStatusEnum[keyof typeof WarehouseSuggestionStatusEnum];
 
@@ -74062,7 +74062,7 @@ export namespace Schemas {
       kind: WarehouseSuggestionKindEnum;
       /** Whether the subject is a saved query (view) or a warehouse table.
        *
-       * * `saved_query` - Saved Query
+       * * `saved_query` - Saved query
        * * `table` - Table */
       subject_kind: WarehouseSuggestionSubjectKindEnum;
       /** proposed until someone accepts or dismisses it, or the job expires it.
@@ -74071,12 +74071,12 @@ export namespace Schemas {
        * * `accepted` - Accepted
        * * `dismissed` - Dismissed
        * * `expired` - Expired
-       * * `auto_resolved` - Auto Resolved */
+       * * `auto_resolved` - Auto-resolved */
       status: WarehouseSuggestionStatusEnum;
       /** Why the suggestion was dismissed.
        *
-       * * `not_useful` - Not Useful
-       * * `not_now` - Not Now
+       * * `not_useful` - Not useful
+       * * `not_now` - Not now
        * * `other` - Other */
       dismissal_reason: WarehouseSuggestionDismissalReasonEnum | null;
       /** What happened to the asset an accepted suggestion created.
@@ -125617,7 +125617,7 @@ export namespace Schemas {
      * * `accepted` - Accepted
      * * `dismissed` - Dismissed
      * * `expired` - Expired
-     * * `auto_resolved` - Auto Resolved
+     * * `auto_resolved` - Auto-resolved
      * @minLength 1
      */
     status?: WarehouseSuggestionsListStatus;
