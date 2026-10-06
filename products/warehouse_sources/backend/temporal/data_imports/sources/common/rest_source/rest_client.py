@@ -215,6 +215,10 @@ _RATE_LIMIT_RESET_HEADERS: tuple[tuple[str, Callable[[str], Optional[float]]], .
     # Sentry signals its rate-limit window with a UNIX epoch timestamp rather than ``Retry-After``,
     # and Sentry's flat / fan-out endpoints (e.g. ``project_users``) sync through this client too.
     ("X-Sentry-Rate-Limit-Reset", _seconds_from_epoch_reset),
+    # X (Twitter) answers 429 with this UNIX epoch reset and no ``Retry-After``. Its windows are 15
+    # minutes wide and some endpoints allow only a handful of requests per window, so a backfill
+    # that falls back to exponential backoff spends its whole attempt budget inside one window.
+    ("x-rate-limit-reset", _seconds_from_epoch_reset),
     # The common ``X-RateLimit-*`` convention, spelled with a UNIX epoch reset and no
     # ``Retry-After`` — SendGrid answers every 429 this way, and its Email Activity endpoint is
     # capped at 6 requests/minute, so without honoring the reset a message-activity backfill

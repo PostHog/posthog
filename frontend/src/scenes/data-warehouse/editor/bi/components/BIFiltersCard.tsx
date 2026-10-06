@@ -14,7 +14,7 @@ export function BIFiltersCard(): JSX.Element {
 
     return (
         <BIShelfCard title="Filters">
-            <BIShelfDropTarget shelf="filters" className="flex min-h-12 flex-col gap-1 border border-dashed p-1">
+            <BIShelfDropTarget shelf="filters" className="flex min-h-6 flex-col gap-0.5">
                 {config.filters.length > 0 ? (
                     config.filters.map((filter, index) => <BIFilterPill key={filter.field.id} index={index} />)
                 ) : (
@@ -29,7 +29,7 @@ export function BIFiltersCard(): JSX.Element {
                 onClick={() => addBlankFieldToShelf('filters')}
                 data-attr="bi-editor-filters-add-field"
             >
-                Add a calculated filter
+                Add filter
             </LemonButton>
         </BIShelfCard>
     )

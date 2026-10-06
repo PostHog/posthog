@@ -45,6 +45,11 @@ const RAIL_PANE_HOME: Record<Exclude<TodayRailPane, 'more'>, () => string> = {
     tools: () => urls.tools(),
 }
 
+/** The page a rail pane opens, or undefined for panes without a page of their own. */
+export function railPaneHref(pane: TodayRailPane): string | undefined {
+    return pane === 'more' ? undefined : RAIL_PANE_HOME[pane]()
+}
+
 const PHONE_PAGE_LIMIT = 50
 
 export interface TodayPhonePage {
@@ -100,6 +105,8 @@ export interface todayShellLogicValues {
     activePane: TodayRailPane
     leftNavWidth: number
     mobileSidebarOpen: boolean
+    onAiPage: boolean
+    phoneHeaderHidden: boolean
     phoneLayout: boolean
     phonePages: TodayPhonePage[]
     pickedPane: TodayRailPane | null
@@ -173,6 +180,13 @@ export interface todayShellLogicMeta {
         ) => number
         sidebarVisible: (mobileLayout: boolean, mobileSidebarOpen: boolean, sidebarOpen: boolean) => boolean
         todayRailEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        onAiPage: (location: { hash: string; pathname: string; search: string }) => boolean
+        phoneHeaderHidden: (
+            onAiPage: boolean,
+            searchParams: Record<string, any>,
+            todayRailEnabled: boolean,
+            phoneLayout: boolean
+        ) => boolean
     }
 }
 
@@ -260,6 +274,22 @@ export const todayShellLogic = kea<todayShellLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV],
         ],
+        onAiPage: [
+            () => [router.selectors.location],
+            (location: { pathname: string }): boolean => {
+                const path = removeProjectIdIfPresent(location.pathname)
+                return path === urls.ai() || path.startsWith(`${urls.ai()}/`)
+            },
+        ],
+        phoneHeaderHidden: [
+            (s) => [s.onAiPage, router.selectors.searchParams, s.todayRailEnabled, s.phoneLayout],
+            (
+                onAiPage: boolean,
+                searchParams: Record<string, any>,
+                todayRailEnabled: boolean,
+                phoneLayout: boolean
+            ): boolean => todayRailEnabled && phoneLayout && onAiPage && !!searchParams.task,
+        ],
     }),
     subscriptions(({ actions }) => ({
         mobileLayout: () => actions.setMobileSidebarOpen(false),
@@ -299,8 +329,9 @@ export const todayShellLogic = kea<todayShellLogicType>([
         pickPane: ({ pane }) => {
             // pinned: analytics event name and property. Renaming them breaks dashboards.
             posthog.capture('today rail pane picked', { pane, phone_layout: values.phoneLayout })
-            if (pane !== 'more') {
-                router.actions.push(RAIL_PANE_HOME[pane]())
+            const href = railPaneHref(pane)
+            if (href) {
+                router.actions.push(href)
             }
             if (values.mobileLayout) {
                 actions.setMobileSidebarOpen(true)
