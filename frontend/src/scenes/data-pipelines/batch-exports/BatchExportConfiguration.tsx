@@ -35,6 +35,7 @@ import {
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
+import { EVENT_FIELD_DESCRIPTIONS } from './destinations/common'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
 
@@ -270,6 +271,11 @@ export function BatchExportConfiguration(): JSX.Element {
                                                     table={selectedModel ? selectedModel : 'events'}
                                                     tables={tables}
                                                     inEditSchemaMode={false}
+                                                    fieldDescriptions={
+                                                        !selectedModel || selectedModel === 'events'
+                                                            ? EVENT_FIELD_DESCRIPTIONS
+                                                            : undefined
+                                                    }
                                                 />
                                             </div>
                                         ),

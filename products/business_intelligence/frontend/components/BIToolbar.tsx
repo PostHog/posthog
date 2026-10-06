@@ -13,6 +13,8 @@ import { LIMIT_OPTIONS } from 'products/business_intelligence/frontend/biEditorO
 import { biSceneLogic } from 'products/business_intelligence/frontend/biSceneLogic'
 import { BIShowMe } from 'products/business_intelligence/frontend/components/BIShowMe'
 
+import { BIDateControls } from './BIDateControls'
+
 export function BIToolbar(): JSX.Element {
     const editor = useMountedLogic(biEditorLogic)
     const scene = biSceneLogic({ tabId: editor.props.tabId })
@@ -117,6 +119,8 @@ export function BIToolbar(): JSX.Element {
                 dropdownMatchSelectWidth={false}
                 data-attr="bi-editor-query-limit"
             />
+            <LemonDivider vertical />
+            <BIDateControls />
             <LemonDivider vertical />
             <LemonButton
                 size="small"

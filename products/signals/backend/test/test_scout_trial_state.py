@@ -16,7 +16,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from pydantic import JsonValue
 
-from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 
@@ -164,7 +164,13 @@ class TestScoutTrialState(APIBaseTest):
         assert store.search_memory(key="new", content_max_chars=8)[0].content == "Checkout"
 
 
-@override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True, AI_GATEWAY_URL="https://gateway.example/v1")
+@override_settings(
+    SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+    AI_GATEWAY_URL="https://gateway.example/v1",
+    AI_GATEWAY_API_KEY="phs_synthetic_api_key",
+    SANDBOX_AI_GATEWAY_URL=None,
+    SANDBOX_AI_GATEWAY_MINT_KEY=None,
+)
 class TestScoutTrialReportCapture(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -230,11 +236,12 @@ class TestScoutTrialReportCapture(APIBaseTest):
     def test_gateway_credential_is_narrow_and_revoked_after_safety_failure(self) -> None:
         token = create_trial_gateway_token(self.scout_run)
         assert token == "phe_synthetic_private_token"
+        gateway_config = AIGatewayConfig(url="https://gateway.example/v1", api_key="phs_synthetic_api_key")
         self.gateway_mint.assert_called_once_with(
-            team_id=self.team.id, user=self.user.distinct_id, expires_in_seconds=600
+            team_id=self.team.id, user=self.user.distinct_id, expires_in_seconds=600, gateway_config=gateway_config
         )
         revoke_trial_gateway_token(token)
-        self.gateway_revoke.assert_called_once_with(token)
+        self.gateway_revoke.assert_called_once_with(token, gateway_config=gateway_config)
         self.gateway_mint.reset_mock()
         self.gateway_revoke.reset_mock()
 
@@ -242,7 +249,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
         with self.assertRaisesRegex(RuntimeError, "Synthetic safety failure"):
             self._emit()
         self.gateway_mint.assert_called_once()
-        self.gateway_revoke.assert_called_once_with(token)
+        self.gateway_revoke.assert_called_once_with(token, gateway_config=gateway_config)
 
     @parameterized.expand(["untrusted_run", "revoked_actor", "revoked_membership"])
     def test_gateway_credential_rejects_invalid_trial_identity(self, condition: str) -> None:

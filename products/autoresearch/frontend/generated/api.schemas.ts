@@ -315,14 +315,59 @@ export const AutoresearchModelRoleEnumApi = {
 } as const
 
 /**
+ * * `positive` - Positive
+ * * `negative` - Negative
+ */
+export type FeatureDirectionEnumApi = (typeof FeatureDirectionEnumApi)[keyof typeof FeatureDirectionEnumApi]
+
+export const FeatureDirectionEnumApi = {
+    Positive: 'positive',
+    Negative: 'negative',
+} as const
+
+export interface FeatureImportanceApi {
+    /**
+     * Feature column name, as returned by the feature SQL.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.
+     * @minimum 0
+     */
+    importance: number
+    /** 'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.
+     *
+     * * `positive` - Positive
+     * * `negative` - Negative */
+    direction: FeatureDirectionEnumApi
+}
+
+/**
+ * Global feature importances for the model card.
+ */
+export interface ModelExplanationFieldApi {
+    /**
+     * At most 30 features, strongest first.
+     * @maxItems 30
+     */
+    top_features?: FeatureImportanceApi[]
+    /**
+     * Short description of how the importances were computed, e.g. 'permutation importance on holdout'.
+     * @maxLength 500
+     */
+    method?: string
+    /**
+     * Optional caveat shown under the chart.
+     * @maxLength 500
+     */
+    note?: string
+}
+
+/**
  * Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata.
  */
 export type AutoresearchModelApiModelRecipe = { [key: string]: unknown }
-
-/**
- * Global feature importance and directionality. Used to explain top drivers on the model card.
- */
-export type AutoresearchModelApiModelExplanation = { [key: string]: unknown }
 
 /**
  * Extended metrics bundle: Brier score, precision/recall at thresholds, lift@k, base rate, row counts.
@@ -345,7 +390,7 @@ export interface AutoresearchModelApi {
     /** Portable recipe artifact. Feature SQL, transforms, model class, params, and metadata. */
     model_recipe: AutoresearchModelApiModelRecipe
     /** Global feature importance and directionality. Used to explain top drivers on the model card. */
-    model_explanation: AutoresearchModelApiModelExplanation
+    model_explanation: ModelExplanationFieldApi
     /**
      * AUC on the held-out test split at training time. Preliminary signal before online labels mature.
      * @nullable
@@ -896,11 +941,6 @@ export interface StoredArtifactApi {
 }
 
 /**
- * Global feature importance / directionality bundle for the champion model card.
- */
-export type CompleteTrainingRunApiModelExplanation = { [key: string]: unknown }
-
-/**
  * Input for finalizing a training run. The backend selects/promotes the champion.
  */
 export interface CompleteTrainingRunApi {
@@ -910,7 +950,7 @@ export interface CompleteTrainingRunApi {
      */
     best_iteration_id?: string | null
     /** Global feature importance / directionality bundle for the champion model card. */
-    model_explanation?: CompleteTrainingRunApiModelExplanation
+    model_explanation?: ModelExplanationFieldApi
     /**
      * What a future run should try next, given what this run learned. Stored in the run summary so the next run reads it during orientation. Keep it short and concrete; max 2000 characters.
      * @maxLength 2000
