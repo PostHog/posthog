@@ -96,7 +96,6 @@ WORKFLOW_MODULE = "products.signals.backend.temporal.agentic.scout_trial_evaluat
 
 
 @override_settings(
-    SCOUT_LIVE_TRIALS_ENABLED=True,
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
     AI_GATEWAY_URL="https://gateway.example/v1",
     SANDBOX_AI_GATEWAY_URL="https://gateway.example",
@@ -155,7 +154,6 @@ class TestScoutTrialEvaluationValidation(SimpleTestCase):
 
 
 @override_settings(
-    SCOUT_LIVE_TRIALS_ENABLED=True,
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
     AI_GATEWAY_URL="https://gateway.example/v1",
     SANDBOX_AI_GATEWAY_URL="https://gateway.example",
@@ -369,7 +367,7 @@ class TestScoutTrialEvaluation(BaseTest):
     def test_saved_report_remains_readable_when_launches_are_disabled(self) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         report = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
-        with override_settings(SCOUT_LIVE_TRIALS_ENABLED=False, SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False):
+        with override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False):
             assert_evaluation_access(snapshot, config=self.config, user=self.user)
             assert read_trial_evaluation_report(snapshot) == report
             with self.assertRaises(ScoutTrialLaunchError):

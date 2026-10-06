@@ -294,7 +294,7 @@ export const Narrow: Story = {
 }
 export const LandingPages: Story = {
     play: async ({ canvasElement }) => {
-        await userEvent.click(within(canvasElement).getByText('Landing pages', { exact: true }))
+        await userEvent.click(await within(canvasElement).findByText('Landing pages', { exact: true }))
     },
 }
 export const OrganicDetail: Story = {
