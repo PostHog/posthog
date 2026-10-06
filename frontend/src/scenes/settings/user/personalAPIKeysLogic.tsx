@@ -15,11 +15,11 @@ import {
     APIScope,
     API_SCOPES,
     SCOPES_IMPLYING_FEATURE_FLAG_WRITE,
-    type ScopeAccessGroupModel,
+    type ScopePickerGroup,
     type ScopeAccessLevel,
-    type ScopeAccessRowModel,
-    clampScopeAccessLevel,
-    groupScopeAccessRows,
+    type ScopePickerRow,
+    clampScopeLevel,
+    groupScopeRows,
     scopeMatchesSearch,
     scopesArrayToObject,
     scopesObjectToArray,
@@ -42,9 +42,9 @@ export type EditingKeyFormValues = Pick<
 }
 
 /** A picker row for a personal API key, with the scope it stands for so the search can match it. */
-export type PersonalAPIKeyScopeRow = ScopeAccessRowModel & { scope: APIScope }
+export type PersonalAPIKeyScopeRow = ScopePickerRow & { scope: APIScope }
 
-export type PersonalAPIKeyScopeGroup = ScopeAccessGroupModel<PersonalAPIKeyScopeRow>
+export type PersonalAPIKeyScopeGroup = ScopePickerGroup<PersonalAPIKeyScopeRow>
 
 // The scopes array with each key set to its level. A write on a survey or early access feature also
 // writes a feature flag (targeting / linked flag), so it implies feature_flag:write (see
@@ -519,7 +519,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         filteredScopeGroups: [
             (s) => [s.searchTerm, s.scopeRows],
             (searchTerm: string, scopeRows: PersonalAPIKeyScopeRow[]): PersonalAPIKeyScopeGroup[] =>
-                groupScopeAccessRows(scopeRows.filter((row) => scopeMatchesSearch(row.scope, searchTerm))),
+                groupScopeRows(scopeRows.filter((row) => scopeMatchesSearch(row.scope, searchTerm))),
         ],
         formScopeRadioValues: [
             (s) => [s.editingKey],
@@ -787,7 +787,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             const rowsByKey = new Map<string, PersonalAPIKeyScopeRow>(values.scopeRows.map((row) => [row.key, row]))
             const levels = keys.flatMap((key): [string, ScopeAccessLevel][] => {
                 const row = rowsByKey.get(key)
-                return row ? [[key, clampScopeAccessLevel(row, level)]] : []
+                return row ? [[key, clampScopeLevel(row, level)]] : []
             })
             actions.setEditingKeyValue('scopes', withScopeLevels(values.editingKey.scopes, levels))
         },

@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react'
 import { IconCheck, IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
 
 import { ScopeAccessGroup } from 'lib/components/ScopeAccessRow/ScopeAccessGroup'
-import { ScopeAccessRowControl } from 'lib/components/ScopeAccessRow/ScopeAccessRowControl'
+import { ScopePickerRowItem } from 'lib/components/ScopeAccessRow/ScopePickerRowItem'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -479,11 +479,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                                     adjustableScopeRows.length > 0 && (
                                         <div className="flex flex-col">
                                             {adjustableScopeRows.map((row) => (
-                                                <ScopeAccessRowControl
-                                                    key={row.key}
-                                                    row={row}
-                                                    onChange={setScopeAccess}
-                                                />
+                                                <ScopePickerRowItem key={row.key} row={row} onChange={setScopeAccess} />
                                             ))}
                                         </div>
                                     )

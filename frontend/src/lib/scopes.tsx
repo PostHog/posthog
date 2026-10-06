@@ -15,7 +15,7 @@ const SCOPE_ACCESS_LEVEL_LABELS: Record<ScopeAccessLevel, string> = { none: 'no 
  * modal both build this shape, so one group control serves both. A level with no disabled reason is
  * available. The reason is the text the row's segment shows.
  */
-export type ScopeAccessRowModel = {
+export type ScopePickerRow = {
     key: string
     label: string
     value: ScopeAccessLevel
@@ -26,17 +26,16 @@ export type ScopeAccessRowModel = {
     muted?: boolean
 }
 
-export type ScopeAccessGroupModel<Row extends ScopeAccessRowModel = ScopeAccessRowModel> = {
+export type ScopePickerGroup<Row extends ScopePickerRow = ScopePickerRow> = {
     label: string
     rows: Row[]
 }
 
-export const scopeRowAllows = (row: ScopeAccessRowModel, level: ScopeAccessLevel): boolean =>
-    !row.disabledReasons[level]
+export const scopeRowAllows = (row: ScopePickerRow, level: ScopeAccessLevel): boolean => !row.disabledReasons[level]
 
 // The nearest available level: the same or a lower one first, so a group set to write holds a
 // read-only row at read, then a higher one, so a row an app requires at read never drops to none.
-export const clampScopeAccessLevel = (row: ScopeAccessRowModel, level: ScopeAccessLevel): ScopeAccessLevel => {
+export const clampScopeLevel = (row: ScopePickerRow, level: ScopeAccessLevel): ScopeAccessLevel => {
     const index = SCOPE_ACCESS_LEVELS.indexOf(level)
     const candidates = [...SCOPE_ACCESS_LEVELS.slice(0, index + 1).reverse(), ...SCOPE_ACCESS_LEVELS.slice(index + 1)]
     return candidates.find((candidate) => scopeRowAllows(row, candidate)) ?? row.value
@@ -45,17 +44,17 @@ export const clampScopeAccessLevel = (row: ScopeAccessRowModel, level: ScopeAcce
 // The group shows a level as selected when each row is at that level after the clamp. A level no
 // row can take is never selected, which removes the tie between write and read in a group with no
 // writable row, and between none and read in a group of required rows.
-export const scopeGroupAccessLevel = (rows: ScopeAccessRowModel[]): ScopeAccessLevel | undefined =>
+export const scopeGroupLevel = (rows: ScopePickerRow[]): ScopeAccessLevel | undefined =>
     [...SCOPE_ACCESS_LEVELS]
         .reverse()
         .find(
             (level) =>
                 rows.some((row) => scopeRowAllows(row, level)) &&
-                rows.every((row) => row.value === clampScopeAccessLevel(row, level))
+                rows.every((row) => row.value === clampScopeLevel(row, level))
         )
 
 // A level is disabled on the group when no row can take it. The reason is the rows' own.
-export const scopeGroupDisabledReasons = (rows: ScopeAccessRowModel[]): Partial<Record<ScopeAccessLevel, string>> =>
+export const scopeGroupDisabledReasons = (rows: ScopePickerRow[]): Partial<Record<ScopeAccessLevel, string>> =>
     Object.fromEntries(
         SCOPE_ACCESS_LEVELS.flatMap((level) => {
             const reason = rows.find((row) => !scopeRowAllows(row, level))?.disabledReasons[level]
@@ -65,10 +64,7 @@ export const scopeGroupDisabledReasons = (rows: ScopeAccessRowModel[]): Partial<
 
 // Tooltip on the selected group level, for the rows that sit at another level after the clamp.
 // Each row gives the reason its own segment shows, so the text names the real cause.
-export const scopeGroupLevelTooltip = (
-    rows: ScopeAccessRowModel[],
-    level: ScopeAccessLevel | undefined
-): string | undefined => {
+export const scopeGroupTooltip = (rows: ScopePickerRow[], level: ScopeAccessLevel | undefined): string | undefined => {
     if (!level) {
         return undefined
     }
@@ -675,7 +671,7 @@ export const getScopeGroupLabel = (scopeObject: string): string =>
 
 // The rows grouped by product area in API_SCOPE_GROUPS order. An object that is in no group goes in
 // the "Other" group at the end, so it still shows. A group with no row is left out.
-export const groupScopeAccessRows = <Row extends ScopeAccessRowModel>(rows: Row[]): ScopeAccessGroupModel<Row>[] => {
+export const groupScopeRows = <Row extends ScopePickerRow>(rows: Row[]): ScopePickerGroup<Row>[] => {
     const rowsByLabel = new Map<string, Row[]>()
     for (const row of rows) {
         const label = getScopeGroupLabel(row.key)

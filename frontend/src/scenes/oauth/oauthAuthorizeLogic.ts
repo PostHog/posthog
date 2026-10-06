@@ -11,13 +11,13 @@ import { OAUTH_SCOPES_SUPPORTED } from 'lib/oauthScopes.generated'
 import {
     API_SCOPES,
     DEFAULT_OAUTH_SCOPES,
-    clampScopeAccessLevel,
+    clampScopeLevel,
     getMinimumEquivalentScopes,
     getScopeDescription,
-    groupScopeAccessRows,
-    type ScopeAccessGroupModel,
+    groupScopeRows,
+    type ScopePickerGroup,
     type ScopeAccessLevel,
-    type ScopeAccessRowModel,
+    type ScopePickerRow,
 } from 'lib/scopes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
@@ -34,7 +34,7 @@ const IDENTITY_SCOPES = ['openid', 'profile', 'email', 'introspection']
 
 const scopeObjectKey = (scope: string): string => (scope === '*' ? '*' : scope.split(':')[0])
 
-export type OAuthScopeRow = ScopeAccessRowModel & {
+export type OAuthScopeRow = ScopePickerRow & {
     /** Full sentence description at the granted level, for the locked (checkmark) list. */
     description: string
     /** Required floor — the grant can never go below this. 'none' when not required. */
@@ -45,7 +45,7 @@ export type OAuthScopeRow = ScopeAccessRowModel & {
     locked: boolean
 }
 
-export type OAuthScopeGroup = ScopeAccessGroupModel<OAuthScopeRow>
+export type OAuthScopeGroup = ScopePickerGroup<OAuthScopeRow>
 
 // The floor and the ceiling as the reasons a level is not available, in the words the row shows.
 // The shared clamp and group control work from these, so a group set to write holds a read-only
@@ -842,7 +842,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                     const minLevel: ScopeAccessLevel = requiredScopeLevels.get(key) ?? 'none'
                     const disabledReasons = oauthDisabledReasons(minLevel, maxLevel, appName)
                     const selected = scopeAccessSelections.overrides[key] ?? scopeAccessSelections.bulk ?? maxLevel
-                    const value = clampScopeAccessLevel({ key, label: key, value: selected, disabledReasons }, selected)
+                    const value = clampScopeLevel({ key, label: key, value: selected, disabledReasons }, selected)
                     const apiScope = key === '*' ? undefined : API_SCOPES.find((s) => s.key === key)
                     const grantedScope = scope === '*' && value === 'write' ? '*' : `${key}:${value}`
                     return {
@@ -878,7 +878,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         ],
         scopeGroups: [
             (s) => [s.adjustableScopeRows],
-            (adjustableScopeRows: OAuthScopeRow[]): OAuthScopeGroup[] => groupScopeAccessRows(adjustableScopeRows),
+            (adjustableScopeRows: OAuthScopeRow[]): OAuthScopeGroup[] => groupScopeRows(adjustableScopeRows),
         ],
         allScopesRequired: [
             (s) => [s.scopeRows],

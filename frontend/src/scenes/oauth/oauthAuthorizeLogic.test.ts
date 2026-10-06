@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { decodeParams, router } from 'kea-router'
 
-import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel, scopeGroupAccessLevel, scopeGroupLevelTooltip } from 'lib/scopes'
+import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel, scopeGroupLevel, scopeGroupTooltip } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -523,8 +523,8 @@ describe('oauthAuthorizeLogic', () => {
             logic.actions.setScopes(['openid', 'session_recording:write', 'session_recording_playlist:read'])
             logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'none')
             expect(logic.values.effectiveScopes).toEqual(['openid'])
-            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('none')
-            expect(scopeGroupLevelTooltip(logic.values.adjustableScopeRows, 'none')).toBeUndefined()
+            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBe('none')
+            expect(scopeGroupTooltip(logic.values.adjustableScopeRows, 'none')).toBeUndefined()
             const [recordingRow, playlistRow] = logic.values.adjustableScopeRows
             const requiredRows = [
                 {
@@ -535,8 +535,8 @@ describe('oauthAuthorizeLogic', () => {
                 },
                 playlistRow,
             ]
-            expect(scopeGroupAccessLevel(requiredRows)).toBe('none')
-            expect(scopeGroupLevelTooltip(requiredRows, 'none')).toBe(
+            expect(scopeGroupLevel(requiredRows)).toBe('none')
+            expect(scopeGroupTooltip(requiredRows, 'none')).toBe(
                 '1 of these permissions stays at read: Test app requires at least read access.'
             )
             logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'write')
@@ -545,14 +545,14 @@ describe('oauthAuthorizeLogic', () => {
                 'session_recording:write',
                 'session_recording_playlist:read',
             ])
-            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('write')
-            expect(scopeGroupLevelTooltip(logic.values.adjustableScopeRows, 'write')).toBe(
+            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBe('write')
+            expect(scopeGroupTooltip(logic.values.adjustableScopeRows, 'write')).toBe(
                 '1 of these permissions stays at read: Not requested by Test app.'
             )
             logic.actions.setScopeAccess('session_recording', 'read')
-            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('read')
+            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBe('read')
             logic.actions.setScopeAccess('session_recording_playlist', 'none')
-            expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBeUndefined()
+            expect(scopeGroupLevel(logic.values.adjustableScopeRows)).toBeUndefined()
         })
     })
 })

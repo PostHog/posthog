@@ -5,11 +5,11 @@ import {
     API_SCOPE_GROUPS,
     API_SCOPES,
     API_SCOPES_OMITTED_FROM_MODAL,
-    type ScopeAccessRowModel,
-    clampScopeAccessLevel,
+    type ScopePickerRow,
+    clampScopeLevel,
     getScopeDescription,
-    scopeGroupAccessLevel,
-    scopeGroupLevelTooltip,
+    scopeGroupLevel,
+    scopeGroupTooltip,
     scopeMatchesSearch,
 } from 'lib/scopes'
 
@@ -96,7 +96,7 @@ describe('API_SCOPE_GROUPS', () => {
 })
 
 describe('scope access groups', () => {
-    const row = (key: string, value: ScopeAccessRowModel['value'], disabledReasons = {}): ScopeAccessRowModel => ({
+    const row = (key: string, value: ScopePickerRow['value'], disabledReasons = {}): ScopePickerRow => ({
         key,
         label: key,
         value,
@@ -116,7 +116,7 @@ describe('scope access groups', () => {
         ],
         ['rises to read when none is refused', row('a', 'write', { none: 'Required' }), 'none', 'read'],
     ])('%s', (_name, model, level, expected) => {
-        expect(clampScopeAccessLevel(model, level as ScopeAccessRowModel['value'])).toBe(expected)
+        expect(clampScopeLevel(model, level as ScopePickerRow['value'])).toBe(expected)
     })
 
     it('never selects a level no row can take, and names each row reason in the tooltip', () => {
@@ -125,12 +125,12 @@ describe('scope access groups', () => {
             row('b', 'read', { write: 'Not available for project scoped keys' }),
             row('c', 'write'),
         ]
-        expect(scopeGroupAccessLevel(rows)).toBe('write')
-        expect(scopeGroupLevelTooltip(rows, 'write')).toBe(
+        expect(scopeGroupLevel(rows)).toBe('write')
+        expect(scopeGroupTooltip(rows, 'write')).toBe(
             '1 of these permissions stays at read: Not requested by App. 1 of these permissions stays at read: Not available for project scoped keys.'
         )
-        expect(scopeGroupAccessLevel(rows.slice(0, 2))).toBe('read')
-        expect(scopeGroupAccessLevel([row('a', 'read'), row('b', 'none')])).toBeUndefined()
+        expect(scopeGroupLevel(rows.slice(0, 2))).toBe('read')
+        expect(scopeGroupLevel([row('a', 'read'), row('b', 'none')])).toBeUndefined()
     })
 })
 

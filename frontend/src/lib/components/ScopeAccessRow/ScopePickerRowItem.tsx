@@ -1,14 +1,14 @@
-import { type ScopeAccessLevel, type ScopeAccessRowModel } from 'lib/scopes'
+import { type ScopeAccessLevel, type ScopePickerRow } from 'lib/scopes'
 
 import { ScopeAccessRow } from './ScopeAccessRow'
 
-interface ScopeAccessRowControlProps {
-    row: ScopeAccessRowModel
+interface ScopePickerRowItemProps {
+    row: ScopePickerRow
     onChange: (scopeObject: string, level: ScopeAccessLevel) => void
 }
 
-/** A row of a scope picker built from the shared row model. */
-export function ScopeAccessRowControl({ row, onChange }: ScopeAccessRowControlProps): JSX.Element {
+/** Renders a `ScopePickerRow` through `ScopeAccessRow`, the row control with flat props. */
+export function ScopePickerRowItem({ row, onChange }: ScopePickerRowItemProps): JSX.Element {
     return (
         <ScopeAccessRow
             label={row.label}

@@ -5,18 +5,18 @@ import { IconChevronRight } from '@posthog/icons'
 import { LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import {
-    type ScopeAccessGroupModel,
+    type ScopePickerGroup,
     type ScopeAccessLevel,
     countScopeRowsByLevel,
-    scopeGroupAccessLevel,
+    scopeGroupLevel,
     scopeGroupDisabledReasons,
-    scopeGroupLevelTooltip,
+    scopeGroupTooltip,
 } from 'lib/scopes'
 
-import { ScopeAccessRowControl } from './ScopeAccessRowControl'
+import { ScopePickerRowItem } from './ScopePickerRowItem'
 
 interface ScopeAccessGroupProps {
-    group: ScopeAccessGroupModel
+    group: ScopePickerGroup
     onChangeRow: (scopeObject: string, level: ScopeAccessLevel) => void
     onChangeGroup: (scopeObjects: string[], level: ScopeAccessLevel) => void
     /** Whether the rows show on first render. */
@@ -37,9 +37,9 @@ export function ScopeAccessGroup({
     const [open, setOpen] = useState(defaultOpen)
     const panelId = useId()
     const counts = countScopeRowsByLevel(rows)
-    const value = scopeGroupAccessLevel(rows)
+    const value = scopeGroupLevel(rows)
     const disabledReasons = scopeGroupDisabledReasons(rows)
-    const valueTooltip = scopeGroupLevelTooltip(rows, value)
+    const valueTooltip = scopeGroupTooltip(rows, value)
     const keys = rows.map((row) => row.key)
     const groupSlug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 
@@ -110,7 +110,7 @@ export function ScopeAccessGroup({
             {open && (
                 <div id={panelId} className="flex flex-col pb-2 pl-7">
                     {rows.map((row) => (
-                        <ScopeAccessRowControl key={row.key} row={row} onChange={onChangeRow} />
+                        <ScopePickerRowItem key={row.key} row={row} onChange={onChangeRow} />
                     ))}
                 </div>
             )}
