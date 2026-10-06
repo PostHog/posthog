@@ -2283,9 +2283,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             requestScannerEstimate: () => {
-                if (values.scanner) {
-                    cache.estimateInputsKey = estimateInputsKey(values.scanner)
-                }
                 // Debounced so drags don't fire a request per tick, and held until a 429's Retry-After passes.
                 const delay = Math.max(300, (cache.estimateRetryAt ?? 0) - Date.now())
                 cache.disposables.add(() => {
