@@ -306,6 +306,11 @@
         text-decoration: none;
     }
 
+    // The strike outlives the reset above, so a resolved item reads the same here as in the rail.
+    .TodayReportLink[data-state='done'] {
+        text-decoration: line-through;
+    }
+
     [theme='dark'] & {
         background: #ff48002e;
 
