@@ -39,6 +39,7 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C, RPrev extends strin
         }
 
         const end = pipelineStepDurationHistogram.startTimer({ step_name: this.stepName, step_type: 'element' })
+        const traceContext = previousResultWithContext.context.traceContext
         let currentResult: PipelineResult<TOutput, RStep>
         try {
             currentResult = await instrumentFn(
@@ -46,7 +47,8 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C, RPrev extends strin
                     key: this.stepName,
                     sendException: false,
                     measureTime: false,
-                    attributes: isTracingActive() ? eventSpanAttributes(previousResult.value) : undefined,
+                    attributes: isTracingActive(traceContext) ? eventSpanAttributes(previousResult.value) : undefined,
+                    parentContext: traceContext,
                 },
                 () => this.currentStep(previousResult.value)
             )

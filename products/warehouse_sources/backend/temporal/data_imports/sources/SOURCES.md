@@ -194,9 +194,11 @@ the row lists both.
 | chargify                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | charthop                         | HTTP                        | requests                                                        | ✅                          |
 | chatwoot                         | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| checkly                          | HTTP                        | requests                                                        | ✅                          |
 | checkmarx                        | HTTP                        | requests                                                        | ✅                          |
 | checkout_com                     | HTTP                        | requests                                                        | ✅                          |
 | churnkey                         | HTTP                        | requests                                                        | ✅                          |
+| cisco_meraki                     | HTTP                        | requests                                                        | ✅                          |
 | clarifai                         | HTTP                        | requests                                                        | ✅                          |
 | clever                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cliniko                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1039,7 +1041,7 @@ doesn't conflict with concurrent PRs.
 - chorus
 - cin7
 - circle_so
-- cisco_meraki
+- clarifai
 - classy
 - clazar
 - cleartax
@@ -1447,6 +1449,7 @@ doesn't conflict with concurrent PRs.
 - tenjin
 - terabox
 - ternary
+- tessitura
 - terra_api
 - thinkific_courses
 - thoughtspot
