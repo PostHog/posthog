@@ -4668,8 +4668,8 @@ Diffed against: <https://api.k6.io/cloud/v6/openapi>
 - [ ] `test_runs/{id}/query_aggregate_k6` — aggregated metric values per test run — the headline pass/fail numbers (p95 http_req_duration, error rate) that make test_runs analyzable (high)
 - [ ] `test_runs/{id}/metrics` — metric metadata per run (name, type, origin); the join key for any metric value query (high)
 - [ ] `test_runs/{id}/series` — per-metric time series within a run, for trend and regression charts (medium)
-- [ ] `test_runs/{id}/distribution` — breakdown of a run across load zones — the only per-zone dimension available (medium)
-- [ ] `labels` — lookup table resolving the label keys/values attached to projects and load tests (medium)
+- [x] `test_runs/{id}/distribution` — breakdown of a run across load zones — the only per-zone dimension available (medium)
+- [x] `labels` — lookup table resolving the label keys/values attached to projects and load tests (medium)
 - [ ] `test_runs/{id}/labels` — label dimensions present on a run's metrics (url, status, scenario, method), needed to slice metric data (medium)
 
 Note: Two API versions in play: the resource endpoints PostHog syncs are /cloud/v6/\* (spec at https://api.k6.io/cloud/v6/openapi), but all metrics endpoints are /cloud/v5/\* and are documented only in prose at https://grafana.com/docs/grafana-cloud/testing/k6/reference/cloud-rest-api/metrics/ — not in the OpenAPI file. The v5 metrics endpoints use an unusual OData-ish call syntax, e.g. /cloud/v5/test_runs/:id/query_aggregate_k6(:parameters), and offer an /ms alias to dodge ad blockers.

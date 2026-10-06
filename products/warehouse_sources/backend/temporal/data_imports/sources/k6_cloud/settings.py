@@ -1,7 +1,13 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+# $top caps at 1000 rows per page (the documented maximum).
+PAGE_SIZE = 1000
 
 
 @dataclass
@@ -25,6 +31,12 @@ class K6CloudEndpointConfig:
     # `@nextLink` URL in the response). `load_zones` returns every row in one page.
     paginated: bool = True
     should_sync_default: bool = True
+    # Set for per-test-run detail endpoints that fan out over the `test_runs` listing.
+    fanout: Optional[DependentEndpointConfig] = None
+    # Read by `build_dependent_resource` through its endpoint protocol. The k6 fan-out sends
+    # `$top` through `fanout.parent_params` and never merges, so these keep their defaults.
+    page_size: int = PAGE_SIZE
+    default_incremental_field: Optional[str] = None
 
 
 def _created_incremental_field() -> list[IncrementalField]:
@@ -39,8 +51,8 @@ def _created_incremental_field() -> list[IncrementalField]:
 
 
 # Streams mirror the canonical Grafana Cloud k6 v6 resources a user actually wants in a
-# warehouse: Projects, Load tests, Test runs, Schedules, and Load zones. Metrics/scripts/
-# limits are per-run detail endpoints that require fan-out and are left out of this alpha.
+# warehouse: Projects, Load tests, Test runs, Schedules, Load zones, Labels, and the per-run
+# load zone distribution. The metrics endpoints are not part of the v6 API, so they are left out.
 K6_CLOUD_ENDPOINTS: dict[str, K6CloudEndpointConfig] = {
     # Test runs are the natural incremental stream: `/cloud/v6/test_runs` exposes
     # `created_after` (inclusive) as a server-side filter on the immutable `created`
@@ -93,6 +105,38 @@ K6_CLOUD_ENDPOINTS: dict[str, K6CloudEndpointConfig] = {
         incremental_fields=[],
         paginated=False,
         should_sync_default=False,
+    ),
+    # Organization label keys, returned in a single page with no timestamps. Full refresh,
+    # off by default as lookup data.
+    "labels": K6CloudEndpointConfig(
+        name="labels",
+        path="/labels",
+        primary_keys=["id"],
+        incremental_fields=[],
+        paginated=False,
+        should_sync_default=False,
+    ),
+    # One row per load zone per test run, with the nodes allocated in that zone. The endpoint
+    # returns a single object keyed by load zone, so it costs one request per test run and is
+    # off by default. It stays full refresh: a run that has not started yet answers 404, and an
+    # incremental cursor on `created` would move past it before its nodes exist.
+    "test_run_distribution": K6CloudEndpointConfig(
+        name="test_run_distribution",
+        path="/test_runs/{test_run_id}/distribution",
+        primary_keys=["test_run_id", "load_zone"],
+        partition_key="test_run_created",
+        incremental_fields=[],
+        paginated=False,
+        should_sync_default=False,
+        fanout=DependentEndpointConfig(
+            parent_name="test_runs",
+            resolve_param="test_run_id",
+            resolve_field="id",
+            include_from_parent=["id", "created"],
+            parent_field_renames={"id": "test_run_id", "created": "test_run_created"},
+            parent_params={"$top": str(PAGE_SIZE)},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
 }
 
