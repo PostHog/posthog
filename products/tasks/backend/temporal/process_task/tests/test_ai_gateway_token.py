@@ -12,9 +12,12 @@ from unittest.mock import MagicMock, patch
 from django.db import OperationalError
 from django.test import override_settings
 
+import requests
+
 from posthog.constants import AvailableFeature
 from posthog.llm.gateway_client import AIGatewayConfig, GatewayNotConfiguredError
 from posthog.models import Organization, Team, User
+from posthog.security.outbound_proxy import internal_requests
 
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend import model_catalog
@@ -181,7 +184,7 @@ class TestMintScopedToken:
 
     @pytest.mark.parametrize("private", [False, True])
     def test_mints_pinned_token(self, mint_settings, private: bool, gateway_config: AIGatewayConfig | None) -> None:
-        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+        with patch.object(internal_requests if gateway_config is not None else requests, "post") as post:
             post.return_value = self._response(201, {"token": "phe_abc", "capture_mode": "none"})
             token: str | None
             if private:
@@ -207,7 +210,7 @@ class TestMintScopedToken:
     def test_private_mint_revokes_an_unacknowledged_token(
         self, mint_settings, capture_mode: object, gateway_config: AIGatewayConfig | None
     ) -> None:
-        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+        with patch.object(internal_requests if gateway_config is not None else requests, "post") as post:
             post.side_effect = [
                 self._response(201, {"token": "phe_ordinary", "capture_mode": capture_mode}),
                 self._response(200, {"revoked": True}),
@@ -230,7 +233,7 @@ class TestMintScopedToken:
         self, mint_settings, status_code: int, gateway_config: AIGatewayConfig | None
     ) -> None:
         with (
-            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
+            patch.object(internal_requests if gateway_config is not None else requests, "post") as post,
             patch("products.tasks.backend.temporal.process_task.ai_gateway_token.time.sleep"),
         ):
             post.return_value = self._response(status_code, {"revoked": status_code == 200})
@@ -247,6 +250,32 @@ class TestMintScopedToken:
         assert post.call_args.kwargs["headers"] == {"Authorization": f"Bearer {expected_key}"}
         assert post.call_args.kwargs["json"] == {"token": "phe_private"}
         assert post.call_args.kwargs["allow_redirects"] is False
+
+    def test_service_token_requests_bypass_environment_proxy(
+        self, gateway_config: AIGatewayConfig | None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        proxy = "http://proxy.example.com:3128"
+        for variable in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+            monkeypatch.setenv(variable, proxy)
+        for variable in ("NO_PROXY", "no_proxy"):
+            monkeypatch.delenv(variable, raising=False)
+        minted = requests.Response()
+        minted.status_code = 201
+        minted._content = b'{"token": "phe_test_private", "capture_mode": "none"}'
+        revoked = requests.Response()
+        revoked.status_code = 200
+        revoked._content = b'{"revoked": true}'
+        with patch("requests.adapters.HTTPAdapter.send", side_effect=[minted, revoked]) as send:
+            token = mint_private_gateway_token(team_id=123, gateway_config=gateway_config)
+            revoke_private_gateway_token(token, gateway_config=gateway_config)
+
+        assert send.call_count == 2
+        for call in send.call_args_list:
+            proxies = call.kwargs["proxies"]
+            if gateway_config is not None:
+                assert not proxies
+            else:
+                assert proxies["https"] == proxy
 
     def test_review_hog_mint_carries_the_model_pin(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:

@@ -19,6 +19,7 @@ import requests
 from prometheus_client import Counter
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.security.outbound_proxy import internal_requests
 
 from products.tasks.backend.logic.services.desktop_gateway_token import (
     POSTHOG_CODE_PRODUCT,
@@ -315,9 +316,10 @@ def revoke_scoped_token(token: str, *, gateway_config: "AIGatewayConfig | None" 
     mint_key = gateway_config.api_key if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_MINT_KEY
     if not base_url or not mint_key:
         raise GatewayNotConfiguredError("The AI gateway mint configuration is required to revoke a private token")
+    post = internal_requests.post if gateway_config is not None else requests.post
     for attempt in range(_MINT_ATTEMPTS):
         try:
-            response = requests.post(
+            response = post(
                 f"{base_url}/v1/tokens/revoke",
                 json={"token": token},
                 headers={"Authorization": f"Bearer {mint_key}"},
@@ -365,6 +367,7 @@ def mint_scoped_token(
     mint_key = gateway_config.api_key if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_MINT_KEY
     if not base_url or not mint_key:
         return None
+    post = internal_requests.post if gateway_config is not None else requests.post
 
     body: dict[str, Any] = {
         "cap_usd": token_cap_usd(team_id, ai_product),
@@ -386,7 +389,7 @@ def mint_scoped_token(
     last_error: str = ""
     for attempt in range(_MINT_ATTEMPTS):
         try:
-            response = requests.post(
+            response = post(
                 f"{base_url}/v1/tokens",
                 json=body,
                 headers={"Authorization": f"Bearer {mint_key}"},
