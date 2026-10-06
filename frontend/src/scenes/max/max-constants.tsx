@@ -783,6 +783,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Summarizing session summaries...'
         },
     },
+    compare_replay_vision_variants: {
+        name: 'Compare experiment variants',
+        description: 'Compare experiment variants: what an experiment scanner found in each variant',
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Compared experiment variants'
+            }
+            return 'Comparing experiment variants...'
+        },
+    },
     draft_replay_vision_scanner_prompt: {
         name: 'Write scanner prompts',
         description: 'Write scanner prompts for Replay Vision scanners',
