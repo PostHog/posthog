@@ -47,7 +47,7 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                     size="xs"
                     variant="muted"
                     render={<div />}
-                    className="flex min-w-0 flex-1 basis-0 items-center gap-2 whitespace-nowrap"
+                    className="flex min-w-64 flex-1 basis-0 items-center gap-2 whitespace-nowrap"
                 >
                     {report.priority && (
                         <Badge variant={priorityBadgeVariant(report.priority)}>{report.priority}</Badge>
@@ -63,7 +63,7 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                         <span translate="no">{updated.fromNow()}</span>
                     </time>
                 </Text>
-                <div className="-me-2 flex shrink-0 items-center gap-0.5">
+                <div className="-mx-2 flex shrink-0 items-center gap-0.5">
                     {!isSample && (
                         <TodayActionButton
                             size="sm"
