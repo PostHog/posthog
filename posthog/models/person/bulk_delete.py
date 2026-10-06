@@ -202,10 +202,9 @@ class PersonTombstoneFailed(Exception):
 
 
 def tombstone_and_publish_persons(team_id: int, persons: builtins.list[Person]) -> int:
-    """Tombstone persons for a maintenance job and publish their ClickHouse tombstones; returns how many were tombstoned.
+    """Raise PersonTombstoneFailed when a Postgres tombstone fails, because that person is still live.
 
-    Raises PersonTombstoneFailed when a Postgres tombstone fails, because that person is still live.
-    A failed ClickHouse publish does not raise, because the weekly deletion sweep republishes from the tombstone queue.
+    A failed ClickHouse publish does not raise: the ClickHouse deletion sweep republishes from the tombstone queue.
     """
     result = delete_persons_profile(
         team_id,
@@ -233,7 +232,7 @@ QUEUED_DELETION_DISTINCT_IDS_PER_BATCH = 20_000
 
 
 def tombstone_and_publish_persons_by_uuids(team_id: int, person_uuids: builtins.list[str]) -> int:
-    """Tombstone persons by uuid like tombstone_and_publish_persons, paging each person's distinct IDs; returns how many were tombstoned."""
+    """Like tombstone_and_publish_persons, but page each person's distinct IDs and batch persons to bound each RPC."""
     from posthog.personhog_client.client import personhog_call
 
     def _fetch_distinct_ids(person_id: int) -> builtins.list[DistinctIdForPerson]:
