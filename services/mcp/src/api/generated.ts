@@ -7263,6 +7263,59 @@ export namespace Schemas {
       type: string;
     }
 
+    export type ScanEstimatePrecision = typeof ScanEstimatePrecision[keyof typeof ScanEstimatePrecision];
+
+
+    export const ScanEstimatePrecision = {
+      Measured: 'measured',
+      SizeOnly: 'size_only',
+      Unknown: 'unknown',
+    } as const;
+
+    export type ScanEstimateSource = typeof ScanEstimateSource[keyof typeof ScanEstimateSource];
+
+
+    export const ScanEstimateSource = {
+      Events: 'events',
+      Clickhouse: 'clickhouse',
+      Warehouse: 'warehouse',
+      Direct: 'direct',
+      Static: 'static',
+    } as const;
+
+    export type ScanEstimateTimeRange = typeof ScanEstimateTimeRange[keyof typeof ScanEstimateTimeRange];
+
+
+    export const ScanEstimateTimeRange = {
+      Bounded: 'bounded',
+      Open: 'open',
+    } as const;
+
+    export interface TableScanEstimate {
+      /** Absent when the source does not record a size in bytes. */
+      bytes?: number | null;
+      /** Events only: length of the timestamp range the rows were scaled to, in days. */
+      days?: number | null;
+      /** Events only: event names the estimate was narrowed to. Empty when the scan reads every event. */
+      events?: string[] | null;
+      /** The table as the query names it. */
+      name: string;
+      precision: ScanEstimatePrecision;
+      /** Absent when the precision is unknown, or when only the size is known. */
+      rows?: number | null;
+      source: ScanEstimateSource;
+      /** Events only. */
+      time_range?: ScanEstimateTimeRange | null;
+    }
+
+    export interface ScanEstimate {
+      /** Sum of the rows of every table entry that has one. */
+      rows: number;
+      tables: TableScanEstimate[];
+      /** True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table is measured. */
+      upper_bound: boolean;
+    }
+
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
@@ -7274,6 +7327,7 @@ export namespace Schemas {
       /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
       output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
+      scan_estimate?: ScanEstimate | null;
       table_names?: string[] | null;
       warnings: HogQLNotice[];
     }
