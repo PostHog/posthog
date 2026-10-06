@@ -609,6 +609,9 @@ export interface replayScannerLogicActions {
     loadScannerEstimateSuccess: (estimate: EstimateResponseApi) => {
         estimate: EstimateResponseApi
     }
+    loadScannerEstimateThrottled: (error: string | null) => {
+        error: string | null
+    }
     loadScannerFailure: () => {
         value: true
     }
@@ -991,6 +994,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         requestScannerEstimate: true,
         loadScannerEstimate: true,
         loadScannerEstimateSuccess: (estimate: EstimateResponseApi) => ({ estimate }),
+        // Ends the request without clearing the estimate, so the last good forecast stays on screen.
+        loadScannerEstimateThrottled: (error: string | null) => ({ error }),
         loadScannerEstimateFailure: (error: string | null = null) => ({ error }),
         // `silent` skips the success toast — the list view has its own inline spinner/result feedback.
         triggerOnDemandObservation: (sessionId: string, silent = false) => ({ sessionId, silent }),
@@ -1441,6 +1446,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 requestScannerEstimate: () => null,
                 loadScannerEstimateSuccess: () => null,
                 loadScannerEstimateFailure: (_, { error }) => error,
+                loadScannerEstimateThrottled: (_, { error }) => error,
             },
         ],
         scannerEstimateLoading: [
@@ -1450,6 +1456,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScannerEstimate: () => true,
                 loadScannerEstimateSuccess: () => false,
                 loadScannerEstimateFailure: () => false,
+                loadScannerEstimateThrottled: () => false,
             },
         ],
         estimateRequestVersion: [
@@ -2302,7 +2309,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     actions.requestScannerEstimate()
                     return
                 }
-                cache.estimateInputsKey = estimateInputsKey(scanner)
+                const inputsKey = estimateInputsKey(scanner)
+                if (inputsKey !== cache.estimateInputsKey) {
+                    cache.estimateThrottleRetried = false
+                }
+                cache.estimateInputsKey = inputsKey
                 const version = values.estimateRequestVersion
                 try {
                     const scope = scannerExperimentScope(scanner)
@@ -2337,6 +2348,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if (values.estimateRequestVersion !== version) {
                         return
                     }
+                    cache.estimateThrottleRetried = false
                     actions.loadScannerEstimateSuccess(response)
                 } catch (error: any) {
                     if (error instanceof Error && isBreakpoint(error)) {
@@ -2350,13 +2362,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if (values.estimateRequestVersion !== version) {
                         return
                     }
-                    if (error?.status === 429) {
-                        // Keep the last good estimate on screen and ask again once the throttle clears.
-                        actions.requestScannerEstimate()
-                        return
-                    }
                     const detail = typeof error?.detail === 'string' ? error.detail : null
                     const message = typeof error?.message === 'string' ? error.message : null
+                    if (error?.status === 429) {
+                        // Ask again once the throttle clears, but only once per set of inputs.
+                        if (!cache.estimateThrottleRetried) {
+                            cache.estimateThrottleRetried = true
+                            actions.requestScannerEstimate()
+                        } else {
+                            actions.loadScannerEstimateThrottled(detail ?? message)
+                        }
+                        return
+                    }
                     actions.loadScannerEstimateFailure(detail ?? message)
                 }
             },

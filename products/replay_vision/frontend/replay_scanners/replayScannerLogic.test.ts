@@ -1824,6 +1824,27 @@ describe('replayScannerLogic', () => {
             const body = await (estimateSpy.mock.calls.at(-1) as any)[0].request.json()
             expect(body).toMatchObject({ sampling_rate: 0.6 })
         })
+
+        it('stops retrying after a second 429 and keeps the last estimate', async () => {
+            const throttled = (): Response =>
+                new Response(JSON.stringify({ detail: 'Throttled' }), {
+                    status: 429,
+                    headers: { 'Content-Type': 'application/json', 'Retry-After': '30' },
+                })
+            logic.actions.setScannerValue(['sampling_rate'], 0.3)
+            await jest.advanceTimersByTimeAsync(1000)
+            estimateSpy.mockImplementation(throttled)
+
+            logic.actions.setScannerValue(['sampling_rate'], 0.5)
+            await jest.advanceTimersByTimeAsync(120_000)
+
+            expect(estimateSpy).toHaveBeenCalledTimes(3)
+            expect(logic.values).toMatchObject({
+                scannerEstimate: ESTIMATE,
+                scannerEstimateLoading: false,
+                scannerEstimateError: 'Throttled',
+            })
+        })
     })
 
     describe('team refresh on tab visibility', () => {
