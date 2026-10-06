@@ -13,6 +13,11 @@ from products.tasks.backend.facade.run_config import (
 
 logger = logging.getLogger(__name__)
 
+# RELEASE VERSION
+# Bump it (semver) with a pipeline or design change. Prompt, skill, and model pin edits change the
+# turn fingerprint (`reviewer/fingerprint.py`) instead.
+REVIEWHOG_VERSION = "1.0.0"
+
 # REVIEW MODEL
 REVIEW_RUNTIME_ADAPTER = RuntimeAdapter.CODEX
 REVIEW_MODEL = "gpt-6.1-sol"

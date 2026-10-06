@@ -14,6 +14,7 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
 )
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
@@ -185,8 +186,10 @@ class TestRenderFinalBody:
             review_url=None,
             resolved_from=resolved_from,
             report_url="https://ph.test/project/1/code-review?review=rid",
+            marker=ReviewHogMarker(version="9.9.9", fingerprint="abc1234"),
         )
         assert f"2 findings stayed below {expected}" in body, body
+        assert "<sub>ReviewHog 9.9.9 · abc1234</sub>" in body
         # Held-back findings are otherwise invisible to the author — the comment must not dead-end.
         assert "[View them in PostHog](https://ph.test/project/1/code-review?review=rid)" in body
 

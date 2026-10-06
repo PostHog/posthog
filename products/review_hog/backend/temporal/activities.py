@@ -42,6 +42,7 @@ from products.review_hog.backend.reviewer.constants import (
     DEFAULT_URGENCY_THRESHOLD,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
+    REVIEWHOG_VERSION,
     VALIDATION_MAX_ATTEMPTS,
     ReviewArm,
     effective_priority,
@@ -49,6 +50,7 @@ from products.review_hog.backend.reviewer.constants import (
     review_arm_for_mode,
     validation_arm_for_mode,
 )
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
     sync_canonical_blind_spots,
@@ -445,6 +447,20 @@ class TrackReviewCompletedInput:
     # What THIS turn ran on; the event names the flash arm in both seats for a flash turn.
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+    marker: ReviewHogMarker | None = None
+
+
+@frozen
+class RecordTurnMarkerInput:
+    """The turn whose version marker to compute and persist."""
+
+    team_id: int
+    report_id: str
+    head_sha: str
+    run_index: int
+    acting_user_id: int
+    review_mode: str
+    flash_reasoning_effort: str
 
 
 @frozen
@@ -819,6 +835,34 @@ async def generate_schemas_activity(input: GenerateSchemasInput) -> None:
         generate_all_schemas()
     except OSError:
         logger.exception("Schema generation failed; using the committed schemas")
+
+
+def _record_turn_marker_safe(input: RecordTurnMarkerInput) -> ReviewHogMarker | None:
+    try:
+        return record_turn_marker(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            head_sha=input.head_sha,
+            run_index=input.run_index,
+            acting_user_id=input.acting_user_id,
+            review_mode=input.review_mode,
+            flash_reasoning_effort=input.flash_reasoning_effort,
+        )
+    except Exception:
+        logger.exception("Failed to record the turn marker for report %s; continuing", input.report_id)
+        return None
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def record_turn_marker_activity(input: RecordTurnMarkerInput) -> ReviewHogMarker | None:
+    """Record the turn's ReviewHog version and input fingerprint as a `turn_marker` artefact.
+
+    Runs after the skill sync, so the fingerprint hashes the skill versions the stages then pin.
+    Returns the marker for the completed event and the status comment footer. Best-effort.
+    """
+    return await database_sync_to_async(_record_turn_marker_safe, thread_sensitive=False)(input)
 
 
 # --- Chunking --------------------------------------------------------------------------------------
@@ -1534,6 +1578,8 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             ),
             **_pr_size_properties(snapshot),
             "duration_seconds": duration_seconds,
+            "reviewhog_version": input.marker.version if input.marker is not None else REVIEWHOG_VERSION,
+            "reviewhog_fingerprint": input.marker.fingerprint if input.marker is not None else None,
         },
         groups=groups(team=report.team),
         send_feature_flags=True,
