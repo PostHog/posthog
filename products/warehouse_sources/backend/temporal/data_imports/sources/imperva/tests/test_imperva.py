@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -108,7 +109,7 @@ def test_stats_request_window_and_series_rows(
             },
         )
         response = imperva_source(CONFIG, inputs, state, "v3")
-        pages = list(response.items())
+        pages = list(cast(Iterable[Any], response.items()))
         assert pages == [
             [
                 {"account_id": "12345", "id": "human", "name": "Human", "timestamp": TODAY, "value": 12},

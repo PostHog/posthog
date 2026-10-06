@@ -97,23 +97,18 @@ def make_resource(
 ) -> Resource:
     if name not in PRIMARY_KEYS:
         raise ValueError(f"Unknown Imperva table: {name}")
-    params: dict[str, str | int] = {"account_id": config.account_id}
-    endpoint: Endpoint = {
-        "method": "POST",
-        "params": params,
-        "data_selector": "data" if name == "sites" else name,
-        "data_selector_required": True,
-    }
+    endpoint: Endpoint
     if name == "sites":
-        params = {"caid": config.account_id, "size": 1 if probe else 100}
-        endpoint.update(
-            method="GET",
-            params=params,
-            path=f"/{api_version}/sites",
-            paginator="single_page"
+        endpoint = {
+            "method": "GET",
+            "params": {"caid": config.account_id, "size": 1 if probe else 100},
+            "path": f"/{api_version}/sites",
+            "paginator": "single_page"
             if probe
             else {"type": "page_number", "page_param": "page", "total_path": "meta.totalPages"},
-        )
+            "data_selector": "data",
+            "data_selector_required": True,
+        }
     else:
         end = int(datetime.now(UTC).timestamp() * 1000)
         today = end // DAY_MS * DAY_MS
@@ -123,9 +118,22 @@ def make_resource(
             start = max(start, watermark // DAY_MS * DAY_MS - DAY_MS)
         if probe:
             start = today
-        params.update(time_range="custom", start=min(start, today), end=end, granularity=DAY_MS, stats=name)
-        # Imperva still exposes traffic statistics through v1 alongside the v3 site API.
-        endpoint.update(path="/api/stats/v1", paginator="single_page")
+        endpoint = {
+            "method": "POST",
+            "params": {
+                "account_id": config.account_id,
+                "time_range": "custom",
+                "start": min(start, today),
+                "end": end,
+                "granularity": DAY_MS,
+                "stats": name,
+            },
+            # Imperva still exposes traffic statistics through v1 alongside the v3 site API.
+            "path": "/api/stats/v1",
+            "paginator": "single_page",
+            "data_selector": name,
+            "data_selector_required": True,
+        }
 
     auth = ImpervaAuth(config)
     session = make_tracked_session(redact_values=auth.secret_values())
@@ -136,6 +144,7 @@ def make_resource(
             "auth": auth,
             "session": session,
             "allowed_hosts": [],
+            "request_timeout": (10.0, 60.0),
         },
         "resources": [{"name": name, "endpoint": endpoint}],
     }
