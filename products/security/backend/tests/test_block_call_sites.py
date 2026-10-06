@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 from django.test import RequestFactory
 from django.utils import timezone
 from django.conf import settings
-from django.test import RequestFactory, override_settings
+from django.test import RequestFactory
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -77,7 +77,7 @@ class TestBlockCallSites(APIBaseTest):
         seed_rules(block_rule(targetType="user_uuid", targetValue=str(user.uuid)))
         before = _count("app", "login", "user_uuid")
         self.client.logout()
-        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+        with enforcing(*enforced):
             response = self.client.post(
                 "/api/login", {"email": "blocked.login@example.com", "password": "a-long-password-123"}
             )
@@ -111,7 +111,7 @@ class TestBlockCallSites(APIBaseTest):
         before = _count("app", "sso_login", "user_uuid")
         strategy = MagicMock(request=RequestFactory().get("/complete/google-oauth2/"))
 
-        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+        with enforcing(*enforced):
             if refused:
                 with pytest.raises(AuthFailed, match="access_blocked"):
                     social_access_rules_allow(strategy, MagicMock(), user=user)
@@ -138,7 +138,7 @@ class TestBlockCallSites(APIBaseTest):
         seed_rules(block_rule(targetType="email", targetValue=self.user.email.lower()))
         before = _count("app", "session", "email")
         with (
-            override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced),
+            enforcing(*enforced),
             patch("posthog.auth.is_impersonated_session", return_value=impersonated),
         ):
             response = self.client.get("/api/users/@me/")
@@ -191,7 +191,7 @@ class TestBlockCallSites(APIBaseTest):
         self.client.logout()
         before = _count("app", kind, "email")
 
-        with override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=enforced):
+        with enforcing(*enforced):
             response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {token}"})
 
         assert response.status_code == status, response.json()
@@ -199,12 +199,11 @@ class TestBlockCallSites(APIBaseTest):
         if status == 401:
             assert response.json()["code"] == "access_blocked"
 
-    @override_settings(SECURITY_ACCESS_ENFORCED_SURFACES=["app"])
     def test_session_check_reads_the_memo_not_redis(self) -> None:
         # The session check runs on every authenticated request, so a Redis read here would be
         # a latency incident on the whole app.
         seed_rules(block_rule(targetValue="someone.else@example.com"))
-        with time_machine.travel(time.time(), tick=False):
+        with enforcing("app"), time_machine.travel(time.time(), tick=False):
             assert self.client.get("/api/users/@me/").status_code == 200
             with patch.object(snapshot, "get_client") as redis:
                 assert self.client.get("/api/users/@me/").status_code == 200
