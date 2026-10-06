@@ -78,11 +78,24 @@ function RowContent({ row }: { row: CommandKRow }): JSX.Element | null {
                             {capitalizeFirstLetter(typeLabel)}
                         </span>
                     )}
+                    {item.parentName && (
+                        <span className="shrink-0 text-xs text-muted-foreground">in {item.parentName}</span>
+                    )}
                     {item.productCategory && (
                         <span className="shrink-0 text-xs text-muted-foreground">{item.productCategory}</span>
                     )}
+                    {item.matchedSearchKeyword && (
+                        <span className="ml-auto truncate text-xxs text-muted-foreground">
+                            Matches "{item.matchedSearchKeyword}"
+                        </span>
+                    )}
                     {item.lastViewedAt && (
-                        <span className="ml-auto shrink-0 whitespace-nowrap text-xs text-muted-foreground">
+                        <span
+                            className={cn(
+                                'shrink-0 whitespace-nowrap text-xs text-muted-foreground',
+                                item.matchedSearchKeyword ? 'ml-2' : 'ml-auto'
+                            )}
+                        >
                             {formatRelativeTimeShort(item.lastViewedAt)}
                         </span>
                     )}

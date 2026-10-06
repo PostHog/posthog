@@ -898,8 +898,10 @@ export const searchLogic = kea<searchLogicType>([
                 })
 
                 // Filter products and data management by search
-                const filteredProducts = filterBySearch(productsItems)
-                const filteredDataManagement = filterBySearch(dataManagementItems)
+                const filterCatalogBySearch = (items: SearchItem[]): SearchItem[] =>
+                    hasSearch ? filterSearchItems(items, search) : items.filter((item) => !item.parentName)
+                const filteredProducts = filterCatalogBySearch(productsItems)
+                const filteredDataManagement = filterCatalogBySearch(dataManagementItems)
 
                 // Show products if not searching or has matching results
                 if (!hasSearch || filteredProducts.length > 0) {

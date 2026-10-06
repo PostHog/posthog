@@ -188,7 +188,14 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
         return [
             readySection('recents', itemRows('recents', local.recents.slice(0, RECENTS_LIMIT))),
             readySection('starred', itemRows('starred', local.starred)),
-            readySection('products', itemRows('products', local.products)),
+            // Tab rows ("Dashboards / Templates") only appear for a search, as in the current palette.
+            readySection(
+                'products',
+                itemRows(
+                    'products',
+                    local.products.filter((item) => !item.parentName)
+                )
+            ),
         ].filter((section) => section.rows.length > 0)
     }
 

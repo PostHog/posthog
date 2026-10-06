@@ -154,6 +154,8 @@ export type IngestionConsumerConfig = {
     PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
     PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number
     PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number
+    // Teams whose batch person writes merge per key with the row. Comma-separated team IDs, or '*'; empty means none.
+    PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: string
     /** Concurrent RPC fan-out in the personhog store (batch fetches and flush). */
     PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: number
     PERSONS_PREFETCH_ENABLED: boolean
@@ -194,6 +196,9 @@ export type IngestionConsumerConfig = {
     // whose creates revive a tombstoned key. Every environment rolled this out to all teams, so
     // '*' is the default. Comma-separated team IDs, or '*' for all teams; empty means no teams.
     PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: string
+    // Teams whose merges lock the person rows and write the survivor in the transaction; other teams queue it for
+    // the next flush. Enable after PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST. Team IDs, or '*'; empty means none.
+    PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST: string
     // Re-emit committed distinct id mappings for merge events that arrive already satisfied,
     // debounced per (team, distinct id). Heals ClickHouse mapping rows lost to a crash between
     // a merge's commit and its produce; see MergeMappingDebounce for why the cache is in-memory.
@@ -356,6 +361,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
+        PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST: '',
         PERSONHOG_STORE_MAX_CONCURRENT_UPDATES: 10,
         PERSONS_PREFETCH_ENABLED: false,
 
@@ -378,6 +384,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST: '*',
+        PERSON_MERGE_LOCKED_OUTCOME_TEAM_ALLOWLIST: '',
         PERSON_MERGE_NOOP_MAPPING_EMISSION_ENABLED: false,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_CACHE_SIZE: 500_000,
         PERSON_MERGE_NOOP_MAPPING_EMISSION_TTL_MS: 60 * 60 * 1000,

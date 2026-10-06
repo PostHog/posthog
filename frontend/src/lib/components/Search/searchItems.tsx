@@ -14,6 +14,8 @@ import { FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from 
 import type { TicketApi } from 'products/conversations/frontend/generated/api.schemas'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { filterSearchItems } from './utils'
+
 /** Safely extract a string — returns undefined for objects/arrays to avoid rendering [object Object]. */
 const safeString = (val: unknown): string | undefined => (typeof val === 'string' ? val : undefined)
 
@@ -33,6 +35,9 @@ export interface SearchItem {
     groupNoun?: string | null
     itemType?: string | null
     searchKeywords?: string[]
+    hiddenSearchText?: string
+    matchedSearchKeyword?: string | null
+    parentName?: string
     record?: Record<string, unknown>
     rank?: number | null // PostgreSQL full-text search rank (from unified search API)
     /** When set, the item is shown greyed out and non-clickable, with this reason as tooltip
@@ -215,35 +220,11 @@ export const ticketToSearchItem = (ticket: TicketApi): SearchItem => {
 }
 
 /** "Create new" items match when every word is "new"/"create" or appears in the item's name, type, or path. */
-export const filterNewItems = (newItems: SearchItem[], search: string): SearchItem[] => {
-    const searchLower = search.toLowerCase()
-    const searchChunks = searchLower.split(' ').filter((s) => s)
+const LEADING_CREATE_WORD = /^\s*create\b/i
 
-    // Filter new items - ALL search chunks must match
-    return newItems.filter((item) => {
-        const nameLower = (item.displayName || item.name || '').toLowerCase()
-        const typeLower = (item.itemType || '').toLowerCase()
-        // Also search against the original path (stored in id as "new-{path}")
-        const idLower = item.id.toLowerCase()
-
-        // Every chunk must match either "new"/"create" or be found in the item name/type/id
-        return searchChunks.every((chunk) => {
-            if (chunk === 'new' || chunk === 'create' || chunk.startsWith('new') || chunk.startsWith('create')) {
-                return true
-            }
-            if (nameLower.includes(chunk)) {
-                return true
-            }
-            if (typeLower.includes(chunk)) {
-                return true
-            }
-            if (idLower.includes(chunk)) {
-                return true
-            }
-            return false
-        })
-    })
-}
+/** "Create new" items match on their name, type and path, with a leading "create" read as "new". */
+export const filterNewItems = (newItems: SearchItem[], search: string): SearchItem[] =>
+    filterSearchItems(newItems, search.replace(LEADING_CREATE_WORD, 'new'))
 
 export const personToSearchItem = (person: PersonType & { uuid: string }): SearchItem => {
     const personId = person.distinct_ids?.[0] || person.uuid

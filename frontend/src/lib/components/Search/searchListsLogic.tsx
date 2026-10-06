@@ -30,6 +30,35 @@ import { ActivityTab, IntegrationType, UserType } from '~/types'
 
 import { SearchItem, fileSystemEntryToSearchItem } from './searchItems'
 
+const isEnabledByFlag = (flag: string | undefined, featureFlags: FeatureFlagsSet): boolean =>
+    !flag || !!(featureFlags as Record<string, boolean>)[flag]
+
+const displayNameOf = (item: SearchItem): string => item.displayName || item.name
+
+const toSearchTabItems = (
+    parents: SearchItem[],
+    sources: FileSystemImport[],
+    featureFlags: FeatureFlagsSet
+): SearchItem[] => {
+    const tabsByPath = new Map(sources.map((source) => [source.path, source.searchTabs ?? []]))
+    return parents.flatMap((parent) =>
+        (tabsByPath.get(parent.name) ?? [])
+            .filter((tab) => isEnabledByFlag(tab.flag, featureFlags))
+            .map((tab) => ({
+                id: `${parent.id}-tab-${tab.name}`,
+                name: `${displayNameOf(parent)} ${tab.name}`,
+                displayName: tab.name,
+                category: parent.category,
+                parentName: displayNameOf(parent),
+                href: tab.href,
+                itemType: parent.itemType,
+                searchKeywords: tab.searchKeywords,
+                disabledReason: parent.disabledReason,
+                record: parent.record,
+            }))
+    )
+}
+
 /** Max starred shortcuts shown in quick search (folders excluded). */
 export const STARRED_LIMIT = 20
 
@@ -209,7 +238,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     if (!isDev && !user?.is_staff && product.category === 'Unreleased') {
                         return false
                     }
-                    if (product.flag && !(featureFlags as Record<string, boolean>)[product.flag]) {
+                    if (!isEnabledByFlag(product.flag, featureFlags)) {
                         return false
                     }
                     return true
@@ -248,6 +277,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                         iconColor: undefined,
                     },
                 })
+                items.push(...toSearchTabItems(items, filteredProducts, featureFlags))
 
                 // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
                 return items.sort((a, b) => {
@@ -277,7 +307,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
-                    if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
+                    if (!isEnabledByFlag(item.flag, featureFlags)) {
                         return false
                     }
                     return true
@@ -287,7 +317,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     CDP: ['data pipelines', 'data pipeline', 'pipeline'],
                 }
 
-                const items = filteredMetadata.map((item) => ({
+                const items: SearchItem[] = filteredMetadata.map((item) => ({
                     id: `data-management-${item.path}`,
                     name: item.path,
                     displayName: item.path,
@@ -307,6 +337,8 @@ export const searchListsLogic = kea<searchListsLogicType>([
                         iconColor: item.iconColor,
                     },
                 }))
+
+                items.push(...toSearchTabItems(items, filteredMetadata, featureFlags))
 
                 // Sort by lastViewedAt (most recent first), items without lastViewedAt go to the end
                 return items.sort((a, b) => {
@@ -336,7 +368,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
                     }
-                    if (item.flag && !(featureFlags as Record<string, boolean>)[item.flag]) {
+                    if (!isEnabledByFlag(item.flag, featureFlags)) {
                         return false
                     }
                     return true
@@ -367,6 +399,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                         productCategory: item.category || null,
                         href: item.href || PLACEHOLDER_HREF,
                         itemType: item.iconType || item.type || null,
+                        hiddenSearchText: [displayName, item.path, item.type, item.iconType].filter(Boolean).join(' '),
                         record: {
                             type: item.type || item.iconType,
                             iconType: item.iconType,
