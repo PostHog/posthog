@@ -249,7 +249,7 @@ class PendingDeletesTable(Table):
                 deletion_type UInt8,
                 key String,
                 group_type_index Nullable(String),
-                created_at DateTime,
+                created_at DateTime64(6, 'UTC'),
                 delete_verified_at Nullable(DateTime),
                 created_by_id Nullable(String),
                 team_id Int64
@@ -324,7 +324,7 @@ class PendingDeletesDictionary(Dictionary):
 
     @property
     def schema(self) -> str:
-        return "team_id Int64, deletion_type UInt8, key String, created_at DateTime"
+        return "team_id Int64, deletion_type UInt8, key String, created_at DateTime64(6, 'UTC')"
 
     @property
     def primary_key(self) -> str:
