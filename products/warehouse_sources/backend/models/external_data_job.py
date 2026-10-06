@@ -91,6 +91,14 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 condition=Q(status=ExternalDataJobStatus.RUNNING),
                 name="idx_extdatajob_running",
             ),
+            # Serves the overlap checks that ask which of a batch of schemas has a live run
+            # (the shadow scheduler, stalled schedules, schema teardown): an IN list on schema
+            # with no created_at range. Without it the FK index walks every job of each schema.
+            models.Index(
+                fields=["schema"],
+                condition=Q(status=ExternalDataJobStatus.RUNNING),
+                name="idx_extdatajob_running_schema",
+            ),
             # Serves the source sync-history list (the `jobs` action): equality on pipeline
             # ordered by created_at DESC with LIMIT. The polling settings tab reads it every
             # few seconds. Without it the FK index walks every job of the source and sorts.
