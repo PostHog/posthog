@@ -640,6 +640,23 @@ export interface MCPToolRequestApi {
  */
 export type MCPToolResponseApiStructuredContent = { [key: string]: JsonValueApi } | null
 
+/**
+ * Failure category for MCP analytics.
+ */
+export type MCPToolResponseApiErrorType =
+    | (typeof MCPToolResponseApiErrorType)[keyof typeof MCPToolResponseApiErrorType]
+    | null
+
+export const MCPToolResponseApiErrorType = {
+    Validation: 'validation',
+    Permission: 'permission',
+    Timeout: 'timeout',
+    MemoryLimit: 'memory_limit',
+    RateLimited: 'rate_limited',
+    Api5xx: 'api_5xx',
+    Internal: 'internal',
+} as const
+
 export interface MCPToolResponseApi {
     /** Formatted tool output for the model. */
     content: string
@@ -647,6 +664,8 @@ export interface MCPToolResponseApi {
     structured_content?: MCPToolResponseApiStructuredContent
     /** Whether the tool completed successfully. */
     success: boolean
+    /** Failure category for MCP analytics. */
+    error_type?: MCPToolResponseApiErrorType
 }
 
 export interface DocsSearchRequestApi {

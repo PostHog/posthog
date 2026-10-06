@@ -94,6 +94,14 @@ No PR needs every form. Reach for one because it makes review faster, never as d
 
 ### Screenshots
 
+Take each screenshot from the first source that can show the change:
+
+1. The running app, when one is up.
+2. Storybook, through a headless browser. Use the story that covers the surface. When no story does, write a scratch story for the screenshot and keep it out of the commit.
+3. A feature reel, when one still cannot show a new flow. Reel mode of `/qa-frontend` turns Storybook stills into an animated WebP.
+
+Capture at `deviceScaleFactor: 2`. A 1x image looks soft on a high-density screen, and GitHub shrinks a wider image to fit the column. Take the before from the base branch the same way. A new surface has no before, so say that in one line.
+
 Upload with `hogli pr:upload-image <file>` and paste the markdown it prints. The first run only warns; re-run with `--yes`. The assets are public forever, so never upload customer data, customer names, secrets, or internal info.
 
 Touching UI code without a visible change is common, and the mandate has to be dischargeable. When nothing looks different, say so in one line. A reviewer cannot tell that case from a missing screenshot, and silence reads as the second.
@@ -172,7 +180,7 @@ When the lower half outgrows the upper half, cut the lower half.
 
 - Testing: name the regression each new test catches, under the claim rules above. Transcripts go in a `<details>` block.
 - Agent context: autonomy, tool and exact model, skills invoked, and what changed across the session.
-- The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the changelog checkbox to find it.
+- The reason your design beats the obvious alternative belongs in Changes. A reviewer needs it to review, and nobody scrolls past the release status section to find it.
 
 The test: **the body must come out shorter than your first draft.** Pass 5 checks it.
 

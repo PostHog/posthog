@@ -37,6 +37,12 @@ describe('invokeMcpTool', () => {
         expect(result).toEqual({ success: true, content: 'rows' })
     })
 
+    it('keeps failures from older backends as errors during a rolling deploy', async () => {
+        stubFetch(new Response(JSON.stringify({ success: false, content: 'Tool failed' })))
+
+        await expect(invokeMcpTool(makeContext(), 'execute_sql', {})).rejects.toMatchObject({ message: 'Tool failed' })
+    })
+
     it('throws PostHogRateLimitError on a 429 so it is not bucketed as an internal error', async () => {
         // `Retry-After` is past the client's total retry budget, so this returns without waiting.
         stubFetch(

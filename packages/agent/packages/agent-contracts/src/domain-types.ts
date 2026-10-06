@@ -357,6 +357,7 @@ const storeSkillStubSchema = z.object({
 export type StoreSkillStub = z.infer<typeof storeSkillStubSchema>;
 
 const taskRunStateFields = {
+  agent_instructions: optionalField(z.string()),
   ai_agent_name: optionalField(z.string()),
   ai_stage: optionalField(z.string()),
   auto_publish: optionalField(z.boolean()),
@@ -1020,6 +1021,62 @@ export interface NoteContent {
   author?: string | null;
 }
 
+/** Artefact with `type: "work_claim"` — someone took ownership of the report's work. */
+export interface WorkClaimArtefact extends SignalReportArtefactBase {
+  type: "work_claim";
+  content: WorkClaimContent;
+}
+
+export interface WorkClaimContent {
+  display_name: string | null;
+}
+
+/** Artefact with `type: "work_release"` — ownership of the report's work ended. */
+export interface WorkReleaseArtefact extends SignalReportArtefactBase {
+  type: "work_release";
+  content: WorkReleaseContent;
+}
+
+export interface WorkReleaseContent {
+  reason: "released" | "taken_over";
+}
+
+/**
+ * Artefact with `type: "ranking_score"` — one scoring pass of the inbox ranking
+ * models. Only staff receive these rows.
+ */
+export interface RankingScoreArtefact extends SignalReportArtefactBase {
+  type: "ranking_score";
+  content: RankingScoreContent;
+}
+
+/**
+ * One outcome head. `readable` is false when the head has no holdout AUC yet.
+ * `lift` is the probability over the head's base rate, or null when the model saved no base rate.
+ */
+export interface RankingHead {
+  name: string;
+  probability: number;
+  lift: number | null;
+  readable: boolean;
+}
+
+export interface RankingModelResult {
+  /** `<model_name>@<model_version>`. */
+  key: string;
+  roles: string[];
+  status: "scored" | "skipped";
+  skip_reason: string | null;
+  /** Highest lift first. Heads without a lift come last, highest probability first. */
+  heads: RankingHead[];
+}
+
+export interface RankingScoreContent {
+  scored_at: string | null;
+  manifest_version: string | null;
+  served: RankingModelResult;
+  challengers: RankingModelResult[];
+}
 /** Response from the `commit` artefact diff endpoint — the commit rendered against its parent. */
 export interface CommitDiffResponse {
   /** Unified diff (patch) text introduced by the commit. */
@@ -1123,7 +1180,10 @@ export type AnySignalReportArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | WorkClaimArtefact
+  | WorkReleaseArtefact
+  | RankingScoreArtefact;
 
 export interface SignalReportArtefactsResponse {
   results: AnySignalReportArtefact[];

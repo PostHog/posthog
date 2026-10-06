@@ -10,6 +10,7 @@ from django.db.models import QuerySet
 from posthog.dataclasses import frozen
 from posthog.models import Organization, Team
 
+from products.experiments.backend.facade import count_running_experiments_on_feature_flag_called
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -22,6 +23,9 @@ class OrganizationModeChange:
     organization_created_at: datetime
     # Teams of the organization, for display only. The write never touches team rows.
     team_count: int
+    # On FLAG_EVALUATIONS_ONLY these experiments stop gaining exposures for teams in the ingestion
+    # allowlist, because ingestion stops writing $feature_flag_called to events for those teams.
+    running_experiments_on_feature_flag_called: int
     current_mode: int
     target_mode: int
     # True when the write moved the organization to target_mode, or would on a dry run.
@@ -91,9 +95,9 @@ def set_organization_flag_evaluations_mode(
 ) -> OrganizationModeChange:
     """Move the organization to `mode`.
 
-    An organization above `mode` stays where it is unless `allow_downgrade` is set. Once ingestion
-    supports FLAG_EVALUATIONS_ONLY, lowering an organization from it restarts events writes and
-    leaves a gap in the events table.
+    An organization above `mode` stays where it is unless `allow_downgrade` is set. Lowering an
+    organization from FLAG_EVALUATIONS_ONLY restarts events writes and leaves a gap in the events
+    table.
 
     Opens no transaction. A caller that writes several organizations wraps its own loop.
     """
@@ -108,6 +112,7 @@ def set_organization_flag_evaluations_mode(
         organization_name=organization.name,
         organization_created_at=organization.created_at,
         team_count=Team.objects.filter(organization_id=organization.id).count(),
+        running_experiments_on_feature_flag_called=count_running_experiments_on_feature_flag_called(organization.id),
         current_mode=current_mode,
         target_mode=mode,
         changed=changed,

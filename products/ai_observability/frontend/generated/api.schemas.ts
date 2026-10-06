@@ -752,6 +752,14 @@ export const SelectionModeEnumApi = {
     Multiple: 'multiple',
 } as const
 
+export interface CategoricalScorePassingRuleApi {
+    /**
+     * Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.
+     * @items.maxLength 128
+     */
+    categories: string[]
+}
+
 export interface CategoricalScoreDefinitionConfigApi {
     /** Ordered categorical options available to the scorer. */
     options: CategoricalScoreOptionApi[]
@@ -772,6 +780,30 @@ export interface CategoricalScoreDefinitionConfigApi {
      * @nullable
      */
     max_selections?: number | null
+    /** Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+    passing_rule?: CategoricalScorePassingRuleApi | null
+}
+
+/**
+ * * `gte` - At or above
+ * * `lte` - At or below
+ */
+export type NumericScorePassingRuleSerializerOperatorEnumApi =
+    (typeof NumericScorePassingRuleSerializerOperatorEnumApi)[keyof typeof NumericScorePassingRuleSerializerOperatorEnumApi]
+
+export const NumericScorePassingRuleSerializerOperatorEnumApi = {
+    Gte: 'gte',
+    Lte: 'lte',
+} as const
+
+export interface NumericScorePassingRuleApi {
+    /** Pass at or above (gte), or at or below (lte), the threshold.
+     *
+     * * `gte` - At or above
+     * * `lte` - At or below */
+    operator: NumericScorePassingRuleSerializerOperatorEnumApi
+    /** Finite passing threshold within any configured score bounds. */
+    threshold: number
 }
 
 export interface NumericScoreDefinitionConfigApi {
@@ -790,9 +822,16 @@ export interface NumericScoreDefinitionConfigApi {
      * @nullable
      */
     step?: number | null
+    /** Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule. */
+    passing_rule?: NumericScorePassingRuleApi | null
 }
 
 export interface BooleanScoreDefinitionConfigApi {
+    /**
+     * Whether true means failure. False, omitted, or null means true passes in offline evaluations.
+     * @nullable
+     */
+    true_is_failure?: boolean | null
     /** Optional label for a true value. */
     true_label?: string
     /** Optional label for a false value. */
@@ -1063,6 +1102,21 @@ export interface OfflineScorerSummaryApi {
      * @nullable
      */
     true_rate: number | null
+    /**
+     * Successful results passing the pinned rule. Boolean scores default to true passing; null for unconfigured numeric or categorical scorers.
+     * @nullable
+     */
+    pass_count: number | null
+    /**
+     * Successful results failing the pinned rule; null for unconfigured numeric or categorical scorers.
+     * @nullable
+     */
+    fail_count: number | null
+    /**
+     * Passing fraction among successful results; null without successful results or an applicable rule. Boolean scores default to true passing. Excludes errors, skipped, not-applicable, and missing results.
+     * @nullable
+     */
+    pass_rate: number | null
     /** Pinned categorical distribution; multiselect rates may sum above one. */
     categories: OfflineCategorySummaryApi[]
 }
@@ -1216,6 +1270,64 @@ export interface OfflineHistoryPageApi {
     next_cursor: string | null
     /** Experiment/scorer-version history page. */
     results: OfflineHistoryPointApi[]
+}
+
+export interface TracePersonApi {
+    distinctId: string
+    label: string
+}
+
+export interface TraceNodeStatsApi {
+    costUsd: number | null
+    inputTokens: number | null
+    outputTokens: number | null
+    cacheReadTokens: number | null
+    cacheWriteTokens: number | null
+    latencyMs: number | null
+}
+
+export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
+
+export const TraceNodeKindEnumApi = {
+    Trace: 'trace',
+    Span: 'span',
+    Generation: 'generation',
+    Embedding: 'embedding',
+} as const
+
+export interface TraceNodeApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    model: string | null
+    stats: TraceNodeStatsApi
+    hasError: boolean
+    children: TraceNodeApi[]
+}
+
+export interface TraceTimelineRowApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    depth: number
+    startMs: number
+    durationMs: number | null
+    hasError: boolean
+}
+
+export interface TraceApi {
+    id: string
+    name: string | null
+    createdAt: string
+    sessionId: string | null
+    person: TracePersonApi | null
+    totals: TraceNodeStatsApi
+    hasError: boolean
+    errorCount: number
+    tree: TraceNodeApi[]
+    timeline: TraceTimelineRowApi[]
+    totalMs: number
+    threadNodeIds: string[]
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
@@ -1909,12 +2021,12 @@ export type EvaluationApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2230,12 +2342,12 @@ export type PatchedEvaluationApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -2409,12 +2521,12 @@ export type TestHogRequestApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -3141,12 +3253,12 @@ export type EvaluationReportMetricsApiOutputConfig = {
     /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
     true_is_failure?: boolean
     /**
-     * Inclusive minimum numeric score. Omit for no lower bound.
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.
      * @nullable
      */
     min?: number | null
     /**
-     * Inclusive maximum numeric score. Omit for no upper bound.
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.
      * @nullable
      */
     max?: number | null
@@ -3614,6 +3726,16 @@ export interface PatchedScoreDefinitionMetadataApi {
 }
 
 export interface ScoreDefinitionNewVersionApi {
+    /**
+     * Updated scorer name, saved with this version.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Updated scorer description, saved with this version.
+     * @nullable
+     */
+    description?: string | null
     /** Next immutable scorer configuration. */
     config: ScoreDefinitionConfigApi
     /**
@@ -3693,6 +3815,8 @@ export interface SummarizeRequestApi {
     data?: unknown
     /** Force regenerate summary, bypassing cache */
     force_refresh?: boolean
+    /** Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title. */
+    compact_context?: boolean
     /**
      * LLM model to use (defaults based on provider)
      * @nullable
@@ -4861,6 +4985,13 @@ export type AiObservabilityOfflineScorersHistoryListParams = {
      * @maxLength 255
      */
     suite_key?: string
+}
+
+export type AiObservabilityTracesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
 }
 
 export type DatasetItemsListParams = {

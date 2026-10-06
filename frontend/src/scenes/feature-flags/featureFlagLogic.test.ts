@@ -11,6 +11,7 @@ import { render } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import { toast } from 'react-toastify'
 
 import { lemonToast as sharedLemonToast } from '@posthog/lemon-ui'
 
@@ -249,6 +250,10 @@ describe('schedule timezone helpers', () => {
 
 describe('featureFlagLogic', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
+    const FLAG_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`
+    // The shape drf-exceptions-hog returns. The `detail` is what the generic initKea toast renders,
+    // so an empty body would let a silence or "one notice" assertion pass without suppression.
+    const SERVER_ERROR_BODY = { type: 'server_error', code: 'error', detail: 'A server error occurred.' }
 
     beforeEach(async () => {
         useMocks({
@@ -315,11 +320,24 @@ describe('featureFlagLogic', () => {
 
             featureFlagsLogic.unmount()
         })
+
+        // The agent path surfaces its failures through this same loader, so its rethrow must not
+        // reach this one.
+        it('says nothing when the background refresh fails', async () => {
+            useMocks({ get: { [FLAG_URL]: () => [500, SERVER_ERROR_BODY] } })
+
+            // A payloadless refresh is the mount path; `afterMount` dispatches exactly this.
+            await expectLogic(logic, () => logic.actions.refreshFeatureFlag())
+                .toDispatchActions(['refreshFeatureFlagSuccess'])
+                .toNotHaveDispatchedActions(['refreshFeatureFlagFailure'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.error).not.toHaveBeenCalled()
+            expect(lemonToast.info).not.toHaveBeenCalled()
+        })
     })
 
     describe('refresh after a PostHog AI change', () => {
-        const FLAG_URL = `/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`
-
         function serverFlagMock(flag: Record<string, any>): Parameters<typeof useMocks>[0] {
             return { get: { [FLAG_URL]: () => [200, { ...MOCK_FEATURE_FLAG, ...flag }] } }
         }
@@ -429,48 +447,262 @@ describe('featureFlagLogic', () => {
             expect(logic.values.originalFeatureFlag?.name).toBe('second agent change')
         })
 
-        // The case above holds a refresh against a second refresh, which `breakpoint()` covers on
-        // its own. A mutation landing mid-request needs a separate guard, so it needs its own case.
-        it.each([
-            ['a toggle', (flag: FeatureFlagType) => logic.actions.updateFeatureFlagActiveSuccess(flag)],
-            // The inline tag and description saves and the cross-project toggle re-baseline without
-            // dispatching any loader success, so a guard keyed to those actions cannot see them.
+        type MutationDuringRefresh = [string, (flag: FeatureFlagType) => void]
+
+        // These update only the fields they persisted. The inline tag and description saves and the
+        // cross-project toggle re-baseline without dispatching any loader success, so a guard keyed
+        // to those actions cannot see them.
+        const partialFoldsDuringRefresh: MutationDuringRefresh[] = [
+            ['a toggle', (flag) => logic.actions.updateFeatureFlagActiveSuccess(flag)],
             [
                 'an inline field save',
-                (flag: FeatureFlagType) => {
+                (flag) => {
                     logic.actions.setFeatureFlag(flag)
                     logic.actions.setOriginalFeatureFlag(flag)
                 },
             ],
-            ['a full reload', (flag: FeatureFlagType) => logic.actions.loadFeatureFlagSuccess(flag)],
-        ])('discards a refresh response that %s superseded', async (_label, mutate) => {
-            const response = deferred()
-            // The loader samples the mutation count before it calls the API, so mutating before the
-            // request is open would pass without exercising the guard.
-            const requestStarted = deferred()
+        ]
+        const fullReload: MutationDuringRefresh = [
+            'a full reload',
+            (flag) => logic.actions.loadFeatureFlagSuccess(flag),
+        ]
+        const fullSave: MutationDuringRefresh = ['a full save', (flag) => logic.actions.saveFeatureFlagSuccess(flag)]
 
-            useMocks({
-                get: {
-                    [FLAG_URL]: async () => {
-                        requestStarted.resolve()
-                        await response.promise
-                        return [200, { ...MOCK_FEATURE_FLAG, name: 'agent change', active: true, version: 3 }]
+        // The case above holds a refresh against a second refresh, which `breakpoint()` covers on
+        // its own. A mutation landing mid-request needs a separate guard, so it needs its own case.
+        it.each([...partialFoldsDuringRefresh, fullReload])(
+            'discards a refresh response that %s superseded',
+            async (_label, mutate) => {
+                const response = deferred()
+                // The loader samples the mutation count before it calls the API, so mutating before the
+                // request is open would pass without exercising the guard.
+                const requestStarted = deferred()
+
+                useMocks({
+                    get: {
+                        [FLAG_URL]: async () => {
+                            requestStarted.resolve()
+                            await response.promise
+                            return [200, { ...MOCK_FEATURE_FLAG, name: 'agent change', active: true, version: 3 }]
+                        },
                     },
-                },
+                })
+
+                logic.actions.refreshFeatureFlagAfterAgentChange()
+                await requestStarted.promise
+
+                mutate({ ...MOCK_FEATURE_FLAG, active: false, version: 7 } as FeatureFlagType)
+                expect(logic.values.featureFlag.active).toBe(false)
+
+                response.resolve()
+                await expectLogic(logic).toDispatchActions(['refreshFeatureFlagSuccess']).toFinishAllListeners()
+
+                expect(logic.values.featureFlag.active).toBe(false)
+                expect(logic.values.featureFlag.name).toBe('test-name')
+                expect(logic.values.featureFlag.version).toBe(7)
+            }
+        )
+
+        describe('when the request fails', () => {
+            beforeEach(silenceKeaLoadersErrors)
+            afterEach(resumeKeaLoadersErrors)
+
+            // A flag GET held open until `failAfter` lands `mutate`, then answered with a 500. The loader
+            // samples its counters before it calls the API, so mutating before the request is open would
+            // pass without exercising the guard.
+            function heldRefreshFailure(): {
+                mocks: Parameters<typeof useMocks>[0]
+                failAfter: (mutate: (flag: FeatureFlagType) => void) => Promise<void>
+            } {
+                const response = deferred()
+                const requestStarted = deferred()
+                return {
+                    mocks: {
+                        get: {
+                            [FLAG_URL]: async () => {
+                                requestStarted.resolve()
+                                await response.promise
+                                return [500, SERVER_ERROR_BODY]
+                            },
+                        },
+                    },
+                    failAfter: async (mutate) => {
+                        logic.actions.refreshFeatureFlagAfterAgentChange()
+                        await requestStarted.promise
+                        mutate({ ...MOCK_FEATURE_FLAG, active: false, version: 7 } as FeatureFlagType)
+                        response.resolve()
+                    },
+                }
+            }
+
+            // The failure notice never closes on its own, so a failure that lands after a whole-flag
+            // replacement would tell the reader a current page is stale until they act on it.
+            it.each([fullReload, fullSave])('says nothing when a refresh fails after %s', async (_label, mutate) => {
+                const held = heldRefreshFailure()
+                useMocks(held.mocks)
+                await held.failAfter(mutate)
+                await expectLogic(logic)
+                    .toDispatchActions(['refreshFeatureFlagSuccess'])
+                    .toNotHaveDispatchedActions(['refreshFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                expect(lemonToast.error).not.toHaveBeenCalled()
             })
 
-            logic.actions.refreshFeatureFlagAfterAgentChange()
-            await requestStarted.promise
+            // A partial fold leaves the page without the agent's other changes and carries the fresh
+            // `version` into the form, so the next save passes the stale-write check and overwrites
+            // them with no error. The notice is the only warning.
+            it.each(partialFoldsDuringRefresh)('still says the refresh failed after %s', async (_label, mutate) => {
+                const held = heldRefreshFailure()
+                useMocks(held.mocks)
+                await held.failAfter(mutate)
+                await expectLogic(logic).toDispatchActions(['refreshFeatureFlagFailure']).toFinishAllListeners()
 
-            mutate({ ...MOCK_FEATURE_FLAG, active: false, version: 7 } as FeatureFlagType)
-            expect(logic.values.featureFlag.active).toBe(false)
+                expect(lemonToast.error).toHaveBeenCalledTimes(1)
+            })
 
-            response.resolve()
-            await expectLogic(logic).toDispatchActions(['refreshFeatureFlagSuccess']).toFinishAllListeners()
+            // Silence here leaves the reader trusting a screen behind the server, then saving over it.
+            it('says the refresh failed and retries it from the notice', async () => {
+                useMocks({ get: { [FLAG_URL]: () => [500, SERVER_ERROR_BODY] } })
 
-            expect(logic.values.featureFlag.active).toBe(false)
-            expect(logic.values.featureFlag.name).toBe('test-name')
-            expect(logic.values.featureFlag.version).toBe(7)
+                await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                    .toDispatchActions(['refreshFeatureFlag', 'refreshFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                // One notice, not two: initKea's ERROR_FILTER_ALLOW_LIST names this action.
+                expect(lemonToast.error).toHaveBeenCalledTimes(1)
+                const [message, options] = jest.mocked(lemonToast.error).mock.calls[0]
+                expect(message).toContain('could not load the new values')
+                expect(options?.toastId).toBe('feature-flag-agent-refresh-failed-1-1')
+                expect(options?.autoClose).toBe(false)
+                expect(options?.button?.label).toBe('Try again')
+
+                // A retry that fails again must not run the full loader, which would mark the flag
+                // missing and swap the page for Not Found.
+                await expectLogic(logic, () => void options?.button?.action())
+                    .toDispatchActions(['refreshFeatureFlag', 'refreshFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.featureFlagMissing).toBe(false)
+                expect(lemonToast.error).toHaveBeenCalledTimes(2)
+                const [, retryOptions] = jest.mocked(lemonToast.error).mock.calls[1]
+                expect(retryOptions?.toastId).toBe('feature-flag-agent-refresh-failed-1-2')
+
+                useMocks(serverFlagMock({ name: 'renamed by the agent' }))
+
+                await expectLogic(logic, () => void retryOptions?.button?.action())
+                    .toDispatchActions(['refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
+                    .toFinishAllListeners()
+
+                expect(logic.values.featureFlag.name).toBe('renamed by the agent')
+            })
+
+            // The notice never closes on its own. Each of these replaces the values it warns about, and
+            // after unmount its button would retry on a logic that is gone.
+            it.each<[string, () => Promise<void>]>([
+                [
+                    'a later refresh succeeds',
+                    async () => {
+                        useMocks(serverFlagMock({ name: 'renamed by the agent' }))
+                        await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                            .toDispatchActions(['refreshFeatureFlagSuccess'])
+                            .toFinishAllListeners()
+                    },
+                ],
+                [
+                    'the flag fully reloads',
+                    async () => {
+                        await expectLogic(logic, () =>
+                            logic.actions.loadFeatureFlagSuccess(MOCK_FEATURE_FLAG)
+                        ).toFinishAllListeners()
+                    },
+                ],
+                [
+                    'the flag saves',
+                    async () => {
+                        await expectLogic(logic, () =>
+                            logic.actions.saveFeatureFlagSuccess(MOCK_FEATURE_FLAG)
+                        ).toFinishAllListeners()
+                    },
+                ],
+                ['the logic unmounts', async () => logic.unmount()],
+            ])('clears the failure notice when %s', async (_label, close) => {
+                const dismiss = jest.spyOn(toast, 'dismiss')
+                try {
+                    useMocks({ get: { [FLAG_URL]: () => [500, SERVER_ERROR_BODY] } })
+
+                    await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                        .toDispatchActions(['refreshFeatureFlagFailure'])
+                        .toFinishAllListeners()
+
+                    const [, options] = jest.mocked(lemonToast.error).mock.calls[0]
+                    dismiss.mockClear()
+                    await close()
+
+                    expect(dismiss).toHaveBeenCalledWith(options?.toastId)
+                } finally {
+                    dismiss.mockRestore()
+                }
+            })
+
+            // A dirty-form refresh leaves its notice open until someone acts on it, so a later failure
+            // would otherwise stack a second permanent notice offering the same reload.
+            it('replaces the kept-edits notice when a later refresh fails', async () => {
+                const dismiss = jest.spyOn(toast, 'dismiss')
+                try {
+                    logic.actions.setFeatureFlag({ ...logic.values.featureFlag, name: 'half-written local edit' })
+                    expect(logic.values.isFormDirty).toBe(true)
+
+                    useMocks(serverFlagMock({ active: false }))
+                    await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                        .toDispatchActions(['refreshFeatureFlagSuccess'])
+                        .toFinishAllListeners()
+                    expect(lemonToast.info).toHaveBeenCalledTimes(1)
+
+                    dismiss.mockClear()
+                    useMocks({ get: { [FLAG_URL]: () => [500, SERVER_ERROR_BODY] } })
+
+                    await expectLogic(logic, () => logic.actions.refreshFeatureFlagAfterAgentChange())
+                        .toDispatchActions(['refreshFeatureFlagFailure'])
+                        .toFinishAllListeners()
+
+                    expect(dismiss).toHaveBeenCalledWith('feature-flag-agent-change-1')
+                } finally {
+                    dismiss.mockRestore()
+                }
+            })
+
+            // Needs the two-in-flight setup for the same reason as the superseded-response case above:
+            // the notice is keyed to the flag and never closes on its own, so a late failure would tell
+            // the reader a current page is stale.
+            it('says nothing when a superseded refresh fails late', async () => {
+                const firstResponse = deferred()
+                let requestCount = 0
+
+                useMocks({
+                    get: {
+                        [FLAG_URL]: async () => {
+                            requestCount += 1
+                            if (requestCount === 1) {
+                                await firstResponse.promise
+                                return [500, SERVER_ERROR_BODY]
+                            }
+                            return [200, { ...MOCK_FEATURE_FLAG, name: 'second agent change' }]
+                        },
+                    },
+                })
+
+                await expectLogic(logic, () => {
+                    logic.actions.refreshFeatureFlagAfterAgentChange()
+                    logic.actions.refreshFeatureFlagAfterAgentChange()
+                }).toDispatchActions(['refreshFeatureFlagSuccess'])
+
+                firstResponse.resolve()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.featureFlag.name).toBe('second agent change')
+                expect(lemonToast.error).not.toHaveBeenCalled()
+            })
         })
     })
 
@@ -4217,8 +4449,9 @@ describe('a flag in config version 2', () => {
         expect(logic.values.originalFeatureFlag?.version).toBe(3)
     })
 
+    const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
     it('sends a tag save made while another is in flight with the version that save returned', async () => {
-        const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
         const firstResponse = deferred()
         const update = jest.spyOn(api, 'update').mockImplementation(async (_url, payload: any) => {
             if (update.mock.calls.length === 1) {
@@ -4242,6 +4475,68 @@ describe('a flag in config version 2', () => {
         ])
         expect(logic.values.featureFlag).toMatchObject({ tags: ['checkout', 'pricing'], version: 5 })
         expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        [
+            'a description save',
+            'a tag save',
+            () => logic.actions.saveTagsInline(['checkout']),
+            () => logic.actions.saveDescriptionInline('Checkout redesign'),
+        ],
+        [
+            'a tag save',
+            'a description save',
+            () => logic.actions.saveDescriptionInline('Checkout redesign'),
+            () => logic.actions.saveTagsInline(['checkout']),
+        ],
+    ])('sends %s made while %s is in flight with the version that save returned', async (_, __, first, second) => {
+        const firstResponse = deferred()
+        const update = jest.spyOn(api, 'update').mockImplementation(async (_url, payload: any) => {
+            if (update.mock.calls.length === 1) {
+                await firstResponse.promise
+            }
+            return { ...V2_FLAG, ...payload, version: payload.version + 1 }
+        })
+
+        first()
+        await wait(300)
+        second()
+        await wait(300)
+        firstResponse.resolve()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(update.mock.calls.map(([, payload]) => (payload as any).version)).toEqual([3, 4])
+        // Each save's response leaves the other save's field alone.
+        expect(logic.values.featureFlag).toMatchObject({ name: 'Checkout redesign', tags: ['checkout'], version: 5 })
+        expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
+    it('keeps the first tag save when the save queued behind it is refused', async () => {
+        const detail = 'Keep at least one tag. This project requires feature flags to stay tagged.'
+        const firstResponse = deferred()
+        const update = jest.spyOn(api, 'update').mockImplementation(async (_url, payload: any) => {
+            if (update.mock.calls.length > 1) {
+                throw new ApiError(undefined, 400, undefined, { detail })
+            }
+            await firstResponse.promise
+            return { ...V2_FLAG, ...payload, version: payload.version + 1 }
+        })
+
+        logic.actions.saveTagsInline(['checkout'])
+        await wait(300)
+        logic.actions.saveTagsInline([])
+        await wait(300)
+        firstResponse.resolve()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(update.mock.calls.map(([, payload]) => payload)).toEqual([
+            { tags: ['checkout'], version: 3 },
+            { tags: [], version: 4 },
+        ])
+        expect(logic.values.featureFlag).toMatchObject({ tags: ['checkout'], version: 4 })
+        expect(logic.values.originalFeatureFlag).toMatchObject({ tags: ['checkout'], version: 4 })
+        expect(lemonToast.error).toHaveBeenCalledWith(detail)
     })
 
     it('starts a blank flag when a duplicate link names this flag', async () => {

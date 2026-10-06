@@ -553,6 +553,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("message", "Authentication failed", "password"),
             ("atlas_bad_auth", "bad auth", "password"),
             ("dns_name_not_found", "Name or service not known", "resolved"),
+            ("srv_dns_name_not_found", "The DNS query name does not exist", "resolved"),
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
             ("document_missing_id", "one of its documents has no _id field", "view"),
