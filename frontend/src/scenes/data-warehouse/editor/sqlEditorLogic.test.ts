@@ -2189,25 +2189,47 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('open_view behavior', () => {
-        it('respects the requested output tab when opening a view from the URL', async () => {
-            logic = sqlEditorLogic({
-                tabId: TAB_ID,
-                monaco: createMockMonaco(),
-                editor: createMockEditor(),
-            })
-            logic.mount()
-
-            router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id }, { output_tab: OutputTab.Results })
-
-            await expectLogic(logic)
-                .toDispatchActions(['setViewLoading', 'createTab', 'updateTab'])
-                .toMatchValues({
-                    editingView: partial({
-                        id: MOCK_VIEW.id,
-                    }),
-                    outputActiveTab: OutputTab.Results,
+        it.each([undefined, { dateRange: { date_from: '-30d' } }])(
+            'restores saved view filters and the requested output tab with URL overrides %s',
+            async (filters) => {
+                const savedFilters = { dateRange: { date_from: '-7d' } }
+                useMocks({
+                    get: {
+                        '/api/:scope/:team_id/warehouse_saved_queries/:id/': [
+                            200,
+                            {
+                                ...MOCK_VIEW,
+                                query: { ...MOCK_VIEW.query, filters: savedFilters },
+                            },
+                        ],
+                    },
                 })
-        })
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
+
+                router.actions.push(
+                    urls.sqlEditor(),
+                    { open_view: MOCK_VIEW.id },
+                    { output_tab: OutputTab.Results, ...(filters ? { filters } : {}) }
+                )
+
+                await expectLogic(logic)
+                    .toDispatchActions(['setViewLoading', 'createTab', 'updateTab'])
+                    .toMatchValues({
+                        editingView: partial({
+                            id: MOCK_VIEW.id,
+                        }),
+                        outputActiveTab: OutputTab.Results,
+                    })
+                    .toFinishAllListeners()
+                expect(logic.values.sourceQuery.source.filters).toEqual(filters ?? savedFilters)
+                expect(logic.values.hasEditorChanges).toBe(!!filters)
+            }
+        )
 
         it('preserves view details when a metadata list refresh updates the active tab', async () => {
             logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
