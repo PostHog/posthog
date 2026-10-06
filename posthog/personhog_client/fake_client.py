@@ -92,7 +92,7 @@ class FakePersonHogClient:
         # keyed by (cohort_id, person_id) -> True
         self._cohort_members: dict[tuple[int, int], bool] = {}
 
-        # synthetic ids for persons created by split_person and the version floor RPCs
+        # synthetic ids for persons created by split_person and ensure_person_version_floors
         self._next_split_person_id = 1_000_000_000
 
         # monotonic counter for distinct ID row IDs

@@ -651,5 +651,4 @@ class TestVersionRpcHelpers(SimpleTestCase):
         with fake_personhog_client() as fake:
             results = _ensure_persons(uuids)
             fake.assert_called("ensure_person_version_floors", times=2)
-        # Every write reports each key in request order.
         assert results == uuids
