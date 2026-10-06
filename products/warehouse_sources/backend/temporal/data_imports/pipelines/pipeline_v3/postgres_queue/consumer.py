@@ -40,6 +40,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     CoalesceMember,
     extends_set,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
@@ -165,6 +168,9 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # self-hosted object storage (MinIO) has hit its minimum free drive threshold and is
     # refusing writes — every retry hits the same full disk until an operator frees space
     "XMinioStorageFull",
+    # a destination's own settings refuse the connection (bad credentials, unknown database,
+    # unroutable host); the next scheduled run tries again after the customer fixes them
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
 )
 
 # Subset of the non-retryable errors that are expected upstream/customer conditions rather than
@@ -178,6 +184,8 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     # the schema or job was deleted (e.g. the user removed the source) while a batch for it
     # was still in flight — an upstream/customer action, not a pipeline bug
     *DELETION_ERROR_PATTERNS,
+    # a destination the customer configured refuses the connection, which only they can fix
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.
@@ -337,7 +345,9 @@ class DeltaBatchConsumerAdapter:
             try:
                 # `to_export_signal()` hands back a dict, so it needs parsing the same way the
                 # delivery path does before anything reads a field off it.
-                await sync_to_async(abort_destinations)(ExportSignalMessage.from_dict(batch.to_export_signal()))
+                await sync_to_async(abort_destinations)(
+                    ExportSignalMessage.from_dict(batch.to_export_signal()), failure_reason=reason
+                )
             except Exception as e:
                 # Best effort by design: a leftover table costs the customer storage, not
                 # correctness, and is not worth failing the fail path over.

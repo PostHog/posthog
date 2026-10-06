@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
@@ -5,9 +7,9 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { useState } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -107,6 +109,10 @@ async function openedCategoryPopup(): Promise<HTMLElement> {
         }
         return popup
     })
+}
+
+function setFlagEvaluationsMode(mode: FlagEvaluationsModeEnumApi): void {
+    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
 }
 
 describe('MenuFilterCombobox', () => {
@@ -1141,20 +1147,9 @@ describe('MenuFilterCombobox', () => {
     // Parity with the legacy picker, whose half lives in TaxonomicFilter.test.tsx. Nothing enforces
     // that the two agree, so the same rule is asserted on both.
     describe('an event hidden because its data is moving', () => {
-        let unmountFeatureFlagLogic: (() => void) | null = null
-
         beforeEach(() => {
             apiGet.mockResolvedValue({ results: [], count: 0 })
-            unmountFeatureFlagLogic = featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS], {
-                [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true,
-            })
-        })
-
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            unmountFeatureFlagLogic?.()
-            unmountFeatureFlagLogic = null
+            setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
         })
 
         it('explains the absence, and drops recovery buttons that cannot recover it', async () => {
@@ -1169,8 +1164,8 @@ describe('MenuFilterCombobox', () => {
             expect(screen.queryByTestId('menu-filter-check-other-categories')).not.toBeInTheDocument()
         })
 
-        it('reports no matches as usual once the kill switch is off', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
+        it('reports no matches as usual for a team on the Events mode', async () => {
+            setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number0)
 
             renderAll({
                 groupTypes: [TaxonomicFilterGroupType.Events],

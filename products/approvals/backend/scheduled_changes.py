@@ -16,7 +16,7 @@ from django.db import transaction
 from django.http import HttpRequest
 
 from products.approvals.backend import decorators
-from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
+from products.approvals.backend.exceptions import ApprovalDetectionFailed, ApprovalRequired, PolicyConflict
 from products.approvals.backend.models import ChangeRequest, ChangeRequestState, ValidationStatus
 from products.approvals.backend.notifications import send_approval_expired_notification
 from products.approvals.backend.services import apply_change_request
@@ -117,11 +117,14 @@ def _detect_gated_action(flag: "FeatureFlag", payload: dict[str, Any], user) -> 
                 policy = decorators._check_policy_for_action(action_class, team, organization)
                 if policy:
                     return _GatedAction(action_class, policy, serializer, http_request, gate_args)
-        except Exception:
+        except Exception as e:
+            # Unknown means deny. A schedule saved here fires later with no approver watching, so
+            # a detection failure must stop it being saved rather than pass it through ungated.
             logger.exception(
                 "Error detecting action for scheduled change",
                 extra={"action": action_class.key, "flag_id": flag.id},
             )
+            raise ApprovalDetectionFailed("Could not determine whether this change needs approval. Try again.") from e
 
     return None
 

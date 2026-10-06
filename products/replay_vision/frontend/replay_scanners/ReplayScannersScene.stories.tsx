@@ -948,6 +948,91 @@ export const HomeWatchFeedGrid: StoryObj = {
     },
 }
 
+// The jev ranker arm serves the simplified card: the scan's own sentence plus a scanner chip and
+// person line, with the question and verdict behind the chip's tooltip. The first card leads with
+// the scan's notability sentence, the second falls back to the derived headline, and the filler
+// row reads muted with no finding claim.
+export const HomeWatchFeedJevArm: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/watch_feed/': {
+                    ranker: 'jev',
+                    results: [
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000e1',
+                                prompt_question: 'Did the user hesitate at checkout?',
+                                scanner_id: scanners.results[0].id,
+                                scanner_snapshot: {
+                                    name: 'Confused checkout',
+                                    scanner_type: 'monitor',
+                                    scanner_version: 1,
+                                    model: 'gemini-3.8-flash',
+                                    provider: 'google',
+                                    emits_signals: true,
+                                    scanner_config: { prompt: 'Did the user hesitate at checkout?' },
+                                },
+                                scanner_result: {
+                                    model_output: {
+                                        scanner_type: 'monitor',
+                                        verdict: 'yes',
+                                        confidence: 0.92,
+                                        reasoning: 'Retried the payment form twice before completing.',
+                                        key_moment_ms: 154000,
+                                    },
+                                    signals_count: 0,
+                                },
+                                viewed: false,
+                            }),
+                            reason: {
+                                kind: 'jev_watchable',
+                                jev_probability: 0.91,
+                                notability_reason:
+                                    'The card form rejected a valid card three times before the user abandoned the checkout.',
+                            },
+                        },
+                        {
+                            observation: observation({
+                                id: '00000000-0000-0000-0000-0000000000e2',
+                                prompt_question: 'How strong is the buying intent in this session?',
+                                scanner_id: scanners.results[3].id,
+                                scanner_snapshot: {
+                                    name: 'Intent score',
+                                    scanner_type: 'scorer',
+                                    scanner_version: 1,
+                                    model: 'gemini-3.8-flash',
+                                    provider: 'google',
+                                    emits_signals: false,
+                                    scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
+                                },
+                                scanner_result: {
+                                    model_output: {
+                                        scanner_type: 'scorer',
+                                        score: 9.5,
+                                        confidence: 0.88,
+                                        reasoning: 'Compared plans, opened billing, invited a teammate.',
+                                    },
+                                    signals_count: 0,
+                                },
+                                viewed: true,
+                            }),
+                            reason: { kind: 'jev_watchable', jev_probability: 0.48 },
+                        },
+                        {
+                            observation: observation({ id: '00000000-0000-0000-0000-0000000000e3' }),
+                            reason: { kind: 'unviewed_recent' },
+                        },
+                    ],
+                },
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_HOME_REDESIGN_EXPERIMENT]: 'test' },
+    },
+}
+
 // A quiet window: nothing scored on any source, so the feed pads to three newest clips and says so
 // rather than filling the page with them.
 export const HomeWatchFeedOnlyNewest: StoryObj = {
@@ -1299,24 +1384,6 @@ export const ScannerOnDemand: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=run` },
 }
 
-// Test arms of the model tier-naming experiment: models labeled by capability tier instead of
-// provider names, as the Overview's Setup card shows them.
-export const ScannerSetupTierNames: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(summarizerScanner.id),
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test' },
-    },
-}
-
-export const ScannerSetupLiteStandardPro: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVision(summarizerScanner.id),
-        featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'lite-standard-pro',
-        },
-    },
-}
-
 const digestScoutConfig = {
     id: '00000000-0000-0000-0000-0000000000c1',
     skill_name: 'signals-scout-daily-digest-confused-checkout',
@@ -1555,22 +1622,6 @@ export const ScannerEditorConfigure: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id) },
 }
 
-export const ScannerEditorConfigureTierNames: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
-        featureFlags: { [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'test' },
-    },
-}
-
-export const ScannerEditorConfigureLiteStandardPro: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionScannerConfigure(summarizerScanner.id),
-        featureFlags: {
-            [FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT]: 'lite-standard-pro',
-        },
-    },
-}
-
 export const ScannerEditorTriggers: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerTriggers(summarizerScanner.id) },
 }
@@ -1758,10 +1809,10 @@ export const ScannerEditorGoalOverviewExperiment: StoryObj = {
                     id: 11,
                     name: 'AI-based scanner creation',
                     description: 'Does the goal flow beat the template gallery?',
-                    feature_flag_key: 'vision-goal-based-creation-flow',
+                    feature_flag_key: 'ai-scanner-creation-flow',
                     feature_flag: {
                         id: 11,
-                        key: 'vision-goal-based-creation-flow',
+                        key: 'ai-scanner-creation-flow',
                         filters: {
                             multivariate: {
                                 variants: [
