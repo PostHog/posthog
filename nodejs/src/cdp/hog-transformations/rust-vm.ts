@@ -1,3 +1,5 @@
+import { createHash } from 'crypto'
+
 import { logger } from '~/common/utils/logger'
 
 import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
@@ -40,6 +42,22 @@ export function isUnsupportedByRustVm(error: string): boolean {
     )
 }
 
+const programKeys = new WeakMap<unknown[], string>()
+
+/**
+ * Content hash of a bytecode array, cached per instance (the hog function manager hands out one
+ * array per function). Every team has its own copy of a template, and keying by content is what
+ * lets those copies share a batch and a registration.
+ */
+export function programKey(bytecode: unknown[]): string {
+    let key = programKeys.get(bytecode)
+    if (key === undefined) {
+        key = createHash('sha256').update(JSON.stringify(bytecode)).digest('base64')
+        programKeys.set(bytecode, key)
+    }
+    return key
+}
+
 export interface RustExecResult {
     result?: unknown
     error?: string
@@ -59,19 +77,13 @@ export interface HogvmNodeModule {
         options?: { parallel?: boolean; maxSteps?: number }
     ): Promise<RustExecResult[]>
     /**
-     * The registry API is optional: the addon is a separately built native binary, so a
-     * deployment running one that predates these bindings won't have them. Callers must feature
-     * check before use and fall back to `executeSync`, rather than throwing on every invocation.
-     */
-    /**
-     * Validate and token-decode a program once, returning a handle for `executeRegisteredSync`.
-     * Invalid bytecode still gets a handle — executions through it report the validation error.
+     * The registry bindings are optional: the addon is a separately built native binary, and a
+     * deployment can run one that predates them. Callers feature-check and fall back to the
+     * unregistered calls above instead of throwing on every invocation.
      */
     registerProgram?(program: unknown[]): number
-    /** Drop a registered program and free its slot. Releasing an unknown handle is a no-op. */
     releaseProgram?(handle: number): void
     executeRegisteredSync?(handle: number, globals: unknown, options?: { maxSteps?: number }): RustExecResult
-    /** `executeBatch` against a registered program, skipping the per-batch bytecode crossing. */
     executeRegisteredBatch?(
         handle: number,
         events: unknown[],

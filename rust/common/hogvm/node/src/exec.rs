@@ -70,16 +70,17 @@ pub fn run_batch_salvaged(
     })
 }
 
-/// Like [`run_batch_salvaged`], but from an already-built `Program`. This is the
-/// registered-program batch path.
+/// Like [`run_batch_salvaged`], but from a program built once by [`build_program`]. A program that
+/// failed to build errors every converted event, and marshal errors keep their own prefix.
 pub fn run_batch_program_salvaged(
-    program: &Program,
+    program: &Result<Program, String>,
     events: Vec<Result<Value, String>>,
     parallel: bool,
     max_steps: Option<usize>,
 ) -> Vec<HogExecResult> {
-    salvage(events, |ok_events| {
-        run_batch_program(program, ok_events, parallel, max_steps)
+    salvage(events, |ok_events| match program {
+        Ok(program) => run_batch_program(program, ok_events, parallel, max_steps),
+        Err(e) => ok_events.iter().map(|_| error_result(e, 0.0)).collect(),
     })
 }
 
@@ -178,7 +179,7 @@ fn run_chunk(program: &Program, chunk: &[Value], max_steps: Option<usize>) -> Ve
         .collect()
 }
 
-fn error_result(error: &str, duration_us: f64) -> HogExecResult {
+pub(crate) fn error_result(error: &str, duration_us: f64) -> HogExecResult {
     HogExecResult {
         result: None,
         error: Some(error.to_string()),
@@ -316,6 +317,22 @@ mod tests {
         );
         assert_eq!(results[1].duration_us, 0.0);
         assert_eq!(results[2].result, Some(json!("b")));
+    }
+
+    #[test]
+    fn salvaged_batch_keeps_marshal_errors_when_the_program_is_invalid() {
+        let program = build_program(vec![json!("not bytecode")]);
+        let events = vec![Err("nan in globals".to_string()), Ok(json!({}))];
+        let results = run_batch_program_salvaged(&program, events, false, None);
+        assert_eq!(
+            results[0].error.as_deref(),
+            Some("marshal_error:nan in globals")
+        );
+        assert!(results[1]
+            .error
+            .as_deref()
+            .unwrap()
+            .starts_with("invalid program"));
     }
 
     #[test]

@@ -161,15 +161,10 @@ pub fn execute_sync(
         .expect("run_batch returns one result per event")
 }
 
-// Programs registered once by `registerProgram` — validated and token-decoded at registration,
-// executed by handle. Skips the per-invocation JS→Rust marshal + copy + decode of the token
-// array, so a hogFunction's bytecode is decoded once and reused across every event.
-//
-// Slots are reused after `releaseProgram`, so a long-lived process that re-registers programs as
-// hog functions are edited or evicted doesn't grow the registry without bound. Callers own handle
-// lifecycle: a handle must not be executed after it is released (doing so is not unsafe — it
-// either errors as unknown or, once the slot is reused, runs the newer program — but it is a
-// caller bug).
+// Programs registered by `registerProgram` are validated and token-decoded once and executed by
+// handle, so the per-event cost is the globals crossing. Released slots are reused so the registry
+// stays bounded. Callers own the handle lifecycle: executing a released handle is a caller bug. It
+// errors as unknown, or runs the newer program once the slot is reused.
 #[derive(Default)]
 struct ProgramRegistry {
     slots: Vec<Option<Result<hogvm::Program, String>>>,
@@ -182,8 +177,7 @@ static REGISTERED_PROGRAMS: std::sync::RwLock<ProgramRegistry> =
         free: Vec::new(),
     });
 
-/// Register a program's bytecode once; returns a handle for `executeRegisteredSync`. Invalid
-/// bytecode still gets a handle — executions through it report the validation error.
+/// Invalid bytecode still gets a handle, and executions through it report the validation error.
 #[napi]
 pub fn register_program(program: Value) -> u32 {
     let tokens = match program {
@@ -200,8 +194,8 @@ pub fn register_program(program: Value) -> u32 {
     (registry.slots.len() - 1) as u32
 }
 
-/// Drop a registered program and free its slot for reuse. Releasing an unknown or already-released
-/// handle is a no-op, so a caller retrying a cleanup can't corrupt the free list.
+/// Releasing an unknown or already-released handle is a no-op, so a double release cannot push the
+/// same slot onto the free list twice.
 #[napi]
 pub fn release_program(handle: u32) {
     let mut registry = REGISTERED_PROGRAMS.write().expect("registry poisoned");
@@ -225,19 +219,6 @@ fn get_registered(handle: u32) -> Result<hogvm::Program, String> {
         .unwrap_or_else(|| Err(format!("unknown program handle {handle}")))
 }
 
-fn error_results(error: &str, count: usize) -> Vec<HogExecResult> {
-    (0..count)
-        .map(|_| HogExecResult {
-            result: None,
-            error: Some(error.to_string()),
-            duration_us: 0.0,
-            logs: Vec::new(),
-            logs_truncated: false,
-        })
-        .collect()
-}
-
-/// `executeSync` against a program registered with `registerProgram`.
 #[napi]
 pub fn execute_registered_sync(
     handle: u32,
@@ -245,13 +226,15 @@ pub fn execute_registered_sync(
     options: Option<ExecuteSyncOptions>,
 ) -> HogExecResult {
     let max_steps = options.and_then(|o| o.max_steps).map(|m| m as usize);
-    let results = match get_registered(handle) {
+    match get_registered(handle) {
         Ok(program) => {
             exec::run_batch_program(&program, std::slice::from_ref(&globals), false, max_steps)
+                .into_iter()
+                .next()
+                .expect("one result per event")
         }
-        Err(e) => error_results(&e, 1),
-    };
-    results.into_iter().next().expect("one result per event")
+        Err(e) => exec::error_result(&e, 0.0),
+    }
 }
 
 #[cfg(not(feature = "noop"))]
@@ -269,12 +252,12 @@ impl Task for ExecuteRegisteredBatchTask {
 
     fn compute(&mut self) -> NapiResult<Self::Output> {
         let events = std::mem::take(&mut self.events);
-        Ok(match &self.program {
-            Ok(program) => {
-                exec::run_batch_program_salvaged(program, events, self.parallel, self.max_steps)
-            }
-            Err(e) => error_results(e, events.len()),
-        })
+        Ok(exec::run_batch_program_salvaged(
+            &self.program,
+            events,
+            self.parallel,
+            self.max_steps,
+        ))
     }
 
     fn resolve(&mut self, _env: Env, output: Self::Output) -> NapiResult<Self::JsValue> {
@@ -282,9 +265,6 @@ impl Task for ExecuteRegisteredBatchTask {
     }
 }
 
-/// `executeBatch` against a program registered with `registerProgram`: one napi crossing for many
-/// events, off the JS event loop, with no per-batch bytecode marshal or decode. Same per-event
-/// `marshal_error:` salvage as `executeBatch`.
 #[cfg(not(feature = "noop"))]
 #[napi(ts_return_type = "Promise<Array<HogExecResult>>")]
 pub fn execute_registered_batch(
@@ -293,10 +273,9 @@ pub fn execute_registered_batch(
     events: Vec<JsUnknown>,
     options: Option<ExecuteBatchOptions>,
 ) -> AsyncTask<ExecuteRegisteredBatchTask> {
-    // Clone the program out on the JS thread so the task owns it: releasing the handle after this
-    // call (an eviction or an edit) cannot pull the program out from under the running batch.
+    // Clone the program out on the JS thread so the task owns it: an eviction that releases the
+    // handle after this call cannot pull the program out from under the running batch.
     let program = get_registered(handle);
-    // Same strict per-event conversion as `execute_batch`, for the same reasons.
     let events = events
         .into_iter()
         .map(|event| {
@@ -340,14 +319,11 @@ mod tests {
     #[test]
     fn released_handles_are_reused_so_the_registry_stays_bounded() {
         let _guard = registry_guard();
-        // Without slot reuse the registry grows by one entry per re-registration, which for a
-        // long-lived process re-registering edited hog functions is an unbounded leak.
         let first = register_program(program(1));
         release_program(first);
         let second = register_program(program(2));
         assert_eq!(first, second);
 
-        // The reused slot must hold the new program, not the released one.
         let result = execute_registered_sync(second, json!({}), None);
         assert_eq!(result.error, None);
         assert_eq!(result.result, Some(json!(2)));
@@ -371,8 +347,6 @@ mod tests {
     #[test]
     fn releasing_twice_does_not_hand_the_same_slot_out_to_two_registrations() {
         let _guard = registry_guard();
-        // A double release used to be able to push the same handle onto the free list twice, so
-        // two live registrations would alias one slot and execute each other's programs.
         let handle = register_program(program(1));
         release_program(handle);
         release_program(handle);
