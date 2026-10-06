@@ -7,6 +7,7 @@ prompt can tell the question no longer describes it.
 """
 
 import uuid
+from typing import Literal
 
 from django.conf import settings
 from django.core.cache import cache
@@ -22,7 +23,13 @@ from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, prompt_fingerprint
+from products.replay_vision.backend.models.replay_scanner import (
+    PromptValence,
+    ReplayScanner,
+    ScannerOrigin,
+    ScannerType,
+    prompt_fingerprint,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -48,6 +55,13 @@ How to phrase it for each scanner type:
 - scorer: what is being measured, for example "How strong is the buying intent in this session?"
 - summarizer: what the summary covers, for example "What happened in this session around checkout drop-off?"
 
+For a monitor or a scorer, also judge the valence: is a "yes", or a high score, good or bad news for the team
+that wrote the instructions?
+- good: it is what they hope to see, for example "Did the user complete checkout?" or "How strong is the buying intent?"
+- bad: it is a problem, for example "Did the user hit an error?" or "How frustrated did the user appear?"
+- neutral: neither, for example "Did the user use the dark theme?"
+For a classifier or a summarizer, answer neutral.
+
 Respond with JSON matching the schema.
 """
 
@@ -65,18 +79,34 @@ TEMPLATE_QUESTIONS: dict[str, str] = {
 }
 
 
+TEMPLATE_VALENCES: dict[str, PromptValence] = {
+    "Answer yes if the user appears stuck on a page: scrolling without engaging, hovering over elements with no clear CTA, or abandoning the session shortly after arriving. Otherwise answer no.": PromptValence.BAD,
+    "Score how frustrated the user appeared during this session. 0 means a smooth session with no visible friction. 10 means clear, sustained frustration: rage clicks, repeated failures, abandonment. Use the full range; most sessions land somewhere in the middle.": PromptValence.BAD,
+}
+
+_DIRECTIONAL_TYPES = frozenset({ScannerType.MONITOR, ScannerType.SCORER})
+
+
 class _LlmQuestion(BaseModel):
     question: str = Field(description="The single question the scanner answers about each session.")
+    valence: Literal["good", "bad", "neutral"] = Field(
+        default="neutral", description="Whether a yes, or a high score, is good or bad news for the team."
+    )
 
 
 @frozen
 class PromptQuestion:
     question: str
     source: str
+    valence: str = ""
 
     def as_fields(self) -> dict[str, str]:
         """The scanner columns this question fills, for a create or update call."""
-        return {"prompt_question": self.question, "prompt_question_source": self.source}
+        return {
+            "prompt_question": self.question,
+            "prompt_question_source": self.source,
+            "prompt_valence": self.valence,
+        }
 
 
 def _prompt_of(scanner_config: object) -> str:
@@ -99,7 +129,7 @@ def _clean(question: str) -> str | None:
     return question
 
 
-def _generate(*, prompt: str, scanner_type: str, team_id: int) -> str | None:
+def _generate(*, prompt: str, scanner_type: str, team_id: int) -> _LlmQuestion | None:
     config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",
@@ -124,7 +154,9 @@ def _generate(*, prompt: str, scanner_type: str, team_id: int) -> str | None:
             posthog_properties={"ai_product": "replay_vision", "feature": "prompt_question", "team_id": team_id},
             posthog_groups={"project": str(team_id)},
         )
-        return _clean(_LlmQuestion.model_validate_json(response.text or "").question)
+        answer = _LlmQuestion.model_validate_json(response.text or "")
+        question = _clean(answer.question)
+        return answer.model_copy(update={"question": question}) if question else None
     except Exception:
         logger.exception("replay_vision.prompt_question.generate_failed", team_id=team_id)
         return None
@@ -151,7 +183,11 @@ def template_question(scanner_config: object) -> PromptQuestion | None:
     prompt = _prompt_of(scanner_config)
     if prompt not in TEMPLATE_QUESTIONS:
         return None
-    return PromptQuestion(question=TEMPLATE_QUESTIONS[prompt], source=prompt_fingerprint(prompt))
+    return PromptQuestion(
+        question=TEMPLATE_QUESTIONS[prompt],
+        source=prompt_fingerprint(prompt),
+        valence=TEMPLATE_VALENCES.get(prompt, PromptValence.NEUTRAL),
+    )
 
 
 def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object, metered: bool = True) -> PromptQuestion:
@@ -164,14 +200,15 @@ def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object, 
         return PromptQuestion(question="", source=source)
     if (template := template_question(scanner_config)) is not None:
         return template
-    question = None
+    answer = None
     # The prompt is the team's own text, but it still only goes to the model under the org's AI consent.
     if is_ai_data_processing_approved(team_id) and (not metered or _take_model_call(team_id)):
-        question = _generate(prompt=prompt, scanner_type=scanner_type, team_id=team_id)
-    if question is None:
+        answer = _generate(prompt=prompt, scanner_type=scanner_type, team_id=team_id)
+    if answer is None:
         logger.warning("replay_vision.prompt_question.fell_back", team_id=team_id)
-        question = fallback_question(prompt)
-    return PromptQuestion(question=question, source=source)
+        return PromptQuestion(question=fallback_question(prompt), source=source)
+    valence = answer.valence if scanner_type in _DIRECTIONAL_TYPES else ""
+    return PromptQuestion(question=answer.question, source=source, valence=valence)
 
 
 def question_fields_for_save(
@@ -204,6 +241,16 @@ def question_for_snapshot(*, snapshot_config: object, question: str, source: str
     return question
 
 
+def valence_for_snapshot(*, snapshot: object, valence: str, source: str) -> PromptValence | None:
+    """The scanner's valence if it came from the prompt this observation was scanned with, else None."""
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    if snapshot.get("scanner_type") not in _DIRECTIONAL_TYPES or not valence:
+        return None
+    if source != prompt_fingerprint(_prompt_of(snapshot.get("scanner_config"))):
+        return None
+    return PromptValence(valence)
+
+
 @frozen
 class BackfillResult:
     checked: int
@@ -218,6 +265,7 @@ def backfill_prompt_questions(
     dry_run: bool = False,
 ) -> BackfillResult:
     """Give every scanner whose question is missing or came from another prompt a question for its current prompt.
+    A monitor or scorer whose current question has no valence gets only a valence, so its question keeps its wording.
 
     Writes through a queryset update, so the scanner's version, updated_at and activity log stay untouched.
     The update is conditional on the prompt still being the one condensed, so an edit that lands mid-run wins.
@@ -232,13 +280,14 @@ def backfill_prompt_questions(
     checked = written = 0
     condensed: dict[tuple[str, str], PromptQuestion] = {}
     for scanner in scanners.only(
-        "id", "team_id", "origin", "scanner_type", "scanner_config", "prompt_question_source"
+        "id", "team_id", "origin", "scanner_type", "scanner_config", "prompt_question_source", "prompt_valence"
     ).iterator():
         if limit is not None and written >= limit:
             break
         checked += 1
         source = prompt_fingerprint(_prompt_of(scanner.scanner_config))
-        if source == scanner.prompt_question_source:
+        question_is_current = source == scanner.prompt_question_source
+        if question_is_current and (scanner.scanner_type not in _DIRECTIONAL_TYPES or scanner.prompt_valence):
             continue
         inline_template = template_question(scanner.scanner_config) if scanner.origin == ScannerOrigin.INLINE else None
         if scanner.origin == ScannerOrigin.INLINE and inline_template is None:
@@ -257,8 +306,14 @@ def backfill_prompt_questions(
                 metered=False,
             )
             condensed[key] = question
+        fields = question.as_fields()
+        if question_is_current:
+            # A fallback carries no valence, and writing its question would replace a model-written one.
+            if not question.valence:
+                continue
+            fields = {"prompt_valence": question.valence}
         # Zero rows when the prompt was edited mid-run, which is then not a write of ours.
         written += ReplayScanner.all_origins.filter(pk=scanner.pk, scanner_config=scanner.scanner_config).update(
-            **question.as_fields()
+            **fields
         )
     return BackfillResult(checked=checked, written=written)

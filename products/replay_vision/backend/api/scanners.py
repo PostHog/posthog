@@ -2323,6 +2323,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     # Same prompt, so the source's question still describes it.
                     prompt_question=source.prompt_question,
                     prompt_question_source=source.prompt_question_source,
+                    prompt_valence=source.prompt_valence,
                     query=source.query,
                     sampling_rate=source.sampling_rate,
                     sampling_mode=source.sampling_mode,

@@ -37,9 +37,11 @@ PROMPT = "Did the user struggle to complete checkout?\n\nAnswer yes if they retr
 LONG_FIRST_LINE = "Look at " + "the checkout flow and " * 20
 
 
-def _model_says(client: MagicMock, question: str) -> None:
+def _model_says(client: MagicMock, question: str, valence: str = "bad") -> None:
     client.return_value.models.generate_content.side_effect = None
-    client.return_value.models.generate_content.return_value = MagicMock(text=json.dumps({"question": question}))
+    client.return_value.models.generate_content.return_value = MagicMock(
+        text=json.dumps({"question": question, "valence": valence})
+    )
 
 
 class TestPromptQuestions(APIBaseTest):
@@ -72,23 +74,32 @@ class TestPromptQuestions(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("model_answer", "Did the user struggle at checkout?", PROMPT, True, "Did the user struggle at checkout?"),
-            ("not_a_question", "Checkout struggles", PROMPT, True, "Did the user struggle to complete checkout?"),
+            (
+                "model_answer",
+                "Did the user struggle at checkout?",
+                PROMPT,
+                True,
+                "Did the user struggle at checkout?",
+                "bad",
+            ),
+            ("not_a_question", "Checkout struggles", PROMPT, True, "Did the user struggle to complete checkout?", ""),
             (
                 "too_long",
                 "Did " + "x" * MAX_QUESTION_CHARS + "?",
                 PROMPT,
                 True,
                 "Did the user struggle to complete checkout?",
+                "",
             ),
-            ("model_error", None, PROMPT, True, "Did the user struggle to complete checkout?"),
-            ("client_setup_fails", "setup-fails", PROMPT, True, "Did the user struggle to complete checkout?"),
+            ("model_error", None, PROMPT, True, "Did the user struggle to complete checkout?", ""),
+            ("client_setup_fails", "setup-fails", PROMPT, True, "Did the user struggle to complete checkout?", ""),
             (
                 "no_ai_consent",
                 "Did the user struggle at checkout?",
                 PROMPT,
                 False,
                 "Did the user struggle to complete checkout?",
+                "",
             ),
             (
                 "long_first_line_is_cut",
@@ -96,12 +107,31 @@ class TestPromptQuestions(APIBaseTest):
                 LONG_FIRST_LINE,
                 True,
                 LONG_FIRST_LINE[: MAX_QUESTION_CHARS - 1].rstrip() + "…",
+                "",
             ),
-            ("empty_prompt", "Did anything happen?", "   ", True, ""),
-            ("template_needs_no_call", "Did anything happen?", TEMPLATE_PROMPT, False, TEMPLATE_QUESTION),
+            ("empty_prompt", "Did anything happen?", "   ", True, "", ""),
+            ("template_needs_no_call", "Did anything happen?", TEMPLATE_PROMPT, False, TEMPLATE_QUESTION, "bad"),
+            (
+                "classifier_has_no_direction",
+                "Which friction patterns appear?",
+                PROMPT,
+                True,
+                "Which friction patterns appear?",
+                "",
+                ScannerType.CLASSIFIER,
+            ),
         ]
     )
-    def test_condense_prompt(self, _name: str, reply: str | None, prompt: str, consent: bool, expected: str) -> None:
+    def test_condense_prompt(
+        self,
+        _name: str,
+        reply: str | None,
+        prompt: str,
+        consent: bool,
+        expected: str,
+        expected_valence: str,
+        scanner_type: str = ScannerType.MONITOR,
+    ) -> None:
         if reply is None:
             self.client_mock.return_value.models.generate_content.side_effect = RuntimeError("provider down")
         elif reply == "setup-fails":
@@ -111,9 +141,10 @@ class TestPromptQuestions(APIBaseTest):
         self.organization.is_ai_data_processing_approved = consent
         self.organization.save()
 
-        question = condense_prompt(team_id=self.team.id, scanner_type="monitor", scanner_config={"prompt": prompt})
+        question = condense_prompt(team_id=self.team.id, scanner_type=scanner_type, scanner_config={"prompt": prompt})
 
         assert question.question == expected
+        assert question.valence == expected_valence
         assert question.source == prompt_fingerprint(prompt)
         if not consent:
             self.client_mock.return_value.models.generate_content.assert_not_called()
@@ -183,7 +214,7 @@ class TestPromptQuestions(APIBaseTest):
         assert scanner.prompt_question_source == prompt_fingerprint("Did the user abandon their cart?")
 
     def test_observation_shows_the_question_only_for_the_prompt_it_was_scanned_with(self) -> None:
-        scanner = self._scanner(prompt_question="Did the user struggle at checkout?")
+        scanner = self._scanner(prompt_question="Did the user struggle at checkout?", prompt_valence="bad")
         scanner.prompt_question_source = prompt_fingerprint(PROMPT)
         scanner.save()
         observation = ReplayObservation.objects.create(
@@ -198,6 +229,7 @@ class TestPromptQuestions(APIBaseTest):
         url = f"/api/projects/{self.team.id}/vision/observations/{observation.id}/"
 
         assert self.client.get(url).json()["prompt_question"] == "Did the user struggle at checkout?"
+        assert self.client.get(url).json()["prompt_valence"] == "bad"
 
         ReplayScanner.objects.filter(pk=scanner.pk).update(
             scanner_config={"prompt": "Did the user abandon their cart?"},
@@ -205,6 +237,7 @@ class TestPromptQuestions(APIBaseTest):
             prompt_question_source=prompt_fingerprint("Did the user abandon their cart?"),
         )
         assert self.client.get(url).json()["prompt_question"] is None
+        assert self.client.get(url).json()["prompt_valence"] is None
 
     def test_backfill_fills_only_stale_questions_without_touching_the_scanner_version(self) -> None:
         stale = self._scanner(name="stale")
@@ -215,19 +248,23 @@ class TestPromptQuestions(APIBaseTest):
         )
         fresh = self._scanner(name="fresh")
         ReplayScanner.objects.filter(pk=fresh.pk).update(
-            prompt_question="Kept as is?", prompt_question_source=prompt_fingerprint(PROMPT)
+            prompt_question="Kept as is?", prompt_question_source=prompt_fingerprint(PROMPT), prompt_valence="good"
+        )
+        unjudged = self._scanner(name="unjudged")
+        ReplayScanner.objects.filter(pk=unjudged.pk).update(
+            prompt_question="Judged before valence?", prompt_question_source=prompt_fingerprint(PROMPT)
         )
         version = ReplayScanner.objects.get(pk=stale.pk).scanner_version
 
         dry = backfill_prompt_questions(team_id=self.team.id, dry_run=True)
-        assert (dry.checked, dry.written) == (4, 3)
+        assert (dry.checked, dry.written) == (5, 4)
         assert ReplayScanner.objects.get(pk=stale.pk).prompt_question == ""
         self.client_mock.return_value.models.generate_content.reset_mock()
 
         result = backfill_prompt_questions(team_id=self.team.id)
 
-        assert result.written == 3
-        # The copy shares the stale scanner's prompt and the template needs none, so one call covers all three.
+        assert result.written == 4
+        # The other monitors share the stale scanner's prompt and the template needs none, so one call covers all four.
         assert self.client_mock.return_value.models.generate_content.call_count == 1
         assert ReplayScanner.objects.get(pk=copy.pk).prompt_question == "Did the user struggle at checkout?"
         assert ReplayScanner.objects.get(pk=template.pk).prompt_question == TEMPLATE_QUESTION
@@ -236,6 +273,21 @@ class TestPromptQuestions(APIBaseTest):
         assert stale.prompt_question_source == prompt_fingerprint(PROMPT)
         assert stale.scanner_version == version
         assert ReplayScanner.objects.get(pk=fresh.pk).prompt_question == "Kept as is?"
+        unjudged.refresh_from_db()
+        assert (unjudged.prompt_question, unjudged.prompt_valence) == ("Judged before valence?", "bad")
+
+    def test_backfill_leaves_a_current_question_alone_when_the_model_gives_no_valence(self) -> None:
+        unjudged = self._scanner(name="unjudged")
+        ReplayScanner.objects.filter(pk=unjudged.pk).update(
+            prompt_question="Judged before valence?", prompt_question_source=prompt_fingerprint(PROMPT)
+        )
+        self.client_mock.return_value.models.generate_content.side_effect = RuntimeError("provider down")
+
+        result = backfill_prompt_questions(team_id=self.team.id)
+
+        assert result.written == 0
+        unjudged.refresh_from_db()
+        assert (unjudged.prompt_question, unjudged.prompt_valence) == ("Judged before valence?", "")
 
     def test_inline_scanners_only_ever_get_a_template_question(self) -> None:
         self.client_mock.return_value.models.generate_content.reset_mock()
