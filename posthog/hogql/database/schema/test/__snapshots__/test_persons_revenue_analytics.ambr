@@ -4977,126 +4977,90 @@
 # ---
 # name: TestPersonsRevenueAnalyticsManagedViewsets.test_virtual_property_in_trend_0_disabled.1
   '''
-  WITH breakdown_series AS
-    (SELECT count AS count,
-                     day_start AS day_start,
-                     breakdown_value AS breakdown_value
-     FROM
-       (SELECT sum(total) AS count,
-               day_start AS day_start,
-               [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
-        FROM
-          (SELECT count() AS total,
-                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(e__pdi__person__revenue_analytics.revenue), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e
-           INNER JOIN
-             (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
-                     argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
-                     person_distinct_id2.distinct_id AS distinct_id
-              FROM person_distinct_id2
-              WHERE equals(person_distinct_id2.team_id, 99999)
-              GROUP BY person_distinct_id2.distinct_id
-              HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
-           INNER JOIN
-             (SELECT argMax(person.id, person.version) AS e__pdi__person___id,
-                     person.id AS id
-              FROM person
-              WHERE equals(person.team_id, 99999)
-              GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
-           LEFT JOIN
-             (SELECT 99999 AS team_id,
-                     person_id AS person_id,
-                     sum(revenue) AS revenue,
-                     sum(mrr) AS mrr
-              FROM
-                (SELECT 99999 AS team_id,
-                        accurateCastOrNull(revenue_analytics_customer.id, 'UUID') AS person_id,
-                        coalesce(revenue_agg.revenue, accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
-                        coalesce(mrr_agg.mrr, accurateCastOrNull(0, 'Decimal64(10)')) AS mrr
-                 FROM
-                   (SELECT *
-                    FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_customer_events_revenue_view/revenue_analytics.events.purchase.customer_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `name` Nullable(String), `email` Nullable(String), `phone` Nullable(String), `cohort` Nullable(String), `address` Nullable(String), `country` Nullable(String), `metadata` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `source_label` Nullable(String), `initial_coupon` Nullable(String), `initial_coupon_id` Nullable(String)')) AS revenue_analytics_customer
-                 LEFT JOIN
-                   (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-                           sum(revenue_analytics_revenue_item.amount) AS revenue
-                    FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_revenue_item_events_revenue_view/revenue_analytics.events.purchase.revenue_item_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `amount` Nullable(Decimal64(10)), `coupon` Nullable(String), `currency` Nullable(String), `coupon_id` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `created_at` Nullable(DateTime64(6, \'UTC\')), `event_name` Nullable(String), `invoice_id` Nullable(String), `product_id` Nullable(String), `session_id` Nullable(String), `customer_id` Nullable(String), `group_0_key` Nullable(String), `group_1_key` Nullable(String), `group_2_key` Nullable(String), `group_3_key` Nullable(String), `group_4_key` Nullable(String), `is_recurring` Nullable(Boolean), `source_label` Nullable(String), `invoice_item_id` Nullable(String), `original_amount` Nullable(Decimal64(10)), `subscription_id` Nullable(String), `original_currency` Nullable(String), `currency_aware_amount` Nullable(Decimal64(10)), `currency_aware_divider` Nullable(Decimal64(10)), `enable_currency_aware_divider` Nullable(Boolean)') AS revenue_analytics_revenue_item
-                    GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
-                 LEFT JOIN
-                   (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-                           sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
-                    FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
-                    GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
-              WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
-                           or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
-              GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(e__pdi__person.e__pdi__person___id, e__pdi__person__revenue_analytics.person_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
-           GROUP BY day_start,
-                    breakdown_value_1)
-        GROUP BY day_start,
-                 breakdown_value_1
-        ORDER BY day_start ASC,
-                 breakdown_value ASC)),
-       totals_per_breakdown AS
-    (SELECT breakdown_series.breakdown_value AS breakdown_value,
-            sum(breakdown_series.count) AS total_count_for_breakdown,
-            if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
-     FROM breakdown_series
-     GROUP BY breakdown_series.breakdown_value),
-       ranked_breakdown_totals AS
-    (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
-            totals_per_breakdown.ordering AS ordering,
-            totals_per_breakdown.total_count_for_breakdown AS total_count_for_breakdown,
-            row_number() OVER (
-                               ORDER BY totals_per_breakdown.ordering ASC, totals_per_breakdown.total_count_for_breakdown DESC, totals_per_breakdown.breakdown_value ASC) AS breakdown_rank
-     FROM totals_per_breakdown),
-       ranked_breakdown_values AS
-    (SELECT breakdown_series.count AS count,
-            toTimeZone(breakdown_series.day_start, 'UTC') AS day_start,
-            breakdown_series.breakdown_value AS breakdown_value,
-            ranked_breakdown_totals.ordering AS ordering,
-            ranked_breakdown_totals.breakdown_rank AS breakdown_rank
-     FROM breakdown_series
-     JOIN ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)),
-       top_n_breakdown_values AS
-    (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
-            ranked_breakdown_values.count AS value,
-            ranked_breakdown_values.breakdown_value AS breakdown_value
-     FROM ranked_breakdown_values
-     WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
-       other_breakdown_values AS
-    (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
-            sum(ranked_breakdown_values.count) AS value,
-            ['$$_posthog_breakdown_other_$$'] AS breakdown_value
-     FROM ranked_breakdown_values
-     WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
-     GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
-       top_n_and_other_breakdown_values AS
-    (SELECT day_start AS day_start,
-            value AS value,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT toTimeZone(top_n_breakdown_values.day_start, 'UTC') AS day_start,
-               top_n_breakdown_values.value AS value,
-               top_n_breakdown_values.breakdown_value AS breakdown_value
-        FROM top_n_breakdown_values
-        UNION ALL SELECT toTimeZone(other_breakdown_values.day_start, 'UTC') AS day_start,
-                         other_breakdown_values.value AS value,
-                         other_breakdown_values.breakdown_value AS breakdown_value
-        FROM other_breakdown_values)
-     ORDER BY day_start ASC,
-              value ASC)
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
                                                               and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
-    (SELECT groupArray(toTimeZone(top_n_and_other_breakdown_values.day_start, 'UTC')) AS days,
-            groupArray(top_n_and_other_breakdown_values.value) AS vals,
-            top_n_and_other_breakdown_values.breakdown_value AS breakdown_value
-     FROM top_n_and_other_breakdown_values
-     GROUP BY top_n_and_other_breakdown_values.breakdown_value)
+    (SELECT groupArray(day_start) AS days,
+            groupArray(value) AS vals,
+            breakdown_value AS breakdown_value
+     FROM
+       (SELECT day_start AS day_start,
+               sum(accurateCastOrNull(count, 'Float64')) AS value,
+               arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+        FROM
+          (SELECT count AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           minus(dense_rank() OVER (
+                                                    ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, breakdown_total DESC, breakdown_value ASC), 1) AS row_number
+           FROM
+             (SELECT count AS count,
+                              day_start AS day_start,
+                              breakdown_value AS breakdown_value,
+                              sum(count) OVER (PARTITION BY breakdown_value) AS breakdown_total
+              FROM
+                (SELECT sum(total) AS count,
+                        day_start AS day_start,
+                        [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
+                 FROM
+                   (SELECT count() AS total,
+                           toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                           ifNull(nullIf(leftUTF8(toString(e__pdi__person__revenue_analytics.revenue), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                    FROM events AS e
+                    INNER JOIN
+                      (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS e__pdi___person_id,
+                              argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
+                              person_distinct_id2.distinct_id AS distinct_id
+                       FROM person_distinct_id2
+                       WHERE equals(person_distinct_id2.team_id, 99999)
+                       GROUP BY person_distinct_id2.distinct_id
+                       HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id)
+                    INNER JOIN
+                      (SELECT argMax(person.id, person.version) AS e__pdi__person___id,
+                              person.id AS id
+                       FROM person
+                       WHERE equals(person.team_id, 99999)
+                       GROUP BY person.id
+                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
+                    LEFT JOIN
+                      (SELECT 99999 AS team_id,
+                              person_id AS person_id,
+                              sum(revenue) AS revenue,
+                              sum(mrr) AS mrr
+                       FROM
+                         (SELECT 99999 AS team_id,
+                                 accurateCastOrNull(revenue_analytics_customer.id, 'UUID') AS person_id,
+                                 coalesce(revenue_agg.revenue, accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
+                                 coalesce(mrr_agg.mrr, accurateCastOrNull(0, 'Decimal64(10)')) AS mrr
+                          FROM
+                            (SELECT *
+                             FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_customer_events_revenue_view/revenue_analytics.events.purchase.customer_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `name` Nullable(String), `email` Nullable(String), `phone` Nullable(String), `cohort` Nullable(String), `address` Nullable(String), `country` Nullable(String), `metadata` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `source_label` Nullable(String), `initial_coupon` Nullable(String), `initial_coupon_id` Nullable(String)')) AS revenue_analytics_customer
+                          LEFT JOIN
+                            (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
+                                    sum(revenue_analytics_revenue_item.amount) AS revenue
+                             FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_revenue_item_events_revenue_view/revenue_analytics.events.purchase.revenue_item_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `amount` Nullable(Decimal64(10)), `coupon` Nullable(String), `currency` Nullable(String), `coupon_id` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `created_at` Nullable(DateTime64(6, \'UTC\')), `event_name` Nullable(String), `invoice_id` Nullable(String), `product_id` Nullable(String), `session_id` Nullable(String), `customer_id` Nullable(String), `group_0_key` Nullable(String), `group_1_key` Nullable(String), `group_2_key` Nullable(String), `group_3_key` Nullable(String), `group_4_key` Nullable(String), `is_recurring` Nullable(Boolean), `source_label` Nullable(String), `invoice_item_id` Nullable(String), `original_amount` Nullable(Decimal64(10)), `subscription_id` Nullable(String), `original_currency` Nullable(String), `currency_aware_amount` Nullable(Decimal64(10)), `currency_aware_divider` Nullable(Decimal64(10)), `enable_currency_aware_divider` Nullable(Boolean)') AS revenue_analytics_revenue_item
+                             GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
+                          LEFT JOIN
+                            (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
+                                    sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+                             FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                             GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
+                       WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
+                                    or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
+                       GROUP BY person_id) AS e__pdi__person__revenue_analytics ON equals(e__pdi__person.e__pdi__person___id, e__pdi__person__revenue_analytics.person_id)
+                    WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+                    GROUP BY day_start,
+                             breakdown_value_1)
+                 GROUP BY day_start,
+                          breakdown_value_1
+                 ORDER BY day_start ASC,
+                          breakdown_value ASC)))
+        WHERE arrayExists(x -> isNotNull(x), breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value)
+     GROUP BY breakdown_value)
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
@@ -5135,111 +5099,75 @@
 # ---
 # name: TestPersonsRevenueAnalyticsManagedViewsets.test_virtual_property_in_trend_1_person_id_no_override_properties_on_events.1
   '''
-  WITH breakdown_series AS
-    (SELECT count AS count,
-                     day_start AS day_start,
-                     breakdown_value AS breakdown_value
-     FROM
-       (SELECT sum(total) AS count,
-               day_start AS day_start,
-               [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
-        FROM
-          (SELECT count() AS total,
-                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(e__poe__revenue_analytics.revenue), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e
-           LEFT JOIN
-             (SELECT 99999 AS team_id,
-                     person_id AS person_id,
-                     sum(revenue) AS revenue,
-                     sum(mrr) AS mrr
-              FROM
-                (SELECT 99999 AS team_id,
-                        accurateCastOrNull(revenue_analytics_customer.id, 'UUID') AS person_id,
-                        coalesce(revenue_agg.revenue, accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
-                        coalesce(mrr_agg.mrr, accurateCastOrNull(0, 'Decimal64(10)')) AS mrr
-                 FROM
-                   (SELECT *
-                    FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_customer_events_revenue_view/revenue_analytics.events.purchase.customer_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `name` Nullable(String), `email` Nullable(String), `phone` Nullable(String), `cohort` Nullable(String), `address` Nullable(String), `country` Nullable(String), `metadata` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `source_label` Nullable(String), `initial_coupon` Nullable(String), `initial_coupon_id` Nullable(String)')) AS revenue_analytics_customer
-                 LEFT JOIN
-                   (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-                           sum(revenue_analytics_revenue_item.amount) AS revenue
-                    FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_revenue_item_events_revenue_view/revenue_analytics.events.purchase.revenue_item_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `amount` Nullable(Decimal64(10)), `coupon` Nullable(String), `currency` Nullable(String), `coupon_id` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `created_at` Nullable(DateTime64(6, \'UTC\')), `event_name` Nullable(String), `invoice_id` Nullable(String), `product_id` Nullable(String), `session_id` Nullable(String), `customer_id` Nullable(String), `group_0_key` Nullable(String), `group_1_key` Nullable(String), `group_2_key` Nullable(String), `group_3_key` Nullable(String), `group_4_key` Nullable(String), `is_recurring` Nullable(Boolean), `source_label` Nullable(String), `invoice_item_id` Nullable(String), `original_amount` Nullable(Decimal64(10)), `subscription_id` Nullable(String), `original_currency` Nullable(String), `currency_aware_amount` Nullable(Decimal64(10)), `currency_aware_divider` Nullable(Decimal64(10)), `enable_currency_aware_divider` Nullable(Boolean)') AS revenue_analytics_revenue_item
-                    GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
-                 LEFT JOIN
-                   (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-                           sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
-                    FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
-                    GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
-              WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
-                           or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
-              GROUP BY person_id) AS e__poe__revenue_analytics ON equals(e.person_id, e__poe__revenue_analytics.person_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
-           GROUP BY day_start,
-                    breakdown_value_1)
-        GROUP BY day_start,
-                 breakdown_value_1
-        ORDER BY day_start ASC,
-                 breakdown_value ASC)),
-       totals_per_breakdown AS
-    (SELECT breakdown_series.breakdown_value AS breakdown_value,
-            sum(breakdown_series.count) AS total_count_for_breakdown,
-            if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
-     FROM breakdown_series
-     GROUP BY breakdown_series.breakdown_value),
-       ranked_breakdown_totals AS
-    (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
-            totals_per_breakdown.ordering AS ordering,
-            totals_per_breakdown.total_count_for_breakdown AS total_count_for_breakdown,
-            row_number() OVER (
-                               ORDER BY totals_per_breakdown.ordering ASC, totals_per_breakdown.total_count_for_breakdown DESC, totals_per_breakdown.breakdown_value ASC) AS breakdown_rank
-     FROM totals_per_breakdown),
-       ranked_breakdown_values AS
-    (SELECT breakdown_series.count AS count,
-            toTimeZone(breakdown_series.day_start, 'UTC') AS day_start,
-            breakdown_series.breakdown_value AS breakdown_value,
-            ranked_breakdown_totals.ordering AS ordering,
-            ranked_breakdown_totals.breakdown_rank AS breakdown_rank
-     FROM breakdown_series
-     JOIN ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)),
-       top_n_breakdown_values AS
-    (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
-            ranked_breakdown_values.count AS value,
-            ranked_breakdown_values.breakdown_value AS breakdown_value
-     FROM ranked_breakdown_values
-     WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
-       other_breakdown_values AS
-    (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
-            sum(ranked_breakdown_values.count) AS value,
-            ['$$_posthog_breakdown_other_$$'] AS breakdown_value
-     FROM ranked_breakdown_values
-     WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
-     GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
-       top_n_and_other_breakdown_values AS
-    (SELECT day_start AS day_start,
-            value AS value,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT toTimeZone(top_n_breakdown_values.day_start, 'UTC') AS day_start,
-               top_n_breakdown_values.value AS value,
-               top_n_breakdown_values.breakdown_value AS breakdown_value
-        FROM top_n_breakdown_values
-        UNION ALL SELECT toTimeZone(other_breakdown_values.day_start, 'UTC') AS day_start,
-                         other_breakdown_values.value AS value,
-                         other_breakdown_values.breakdown_value AS breakdown_value
-        FROM other_breakdown_values)
-     ORDER BY day_start ASC,
-              value ASC)
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
                                                               and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
-    (SELECT groupArray(toTimeZone(top_n_and_other_breakdown_values.day_start, 'UTC')) AS days,
-            groupArray(top_n_and_other_breakdown_values.value) AS vals,
-            top_n_and_other_breakdown_values.breakdown_value AS breakdown_value
-     FROM top_n_and_other_breakdown_values
-     GROUP BY top_n_and_other_breakdown_values.breakdown_value)
+    (SELECT groupArray(day_start) AS days,
+            groupArray(value) AS vals,
+            breakdown_value AS breakdown_value
+     FROM
+       (SELECT day_start AS day_start,
+               sum(accurateCastOrNull(count, 'Float64')) AS value,
+               arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+        FROM
+          (SELECT count AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           minus(dense_rank() OVER (
+                                                    ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, breakdown_total DESC, breakdown_value ASC), 1) AS row_number
+           FROM
+             (SELECT count AS count,
+                              day_start AS day_start,
+                              breakdown_value AS breakdown_value,
+                              sum(count) OVER (PARTITION BY breakdown_value) AS breakdown_total
+              FROM
+                (SELECT sum(total) AS count,
+                        day_start AS day_start,
+                        [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
+                 FROM
+                   (SELECT count() AS total,
+                           toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                           ifNull(nullIf(leftUTF8(toString(e__poe__revenue_analytics.revenue), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                    FROM events AS e
+                    LEFT JOIN
+                      (SELECT 99999 AS team_id,
+                              person_id AS person_id,
+                              sum(revenue) AS revenue,
+                              sum(mrr) AS mrr
+                       FROM
+                         (SELECT 99999 AS team_id,
+                                 accurateCastOrNull(revenue_analytics_customer.id, 'UUID') AS person_id,
+                                 coalesce(revenue_agg.revenue, accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
+                                 coalesce(mrr_agg.mrr, accurateCastOrNull(0, 'Decimal64(10)')) AS mrr
+                          FROM
+                            (SELECT *
+                             FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_customer_events_revenue_view/revenue_analytics.events.purchase.customer_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `name` Nullable(String), `email` Nullable(String), `phone` Nullable(String), `cohort` Nullable(String), `address` Nullable(String), `country` Nullable(String), `metadata` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `source_label` Nullable(String), `initial_coupon` Nullable(String), `initial_coupon_id` Nullable(String)')) AS revenue_analytics_customer
+                          LEFT JOIN
+                            (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
+                                    sum(revenue_analytics_revenue_item.amount) AS revenue
+                             FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_revenue_item_events_revenue_view/revenue_analytics.events.purchase.revenue_item_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `amount` Nullable(Decimal64(10)), `coupon` Nullable(String), `currency` Nullable(String), `coupon_id` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `created_at` Nullable(DateTime64(6, \'UTC\')), `event_name` Nullable(String), `invoice_id` Nullable(String), `product_id` Nullable(String), `session_id` Nullable(String), `customer_id` Nullable(String), `group_0_key` Nullable(String), `group_1_key` Nullable(String), `group_2_key` Nullable(String), `group_3_key` Nullable(String), `group_4_key` Nullable(String), `is_recurring` Nullable(Boolean), `source_label` Nullable(String), `invoice_item_id` Nullable(String), `original_amount` Nullable(Decimal64(10)), `subscription_id` Nullable(String), `original_currency` Nullable(String), `currency_aware_amount` Nullable(Decimal64(10)), `currency_aware_divider` Nullable(Decimal64(10)), `enable_currency_aware_divider` Nullable(Boolean)') AS revenue_analytics_revenue_item
+                             GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
+                          LEFT JOIN
+                            (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
+                                    sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+                             FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                             GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
+                       WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
+                                    or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
+                       GROUP BY person_id) AS e__poe__revenue_analytics ON equals(e.person_id, e__poe__revenue_analytics.person_id)
+                    WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+                    GROUP BY day_start,
+                             breakdown_value_1)
+                 GROUP BY day_start,
+                          breakdown_value_1
+                 ORDER BY day_start ASC,
+                          breakdown_value ASC)))
+        WHERE arrayExists(x -> isNotNull(x), breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value)
+     GROUP BY breakdown_value)
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
@@ -5278,118 +5206,82 @@
 # ---
 # name: TestPersonsRevenueAnalyticsManagedViewsets.test_virtual_property_in_trend_2_person_id_override_properties_on_events.1
   '''
-  WITH breakdown_series AS
-    (SELECT count AS count,
-                     day_start AS day_start,
-                     breakdown_value AS breakdown_value
-     FROM
-       (SELECT sum(total) AS count,
-               day_start AS day_start,
-               [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
-        FROM
-          (SELECT count() AS total,
-                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(e__poe__revenue_analytics.revenue), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           LEFT JOIN
-             (SELECT 99999 AS team_id,
-                     person_id AS person_id,
-                     sum(revenue) AS revenue,
-                     sum(mrr) AS mrr
-              FROM
-                (SELECT 99999 AS team_id,
-                        accurateCastOrNull(revenue_analytics_customer.id, 'UUID') AS person_id,
-                        coalesce(revenue_agg.revenue, accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
-                        coalesce(mrr_agg.mrr, accurateCastOrNull(0, 'Decimal64(10)')) AS mrr
-                 FROM
-                   (SELECT *
-                    FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_customer_events_revenue_view/revenue_analytics.events.purchase.customer_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `name` Nullable(String), `email` Nullable(String), `phone` Nullable(String), `cohort` Nullable(String), `address` Nullable(String), `country` Nullable(String), `metadata` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `source_label` Nullable(String), `initial_coupon` Nullable(String), `initial_coupon_id` Nullable(String)')) AS revenue_analytics_customer
-                 LEFT JOIN
-                   (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-                           sum(revenue_analytics_revenue_item.amount) AS revenue
-                    FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_revenue_item_events_revenue_view/revenue_analytics.events.purchase.revenue_item_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `amount` Nullable(Decimal64(10)), `coupon` Nullable(String), `currency` Nullable(String), `coupon_id` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `created_at` Nullable(DateTime64(6, \'UTC\')), `event_name` Nullable(String), `invoice_id` Nullable(String), `product_id` Nullable(String), `session_id` Nullable(String), `customer_id` Nullable(String), `group_0_key` Nullable(String), `group_1_key` Nullable(String), `group_2_key` Nullable(String), `group_3_key` Nullable(String), `group_4_key` Nullable(String), `is_recurring` Nullable(Boolean), `source_label` Nullable(String), `invoice_item_id` Nullable(String), `original_amount` Nullable(Decimal64(10)), `subscription_id` Nullable(String), `original_currency` Nullable(String), `currency_aware_amount` Nullable(Decimal64(10)), `currency_aware_divider` Nullable(Decimal64(10)), `enable_currency_aware_divider` Nullable(Boolean)') AS revenue_analytics_revenue_item
-                    GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
-                 LEFT JOIN
-                   (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-                           sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
-                    FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
-                    GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
-              WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
-                           or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
-              GROUP BY person_id) AS e__poe__revenue_analytics ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__poe__revenue_analytics.person_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
-           GROUP BY day_start,
-                    breakdown_value_1)
-        GROUP BY day_start,
-                 breakdown_value_1
-        ORDER BY day_start ASC,
-                 breakdown_value ASC)),
-       totals_per_breakdown AS
-    (SELECT breakdown_series.breakdown_value AS breakdown_value,
-            sum(breakdown_series.count) AS total_count_for_breakdown,
-            if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
-     FROM breakdown_series
-     GROUP BY breakdown_series.breakdown_value),
-       ranked_breakdown_totals AS
-    (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
-            totals_per_breakdown.ordering AS ordering,
-            totals_per_breakdown.total_count_for_breakdown AS total_count_for_breakdown,
-            row_number() OVER (
-                               ORDER BY totals_per_breakdown.ordering ASC, totals_per_breakdown.total_count_for_breakdown DESC, totals_per_breakdown.breakdown_value ASC) AS breakdown_rank
-     FROM totals_per_breakdown),
-       ranked_breakdown_values AS
-    (SELECT breakdown_series.count AS count,
-            toTimeZone(breakdown_series.day_start, 'UTC') AS day_start,
-            breakdown_series.breakdown_value AS breakdown_value,
-            ranked_breakdown_totals.ordering AS ordering,
-            ranked_breakdown_totals.breakdown_rank AS breakdown_rank
-     FROM breakdown_series
-     JOIN ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)),
-       top_n_breakdown_values AS
-    (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
-            ranked_breakdown_values.count AS value,
-            ranked_breakdown_values.breakdown_value AS breakdown_value
-     FROM ranked_breakdown_values
-     WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
-       other_breakdown_values AS
-    (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
-            sum(ranked_breakdown_values.count) AS value,
-            ['$$_posthog_breakdown_other_$$'] AS breakdown_value
-     FROM ranked_breakdown_values
-     WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
-     GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
-       top_n_and_other_breakdown_values AS
-    (SELECT day_start AS day_start,
-            value AS value,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT toTimeZone(top_n_breakdown_values.day_start, 'UTC') AS day_start,
-               top_n_breakdown_values.value AS value,
-               top_n_breakdown_values.breakdown_value AS breakdown_value
-        FROM top_n_breakdown_values
-        UNION ALL SELECT toTimeZone(other_breakdown_values.day_start, 'UTC') AS day_start,
-                         other_breakdown_values.value AS value,
-                         other_breakdown_values.breakdown_value AS breakdown_value
-        FROM other_breakdown_values)
-     ORDER BY day_start ASC,
-              value ASC)
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
                                                               and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
-    (SELECT groupArray(toTimeZone(top_n_and_other_breakdown_values.day_start, 'UTC')) AS days,
-            groupArray(top_n_and_other_breakdown_values.value) AS vals,
-            top_n_and_other_breakdown_values.breakdown_value AS breakdown_value
-     FROM top_n_and_other_breakdown_values
-     GROUP BY top_n_and_other_breakdown_values.breakdown_value)
+    (SELECT groupArray(day_start) AS days,
+            groupArray(value) AS vals,
+            breakdown_value AS breakdown_value
+     FROM
+       (SELECT day_start AS day_start,
+               sum(accurateCastOrNull(count, 'Float64')) AS value,
+               arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+        FROM
+          (SELECT count AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           minus(dense_rank() OVER (
+                                                    ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, breakdown_total DESC, breakdown_value ASC), 1) AS row_number
+           FROM
+             (SELECT count AS count,
+                              day_start AS day_start,
+                              breakdown_value AS breakdown_value,
+                              sum(count) OVER (PARTITION BY breakdown_value) AS breakdown_total
+              FROM
+                (SELECT sum(total) AS count,
+                        day_start AS day_start,
+                        [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
+                 FROM
+                   (SELECT count() AS total,
+                           toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                           ifNull(nullIf(leftUTF8(toString(e__poe__revenue_analytics.revenue), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                    FROM events AS e
+                    LEFT OUTER JOIN
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                              person_distinct_id_overrides.distinct_id AS distinct_id
+                       FROM person_distinct_id_overrides
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                       GROUP BY person_distinct_id_overrides.distinct_id
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                    LEFT JOIN
+                      (SELECT 99999 AS team_id,
+                              person_id AS person_id,
+                              sum(revenue) AS revenue,
+                              sum(mrr) AS mrr
+                       FROM
+                         (SELECT 99999 AS team_id,
+                                 accurateCastOrNull(revenue_analytics_customer.id, 'UUID') AS person_id,
+                                 coalesce(revenue_agg.revenue, accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
+                                 coalesce(mrr_agg.mrr, accurateCastOrNull(0, 'Decimal64(10)')) AS mrr
+                          FROM
+                            (SELECT *
+                             FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_customer_events_revenue_view/revenue_analytics.events.purchase.customer_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `name` Nullable(String), `email` Nullable(String), `phone` Nullable(String), `cohort` Nullable(String), `address` Nullable(String), `country` Nullable(String), `metadata` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `source_label` Nullable(String), `initial_coupon` Nullable(String), `initial_coupon_id` Nullable(String)')) AS revenue_analytics_customer
+                          LEFT JOIN
+                            (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
+                                    sum(revenue_analytics_revenue_item.amount) AS revenue
+                             FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_revenue_item_events_revenue_view/revenue_analytics.events.purchase.revenue_item_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `amount` Nullable(Decimal64(10)), `coupon` Nullable(String), `currency` Nullable(String), `coupon_id` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `created_at` Nullable(DateTime64(6, \'UTC\')), `event_name` Nullable(String), `invoice_id` Nullable(String), `product_id` Nullable(String), `session_id` Nullable(String), `customer_id` Nullable(String), `group_0_key` Nullable(String), `group_1_key` Nullable(String), `group_2_key` Nullable(String), `group_3_key` Nullable(String), `group_4_key` Nullable(String), `is_recurring` Nullable(Boolean), `source_label` Nullable(String), `invoice_item_id` Nullable(String), `original_amount` Nullable(Decimal64(10)), `subscription_id` Nullable(String), `original_currency` Nullable(String), `currency_aware_amount` Nullable(Decimal64(10)), `currency_aware_divider` Nullable(Decimal64(10)), `enable_currency_aware_divider` Nullable(Boolean)') AS revenue_analytics_revenue_item
+                             GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
+                          LEFT JOIN
+                            (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
+                                    sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+                             FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                             GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
+                       WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
+                                    or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
+                       GROUP BY person_id) AS e__poe__revenue_analytics ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__poe__revenue_analytics.person_id)
+                    WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+                    GROUP BY day_start,
+                             breakdown_value_1)
+                 GROUP BY day_start,
+                          breakdown_value_1
+                 ORDER BY day_start ASC,
+                          breakdown_value ASC)))
+        WHERE arrayExists(x -> isNotNull(x), breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value)
+     GROUP BY breakdown_value)
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
@@ -5428,125 +5320,89 @@
 # ---
 # name: TestPersonsRevenueAnalyticsManagedViewsets.test_virtual_property_in_trend_3_person_id_override_properties_joined.1
   '''
-  WITH breakdown_series AS
-    (SELECT count AS count,
-                     day_start AS day_start,
-                     breakdown_value AS breakdown_value
-     FROM
-       (SELECT sum(total) AS count,
-               day_start AS day_start,
-               [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
-        FROM
-          (SELECT count() AS total,
-                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(e__person__revenue_analytics.revenue), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
-           FROM events AS e
-           LEFT OUTER JOIN
-             (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-                     person_distinct_id_overrides.distinct_id AS distinct_id
-              FROM person_distinct_id_overrides
-              WHERE equals(person_distinct_id_overrides.team_id, 99999)
-              GROUP BY person_distinct_id_overrides.distinct_id
-              HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
-           INNER JOIN
-             (SELECT argMax(person.id, person.version) AS e__person___id,
-                     person.id AS id
-              FROM person
-              WHERE equals(person.team_id, 99999)
-              GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
-           LEFT JOIN
-             (SELECT 99999 AS team_id,
-                     person_id AS person_id,
-                     sum(revenue) AS revenue,
-                     sum(mrr) AS mrr
-              FROM
-                (SELECT 99999 AS team_id,
-                        accurateCastOrNull(revenue_analytics_customer.id, 'UUID') AS person_id,
-                        coalesce(revenue_agg.revenue, accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
-                        coalesce(mrr_agg.mrr, accurateCastOrNull(0, 'Decimal64(10)')) AS mrr
-                 FROM
-                   (SELECT *
-                    FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_customer_events_revenue_view/revenue_analytics.events.purchase.customer_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `name` Nullable(String), `email` Nullable(String), `phone` Nullable(String), `cohort` Nullable(String), `address` Nullable(String), `country` Nullable(String), `metadata` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `source_label` Nullable(String), `initial_coupon` Nullable(String), `initial_coupon_id` Nullable(String)')) AS revenue_analytics_customer
-                 LEFT JOIN
-                   (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
-                           sum(revenue_analytics_revenue_item.amount) AS revenue
-                    FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_revenue_item_events_revenue_view/revenue_analytics.events.purchase.revenue_item_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `amount` Nullable(Decimal64(10)), `coupon` Nullable(String), `currency` Nullable(String), `coupon_id` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `created_at` Nullable(DateTime64(6, \'UTC\')), `event_name` Nullable(String), `invoice_id` Nullable(String), `product_id` Nullable(String), `session_id` Nullable(String), `customer_id` Nullable(String), `group_0_key` Nullable(String), `group_1_key` Nullable(String), `group_2_key` Nullable(String), `group_3_key` Nullable(String), `group_4_key` Nullable(String), `is_recurring` Nullable(Boolean), `source_label` Nullable(String), `invoice_item_id` Nullable(String), `original_amount` Nullable(Decimal64(10)), `subscription_id` Nullable(String), `original_currency` Nullable(String), `currency_aware_amount` Nullable(Decimal64(10)), `currency_aware_divider` Nullable(Decimal64(10)), `enable_currency_aware_divider` Nullable(Boolean)') AS revenue_analytics_revenue_item
-                    GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
-                 LEFT JOIN
-                   (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
-                           sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
-                    FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
-                    GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
-              WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
-                           or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
-              GROUP BY person_id) AS e__person__revenue_analytics ON equals(e__person.e__person___id, e__person__revenue_analytics.person_id)
-           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
-           GROUP BY day_start,
-                    breakdown_value_1)
-        GROUP BY day_start,
-                 breakdown_value_1
-        ORDER BY day_start ASC,
-                 breakdown_value ASC)),
-       totals_per_breakdown AS
-    (SELECT breakdown_series.breakdown_value AS breakdown_value,
-            sum(breakdown_series.count) AS total_count_for_breakdown,
-            if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_series.breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) AS ordering
-     FROM breakdown_series
-     GROUP BY breakdown_series.breakdown_value),
-       ranked_breakdown_totals AS
-    (SELECT totals_per_breakdown.breakdown_value AS breakdown_value,
-            totals_per_breakdown.ordering AS ordering,
-            totals_per_breakdown.total_count_for_breakdown AS total_count_for_breakdown,
-            row_number() OVER (
-                               ORDER BY totals_per_breakdown.ordering ASC, totals_per_breakdown.total_count_for_breakdown DESC, totals_per_breakdown.breakdown_value ASC) AS breakdown_rank
-     FROM totals_per_breakdown),
-       ranked_breakdown_values AS
-    (SELECT breakdown_series.count AS count,
-            toTimeZone(breakdown_series.day_start, 'UTC') AS day_start,
-            breakdown_series.breakdown_value AS breakdown_value,
-            ranked_breakdown_totals.ordering AS ordering,
-            ranked_breakdown_totals.breakdown_rank AS breakdown_rank
-     FROM breakdown_series
-     JOIN ranked_breakdown_totals ON equals(ranked_breakdown_totals.breakdown_value, breakdown_series.breakdown_value)),
-       top_n_breakdown_values AS
-    (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
-            ranked_breakdown_values.count AS value,
-            ranked_breakdown_values.breakdown_value AS breakdown_value
-     FROM ranked_breakdown_values
-     WHERE lessOrEquals(ranked_breakdown_values.breakdown_rank, 25)),
-       other_breakdown_values AS
-    (SELECT toTimeZone(ranked_breakdown_values.day_start, 'UTC') AS day_start,
-            sum(ranked_breakdown_values.count) AS value,
-            ['$$_posthog_breakdown_other_$$'] AS breakdown_value
-     FROM ranked_breakdown_values
-     WHERE greater(ranked_breakdown_values.breakdown_rank, 25)
-     GROUP BY toTimeZone(ranked_breakdown_values.day_start, 'UTC')),
-       top_n_and_other_breakdown_values AS
-    (SELECT day_start AS day_start,
-            value AS value,
-            breakdown_value AS breakdown_value
-     FROM
-       (SELECT toTimeZone(top_n_breakdown_values.day_start, 'UTC') AS day_start,
-               top_n_breakdown_values.value AS value,
-               top_n_breakdown_values.breakdown_value AS breakdown_value
-        FROM top_n_breakdown_values
-        UNION ALL SELECT toTimeZone(other_breakdown_values.day_start, 'UTC') AS day_start,
-                         other_breakdown_values.value AS value,
-                         other_breakdown_values.breakdown_value AS breakdown_value
-        FROM other_breakdown_values)
-     ORDER BY day_start ASC,
-              value ASC)
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(d -> arraySum(arrayMap((v, dd) -> if(ifNull(equals(dd, d), isNull(dd)
                                                               and isNull(d)), v, 0), vals, days)), date) AS total,
          breakdown_value AS breakdown_value
   FROM
-    (SELECT groupArray(toTimeZone(top_n_and_other_breakdown_values.day_start, 'UTC')) AS days,
-            groupArray(top_n_and_other_breakdown_values.value) AS vals,
-            top_n_and_other_breakdown_values.breakdown_value AS breakdown_value
-     FROM top_n_and_other_breakdown_values
-     GROUP BY top_n_and_other_breakdown_values.breakdown_value)
+    (SELECT groupArray(day_start) AS days,
+            groupArray(value) AS vals,
+            breakdown_value AS breakdown_value
+     FROM
+       (SELECT day_start AS day_start,
+               sum(accurateCastOrNull(count, 'Float64')) AS value,
+               arrayMap(i -> if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', i), breakdown_value) AS breakdown_value
+        FROM
+          (SELECT count AS count,
+                           day_start AS day_start,
+                           breakdown_value AS breakdown_value,
+                           minus(dense_rank() OVER (
+                                                    ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, breakdown_total DESC, breakdown_value ASC), 1) AS row_number
+           FROM
+             (SELECT count AS count,
+                              day_start AS day_start,
+                              breakdown_value AS breakdown_value,
+                              sum(count) OVER (PARTITION BY breakdown_value) AS breakdown_total
+              FROM
+                (SELECT sum(total) AS count,
+                        day_start AS day_start,
+                        [ifNull(toString(breakdown_value_1), '$$_posthog_breakdown_null_$$')] AS breakdown_value
+                 FROM
+                   (SELECT count() AS total,
+                           toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                           ifNull(nullIf(leftUTF8(toString(e__person__revenue_analytics.revenue), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value_1
+                    FROM events AS e
+                    LEFT OUTER JOIN
+                      (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                              person_distinct_id_overrides.distinct_id AS distinct_id
+                       FROM person_distinct_id_overrides
+                       WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                       GROUP BY person_distinct_id_overrides.distinct_id
+                       HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+                    INNER JOIN
+                      (SELECT argMax(person.id, person.version) AS e__person___id,
+                              person.id AS id
+                       FROM person
+                       WHERE equals(person.team_id, 99999)
+                       GROUP BY person.id
+                       HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
+                    LEFT JOIN
+                      (SELECT 99999 AS team_id,
+                              person_id AS person_id,
+                              sum(revenue) AS revenue,
+                              sum(mrr) AS mrr
+                       FROM
+                         (SELECT 99999 AS team_id,
+                                 accurateCastOrNull(revenue_analytics_customer.id, 'UUID') AS person_id,
+                                 coalesce(revenue_agg.revenue, accurateCastOrNull(0, 'Decimal64(10)')) AS revenue,
+                                 coalesce(mrr_agg.mrr, accurateCastOrNull(0, 'Decimal64(10)')) AS mrr
+                          FROM
+                            (SELECT *
+                             FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_customer_events_revenue_view/revenue_analytics.events.purchase.customer_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `name` Nullable(String), `email` Nullable(String), `phone` Nullable(String), `cohort` Nullable(String), `address` Nullable(String), `country` Nullable(String), `metadata` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `source_label` Nullable(String), `initial_coupon` Nullable(String), `initial_coupon_id` Nullable(String)')) AS revenue_analytics_customer
+                          LEFT JOIN
+                            (SELECT revenue_analytics_revenue_item.customer_id AS customer_id,
+                                    sum(revenue_analytics_revenue_item.amount) AS revenue
+                             FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_revenue_item_events_revenue_view/revenue_analytics.events.purchase.revenue_item_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` Nullable(String), `amount` Nullable(Decimal64(10)), `coupon` Nullable(String), `currency` Nullable(String), `coupon_id` Nullable(String), `timestamp` Nullable(DateTime64(6, \'UTC\')), `created_at` Nullable(DateTime64(6, \'UTC\')), `event_name` Nullable(String), `invoice_id` Nullable(String), `product_id` Nullable(String), `session_id` Nullable(String), `customer_id` Nullable(String), `group_0_key` Nullable(String), `group_1_key` Nullable(String), `group_2_key` Nullable(String), `group_3_key` Nullable(String), `group_4_key` Nullable(String), `is_recurring` Nullable(Boolean), `source_label` Nullable(String), `invoice_item_id` Nullable(String), `original_amount` Nullable(Decimal64(10)), `subscription_id` Nullable(String), `original_currency` Nullable(String), `currency_aware_amount` Nullable(Decimal64(10)), `currency_aware_divider` Nullable(Decimal64(10)), `enable_currency_aware_divider` Nullable(Boolean)') AS revenue_analytics_revenue_item
+                             GROUP BY customer_id) AS revenue_agg ON equals(revenue_analytics_customer.id, revenue_agg.customer_id)
+                          LEFT JOIN
+                            (SELECT `revenue_analytics.events.purchase.mrr_events_revenue_view`.customer_id AS customer_id,
+                                    sum(`revenue_analytics.events.purchase.mrr_events_revenue_view`.mrr) AS mrr
+                             FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-revenue_analytics_events_purchase_mrr_events_revenue_view/revenue_analytics.events.purchase.mrr_events_revenue_view/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`mrr` Nullable(Decimal64(10)), `customer_id` Nullable(String), `source_label` Nullable(String), `subscription_id` Nullable(String)') AS `revenue_analytics.events.purchase.mrr_events_revenue_view`
+                             GROUP BY customer_id) AS mrr_agg ON equals(revenue_analytics_customer.id, mrr_agg.customer_id))
+                       WHERE ifNull(notEquals(person_id, accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')), isNotNull(person_id)
+                                    or isNotNull(accurateCastOrNull('00000000-0000-0000-0000-000000000000', 'UUID')))
+                       GROUP BY person_id) AS e__person__revenue_analytics ON equals(e__person.e__person___id, e__person__revenue_analytics.person_id)
+                    WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2025-05-29 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2025-05-30 23:59:59', 'UTC'))), equals(e.event, '$pageview'))
+                    GROUP BY day_start,
+                             breakdown_value_1)
+                 GROUP BY day_start,
+                          breakdown_value_1
+                 ORDER BY day_start ASC,
+                          breakdown_value ASC)))
+        WHERE arrayExists(x -> isNotNull(x), breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value)
+     GROUP BY breakdown_value)
   ORDER BY if(has(breakdown_value, '$$_posthog_breakdown_other_$$'), 2, if(has(breakdown_value, '$$_posthog_breakdown_null_$$'), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
   LIMIT 50000 SETTINGS format_csv_allow_double_quotes=1,
                        readonly=2,
