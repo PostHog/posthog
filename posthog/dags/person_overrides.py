@@ -1,5 +1,6 @@
 import uuid
 import datetime
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import partial
 
@@ -8,7 +9,7 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog import settings
-from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter, wait_for_mutations_on_shards
+from posthog.clickhouse.cluster import ClickhouseCluster, MutationWaiter, ShardWaiter, wait_for_mutations_on_shards
 from posthog.dags.common import JobOwners
 from posthog.dags.common.overrides_manager import OverridesSnapshotDictionary, OverridesSnapshotTable
 from posthog.dags.common.staged_dictionary import (
@@ -131,10 +132,12 @@ class PersonOverridesSnapshotDictionary(OverridesSnapshotDictionary):
         return checksum
 
     @property
-    def update_commands(self):
-        return {
-            "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id)) WHERE dictHas(%(name)s, (team_id, distinct_id))"
-        }
+    def update_assignments(self) -> str:
+        return "person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id))"
+
+    @property
+    def update_predicate(self) -> str:
+        return "dictHas(%(name)s, (team_id, distinct_id))"
 
     @property
     def overrides_table(self):
@@ -281,9 +284,9 @@ def run_person_id_update_mutations(
     leave its rows on a person_id this run squashed away, and the overrides that record the correct
     one are deleted in the very next op.
     """
-    enqueued: list[tuple[ClickhouseCluster, dict[int, MutationWaiter]]] = []
+    enqueued: list[tuple[ClickhouseCluster, Mapping[int, ShardWaiter]]] = []
     for placement in resolve_placements(cluster, SQUASH_TARGETS):
-        runner = dictionary.update_mutation_runner_for(placement.target.data_table)
+        runner = dictionary.update_runner_for(placement.target)
         enqueued.append((placement.cluster, runner.enqueue_on_shards(placement.cluster)))
 
     # Every mutation is already in flight, so these waits overlap and cost the longest rather than

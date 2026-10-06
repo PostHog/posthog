@@ -61,12 +61,14 @@ Sweeps that iterate placements dispatch each target over `placement.cluster.shar
 - `delete_person_events_op`
 - `get_event_removal_shards`, which fans out one `delete_event_removal_shard` op per table and shard, so a failed delete re-executes on its own
 - `deletes_job` → `delete_events`, which also has to put its dictionaries on the second cluster; see below
+- `squash_person_overrides` → `run_person_id_update_mutations`
+- `monthly_old_events_cleanup_job` → `cleanup_old_events_by_partition`
+- Property removal. It fans out one chain of copy, delete, reingest and verify ops per table and shard of the cluster that stores the table.
+  Each op runs its SQL on a host of its own shard, and the staged copies go through the same S3 bucket from either cluster.
+  Each copy records the maximum `inserted_at` it observed for that target. The copy, pre-delete count, delete and verification reuse that bound, so a later row stays outside the destructive set.
 
 The rest are bound to a single handle and refuse rather than skip when a target has moved off it (`dispatchable_here`, `UnreachableTargetError`):
 
-- Property removal. It fans out one chain of copy, delete, reingest and verify ops per table and shard of one cluster.
-  Each op runs its SQL on a host of its own shard.
-  Each copy records the maximum `inserted_at` it observed for that target. The copy, pre-delete count, mutation and verification reuse that bound, so a later row stays outside the destructive set.
 - The deferred queue fill. Both halves of its `INSERT` are host-local: the source table it reads and the `adhoc_events_deletion` queue it writes.
 
 ### Getting the dictionaries onto the second cluster
@@ -85,10 +87,8 @@ ClickHouse has no S3 dictionary source, but that source runs its query locally, 
 - Retention belongs to the bucket lifecycle policy, set through `DICTIONARY_STAGING_S3_*`. Nothing deletes the objects.
 
 The same staging carries the person-overrides squash, which is not a deletion but has the identical problem.
-`squash_person_overrides` rewrites `person_id` on every table in `SQUASH_TARGETS` — `sharded_events` and `sharded_flag_evaluations` — through a mutation that joins a snapshot dictionary, then deletes the overrides it just applied.
+`squash_person_overrides` rewrites `person_id` on every table in `SQUASH_TARGETS` (`sharded_events`, `sharded_events_json` and `sharded_flag_evaluations`) with an update that joins a snapshot dictionary, then deletes the overrides it just applied.
 Skipping one of those tables is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
-`sharded_events_json` is deliberately not in the list, so the squash never dispatches to the events cluster.
-A row a merge stranded there keeps the absorbed `person_id` until its partition ages out, and nothing later can recover the mapping.
 `SQUASH_TARGETS` is derived from the `accepts_person_id_rewrite` capability rather than kept as a second hand-written list, so a target registered for deletion and then forgotten by the squash is not expressible.
 Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that decision gets written down.
 `posthog/dags/common/staged_dictionary.py` holds the piece both jobs share.
@@ -96,13 +96,33 @@ Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that dec
 ## Covered tables
 
 - `sharded_events` — all sweeps.
-- `sharded_events_json` — person, team, queued-uuid and event removal, but `deletes_job` skips it by default today. Not a squash target. Property rewriting is unsupported: temporary properties and quarantine diagnostics retain additional copies that the legacy property-removal machinery does not rewrite. Optional: only present after the native-JSON migration. See the known gap below.
+- `sharded_events_json` — all sweeps, on the events cluster, through patch parts rather than mutations (below). Property removal also cleans the `temporary_properties` copies. It still fails a request whose rows carry `$unparseable_properties`, because malformed raw data cannot prove the value is absent. Optional: only present after the native-JSON migration.
 - `sharded_flag_evaluations` — person, team, queued-uuid and deferred event removal. Not immediate event removal or property removal (below). Optional.
 - `sharded_posthog_document_embeddings_<model>` — event and team deletion, through `delete_event_documents`. An embedded document is keyed by the id of the thing it describes (`document_id`), and an Event deletion's key is that same id, so the pending dictionary is joined on `(team_id, Event, document_id)`. Every per-model table listed by the error tracking facade's `document_embedding_tables` is swept and counted.
 
 Native property-removal requests fail when the selected rows retain a requested permanent or temporary property, or a matching person `$set`/`$set_once` instruction.
 They also fail when that property class has quarantine diagnostics, because malformed raw data cannot prove that the requested value is absent.
 The gate runs before shard processing and again during verification, with the same event, time-range, and insertion-marker bounds.
+
+## Patch parts instead of mutations
+
+A target with `uses_patch_parts` (today `sharded_events_json`) is never mutated.
+Its deletes run as lightweight `DELETE` with `lightweight_delete_mode = 'lightweight_update_force'`, and the squash runs a lightweight `UPDATE`.
+Both write a patch part, which needs `enable_block_number_column` and `enable_block_offset_column` on the table.
+`lightweight_update_force` fails the statement where a patch part is not possible, instead of falling back to an `ALTER UPDATE` mutation.
+`delete_runner_for` and `update_runner_for` in `posthog/models/deletion_targets.py` pick the runner, so every sweep follows the capability.
+
+This changes how a job waits:
+
+- The statement returns once its patch part is written on the replica that ran it. Nothing appears in `system.mutations`, so there is no mutation to poll, adopt or wait for capacity on.
+- `PatchPartWaiter` is already done when the runner returns it. It lets a patch-part runner stand in where a job waits on mutations.
+- The other replicas of the shard fetch the patch part asynchronously. A step that reads the result back (the `deletes_job` survivor count, immediate event and person removal verification, and the final property-removal check) first waits `PATCH_PART_REPLICATION_GRACE_SECONDS` once. That is a grace period, not a guarantee: a replica that lags longer still shows the rows, and the check reports them.
+- A retry runs the statement again. That is safe because it deletes rows that are already gone, or writes the same `person_id` again.
+- The statement blocks for as long as the scan takes, so the runners pass `max_execution_time = 0`.
+
+Patch parts share one budget per table, `max_uncompressed_bytes_in_patches`, and a statement that would exceed it fails with `TOO_LARGE_LIGHTWEIGHT_UPDATES`.
+A patch part is removed once merges have applied it to every part it covers, and old monthly partitions rarely merge, so the budget fills from every sweep that touches them.
+A deleted row costs about 25 bytes of patch data and a `person_id` rewrite a little more, so `cleanup_old_events_by_partition`, which deletes whole months for a team, is the sweep most likely to reach it.
 
 ## Tables on TTL alone
 
@@ -147,31 +167,6 @@ converges on. Failing the run on it would stall the queue on live ingestion.
 So a run can mark requests verified without proving the rows are gone. What stops a sweep silently
 removing nothing is upstream of the count: `MutationRunner.reuse_since` keeps a run from adopting a
 mutation an earlier run enqueued, which is the failure the count was added to notice.
-
-### `deletes_job` skips `sharded_events_json` by default
-
-`SweepTargetsConfig.skip_targets` defaults to `["sharded_events_json"]`, so the weekly sweep leaves
-that table alone and does not address the events cluster at all.
-Deletion request verification reads the same `DEFAULT_DELETION_TARGETS` set, so it does not count
-rows in a table that the default sweep leaves unchanged.
-
-The table's storage is on the events cluster, which `deletes_job` reaches through a sibling handle.
-Resolving that handle has not been reliable: a run that fails to resolve it drops the target and
-still marks the requests verified, which reports an erasure that did not happen. Skipping the target
-outright makes the sweep say so, in `resolve_sweep_targets`, rather than leaving the outcome to
-whether one probe answered.
-
-The cost is that rows `sharded_events_json` holds for a deleted person, team or queued uuid stay
-readable, and the requests covering them are marked verified either way, so a later run does not
-return to them. The table is dual-written from the same events, so those rows duplicate ones the
-sweep does remove from `sharded_events`.
-
-To sweep it again:
-
-- For one run, set `skip_targets: []` under the `resolve_sweep_targets` op in run config.
-- Permanently, add `EVENTS_JSON` to `DEFAULT_DELETION_TARGETS` in `posthog/models/deletion_targets.py`.
-
-Neither restores what earlier runs left behind. That needs a backfill sweep over the affected uuids.
 
 ### Property removal does not reach `flag_evaluations`
 
@@ -252,7 +247,6 @@ Write-time parity is not sufficient on its own, because a later merge moves the 
 After person A merges into B, a deletion of B is queued under B's uuid, so any row still carrying A matches nothing and survives with its event `properties` and its stale `person_id` until the TTL drops the part.
 `sharded_flag_evaluations` is a squash target as well as a deletion target for that reason: it sets `accepts_person_id_rewrite`, and `person_id` is not in its sort key, so it takes the same `ALTER UPDATE` `sharded_events` takes.
 A target that leaves the capability unset strands its rows permanently, because the squash deletes the overrides that recorded the mapping right after applying them.
-That is the accepted cost for `sharded_events_json`, which is exempt on purpose.
 Rows a merge stranded before `sharded_flag_evaluations` joined the squash age out with their partition.
 
 `flag_evaluations_backfill_job` (`posthog/dags/flag_evaluations_backfill.py`) is a second producer.
@@ -266,13 +260,13 @@ When one of those runs starts during a copy, the shard stops, and its error name
 
 `_fetch_stats` counts only the events tables. It feeds `AUTO_APPROVE_MAX_EVENTS`, a cost heuristic rather than a completeness claim, so a request auto-approved as small may move somewhat more rows than measured.
 
-`cleanup_old_events_by_partition` stays events-only. It enforces a multi-year retention floor for a named set of teams, and every other personal-data table already expires sooner under its own TTL.
+`cleanup_old_events_by_partition` stays events-only, covering both events tables. It enforces a multi-year retention floor for a named set of teams, and every other personal-data table already expires sooner under its own TTL.
 
 ## Adding a table
 
 Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` needs the rewrite machinery to reach the table, not just assignable columns; `stores_person_properties` needs the table's `person_properties` column to actually hold reachable data, not just exist in the schema; see `FLAG_EVALUATIONS` for a table where those diverged.
 Set `accepts_person_id_rewrite` unless you mean to leave the table out of the squash, which needs `person_id` outside the table's sorting and partition keys; skipping it is what stranded `flag_evaluations` rows on a merged-away person (#93035).
-A table you do leave out goes in `PERSON_ID_REWRITE_EXEMPT` with the reason, the way `sharded_events_json` does.
+A table you do leave out goes in `PERSON_ID_REWRITE_EXEMPT` with the reason.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
 If its storage lives on a cluster other than the one the deletion jobs connect to, give it a `cluster_setting` naming that cluster and mark it `optional`; see "Reach" and "Dispatching" above for which sweeps then reach it and which refuse.
 

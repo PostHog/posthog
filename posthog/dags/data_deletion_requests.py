@@ -28,8 +28,8 @@ import posthog.hogql.compiler.bytecode  # noqa: F401
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner
-from posthog.clickhouse.events_json import UNPARSEABLE_PROPERTIES_KEY
+from posthog.clickhouse.cluster import ClickhouseCluster, wait_for_patch_part_replication
+from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
 from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
 from posthog.dags.common.s3_staging import S3StagingLocation
@@ -60,16 +60,11 @@ from posthog.models.deletion_targets import (
     UnsweptRowsError,
     assert_no_unsweepable_rows,
     assert_sweep_complete,
+    delete_runner_for,
+    placement_for,
     resolve_placements,
-    resolve_targets_here,
 )
-from posthog.models.event.deletion import cluster_has_events_json_table
-from posthog.models.event.sql import (
-    DISTRIBUTED_EVENTS_JSON_TABLE,
-    EVENTS_DATA_TABLE,
-    EVENTS_JSON_DATA_TABLE,
-    json_property_presence_expr,
-)
+from posthog.models.event.sql import json_property_presence_expr
 from posthog.models.person.bulk_delete import (
     PersonDeletionStep,
     delete_persons_profile,
@@ -174,8 +169,16 @@ def _json_property_filter_clause(props: list[str], column: str = "properties") -
         if column == "properties"
         else [f"{instruction}.{prop}" for instruction in ("$set", "$set_once") for prop in props]
     )
-    exprs.extend(json_property_presence_expr("temporary_properties", prop) for prop in temporary_props)
+    exprs.extend(json_property_presence_expr(TEMPORARY_PROPERTIES_COLUMN, prop) for prop in temporary_props)
     return f"({' OR '.join(exprs)})"
+
+
+def _temporary_property_keys(ctx: DeletionRequestContext) -> list[str]:
+    """The temporary_properties paths that can hold a copy of the request's properties."""
+    return [
+        *ctx.properties,
+        *(f"{instruction}.{prop}" for instruction in ("$set", "$set_once") for prop in ctx.person_properties),
+    ]
 
 
 def _property_filter_params(props: list[str], prefix: str = "fp_") -> dict:
@@ -655,6 +658,8 @@ def _verify_immediate_event_deletion(
 ) -> None:
     tables = list(dict.fromkeys(shard.data_table for shard in deleted_shards))
     targets = [next(t for t in PERSONAL_DATA_TARGETS if t.data_table == table) for table in tables]
+    if any(target.uses_patch_parts for target in targets):
+        wait_for_patch_part_replication()
     _verify_swept(
         cluster,
         targets,
@@ -774,8 +779,9 @@ def delete_event_removal_shard(
 ) -> EventRemovalShard:
     """Run the lightweight delete for one table on one shard, and wait until it finishes.
 
-    A re-execution waits on the matching mutation in system.mutations if ClickHouse still lists it,
-    and enqueues it again otherwise.
+    On a mutation-backed table, a re-execution waits on the matching mutation in system.mutations if
+    ClickHouse still lists it, and enqueues it again otherwise. On a patch-part table it runs the
+    delete again.
     """
     placement = _placement_for_table(cluster, shard.data_table)
     # The HogQL fragment compiles differently per schema: materialized-column/JSONExtract
@@ -783,11 +789,11 @@ def delete_event_removal_shard(
     predicate, parameters = event_removal_where(
         deletion_request, use_new_events_schema=placement.target.uses_new_events_schema
     )
-    runner = LightweightDeleteMutationRunner(
-        table=shard.data_table,
+    runner = delete_runner_for(
+        placement.target,
         predicate=predicate,
         parameters=parameters,
-        settings={"lightweight_deletes_sync": 0},
+        mutation_settings={"lightweight_deletes_sync": 0},
     )
 
     shard_start = time.monotonic()
@@ -1137,6 +1143,15 @@ def _cleaned_select_list(
         source = "toJSONString(person_properties)" if target.json_schema else "person_properties"
         replacements["person_properties"] = f"JSONDropKeysPool({source}, %(person_keys)s)"
         params["person_keys"] = deletion_request.person_properties
+    # temporary_properties holds a second copy of what the cleaner moved out of the event: the
+    # property itself, and the $set/$set_once instructions that carry person properties. The
+    # presence check reads it, so a cleaned row that kept it would fail verification.
+    temporary_keys = _temporary_property_keys(deletion_request)
+    if target.json_schema and temporary_keys:
+        replacements[TEMPORARY_PROPERTIES_COLUMN] = (
+            f"JSONDropKeysPool(toJSONString({TEMPORARY_PROPERTIES_COLUMN}), %(temporary_keys)s)"
+        )
+        params["temporary_keys"] = temporary_keys
     for name, is_nullable in mat_cols:
         replacements[name] = "NULL" if is_nullable else "''"
 
@@ -1176,6 +1191,18 @@ def _run_on_shard(cluster: ClickhouseCluster, target: PropertyRemovalTarget, fn:
     return next(iter(result.values()))
 
 
+def _deletion_target(target: PropertyRemovalTarget) -> DeletionTarget:
+    return next(t for t in PERSONAL_DATA_TARGETS if t.data_table == target.table)
+
+
+def _cluster_for(cluster: ClickhouseCluster, target: PropertyRemovalTarget) -> ClickhouseCluster:
+    """The handle whose shards carry ``target``'s table, which for sharded_events_json is the events cluster."""
+    placement = placement_for(cluster, _deletion_target(target))
+    if placement is None:
+        raise dagster.Failure(description=f"{target.table} is not present on any reachable cluster")
+    return placement.cluster
+
+
 def _query_logger(context: dagster.OpExecutionContext, target: PropertyRemovalTarget) -> QueryLogger:
     def log(label: str, sql: str) -> None:
         context.log.info(f"[{target.mapping_key}] [{label}] {' '.join(sql.split())}")
@@ -1198,22 +1225,23 @@ def get_property_removal_shards(
     anything, is what stops the request completing while matching rows survive elsewhere. It lives
     in this op rather than the load op because this is the first one holding a cluster handle.
     """
-    unsweepable = [t for t in resolve_targets_here(cluster) if not t.accepts_property_rewrite]
+    placements = resolve_placements(cluster)
+    unsweepable = [p.target for p in placements if not p.target.accepts_property_rewrite]
     if unsweepable:
         # Bound by the same marker as the sweep and the verify gate, so a row ingested after the
         # marker, which the sweep would never touch, cannot refuse the request forever.
         _refuse_property_removal_unsweepable(cluster, unsweepable, deletion_request, _marker_str(deletion_request))
 
-    tables = [(EVENTS_DATA_TABLE(), False)]
-    if cluster_has_events_json_table(cluster):
-        tables.append((EVENTS_JSON_DATA_TABLE, True))
-    shards = sorted(cluster.shards)
+    rewritten = [p for p in placements if p.target.accepts_property_rewrite]
     context.log.info(
-        f"Fanning out property removal {deletion_request.request_id} to {len(tables)} table(s) x {len(shards)} shard(s)"
+        f"Fanning out property removal {deletion_request.request_id} to "
+        + ", ".join(f"{p.target.data_table} x {len(p.cluster.shards)} shard(s)" for p in rewritten)
     )
-    for table, json_schema in tables:
-        for shard in shards:
-            target = PropertyRemovalTarget(table=table, shard=shard, json_schema=json_schema)
+    for placement in rewritten:
+        for shard in sorted(placement.cluster.shards):
+            target = PropertyRemovalTarget(
+                table=placement.target.data_table, shard=shard, json_schema=placement.target.uses_new_events_schema
+            )
             yield dagster.DynamicOutput(target, mapping_key=target.mapping_key)
 
 
@@ -1315,7 +1343,7 @@ def copy_property_removal_shard(
     def copy(client: Client) -> dict:
         return _copy_property_removal_target(client, deletion_request, target, marker_str, hogql_compiled, staging, log)
 
-    copied = _run_on_shard(cluster, target, copy)
+    copied = _run_on_shard(_cluster_for(cluster, target), target, copy)
     context.add_output_metadata({"copied": dagster.MetadataValue.int(copied["rows"])})
     return target
 
@@ -1404,21 +1432,22 @@ def delete_property_removal_shard(
             # The server clock dates the cutoff, as it dates the mutations. A retry then enqueues its own
             # delete instead of adopting an earlier attempt's, which may have been killed part way.
             [[delete_since]] = client.execute("SELECT now()")
-            delete_runner = LightweightDeleteMutationRunner(
-                table=target.table,
+            delete_runner = delete_runner_for(
+                _deletion_target(target),
                 predicate=predicate.sql,
                 parameters=predicate.params,
-                settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
+                mutation_settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
                 reuse_since=delete_since,
             )
-            log("delete-originals", delete_runner.get_statement(delete_runner.get_all_commands()))
+            log("delete-originals", f"{predicate.sql}")
             # mutations_sync = 2 blocks on every replica of this shard; the explicit wait is a backstop.
             delete_runner(client).wait(client)
 
         staging.finish_step(client, _DELETED, {"rows": originals})
         return originals
 
-    deleted = _run_on_shard(cluster, target, delete)
+    target_cluster = _cluster_for(cluster, target)
+    deleted = _run_on_shard(target_cluster, target, delete)
     context.add_output_metadata({"deleted": dagster.MetadataValue.int(deleted)})
     return target
 
@@ -1476,14 +1505,14 @@ def reingest_property_removal_shard(
                 # mutations would reuse an earlier attempt's finished clear and skip the rows the last
                 # failed insert added. The server clock dates the cutoff, as it dates the mutations.
                 [[clear_since]] = client.execute("SELECT now()")
-                clear_runner = LightweightDeleteMutationRunner(
-                    table=target.table,
+                clear_runner = delete_runner_for(
+                    _deletion_target(target),
                     predicate=partial_rows,
                     parameters=month_params,
-                    settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
+                    mutation_settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
                     reuse_since=clear_since,
                 )
-                log("clear-partial-reingest", clear_runner.get_statement(clear_runner.get_all_commands()))
+                log("clear-partial-reingest", partial_rows)
                 clear_runner(client).wait(client)
 
             insert_sql = (
@@ -1509,7 +1538,8 @@ def reingest_property_removal_shard(
         staging.finish_step(client, _REINGESTED, {"rows": copied["rows"]})
         return copied["rows"]
 
-    reingested = _run_on_shard(cluster, target, reingest)
+    target_cluster = _cluster_for(cluster, target)
+    reingested = _run_on_shard(target_cluster, target, reingest)
     context.add_output_metadata({"reingested": dagster.MetadataValue.int(reingested)})
     return target
 
@@ -1580,7 +1610,7 @@ def verify_property_removal_shard(
         staging.finish_step(client, _VERIFIED, {"rows": sum(cleaned_months.values())})
         return stats
 
-    stats = _run_on_shard(cluster, target, verify)
+    stats = _run_on_shard(_cluster_for(cluster, target), target, verify)
     context.add_output_metadata({"verified": dagster.MetadataValue.int(stats["copied"])})
     return stats
 
@@ -1640,37 +1670,22 @@ def verify_property_removal(
     # Repeat the fan-out gate here. That one is point-in-time: rows can land between it and now, and
     # a re-execution from a failed shard reuses the fan-out op's cached output without re-running it.
     # Bounded by the same marker as the checks below so post-marker ingestion can't wedge the run.
-    unsweepable = [t for t in resolve_targets_here(cluster) if not t.accepts_property_rewrite]
+    placements = resolve_placements(cluster)
+    unsweepable = [p.target for p in placements if not p.target.accepts_property_rewrite]
     if unsweepable:
         _refuse_property_removal_unsweepable(cluster, unsweepable, deletion_request, marker_str)
 
     properties = deletion_request.properties
     person_properties = deletion_request.person_properties
-    targets: list[tuple[str, bool, tuple[str, dict]]] = [
-        ("events", False, compile_hogql_predicate(deletion_request)),
-    ]
-    if cluster_has_events_json_table(cluster):
-        targets.append(
-            (
-                DISTRIBUTED_EVENTS_JSON_TABLE,
-                True,
-                compile_hogql_predicate(deletion_request, use_new_events_schema=True),
-            )
-        )
 
-    def check(
-        client: Client,
-        table: str,
-        json_schema: bool,
-        hogql_compiled: tuple[str, dict],
-    ) -> int:
+    def check(client: Client, table: str, json_schema: bool, hogql_compiled: tuple[str, dict]) -> int:
         mat_cols = (
-            _get_affected_mat_columns(client, table, properties, table_column="properties")
+            _get_affected_mat_columns(client, "events", properties, table_column="properties")
             if properties and not json_schema
             else []
         )
         person_mat_cols = (
-            _get_affected_mat_columns(client, table, person_properties, table_column="person_properties")
+            _get_affected_mat_columns(client, "events", person_properties, table_column="person_properties")
             if person_properties and not json_schema
             else []
         )
@@ -1689,10 +1704,35 @@ def verify_property_removal(
         )[0][0]
         return remaining
 
-    results = [
-        cluster.any_host(partial(check, table=table, json_schema=json_schema, hogql_compiled=hogql_compiled)).result()
-        for table, json_schema, hogql_compiled in targets
-    ]
+    if any(p.target.uses_patch_parts and p.target.accepts_property_rewrite for p in placements):
+        wait_for_patch_part_replication()
+    results: list[int] = []
+    for placement in placements:
+        target = placement.target
+        if not target.accepts_property_rewrite:
+            continue
+        hogql_compiled = compile_hogql_predicate(deletion_request, use_new_events_schema=target.uses_new_events_schema)
+        if placement.cluster is cluster:
+            results.append(
+                cluster.any_host(
+                    partial(
+                        check,
+                        table=target.read_table,
+                        json_schema=target.uses_new_events_schema,
+                        hogql_compiled=hogql_compiled,
+                    )
+                ).result()
+            )
+        else:
+            # The Distributed proxy reads the cluster its engine names, which is not this one, so
+            # count each shard's storage table on the cluster that holds it.
+            shard_check = partial(
+                check, table=target.data_table, json_schema=target.uses_new_events_schema, hogql_compiled=hogql_compiled
+            )
+            per_shard = placement.cluster.map_any_host_in_shards(
+                dict.fromkeys(placement.cluster.shards, shard_check)
+            ).result()
+            results.extend(per_shard.values())
     remaining = sum(results)
     context.add_output_metadata(
         {
@@ -1729,7 +1769,7 @@ def cleanup_property_removal_staging(
         target = PropertyRemovalTarget(table=stats["table"], shard=stats["shard"], json_schema=stats["json_schema"])
         staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
 
-        emptied = _run_on_shard(cluster, target, staging.empty_data_files)
+        emptied = _run_on_shard(_cluster_for(cluster, target), target, staging.empty_data_files)
         context.log.info(f"[{target.mapping_key}] emptied {emptied} staged file(s)")
     return deletion_request
 
@@ -1872,17 +1912,19 @@ def delete_person_events_op(
         for idx, shard_num in enumerate(shards, 1):
             context.log.info(f"Processing {target.data_table} shard {shard_num} ({idx}/{len(shards)})")
             shard_start = time.monotonic()
-            runner = LightweightDeleteMutationRunner(
-                table=target.data_table,
+            runner = delete_runner_for(
+                target,
                 predicate=predicate,
                 parameters=params,
-                settings={"lightweight_deletes_sync": 0},
+                mutation_settings={"lightweight_deletes_sync": 0},
             )
             shard_result = placement.cluster.map_any_host_in_shards({shard_num: runner}).result()
             _host, waiter = next(iter(shard_result.items()))
             placement.cluster.map_all_hosts_in_shard(shard_num, waiter.wait).result()
             context.log.info(f"{target.data_table} shard {shard_num} complete in {time.monotonic() - shard_start:.1f}s")
 
+    if any(target.uses_patch_parts for target in targets):
+        wait_for_patch_part_replication()
     try:
         assert_sweep_complete(cluster, targets, lambda _target: (predicate, params), events=[])
     except UnsweptRowsError as exc:

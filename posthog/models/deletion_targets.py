@@ -11,10 +11,12 @@ The reasoning behind each registration, exclusion and known gap is in
 docs/internal/clickhouse-deletion-coverage.md.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 from functools import partial
+from typing import Any
 
 from django.conf import settings
 
@@ -23,7 +25,14 @@ from clickhouse_driver.errors import ServerException
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
-from posthog.clickhouse.cluster import ClickhouseCluster, Query
+from posthog.clickhouse.cluster import (
+    AlterTableMutationRunner,
+    ClickhouseCluster,
+    LightweightDeleteMutationRunner,
+    LightweightUpdateRunner,
+    PatchPartDeleteRunner,
+    Query,
+)
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     EVENTS_DATA_TABLE,
@@ -128,6 +137,10 @@ class DeletionTarget:
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
+    # Deletes and person_id rewrites write patch parts (lightweight DELETE and UPDATE) instead of
+    # enqueueing mutations. Needs enable_block_number_column and enable_block_offset_column on the
+    # storage table, and fails the statement rather than falling back to a mutation without them.
+    uses_patch_parts: bool = False
 
     def __post_init__(self) -> None:
         if self.accepts_property_rewrite and not self.stores_person_properties:
@@ -188,9 +201,11 @@ EVENTS_JSON = DeletionTarget(
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
     node_role=NodeRole.EVENTS,
     hogql_schema=HogQLSchema.NATIVE_JSON,
-    # Left out of the squash on purpose; PERSON_ID_REWRITE_EXEMPT carries the reason and the cost.
+    accepts_property_rewrite=True,
+    accepts_person_id_rewrite=True,
     # Dual-written from the same events, so its uuids are the legacy table's.
     queue_uuid_candidates=False,
+    uses_patch_parts=True,
 )
 
 # Flag-evaluation telemetry carries the same person_id and group payload as events, so team and
@@ -211,13 +226,6 @@ FLAG_EVALUATIONS = DeletionTarget(
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
 PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
 
-# sharded_events_json stays registered because deletion support will return when the events cluster
-# is reliably reachable. Keeping the default sweep targets separate makes every verifier follow the
-# same temporary exclusion as deletes_job.
-DEFAULT_DELETION_TARGETS: tuple[DeletionTarget, ...] = tuple(
-    target for target in PERSONAL_DATA_TARGETS if target is not EVENTS_JSON
-)
-
 # Every table squash_person_overrides rewrites person_id on. Derived from the capability rather than
 # listed by hand, so registering a target and forgetting the squash is not expressible.
 SQUASH_TARGETS: tuple[DeletionTarget, ...] = tuple(
@@ -227,12 +235,7 @@ SQUASH_TARGETS: tuple[DeletionTarget, ...] = tuple(
 # Targets that carry person_id and are deliberately left out of the squash. An entry is not free:
 # it accepts that a merge strands rows on the absorbed person until the TTL drops them, because the
 # squash deletes the overrides that recorded the mapping right after applying them.
-#
-# sharded_events_json is exempt while the squash is not ready to dispatch to the events cluster. A
-# run that resolves the table inconsistently is worse than one that never tries: it stages the
-# snapshot dictionary onto a cluster it may not mutate, and the overrides are dropped either way.
-# Setting accepts_person_id_rewrite on the target is what restores it; see COVERAGE_DOC.
-PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset({EVENTS_JSON_DATA_TABLE})
+PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 
 # Storage tables that carry person properties and are reclaimed by their TTL alone. Each entry is a
 # decision that erasure may lag by the retention window, not an oversight.
@@ -241,6 +244,47 @@ PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset({EVENTS_JSON_DATA_TABLE})
 # on inserted_at. Seven days is a short enough window to accept as the erasure bound, and a sweep
 # would race the TTL for little benefit.
 TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE()})
+
+
+def delete_runner_for(
+    target: DeletionTarget,
+    *,
+    predicate: str,
+    parameters: Mapping[str, Any],
+    partition: str | None = None,
+    mutation_settings: Mapping[str, Any] | None = None,
+    reuse_since: datetime | None = None,
+) -> LightweightDeleteMutationRunner | PatchPartDeleteRunner:
+    """The lightweight delete for ``target``: a patch part where the table takes one, else a mutation.
+
+    ``mutation_settings`` and ``reuse_since`` only apply to a mutation. A patch-part delete is
+    synchronous and is never adopted from an earlier run.
+    """
+    if target.uses_patch_parts:
+        return PatchPartDeleteRunner(
+            table=target.data_table, predicate=predicate, parameters=parameters, partition=partition
+        )
+    return LightweightDeleteMutationRunner(
+        table=target.data_table,
+        predicate=predicate,
+        parameters=parameters,
+        partition=partition,
+        settings=mutation_settings or {},
+        reuse_since=reuse_since,
+    )
+
+
+def update_runner_for(
+    target: DeletionTarget, *, assignments: str, predicate: str, parameters: Mapping[str, Any]
+) -> AlterTableMutationRunner | LightweightUpdateRunner:
+    """The column rewrite for ``target``: a lightweight UPDATE where the table takes one, else ALTER UPDATE."""
+    if target.uses_patch_parts:
+        return LightweightUpdateRunner(
+            table=target.data_table, assignments=assignments, predicate=predicate, parameters=parameters
+        )
+    return AlterTableMutationRunner(
+        table=target.data_table, commands={f"UPDATE {assignments} WHERE {predicate}"}, parameters=parameters
+    )
 
 
 _TABLE_EXISTS_SQL = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s"

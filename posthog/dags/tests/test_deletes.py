@@ -42,7 +42,7 @@ from posthog.dags.deletes import (
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
+from posthog.models.deletion_targets import EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
@@ -689,7 +689,7 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
 
     from dagster import build_op_context
 
-    from posthog.clickhouse.cluster import LightweightDeleteMutationRunner
+    from posthog.clickhouse.cluster import LightweightDeleteMutationRunner, PatchPartDeleteRunner
 
     now = datetime.now()
     old_timestamp = now - timedelta(days=400)
@@ -718,15 +718,21 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
     assert len(partitions) > 0
 
     captured_delete_statements = []
-    original_call = LightweightDeleteMutationRunner.__call__
+    original_mutation_call = LightweightDeleteMutationRunner.__call__
+    original_patch_part_call = PatchPartDeleteRunner.__call__
 
-    def capture_delete_statement(self, client: Client):
-        commands = self.get_all_commands()
-        statement = self.get_statement(commands)
-        captured_delete_statements.append(statement)
-        return original_call(self, client)
+    def capture_mutation_statement(self, client: Client):
+        captured_delete_statements.append(self.get_statement(self.get_all_commands()))
+        return original_mutation_call(self, client)
 
-    with patch.object(LightweightDeleteMutationRunner, "__call__", capture_delete_statement):
+    def capture_patch_part_statement(self, client: Client):
+        captured_delete_statements.append(self.get_statement())
+        return original_patch_part_call(self, client)
+
+    with (
+        patch.object(LightweightDeleteMutationRunner, "__call__", capture_mutation_statement),
+        patch.object(PatchPartDeleteRunner, "__call__", capture_patch_part_statement),
+    ):
         cleanup_old_events_by_partition(context, config, cluster, partitions)
 
     assert len(captured_delete_statements) > 0
@@ -1215,13 +1221,10 @@ def test_skip_targets_drops_a_target_named_by_either_of_its_tables(skip_targets,
     assert resolve_sweep_targets(context) == expected
 
 
-def test_events_json_is_skipped_by_default() -> None:
-    # The events cluster is not reliably reachable from the sweep, and a run that resolves it
-    # inconsistently reports an erasure it did not perform. Dropping the default would resume that
-    # sweep silently, because nothing else in a run says which targets it was supposed to reach.
-    expected = ["sharded_events", "sharded_flag_evaluations"]
-    assert resolve_sweep_targets(build_op_context()) == expected
-    assert [target.data_table for target in DEFAULT_DELETION_TARGETS] == expected
+def test_every_registered_target_is_swept_by_default() -> None:
+    # A default skip leaves rows in place while the requests covering them are marked verified, and
+    # nothing else in a run says which targets it was supposed to reach.
+    assert resolve_sweep_targets(build_op_context()) == [target.data_table for target in PERSONAL_DATA_TARGETS]
 
 
 def test_an_unrecognised_skip_target_fails_the_run() -> None:

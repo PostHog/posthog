@@ -820,12 +820,44 @@ class MutationWaiter:
             time.sleep(15.0)
 
 
+@dataclass(frozen=True)
+class PatchPartWaiter:
+    """The completion of a lightweight update or delete, which is done when its statement returns.
+
+    The statement writes its patch part before it returns, so there is no mutation to poll in
+    system.mutations. This exists so a patch-part runner fits callers written for mutation waiters.
+    """
+
+    table: str
+
+    def __call__(self, client: Client) -> None:
+        return self.wait(client)
+
+    def is_done(self, client: Client) -> bool:
+        return True
+
+    def wait(self, client: Client) -> None:
+        return None
+
+
+ShardWaiter = MutationWaiter | PatchPartWaiter
+
+# The other replicas of a shard fetch a patch part asynchronously, so a read straight after a
+# patch-part sweep can still see the rows on a replica that has not fetched it. This is a grace
+# period before such a read, not a guarantee: a replica that lags longer still shows the rows.
+PATCH_PART_REPLICATION_GRACE_SECONDS = 0 if settings.TEST else 60
+
+
+def wait_for_patch_part_replication() -> None:
+    time.sleep(PATCH_PART_REPLICATION_GRACE_SECONDS)
+
+
 @dataclass
 class MutationWaiters:
     """Waits on several mutations as one unit — e.g. the same delete applied to the legacy and
     native-JSON events tables."""
 
-    waiters: Sequence[MutationWaiter]
+    waiters: Sequence[ShardWaiter]
 
     def __call__(self, client: Client) -> None:
         return self.wait(client)
@@ -839,7 +871,7 @@ class MutationWaiters:
 
 
 def wait_for_mutations_on_shards(
-    cluster: ClickhouseCluster, shard_mutations: Mapping[int, MutationWaiter | MutationWaiters]
+    cluster: ClickhouseCluster, shard_mutations: Mapping[int, ShardWaiter | MutationWaiters]
 ) -> None:
     """Block until every mutation in ``shard_mutations`` is complete on all hosts within its shard.
 
@@ -1075,20 +1107,7 @@ class MutationRunner(abc.ABC):
         A caller running mutations on several tables enqueues all of them before waiting on any, so the total wait is
         the longest one rather than their sum. Pair with ``wait_for_mutations_on_shards``.
         """
-        if shards is not None:
-            shard_host_mutation_waiters = cluster.map_any_host_in_shards(dict.fromkeys(shards, self))
-        else:
-            shard_host_mutation_waiters = cluster.map_one_host_per_shard(self)
-
-        # XXX: need to convert the `shard_num` of type `int | None` to `int` to appease the type checker -- but nothing
-        # should have actually been filtered out, since we're using the cluster shard functions for targeting
-        shard_mutations = {
-            host.shard_num: mutations
-            for host, mutations in shard_host_mutation_waiters.result().items()
-            if host.shard_num is not None
-        }
-        assert len(shard_mutations) == len(shard_host_mutation_waiters)
-        return shard_mutations
+        return _run_on_one_host_per_shard(cluster, self, shards)
 
     def run_on_shards(self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None) -> None:
         """
@@ -1096,6 +1115,26 @@ class MutationRunner(abc.ABC):
         hosts within the affected shards.
         """
         wait_for_mutations_on_shards(cluster, self.enqueue_on_shards(cluster, shards))
+
+
+W = TypeVar("W", MutationWaiter, PatchPartWaiter)
+
+
+def _run_on_one_host_per_shard(
+    cluster: ClickhouseCluster, fn: Callable[[Client], W], shards: Iterable[int] | None
+) -> dict[int, W]:
+    if shards is not None:
+        shard_host_waiters = cluster.map_any_host_in_shards(dict.fromkeys(shards, fn))
+    else:
+        shard_host_waiters = cluster.map_one_host_per_shard(fn)
+
+    # XXX: need to convert the `shard_num` of type `int | None` to `int` to appease the type checker -- but nothing
+    # should have actually been filtered out, since we're using the cluster shard functions for targeting
+    shard_waiters = {
+        host.shard_num: waiter for host, waiter in shard_host_waiters.result().items() if host.shard_num is not None
+    }
+    assert len(shard_waiters) == len(shard_host_waiters)
+    return shard_waiters
 
 
 @dataclass
@@ -1127,3 +1166,69 @@ class LightweightDeleteMutationRunner(MutationRunner):
 
         partition_clause = f" IN PARTITION '{self.partition}'" if self.partition else ""
         return f"DELETE FROM {settings.CLICKHOUSE_DATABASE}.{self.table}{partition_clause} WHERE {self.predicate}"
+
+
+@dataclass(frozen=False)
+class PatchPartRunner(abc.ABC):
+    """A lightweight update or delete that writes a patch part instead of enqueueing a mutation.
+
+    Only for tables with ``enable_block_number_column`` and ``enable_block_offset_column``. The
+    statement returns when its patch part is written, so a retry runs it again instead of adopting
+    an earlier run from system.mutations. Running it again is safe: it rewrites the same rows to the
+    same values, or deletes rows that are already gone.
+    """
+
+    table: str
+    parameters: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
+    settings: Mapping[str, Any] = field(default_factory=dict, kw_only=True)
+
+    @abc.abstractmethod
+    def get_statement(self) -> str:
+        raise NotImplementedError
+
+    def statement_settings(self) -> Mapping[str, Any]:
+        # The statement blocks until it has scanned every part it can match, unlike a mutation,
+        # which returns once it is enqueued.
+        return {"max_execution_time": 0, **self.settings}
+
+    def __call__(self, client: Client) -> PatchPartWaiter:
+        client.execute(self.get_statement(), self.parameters, settings=self.statement_settings())
+        return PatchPartWaiter(self.table)
+
+    def enqueue_on_shards(
+        self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None
+    ) -> dict[int, PatchPartWaiter]:
+        """Run the statement on one host in each shard. Pair with ``wait_for_mutations_on_shards``."""
+        return _run_on_one_host_per_shard(cluster, self, shards)
+
+    def run_on_shards(self, cluster: ClickhouseCluster, shards: Iterable[int] | None = None) -> None:
+        wait_for_mutations_on_shards(cluster, self.enqueue_on_shards(cluster, shards))
+
+
+@dataclass(frozen=False)
+class LightweightUpdateRunner(PatchPartRunner):
+    assignments: str = field(kw_only=True)
+    predicate: str = field(kw_only=True)
+    partition: str | None = field(default=None, kw_only=True)
+
+    def get_statement(self) -> str:
+        partition_clause = f" IN PARTITION '{self.partition}'" if self.partition else ""
+        return (
+            f"UPDATE {settings.CLICKHOUSE_DATABASE}.{self.table} SET {self.assignments}"
+            f"{partition_clause} WHERE {self.predicate}"
+        )
+
+
+@dataclass(frozen=False)
+class PatchPartDeleteRunner(PatchPartRunner):
+    predicate: str = field(kw_only=True)
+    partition: str | None = field(default=None, kw_only=True)
+
+    def get_statement(self) -> str:
+        partition_clause = f" IN PARTITION '{self.partition}'" if self.partition else ""
+        return f"DELETE FROM {settings.CLICKHOUSE_DATABASE}.{self.table}{partition_clause} WHERE {self.predicate}"
+
+    def statement_settings(self) -> Mapping[str, Any]:
+        # lightweight_update_force fails the statement where a patch part is not possible, instead of
+        # falling back to an ALTER UPDATE mutation the way lightweight_update does.
+        return {**super().statement_settings(), "lightweight_delete_mode": "lightweight_update_force"}

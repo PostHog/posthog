@@ -21,9 +21,12 @@ from posthog.clickhouse.cluster import (
     MutationWaiter,
     MutationWaiters,
     NodeRole,
+    PatchPartWaiter,
     Query,
+    ShardWaiter,
     Workload,
     wait_for_mutations_on_shards,
+    wait_for_patch_part_replication,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, describe_runs
@@ -38,15 +41,15 @@ from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
-    DEFAULT_DELETION_TARGETS,
+    EVENTS_TARGETS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
     _any_node_has,
+    delete_runner_for,
     resolve_placements,
     surviving_rows_sql,
     sweep_clusters,
 )
-from posthog.models.event.deletion import events_data_tables
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import (
@@ -104,20 +107,15 @@ class DeleteConfig(dagster.Config):
 
 
 class SweepTargetsConfig(dagster.Config):
-    # sharded_events_json is skipped until the events cluster is reliably reachable from the sweep.
-    # A run that resolves it inconsistently can report an erasure without mutating its rows. Add it
-    # to DEFAULT_DELETION_TARGETS to sweep and verify it again, or pass [] for one run.
     skip_targets: list[str] = pydantic.Field(
-        default_factory=lambda: [
-            target.data_table for target in PERSONAL_DATA_TARGETS if target not in DEFAULT_DELETION_TARGETS
-        ],
+        default_factory=list,
         description="Deletion targets to leave out of this run, named by either their storage or "
         'their read table, e.g. ["sharded_events_json"] or ["events_json"]. A skipped target gets '
         "no dictionary, no mutation and no survivor count, and a cluster only it lives on is not "
         "addressed at all. Its rows stay readable while the requests covering them are still "
         "marked verified, so only skip a target whose rows you accept leaving in place. An "
         "unrecognised name fails the run rather than silently sweeping every target. Defaults to "
-        '["sharded_events_json"]; pass [] to sweep every registered target.',
+        "sweeping every registered target.",
     )
 
 
@@ -695,8 +693,8 @@ def delete_events(
     delete_mutation_runners = [
         (
             placement,
-            LightweightDeleteMutationRunner(
-                table=placement.target.data_table,
+            delete_runner_for(
+                placement.target,
                 predicate=_DELETE_PREDICATE,
                 parameters=_delete_predicate_params(
                     load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
@@ -707,7 +705,7 @@ def delete_events(
         for placement in placements
     ]
 
-    waiters: dict[tuple[str, NodeRole], dict[int, list[MutationWaiter]]] = {}
+    waiters: dict[tuple[str, NodeRole], dict[int, list[ShardWaiter]]] = {}
     for placement, delete_mutation_runner in delete_mutation_runners:
         # placement.cluster, not the job's handle: the dictionary the predicate joins was created
         # on every cluster here, but the storage table only exists on this one.
@@ -862,6 +860,15 @@ def wait_for_delete_mutations_in_shards(
         # Shared with the squash, which is where the retry comes from: under replication lag a
         # mutation can be briefly invisible on a shard, and that used to fail the whole run.
         wait_for_mutations_on_shards(cluster.sibling(cluster_name, shard_role), shard_mutations)
+
+    # mark_deletions_verified counts survivors next, on whichever replica answers.
+    if any(
+        isinstance(waiter, PatchPartWaiter)
+        for shard_mutations in cluster_mutations.values()
+        for shard_waiters in shard_mutations.values()
+        for waiter in shard_waiters.waiters
+    ):
+        wait_for_patch_part_replication()
 
     return pending_deletes_dict
 
@@ -1295,19 +1302,20 @@ def cleanup_old_events_by_partition(
         return
 
     total_partitions = len(partitions)
-    # Both events tables partition by toYYYYMM(timestamp), so the same partition list applies;
+    # Both events tables partition by month of timestamp, so the same partition list applies;
     # deleting IN PARTITION on a partition a table doesn't have is a no-op.
     #
     # Events only, deliberately: this enforces a multi-year retention floor for a named set of
     # teams, and every other personal-data table already expires sooner under its own TTL.
-    event_tables = events_data_tables(cluster)
+    placements = resolve_placements(cluster, EVENTS_TARGETS)
 
     for idx, partition in enumerate(partitions, 1):
         context.log.info(f"Processing partition {partition} ({idx}/{total_partitions})")
 
-        for table in event_tables:
-            delete_mutation_runner = LightweightDeleteMutationRunner(
-                table=table,
+        for placement in placements:
+            target_cluster = placement.cluster
+            delete_mutation_runner = delete_runner_for(
+                placement.target,
                 predicate="""
                 team_id IN %(team_ids)s
                 AND age('month', timestamp, now()) >= %(min_age_months)s
@@ -1317,14 +1325,14 @@ def cleanup_old_events_by_partition(
                     "min_age_months": config.min_age_months,
                 },
                 partition=str(partition),
-                settings={"lightweight_deletes_sync": 0},
+                mutation_settings={"lightweight_deletes_sync": 0},
             )
 
             # Run on one host per shard
-            shard_mutations = cluster.map_one_host_per_shard(delete_mutation_runner).result()
+            shard_mutations = target_cluster.map_one_host_per_shard(delete_mutation_runner).result()
 
             # Wait for all mutations to complete
-            _ = cluster.map_all_hosts_in_shards(
+            _ = target_cluster.map_all_hosts_in_shards(
                 {
                     host.shard_num: mutation.wait
                     for host, mutation in shard_mutations.items()
