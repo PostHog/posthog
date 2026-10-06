@@ -231,8 +231,12 @@ QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE = 5000
 QUEUED_DELETION_DISTINCT_IDS_PER_BATCH = 20_000
 
 
+# Below the replica's cap of 2,500 distinct IDs per person, so a person that returns this many may have more.
+TOMBSTONE_DISTINCT_ID_PREFETCH_LIMIT = 100
+
+
 def tombstone_and_publish_persons_by_uuids(team_id: int, person_uuids: builtins.list[str]) -> int:
-    """Like tombstone_and_publish_persons, but page each person's distinct IDs and batch persons to bound each RPC."""
+    """Like tombstone_and_publish_persons, but read distinct IDs in batches, page heavy persons, and bound each RPC."""
     from posthog.personhog_client.client import personhog_call
 
     def _fetch_distinct_ids(person_id: int) -> builtins.list[DistinctIdForPerson]:
@@ -244,14 +248,21 @@ def tombstone_and_publish_persons_by_uuids(team_id: int, person_uuids: builtins.
             caller_tag="persons/deletion-distinct-ids",
         )
 
+    persons = personhog_call(
+        "resolve_persons_for_deletion",
+        lambda: _fetch_persons_by_uuids_via_personhog(
+            team_id, person_uuids, distinct_id_limit=TOMBSTONE_DISTINCT_ID_PREFETCH_LIMIT
+        ),
+        caller_tag="persons/deletion-resolve",
+    )
     tombstoned = 0
     batch: builtins.list[Person] = []
     batch_distinct_id_count = 0
-    for person in resolve_persons_for_deletion(team_id, person_uuids, None, with_distinct_ids=False):
-        distinct_ids = _fetch_distinct_ids(person.pk)
-        person._distinct_ids = [d.id for d in distinct_ids]
+    for person in persons:
+        if len(person._distinct_ids or []) >= TOMBSTONE_DISTINCT_ID_PREFETCH_LIMIT:
+            person._distinct_ids = [d.id for d in _fetch_distinct_ids(person.pk)]
         batch.append(person)
-        batch_distinct_id_count += len(distinct_ids)
+        batch_distinct_id_count += len(person._distinct_ids or [])
         if batch_distinct_id_count >= QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
             tombstoned += _tombstone_batch_and_release(team_id, batch)
             batch, batch_distinct_id_count = [], 0
