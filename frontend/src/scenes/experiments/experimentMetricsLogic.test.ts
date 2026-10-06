@@ -794,6 +794,44 @@ describe('experimentMetricsLogic', () => {
             expect(lemonToast.error).toHaveBeenCalledWith('Metrics were recalculated less than 5 minutes ago.')
         })
 
+        it('does not restore marks a completed poll already cleared while the retry request was pending', async () => {
+            let releasePost: () => void = () => {}
+            const postGate = new Promise<void>((resolve) => {
+                releasePost = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        { ...completedRecalculation, active_run: { id: 'recalc-2', status: 'in_progress' } },
+                    ],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        completedRecalculation2,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async () => {
+                        await postGate
+                        return [429, { code: 'recalculation_rate_limited', detail: 'Too soon.' }]
+                    },
+                },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'pollRecalculation'])
+            expect(logic.values.recalculatingMetricUuids).toContain(PRIMARY_METRIC_UUID)
+
+            logic.actions.triggerRecalculation('manual_retry')
+            // The first poll tick lands two seconds in, finds the run completed, and clears its marks.
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+            expect(logic.values.currentRecalculation?.id).toBe('recalc-2')
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+
+            releasePost()
+            await expectLogic(logic).toDispatchActions(['setRecalculationLoading', 'setRecalculatingMetricUuids'])
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+        })
+
         describe('queuing', () => {
             it('queues instead of posting when a run is active', async () => {
                 const createMock = jest.fn(() => [201, pendingRecalculation])

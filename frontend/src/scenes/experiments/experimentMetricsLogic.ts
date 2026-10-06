@@ -774,7 +774,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                  */
                 // Marks that already belong to a run being polled (set by loadLatestRecalculation when it
                 // found an active run) must survive a rejected create, so keep them for the catch block.
-                const previousRecalculatingMetricUuids = values.recalculatingMetricUuids
+                const previousRecalculatingMetricUuids = new Set(values.recalculatingMetricUuids)
                 if (trigger !== 'cold_run') {
                     actions.setRecalculatingMetricUuids(
                         metricUuidsToMarkRecalculating(
@@ -871,9 +871,13 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.setRecalculationLoading(false)
                     /**
                      * clears the metric badges and the metric group loading indicator this create set,
-                     * and keeps the marks of a run that is already being polled
+                     * and keeps the marks of a run that is already being polled. The intersection, not the
+                     * snapshot: a poll that landed while the request was pending has already cleared its
+                     * metrics, and restoring them would leave them on with nothing left to clear them.
                      */
-                    actions.setRecalculatingMetricUuids(previousRecalculatingMetricUuids)
+                    actions.setRecalculatingMetricUuids(
+                        values.recalculatingMetricUuids.filter((uuid) => previousRecalculatingMetricUuids.has(uuid))
+                    )
                     lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
                 } finally {
                     cache.createInFlight = false
