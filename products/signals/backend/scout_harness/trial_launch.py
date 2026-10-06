@@ -162,8 +162,6 @@ def trial_capabilities(config: SignalScoutConfig) -> dict[str, JsonValue]:
 
 
 def assert_trial_environment_ready() -> None:
-    if not getattr(settings, "SCOUT_LIVE_TRIALS_ENABLED", False):
-        raise ScoutTrialLaunchError("Live scout trials are not enabled on this deployment.")
     try:
         ensure_scout_trial_capture_ready()
     except GatewayNotConfiguredError as error:
