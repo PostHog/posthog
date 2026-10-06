@@ -1,16 +1,10 @@
 name: Renovate dashboard digest
 
-# Renovate has no notification channel of its own, and every update here waits for approval on
-# the Dependency Dashboard issue, so nobody is told when the backlog grows. The issue also stops
-# at GitHub's body size limit, which hides most of the backlog. This runs Renovate's lookup
-# against the checkout to get the full list, then posts one table to #team-devex through the
-# DevEx bot. The lookup creates no branches, pull requests or issues.
-#
-# Requires secrets.SLACK_DEVEX_BOT_TOKEN. GITHUB_TOKEN only reads release data from github.com.
+# Posts the pending Renovate updates to #team-devex. The lookup is read-only.
 
 on:
     schedule:
-        - cron: '50 13 * * 3' # Wednesdays 13:50 UTC, away from the Monday reports
+        - cron: '50 13 * * 3' # Wednesdays 13:50 UTC
     workflow_dispatch:
         inputs:
             dry_run:
@@ -26,8 +20,7 @@ permissions:
     contents: read
 
 jobs:
-    # The Renovate package and its dependency tree come from npm, so this job holds only the
-    # read-only GITHUB_TOKEN. The Slack token lives in the job below, which runs no third-party code.
+    # Renovate is third-party npm code, so the Slack token stays out of this job.
     lookup:
         runs-on: ubuntu-24.04
         timeout-minutes: 20

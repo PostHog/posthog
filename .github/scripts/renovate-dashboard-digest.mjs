@@ -16,8 +16,6 @@ const ECOSYSTEMS = { npm: 'npm', pep621: 'python', cargo: 'rust', gomod: 'go', '
 const UPDATE_TYPES = ['major', 'minor', 'patch']
 const COLUMNS = [...UPDATE_TYPES, 'other', 'total']
 
-// One Renovate branch is one checkbox on the Dependency Dashboard, so branches are the unit a person acts on.
-// A branch that mixes update types counts once, under its riskiest type.
 export function summarize(report) {
     const repository = Object.values(report.repositories ?? {})[0]
     const branches = new Map()
@@ -46,7 +44,7 @@ export function summarize(report) {
         pending[manager][type] += 1
         pending[manager].total += 1
     }
-    // Renovate exits 0 when a lookup aborts, and an empty table would read as a cleared backlog.
+    // Renovate exits 0 when a lookup aborts.
     if (branches.size === 0) {
         throw new Error('The Renovate report lists no pending updates, so the lookup did not complete')
     }
