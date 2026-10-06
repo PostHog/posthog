@@ -16,7 +16,7 @@ import {
 } from '@xyflow/react'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { type KeyboardEvent, type MouseEvent, ReactNode, useEffect, useMemo, useRef } from 'react'
+import { type KeyboardEvent, type MouseEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconArchive, IconRefresh } from '@posthog/icons'
 
@@ -27,6 +27,7 @@ import { ElkDirection } from './autolayout'
 import { LineageGraphLoading } from './LineageGraphLoading'
 import { lineageGraphLogic } from './lineageGraphLogic'
 import { LINEAGE_NODE_TYPES, LineageNodeCallbacks, LineageNodeState, LineageVariant } from './LineageNode'
+import { lineageCone } from './lineageSelection'
 import { useNodesMeasured } from './useNodesMeasured'
 
 export type { LineageVariant, LineageNodeState, LineageNodeCallbacks } from './LineageNode'
@@ -64,6 +65,8 @@ export interface LineageGraphProps {
     onNodeClick?: (node: DataModelingNode) => void
     /** Dedicated new-tab link shown on each node */
     nodeOpenUrl?: (node: DataModelingNode) => string
+    /** Clicking a node highlights its full upstream and downstream lineage */
+    selectable?: boolean
     /** Caller-specific chrome (legend, layout toggle) rendered over the canvas */
     panels?: ReactNode
 }
@@ -72,6 +75,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     const { fitView, setNodes, viewportInitialized } = useReactFlow()
     const nodesMeasured = useNodesMeasured()
     const { isDarkModeOn } = useValues(themeLogic)
+    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
     const { currentNodeId, nodeState, nodeCallbacks, onNodeClick, nodeOpenUrl, focusNodeIds, searchFocusRequest } =
         props
     const { layout } = useValues(
@@ -87,6 +91,16 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     const fittedSearchRequest = useRef<{ requestId: number; layout: typeof layout } | null>(null)
     const lastNodeDrag = useRef<{ nodeId: string; stoppedAt: number } | null>(null)
     const resetRequested = useRef(false)
+    const selectedLineage = useMemo(
+        () => (props.selectable && selectedNodeId ? lineageCone(props.edges, selectedNodeId) : null),
+        [props.edges, props.selectable, selectedNodeId]
+    )
+
+    useEffect(() => {
+        if (selectedNodeId && !props.nodes.some((node) => node.id === selectedNodeId)) {
+            setSelectedNodeId(null)
+        }
+    }, [props.nodes, selectedNodeId])
 
     // Decorating on every render would hand react-flow new node objects, which drops the sizes it
     // measured — so the fit below would keep waiting and the edges would keep being redrawn.
@@ -94,10 +108,14 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         () =>
             layout?.nodes.map((rfNode) => {
                 const node = rfNode.data.node as DataModelingNode
-                const callbacks = nodeCallbacks?.(node) ?? {
+                const baseCallbacks = nodeCallbacks?.(node) ?? {
                     onClick: onNodeClick ? () => onNodeClick(node) : undefined,
                 }
+                const callbacks = props.selectable
+                    ? { ...baseCallbacks, onClick: () => setSelectedNodeId(node.id) }
+                    : baseCallbacks
                 const onClick = callbacks.onClick
+                const callerState = nodeState?.(node)
                 return {
                     ...rfNode,
                     position: props.nodePositions?.[node.id] ?? rfNode.position,
@@ -105,7 +123,13 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
                         ...rfNode.data,
                         draggable: props.nodesDraggable,
                         openUrl: nodeOpenUrl?.(node),
-                        state: { isCurrent: node.id === currentNodeId, ...nodeState?.(node) },
+                        selectable: props.selectable,
+                        state: {
+                            isCurrent: node.id === currentNodeId,
+                            ...callerState,
+                            isSelected: callerState?.isSelected || selectedNodeId === node.id,
+                            isDimmed: selectedLineage ? !selectedLineage.nodeIds.has(node.id) : callerState?.isDimmed,
+                        },
                         callbacks: {
                             ...callbacks,
                             onClick: onClick
@@ -133,7 +157,22 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             onNodeClick,
             props.nodePositions,
             props.nodesDraggable,
+            props.selectable,
+            selectedLineage,
+            selectedNodeId,
         ]
+    )
+
+    const decoratedEdges = useMemo(
+        () =>
+            selectedLineage && layout
+                ? layout.edges.map((edge) =>
+                      selectedLineage.edgeIds.has(edge.id)
+                          ? { ...edge, zIndex: 1, style: { ...edge.style, stroke: 'var(--link)', strokeWidth: 2 } }
+                          : { ...edge, style: { ...edge.style, opacity: 0.15 } }
+                  )
+                : layout?.edges,
+        [layout, selectedLineage]
     )
 
     const resetPositionsApplied = useStore(
@@ -264,7 +303,8 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             className={clsx('@container/lineage', props.className)}
             colorMode={isDarkModeOn ? 'dark' : 'light'}
             defaultNodes={decoratedNodes}
-            edges={layout.edges}
+            edges={decoratedEdges}
+            onPaneClick={props.selectable ? () => setSelectedNodeId(null) : undefined}
             nodeTypes={LINEAGE_NODE_TYPES}
             nodesDraggable={props.nodesDraggable ?? false}
             onNodeDragStop={(_, node) => {
@@ -286,7 +326,8 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             {props.showControls && (
-                <Controls showInteractive={false} position="bottom-left">
+                // The button runs its own fitView, so it needs the caller's options to respect the same zoom cap
+                <Controls showInteractive={false} position="bottom-left" fitViewOptions={props.fitViewOptions}>
                     {props.nodesDraggable && props.onResetNodePositions && (
                         <ControlButton
                             aria-label="Reset layout"

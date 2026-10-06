@@ -260,7 +260,7 @@ Both review modes instruct the agent to fetch pinned review and validation skill
 The agent can fetch referenced bundled files with `skill-file-get`.
 On the configured internal project, choose **Review in Flash mode** from the review menu to run it for one turn without changing the PR's full-review configuration.
 Flash requests preserve an existing report's review tier, including when they join a running review.
-Flash labels its GitHub messages with `FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review` and never starts comment resolution.
+Flash marks its status comment header as `PostHog Review (flash)`, skips the clean-review media, and never starts comment resolution.
 
 **Review all your PRs in Flash mode** is off by default and shown only on the configured internal project.
 Turn it on in Code review to review PRs you author in `PostHog/posthog` when they open or receive new commits, including drafts.

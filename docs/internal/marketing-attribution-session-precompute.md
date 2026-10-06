@@ -13,6 +13,9 @@ The raw-session lookup filters to those IDs before merging entry properties and 
 Reach and credit share the resolved session rows and conversion aggregation within the query.
 Table and paths reports execute separate queries.
 
+Clickable conversion metrics use the same spacing, typography, and comparison backgrounds as other Marketing analytics table cells.
+The cell accepts an optional click handler and uses a native button for keyboard activation.
+
 Touchpoints and conversions resolve identity through `events.person_id`, so merges, splits, and delayed identity mappings follow the legacy live query without rebuilding session jobs.
 Late-arriving events and session updates do not depend on a stored dimension snapshot.
 Missing precompute coverage at a calendar boundary cannot switch this route back to the legacy query.

@@ -91,6 +91,7 @@ PRODUCTS_APPS = [
     "products.metrics.backend.apps.MetricsConfig",
     "products.apm.backend.apps.ApmConfig",
     "products.notifications.backend.apps.NotificationsConfig",
+    "products.cross_project_dashboards.backend.apps.CrossProjectDashboardsConfig",
     "products.dashboards.backend.apps.DashboardsConfig",
     "products.messaging.backend.apps.MessagingConfig",
     "products.mcp_analytics.backend.apps.McpAnalyticsConfig",

@@ -326,6 +326,7 @@ rules:
                               |QuarantinedIdentifier
                               |QueryTabState
                               |QueueJob
+                              |RevokedTeamSecretToken
                               |QueueSchedulerDecision
                               |QueueSchedulerState
                               |QuickFilter
@@ -763,6 +764,7 @@ rules:
                         |QuarantinedIdentifier
                         |QueryTabState
                         |QueueJob
+                        |RevokedTeamSecretToken
                         |QueueSchedulerDecision
                         |QueueSchedulerState
                         |QuickFilter
@@ -977,6 +979,8 @@ rules:
                               |BillingAlertEvent
                               |CIMDVerificationToken
                               |ContextLayerConfig
+                              |CrossProjectDashboard
+                              |CrossProjectDashboardTile
                               |DesktopBetaTermsAcceptance
                               |IdentityProviderConfig
                               |LegalDocument
@@ -1054,6 +1058,8 @@ rules:
                         |BillingAlertEvent
                         |CIMDVerificationToken
                         |ContextLayerConfig
+                        |CrossProjectDashboard
+                        |CrossProjectDashboardTile
                         |DesktopBetaTermsAcceptance
                         |IdentityProviderConfig
                         |LegalDocument

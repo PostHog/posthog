@@ -1502,8 +1502,12 @@ export interface PartnerPayerSettlementApi {
      * @nullable
      */
     period_end?: string | null
-    /** Settlement total in the currency's minor unit. */
+    /** Cash charge after settlement credits, in the currency's minor unit. */
     amount_cents?: number
+    /** Total allocated to the organization invoices before settlement credits, in the currency's minor unit. */
+    gross_amount_cents?: number
+    /** Adjustment credits applied to this settlement, in the currency's minor unit. */
+    credit_amount_cents?: number
     /** Three-letter ISO currency code in upper case, for example `USD`. */
     currency?: string
     /** Settlement status, for example `paid` or `failed`. */
@@ -1563,7 +1567,7 @@ export interface PartnerPayerSettlementInvoiceApi {
      * @nullable
      */
     pdf_url?: string | null
-    /** What the settlement charged for this invoice, in the currency's minor unit. */
+    /** Amount allocated to this invoice before settlement credits, in the currency's minor unit. This is not the invoice's share of the cash charge. */
     charged_cents?: number
 }
 
@@ -1580,8 +1584,12 @@ export interface PartnerPayerSettlementDetailApi {
      * @nullable
      */
     period_end?: string | null
-    /** Settlement total in the currency's minor unit. */
+    /** Cash charge after settlement credits, in the currency's minor unit. */
     amount_cents?: number
+    /** Total allocated to the organization invoices before settlement credits, in the currency's minor unit. */
+    gross_amount_cents?: number
+    /** Adjustment credits applied to this settlement, in the currency's minor unit. */
+    credit_amount_cents?: number
     /** Three-letter ISO currency code in upper case, for example `USD`. */
     currency?: string
     /** Settlement status, for example `paid` or `failed`. */

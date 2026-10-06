@@ -301,7 +301,16 @@ class PartnerPayerSettlementSerializer(serializers.Serializer):
     settlement_id = serializers.CharField(help_text="ID of the settlement.")
     period_start = serializers.DateTimeField(required=False, allow_null=True, help_text="Start of the billing period.")
     period_end = serializers.DateTimeField(required=False, allow_null=True, help_text="End of the billing period.")
-    amount_cents = serializers.IntegerField(required=False, help_text="Settlement total in the currency's minor unit.")
+    amount_cents = serializers.IntegerField(
+        required=False, help_text="Cash charge after settlement credits, in the currency's minor unit."
+    )
+    gross_amount_cents = serializers.IntegerField(
+        required=False,
+        help_text="Total allocated to the organization invoices before settlement credits, in the currency's minor unit.",
+    )
+    credit_amount_cents = serializers.IntegerField(
+        required=False, help_text="Adjustment credits applied to this settlement, in the currency's minor unit."
+    )
     currency = serializers.CharField(
         required=False, help_text="Three-letter ISO currency code in upper case, for example `USD`."
     )
@@ -327,7 +336,8 @@ class PartnerPayerSettlementInvoiceSerializer(PartnerPayerInvoiceSerializer):
         help_text="What the payer owes for this invoice, after credits, in the currency's minor unit, or null when billing has not recorded the invoice yet.",
     )
     charged_cents = serializers.IntegerField(
-        required=False, help_text="What the settlement charged for this invoice, in the currency's minor unit."
+        required=False,
+        help_text="Amount allocated to this invoice before settlement credits, in the currency's minor unit. This is not the invoice's share of the cash charge.",
     )
 
 

@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { HealthIssueKind, KIND_LABELS } from 'scenes/health/healthCategories'
 import { SAMPLE_GLOBALS_CONTEXTS } from 'scenes/hog-functions/configuration/sampleGlobalsContexts'
 import {
@@ -24,6 +24,9 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import { hogFunctionsInvocationsCreate } from 'products/cdp/frontend/generated/api'
+import type { HogFunctionApi, HogFunctionInvocationApi } from 'products/cdp/frontend/generated/api.schemas'
 
 import type { CyclotronJobInputSchemaType, HogFunctionSubTemplateType } from '../../../../types'
 
@@ -164,18 +167,82 @@ export function decorateAlertName(baseName: string, selectedKinds: string[] | nu
     return `${baseName}${formatKindsSuffix(selectedKinds)}`
 }
 
-function buildAlertInputs(
-    template: HogFunctionTemplateType,
+function lastErrorLogMessage(logs: readonly unknown[]): string | null {
+    for (const entry of [...logs].reverse()) {
+        const { level, message } = (entry ?? {}) as { level?: unknown; message?: unknown }
+        if (typeof level === 'string' && level.toLowerCase() === 'error' && typeof message === 'string') {
+            return message
+        }
+    }
+    return null
+}
+
+// The test endpoint answers HTTP 200 when the destination rejects the message, and reports the
+// rejection in the logs. Returns the message to show, or null when the test went through.
+// A skipped result covers two cases: the filters excluded the event, or the inputs failed to
+// build. Only the second case writes an error log.
+export function testInvocationFailureMessage(result: Pick<HogFunctionInvocationApi, 'status' | 'logs'>): string | null {
+    if (result.status === 'success') {
+        return null
+    }
+    const reason = lastErrorLogMessage(result.logs)
+    if (reason) {
+        return `Test failed: ${reason}`
+    }
+    return result.status === 'skipped'
+        ? "Test not sent. The test event didn't match this alert's filters."
+        : 'Test failed. Check the destination settings and try again.'
+}
+
+export function buildAlertInputs(
+    inputsSchema: CyclotronJobInputSchemaType[] | null | undefined,
     subTemplateInputs: Record<string, CyclotronJobInputType> | null | undefined,
     inputValues: Record<string, CyclotronJobInputType>
 ): Record<string, CyclotronJobInputType> {
     const inputs: Record<string, CyclotronJobInputType> = {}
-    for (const schema of template.inputs_schema ?? []) {
+    for (const schema of inputsSchema ?? []) {
         if (schema.default !== undefined) {
             inputs[schema.key] = { value: schema.default }
         }
     }
     return { ...inputs, ...subTemplateInputs, ...inputValues }
+}
+
+export interface AlertHogFunctionConfiguration {
+    type: 'internal_destination'
+    template_id: string
+    name: string
+    description: string
+    filters: CyclotronJobFiltersType | null | undefined
+    enabled: true
+    masking: null
+    inputs: Record<string, CyclotronJobInputType>
+}
+
+/** The hog function an alert creates: an enabled internal destination with the template's merged inputs. */
+export function buildAlertHogFunctionConfiguration({
+    templateId,
+    name,
+    description,
+    filters,
+    inputs,
+}: {
+    templateId: string
+    name: string
+    description: string
+    filters: CyclotronJobFiltersType | null | undefined
+    inputs: Record<string, CyclotronJobInputType>
+}): AlertHogFunctionConfiguration {
+    return {
+        type: 'internal_destination',
+        template_id: templateId,
+        name,
+        description,
+        filters,
+        enabled: true,
+        masking: null,
+        inputs,
+    }
 }
 
 function extractDestinationKeyFromAlert(alert: HogFunctionType, allDestinations: WizardDestination[]): string | null {
@@ -685,7 +752,11 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                 return
             }
 
-            const mergedInputs = buildAlertInputs(selectedTemplate, subTemplate.inputs, values.inputValues)
+            const mergedInputs = buildAlertInputs(
+                selectedTemplate.inputs_schema,
+                subTemplate.inputs,
+                values.inputValues
+            )
 
             const configuration: Record<string, any> = {
                 type: 'internal_destination',
@@ -725,20 +796,28 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             const sampleGlobalsLoader = logicProps.contextId ? SAMPLE_GLOBALS_CONTEXTS[logicProps.contextId] : undefined
             if (sampleGlobalsLoader) {
                 try {
-                    globals = await sampleGlobalsLoader(globals)
+                    globals = await sampleGlobalsLoader(
+                        globals,
+                        applyKindFilter(subTemplate.filters, values.selectedKinds)
+                    )
                 } catch {
                     // Fall back to the stub test event
                 }
             }
 
             try {
-                await api.hogFunctions.createTestInvocation('new', {
-                    configuration,
+                const result = await hogFunctionsInvocationsCreate(String(ApiConfig.getCurrentTeamId()), 'new', {
+                    configuration: configuration as HogFunctionApi,
                     globals,
                     mock_async_functions: false,
                 })
                 breakpoint()
-                lemonToast.success('Test invocation sent')
+                const failure = testInvocationFailureMessage(result)
+                if (failure) {
+                    lemonToast.error(failure)
+                } else {
+                    lemonToast.success('Test invocation sent')
+                }
             } catch (e: any) {
                 breakpoint()
                 lemonToast.error(e.detail || 'Test invocation failed')
@@ -771,22 +850,23 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
                     return
                 }
 
-                const mergedInputs = buildAlertInputs(selectedTemplate, subTemplate.inputs, values.inputValues)
+                const mergedInputs = buildAlertInputs(
+                    selectedTemplate.inputs_schema,
+                    subTemplate.inputs,
+                    values.inputValues
+                )
 
                 const filters = applyKindFilter(subTemplate.filters, values.selectedKinds)
                 const name = decorateAlertName(subTemplate.name ?? '', values.selectedKinds)
                 const description = decorateAlertName(subTemplate.description ?? '', values.selectedKinds)
 
-                const configuration: Record<string, any> = {
-                    type: 'internal_destination',
-                    template_id: destination.templateId,
+                const configuration = buildAlertHogFunctionConfiguration({
+                    templateId: destination.templateId,
                     name,
                     description,
                     filters,
-                    enabled: true,
-                    masking: null,
                     inputs: mergedInputs,
-                }
+                })
 
                 await api.hogFunctions.create(configuration)
                 posthog.capture('error_tracking_alert_created', {

@@ -17,6 +17,10 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
+    destination_ids_for_run,
+    external_destination_ids_for,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -203,3 +207,59 @@ class TestBackfillWarehouseSourceDestinations(BaseTest):
             call_command("backfill_warehouse_source_destinations", "--live-run")
 
         assert not ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=source).exists()
+
+
+class TestDestinationIdsForRun(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="src",
+            connection_id="conn",
+            status="Running",
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        self.schema = ExternalDataSchema.objects.create(team=self.team, source=self.source, name="charges")
+
+    def _link(self, destination: ExternalDataDestination) -> None:
+        ExternalDataSourceDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, source=self.source, destination=destination
+        )
+
+    def _destination(self, name: str, type_: str) -> ExternalDataDestination:
+        return ExternalDataDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, type=type_, name=name
+        )
+
+    def test_a_run_that_writes_only_to_the_warehouse_still_records_it(self) -> None:
+        # The Syncs tab reads this to name where a run landed, and an empty list reads there as
+        # "went nowhere" rather than "the warehouse".
+        warehouse = get_or_create_warehouse_destination(self.team.pk)
+
+        assert destination_ids_for_run(self.schema) == [str(warehouse.id)]
+
+    def test_a_run_records_the_warehouse_alongside_an_external_destination(self) -> None:
+        warehouse = get_or_create_warehouse_destination(self.team.pk)
+        snowflake = self._destination("snowflake", ExternalDataDestination.Type.SNOWFLAKE)
+        self._link(warehouse)
+        self._link(snowflake)
+
+        assert destination_ids_for_run(self.schema) == sorted([str(warehouse.id), str(snowflake.id)])
+
+    def test_external_ids_leave_out_the_warehouse(self) -> None:
+        # What the consumer keys a coalesced write on. Counting the warehouse here would stop
+        # every sync in the fleet sharing a write, because every run now records it.
+        warehouse = get_or_create_warehouse_destination(self.team.pk)
+        snowflake = self._destination("snowflake", ExternalDataDestination.Type.SNOWFLAKE)
+
+        assert external_destination_ids_for(self.team.pk, [str(warehouse.id), str(snowflake.id)]) == [str(snowflake.id)]
+        assert external_destination_ids_for(self.team.pk, [str(warehouse.id)]) == []
+        assert external_destination_ids_for(self.team.pk, []) == []
+
+    def test_external_ids_ignore_another_teams_destination(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="other")
+        theirs = ExternalDataDestination.objects.for_team(other.pk).create(
+            team_id=other.pk, type=ExternalDataDestination.Type.SNOWFLAKE, name="theirs"
+        )
+
+        assert external_destination_ids_for(self.team.pk, [str(theirs.id)]) == []

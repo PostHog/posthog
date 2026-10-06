@@ -227,6 +227,10 @@ class PipelineV3(Generic[ResumableData]):
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
         is_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
 
+        # Resolved in `_get_models`, not here: the pipeline is built inside an async activity,
+        # so the query that tells the warehouse from an external destination cannot run here.
+        self._external_destination_ids: list[str] = list(models.external_destination_ids)
+
         self._producer_kwargs: dict[str, Any] = {
             "sync_type": sync_type,
             "is_resume": is_resume,
@@ -296,6 +300,7 @@ class PipelineV3(Generic[ResumableData]):
             # Snapshotted on the job when the run started. Empty for every run before
             # destinations, and every run of a team the flag is off for.
             "destination_ids": list(self._job.destination_ids or []),
+            "external_destination_ids": list(self._external_destination_ids),
             **self._producer_kwargs,
         }
 
@@ -415,13 +420,7 @@ class PipelineV3(Generic[ResumableData]):
 
             # v3 stages the incremental cursor until job completion, so a retried attempt
             # re-extracts from batch 0 and the previous attempt's count must not be kept.
-            await reset_rows_synced_if_needed(
-                self._job,
-                self._is_incremental,
-                self._reset_pipeline,
-                should_resume,
-                incremental_cursor_staged=True,
-            )
+            await reset_rows_synced_if_needed(self._job, should_resume)
 
             validate_incremental_sync(
                 self._is_incremental,

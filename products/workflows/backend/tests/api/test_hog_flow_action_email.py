@@ -15,7 +15,7 @@ from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
-RENDER_PATH = "products.workflows.backend.presentation.views.hog_flow.render_design_html"
+RENDER_PATH = "products.workflows.backend.services.hog_flow_email_design.render_design_html"
 RENDERED_HTML = "<html>rendered</html>"
 
 

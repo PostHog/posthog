@@ -6,24 +6,51 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
+## Model namespace reservation
+
+The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
+
+Existing reserved-name rows remain queryable, editable, and deletable. Model validation enforces the reservation on creation and renaming, during saves and `full_clean()`. Authored models can use private materialization backing tables with their model names.
+
+Direct-connection catalogs contain no authored models and are exempt from the reservation. Upstream tables and schemas named `models` remain available there, including case variants resolved by Snowflake and Trino.
+
+This reservation does not add qualified names to existing models or require a namespace on new models.
+
 ## SQL editor drafts
 
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
-## Choosing data in BI mode
+## Choosing data in Business intelligence
 
-Clicking **BI** closes the SQL editor database sidebar; clicking **SQL** opens it again.
-The sidebar toggle remains available in both modes. **Locate** in the BI data pane is shown only while the sidebar is open.
+**Business intelligence** opens a visual worksheet at `/bi`, separately from the SQL editor, when the `sql-editor-bi-mode` feature flag is enabled. Both products keep their own unsaved working copies, including edits to the same saved view, insight, or draft. Existing SQL working copies remain available. Worksheet breadcrumbs preserve the visual configuration, and existing SQL editor links with `mode=bi` open in Business intelligence.
 
-Use the table picker in the data pane to browse the same source groups and folders as the database tree.
+Choose a connection in the **Data** panel, then select a table below it. **Run** is the first toolbar action, before **Swap rows and columns**.
+
+For older saves without worksheet configuration, discarding query edits preserves the current source and shelves.
+
+SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.
+
+Saving a worksheet as an insight preserves its connection, table, shelves, measures, filters, chart type, limit, sort order, and visualization settings in a `BIVisualizationNode`. The wrapper contains the worksheet configuration and a plain `HogQLQuery` source. Saved insights use the normal insight view; **Edit** reopens Business intelligence when the feature is enabled, including from a dashboard. **Discard changes** restores the saved worksheet. **Save as SQL view** exports only the generated SQL to a warehouse view; save an insight to retain editable worksheet state.
+
+Older saves containing only SQL still open in the SQL editor. Their original shelves cannot be reconstructed without the worksheet configuration from a draft or shared URL.
+
+The worksheet date picker supports rolling windows, fixed ranges, this/last month and quarter, and year to date. **Date** selects the column that receives dashboard date ranges; **No date column** explicitly opts out. A dashboard range replaces the worksheet range. Dashboard property filters combine with worksheet conditions. Event-based tables retain standard PostHog property filtering with any date-column selection, using `{filters.native(date_expression)}` or `{filters.native(null)}` when overriding the default date column. Other tables bind dashboard property keys to worksheet fields, including the property key in a field such as `properties.plan`. Unmapped or ambiguous property keys produce a query error instead of silently applying the wrong filter. Reopen and save older BI worksheets to update their generated SQL with dashboard-aware placeholders.
+
+The comparison picker adds the previous period or a custom offset, including one year earlier. Tables, bar, line, and area charts support comparisons with up to two dimensions. Previous-period dates align to the current axis, and the legend identifies each period. Both periods use the effective dashboard date range and property filters. Comparisons require a bounded range and turn off when the worksheet switches to all time or an unsupported chart.
+
+Generated comparison queries use `{filters.previous}` (or its column-bound form) for the comparison range and `{filters.compareDate(expr)}` to align date dimensions. Custom native date columns use `{filters.previous.native(expr)}`. Month, quarter, and year dimensions pass their bucket as a second argument to `compareDate`, so month lengths and leap years do not move points into the wrong bucket. `HogQLFilters.compareFilter` supplies the comparison offset; missing offsets use the previous period.
+
+Use the table picker in the data pane to browse PostHog, warehouse, view, and system tables, with direct-connection tables grouped by schema.
 The selected table is highlighted; expanding a folder does not select it.
 Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
 
+**Related tables** exposes existing lazy joins, virtual tables, and configured warehouse joins as expandable nodes. Fields reached through a relation keep the original source and a qualified path, so adding a customer's field to a charges worksheet does not switch tables. PostHog property fields, including `person.properties` under events, expand into searchable, paginated property definitions. Numeric definitions become measures; other definitions become dimensions. Restricted and hidden properties are excluded. Warehouse relationships use the existing join configuration; the worksheet does not create joins or infer arbitrary JSON keys.
+
 ## Calculated measures in BI mode
 
-With `SQL_EDITOR_BI_MODE` enabled, select a table in the SQL editor's BI mode and choose **Add calculated measure** in the data pane.
+With `SQL_EDITOR_BI_MODE` enabled, open **Business intelligence**, select a table and choose **Add calculated measure** in the data pane.
 Enter a name and an aggregate SQL formula, such as `sum(revenue) / nullIf(count(DISTINCT user_id), 0)` for average revenue per user.
 Use field names from the selected table. Filters apply before the formula runs for each group on the worksheet.
 
