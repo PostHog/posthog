@@ -2,7 +2,7 @@
 
 The loader opens one recorder for each final batch with ``record_post_load_phases``. Code on the
 post-load path marks its steps with ``post_load_phase`` or ``recorded_phase``. These do nothing when
-no recorder is active, so the same code runs unchanged on the pre-write path and in the v2 pipeline.
+no recorder is active, so the same code runs unchanged on the pre-write path.
 When the batch completes, the recorder writes one log line that lists every phase.
 
 The recorder is observability only. An error inside it is logged at debug and never reaches the load.
