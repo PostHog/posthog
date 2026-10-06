@@ -227,6 +227,9 @@ const ViewCreateSchema = () => {
         name: WarehouseSavedQueriesCreateBody.shape['name'].describe(
             'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
         ),
+        edited_history_id: WarehouseSavedQueriesCreateBody.shape['edited_history_id'].describe(
+            'Omit when you create a new view. Required when a view with this name already exists and the call changes its query. Get this from latest_history_id on the view-get response.'
+        ),
     })
 }
 
@@ -257,11 +260,11 @@ const viewCreate = (): ToolBase<
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
         }
+        if (params.edited_history_id !== undefined) {
+            body['edited_history_id'] = params.edited_history_id
+        }
         if (params.dag_id !== undefined) {
             body['dag_id'] = params.dag_id
-        }
-        if (params.is_test !== undefined) {
-            body['is_test'] = params.is_test
         }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
