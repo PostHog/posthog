@@ -4635,9 +4635,9 @@ Today (9): `calls`, `calls_ai`, `contacts`, `phone_numbers`, `sales_dialer_calls
 Diffed against: <https://developer.justcall.io/llms.txt>
 
 - [x] `/v2.1/sales_dialer/campaigns (List all campaigns)` — lookup resolving the campaign a sales_dialer_call belongs to - already syncing the calls without it (high)
-- [x] `/v2.1/calls/ai (List calls AI data)` — transcripts, sentiment and AI scores per call, JustCall's headline conversation-intelligence output (high)
-- [ ] `/v2.1/texts/threads (List all threads)` — conversation-level grouping for the already-synced texts; per-message rows alone can't measure response time (high)
-- [x] `/v2.1/users/groups (List all user groups)` — team lookup for rolling agent-level call and text metrics up to teams (high)
+- [x] `/v2.1/calls_ai (List calls AI data)` — transcripts, sentiment and AI scores per call, JustCall's headline conversation-intelligence output (high)
+- [ ] `/v2.1/texts/threads (List all threads)` — conversation-level grouping for the already-synced texts; per-message rows alone can't measure response time (high) - needs a fan-out over phone numbers, since `phone_id` is a required filter
+- [x] `/v2.1/user_groups (List all user groups)` — team lookup for rolling agent-level call and text metrics up to teams (high)
 - [ ] `/v2.1/sales_dialer/campaigns/{id}/contacts (List campaign contacts)` — campaign membership edges needed for dial-through and contact-rate metrics (medium)
 - [ ] `/v2.1/calls/{id}/journey (Get call journey)` — per-call routing and leg history - who it rang, transfers, IVR path (medium)
 - [ ] `/v2.1/texts/tags (List all tags)` — tag lookup resolving the tags applied to text threads (medium)
