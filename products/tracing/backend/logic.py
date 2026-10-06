@@ -636,26 +636,13 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             subquery_where_exprs[0] if len(subquery_where_exprs) == 1 else ast.And(exprs=subquery_where_exprs)
         )
 
-        root_top_n_sql = f"""
-            SELECT trace_id, timestamp
-            FROM posthog.trace_spans
-            WHERE {{where}}
-            ORDER BY timestamp {order_dir}, trace_id {order_dir}
-            LIMIT {{limit}}
-        """
-        if root_top_n:
-            trace_id_query = parse_select(
-                f"""
-                SELECT
-                    trace_id
-                FROM ({root_top_n_sql})
-                GROUP BY trace_id
-                LIMIT {{limit}}
-            """,
-                placeholders={
-                    "where": subquery_where,
-                    "limit": ast.Constant(value=self.query.limit),
-                },
+        trace_filter: ast.Expr
+        if self._unbounded_trace_lookup:
+            trace_filter = self._unbounded_trace_filter()
+        elif root_top_n:
+            trace_filter = parse_expr(
+                "trace_id IN (SELECT arrayJoin(tupleElement(({roots}), 1)))",
+                placeholders={"roots": self._top_roots_query(clone_expr(subquery_where), order_dir)},
             )
         else:
             trace_id_query = parse_select(
@@ -672,16 +659,16 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                     "limit": ast.Constant(value=self.query.limit),
                 },
             )
-
-        assert isinstance(trace_id_query, ast.SelectQuery)
-        trace_id_query.order_by = [
-            parse_order_expr(f"{sort_key_sql} {order_dir}"),
-            parse_order_expr(f"trace_id {order_dir}"),
-        ]
-        if having_expr is not None:
-            trace_id_query.having = having_expr
-        if by_duration and self.query.offset:
-            trace_id_query.offset = ast.Constant(value=self.query.offset)
+            assert isinstance(trace_id_query, ast.SelectQuery)
+            trace_id_query.order_by = [
+                parse_order_expr(f"{sort_key_sql} {order_dir}"),
+                parse_order_expr(f"trace_id {order_dir}"),
+            ]
+            if having_expr is not None:
+                trace_id_query.having = having_expr
+            if by_duration and self.query.offset:
+                trace_id_query.offset = ast.Constant(value=self.query.offset)
+            trace_filter = parse_expr("trace_id IN ({trace_id_query})", placeholders={"trace_id_query": trace_id_query})
 
         # `trace_start` / `trace_duration` are the per-trace keys the view paginates and re-sorts on.
         # They MUST aggregate over the same rows the trace-selection subquery grouped, or the keys
@@ -720,9 +707,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             placeholders={
                 "where": self.where(),
                 "where_for_start": key_predicate,
-                "trace_filter": self._unbounded_trace_filter()
-                if self._unbounded_trace_lookup
-                else parse_expr("trace_id IN ({trace_id_query})", placeholders={"trace_id_query": trace_id_query}),
+                "trace_filter": trace_filter,
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
                 "filters": ast.Constant(value=True)
                 if self._unbounded_trace_lookup
@@ -739,22 +724,15 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         )
         assert isinstance(query, ast.SelectQuery)
 
-        if root_top_n:
-            earliest_root_query = parse_select(
-                f"SELECT min(timestamp) FROM ({root_top_n_sql})",
-                placeholders={
-                    "where": clone_expr(subquery_where),
-                    "limit": ast.Constant(value=self.query.limit),
-                },
-            )
+        if root_top_n and not self._unbounded_trace_lookup:
             assert query.where is not None
             query.where = ast.And(
                 exprs=[
                     query.where,
                     parse_expr(
-                        "timestamp >= ({earliest_root}) - INTERVAL {margin} MINUTE",
+                        "timestamp >= tupleElement(({roots}), 2) - INTERVAL {margin} MINUTE",
                         placeholders={
-                            "earliest_root": earliest_root_query,
+                            "roots": self._top_roots_query(clone_expr(subquery_where), order_dir),
                             "margin": ast.Constant(value=ROOT_TOP_N_CHILD_SKEW_MINUTES),
                         },
                     ),
@@ -794,6 +772,23 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
             offset_value=ast.Constant(value=self.query.offset) if single_trace and self.query.offset else None,
         )
 
+        return query
+
+    def _top_roots_query(self, where: ast.Expr, order_dir: str) -> ast.SelectQuery:
+        query = parse_select(
+            f"""
+            SELECT (groupArray(trace_id), min(timestamp))
+            FROM (
+                SELECT trace_id, timestamp
+                FROM posthog.trace_spans
+                WHERE {{where}}
+                ORDER BY timestamp {order_dir}, trace_id {order_dir}
+                LIMIT {{limit}}
+            )
+        """,
+            placeholders={"where": where, "limit": ast.Constant(value=self.query.limit)},
+        )
+        assert isinstance(query, ast.SelectQuery)
         return query
 
     def _unbounded_trace_filter(self) -> ast.Expr:
