@@ -73,7 +73,7 @@ The manual trigger is deliberately separate from provisioning. A future provisio
 
 Data modeling shadow materialization starts only when its feature flag is enabled, the managed warehouse is provisioned, the organization has a ready Trino target, and the saved query has a compiled translation for its current definition. Missing, failed, stale, or empty translations keep the shadow path disabled.
 
-Trino shadow materialization has a 30-minute execution deadline. Its Temporal activity allows 35 minutes so cancellation and cleanup can finish before the activity times out, and requires a heartbeat every two minutes. Deadline failures retain an explicit timeout message on the modeling job. Alias reconciliation keeps its separate five-minute execution deadline.
+Trino shadow materialization has a six-hour execution deadline. Its Temporal activity allows six hours and five minutes so cancellation and cleanup can finish before the activity times out, and requires a heartbeat every two minutes. Deadline failures retain an explicit timeout message on the modeling job. Alias reconciliation keeps its separate five-minute execution deadline.
 
 ## Environment variables
 

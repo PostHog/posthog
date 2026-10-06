@@ -572,7 +572,7 @@ class TestNativeSourceKillSwitch(SimpleTestCase):
         factory._warehouse_tables = []
         factory._external_sources = []
         factory._tables_by_source_id = {}
-        for source_type in ("GoogleAds", "AppleSearchAds", "OpenAIAds", "AmazonAds", "RoktAds"):
+        for source_type in ("GoogleAds", "AppleSearchAds", "OpenAIAds", "AmazonAds", "RoktAds", "TwitterAds"):
             source = ExternalDataSource(source_type=source_type)
             patterns = TABLE_PATTERNS[NativeMarketingSource(source_type)]
             tables = [
@@ -590,7 +590,9 @@ class TestNativeSourceKillSwitch(SimpleTestCase):
             adapters = factory.create_adapters()
 
         assert [adapter.get_source_type() for adapter in adapters] == (
-            ["GoogleAds", "AppleSearchAds", "OpenAIAds", "AmazonAds", "RoktAds"] if enabled else ["GoogleAds"]
+            ["GoogleAds", "AppleSearchAds", "OpenAIAds", "AmazonAds", "RoktAds", "TwitterAds"]
+            if enabled
+            else ["GoogleAds"]
         )
         errors = factory.get_validation_errors(adapters)
         assert set(errors) == ({adapter.config.source_id for adapter in adapters[1:]} if enabled else set())

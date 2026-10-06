@@ -35,7 +35,6 @@ from posthog.clickhouse.cleanup_snapshots import (
     CLEANUP_REVIVED_PERSONS_TABLE,
     CLEANUP_SNAPSHOT_TABLES,
 )
-from posthog.clickhouse.client.connection import ClickHouseCredentials, ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, MutationWaiter, NodeRole
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.clickhouse.workload import Workload
@@ -425,12 +424,6 @@ class SnapshotDictionary(Dictionary):
               AND ({self.key_columns}) NOT IN ({self.excluded.run_keys_query})
             GROUP BY {self.key_columns}
         """
-
-    @property
-    def credentials(self) -> ClickHouseCredentials:
-        # The source reads as the low-privilege dict_reader user, which falls back to the default
-        # user's credentials where dict_reader is not provisioned.
-        return get_clickhouse_creds(ClickHouseUser.DICT_READER)
 
     def staged(self) -> StagedDictionary:
         # A staged copy is a static object. The revival checkpoints exclude keys by reloading this

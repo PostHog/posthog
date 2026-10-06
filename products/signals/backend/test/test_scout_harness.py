@@ -1680,9 +1680,9 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(
 )
 @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
 @override_settings(
-    SCOUT_LIVE_TRIALS_ENABLED=True,
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
     AI_GATEWAY_URL="https://gateway.example/v1",
+    AI_GATEWAY_API_KEY="phs_synthetic_api_key",
     SANDBOX_AI_GATEWAY_URL="https://gateway.example",
     SANDBOX_AI_GATEWAY_MINT_KEY="phs_synthetic_mint_key",
 )

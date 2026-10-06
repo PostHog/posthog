@@ -1,6 +1,7 @@
 import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
+import type { ScopeAccessLevel } from 'lib/scopes'
 
-import type { OAuthScopeRow, ScopeAccessLevel } from './oauthAuthorizeLogic'
+import type { OAuthScopeRow } from './oauthAuthorizeLogic'
 
 interface OAuthScopeRowControlProps {
     row: OAuthScopeRow

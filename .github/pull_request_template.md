@@ -12,7 +12,7 @@
 
 <!-- For each change a person can notice, say what they will now see or do differently, not only the code path that does it. Mark the rest as mechanical so a reviewer knows nothing user-visible is hiding in it. -->
 
-<!-- If there are frontend changes, please include screenshots. -->
+<!-- If there are frontend changes, please include screenshots. For a new interaction that one screenshot cannot show, a short GIF or animated WebP of the flow can replace the after screenshot. -->
 <!-- PostHog employees: `hogli pr:upload-image <file>` uploads to the public PostHog/pr-assets repo and prints markdown to paste here. Never upload customer data, secrets, or internal info. -->
 
 <!-- If a reference design was involved, include a link to the relevant Figma frame! -->

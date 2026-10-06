@@ -231,11 +231,11 @@ class TestScoutTrialAPI(APIBaseTest):
 
 
 @override_settings(
-    SCOUT_LIVE_TRIALS_ENABLED=True,
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
     AI_GATEWAY_URL="https://gateway.example/v1",
-    SANDBOX_AI_GATEWAY_URL="https://gateway.example",
-    SANDBOX_AI_GATEWAY_MINT_KEY="phs_synthetic_mint_key",
+    AI_GATEWAY_API_KEY="phs_synthetic_api_key",
+    SANDBOX_AI_GATEWAY_URL=None,
+    SANDBOX_AI_GATEWAY_MINT_KEY=None,
 )
 class TestScoutTrialLaunch(APIBaseTest):
     def setUp(self) -> None:
@@ -349,11 +349,9 @@ class TestScoutTrialLaunch(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("SCOUT_LIVE_TRIALS_ENABLED", False, "not enabled"),
             ("SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", False, "Private capture"),
             ("AI_GATEWAY_URL", "", "AI_GATEWAY_URL"),
-            ("SANDBOX_AI_GATEWAY_URL", "", "Go sandbox gateway"),
-            ("SANDBOX_AI_GATEWAY_MINT_KEY", "", "mint credential"),
+            ("AI_GATEWAY_API_KEY", "", "AI_GATEWAY_API_KEY"),
         ]
     )
     def test_setup_remains_readable_when_unavailable_and_excludes_inaccessible_models(
@@ -773,7 +771,7 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert retry.status_code == 202, retry.data
             assert self.documents[snapshot_key] == frozen
             query = {"evaluation_id": evaluation_id}
-            with override_settings(SCOUT_LIVE_TRIALS_ENABLED=False, SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False):
+            with override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False):
                 saved = self.client.get(f"{base}trial_evaluation_result/", query)
             assert saved.status_code == 200, saved.data
             assert saved.json()["request"] == payload

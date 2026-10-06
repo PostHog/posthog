@@ -2924,6 +2924,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "session",
                 "hogql",
                 "cohort",
@@ -6139,6 +6140,245 @@
             ],
             "type": "string"
         },
+        "BIAggregation": {
+            "enum": ["count", "count_distinct", "sum", "average", "minimum", "maximum", "custom"],
+            "type": "string"
+        },
+        "BIConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "chartType": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "columns": {
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
+                "dateField": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BIField"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Column that receives the worksheet and dashboard date range."
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filters": {
+                    "items": {
+                        "$ref": "#/definitions/BIFilter"
+                    },
+                    "type": "array"
+                },
+                "limit": {
+                    "$ref": "#/definitions/BIQueryLimit"
+                },
+                "rows": {
+                    "items": {
+                        "$ref": "#/definitions/BIField"
+                    },
+                    "type": "array"
+                },
+                "sort": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BISort"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "null sorts automatically: newest date or highest value first, so top rows survive the LIMIT."
+                },
+                "source": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BIDataSource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/BIValue"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["source", "chartType", "rows", "columns", "values", "filters", "limit"],
+            "type": "object"
+        },
+        "BIDataSource": {
+            "additionalProperties": false,
+            "properties": {
+                "connectionId": {
+                    "type": "string"
+                },
+                "table": {
+                    "type": "string"
+                }
+            },
+            "required": ["table"],
+            "type": "object"
+        },
+        "BIDateBucket": {
+            "enum": ["minute", "hour", "day", "week", "month", "quarter", "year"],
+            "type": "string"
+        },
+        "BIField": {
+            "additionalProperties": false,
+            "properties": {
+                "dateBucket": {
+                    "$ref": "#/definitions/BIDateBucket"
+                },
+                "expression": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/BIDataSource"
+                },
+                "type": {
+                    "$ref": "#/definitions/DatabaseSerializedFieldType"
+                }
+            },
+            "required": ["id", "name", "expression", "type", "source"],
+            "type": "object"
+        },
+        "BIFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "customExpression": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "field": {
+                    "$ref": "#/definitions/BIField"
+                },
+                "operator": {
+                    "$ref": "#/definitions/BIFilterOperator"
+                },
+                "value": {
+                    "type": "string"
+                },
+                "valueTo": {
+                    "type": "string"
+                },
+                "values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["field", "operator", "value"],
+            "type": "object"
+        },
+        "BIFilterOperator": {
+            "enum": [
+                "equals",
+                "not_equals",
+                "contains",
+                "in",
+                "not_in",
+                "between",
+                "greater_than",
+                "less_than",
+                "last_7_days",
+                "is_set",
+                "is_not_set",
+                "custom"
+            ],
+            "type": "string"
+        },
+        "BIQueryLimit": {
+            "enum": [100, 1000, 10000, 50000],
+            "type": "number"
+        },
+        "BISort": {
+            "additionalProperties": false,
+            "properties": {
+                "direction": {
+                    "$ref": "#/definitions/BISortDirection"
+                },
+                "key": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "direction"],
+            "type": "object"
+        },
+        "BISortDirection": {
+            "enum": ["asc", "desc"],
+            "type": "string"
+        },
+        "BIValue": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation": {
+                    "$ref": "#/definitions/BIAggregation"
+                },
+                "customExpression": {
+                    "type": "string"
+                },
+                "field": {
+                    "$ref": "#/definitions/BIField"
+                },
+                "label": {
+                    "type": "string"
+                }
+            },
+            "required": ["field", "aggregation"],
+            "type": "object"
+        },
+        "BIVisualizationNode": {
+            "additionalProperties": false,
+            "properties": {
+                "chartSettings": {
+                    "$ref": "#/definitions/ChartSettings"
+                },
+                "config": {
+                    "$ref": "#/definitions/BIConfig"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "kind": {
+                    "const": "BIVisualizationNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/HogQLQuery"
+                },
+                "tableSettings": {
+                    "$ref": "#/definitions/TableSettings"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["config", "kind", "source"],
+            "type": "object"
+        },
         "BaseAssistantMessage": {
             "additionalProperties": false,
             "properties": {
@@ -6528,6 +6768,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "group",
                 "session",
                 "hogql",
@@ -27189,6 +27430,7 @@
                 "managed_viewsets",
                 "endpoints",
                 "sql_editor",
+                "business_intelligence",
                 "web_analytics",
                 "error_tracking",
                 "heatmap",
@@ -27359,6 +27601,13 @@
                     },
                     "type": "array"
                 },
+                "searchTabs": {
+                    "description": "Tabs of this item that search lists as their own results",
+                    "items": {
+                        "$ref": "#/definitions/FileSystemSearchTab"
+                    },
+                    "type": "array"
+                },
                 "shortcut": {
                     "description": "Whether this is a shortcut or the actual item",
                     "type": "boolean"
@@ -27385,6 +27634,28 @@
                 }
             },
             "required": ["path"],
+            "type": "object"
+        },
+        "FileSystemSearchTab": {
+            "additionalProperties": false,
+            "properties": {
+                "flag": {
+                    "type": "string"
+                },
+                "href": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "searchKeywords": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name", "href"],
             "type": "object"
         },
         "FileSystemViewLogEntry": {
@@ -29120,6 +29391,10 @@
                 "breakdownFilter": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
+                },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}."
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -37379,6 +37654,78 @@
                         "primarySource"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "adsetStatsTableName": {
+                            "const": "line_item_stats",
+                            "type": "string"
+                        },
+                        "adsetTableName": {
+                            "const": "line_items",
+                            "type": "string"
+                        },
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "twitter",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "x",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "twitter_ads",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "x_ads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 4,
+                            "minItems": 4,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "twitter",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "TwitterAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_stats",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "defaultSources",
+                        "primarySource",
+                        "adsetTableName",
+                        "adsetStatsTableName"
+                    ],
+                    "type": "object"
                 }
             ]
         },
@@ -38779,15 +39126,11 @@
                     "type": "string"
                 },
                 "interval": {
-                    "description": "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.",
+                    "description": "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.",
                     "type": "string"
                 },
                 "kind": {
                     "const": "MetricsQuery",
-                    "type": "string"
-                },
-                "minInterval": {
-                    "description": "Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick",
                     "type": "string"
                 },
                 "modifiers": {
@@ -39275,6 +39618,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "group",
                 "session",
                 "hogql",
@@ -39298,7 +39642,8 @@
                 "AppleSearchAds",
                 "OpenAIAds",
                 "AmazonAds",
-                "RoktAds"
+                "RoktAds",
+                "TwitterAds"
             ],
             "type": "string"
         },
@@ -39394,6 +39739,7 @@
                 "SessionBatchEventsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
+                "BIVisualizationNode",
                 "SavedInsightNode",
                 "InsightVizNode",
                 "TrendsQuery",
@@ -50217,6 +50563,9 @@
                     "$ref": "#/definitions/DataVisualizationNode"
                 },
                 {
+                    "$ref": "#/definitions/BIVisualizationNode"
+                },
+                {
                     "$ref": "#/definitions/DataTableNode"
                 },
                 {
@@ -51555,6 +51904,22 @@
                     "$ref": "#/definitions/AssistantToolCallMessage"
                 }
             ]
+        },
+        "SQLEditorConfiguration": {
+            "additionalProperties": {},
+            "description": "Customization of the SQL editor. Extra keys are tolerated so older servers accept configs written by newer clients.",
+            "properties": {
+                "vim_mode_enabled": {
+                    "description": "Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference.",
+                    "type": "boolean"
+                },
+                "vimrc": {
+                    "description": "Vim commands to run when Vim mode starts, one per line, such as `imap jj <Esc>` or `set cursorblink`.",
+                    "maxLength": 10000,
+                    "type": "string"
+                }
+            },
+            "type": "object"
         },
         "SampleRatioMismatch": {
             "additionalProperties": false,
@@ -56289,6 +56654,10 @@
             "required": ["kind"],
             "type": "object"
         },
+        "TwitterAdsDefaultSources": {
+            "enum": ["twitter", "x", "twitter_ads", "x_ads"],
+            "type": "string"
+        },
         "UIVisibilityConfig": {
             "additionalProperties": false,
             "description": "Visibility of a single customizable UI element. An absent config or an absent `visible` means the element is shown.",
@@ -56523,6 +56892,9 @@
             "properties": {
                 "sidebar": {
                     "$ref": "#/definitions/SidebarConfiguration"
+                },
+                "sql_editor": {
+                    "$ref": "#/definitions/SQLEditorConfiguration"
                 },
                 "version": {
                     "description": "Schema version of this configuration blob, for future format migrations.",
@@ -56824,6 +57196,16 @@
             },
             "required": ["answer", "query", "type"],
             "type": "object"
+        },
+        "VisualizationNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DataVisualizationNode"
+                },
+                {
+                    "$ref": "#/definitions/BIVisualizationNode"
+                }
+            ]
         },
         "VizSpecificOptions": {
             "additionalProperties": false,

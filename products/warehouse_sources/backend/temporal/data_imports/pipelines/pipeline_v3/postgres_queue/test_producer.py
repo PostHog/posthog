@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PostgresProducer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 
 
 def _default_kwargs(**kwargs: Any) -> dict[str, Any]:
@@ -78,7 +79,7 @@ class TestPostgresProducerConnectRetry:
             ) as mock_connect,
             patch(self._SLEEP_TARGET),
         ):
-            with pytest.raises(psycopg.OperationalError):
+            with pytest.raises(PostHogInternalDatabaseError):
                 PostgresProducer(**_default_kwargs())
 
         assert mock_connect.call_count == 3
@@ -220,6 +221,32 @@ class TestPostgresProducerSupersede:
             producer.send_batch_notification(batch_result)
 
         mock_supersede.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "queue_error,expected_type",
+        [
+            (
+                psycopg.errors.ProtocolViolation(
+                    "server login has been failing, cached error: connect failed (server_login_retry)"
+                ),
+                PostHogInternalDatabaseError,
+            ),
+            (psycopg.errors.UndefinedTable("relation does not exist"), psycopg.errors.UndefinedTable),
+        ],
+    )
+    def test_transient_queue_db_errors_are_raised_as_internal_database_errors(
+        self, queue_error: psycopg.Error, expected_type: type[Exception]
+    ) -> None:
+        producer = _make_producer(is_resume=False)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+            side_effect=queue_error,
+        ):
+            with pytest.raises(expected_type) as exc_info:
+                producer.send_batch_notification(_make_batch_result(batch_index=0))
+
+        assert type(exc_info.value) is expected_type
 
 
 class TestPostgresProducerProperties:

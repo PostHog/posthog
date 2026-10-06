@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jellyfish.
     _build_url,
     _extract_rows,
     _get_headers,
+    _list_ids,
     _month_windows,
     _parse_retry_after,
     _retry_wait,
@@ -67,6 +68,12 @@ class TestExtractRows:
 
     def test_missing_data_key_falls_back_to_autodetection(self) -> None:
         assert _extract_rows({"items": [{"id": 1}]}, data_key="deliverables") == [{"id": 1}]
+
+    def test_missing_parent_ids_are_logged(self) -> None:
+        logger = MagicMock()
+
+        assert _list_ids([{"name": "No identifier"}], "engineers", logger) == []
+        logger.error.assert_called_once_with("Jellyfish: could not find an id field in engineers rows: keys=['name']")
 
 
 class _FakeResumableManager:
@@ -191,13 +198,13 @@ class TestGetRowsFanOut:
         assert content_calls[0]["params"]["start_date"] == "2024-04-01"
         assert content_calls[0]["params"]["end_date"] == "2026-03-10"
         assert manager.saved == [
-            JellyfishResumeConfig(completed_slugs=["roadmap"]),
-            JellyfishResumeConfig(completed_slugs=["kt", "roadmap"]),
+            JellyfishResumeConfig(completed_parent_ids=["roadmap"]),
+            JellyfishResumeConfig(completed_parent_ids=["kt", "roadmap"]),
         ]
 
     def test_resume_skips_completed_work_categories(self, monkeypatch: Any) -> None:
         calls = _install_fake_fetch(monkeypatch, self._responder)
-        manager = _FakeResumableManager(JellyfishResumeConfig(completed_slugs=["roadmap"]))
+        manager = _FakeResumableManager(JellyfishResumeConfig(completed_parent_ids=["roadmap"]))
         rows = _collect("deliverables", manager, date(2026, 3, 10), monkeypatch)
 
         assert [r["work_category_slug"] for r in rows] == ["kt"]
@@ -216,6 +223,105 @@ class TestGetRowsFanOut:
         _collect("deliverables", _FakeResumableManager(), date(2026, 3, 10), monkeypatch)
         content_calls = [c for c in calls if c["path"] == "delivery/work_category_contents"]
         assert content_calls[0]["params"]["work_category_slug"] == "42"
+
+
+class TestGetRowsEntityFanOut:
+    @pytest.mark.parametrize(
+        "endpoint,parent_path,parent_payload,param,expected_ids",
+        [
+            ("person_metrics", "people/list_engineers", [{"id": 11}, {"id": 12}], "person_id", ["11", "12"]),
+            # Child teams nested under `children` are fanned out too, so every level gets metrics.
+            (
+                "team_metrics",
+                "teams/list_teams",
+                {"teams": [{"id": 1, "children": [{"id": 2, "children": [{"id": 3}]}]}]},
+                "team_id",
+                ["1", "2", "3"],
+            ),
+            (
+                "allocations_by_work_category_team",
+                "delivery/work_categories",
+                [{"slug": "roadmap"}, {"slug": "roadmap"}],
+                "work_category_slug",
+                ["roadmap"],
+            ),
+        ],
+    )
+    def test_month_windows_per_parent_with_parent_and_window_injected(
+        self,
+        endpoint: str,
+        parent_path: str,
+        parent_payload: Any,
+        param: str,
+        expected_ids: list[str],
+        monkeypatch: Any,
+    ) -> None:
+        def responder(path: str, params: dict[str, Any]) -> Any:
+            if path == parent_path:
+                return parent_payload
+            return [{"value": 1}]
+
+        calls = _install_fake_fetch(monkeypatch, responder)
+        rows = _collect(endpoint, _FakeResumableManager(), date(2026, 3, 10), monkeypatch)
+
+        child_calls = [c for c in calls if c["path"] == JELLYFISH_ENDPOINTS[endpoint].path]
+        assert [c["params"][param] for c in child_calls[::24]] == expected_ids
+        assert len(child_calls) == 24 * len(expected_ids)
+        assert child_calls[0]["params"]["unit"] == "month"
+        assert rows[0] == {
+            "value": 1,
+            param: expected_ids[0],
+            "window_start_date": "2024-04-01",
+            "window_end_date": "2024-04-30",
+        }
+
+    def test_resume_continues_in_progress_parent_from_saved_window(self, monkeypatch: Any) -> None:
+        def responder(path: str, params: dict[str, Any]) -> Any:
+            if path == "people/list_engineers":
+                return [{"id": 11}, {"id": 12}, {"id": 13}]
+            return [{"value": 1}]
+
+        calls = _install_fake_fetch(monkeypatch, responder)
+        manager = _FakeResumableManager(
+            JellyfishResumeConfig(next_window_start="2026-02-01", completed_parent_ids=["11"], current_parent_id="12")
+        )
+        _collect("person_metrics", manager, date(2026, 3, 10), monkeypatch)
+
+        metric_calls = [
+            (c["params"]["person_id"], c["params"]["start_date"]) for c in calls if "person_id" in c["params"]
+        ]
+        assert metric_calls[:2] == [("12", "2026-02-01"), ("12", "2026-03-01")]
+        # The saved window only applies to the parent it was saved for.
+        assert metric_calls[2] == ("13", "2024-04-01")
+        assert len(metric_calls) == 2 + 24
+        assert manager.saved[1] == JellyfishResumeConfig(completed_parent_ids=["11", "12"])
+        assert manager.saved[2] == JellyfishResumeConfig(
+            next_window_start="2024-05-01", completed_parent_ids=["11", "12"], current_parent_id="13"
+        )
+
+    def test_scope_history_fans_out_over_deliverables_in_every_work_category(self, monkeypatch: Any) -> None:
+        def responder(path: str, params: dict[str, Any]) -> Any:
+            if path == "delivery/work_categories":
+                return [{"slug": "epics"}, {"slug": "initiatives"}]
+            if path == "delivery/work_category_contents":
+                ids = {"epics": [101, 102], "initiatives": [102, 201]}[params["work_category_slug"]]
+                return {"deliverables": [{"id": i} for i in ids]}
+            return [{"week": "2026-03-02", "scope": 5}]
+
+        calls = _install_fake_fetch(monkeypatch, responder)
+        rows = _collect("deliverable_scope_and_effort_history", _FakeResumableManager(), date(2026, 3, 10), monkeypatch)
+
+        history_calls = [c for c in calls if c["path"] == "delivery/scope_and_effort_history"]
+        # A deliverable listed under two work categories is fetched once.
+        assert [c["params"]["deliverable_id"] for c in history_calls] == ["101", "102", "201"]
+        assert history_calls[0]["params"] == {
+            "format": "json",
+            "unit": "week",
+            "deliverable_id": "101",
+            "start_date": "2024-04-01",
+            "end_date": "2026-03-10",
+        }
+        assert rows[0] == {"week": "2026-03-02", "scope": 5, "deliverable_id": "101"}
 
 
 class TestJellyfishSourceResponse:

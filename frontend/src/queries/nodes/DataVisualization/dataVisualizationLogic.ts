@@ -39,7 +39,7 @@ import {
     ChartSettingsDisplay,
     ChartSettingsFormatting,
     ConditionalFormattingRule,
-    DataVisualizationNode,
+    VisualizationNode,
     HeatmapSettings,
     HogQLVariable,
 } from '~/queries/schema/schema-general'
@@ -108,11 +108,11 @@ export interface AxisSeries<T> {
 
 export interface DataVisualizationLogicProps {
     key: string
-    query: DataVisualizationNode
+    query: VisualizationNode
     editMode?: boolean
     dataNodeCollectionId: string
-    setQuery?: (setter: (node: DataVisualizationNode) => DataVisualizationNode) => void
-    context?: QueryContext<DataVisualizationNode>
+    setQuery?: (setter: (node: VisualizationNode) => VisualizationNode) => void
+    context?: QueryContext<VisualizationNode>
     cachedResults?: AnyResponseType
     insightLoading?: boolean
     dashboardId?: DashboardType['id']
@@ -510,11 +510,11 @@ const resolveScatterXAxisColumn = (
 }
 
 export function applyVisualizationType(
-    query: DataVisualizationNode,
+    query: VisualizationNode,
     visualizationType: ChartDisplayType,
     columns: Column[],
     rowCount: number
-): DataVisualizationNode {
+): VisualizationNode {
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
     const chartSettings: ChartSettings = { ...query.chartSettings }
 
@@ -683,7 +683,7 @@ export interface dataVisualizationLogicValues {
     numericalColumns: Column[]
     pinnedColumns: string[]
     presetChartHeight: boolean
-    query: DataVisualizationNode
+    query: VisualizationNode
     selectedXAxis: string | null
     selectedYAxis: (SelectedYAxis | null)[] | null
     showEditingUI: boolean
@@ -712,8 +712,8 @@ export interface dataVisualizationLogicActions {
         queryId: string
         refresh: RefreshType | undefined
     } // dataNodeLogic
-    _setQuery: (node: DataVisualizationNode) => {
-        node: DataVisualizationNode
+    _setQuery: (node: VisualizationNode) => {
+        node: VisualizationNode
     }
     addConditionalFormattingRule: (rule?: ConditionalFormattingRule) => {
         isDarkModeOn: boolean
@@ -757,8 +757,8 @@ export interface dataVisualizationLogicActions {
     setHogVmLoadError: (error: unknown) => {
         error: unknown
     }
-    setQuery: (setter: (node: DataVisualizationNode) => DataVisualizationNode) => {
-        setter: (node: DataVisualizationNode) => DataVisualizationNode
+    setQuery: (setter: (node: VisualizationNode) => VisualizationNode) => {
+        setter: (node: VisualizationNode) => VisualizationNode
     }
     setSideBarTab: (tab: SideBarTab) => {
         tab: SideBarTab
@@ -770,7 +770,7 @@ export interface dataVisualizationLogicActions {
         transpose: boolean
     }
     setVisualizationType: (visualizationType: ChartDisplayType) => {
-        node: DataVisualizationNode
+        node: VisualizationNode
         visualizationType: ChartDisplayType
     }
     toggleChartSettingsPanel: (open?: boolean) => {
@@ -868,9 +868,9 @@ export interface dataVisualizationLogicMeta {
         showEditingUI: (arg: boolean | undefined, dashboardId: any) => boolean
         showResultControls: (arg: boolean | undefined, dashboardId: any) => boolean
         presetChartHeight: (key: string, dashboardId: any, activeSceneId: string | null) => boolean
-        sourceFeatures: (query: DataVisualizationNode) => Set<QueryFeature>
+        sourceFeatures: (query: VisualizationNode) => Set<QueryFeature>
         isShowingCachedResults: (arg: any) => boolean
-        isTransposed: (query: DataVisualizationNode) => boolean
+        isTransposed: (query: VisualizationNode) => boolean
         yData: (
             selectedYAxis: (SelectedYAxis | null)[] | null,
             response:
@@ -1089,7 +1089,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         }),
         deleteYSeries: (seriesIndex: number) => ({ seriesIndex }),
         clearAxis: true,
-        setQuery: (setter: (node: DataVisualizationNode) => DataVisualizationNode) => ({ setter }),
+        setQuery: (setter: (node: VisualizationNode) => VisualizationNode) => ({ setter }),
         updateChartSettings: (settings: ChartSettings) => ({ settings }),
         setSideBarTab: (tab: SideBarTab) => ({ tab }),
         toggleChartSettingsPanel: (open?: boolean) => ({ open }),
@@ -1106,7 +1106,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         toggleColumnPin: (columnName: string) => ({ columnName }),
         setTableSorted: true,
         setTransposeResults: (transpose: boolean) => ({ transpose }),
-        _setQuery: (node: DataVisualizationNode) => ({ node }),
+        _setQuery: (node: VisualizationNode) => ({ node }),
     })),
     reducers(({ props }) => ({
         hogVm: [null as HogVm | null, { setHogVm: (_, { hogVm }) => hogVm }],
@@ -1499,7 +1499,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         sourceFeatures: [
             (_, props) => [props.query],
-            (query: DataVisualizationNode): Set<QueryFeature> => getQueryFeatures(query.source),
+            (query: VisualizationNode): Set<QueryFeature> => getQueryFeatures(query.source),
         ],
         isShowingCachedResults: [
             () => [(_, props) => props.cachedResults ?? null],
@@ -1507,7 +1507,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         isTransposed: [
             (s) => [s.query],
-            (query: DataVisualizationNode): boolean => query.tableSettings?.transpose ?? false,
+            (query: VisualizationNode): boolean => query.tableSettings?.transpose ?? false,
         ],
         yData: [
             (s) => [s.selectedYAxis, s.response, s.columns, s.chartSettings, s.effectiveVisualizationType],
