@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
@@ -442,7 +442,8 @@ export function InsightVizDisplay({
             case InsightType.WEB_ANALYTICS:
                 return (
                     <ChunkLoadErrorBoundary>
-                        <Suspense fallback={insightLoadingState}>
+                        {/* The image exporter waits for every .Spinner to detach, so a Spinner fallback stops it capturing the page before this chunk loads. */}
+                        <Suspense fallback={<Spinner className="text-3xl mx-auto my-8" />}>
                             <WebAnalyticsInsight context={context} editMode={editMode} />
                         </Suspense>
                     </ChunkLoadErrorBoundary>
