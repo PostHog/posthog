@@ -317,4 +317,7 @@ class S3Table(FunctionCallTable):
 class DataWarehouseTable(S3Table):
     """A table placeholder for checking warehouse tables"""
 
-    pass
+    # What the last sync recorded, for the cost planner. Kept apart from ``table_size_mib``, which decides
+    # whether the table function runs on the cluster and is left unset on the query path on purpose.
+    row_count: Optional[int] = None
+    size_in_s3_mib: Optional[float] = None
