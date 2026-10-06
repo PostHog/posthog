@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest, BaseTest, _create_event, cleanup_mate
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -30,6 +30,7 @@ from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.property import (
     BEHAVIORAL_PROPERTY_FILTER_FLAG,
     action_to_expr,
+    element_property_key_to_breakdown_expr,
     entity_to_expr,
     has_aggregation,
     map_virtual_properties,
@@ -75,6 +76,19 @@ def field_parts_read_by(expr: ast.Expr) -> set[str]:
     collector = _FieldChainCollector()
     collector.visit(expr)
     return collector.parts
+
+
+class TestElementBreakdownExpression(SimpleTestCase):
+    def test_tag_name_breakdown_matches_bare_inner_tag(self):
+        self.assertEqual(
+            clear_locations(element_property_key_to_breakdown_expr("tag_name")),
+            clear_locations(parse_expr("extract(elements_chain, '(?:^|;)([A-Za-z][A-Za-z0-9_-]*)(?:[.]|$|:|;)')")),
+        )
+
+    @parameterized.expand(["selector", "id", "garbage"])
+    def test_unsupported_key_raises_query_error(self, key: str):
+        with self.assertRaises(QueryError):
+            element_property_key_to_breakdown_expr(key)
 
 
 class TestProperty(BaseTest):

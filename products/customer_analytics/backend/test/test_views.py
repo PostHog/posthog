@@ -3916,6 +3916,43 @@ class TestAccountMeetingViewSet(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["id"], str(meeting.id))
         self.assertEqual(response.json()["results"][0]["gong_url"], "https://app.gong.io/call?id=123")
 
+    @time_machine.travel("2026-08-10T12:00:00Z", tick=False)
+    def test_list_collapses_upcoming_occurrences_of_a_recurring_series(self):
+        account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-recurring")
+
+        def occurrence(start: str, status: str = "confirmed") -> Meeting:
+            return Meeting.objects.unscoped().create(
+                team=self.team,
+                account=account,
+                ical_uid="uid-weekly",
+                recurrence_instance_id=start,
+                start_time=start,
+                status=status,
+                title="Weekly sync",
+            )
+
+        past_1 = occurrence("2026-08-03T15:00:00Z")
+        past_2 = occurrence("2026-08-06T15:00:00Z")
+        occurrence("2026-08-13T15:00:00Z", status="cancelled")
+        next_up = occurrence("2026-08-20T15:00:00Z")
+        occurrence("2026-08-27T15:00:00Z")
+        one_off = Meeting.objects.unscoped().create(
+            team=self.team, account=account, ical_uid="uid-one-off", start_time="2026-09-01T15:00:00Z"
+        )
+
+        payload = self.client.get(f"/api/environments/{self.team.id}/accounts/{account.id}/meetings/").json()
+
+        self.assertEqual(payload["count"], 4)
+        self.assertEqual(
+            [(m["id"], m["is_recurring"]) for m in payload["results"]],
+            [
+                (str(one_off.id), False),
+                (str(next_up.id), True),
+                (str(past_2.id), True),
+                (str(past_1.id), True),
+            ],
+        )
+
     def test_search_filters_by_title_or_attendee(self):
         account = Account.objects.unscoped().create(team=self.team, name="Acme Corp", external_id="acme-2")
         review = Meeting.objects.unscoped().create(

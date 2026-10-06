@@ -496,6 +496,7 @@ async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult
         validate=validate,
         temperature=0.2,
         stage="match",
+        cache_system_prompt=True,
         ai_product="signals_grouping",
     )
 
@@ -617,6 +618,7 @@ async def verify_match_specificity(
         validate=lambda text: SpecificityResult.model_validate_json(text),
         temperature=0.2,
         stage="specificity",
+        cache_system_prompt=True,
         ai_product="signals_grouping",
     )
 

@@ -1,6 +1,7 @@
 //! Checks against a live ClickHouse that a behavioral scan's row filter admits every row the
-//! condition's program matches, with the VM as the oracle, and that the materialized-column lookup
-//! accepts only columns holding the same values.
+//! condition's program matches, with the VM as the oracle, that the materialized-column lookup
+//! accepts only columns holding the same values, and that the scan streams events through the
+//! overrides join.
 
 #![cfg(feature = "ch-test-support")]
 
@@ -13,12 +14,12 @@ use cohort_core::filters::{CohortId, TeamFilters, TeamFiltersBuilder, TeamId};
 use cohort_core::hogvm::analysis::GlobalsPlan;
 use cohort_core::hogvm::{build_behavioral_globals, evaluate_detailed, EvalOutcome, GlobalsBuild};
 use cohort_seeder::clickhouse::client::build_client;
-use cohort_seeder::clickhouse::materialized::MaterializedColumns;
-use cohort_seeder::clickhouse::sql::row_filter_sql;
+use cohort_seeder::clickhouse::sql::{plan_scan, row_filter_sql, scan_sql, ScanPlan};
 use cohort_seeder::clickhouse::ClickHouseClient;
 use cohort_seeder::config::Config;
 use cohort_seeder::domain::{
-    ActiveConditions, ConditionAnalyses, ConditionHash, EventNameSet, Lookback, PinnedCondition,
+    ActiveConditions, BandSpec, ChunkProjection, ColumnName, ConditionAnalyses, ConditionHash,
+    EventNameSet, Lookback, MaterializedColumns, PinnedCondition, SChunkMs, SeedDomain,
 };
 use envconfig::Envconfig;
 use serde::Deserialize;
@@ -81,6 +82,11 @@ const FIXED_BLOBS: &[&str] = &[
 struct Admitted {
     index: u32,
     admitted: bool,
+}
+
+#[derive(Row, Deserialize)]
+struct ExplainLine {
+    explain: String,
 }
 
 #[tokio::test]
@@ -174,12 +180,91 @@ async fn the_lookup_accepts_only_trim_quotes_columns_on_both_tables() {
         .await
         .expect("the lookup reads only system.columns");
     assert_eq!(
-        columns.column_for("$feature_flag"),
+        columns.column_for("$feature_flag").map(ColumnName::as_str),
         Some("mat_$feature_flag")
     );
     for refused in ["typed", "nullable", "$data_only", "absent"] {
         assert_eq!(columns.column_for(refused), None, "{refused}");
     }
+}
+
+#[tokio::test]
+async fn the_scan_builds_the_join_from_the_overrides_and_streams_the_events() {
+    const DATABASE: &str = "seeder_scan_join";
+    let admin = connect(None);
+    for statement in [
+        format!("DROP DATABASE IF EXISTS {DATABASE}"),
+        format!("CREATE DATABASE {DATABASE}"),
+        format!(
+            "CREATE TABLE {DATABASE}.events (\
+                uuid UUID, event String, properties String, timestamp DateTime64(6, 'UTC'), \
+                distinct_id String, person_id UUID, person_properties String, elements_chain String, \
+                team_id Int64, inserted_at Nullable(DateTime64(6, 'UTC')), _timestamp DateTime\
+            ) ENGINE = MergeTree ORDER BY (team_id, toDate(timestamp), event) \
+            SETTINGS index_granularity = 1"
+        ),
+        format!(
+            "CREATE TABLE {DATABASE}.person_distinct_id_overrides (\
+                team_id Int64, distinct_id String, person_id UUID, is_deleted Int8, version Int64\
+            ) ENGINE = MergeTree ORDER BY (team_id, distinct_id) SETTINGS index_granularity = 1"
+        ),
+        // ClickHouse estimates a side only when its primary key skips granules, so team 3's rows
+        // give both keys something to skip. Few events and many overrides make `auto` swap.
+        format!(
+            "INSERT INTO {DATABASE}.events (uuid, event, timestamp, distinct_id, person_id, team_id, _timestamp) \
+             SELECT generateUUIDv4(), 'purchase', toDateTime64(86400 + number, 6, 'UTC'), toString(number), \
+                    generateUUIDv4(), if(number < 8, 2, 3), toDateTime(86400 + number, 'UTC') \
+             FROM numbers(100)"
+        ),
+        format!(
+            "INSERT INTO {DATABASE}.person_distinct_id_overrides \
+             SELECT if(number < 1000, 2, 3), toString(number), generateUUIDv4(), 0, 1 FROM numbers(2000)"
+        ),
+    ] {
+        admin
+            .query(&statement)
+            .execute()
+            .await
+            .unwrap_or_else(|error| panic!("{error}\n{statement}"));
+    }
+
+    let domain = SeedDomain::new(1, UTC, SChunkMs(200_000_000)).unwrap();
+    let ScanPlan::Scan(spec) = plan_scan(
+        TeamId(2),
+        &domain,
+        &EventNameSet::new(["purchase".to_owned()]),
+        BandSpec::new(0, 1).unwrap(),
+    ) else {
+        panic!("a day with an event name is scannable");
+    };
+    let scan = scan_sql(&spec, &ChunkProjection::FullColumns);
+    let client = connect(Some(DATABASE));
+    assert_eq!(
+        join_type(
+            &client,
+            &format!("{scan}\nSETTINGS query_plan_join_swap_table = 'auto'")
+        )
+        .await,
+        "RIGHT",
+        "under `auto` the fixture must build the hash table from the events, or the next check proves nothing"
+    );
+    assert_eq!(join_type(&client, &scan).await, "LEFT");
+}
+
+async fn join_type(client: &ClickHouseClient, sql: &str) -> String {
+    let plan = client
+        .query(&format!("EXPLAIN actions = 1 {sql}"))
+        .fetch_all::<ExplainLine>()
+        .await
+        .unwrap_or_else(|error| panic!("EXPLAIN failed: {error}\n{sql}"))
+        .into_iter()
+        .map(|line| line.explain)
+        .collect::<Vec<_>>();
+    plan.iter()
+        .skip_while(|line| !line.trim_start().starts_with("Join ("))
+        .find_map(|line| line.trim().strip_prefix("Type: "))
+        .unwrap_or_else(|| panic!("the plan has no join:\n{}", plan.join("\n")))
+        .to_owned()
 }
 
 fn connect(database: Option<&str>) -> ClickHouseClient {

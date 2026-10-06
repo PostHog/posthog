@@ -621,6 +621,24 @@ describe('llmPlaygroundLogic', () => {
             ])
         })
 
+        it('should keep structured tool calls on the appended assistant message even without text', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Weather?' }])
+
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('', [
+                { id: 'call_1', name: 'get_weather', arguments: '{"location": "Paris"}' },
+            ])
+
+            expect(llmPlaygroundPromptsLogic.values.messages).toEqual([
+                { role: 'user', content: 'Weather?' },
+                {
+                    role: 'assistant',
+                    content: '',
+                    toolCalls: [{ id: 'call_1', name: 'get_weather', arguments: '{"location": "Paris"}' }],
+                },
+                { role: 'user', content: '' },
+            ])
+        })
+
         it('should append a result to the targeted prompt without changing other prompt columns', () => {
             llmPlaygroundPromptsLogic.actions.setPromptConfigs([
                 createPromptConfig({
@@ -633,7 +651,7 @@ describe('llmPlaygroundLogic', () => {
                 }),
             ])
 
-            llmPlaygroundPromptsLogic.actions.addResultToConversation('Second response', 'prompt-two')
+            llmPlaygroundPromptsLogic.actions.addResultToConversation('Second response', undefined, 'prompt-two')
 
             expect(llmPlaygroundPromptsLogic.values.promptConfigs).toMatchObject([
                 {
