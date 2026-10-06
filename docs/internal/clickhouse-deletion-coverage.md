@@ -107,18 +107,16 @@ The gate runs before shard processing and again during verification, with the sa
 ## Patch parts instead of mutations
 
 A target with `uses_patch_parts` (today `sharded_events_json`) is never mutated.
-Its deletes run as lightweight `DELETE` with `lightweight_delete_mode = 'lightweight_update_force'`, and the squash runs a lightweight `UPDATE`.
-Both write a patch part, which needs `enable_block_number_column` and `enable_block_offset_column` on the table.
-`lightweight_update_force` fails the statement where a patch part is not possible, instead of falling back to an `ALTER UPDATE` mutation.
-`delete_runner_for` and `update_runner_for` in `posthog/models/deletion_targets.py` pick the runner, so every sweep follows the capability.
+Every sweep builds its runner with `patch_parts=target.uses_patch_parts`.
+Such a runner sets `lightweight_delete_mode = 'lightweight_update_force'` and `alter_update_mode = 'lightweight_force'` on its statement.
+A lightweight `DELETE` and an `ALTER TABLE ... UPDATE` then each write a patch part, which needs `enable_block_number_column` and `enable_block_offset_column` on the table.
+The `_force` modes fail the statement where a patch part is not possible, instead of running a mutation the runner would not wait for.
 
 This changes how a job waits:
 
-- The statement returns once its patch part is written on the replica that ran it. Nothing appears in `system.mutations`, so there is no mutation to poll, adopt or wait for capacity on.
-- `PatchPartWaiter` is already done when the runner returns it. It lets a patch-part runner stand in where a job waits on mutations.
-- The other replicas of the shard fetch the patch part asynchronously. A step that reads the result back (the `deletes_job` survivor count, immediate event and person removal verification, and the final property-removal check) first waits `PATCH_PART_REPLICATION_GRACE_SECONDS` once. That is a grace period, not a guarantee: a replica that lags longer still shows the rows, and the check reports them.
+- The statement returns once its patch part is written on the replica that ran it. Nothing appears in `system.mutations`, so there is no mutation to adopt, poll, or wait for capacity on. The runner returns a waiter with no mutations, which is done at once.
 - A retry runs the statement again. That is safe because it deletes rows that are already gone, or writes the same `person_id` again.
-- The statement blocks for as long as the scan takes, so the runners pass `max_execution_time = 0`.
+- The other replicas of the shard fetch the patch part asynchronously. A step that reads the result back (the `deletes_job` survivor count, immediate event and person removal verification, and the final property-removal check) first waits `PATCH_PART_REPLICATION_GRACE_SECONDS` once. That is a grace period, not a guarantee: a replica that lags longer still shows the rows, and the check reports them.
 
 Patch parts share one budget per table, `max_uncompressed_bytes_in_patches`, and a statement that would exceed it fails with `TOO_LARGE_LIGHTWEIGHT_UPDATES`.
 A patch part is removed once merges have applied it to every part it covers, and old monthly partitions rarely merge, so the budget fills from every sweep that touches them.

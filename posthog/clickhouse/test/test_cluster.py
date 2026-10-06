@@ -24,7 +24,6 @@ from posthog.clickhouse.cluster import (
     MutationCapacityTimeout,
     MutationNotFound,
     MutationWaiter,
-    PatchPartDeleteRunner,
     Query,
     RetryPolicy,
     T,
@@ -944,7 +943,9 @@ def test_patch_part_delete_writes_no_mutation(cluster: ClickhouseCluster) -> Non
     mutations_sql = f"SELECT count() FROM system.mutations WHERE database = currentDatabase() AND table = '{table}'"
     [[[mutations_before]]] = cluster.map_all_hosts(Query(mutations_sql)).result().values()
 
-    runner = PatchPartDeleteRunner(table=table, predicate="uuid = %(uuid)s", parameters={"uuid": deleted})
+    runner = LightweightDeleteMutationRunner(
+        table=table, predicate="uuid = %(uuid)s", parameters={"uuid": deleted}, patch_parts=True
+    )
     wait_for_mutations_on_shards(cluster, runner.enqueue_on_shards(cluster))
 
     for rows in cluster.map_all_hosts(Query(f"SELECT uuid FROM {table}")).result().values():

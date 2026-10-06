@@ -7,14 +7,9 @@ from typing import TYPE_CHECKING, Generic, TypeVar
 from clickhouse_driver import Client
 
 from posthog import settings
-from posthog.clickhouse.cluster import (
-    AlterTableMutationRunner,
-    LightweightDeleteMutationRunner,
-    LightweightUpdateRunner,
-)
+from posthog.clickhouse.cluster import AlterTableMutationRunner, LightweightDeleteMutationRunner
 from posthog.dags.common.staged_dictionary import StagedDictionary
 from posthog.dataclasses import frozen
-from posthog.models.deletion_targets import DeletionTarget, update_runner_for
 
 if TYPE_CHECKING:
     pass
@@ -158,26 +153,20 @@ class OverridesSnapshotDictionary(ABC, Generic[TOverridesSnapshotTable]):
 
     @property
     @abstractmethod
-    def update_assignments(self) -> str:
-        """The ``column = expr`` list of the rewrite, which reads this dictionary as ``%(name)s``."""
+    def update_commands(self):
         raise NotImplementedError()
 
-    @property
-    @abstractmethod
-    def update_predicate(self) -> str:
-        raise NotImplementedError()
-
-    def update_runner_for(self, target: DeletionTarget) -> AlterTableMutationRunner | LightweightUpdateRunner:
+    def update_mutation_runner_for(self, table: str, *, patch_parts: bool = False) -> AlterTableMutationRunner:
         """The rewrite this snapshot applies, aimed at one target's storage table.
 
         A squash rewrites every table that stamps the overridden column, so the table is an
         argument rather than a property of the snapshot.
         """
-        return update_runner_for(
-            target,
-            assignments=self.update_assignments,
-            predicate=self.update_predicate,
+        return AlterTableMutationRunner(
+            table=table,
+            commands=self.update_commands,
             parameters={"name": self.qualified_name},
+            patch_parts=patch_parts,
         )
 
     @property

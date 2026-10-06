@@ -11,7 +11,7 @@ from django.conf import settings as django_settings
 import dagster
 from clickhouse_driver import Client
 
-from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster, LightweightUpdateRunner
+from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseCluster
 from posthog.dags.deletes import deletes_job
 from posthog.dags.person_overrides import (
     GetExistingDictionaryConfig,
@@ -296,21 +296,14 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
             "enqueue_on_shards",
             autospec=True,
             side_effect=lambda runner, handle, shards=None: enqueued[runner.table],
-        ) as enqueue_mutation,
-        patch.object(
-            LightweightUpdateRunner,
-            "enqueue_on_shards",
-            autospec=True,
-            side_effect=lambda runner, handle, shards=None: enqueued[runner.table],
-        ) as enqueue_lightweight_update,
+        ) as enqueue_on_shards,
         patch("posthog.dags.person_overrides.wait_for_mutations_on_shards") as wait_for_mutations,
     ):
-        calls.attach_mock(enqueue_mutation, "enqueue")
-        calls.attach_mock(enqueue_lightweight_update, "enqueue")
+        calls.attach_mock(enqueue_on_shards, "enqueue")
         calls.attach_mock(wait_for_mutations, "wait")
         run_person_id_update_mutations(cluster, dictionary)
 
-    enqueues = [*enqueue_mutation.call_args_list, *enqueue_lightweight_update.call_args_list]
+    enqueues = enqueue_on_shards.call_args_list
 
     # This assertion names the targets literally instead of reusing SQUASH_TARGETS, because that
     # constant would still match after someone drops a target from its definition.
@@ -320,7 +313,11 @@ def test_run_person_id_update_mutations_rewrites_each_target_on_its_own_cluster(
         EVENTS_JSON_DATA_TABLE: sibling,
         FLAG_EVALUATIONS_DATA_TABLE: sibling,
     }
-    assert [enqueue.args[0].table for enqueue in enqueue_lightweight_update.call_args_list] == [EVENTS_JSON_DATA_TABLE]
+    assert {enqueue.args[0].table: enqueue.args[0].patch_parts for enqueue in enqueues} == {
+        EVENTS_DATA_TABLE(): False,
+        EVENTS_JSON_DATA_TABLE: True,
+        FLAG_EVALUATIONS_DATA_TABLE: False,
+    }
     # Each wait has to receive the mutations its own enqueue returned. A wait handed an empty set
     # returns at once, and the next op deletes the overrides that record the mapping.
     wait_for_mutations.assert_has_calls(

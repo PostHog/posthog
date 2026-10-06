@@ -21,9 +21,7 @@ from posthog.clickhouse.cluster import (
     MutationWaiter,
     MutationWaiters,
     NodeRole,
-    PatchPartWaiter,
     Query,
-    ShardWaiter,
     Workload,
     wait_for_mutations_on_shards,
     wait_for_patch_part_replication,
@@ -45,7 +43,6 @@ from posthog.models.deletion_targets import (
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
     _any_node_has,
-    delete_runner_for,
     resolve_placements,
     surviving_rows_sql,
     sweep_clusters,
@@ -693,19 +690,20 @@ def delete_events(
     delete_mutation_runners = [
         (
             placement,
-            delete_runner_for(
-                placement.target,
+            LightweightDeleteMutationRunner(
+                table=placement.target.data_table,
                 predicate=_DELETE_PREDICATE,
                 parameters=_delete_predicate_params(
                     load_and_verify_deletes_dictionary, load_and_verify_adhoc_event_deletes_dictionary
                 ),
                 reuse_since=reuse_floor,
+                patch_parts=placement.target.uses_patch_parts,
             ),
         )
         for placement in placements
     ]
 
-    waiters: dict[tuple[str, NodeRole], dict[int, list[ShardWaiter]]] = {}
+    waiters: dict[tuple[str, NodeRole], dict[int, list[MutationWaiter]]] = {}
     for placement, delete_mutation_runner in delete_mutation_runners:
         # placement.cluster, not the job's handle: the dictionary the predicate joins was created
         # on every cluster here, but the storage table only exists on this one.
@@ -719,6 +717,10 @@ def delete_events(
         key: {shard_num: MutationWaiters(waiters=shard_waiters) for shard_num, shard_waiters in by_shard.items()}
         for key, by_shard in waiters.items()
     }
+
+    # mark_deletions_verified counts survivors after the wait op, on whichever replica answers.
+    if any(placement.target.uses_patch_parts for placement in placements):
+        wait_for_patch_part_replication()
 
     return (load_and_verify_deletes_dictionary, cluster_mutations)
 
@@ -860,15 +862,6 @@ def wait_for_delete_mutations_in_shards(
         # Shared with the squash, which is where the retry comes from: under replication lag a
         # mutation can be briefly invisible on a shard, and that used to fail the whole run.
         wait_for_mutations_on_shards(cluster.sibling(cluster_name, shard_role), shard_mutations)
-
-    # mark_deletions_verified counts survivors next, on whichever replica answers.
-    if any(
-        isinstance(waiter, PatchPartWaiter)
-        for shard_mutations in cluster_mutations.values()
-        for shard_waiters in shard_mutations.values()
-        for waiter in shard_waiters.waiters
-    ):
-        wait_for_patch_part_replication()
 
     return pending_deletes_dict
 
@@ -1314,8 +1307,8 @@ def cleanup_old_events_by_partition(
 
         for placement in placements:
             target_cluster = placement.cluster
-            delete_mutation_runner = delete_runner_for(
-                placement.target,
+            delete_mutation_runner = LightweightDeleteMutationRunner(
+                table=placement.target.data_table,
                 predicate="""
                 team_id IN %(team_ids)s
                 AND age('month', timestamp, now()) >= %(min_age_months)s
@@ -1325,7 +1318,8 @@ def cleanup_old_events_by_partition(
                     "min_age_months": config.min_age_months,
                 },
                 partition=str(partition),
-                mutation_settings={"lightweight_deletes_sync": 0},
+                settings={"lightweight_deletes_sync": 0},
+                patch_parts=placement.target.uses_patch_parts,
             )
 
             # Run on one host per shard

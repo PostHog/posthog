@@ -28,7 +28,11 @@ import posthog.hogql.compiler.bytecode  # noqa: F401
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.cluster import ClickhouseCluster, wait_for_patch_part_replication
+from posthog.clickhouse.cluster import (
+    ClickhouseCluster,
+    LightweightDeleteMutationRunner,
+    wait_for_patch_part_replication,
+)
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN, UNPARSEABLE_PROPERTIES_KEY
 from posthog.clickhouse.workload import Workload
 from posthog.dags.common import JobOwners
@@ -60,7 +64,6 @@ from posthog.models.deletion_targets import (
     UnsweptRowsError,
     assert_no_unsweepable_rows,
     assert_sweep_complete,
-    delete_runner_for,
     placement_for,
     resolve_placements,
 )
@@ -789,11 +792,12 @@ def delete_event_removal_shard(
     predicate, parameters = event_removal_where(
         deletion_request, use_new_events_schema=placement.target.uses_new_events_schema
     )
-    runner = delete_runner_for(
-        placement.target,
+    runner = LightweightDeleteMutationRunner(
+        table=placement.target.data_table,
         predicate=predicate,
         parameters=parameters,
-        mutation_settings={"lightweight_deletes_sync": 0},
+        settings={"lightweight_deletes_sync": 0},
+        patch_parts=placement.target.uses_patch_parts,
     )
 
     shard_start = time.monotonic()
@@ -1432,14 +1436,15 @@ def delete_property_removal_shard(
             # The server clock dates the cutoff, as it dates the mutations. A retry then enqueues its own
             # delete instead of adopting an earlier attempt's, which may have been killed part way.
             [[delete_since]] = client.execute("SELECT now()")
-            delete_runner = delete_runner_for(
-                _deletion_target(target),
+            delete_runner = LightweightDeleteMutationRunner(
+                table=target.table,
                 predicate=predicate.sql,
                 parameters=predicate.params,
-                mutation_settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
+                settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
                 reuse_since=delete_since,
+                patch_parts=_deletion_target(target).uses_patch_parts,
             )
-            log("delete-originals", f"{predicate.sql}")
+            log("delete-originals", delete_runner.get_statement(delete_runner.get_all_commands()))
             # mutations_sync = 2 blocks on every replica of this shard; the explicit wait is a backstop.
             delete_runner(client).wait(client)
 
@@ -1505,14 +1510,15 @@ def reingest_property_removal_shard(
                 # mutations would reuse an earlier attempt's finished clear and skip the rows the last
                 # failed insert added. The server clock dates the cutoff, as it dates the mutations.
                 [[clear_since]] = client.execute("SELECT now()")
-                clear_runner = delete_runner_for(
-                    _deletion_target(target),
+                clear_runner = LightweightDeleteMutationRunner(
+                    table=target.table,
                     predicate=partial_rows,
                     parameters=month_params,
-                    mutation_settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
+                    settings={"lightweight_deletes_sync": 2, "mutations_sync": 2},
                     reuse_since=clear_since,
+                    patch_parts=_deletion_target(target).uses_patch_parts,
                 )
-                log("clear-partial-reingest", partial_rows)
+                log("clear-partial-reingest", clear_runner.get_statement(clear_runner.get_all_commands()))
                 clear_runner(client).wait(client)
 
             insert_sql = (
@@ -1912,11 +1918,12 @@ def delete_person_events_op(
         for idx, shard_num in enumerate(shards, 1):
             context.log.info(f"Processing {target.data_table} shard {shard_num} ({idx}/{len(shards)})")
             shard_start = time.monotonic()
-            runner = delete_runner_for(
-                target,
+            runner = LightweightDeleteMutationRunner(
+                table=target.data_table,
                 predicate=predicate,
                 parameters=params,
-                mutation_settings={"lightweight_deletes_sync": 0},
+                settings={"lightweight_deletes_sync": 0},
+                patch_parts=target.uses_patch_parts,
             )
             shard_result = placement.cluster.map_any_host_in_shards({shard_num: runner}).result()
             _host, waiter = next(iter(shard_result.items()))

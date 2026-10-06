@@ -689,7 +689,7 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
 
     from dagster import build_op_context
 
-    from posthog.clickhouse.cluster import LightweightDeleteMutationRunner, PatchPartDeleteRunner
+    from posthog.clickhouse.cluster import LightweightDeleteMutationRunner
 
     now = datetime.now()
     old_timestamp = now - timedelta(days=400)
@@ -718,21 +718,15 @@ def test_cleanup_old_events_delete_query_format(cluster: ClickhouseCluster, snap
     assert len(partitions) > 0
 
     captured_delete_statements = []
-    original_mutation_call = LightweightDeleteMutationRunner.__call__
-    original_patch_part_call = PatchPartDeleteRunner.__call__
+    original_call = LightweightDeleteMutationRunner.__call__
 
-    def capture_mutation_statement(self, client: Client):
-        captured_delete_statements.append(self.get_statement(self.get_all_commands()))
-        return original_mutation_call(self, client)
+    def capture_delete_statement(self, client: Client):
+        commands = self.get_all_commands()
+        statement = self.get_statement(commands)
+        captured_delete_statements.append(statement)
+        return original_call(self, client)
 
-    def capture_patch_part_statement(self, client: Client):
-        captured_delete_statements.append(self.get_statement())
-        return original_patch_part_call(self, client)
-
-    with (
-        patch.object(LightweightDeleteMutationRunner, "__call__", capture_mutation_statement),
-        patch.object(PatchPartDeleteRunner, "__call__", capture_patch_part_statement),
-    ):
+    with patch.object(LightweightDeleteMutationRunner, "__call__", capture_delete_statement):
         cleanup_old_events_by_partition(context, config, cluster, partitions)
 
     assert len(captured_delete_statements) > 0

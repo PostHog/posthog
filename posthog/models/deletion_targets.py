@@ -11,12 +11,10 @@ The reasoning behind each registration, exclusion and known gap is in
 docs/internal/clickhouse-deletion-coverage.md.
 """
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
 from functools import partial
-from typing import Any
 
 from django.conf import settings
 
@@ -25,14 +23,7 @@ from clickhouse_driver.errors import ServerException
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole
-from posthog.clickhouse.cluster import (
-    AlterTableMutationRunner,
-    ClickhouseCluster,
-    LightweightDeleteMutationRunner,
-    LightweightUpdateRunner,
-    PatchPartDeleteRunner,
-    Query,
-)
+from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.models.event.sql import (
     DISTRIBUTED_EVENTS_JSON_TABLE,
     EVENTS_DATA_TABLE,
@@ -137,9 +128,8 @@ class DeletionTarget:
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
-    # Deletes and person_id rewrites write patch parts (lightweight DELETE and UPDATE) instead of
-    # enqueueing mutations. Needs enable_block_number_column and enable_block_offset_column on the
-    # storage table, and fails the statement rather than falling back to a mutation without them.
+    # Deletes and person_id rewrites on this table write patch parts instead of mutations; see
+    # MutationRunner.patch_parts.
     uses_patch_parts: bool = False
 
     def __post_init__(self) -> None:
@@ -244,47 +234,6 @@ PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset()
 # on inserted_at. Seven days is a short enough window to accept as the erasure bound, and a sweep
 # would race the TTL for little benefit.
 TTL_ONLY_TABLES: frozenset[str] = frozenset({SHARDED_EVENTS_RECENT_DATA_TABLE()})
-
-
-def delete_runner_for(
-    target: DeletionTarget,
-    *,
-    predicate: str,
-    parameters: Mapping[str, Any],
-    partition: str | None = None,
-    mutation_settings: Mapping[str, Any] | None = None,
-    reuse_since: datetime | None = None,
-) -> LightweightDeleteMutationRunner | PatchPartDeleteRunner:
-    """The lightweight delete for ``target``: a patch part where the table takes one, else a mutation.
-
-    ``mutation_settings`` and ``reuse_since`` only apply to a mutation. A patch-part delete is
-    synchronous and is never adopted from an earlier run.
-    """
-    if target.uses_patch_parts:
-        return PatchPartDeleteRunner(
-            table=target.data_table, predicate=predicate, parameters=parameters, partition=partition
-        )
-    return LightweightDeleteMutationRunner(
-        table=target.data_table,
-        predicate=predicate,
-        parameters=parameters,
-        partition=partition,
-        settings=mutation_settings or {},
-        reuse_since=reuse_since,
-    )
-
-
-def update_runner_for(
-    target: DeletionTarget, *, assignments: str, predicate: str, parameters: Mapping[str, Any]
-) -> AlterTableMutationRunner | LightweightUpdateRunner:
-    """The column rewrite for ``target``: a lightweight UPDATE where the table takes one, else ALTER UPDATE."""
-    if target.uses_patch_parts:
-        return LightweightUpdateRunner(
-            table=target.data_table, assignments=assignments, predicate=predicate, parameters=parameters
-        )
-    return AlterTableMutationRunner(
-        table=target.data_table, commands={f"UPDATE {assignments} WHERE {predicate}"}, parameters=parameters
-    )
 
 
 _TABLE_EXISTS_SQL = "SELECT count() FROM system.tables WHERE database = %(database)s AND name = %(name)s"
