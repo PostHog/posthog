@@ -343,6 +343,48 @@ describe('PostgresPersonRepository', () => {
 
         it.each([
             [
+                'fetchPersonsByDistinctIds',
+                (_person: InternalPerson) =>
+                    repository.fetchPersonsByDistinctIds([{ teamId: team.id, distinctId: 'pruning-person' }]),
+            ],
+            [
+                'fetchPersonsByPersonIds',
+                (person: InternalPerson) =>
+                    repository.fetchPersonsByPersonIds([{ teamId: team.id, personId: person.uuid }]),
+            ],
+            [
+                'updatePersonsBatch',
+                (person: InternalPerson) =>
+                    repository.updatePersonsBatch([buildPersonUpdate(person, 'pruning-person', person.version)]),
+            ],
+        ])('%s plans against only its team partition', async (tag, run) => {
+            const person = await createTestPerson(team.id, 'pruning-person')
+            const query = jest.spyOn(postgres, 'query')
+            await run(person)
+            const [, sql, values] = query.mock.calls.find(([, , , callTag]) => callTag === tag)!
+
+            // The planner locks every person partition it cannot prune, so the lock count shows the pruning.
+            const lockedPartitions = await postgres.transaction(
+                PostgresUse.PERSONS_WRITE,
+                'pruningProbe',
+                async (tx) => {
+                    await postgres.query(tx, `EXPLAIN ${sql}`, values, 'pruningProbe')
+                    const { rows } = await postgres.query<{ partitions: number }>(
+                        tx,
+                        `SELECT count(DISTINCT l.relation)::int AS partitions FROM pg_locks l
+                     JOIN pg_inherits i ON i.inhrelid = l.relation
+                     WHERE l.pid = pg_backend_pid() AND i.inhparent = 'posthog_person'::regclass`,
+                        [],
+                        'pruningProbe'
+                    )
+                    return rows[0].partitions
+                }
+            )
+            expect(lockedPartitions).toBe(1)
+        })
+
+        it.each([
+            [
                 'moveDistinctIds',
                 (source: InternalPerson, target: InternalPerson) => repository.moveDistinctIds(source, target),
             ],
