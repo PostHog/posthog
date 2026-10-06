@@ -24,7 +24,9 @@ export interface RailFacetProps {
 export function RailFacet({ id, facet, hidden }: RailFacetProps): JSX.Element | null {
     // `facet` comes from the memoized visibleFacets selector, so this identity is stable.
     const logicProps = useMemo(() => ({ id, facet }), [id, facet])
-    const { facetValues, facetValuesLoading, facetSearch, collapsed, fetchFailed } = useValues(facetValuesLogic(logicProps))
+    const { facetValues, facetValuesLoading, facetSearch, collapsed, fetchFailed } = useValues(
+        facetValuesLogic(logicProps)
+    )
     const { setFacetSearch } = useActions(facetValuesLogic(logicProps))
     const { filterGroup } = useValues(logsViewerFiltersLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))

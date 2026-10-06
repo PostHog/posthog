@@ -38,6 +38,7 @@ export interface facetValuesLogicValues {
     facetSearch: string
     facetValues: _LogFacetValueApi[]
     facetValuesLoading: boolean
+    fetchFailed: boolean
     fetchSignature: string
     fetchedSignature: string | null
     scopeSignature: string
