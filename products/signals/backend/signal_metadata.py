@@ -442,13 +442,16 @@ def fetch_origin_sources_for_report(team: Team, report_id: str) -> list[OriginSo
     ]
 
 
-def _signals_for_report_query(*, include_deleted: bool = False, limit: int | None = None) -> str:
+def _signals_for_report_query(
+    *, include_deleted: bool = False, limit: int | None = None, newest_first: bool = False
+) -> str:
     """Build a HogQL query that fetches signal rows for a single report.
 
     Args:
         include_deleted: When True the ``NOT deleted`` filter is omitted.
             Used by soft-delete which intentionally re-processes already-deleted rows.
         limit: Optional row cap appended as a LIMIT clause.
+        newest_first: Order by newest timestamp first, so a limit keeps the newest rows.
     """
     deleted_filter = "" if include_deleted else "\n          AND NOT JSONExtractBool(metadata, 'deleted')"
     limit_clause = "" if limit is None else f"\n        LIMIT {limit}"
@@ -462,7 +465,7 @@ def _signals_for_report_query(*, include_deleted: bool = False, limit: int | Non
             latest_inserted_at
         FROM ({_deduped_signals_subquery(candidate_document_filter="JSONExtractString(metadata, 'report_id') = {report_id}")})
         WHERE JSONExtractString(metadata, 'report_id') = {{report_id}}{deleted_filter}
-        ORDER BY timestamp ASC{limit_clause}
+        ORDER BY timestamp {"DESC" if newest_first else "ASC"}{limit_clause}
     """
 
 
@@ -473,12 +476,15 @@ def _report_placeholders(report_id: str) -> dict:
     }
 
 
-def fetch_signals_for_report_sync(team: Team, report_id: str) -> list[dict]:
-    """Fetch all signals for a report from ClickHouse, including full metadata. Synchronous."""
+def fetch_signals_for_report_sync(team: Team, report_id: str, newest: int | None = None) -> list[dict]:
+    """Fetch the signals of a report from ClickHouse, including full metadata. Synchronous.
+
+    With `newest`, fetch only that many of the newest signals.
+    """
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
         query_type="SignalsDebugFetchForReport",
-        query=_signals_for_report_query(),
+        query=_signals_for_report_query(limit=newest, newest_first=newest is not None),
         team=team,
         placeholders=_report_placeholders(report_id),
         context=_signals_query_context(team),

@@ -59,6 +59,11 @@ class TestSignalViews(SimpleTestCase):
                 "Paid orders fell to 12 in the 09:00 hour on 3 Aug.",
             ),
             (
+                "a day its month does not have, left as written",
+                "Paid orders fell on 2026-02-30 and stayed low.",
+                "Paid orders fell on 2026-02-30 and stayed low.",
+            ),
+            (
                 "a date in year zero, left as written",
                 "Paid orders fell on 0000-01-01 and stayed low.",
                 "Paid orders fell on 0000-01-01 and stayed low.",
@@ -195,6 +200,24 @@ class TestSignalViews(SimpleTestCase):
                 ("Show the description", "The cart forgets the coupon code after a refresh.", [], "Open on GitHub"),
             ),
             (
+                "the first message of a conversation without a subject",
+                signal(
+                    source_product="conversations",
+                    source_type="ticket",
+                    content="C: The invoice total is blank.\nT: We are looking into it.",
+                ),
+                ("Show the ticket", "The invoice total is blank. T: We are looking into it.", [], None),
+            ),
+            (
+                "the lines after an alert finding",
+                signal(
+                    source_product="analytics",
+                    source_type="anomaly_investigation",
+                    content="Paid orders fell to 12 in the 09:00 hour.\nWhat the metric measures: paid orders per hour.",
+                ),
+                ("Show the finding", "What the metric measures: paid orders per hour.", [], None),
+            ),
+            (
                 "the thread a Slack finding cites",
                 signal(content=f"A teammate said the banner is too loud. {SLACK_THREAD}"),
                 ("Show what the thread says", "", [], None),
@@ -256,6 +279,7 @@ class TestSignalViews(SimpleTestCase):
                 contracts.PageLink(url=ISSUE_URL, text="Open pull request"),
             ),
             ("nothing for a link that is not http", "issue", {"html_url": "javascript:alert(1)"}, None),
+            ("nothing for a link that does not parse", "issue", {"html_url": "https://[::1"}, None),
         ]
     )
     def test_links_a_github_signal_to(

@@ -9,9 +9,10 @@ from products.today.backend.logic.signal_text import SignalInput
 from products.today.backend.tests.factories import signal
 
 
-def ticket(number: int, timestamp: str) -> SignalInput:
+def ticket(number: int, timestamp: str, product: str = "conversations") -> SignalInput:
     return signal(
-        source_product="conversations",
+        source_product=product,
+        source_type="ticket",
         source_id=f"ticket-{number}",
         timestamp=timestamp,
         extra={"ticket_number": number},
@@ -29,6 +30,11 @@ class TestImpact(SimpleTestCase):
                 "counts distinct support tickets over the days they span",
                 [ticket(1042, "2026-09-20T09:00:00+00:00"), ticket(1043, "2026-09-25T15:00:00+00:00")],
                 [("2", "support tickets over 6 days.")],
+            ),
+            (
+                "counts tickets from any support tool, and the same number in two tools twice",
+                [ticket(1042, "2026-09-20T09:00:00+00:00", "freshdesk"), ticket(1042, "2026-09-21T09:00:00+00:00")],
+                [("2", "support tickets over 2 days.")],
             ),
             (
                 "shows nothing for one ticket, however many signals cite it",
@@ -64,6 +70,14 @@ class TestImpact(SimpleTestCase):
                     signal(timestamp="2026-09-30T10:00:00+00:00"),
                 ],
                 "2026-09-25T08:00:00+00:00",
+            ),
+            (
+                "a later signal about the same session",
+                [
+                    signal(source_product="replay_vision", timestamp=at, extra={"session_id": "s1"})
+                    for at in ("2026-09-20T10:00:00+00:00", "2026-09-27T10:00:00+00:00")
+                ],
+                "2026-09-27T10:00:00+00:00",
             ),
             ("nothing when no signal is an occurrence", [signal()], None),
         ]

@@ -33,6 +33,7 @@ class _SplitSummary:
     sections: list[_Section]
 
 
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _MARKDOWN = MarkdownIt("commonmark")
 _MAX_SECTION_DEPTH = 3
 _HEADING_WORD_LIMIT = 6
@@ -134,8 +135,12 @@ def _paragraph_heading_sections(markdown: str) -> _SplitSummary:
     lead_lines: list[str] = []
     sections: list[_OpenSection] = []
     current = lead_lines
+    fence: str | None = None
     for line in markdown.split("\n"):
-        heading = _paragraph_heading(line)
+        marker = _FENCE.match(line)
+        if marker and (fence is None or marker.group(1).startswith(fence)):
+            fence = marker.group(1)[:3] if fence is None else None
+        heading = _paragraph_heading(line) if fence is None and not marker else None
         if heading:
             sections.append(_OpenSection(heading=heading, lines=[]))
             current = sections[-1].lines
@@ -155,11 +160,18 @@ def _named_body(sections: list[_Section], names: frozenset[str]) -> str | None:
     return next((section.body for section in sections if section.heading.lower() in names and section.body), None)
 
 
+def _opening_body(sections: list[_Section]) -> str:
+    opening = sections[0] if sections else None
+    if opening is None or _SECTION_ALIASES.get(opening.heading.lower()) not in (None, "problem"):
+        return ""
+    return opening.body
+
+
 def report_sections(summary: str | None) -> ReportSections:
     split = _heading_sections(summary or "")
     if split.sections:
         return ReportSections(
-            lead=_without_chart_links(_first_paragraph(split.lead)),
+            lead=_without_chart_links(_first_paragraph(split.lead or _opening_body(split.sections))),
             impact=_clean_section(_aliased_body(split.sections, "impact")),
             solution=_clean_section(_aliased_body(split.sections, "solution")),
         )
