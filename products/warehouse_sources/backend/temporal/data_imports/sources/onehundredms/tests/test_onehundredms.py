@@ -105,7 +105,7 @@ def test_empty_terminal_page(
 ) -> None:
     requests_mock.get("https://api.100ms.live/v2/recordings", json=terminal)
     response = OneHundredMsSource().source_for_pipeline(config, manager, make_inputs("recordings"))
-    assert list(response.items()) == []
+    assert list(cast(Iterable[Any], response.items())) == []
     assert requests_mock.call_count == 1
     manager.save_state.assert_not_called()
 
@@ -140,7 +140,7 @@ def test_incremental_filter_is_retained_on_every_page(
         ],
     )
     response = OneHundredMsSource().source_for_pipeline(config, manager, make_inputs(endpoint, incremental, watermark))
-    list(response.items())
+    list(cast(Iterable[Any], response.items()))
     assert requests_mock.call_count == 2
     for request in requests_mock.request_history:
         query = parse_qs(urlsplit(request.url).query)
@@ -173,7 +173,7 @@ def test_invalid_pagination_fails_instead_of_silently_losing_data(
     requests_mock.get("https://api.100ms.live/v2/recordings", json=body)
     response = OneHundredMsSource().source_for_pipeline(config, manager, make_inputs("recordings"))
     with pytest.raises(ValueError):
-        list(response.items())
+        list(cast(Iterable[Any], response.items()))
     assert requests_mock.call_count == 1
     manager.save_state.assert_not_called()
 

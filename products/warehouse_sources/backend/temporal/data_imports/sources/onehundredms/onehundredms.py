@@ -10,6 +10,7 @@ from requests import PreparedRequest
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
+    EndpointResource,
     RESTAPIConfig,
     rest_api_resource,
 )
@@ -104,6 +105,12 @@ def onehundredms_source(
                 timestamp = timestamp.replace(tzinfo=UTC)
             params["after"] = timestamp.astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
+    resource_config: EndpointResource = {
+        "name": inputs.schema_name,
+        "table_format": "delta",
+        "write_disposition": {"disposition": "merge", "strategy": "upsert"} if incremental else "replace",
+        "endpoint": {"path": path, "params": params, "data_selector": "data", "data_selector_required": True},
+    }
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": f"{API_BASE_URL}/{api_version}/",
@@ -114,14 +121,7 @@ def onehundredms_source(
             "allow_redirects": False,
             "request_timeout": (10, 60),
         },
-        "resources": [
-            {
-                "name": inputs.schema_name,
-                "table_format": "delta",
-                "write_disposition": {"disposition": "merge", "strategy": "upsert"} if incremental else "replace",
-                "endpoint": {"path": path, "params": params, "data_selector": "data", "data_selector_required": True},
-            }
-        ],
+        "resources": [resource_config],
     }
     resume = manager.load_state() if manager.can_resume() else None
 
