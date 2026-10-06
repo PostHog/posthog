@@ -1,19 +1,14 @@
-"""Mask the code variables in the stored error tracking stack frames of every team.
+"""Mask the code variables in the stored error tracking stack frames of the listed teams.
 
 Run this command after every cymbal processing pod masks code variables. Until then, a pod can
 resolve a frame again from an incoming event and write unmasked variables back behind the cursor.
 After the live run, a dry run reports `matched=0` when no stored frame has variables left to mask.
-
-The command walks the teams in id order, or only the teams in `--team-ids`. It skips team 2 and the
-teams in `--exclude-team-ids`. Team 2 drops its code variables with
-`drop_error_tracking_stack_frame_code_variables` instead.
+A second run over the same teams is safe: it reads every frame again but writes nothing new.
 
 Usage:
-    python manage.py mask_error_tracking_stack_frame_code_variables
-    python manage.py mask_error_tracking_stack_frame_code_variables --live-run
-    python manage.py mask_error_tracking_stack_frame_code_variables --live-run --exclude-team-ids 7,42
-    python manage.py mask_error_tracking_stack_frame_code_variables --live-run --team-ids 7,42
-    python manage.py mask_error_tracking_stack_frame_code_variables --live-run --start-at-team-id 42 --start-after-raw-id <raw-id>
+    python manage.py mask_error_tracking_stack_frame_code_variables --team-ids 7,42
+    python manage.py mask_error_tracking_stack_frame_code_variables --team-ids 7,42 --live-run
+    python manage.py mask_error_tracking_stack_frame_code_variables --team-ids 7 --live-run --start-after-raw-id <raw-id>
 """
 
 from __future__ import annotations
@@ -32,7 +27,6 @@ from products.error_tracking.backend.logic.code_variables_masking import mask_co
 from products.error_tracking.backend.models import ErrorTrackingStackFrame
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
     from uuid import UUID
 
     from products.error_tracking.backend.logic.code_variables_masking import JSONValue
@@ -41,21 +35,28 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_BATCH_SIZE = 1_000
 CODE_VARIABLES_KEY = "code_variables"
-# Team 2 is too large to mask row by row, so it drops its code variables with the drop command.
-ALWAYS_EXCLUDED_TEAM_IDS = frozenset({2})
 
 
-def parse_team_ids(value: str) -> frozenset[int]:
+def parse_team_ids(value: str) -> list[int]:
     try:
-        return frozenset(int(part) for part in value.split(",") if part.strip())
+        team_ids = sorted({int(part) for part in value.split(",") if part.strip()})
     except ValueError as error:
         raise CommandError(f"Team ids must be a comma-separated list of integers, got {value!r}.") from error
+    if not team_ids:
+        raise CommandError("List at least one team id.")
+    return team_ids
 
 
 class Command(BaseCommand):
-    help = "Mask the code variables in the stored error tracking stack frames of every team."
+    help = "Mask the code variables in the stored error tracking stack frames of the listed teams."
 
     def add_arguments(self, parser: ArgumentParser) -> None:
+        parser.add_argument(
+            "--team-ids",
+            type=str,
+            required=True,
+            help="Comma-separated ids of the teams whose stack frames to mask.",
+        )
         parser.add_argument(
             "--live-run",
             action="store_true",
@@ -68,94 +69,47 @@ class Command(BaseCommand):
             help=f"Number of raw frames to read per batch. The default is {DEFAULT_BATCH_SIZE}.",
         )
         parser.add_argument(
-            "--team-ids",
-            type=str,
-            default="",
-            help="Comma-separated team ids to mask. The default is every team. Exclusions still apply.",
-        )
-        parser.add_argument(
-            "--exclude-team-ids",
-            type=str,
-            default="",
-            help="Comma-separated team ids to skip, in addition to team 2.",
-        )
-        parser.add_argument(
-            "--start-at-team-id",
-            type=int,
-            default=None,
-            help="Resume at this team id.",
-        )
-        parser.add_argument(
             "--start-after-raw-id",
             type=str,
             default=None,
-            help="Resume after this raw frame id, within the team of --start-at-team-id.",
+            help="Resume after this raw frame id. Only with a single team id.",
         )
 
     def handle(
         self,
         *,
+        team_ids: str,
         live_run: bool,
         batch_size: int,
-        team_ids: str,
-        exclude_team_ids: str,
-        start_at_team_id: int | None,
         start_after_raw_id: str | None,
         **options: object,
     ) -> None:
         logger.setLevel(logging.INFO)
         if batch_size <= 0:
             raise CommandError("Batch size must be greater than zero.")
-        if start_after_raw_id is not None and start_at_team_id is None:
-            raise CommandError("--start-after-raw-id needs --start-at-team-id.")
-        only = parse_team_ids(team_ids)
-        excluded = ALWAYS_EXCLUDED_TEAM_IDS | parse_team_ids(exclude_team_ids)
+        listed = parse_team_ids(team_ids)
+        if start_after_raw_id is not None and len(listed) > 1:
+            raise CommandError("--start-after-raw-id works with a single team id.")
 
         mode = "LIVE" if live_run else "DRY-RUN"
         logger.info(
             "stack_frame_code_variables_mask_starting",
             mode=mode,
+            team_ids=listed,
             batch_size=batch_size,
-            team_ids=sorted(only) or "all",
-            excluded_team_ids=sorted(excluded),
-            start_at_team_id=start_at_team_id,
             start_after_raw_id=start_after_raw_id,
         )
 
         totals = {"teams": 0, "scanned": 0, "matched": 0, "updated": 0}
-        for team_id in self._teams_to_scan(only=only, start_at=start_at_team_id or 0):
-            if team_id in excluded:
-                logger.info("stack_frame_code_variables_mask_team_skipped", team_id=team_id)
-                continue
-            # The cursor belongs to the start team. When that team holds no frames, the walk begins
-            # at a later team, which has to be scanned from its first raw frame.
-            after_raw_id = start_after_raw_id if team_id == start_at_team_id else None
+        for team_id in listed:
             team_totals = self._mask_team(
-                team_id=team_id, live_run=live_run, batch_size=batch_size, after_raw_id=after_raw_id
+                team_id=team_id, live_run=live_run, batch_size=batch_size, after_raw_id=start_after_raw_id
             )
             totals["teams"] += 1
             for key, count in team_totals.items():
                 totals[key] += count
 
         logger.info("stack_frame_code_variables_mask_complete", mode=mode, **totals)
-
-    def _teams_to_scan(self, *, only: frozenset[int], start_at: int) -> Iterator[int]:
-        if only:
-            yield from sorted(team_id for team_id in only if team_id >= start_at)
-            return
-        team_id = self._next_team_id(at_least=start_at)
-        while team_id is not None:
-            yield team_id
-            team_id = self._next_team_id(at_least=team_id + 1)
-
-    def _next_team_id(self, *, at_least: int) -> int | None:
-        # The (team_id, raw_id, part) unique index answers this with one index lookup.
-        return (
-            ErrorTrackingStackFrame.objects.filter(team_id__gte=at_least)
-            .order_by("team_id")
-            .values_list("team_id", flat=True)
-            .first()
-        )
 
     def _mask_team(self, *, team_id: int, live_run: bool, batch_size: int, after_raw_id: str | None) -> dict[str, int]:
         totals = {"scanned": 0, "matched": 0, "updated": 0}
