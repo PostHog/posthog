@@ -1756,6 +1756,10 @@ snapshots:
         hash: v1.k794b7964.15fbabb08961435e861f16da95aaefeb3304c30b466197488268e540b8e20533.jfPtk0lZ5lhpRemspY5PLR53qxrhMfyR_WYQDEYWuvo
     components-mcp-use-case-card--surveys-create--light:
         hash: v1.k794b7964.2ce59a009bfce14f01a88f688627cf4b1def20c28ce5124288a54f9c62ffd3a6.wIhKopBY00iVCPnC9GB4QncFt-dCm8Gq9Uz6FYXBZ68
+    components-message-tool-calls-editor--editable-tool-calls--dark:
+        hash: v1.k794b7964.7adaad1e91b71d0b933afe541a20fd43112e39d56d6638abadfae6a830bb0c15.TxnbKwXIG1XbB5e4KpRJa4-PA-wl-kKOWbtX1ERVqLU
+    components-message-tool-calls-editor--editable-tool-calls--light:
+        hash: v1.k794b7964.4a10839159f5b3f989112539bb2a720f04460890fae5914a3516457e7cba92f3.Snir6e_iAMVVl1tdItfy70BRcAHw5Zem9Kk0ujjMQIo
     components-navpanelproductpush--all-products--dark:
         hash: v1.k794b7964.d6cc4da0e30950f4e3bf7338d86856529e48c45785bae5a85ccf4fd3ed7c3ad0.8n61Z9x6l3I3qfdAzk46yr7fAFHoYNdo3tjEKyJlcIo
     components-navpanelproductpush--all-products--light:
@@ -2536,6 +2540,10 @@ snapshots:
         hash: v1.k794b7964.e66bf82a582145f768e6a70a9696d7740cb012c2022c398b68a0311ef0aa8a37.yDQ1kPl_Hi9xOUuxr9j5k7-ZlW9fyhYL3VnQRYg0nMk
     components-template-variable-text-area--filled-and-unfilled-variables--light:
         hash: v1.k794b7964.1377bea2cf4a8e52c8da776a97346ea4c8c1becd10a9fe80abbe820d56d666e4.b5L2IxrKavjH9TYToZRloZVq1ZmlgYbvPU90Nc04Otw
+    components-tool-call-display--streamed-tool-call--dark:
+        hash: v1.k794b7964.5d1893cd81b904b00103ea1f5ccc2f6087b9cd55e93c6372ccf77a39102ec1b5.kVv0HwIqvf-w9Xn_R1hEMhy4NDNkqbiT2CJ7V8nP3fQ
+    components-tool-call-display--streamed-tool-call--light:
+        hash: v1.k794b7964.f0d2d11d7c55b1a1982e00b1b331e71616445300b8f892587ded56a153df673d.pu6VpTNncfZsmeCcjfXTKKGPPCBJy_xT5Qc4F7fqNws
     components-tz-label--absolute-timestamp--dark:
         hash: v1.k794b7964.e5939abb9b33f906d4d27d30344bb10dece07742fd0921be4d0875d2d977d81e.0x8wWYgIz71dN5jLN8DG2WgaaSA4lInr-a2JEd4MzuI
     components-tz-label--absolute-timestamp--light:
@@ -5821,13 +5829,13 @@ snapshots:
     marketing-analytics-add-source--new-sources--light:
         hash: v1.k794b7964.5fa1307763c5b2c1d15d9da94126801e790cdb76e0d0de4e7afcd9cd27bc4c50.vlfBEVR6C5WxdqBMZe2QoAmr_I-A-oivfeAPBPrwLzc
     marketing-analytics-add-source--open-menu--dark:
-        hash: v1.k794b7964.72c67ad4702a042b6eb027ad30e6cafca8c414be1b22cdb28b7a62ae16a0d684.NS37A7XjVATW1ezz9bQ0Jra_r4iL_F3eYCgggWr0FYU
+        hash: v1.k794b7964.c80e329b11c730701325e1a0c13e1f7c8ce85d379876d50555cc41b14918042e.S-CnWDuB2kd13u1hlddPnY-AYtxtGmuqP3uTt8zxDHA
     marketing-analytics-add-source--open-menu--light:
-        hash: v1.k794b7964.a0f071a6ec0fd5fe906994d405ec2dbb9338f52e8a09cbe1e574b6a2301150b6.65yXO6LAE3bw8Rqg_BLEQoZZxPW_yEyWh4ipVUFvxV0
+        hash: v1.k794b7964.75907cb59b9de8006b1b146dc7007d464d76a88850f8adccf78bebed591d654f.MZPeX3U9rUsg81U5tOBFu7-0Mu23XPoWzNO1xM9pChw
     marketing-analytics-add-source--sources-disabled--dark:
-        hash: v1.k794b7964.6ab679994aa458fc15fd650db178bf805d878d726265ad51e3502d9029e63903.z12MB5eLM0VM1Bs8-v2_5d5HH5VaDT25r8GuqvBC4ds
+        hash: v1.k794b7964.9bee1e501763e66a28f7ea68a9418ed1df0840df387aa0e00fd4d86488060640.GHV-4l1LqVtt2HjkCblPtfr549EdYvLoVnox07jQALo
     marketing-analytics-add-source--sources-disabled--light:
-        hash: v1.k794b7964.a40f8610ed453a1401dbbc1fb3bb921eeb3f55656138dc3e26b4751f6e38b7e8.0Ura8ZyXPrrQdqAbS1DDqkmoEZMPWEe4Y5EcDqQ39Xk
+        hash: v1.k794b7964.ba3d73935d7d3587fd88c6e93573b55d3d6ed1a39c2f39720d0bb3c82ab29784.yC2cotyG1XNhqpPSc4SZG1XnGudulQOoJuSZ8MPcKwM
     marketing-analytics-conversion-recordings--empty--dark:
         hash: v1.k794b7964.8982a2852c9527ff952b660792885e04c2fd81a3302a2c5c820c30e040182a06.h2Rie6hdM7FmCIHijYzFOkelhYaqzQboMKzRrwcxu8w
     marketing-analytics-conversion-recordings--empty--light:
