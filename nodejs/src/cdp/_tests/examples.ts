@@ -601,7 +601,7 @@ export const HOG_FILTERS_EXAMPLES: Record<string, Pick<HogFunctionType, 'filters
             bytecode_contract: 'stale',
         },
     },
-    /** A pattern the regex engine refuses. Its error is not a VM error at all: `platform`. */
+    /** A pattern the regex engine refuses. It arrives through the standard library, so: `data`. */
     filters_bad_regex: {
         filters: {
             events: [],

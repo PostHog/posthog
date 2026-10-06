@@ -666,6 +666,8 @@ describe('CdpEventsConsumer', () => {
 
             it.each([
                 ['data', 'filters_bad_event_json' as const, JSON.stringify({ payload: '{' })],
+                // The refusal reaches the VM through the standard library, which reports it as `data`.
+                ['data', 'filters_bad_regex' as const, JSON.stringify({ payload: 'abc' })],
                 ['limit', 'filters_never_finish' as const, '{}'],
             ])(
                 "parks nothing when a %s failure is the owner's",
@@ -683,24 +685,6 @@ describe('CdpEventsConsumer', () => {
                 },
                 20000
             )
-
-            it('parks a regex the engine refuses, which carries no VM error at all', async () => {
-                await insertHogFunction({
-                    ...HOG_EXAMPLES.simple_fetch,
-                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                    ...HOG_FILTERS_EXAMPLES.filters_bad_regex,
-                })
-
-                await handleBatch([
-                    createKafkaMessage(
-                        createIncomingEvent(team.id, { properties: JSON.stringify({ payload: 'abc' }) })
-                    ),
-                ])
-
-                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
-                expect(parked).toHaveLength(1)
-                expect(parked[0].headers).toMatchObject({ dlq_class: 'platform' })
-            })
 
             it('parks a refusal the compiler said could not happen, and says it is a bug', async () => {
                 // The stamp matches the runtime that is running, so the compiler accepted a program
