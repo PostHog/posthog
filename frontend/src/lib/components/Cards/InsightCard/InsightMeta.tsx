@@ -547,7 +547,7 @@ export function InsightMeta({
                                 <LemonButton
                                     to={inInsightProject(
                                         isDataVisualizationNode(insight.query) &&
-                                        insight.query.kind !== NodeKind.BIVisualizationNode
+                                            insight.query.kind !== NodeKind.BIVisualizationNode
                                             ? urls.sqlEditor({
                                                   insightShortId: short_id,
                                                   dashboard: dashboardId ?? undefined,
