@@ -306,6 +306,34 @@ export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Asks the Jev decision model, for each of the project's most used tags, whether it applies to the insight. Returns the tags above the confidence threshold. No new tags are invented.
+ * @summary Suggest insight tags
+ */
+export const metadataSuggestionsTagsCreateBodyNameDefault = ``
+export const metadataSuggestionsTagsCreateBodyNameMax = 400
+
+export const metadataSuggestionsTagsCreateBodyDescriptionDefault = ``
+export const metadataSuggestionsTagsCreateBodyDescriptionMax = 2000
+
+export const MetadataSuggestionsTagsCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .unknown()
+        .describe(
+            "The insight's query as a JSON object with kind `InsightVizNode`. The model sees only a plain-language outline of it, never the raw query."
+        ),
+    name: zod
+        .string()
+        .max(metadataSuggestionsTagsCreateBodyNameMax)
+        .default(metadataSuggestionsTagsCreateBodyNameDefault)
+        .describe('The current name. Given to the model as context.'),
+    description: zod
+        .string()
+        .max(metadataSuggestionsTagsCreateBodyDescriptionMax)
+        .default(metadataSuggestionsTagsCreateBodyDescriptionDefault)
+        .describe('The current description. Given to the model as context.'),
+})
+
+/**
  * Converts a displayed journeys segment into the funnel query that reproduces its unique-actor count exactly. In open mode only a single edge converts (a two-step funnel with the inactivity gap as conversion window); in anchored mode any anchor-rooted chain converts (window W). The funnel is returned as JSON and is not executed or persisted here.
  * @summary Convert a journey segment to a funnel
  */
