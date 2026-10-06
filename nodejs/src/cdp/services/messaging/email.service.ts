@@ -19,7 +19,8 @@ import { IntegrationManagerService } from '../managers/integration-manager.servi
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import { TeamEmailCapMode, TeamSendingCap, WorkflowPacing, pickThrottleRetryDelayMs } from './email-pacing'
+import type { TeamEmailCapConfig } from './email-pacing'
+import { TeamSendingCap, WorkflowPacing, pickThrottleRetryDelayMs } from './email-pacing'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService } from './email-suppression.service'
 import {
@@ -124,7 +125,7 @@ function parseWorkflowEmailPause(metadata: HogFunctionType['metadata']): { reaso
     }
 }
 
-export interface EmailServiceConfig {
+export interface EmailServiceConfig extends TeamEmailCapConfig {
     sesAccessKeyId: string
     sesSecretAccessKey: string
     sesRegion: string
@@ -134,11 +135,6 @@ export interface EmailServiceConfig {
     // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
     // sends fall back to the tracked set (with a warning) rather than failing.
     sesUntrackedConfigurationSet: string
-    // Trust-tiered per-team sending caps. Optional and defaulting to off, so every send path that
-    // builds an EmailService without them keeps its pre-cap behavior.
-    teamEmailCapMode?: TeamEmailCapMode
-    teamEmailTierHourlyCaps?: number[]
-    teamEmailTierDailyCaps?: number[]
 }
 
 /**

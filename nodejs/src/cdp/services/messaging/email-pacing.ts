@@ -167,6 +167,8 @@ export function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap:
 }
 
 export interface TeamEmailCapConfig {
+    // Trust-tiered per-team sending caps. Optional and defaulting to off, so every send path that
+    // builds an EmailService without them keeps its pre-cap behavior.
     teamEmailCapMode?: TeamEmailCapMode
     teamEmailTierHourlyCaps?: number[]
     teamEmailTierDailyCaps?: number[]
