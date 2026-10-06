@@ -21,6 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     SourceResponse,
 )
 
+RESUMABLE_STATE_TTL_SECONDS = 60 * 60 * 24
+
 
 class ResumableSourceManager(Generic[ResumableData]):
     _inputs: SourceInputs
@@ -28,6 +30,7 @@ class ResumableSourceManager(Generic[ResumableData]):
     _logger: FilteringBoundLogger
     _namespace: str | None
     _staged: dict[str, str]
+    _interrupted_job_id: str | None
 
     def __init__(
         self,
@@ -35,11 +38,13 @@ class ResumableSourceManager(Generic[ResumableData]):
         data_class: type[ResumableData],
         namespace: str | None = None,
         staged: dict[str, str] | None = None,
+        interrupted_job_id: str | None = None,
     ):
         self._inputs = inputs
         self._data_class = data_class
         self._logger = inputs.logger
         self._namespace = namespace
+        self._interrupted_job_id = interrupted_job_id
         # Cursors wait here until commit(). Siblings from with_namespace() share the dict, so the
         # one commit the pipeline issues after a write covers every namespace a source touched.
         self._staged = staged if staged is not None else {}
@@ -52,7 +57,22 @@ class ResumableSourceManager(Generic[ResumableData]):
         state in separate slots. Without it a retry that switches endpoints could load a
         cursor the other endpoint wrote and replay it against an API that can't parse it.
         """
-        return ResumableSourceManager(self._inputs, self._data_class, namespace=namespace, staged=self._staged)
+        return ResumableSourceManager(
+            self._inputs,
+            self._data_class,
+            namespace=namespace,
+            staged=self._staged,
+            interrupted_job_id=self._interrupted_job_id,
+        )
+
+    def continue_interrupted_job(self, job_id: str) -> None:
+        """Resume from the cursor that `job_id` saved, when this job has no cursor of its own.
+
+        The cursor is keyed by job, and a run that a worker restart ends gets a new job for its
+        next run. Without this, that run starts the sweep again, and a large table never finishes.
+        The caller must make sure that every row before the old cursor reaches the table.
+        """
+        self._interrupted_job_id = job_id
 
     @contextmanager
     def _get_redis(self):
@@ -66,10 +86,34 @@ class ResumableSourceManager(Generic[ResumableData]):
 
         yield redis
 
+    def _key_for_job(self, job_id: str) -> str:
+        base = f"posthog:data_warehouse:resumable_source:{self._inputs.team_id}:{job_id}"
+        return f"{base}:{self._namespace}" if self._namespace else base
+
     @property
     def _key(self) -> str:
-        base = f"posthog:data_warehouse:resumable_source:{self._inputs.team_id}:{self._inputs.job_id}"
-        return f"{base}:{self._namespace}" if self._namespace else base
+        return self._key_for_job(self._inputs.job_id)
+
+    def _get_state(self, redis_client: redis.Redis) -> str | None:
+        """Read this job's cursor, and copy the interrupted job's cursor first if this job has none.
+
+        The copy goes to this job's own key, so the cursor survives when this job is interrupted
+        too, before it commits a cursor of its own.
+        """
+        data = redis_client.get(self._key)
+        if data or self._interrupted_job_id is None:
+            return data
+
+        interrupted_key = self._key_for_job(self._interrupted_job_id)
+        data = redis_client.get(interrupted_key)
+        if not data:
+            return None
+
+        self._logger.info(f"Continuing from the interrupted job's resumable state. key={interrupted_key}")
+        self._write_with_stale_replica_retry(
+            redis_client, functools.partial(redis_client.set, self._key, data, ex=RESUMABLE_STATE_TTL_SECONDS)
+        )
+        return data
 
     def _dump_json(self, data: ResumableData) -> str:
         data_dict = dataclasses.asdict(data)
@@ -137,7 +181,7 @@ class ResumableSourceManager(Generic[ResumableData]):
                 self._logger.debug(f"Saving resumable source state. key={key}")
                 self._write_with_stale_replica_retry(
                     redis_client,
-                    functools.partial(redis_client.set, key, json_data, ex=60 * 60 * 24),  # 24 hours expiration
+                    functools.partial(redis_client.set, key, json_data, ex=RESUMABLE_STATE_TTL_SECONDS),
                 )
                 del self._staged[key]
 
@@ -171,20 +215,25 @@ class ResumableSourceManager(Generic[ResumableData]):
         place would let a later attempt resume mid-stream instead of restarting cleanly.
         """
         self._staged.pop(self._key, None)
+        keys = [self._key]
+        if self._interrupted_job_id is not None:
+            keys.append(self._key_for_job(self._interrupted_job_id))
         with self._get_redis() as redis_client:
-            self._logger.debug(f"Clearing resumable source state. key={self._key}")
-            self._write_with_stale_replica_retry(redis_client, lambda: redis_client.delete(self._key))
+            self._logger.debug(f"Clearing resumable source state. keys={keys}")
+            self._write_with_stale_replica_retry(redis_client, lambda: redis_client.delete(*keys))
 
     def can_resume(self) -> bool:
         with self._get_redis() as redis:
             exists = redis.exists(self._key) == 1
+            if not exists and self._interrupted_job_id is not None:
+                exists = bool(self._get_state(redis))
             self._logger.debug(f"Checking resumable source state. key={self._key}, exists={exists}")
 
             return exists
 
     def load_state(self) -> ResumableData | None:
         with self._get_redis() as redis:
-            data = redis.get(self._key)
+            data = self._get_state(redis)
             if not data:
                 self._logger.debug(f"No resumable source state found. key={self._key}")
                 return None

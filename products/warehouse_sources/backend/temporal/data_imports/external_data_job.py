@@ -91,7 +91,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     TEMPORARY_HOST_RESOLUTION_PREFIX,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UNKNOWN_RESOURCE_PREFIX
-from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    WORKER_RESTART_ERROR_MESSAGE,
+    with_internal_db_retries,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.acquire_v3_lock import (
     AcquireV3LockActivityInputs,
     CheckPipelineVersionActivityInputs,
@@ -329,11 +332,6 @@ UNEXPECTED_ERROR_MESSAGE = "An unexpected error has occurred"
 CANCELLED_RUN_MESSAGE = (
     "This sync run was cancelled before it finished. This usually happens when a newer run replaces "
     "it or the source is paused. It will run again on its next schedule."
-)
-
-WORKER_RESTART_ERROR_MESSAGE = (
-    "This sync run was interrupted too many times by restarts on PostHog's side, so it did not finish. "
-    "It will run again automatically. No action is needed."
 )
 
 TRANSIENT_SOURCE_ERROR_MESSAGE = (
