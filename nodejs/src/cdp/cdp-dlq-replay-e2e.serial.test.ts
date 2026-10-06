@@ -2,6 +2,7 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
+import { randomUUID } from 'crypto'
 import { Message } from 'node-rdkafka'
 
 import { KAFKA_CDP_EVENTS_DLQ, KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
@@ -9,6 +10,7 @@ import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '~/tests/helpers/kafka'
@@ -102,8 +104,8 @@ describe('CDP dead-letter replay', () => {
      * read the event, failed to build it, and wrote the record itself, which is the half of the
      * loop these tests would otherwise take on trust.
      */
-    const parkEvent = async (expected = 1): Promise<Message[]> => {
-        const event = createIncomingEvent(team.id, {})
+    const parkEvent = async (expected = 1, properties?: Record<string, unknown>): Promise<Message[]> => {
+        const event = createIncomingEvent(team.id, properties ? { properties: JSON.stringify(properties) } : {})
         await kafkaProducer.produce({
             topic: eventsTopic,
             value: Buffer.from(JSON.stringify(event)),
@@ -509,5 +511,132 @@ describe('CDP dead-letter replay', () => {
         await waitForExpect(() => {
             expect(drainQueue.queueInvocations).toHaveBeenCalledWith([expect.objectContaining({ functionId: fn.id })])
         }, 30000)
+    })
+
+    it('crashes on a record that still fails, commits nothing, and replays it once the fix is out', async () => {
+        // The consumer loop rejecting is what takes the process down, and Kubernetes restarts it into
+        // the same record until the fix ships. That crash loop is the intended way to block.
+        const broken = await insertHogFunction(hub.postgres, team.id, {
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            type: 'destination',
+            inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
+            inputs: BROKEN_INPUTS,
+        })
+
+        const sourceQueue = createMockJobQueue()
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
+        await parkEvent()
+
+        const blockedQueue = createMockJobQueue()
+        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: blockedQueue,
+            hogflowQueue: blockedQueue,
+        })
+        await replayConsumer.start()
+        await expect((replayConsumer['kafkaConsumer'] as any).consumerLoop).rejects.toThrow('still fail to build')
+        expect(blockedQueue.queueInvocations).not.toHaveBeenCalled()
+
+        // The restart after the fix reads the same record, so the crash committed nothing.
+        await repairInputs(broken)
+        await replayConsumer.stop()
+        const fixedQueue = createMockJobQueue()
+        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: fixedQueue,
+            hogflowQueue: fixedQueue,
+        })
+        await replayConsumer.start()
+
+        await waitForExpect(() => {
+            expect(fixedQueue.queueInvocations).toHaveBeenCalledWith([
+                expect.objectContaining({ functionId: broken.id }),
+            ])
+        }, 30000)
+    })
+
+    it('sends nothing again after a restart, only what was parked since', async () => {
+        // The committed offsets are the only record of what was sent. Without them every scale-up
+        // would send the whole topic again.
+        const broken = await insertHogFunction(hub.postgres, team.id, {
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            type: 'destination',
+            inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
+            inputs: BROKEN_INPUTS,
+        })
+
+        const sourceQueue = createMockJobQueue()
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
+        const [first] = await parkEvent()
+        await repairInputs(broken)
+
+        const firstQueue = createMockJobQueue()
+        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: firstQueue,
+            hogflowQueue: firstQueue,
+        })
+        await replayConsumer.start()
+        await waitForExpect(() => expect(firstQueue.queueInvocations).toHaveBeenCalled(), 30000)
+        await replayConsumer.stop()
+
+        // A record parked while the consumer was down, so the next run has something to read.
+        const later = { ...parseJSON(first.value!.toString()), uuid: randomUUID() }
+        await kafkaProducer.produce({
+            topic: dlqTopic,
+            value: Buffer.from(JSON.stringify(later)),
+            key: Buffer.from(later.uuid),
+            headers: Object.fromEntries(
+                (first.headers ?? []).flatMap((header) =>
+                    Object.entries(header).map(([key, value]) => [key, value.toString()])
+                )
+            ),
+        })
+        await kafkaProducer.flush()
+
+        const secondQueue = createMockJobQueue()
+        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: secondQueue,
+            hogflowQueue: secondQueue,
+        })
+        await replayConsumer.start()
+        await waitForExpect(() => expect(secondQueue.queueInvocations).toHaveBeenCalled(), 30000)
+
+        const replayed = secondQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
+        expect(replayed.map((invocation: any) => invocation.state.globals.event.uuid)).toEqual([later.uuid])
+    })
+
+    it("passes over a record whose source now fails for the owner's reasons", async () => {
+        // A data or limit failure fails the same way on every attempt. Blocking on it would wedge the
+        // consumer on a record no fix of ours can clear.
+        const fn = await insertHogFunction(hub.postgres, team.id, {
+            ...HOG_EXAMPLES.simple_fetch,
+            ...HOG_FILTERS_EXAMPLES.no_filters,
+            type: 'destination',
+            inputs_schema: [{ key: 'url', type: 'string', label: 'Webhook URL', required: true }],
+            inputs: BROKEN_INPUTS,
+        })
+
+        const sourceQueue = createMockJobQueue()
+        await startEventsConsumer({ hogQueue: sourceQueue, hogflowQueue: sourceQueue })
+        const records = await parkEvent(1, { payload: '{' })
+
+        // Our bug is fixed, but the owner has since added a filter that cannot parse this event.
+        await repairInputs(fn)
+        await hub.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_hogfunction SET filters = $1 WHERE id = $2`,
+            [JSON.stringify(HOG_FILTERS_EXAMPLES.filters_bad_event_json.filters), fn.id],
+            'owner-breaks-the-filter'
+        )
+
+        const replayQueue = createMockJobQueue()
+        replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: replayQueue,
+            hogflowQueue: replayQueue,
+        })
+
+        await expect(replayConsumer.replayBatch(records)).resolves.toBeUndefined()
+        const queued = replayQueue.queueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
+        expect(queued).toEqual([])
     })
 })
