@@ -75,6 +75,7 @@ export interface marketingAnalyticsTilesLogicValues {
     baseCurrency: CurrencyCode // marketingAnalyticsLogic
     chartDisplayType: ChartDisplayType // marketingAnalyticsLogic
     compareFilter: CompareFilter // marketingAnalyticsLogic
+    conversion_goals: ConversionGoalFilter[] // marketingAnalyticsLogic
     createMarketingDataWarehouseNodes: DataWarehouseNode[] // marketingAnalyticsLogic
     dateFilter: {
         dateFrom: string | null
@@ -124,7 +125,8 @@ export interface marketingAnalyticsTilesLogicMeta {
             tileColumnSelection: validColumnsForTiles,
             baseCurrency: CurrencyCode,
             integrationFilter: IntegrationFilter,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            conversion_goals: ConversionGoalFilter[]
         ) => QueryTile
         campaignBreakdownTile: (
             campaignCostsBreakdown: DataTableNode | null,
@@ -179,6 +181,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 'drillDownLevel',
                 'baseCurrency',
                 'includeConversionGoals',
+                'conversion_goals',
             ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
@@ -240,6 +243,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.baseCurrency,
                 s.integrationFilter,
                 s.featureFlags,
+                s.conversion_goals,
             ],
             (
                 compareFilter: CompareFilter | null,
@@ -249,7 +253,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 tileColumnSelection: validColumnsForTiles,
                 baseCurrency: CurrencyCode,
                 integrationFilter: IntegrationFilter,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                conversion_goals: ConversionGoalFilter[]
             ): QueryTile => {
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
                 const hasSources = createMarketingDataWarehouseNodes.length > 0
@@ -270,7 +275,13 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 // the view collapses each cell to its latest job via argMax. `grain = 'campaign'` avoids
                 // double-counting the ad-group/ad grains; `expires_at > today()` keeps only fresh rows. The
                 // view exposes a virtual `timestamp` (cost_date as DateTime) so a DataWarehouseNode can target it.
-                const costsPrecomputeEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]
+                // User reads never write cost rows, so only the hourly warmer fills the table. The warmer
+                // covers teams with a conversion goal and the precomputation flag. Other teams have no rows,
+                // and this chart has no live fallback, so it would render empty while the other tiles read live.
+                const costsPrecomputeEnabled =
+                    !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION] &&
+                    !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_PRECOMPUTATION] &&
+                    conversion_goals.length > 0
                 const selectedSourceIds = integrationFilter.integrationSourceIds || []
                 // Typed property filter, not raw HogQL interpolation: source IDs come from the
                 // integration_sources URL param, so embedding them in a HogQL string would allow
