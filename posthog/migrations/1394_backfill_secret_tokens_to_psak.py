@@ -19,13 +19,17 @@ def _fallback_label(label: str, secure_value: str) -> str:
     return f"{label} {secure_value[-8:]}"
 
 
-def _flush(ProjectSecretAPIKey, db, pending: list, revoked: set) -> int:
-    """Insert one chunk with three queries, so row locks last seconds overall instead
+def _flush(ProjectSecretAPIKey, RevokedTeamSecretToken, db, pending: list) -> int:
+    """Insert one chunk with four queries, so row locks last seconds overall instead
     of one round trip per token."""
-    existing = revoked | set(
-        ProjectSecretAPIKey.objects.using(db)
-        .filter(secure_value__in=[key.secure_value for key in pending])
-        .values_list("secure_value", flat=True)
+    hashes = [key.secure_value for key in pending]
+    existing = set(
+        ProjectSecretAPIKey.objects.using(db).filter(secure_value__in=hashes).values_list("secure_value", flat=True)
+    )
+    # Read per chunk, not once up front: a mirror row deleted by leak revocation must
+    # stay dead, including revocations that commit while this migration runs.
+    existing |= set(
+        RevokedTeamSecretToken.objects.using(db).filter(secure_value__in=hashes).values_list("secure_value", flat=True)
     )
     # A customer may already use these exact labels; (team, label) is unique.
     candidate_labels = {key.label for key in pending} | {
@@ -67,9 +71,6 @@ def backfill_tokens(apps, schema_editor):
     # Production applies migrations on a dedicated alias; unpinned managers would write
     # to "default", outside this migration's transaction.
     db = schema_editor.connection.alias
-    # A mirror row deleted by leak revocation must stay dead: recreating it would
-    # revive a leaked token nobody rotated yet.
-    revoked = set(RevokedTeamSecretToken.objects.using(db).values_list("secure_value", flat=True))
 
     teams = (
         Team.objects.using(db)
@@ -98,10 +99,10 @@ def backfill_tokens(apps, schema_editor):
                 )
             )
         if len(pending) >= BATCH_SIZE:
-            created_total += _flush(ProjectSecretAPIKey, db, pending, revoked)
+            created_total += _flush(ProjectSecretAPIKey, RevokedTeamSecretToken, db, pending)
             pending = []
     if pending:
-        created_total += _flush(ProjectSecretAPIKey, db, pending, revoked)
+        created_total += _flush(ProjectSecretAPIKey, RevokedTeamSecretToken, db, pending)
 
     logger.info("backfilled_secret_tokens_to_psak", created_rows=created_total)
 
