@@ -467,7 +467,7 @@ def _mapping_kind(person_uuid: str, pg_version: int, state: _ChMappingState | No
         return "hidden"
     if state.winner_person_uuid != person_uuid:
         return "other_person"
-    # The right owner today, but a later move of this mapping is written below the ClickHouse winner and lost.
+    # The owner matches, but a later move of this mapping would be written below the ClickHouse winner and lost.
     if state.max_version > pg_version:
         return "stale"
     return None
@@ -598,7 +598,6 @@ def _raise_mapping_version_floor(team_id: int, distinct_id: str, min_version: in
 
 
 def _primary_mapping_versions(team_id: int, person_id: int) -> dict[str, int]:
-    """The live mappings of a person with their stored versions, read from the primary."""
     response = personhog_call(
         "person_divergence_confirm_mapping_versions",
         lambda: require_personhog_client().get_distinct_ids_for_persons(
@@ -707,8 +706,8 @@ def _execute_plan(
         before_write()
         _raise_person_version_floor(plan.team_id, person.pk, plan.target_version)
 
-    # The floor RPC reads the primary, so its answer is the owner check: the replica list that
-    # produced this mapping can be behind a merge that moved it to another person.
+    # SetPersonDistinctIdVersionFloor runs on the primary, so its reply is the owner check: the replica list
+    # that produced this mapping can lag a merge that moved it to another person.
     owned: list[_MappingPlan] = []
     for mapping in divergent_mappings:
         before_write()
@@ -746,8 +745,9 @@ def _execute_plan(
         published(_publish_person(plan.team_id, reread))
         person_outcome = "repaired"
 
-    # The floor call does not say whether it wrote, and a replica without the NULL-version fix leaves a NULL
-    # stored version untouched, so publish only the mappings whose version on the primary reached the target.
+    # The SetPersonDistinctIdVersionFloor reply does not say whether it wrote, and a personhog-replica build
+    # without NULL-version handling leaves a NULL version unchanged, so publish only the mappings whose
+    # version on the primary reached the target.
     stored_versions = _primary_mapping_versions(plan.team_id, person.pk) if owned else {}
     for mapping in owned:
         stored_version = stored_versions.get(mapping.distinct_id)
@@ -827,15 +827,12 @@ def repair_persons(
 ) -> RepairSummary:
     """Republish the Postgres state of each target person and its mappings where ClickHouse disagrees.
 
-    Without ``apply`` nothing is written and every planned action is reported as ``would_repair``.
-    A person that is in sync with Postgres is left untouched. A rerun is safe: every write is
-    guarded by a version floor, and a person whose earlier publish never landed is still divergent.
-    ``max_writes_per_second`` paces every version-floor write on the persons primary, one per
-    divergent person or distinct id, so a person with many distinct ids cannot burst past it.
+    A rerun is safe: each Postgres write only raises a version, and a person whose publish never landed
+    still counts as divergent. ``max_writes_per_second`` paces each Postgres write, one per divergent
+    person or distinct id.
 
-    A stale person is skipped with its mappings unless ``include_stale`` is set, because its repair
-    replaces the ClickHouse properties with the Postgres ones for good, and a team waiting for a
-    restore from its ClickHouse rows needs the ClickHouse ones.
+    ``include_stale`` also repairs stale persons and their mappings. That replaces their ClickHouse properties
+    with the Postgres ones for good, so never use it on a team waiting for a restore from ClickHouse.
     """
     if max_writes_per_second is not None and max_writes_per_second <= 0:
         raise ValueError("max_writes_per_second must be above 0")

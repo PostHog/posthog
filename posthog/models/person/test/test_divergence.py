@@ -554,7 +554,7 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # A replica without the NULL-version fix leaves the stored version where it was.
+            # A personhog-replica build without NULL-version handling leaves the stored version unchanged.
             ("floor_not_applied", None, "skipped_reread_lagging", 2, (1, 100)),
             # A concurrent write took the mapping past the target, so the publish carries the stored version.
             ("stored_past_the_target", 5, "repaired", 106, (0, 106)),
