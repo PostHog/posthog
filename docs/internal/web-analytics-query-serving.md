@@ -288,3 +288,8 @@ Join the attributed `source_id` to source sync usage and the project's billing c
 Use billable usage and actual invoice amounts, including free allowances and adjustments; a created source or a click is not revenue.
 Deduplicate source IDs before allocating revenue and keep acquisition (`has_connected_sources = false`) separate from expansion.
 This is click attribution, not proof of incremental revenue. Measure incrementality with a randomized holdout at the billing-customer level so projects from one customer do not appear in both groups.
+
+## Campaign breakdown display
+
+Campaign breakdown results have a maximum height of 36rem and scroll within the table area.
+The search, grouping, and column controls remain above the scroll area.
