@@ -3,15 +3,21 @@ import { IconGraph, IconLifecycle, IconMagicWand, IconPieChart, IconPulse, IconT
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Icon123, IconAreaChart, IconDonutChart, IconHeatmap, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { dateMapping } from 'lib/utils/dateFilters'
 
-import { ChartDisplayType } from '~/types'
+import { BIAggregation, BIDateBucket, BIFilterOperator } from '~/queries/schema/schema-business-intelligence'
+import { ChartDisplayType, DateMappingOption } from '~/types'
 
-import {
-    BIAggregation,
-    BIDateBucket,
-    BIFilterOperator,
-    BI_QUERY_LIMITS,
-} from 'products/business_intelligence/frontend/biEditorTypes'
+import { BI_QUERY_LIMITS } from 'products/business_intelligence/frontend/biEditorTypes'
+
+export const BI_DATE_OPTIONS: DateMappingOption[] = [
+    ...dateMapping
+        .filter((option) => option.key !== 'All time')
+        .map((option) => (option.key === 'This year' ? { ...option, key: 'Year to date' } : option)),
+    { key: 'This quarter', values: ['qStart'], defaultInterval: 'week' },
+    { key: 'Last quarter', values: ['-1qStart', '-1qEnd'], defaultInterval: 'week' },
+    { key: 'All time', values: ['all'], defaultInterval: 'month' },
+]
 
 export const CHART_TYPE_OPTIONS: { value: ChartDisplayType; label: string; icon: JSX.Element }[] = [
     { value: ChartDisplayType.Auto, label: 'Automatic', icon: <IconMagicWand /> },

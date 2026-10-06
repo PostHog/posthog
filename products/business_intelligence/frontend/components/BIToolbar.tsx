@@ -1,19 +1,29 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useValues, useMountedLogic } from 'kea'
 
 import { IconSort } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonDropdown, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { IconArrowDown, IconArrowUp, IconSwapHoriz } from 'lib/lemon-ui/icons'
-import { RunButton } from 'scenes/data-warehouse/editor/RunButton'
-import { Scene } from 'scenes/sceneTypes'
+
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { BISortDirection } from '~/queries/schema/schema-business-intelligence'
 
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 import { LIMIT_OPTIONS } from 'products/business_intelligence/frontend/biEditorOptions'
-import { BISortDirection } from 'products/business_intelligence/frontend/biEditorTypes'
+import { biSceneLogic } from 'products/business_intelligence/frontend/biSceneLogic'
 import { BIShowMe } from 'products/business_intelligence/frontend/components/BIShowMe'
 
+import { BIDateControls } from './BIDateControls'
+
 export function BIToolbar(): JSX.Element {
-    const { autoUpdate, config, showMeOpen, sortOptions } = useValues(biEditorLogic)
+    const editor = useMountedLogic(biEditorLogic)
+    const scene = biSceneLogic({ tabId: editor.props.tabId })
+    const { dataNodeKey, lastRunQuery, worksheet } = useValues(scene)
+    const { runQuery, cancelQuery } = useActions(scene)
+    const { responseLoading } = useValues(
+        dataNodeLogic({ key: dataNodeKey, query: (lastRunQuery ?? worksheet).source, autoLoad: !!lastRunQuery })
+    )
+    const { autoUpdate, config, generatedQuery, showMeOpen, sortOptions } = useValues(biEditorLogic)
     const { resetConfig, setAutoUpdate, setLimit, setShowMeOpen, setSort, swapRowsAndColumns } =
         useActions(biEditorLogic)
 
@@ -28,10 +38,21 @@ export function BIToolbar(): JSX.Element {
 
     return (
         <div className="flex flex-wrap items-center gap-1 border-b px-2 py-1">
-            <RunButton
-                scope={Scene.BusinessIntelligence}
-                runQueryDisabledReason={!config.source ? 'Select a table before running' : undefined}
-            />
+            <LemonButton
+                size="small"
+                type="primary"
+                onClick={responseLoading ? cancelQuery : runQuery}
+                disabledReason={
+                    !config.source
+                        ? 'Select a table before running'
+                        : !generatedQuery
+                          ? 'Fix invalid worksheet fields before running'
+                          : undefined
+                }
+                data-attr="bi-editor-run-query"
+            >
+                {responseLoading ? 'Cancel' : 'Run'}
+            </LemonButton>
             <LemonButton
                 icon={<IconSwapHoriz />}
                 size="small"
@@ -98,6 +119,8 @@ export function BIToolbar(): JSX.Element {
                 dropdownMatchSelectWidth={false}
                 data-attr="bi-editor-query-limit"
             />
+            <LemonDivider vertical />
+            <BIDateControls />
             <LemonDivider vertical />
             <LemonButton
                 size="small"

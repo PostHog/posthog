@@ -126,6 +126,7 @@ the row lists both.
 | aws_step_functions               | HTTP                        | requests                                                        | ✅                          |
 | aws_systems_manager              | HTTP                        | requests                                                        | ✅                          |
 | aws_waf                          | HTTP                        | requests                                                        | ✅                          |
+| axiom                            | HTTP                        | requests                                                        | ✅                          |
 | azure_application_insights       | HTTP                        | requests                                                        | ✅                          |
 | azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
@@ -196,6 +197,7 @@ the row lists both.
 | checkmarx                        | HTTP                        | requests                                                        | ✅                          |
 | checkout_com                     | HTTP                        | requests                                                        | ✅                          |
 | churnkey                         | HTTP                        | requests                                                        | ✅                          |
+| clarifai                         | HTTP                        | requests                                                        | ✅                          |
 | clever                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | cliniko                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | clip                             | HTTP                        | requests                                                        | ✅                          |
@@ -991,7 +993,6 @@ doesn't conflict with concurrent PRs.
 - aws_support
 - aws_trusted_advisor
 - aws_xray
-- axiom
 - azure_activity_log
 - azure_advisor
 - azure_api_management
@@ -1039,7 +1040,6 @@ doesn't conflict with concurrent PRs.
 - cin7
 - circle_so
 - cisco_meraki
-- clarifai
 - classy
 - clazar
 - cleartax
@@ -1447,6 +1447,7 @@ doesn't conflict with concurrent PRs.
 - tenjin
 - terabox
 - ternary
+- tessitura
 - terra_api
 - thinkific_courses
 - thoughtspot
