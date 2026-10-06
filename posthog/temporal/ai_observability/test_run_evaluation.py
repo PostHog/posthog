@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.core.cache import cache
 from django.test import override_settings
 
 import httpx
@@ -44,6 +45,11 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
     UnsupportedModelError,
+)
+from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
+from products.ai_observability.backend.llm.providers.openrouter import (
+    NON_CHAT_MODELS_CACHE_KEY,
+    NON_CHAT_MODELS_LAST_GOOD_CACHE_KEY,
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
@@ -329,8 +335,49 @@ def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enable
         complete.assert_not_called()
     else:
         assert result["verdict"] is True
-        catalogue.assert_not_called()
+        catalogue.assert_called_once_with(refresh=False)
     decide.assert_not_called()
+
+
+@pytest.mark.parametrize("flag", [False, None])
+@pytest.mark.parametrize("cached", [True, False])
+def test_openrouter_decision_model_with_disabled_flag_skips_without_disabling(flag: bool | None, cached: bool) -> None:
+    cache.delete_many([NON_CHAT_MODELS_CACHE_KEY, NON_CHAT_MODELS_LAST_GOOD_CACHE_KEY])
+    model = "example/decision"
+    if cached:
+        cache.set(NON_CHAT_MODELS_LAST_GOOD_CACHE_KEY, {model: ["decisions"]}, timeout=None)
+    key = MagicMock(provider="openrouter", encrypted_config={"api_key": "example-token"})
+    try:
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+            patch(
+                "posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag
+            ),
+            patch.object(OpenAIAdapter, "complete", side_effect=ModelNotFoundError(model)) as complete,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.DecisionClient.evaluate") as decide,
+            patch("products.ai_observability.backend.llm.providers.openrouter.httpx.get") as catalogue,
+        ):
+            spec.return_value.resolve.return_value = MagicMock(
+                provider="openrouter", model=model, provider_key=key, is_byok=True
+            )
+            catalogue.return_value.json.return_value = {
+                "data": [{"id": model, "architecture": {"output_modalities": ["decisions"]}}]
+            }
+            result = call_llm_judge(
+                evaluation={"team_id": 1, "evaluation_config": {"prompt": "Is the response polite?"}},
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+            )
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "system_one_unavailable"
+        assert "terminal_user_error" not in result
+        assert "provider_key_state" not in result
+        assert complete.call_count == (0 if cached else 1)
+        assert catalogue.call_count == (0 if cached else 1)
+        decide.assert_not_called()
+    finally:
+        cache.delete_many([NON_CHAT_MODELS_CACHE_KEY, NON_CHAT_MODELS_LAST_GOOD_CACHE_KEY])
 
 
 @pytest.mark.parametrize(

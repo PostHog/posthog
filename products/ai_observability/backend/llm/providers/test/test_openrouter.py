@@ -14,6 +14,7 @@ from products.ai_observability.backend.llm.errors import (
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
 from products.ai_observability.backend.llm.providers.openrouter import (
     NON_CHAT_MODELS_CACHE_KEY,
+    NON_CHAT_MODELS_LAST_GOOD_CACHE_KEY,
     OPENROUTER_HEADERS,
     OpenRouterAdapter,
     _non_chat_model_ids,
@@ -223,15 +224,40 @@ class TestOpenRouterNonChatModels:
                 }
             )
 
-    def test_catalogue_failure_is_cached_briefly(self) -> None:
+    @pytest.mark.parametrize("cached_decisions", [None, False, True])
+    def test_catalogue_failure_keeps_last_success_and_recovers(self, cached_decisions: bool | None) -> None:
         cache.delete(NON_CHAT_MODELS_CACHE_KEY)
+        cache.delete(NON_CHAT_MODELS_LAST_GOOD_CACHE_KEY)
         try:
             with patch(
                 "products.ai_observability.backend.llm.providers.openrouter.httpx.get",
-                side_effect=httpx.ConnectError("down"),
             ) as mock_get:
-                assert _non_chat_model_ids() is None
-                assert _non_chat_model_ids() is None
-            assert mock_get.call_count == 1
+                expected: frozenset[str] | None = None
+                if cached_decisions is not None:
+                    mock_get.return_value.json.return_value = {
+                        "data": [{"id": "example/decision", "architecture": {"output_modalities": ["decisions"]}}]
+                        if cached_decisions
+                        else []
+                    }
+                    expected = frozenset({"example/decision"}) if cached_decisions else frozenset()
+                    assert decision_model_ids() == expected
+                    cache.delete(NON_CHAT_MODELS_CACHE_KEY)
+                    mock_get.reset_mock()
+
+                mock_get.side_effect = httpx.ConnectError("down")
+                assert decision_model_ids() == expected
+                assert decision_model_ids() == expected
+                mock_get.assert_called_once()
+
+                cache.delete(NON_CHAT_MODELS_CACHE_KEY)
+                mock_get.side_effect = None
+                mock_get.return_value.json.return_value = {
+                    "data": [{"id": "example/replacement", "architecture": {"output_modalities": ["decisions"]}}]
+                }
+                assert decision_model_ids() == frozenset({"example/replacement"})
+                cache.delete(NON_CHAT_MODELS_CACHE_KEY)
+                mock_get.side_effect = httpx.ConnectError("down")
+                assert decision_model_ids() == frozenset({"example/replacement"})
         finally:
             cache.delete(NON_CHAT_MODELS_CACHE_KEY)
+            cache.delete(NON_CHAT_MODELS_LAST_GOOD_CACHE_KEY)

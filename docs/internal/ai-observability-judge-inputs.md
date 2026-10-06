@@ -77,9 +77,12 @@ The catalogue does not expose supported question types. If a model rejects a req
 Support added by a provider works on subsequent runs without a PostHog code change.
 Chat models such as Jev Router keep using chat completions.
 Decision models are excluded from the playground and tagger model pickers.
-For projects with this flag enabled, an unavailable catalogue makes OpenRouter runs retry rather than guess which API to call.
+The catalogue refreshes hourly and keeps its last successful response when a refresh fails, retrying refreshes after one minute.
+For projects with this flag enabled, an unavailable catalogue makes OpenRouter runs retry only when no successful response is cached.
 These projects also need the catalogue when changing a model or output configuration, changing the evaluation type, or enabling an evaluation.
-Renaming or disabling an evaluation does not require the catalogue. Projects without the flag keep the existing chat path.
+Renaming or disabling an evaluation does not require the catalogue.
+With the flag off or unavailable, cached decision models skip their runs without calling either API or disabling the evaluation.
+Other OpenRouter models keep the existing chat path without a catalogue refresh. If a failed chat call identifies a decision model, that run also skips without disabling the evaluation.
 An out-of-credits response disables the evaluation and marks its provider key as failing, as on the chat path.
 For other compatible services, add a connection under **System One** in provider key settings.
 Enter the public HTTPS base URL and model ID of a compatible service; neither has a default.
