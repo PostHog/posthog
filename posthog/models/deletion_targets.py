@@ -216,6 +216,10 @@ FLAG_EVALUATIONS = DeletionTarget(
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
 PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
 
+# The targets deletes_job sweeps and deletion requests verify by default. Leaving a target out
+# keeps it registered while its rows stay in place; see COVERAGE_DOC.
+DEFAULT_DELETION_TARGETS: tuple[DeletionTarget, ...] = PERSONAL_DATA_TARGETS
+
 # Every table squash_person_overrides rewrites person_id on. Derived from the capability rather than
 # listed by hand, so registering a target and forgetting the squash is not expressible.
 SQUASH_TARGETS: tuple[DeletionTarget, ...] = tuple(

@@ -39,6 +39,7 @@ from posthog.dataclasses import frozen
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.deletion_targets import (
     COVERAGE_DOC,
+    DEFAULT_DELETION_TARGETS,
     EVENTS_TARGETS,
     PERSONAL_DATA_TARGETS,
     DeletionTarget,
@@ -105,14 +106,16 @@ class DeleteConfig(dagster.Config):
 
 class SweepTargetsConfig(dagster.Config):
     skip_targets: list[str] = pydantic.Field(
-        default_factory=list,
+        default_factory=lambda: [
+            target.data_table for target in PERSONAL_DATA_TARGETS if target not in DEFAULT_DELETION_TARGETS
+        ],
         description="Deletion targets to leave out of this run, named by either their storage or "
         'their read table, e.g. ["sharded_events_json"] or ["events_json"]. A skipped target gets '
         "no dictionary, no mutation and no survivor count, and a cluster only it lives on is not "
         "addressed at all. Its rows stay readable while the requests covering them are still "
         "marked verified, so only skip a target whose rows you accept leaving in place. An "
         "unrecognised name fails the run rather than silently sweeping every target. Defaults to "
-        "sweeping every registered target.",
+        "the targets outside DEFAULT_DELETION_TARGETS; pass [] to sweep every registered target.",
     )
 
 
@@ -1295,7 +1298,7 @@ def cleanup_old_events_by_partition(
         return
 
     total_partitions = len(partitions)
-    # Both events tables partition by month of timestamp, so the same partition list applies;
+    # Both events tables partition by toYYYYMM(timestamp), so the same partition list applies;
     # deleting IN PARTITION on a partition a table doesn't have is a no-op.
     #
     # Events only, deliberately: this enforces a multi-year retention floor for a named set of

@@ -827,7 +827,7 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     from posthog.clickhouse.query_tagging import Feature, Product, tags_context
     from posthog.clickhouse.workload import Workload
     from posthog.models.deletion_targets import (
-        PERSONAL_DATA_TARGETS,
+        DEFAULT_DELETION_TARGETS,
         resolve_read_targets_via_sync_execute,
         surviving_rows_sql,
     )
@@ -841,7 +841,7 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
         workload=Workload.OFFLINE,
         query_type="data_deletion_request_verify_queued",
     ):
-        for target in resolve_read_targets_via_sync_execute(PERSONAL_DATA_TARGETS):
+        for target in resolve_read_targets_via_sync_execute(DEFAULT_DELETION_TARGETS):
             if not target.may_hold_any_of(events):
                 continue
             if target.accepts_hogql_predicate:

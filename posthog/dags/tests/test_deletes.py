@@ -42,7 +42,7 @@ from posthog.dags.deletes import (
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.deletion_targets import EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
+from posthog.models.deletion_targets import DEFAULT_DELETION_TARGETS, EVENTS, PERSONAL_DATA_TARGETS, TargetPlacement
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
 
@@ -1215,10 +1215,12 @@ def test_skip_targets_drops_a_target_named_by_either_of_its_tables(skip_targets,
     assert resolve_sweep_targets(context) == expected
 
 
-def test_every_registered_target_is_swept_by_default() -> None:
-    # A default skip leaves rows in place while the requests covering them are marked verified, and
-    # nothing else in a run says which targets it was supposed to reach.
-    assert resolve_sweep_targets(build_op_context()) == [target.data_table for target in PERSONAL_DATA_TARGETS]
+def test_events_json_is_swept_by_default() -> None:
+    # Skipping a target by default leaves its rows in place while the requests covering them are
+    # marked verified, and nothing else in a run says which targets it was supposed to reach.
+    expected = ["sharded_events", "sharded_events_json", "sharded_flag_evaluations"]
+    assert resolve_sweep_targets(build_op_context()) == expected
+    assert [target.data_table for target in DEFAULT_DELETION_TARGETS] == expected
 
 
 def test_an_unrecognised_skip_target_fails_the_run() -> None:
