@@ -20,9 +20,14 @@ function layoutOf(): ReturnType<typeof computeSankeyLayout> {
     })
 }
 
-/** Records stroke colors. Like a browser canvas it only accepts colors it can parse. */
-function recordingCtx(serialize: Record<string, string>): { ctx: CanvasRenderingContext2D; strokes: string[] } {
+/** Records stroke colors and filled rects. Like a browser canvas it only accepts colors it can parse. */
+function recordingCtx(serialize: Record<string, string>): {
+    ctx: CanvasRenderingContext2D
+    strokes: string[]
+    fills: string[]
+} {
     const strokes: string[] = []
+    const fills: string[] = []
     let fill = '#000000'
     let stroke = '#000000'
     const ctx = {
@@ -45,10 +50,10 @@ function recordingCtx(serialize: Record<string, string>): { ctx: CanvasRendering
         bezierCurveTo: () => {},
         save: () => {},
         restore: () => {},
-        fillRect: () => {},
+        fillRect: () => fills.push(fill),
         stroke: () => strokes.push(stroke),
     } as unknown as CanvasRenderingContext2D
-    return { ctx, strokes }
+    return { ctx, strokes, fills }
 }
 
 describe('drawSankeyHover', () => {
@@ -74,10 +79,11 @@ describe('drawSankeyHover', () => {
         }
     )
 
-    it('leaves a transparent ribbon to the static layer instead of mixing NaN channels', () => {
+    it('leaves a transparent ribbon and node to the static layer instead of mixing NaN channels', () => {
         const layout = layoutOf()
         layout.links[1].color = 'transparent'
-        const { ctx, strokes } = recordingCtx({ [BACKGROUND]: '#202023' })
+        layout.nodes.find((node) => node.id === 'c')!.color = 'transparent'
+        const { ctx, strokes, fills } = recordingCtx({ [BACKGROUND]: '#202023' })
         drawSankeyHover(ctx, layout, sankeyActiveFlow(layout, { kind: 'link', index: 0 }), {
             linkOpacity: 0.4,
             backgroundColor: BACKGROUND,
@@ -85,5 +91,6 @@ describe('drawSankeyHover', () => {
         })
 
         expect(strokes).toHaveLength(1)
+        expect(fills).toHaveLength(2)
     })
 })
