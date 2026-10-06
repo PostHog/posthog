@@ -17,41 +17,47 @@ def frame_contents(raw_id: str, code_variables: dict[str, object] | None = None)
     return contents
 
 
+def run_command(
+    *,
+    live_run: bool = True,
+    team_ids: str = "",
+    exclude_team_ids: str = "",
+    start_at_team_id: int | None = None,
+    start_after_raw_id: str | None = None,
+) -> None:
+    Command().handle(
+        live_run=live_run,
+        batch_size=1,
+        team_ids=team_ids,
+        exclude_team_ids=exclude_team_ids,
+        start_at_team_id=start_at_team_id,
+        start_after_raw_id=start_after_raw_id,
+    )
+
+
 class TestMaskErrorTrackingStackFrameCodeVariables(BaseTest):
+    def frame(self, team: Team, raw_id: str, code_variables: dict[str, object] | None) -> ErrorTrackingStackFrame:
+        return ErrorTrackingStackFrame.objects.create(
+            team=team, raw_id=raw_id, contents=frame_contents(raw_id, code_variables), resolved=True
+        )
+
     def test_masks_every_team_except_the_excluded_ones(self) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second team")
         excluded_team = Team.objects.create(organization=self.organization, name="Excluded team")
         frames = {
-            "first": ErrorTrackingStackFrame.objects.create(
-                team=self.team, raw_id="frame-a", contents=frame_contents("frame-a", UNMASKED), resolved=True
-            ),
-            "second": ErrorTrackingStackFrame.objects.create(
-                team=second_team, raw_id="frame-a", contents=frame_contents("frame-a", UNMASKED), resolved=True
-            ),
-            "clean": ErrorTrackingStackFrame.objects.create(
-                team=self.team, raw_id="frame-b", contents=frame_contents("frame-b"), resolved=True
-            ),
-            "excluded": ErrorTrackingStackFrame.objects.create(
-                team=excluded_team, raw_id="frame-a", contents=frame_contents("frame-a", UNMASKED), resolved=True
-            ),
+            "first": self.frame(self.team, "frame-a", UNMASKED),
+            "second": self.frame(second_team, "frame-a", UNMASKED),
+            "clean": self.frame(self.team, "frame-b", None),
+            "excluded": self.frame(excluded_team, "frame-a", UNMASKED),
         }
 
-        def run(*, live_run: bool) -> None:
-            Command().handle(
-                live_run=live_run,
-                batch_size=1,
-                exclude_team_ids=str(excluded_team.id),
-                start_at_team_id=None,
-                start_after_raw_id=None,
-            )
-
-        run(live_run=False)
+        run_command(live_run=False, exclude_team_ids=str(excluded_team.id))
 
         for frame in frames.values():
             frame.refresh_from_db()
         assert frames["first"].contents == frame_contents("frame-a", UNMASKED)
 
-        run(live_run=True)
+        run_command(exclude_team_ids=str(excluded_team.id))
 
         for frame in frames.values():
             frame.refresh_from_db()
@@ -59,3 +65,25 @@ class TestMaskErrorTrackingStackFrameCodeVariables(BaseTest):
         assert frames["second"].contents == frame_contents("frame-a", MASKED)
         assert frames["clean"].contents == frame_contents("frame-b")
         assert frames["excluded"].contents == frame_contents("frame-a", UNMASKED)
+
+    def test_masks_only_the_listed_teams(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        listed = self.frame(self.team, "frame-a", UNMASKED)
+        unlisted = self.frame(other_team, "frame-a", UNMASKED)
+
+        run_command(team_ids=str(self.team.id))
+
+        listed.refresh_from_db()
+        unlisted.refresh_from_db()
+        assert listed.contents == frame_contents("frame-a", MASKED)
+        assert unlisted.contents == frame_contents("frame-a", UNMASKED)
+
+    def test_resume_cursor_applies_only_to_the_start_team(self) -> None:
+        # The start team holds no frames, so the walk moves on to the next team, which the cursor must not skip.
+        next_team = Team.objects.create(organization=self.organization, name="Next team")
+        frame = self.frame(next_team, "frame-a", UNMASKED)
+
+        run_command(start_at_team_id=self.team.id, start_after_raw_id="frame-z")
+
+        frame.refresh_from_db()
+        assert frame.contents == frame_contents("frame-a", MASKED)
