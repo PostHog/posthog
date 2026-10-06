@@ -47,7 +47,6 @@ from posthog.models.deletion_targets import (
     surviving_rows_sql,
     sweep_clusters,
 )
-from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_TABLE,
@@ -1252,22 +1251,26 @@ def find_partitions_to_cleanup(
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> list[int]:
     """Find partitions that contain old events for the specified teams."""
-    query = f"""
-        SELECT toYYYYMM(timestamp) as partition, count(1) as rows
-        FROM {EVENTS_DATA_TABLE()}
-        WHERE team_id IN %(team_ids)s
-        AND age('month', timestamp, now()) >= %(min_age_months)s
-        GROUP BY partition
-        ORDER BY partition DESC
-    """
-
     parameters = {
         "team_ids": config.team_ids,
         "min_age_months": config.min_age_months,
     }
 
-    results = cluster.any_host_by_role(Query(query, parameters=parameters), NodeRole.DATA).result()
-    partitions = [partition for partition, _rows in results]
+    # Each events table is read on its own cluster: a month can hold old rows in one table and none
+    # in the other, and the cleanup only visits the months found here.
+    found: set[int] = set()
+    for placement in resolve_placements(cluster, EVENTS_TARGETS):
+        query = f"""
+            SELECT DISTINCT toYYYYMM(timestamp) as partition
+            FROM {placement.target.data_table}
+            WHERE team_id IN %(team_ids)s
+            AND age('month', timestamp, now()) >= %(min_age_months)s
+        """
+        results = placement.cluster.any_host_by_role(
+            Query(query, parameters=parameters), placement.cluster.shard_role
+        ).result()
+        found.update(partition for (partition,) in results)
+    partitions = sorted(found, reverse=True)
 
     context.add_output_metadata(
         {

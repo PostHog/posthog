@@ -1613,6 +1613,10 @@ def _target_presence_clause(
             if target.json_schema
             else _property_filter_clause(deletion_request.properties)
         )
+    elif target.json_schema and deletion_request.person_properties:
+        # Matches the selection in _property_removal_where: quarantined raw properties can hold a
+        # $set copy of a person property, and the copy does not clean them.
+        clauses.append(json_property_presence_expr("properties", UNPARSEABLE_PROPERTIES_KEY))
     if deletion_request.person_properties:
         clauses.append(
             _json_property_filter_clause(deletion_request.person_properties, column="person_properties")
