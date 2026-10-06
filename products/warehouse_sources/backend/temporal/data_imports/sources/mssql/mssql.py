@@ -1347,6 +1347,11 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         keyset = setup.keyset
         if manager is not None and keyset.reason is not None and not should_use_incremental_field:
             logger.info(f"MSSQL keyset resume unavailable: reason={keyset.reason}")
+        if manager is not None and keyset.columns is not None and manager.can_resume():
+            state = manager.load_state()
+            if state is None or not state.last_key or state.key_columns != keyset.columns:
+                logger.info("MSSQL keyset checkpoint does not match the selected key; restarting the read")
+                manager.clear_state()
 
         # A resumed incremental read repeats the rows at its checkpoint value. Only a merge on a
         # primary key drops them, so an append sync and a table without a key restart from the

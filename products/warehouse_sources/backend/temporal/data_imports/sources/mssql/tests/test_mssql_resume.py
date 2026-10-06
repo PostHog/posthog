@@ -339,7 +339,12 @@ class TestKeysetFullRefresh:
         manager.save_state(MSSQLResumeState(key_columns=["legacy_id"], last_key=[10**12]))
         manager.commit()
 
-        assert len(_read(store)) == len(server.rows)
+        source, manager = _build(store)
+
+        # The pipeline checks the checkpoint after build_pipeline returns. Clearing an incompatible
+        # checkpoint here makes it replace the partial table instead of treating a fresh read as a resume.
+        assert manager.can_resume() is False
+        assert sum(table.num_rows for table in source.items()) == len(server.rows)  # type: ignore[union-attr]
 
     def test_reset_ignores_the_checkpoint(self, serve):
         server = serve(*_TABLES["bigint_key"])
