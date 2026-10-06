@@ -9,7 +9,7 @@ The queue is advisory. A person can be revived in Postgres after it was queued, 
 deletes on the queue's word: it hands each batch to personhog's DeleteTombstonedPersons, which
 deletes a person only while it is still tombstoned, under row locks, and reports the rest back.
 It also deletes only at or below max_version, the highest ClickHouse version the sweep removed, so a
-person tombstoned again keeps its newer floor; a row without max_version is never deleted.
+person tombstoned again after that sweep stays. A row without max_version is never deleted.
 Every call does a bounded amount of work: persons that fit the call's row budget are deleted
 whole, and a person with more dependent rows than that gives up a bounded slice per call and
 comes back as pending until it fits. The job sends pending persons again until none come back, so

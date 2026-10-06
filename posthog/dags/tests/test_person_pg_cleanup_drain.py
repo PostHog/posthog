@@ -247,9 +247,8 @@ def test_removes_rows_for_live_and_unknown_persons_without_deleting_them(cluster
 def test_deletes_only_at_or_below_the_version_bound_and_leaves_unversioned_rows_queued(
     cluster: ClickhouseCluster, persons_database
 ):
-    # A person tombstoned again after the sweep has ClickHouse rows the sweep did not remove, so its
-    # Postgres row stays; its queue row goes, and the sweep that removes the newer rows queues it
-    # again. A row without a bound is never sent, because nothing says what the sweep removed.
+    # A person tombstoned again after the sweep still has ClickHouse rows, so its Postgres row stays.
+    # A row without a bound is never sent, because nothing says which versions the sweep removed.
     fake = get_active_fake()
     at_bound = seed_tombstoned(fake, TEAM_A, 1, version=3)
     above = seed_tombstoned(fake, TEAM_A, 2, version=4)
@@ -273,8 +272,7 @@ def test_deletes_only_at_or_below_the_version_bound_and_leaves_unversioned_rows_
 def test_a_replica_that_ignores_the_version_bounds_fails_the_run_without_writing(
     cluster: ClickhouseCluster, persons_database, monkeypatch
 ):
-    # A replica that predates bounded_persons reads an empty person_uuids and answers with nothing
-    # deleted. Applied, that answer would drop every queue row as not found.
+    # A replica without bounded_persons support deletes nothing, and applying its answer would drop every queue row.
     fake = get_active_fake()
     gone = seed_tombstoned(fake, TEAM_A, 1)
     queue(persons_database, [(TEAM_A, gone, SWEEP_1)])
