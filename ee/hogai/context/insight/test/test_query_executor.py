@@ -513,6 +513,11 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "This function requires an integer argument.",
                 "This function requires an integer argument.",
             ),
+            (
+                "illegal_type_of_argument",
+                "Expected an integer argument",
+                "Expected an integer argument",
+            ),
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")

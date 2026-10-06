@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from django.db import OperationalError
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from psycopg.errors import QueryCanceled
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
@@ -277,10 +277,11 @@ class TestMCPToolsAPI(APIBaseTest):
                 "internal",
                 "Tool failed: MaxToolRetryableError: QueryVisitor has no method visit_select_query. You may retry with adjusted inputs.",
             ),
-            (
+            param(
                 CHQueryErrorIllegalTypeOfArgument("Illegal argument type", code=43),
                 "validation",
                 "Tool failed: MaxToolRetryableError: Illegal argument type. You may retry with adjusted inputs.",
+                error_code="illegal_type_of_argument",
             ),
             (
                 CHQueryErrorCorruptedParquetMetadata("Warehouse file metadata is corrupt", code=1001),
@@ -324,7 +325,7 @@ class TestMCPToolsAPI(APIBaseTest):
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     def test_query_failures_preserve_recovery_advice(
-        self, error: Exception, error_type: str, content: str, mock_query: Mock
+        self, error: Exception, error_type: str, content: str, mock_query: Mock, *, error_code: str | None = None
     ) -> None:
         mock_query.side_effect = error
 
@@ -335,7 +336,10 @@ class TestMCPToolsAPI(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"success": False, "content": content, "error_type": error_type})
+        expected = {"success": False, "content": content, "error_type": error_type}
+        if error_code:
+            expected["error_code"] = error_code
+        self.assertEqual(response.json(), expected)
 
     @parameterized.expand(
         [

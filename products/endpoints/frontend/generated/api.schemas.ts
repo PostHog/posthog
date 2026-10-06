@@ -1135,6 +1135,8 @@ export interface QueryStatusApi {
     error?: boolean | null
     /** Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name. */
     error_code?: string | null
+    /** HTTP status chosen when the query failed, independently of whether a safe explanation is available. Older cached query statuses do not include this field. */
+    error_http_status?: number | null
     error_message?: string | null
     expiration_time?: string | null
     id: string
