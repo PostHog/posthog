@@ -41,13 +41,7 @@ describe('liftOnMerge', () => {
             [quarantine as QuarantinedIdentifierEntryApi]
         )
 
-        expect(groups[group as keyof typeof groups]).toEqual([
-            {
-                snapshot,
-                liftRequest: request,
-                quarantineReason: quarantine.reason,
-                expectsOtherPicture,
-            },
-        ])
+        const story = { snapshot, liftRequest: request, quarantineReason: quarantine.reason, expectsOtherPicture }
+        expect(groups).toEqual({ liftRequested: [], notRequested: [], [group]: [story] })
     })
 })
