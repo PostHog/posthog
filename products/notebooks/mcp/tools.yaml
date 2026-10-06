@@ -158,11 +158,11 @@ tools:
             'done' means the code is current, not the values it ran with. Re-run them from the stale_cells list
             notebooks-set-variables returns, and re-run before trusting a result whose values may have changed since.
             Use this to read or orient in a notebook, find which cells need re-running after edits, and decide re-run
-            order (walk stale cells in dependency order with notebooks-update-cell, omitting code). Each cell carries
-            start and end: the character span of its source in markdown. A markdown cell's id is derived from its text,
-            so edit it with notebooks-update-cell against the same read that returned it. Legacy rich-text notebooks
-            return their raw document in content instead of markdown. When you do not have the notebook's short_id, find
-            it with notebooks-list.
+            order (walk stale cells in dependency order with notebooks-run-cell). Each cell carries start and end: the
+            character span of its source in markdown. A markdown cell's id is derived from its text, so edit it with
+            notebooks-update-cell against the same read that returned it. Legacy rich-text notebooks return their raw
+            document in content instead of markdown. When you do not have the notebook's short_id, find it with
+            notebooks-list.
         param_overrides:
             short_id:
                 description: >
@@ -328,26 +328,6 @@ tools:
         feature_flag_behavior: disable
         superseded_by:
             - notebooks-get
-    notebooks-run-cell:
-        operation: notebooks_sql_v2_run_create
-        enabled: false
-        scopes:
-            - notebook:write
-            - query:read
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Run notebook cell
-        description: >
-            Dispatch an asynchronous run of a notebook SQL (HogQL) or Python cell; returns a run_id immediately. Poll
-            notebooks-run-cell-result with the run_id until the status is terminal. node_id is the cell's ProseMirror
-            node id from the notebook content. A cell that reads other cells' dataframes must list them in refs, and
-            those cells must have completed a run first — refs resolve to each upstream cell's last completed run, so
-            run cells in dependency order. The first Python cell run can take noticeably longer while the notebook's
-            sandbox kernel starts. That run also provisions the sandbox when none is up, and the user pays for it while
-            it runs, so tell them its hourly_price (from notebooks-list-frames) the first time a run starts one.
-        feature_flag: revamped-py-notebooks
     notebooks-run-cell-interrupt:
         operation: notebooks_sql_v2_runs_interrupt_create
         enabled: true
@@ -386,9 +366,10 @@ tools:
         description: >
             Read the durable state of a cell run: status ('running', 'done', 'failed', 'interrupted') and, once done or
             interrupted, the result envelope — columns, a capped first page of rows, stdout/stderr (a Python cell's logs
-            and tracebacks), media, and error. Use this when notebooks-add-cell or notebooks-update-cell returned status
-            'running' (the cell outlived the call's wait window): poll with the run_id, waiting a few seconds between
-            polls, until the status is terminal, then use the envelope to decide the next step.
+            and tracebacks), media, and error. Use this when notebooks-add-cell, notebooks-update-cell, or
+            notebooks-run-cell returned status 'running' (the cell outlived the call's wait window): poll with the
+            run_id, waiting a few seconds between polls, until the status is terminal, then use the envelope to decide
+            the next step.
         param_overrides:
             short_id:
                 description: >
@@ -416,6 +397,9 @@ tools:
         enabled: false
     notebooks-runs-retrieve:
         operation: notebooks_runs_retrieve
+        enabled: false
+    notebooks-sql-v2-run-create:
+        operation: notebooks_sql_v2_run_create
         enabled: false
     notebooks-update:
         operation: notebooks_update

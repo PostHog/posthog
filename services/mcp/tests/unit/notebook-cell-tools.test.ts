@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { findRecoverableApiError, PostHogValidationError } from '@/lib/errors'
 import { GENERATED_TOOLS } from '@/tools/generated/notebooks'
 import { addCellHandler, NotebooksAddCellSchema } from '@/tools/notebooks/addCell'
 import { createMarkdownHandler } from '@/tools/notebooks/createMarkdown'
 import { deleteCellHandler } from '@/tools/notebooks/deleteCell'
+import { runCellHandler } from '@/tools/notebooks/runCell'
 import { runNotebookHandler } from '@/tools/notebooks/runNotebook'
 import { runNotebookStatusHandler } from '@/tools/notebooks/runNotebookStatus'
 import { setVariablesHandler } from '@/tools/notebooks/setVariables'
@@ -36,6 +38,8 @@ interface MockState {
     // Version the state endpoint reports. Set it apart from `version` to model a notebook that
     // moved between the caller's read and its write.
     stateVersion?: number
+    // Makes the sql_v2 run dispatch fail with this message, as the backend does with a 400.
+    runDispatchError?: string
 }
 
 function markdownContent(markdown: string): Record<string, unknown> {
@@ -93,6 +97,16 @@ function createMockContext(state: MockState): Context {
             return { run_id: 'nbrun-1', cell_count: 2, starts_sandbox: false, sandbox_hourly_price: null }
         }
         if (opts.method === 'POST' && path.endsWith('/sql_v2/run/')) {
+            if (state.runDispatchError) {
+                throw new PostHogValidationError({
+                    detail: state.runDispatchError,
+                    attr: undefined,
+                    code: undefined,
+                    extra: undefined,
+                    url: path,
+                    method: 'POST',
+                })
+            }
             state.runBodies.push(opts.body)
             return { run_id: 'run-1' }
         }
@@ -287,7 +301,7 @@ describe('notebook cell tools', () => {
 
         // Model-facing result keeps the preview but never the base64 media payload.
         expect(result.run).toMatchObject({ status: 'done', rows_preview: [[1]], stdout: 'hello' })
-        expect(result.run!.media).toEqual([{ mime_type: 'image/png' }])
+        expect(result.run).toHaveProperty('media', [{ mime_type: 'image/png' }])
         expect(JSON.stringify(result.run)).not.toContain('aGVsbG8=')
 
         // Run output is attacker-influenceable (query rows, stdout), so the response must
@@ -474,6 +488,98 @@ describe('notebook cell tools', () => {
                 expect(state.runBodies).toHaveLength(0)
             }
         )
+    })
+
+    describe('run control', () => {
+        it.each([
+            { cell_type: 'sql' as const, code: 'select 1', tag: 'SQLV2' },
+            { cell_type: 'python' as const, code: 'x = 1', tag: 'PythonV2' },
+        ])('add $cell_type cell with run false inserts the tag without a run', async ({ cell_type, code, tag }) => {
+            const state = makeState('# Doc\n')
+            const context = createMockContext(state)
+
+            const result = await addCellHandler(context, { notebook_id: 'aBcD1234', cell_type, code, run: false })
+
+            expect(state.runBodies).toHaveLength(0)
+            expect(state.saveBodies).toHaveLength(1)
+            expect(state.markdown).toContain(`<${tag} nodeId="${result.node_id}"`)
+            expect(state.markdown).not.toContain('runId=')
+            expect(result.run).toMatchObject({ status: 'not_run', hint: expect.stringContaining('notebooks-run-cell') })
+        })
+
+        it('run cell runs a cell as it is, writes the result back, and reports stale dependents', async () => {
+            const country = { name: 'country', type: 'string', value: 'US' }
+            const state = makeState(
+                [
+                    '# Doc',
+                    '',
+                    '<SQLV2 nodeId="target" code="select {country}" returnVariable="df" />',
+                    '',
+                    '<PythonV2 nodeId="reader" code="df.head()" returnVariable="out" />',
+                    '',
+                ].join('\n'),
+                [country]
+            )
+            state.runStatusResponses.push(DONE_STATUS)
+            const context = createMockContext(state)
+
+            const result = await runCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target' })
+
+            expect(state.runBodies[0]).toMatchObject({
+                node_id: 'target',
+                node_type: 'hogql',
+                code: 'select {country}',
+                output_name: 'df',
+                variables: [country],
+            })
+            expect(state.saveBodies).toHaveLength(1)
+            expect(state.markdown).toContain('runId="run-1"')
+            expect(result).toMatchObject({
+                node_id: 'target',
+                run: { status: 'done' },
+                stale_dependents: [{ node_id: 'reader', dataframe_name: 'out' }],
+            })
+        })
+
+        it.each([
+            { label: 'an unknown node_id', node_id: 'missing' },
+            { label: 'a component cell', node_id: 'chart' },
+        ])('run cell refuses $label without dispatching a run', async ({ node_id }) => {
+            const state = makeState(
+                '# Doc\n\n<Query nodeId="chart" query={{"kind":"SavedInsightNode","shortId":"abc"}} />\n'
+            )
+            const context = createMockContext(state)
+
+            await expect(runCellHandler(context, { notebook_id: 'aBcD1234', node_id })).rejects.toThrow(
+                /Only SQL and Python cells run/
+            )
+            expect(state.runBodies).toHaveLength(0)
+        })
+
+        it('a run that reads an unrun cell names that cell and the tool that runs it', async () => {
+            const state = makeState(
+                [
+                    '# Doc',
+                    '',
+                    '<SQLV2 nodeId="upstream" code="select 1" returnVariable="events_df" />',
+                    '',
+                    '<SQLV2 nodeId="target" code="select * from events_df" returnVariable="df" />',
+                    '',
+                ].join('\n')
+            )
+            state.runDispatchError = "Referenced node 'events_df' has not been run yet — run it first."
+            const context = createMockContext(state)
+
+            const error = await runCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target' }).catch(
+                (caught: unknown) => caught
+            )
+
+            expect((error as Error).message).toContain(
+                'Cell upstream produces events_df. Run it with notebooks-run-cell, then run this cell again.'
+            )
+            // The handler classifies by the API error in the cause chain, so the hint must keep it.
+            expect(findRecoverableApiError(error)).toBeInstanceOf(PostHogValidationError)
+        })
     })
 
     it('add markdown cell appends prose without dispatching a run', async () => {
