@@ -426,31 +426,14 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            (
-                "unknown_identifier",
-                47,
-                "unknown_identifier",
-                "A column in this query doesn't exist in the data. Check the column names. "
-                "If the query uses a view, check that the view still matches its source table.",
-            ),
-            (
-                "unsupported_method",
-                1,
-                "unsupported_method",
-                "ClickHouse rejected the query with error UNSUPPORTED_METHOD.",
-            ),
-            ("syntax_error", 62, "syntax_error", "ClickHouse rejected the query with error SYNTAX_ERROR."),
-            (
-                "temporary_server_fault",
-                252,
-                None,
-                "The database had a temporary problem while it ran this query. Wait a few minutes, "
-                "then run the query again. If the problem continues, contact support.",
-            ),
-            ("unknown_server_fault", 999_999, None, None),
+            ("unknown_identifier", 47, "unknown_identifier"),
+            ("unsupported_method", 1, "unsupported_method"),
+            ("syntax_error", 62, None),
+            ("temporary_server_fault", 252, "too_many_parts"),
+            ("unknown_server_fault", 999_999, None),
         ]
     )
-    def test_async_query_internal_ch_error_message(self, _name, code, expected_code, expected_message):
+    def test_async_query_internal_ch_error_code(self, _name, code, expected_code):
         query = build_query("SELECT * FROM events")
         query_id = uuid.uuid4().hex
         # code_name can be lost when an internal error is re-raised from another thread.
@@ -466,9 +449,8 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         result = client.get_query_status(self.team.id, query_id)
         self.assertTrue(result.error)
-        self.assertEqual(result.error_message, expected_message)
+        self.assertIsNone(result.error_message)
         self.assertEqual(result.error_code, expected_code)
-        self.assertEqual(result.error_http_status, 500)
         mock_capture.assert_called_once_with(error)
 
     @parameterized.expand(
@@ -516,7 +498,6 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.error)
         self.assertEqual(result.error_code, expected_code)
         self.assertEqual(result.error_message, expected_message)
-        self.assertEqual(result.error_http_status, 400)
         self.assertEqual(mock_capture.called, captured)
 
     def test_async_query_server_errors(self):

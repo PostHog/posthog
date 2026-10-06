@@ -56,6 +56,7 @@ from posthog.errors import (
     InternalCHQueryError,
     QueryErrorCategory,
     classify_query_error,
+    internal_ch_error_user_message,
     look_up_clickhouse_error_code_meta,
 )
 from posthog.event_usage import EventSource
@@ -484,7 +485,7 @@ class AssistantQueryExecutor:
                     error_code = query_status.get("error_code")
                     if rejection := describe_clickhouse_rejection(error_code, query_status.get("error_message")):
                         raise MaxToolRetryableError(rejection, error_type="validation", error_code=error_code)
-                    if error_message := query_status.get("error_message"):
+                    if error_message := query_status.get("error_message") or internal_ch_error_user_message(error_code):
                         # Async status loses the exception type, so keep retry advice without guessing its category.
                         raise MaxToolRetryableError(error_message, error_type="internal")
                     raise Exception("Query failed")

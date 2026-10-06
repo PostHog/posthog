@@ -107,12 +107,6 @@ QUERY_VALIDATION_ERROR_TOTAL = Counter(
     labelnames=["query_type", "validation_code"],
 )
 
-QUERY_INTERNAL_CH_ERROR_TOTAL = Counter(
-    "posthog_query_internal_ch_error_total",
-    "Internal ClickHouse errors returned from the query API, by whether the user got an explanation.",
-    labelnames=["error_code", "explained"],
-)
-
 
 def _add_query_cost_headers(response: HttpResponseBase, bytes_read: int, remaining_bytes: int | None) -> None:
     response["X-PostHog-Query-Bytes-Read"] = str(bytes_read)
@@ -423,10 +417,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             capture_exception(e)
             error_code = look_up_clickhouse_error_code_meta(e).name
             user_message = internal_ch_error_user_message(error_code)
-            QUERY_INTERNAL_CH_ERROR_TOTAL.labels(
-                error_code=error_code,
-                explained=str(user_message is not None).lower(),
-            ).inc()
             replacement = APIException(user_message or GENERIC_INTERNAL_CH_ERROR_MESSAGE)
             scan_extra = _scan_extra(e)
             if scan_extra:
@@ -492,19 +482,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 detail=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_MESSAGE,
                 code=MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE,
             )
-        query_status_response = QueryStatusResponse(query_status=query_status)
-
         http_code: int = status.HTTP_202_ACCEPTED
         if query_status.error:
-            if query_status.error_http_status is not None:
-                http_code = query_status.error_http_status
-            elif query_status.error_message:
+            if query_status.error_message:
                 http_code = status.HTTP_400_BAD_REQUEST  # An error where a user can likely take an action to resolve it
             else:
                 http_code = status.HTTP_500_INTERNAL_SERVER_ERROR  # An internal surprise
+                # Add safe copy only after choosing the existing HTTP status; internal failures stay 500.
+                query_status.error_message = internal_ch_error_user_message(query_status.error_code)
         elif query_status.complete:
             http_code = status.HTTP_200_OK
 
+        query_status_response = QueryStatusResponse(query_status=query_status)
         response = JsonResponse(query_status_response.model_dump(), safe=False, status=http_code)
         if query_status.bytes_read is not None:
             _add_query_cost_headers(response, query_status.bytes_read, query_status.budget_remaining_bytes)
