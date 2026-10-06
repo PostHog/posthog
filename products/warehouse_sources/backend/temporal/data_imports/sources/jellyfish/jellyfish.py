@@ -45,7 +45,7 @@ class JellyfishRateLimitError(Exception):
         self.retry_after = retry_after
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class JellyfishResumeConfig:
     # Month-windowed endpoints: the ISO date of the next window to fetch. None = start from the
     # beginning of the lookback range.

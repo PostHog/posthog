@@ -22,7 +22,7 @@ WindowMode = Optional[Literal["month", "full"]]
 FanOutParent = Literal["work_categories", "engineers", "teams", "deliverables"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class JellyfishFanOut:
     parent: FanOutParent
     # Query param the parent id goes in. Rows also get it injected under this name, so each row
