@@ -2052,7 +2052,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             groups={"project": str(self.team.id)},
             send_feature_flag_events=False,
         )
-        return Response({"enabled": enabled}, status=status.HTTP_200_OK)
+        return Response(_LogsBackfillStatusResponseSerializer({"enabled": enabled}).data, status=status.HTTP_200_OK)
 
     @extend_schema(responses={201: OpenApiTypes.OBJECT})
     @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
