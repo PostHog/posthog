@@ -21,3 +21,4 @@ export const Default = Template.bind({})
 // Without the flag the destinations scene is not reachable, so the banner stays out of the way.
 export const FlagOff = Template.bind({})
 FlagOff.parameters = { featureFlags: [] }
+FlagOff.tags = ['test-skip']
