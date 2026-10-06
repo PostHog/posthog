@@ -40,7 +40,7 @@ class FailedAttemptBudget:
     Temporal cannot exempt an attempt from `maximum_attempts`, so a hand-off to another worker would
     use up the cap of an import that continues from its saved cursor. The policy sets no cap and this
     class counts instead: failed attempts are the earlier attempts minus the hand-offs in Redis.
-    A hand-off that Redis did not record counts as a failure, so the cap holds without Redis.
+    A hand-off that Redis did not record counts as a failure.
     """
 
     def __init__(self, *, team_id: int, run_id: str, limit: int | None, logger: FilteringBoundLogger) -> None:
@@ -65,6 +65,8 @@ class FailedAttemptBudget:
 
         handoffs = await self._read_handoffs()
         if handoffs is None:
+            # Charging every earlier hand-off as a failure would stop a healthy import on one failed
+            # read. The attempt runs unjudged instead, and the import deadline still ends the run.
             return self
 
         self._failed_before = attempt - 1 - handoffs
@@ -93,7 +95,6 @@ class FailedAttemptBudget:
             return
         if isinstance(exc, WorkerShuttingDownError) and self._attempt_can_resume and await self._record_handoff():
             return
-        # An unread count leaves this attempt unjudged. The next attempt reads it again.
         if self._failed_before is None or self._failed_before + 1 < self._limit:
             return
 
