@@ -214,7 +214,7 @@ class ReviewMeta:
     pr_open: bool = True
 
 
-@dataclass
+@dataclass(frozen=False)
 class ResolveActingUserInput:
     team_id: int
     author_login: str
