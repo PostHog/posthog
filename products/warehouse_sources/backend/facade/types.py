@@ -1313,6 +1313,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     WHATSAPPBUSINESSMANAGEMENT = "WhatsappBusinessManagement", "WhatsappBusinessManagement"
     WHOGHO = "WhoGho", "WhoGho"
     WHOP = "Whop", "Whop"
+    WISTIA = "Wistia", "Wistia"
     WIZ = "Wiz", "Wiz"
     WOMPI = "Wompi", "Wompi"
     WORKIZ = "Workiz", "Workiz"
