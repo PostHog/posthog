@@ -52,12 +52,21 @@ class TestOrganizationProvisioningModel(BaseTest):
 
     @parameterized.expand(
         [
-            ("billing_reports_a_payer", True),
-            ("only_another_organization_of_the_partner_has_a_payer", False),
+            ("billing_reports_a_payer", True, True, True, True),
+            ("only_another_organization_of_the_partner_has_a_payer", True, False, True, False),
+            ("billing_reports_a_payer_with_pays_for_customers_off", True, True, False, True),
+            ("no_stripe_customer_and_billing_reports_a_payer_with_pays_for_customers_off", False, True, False, True),
+            ("no_stripe_customer_and_no_payer_yet", False, False, True, True),
+            ("no_stripe_customer_no_payer_and_pays_for_customers_off", False, False, False, False),
         ]
     )
-    def test_billing_lock_on_an_organization_with_a_stripe_customer_follows_its_own_payer(
-        self, _name: str, billing_has_payer: bool
+    def test_billing_lock_follows_billings_payer_then_the_partner_flag(
+        self,
+        _name: str,
+        has_stripe_customer: bool,
+        billing_has_payer: bool,
+        pays_for_customers: bool,
+        locked: bool,
     ) -> None:
         partner = OAuthApplication.objects.create(
             client_id="paying-partner",
@@ -69,7 +78,7 @@ class TestOrganizationProvisioningModel(BaseTest):
             algorithm="RS256",
             is_provisioning_partner=True,
         )
-        partner.update_provisioning(pays_for_customers=True)
+        partner.update_provisioning(pays_for_customers=pays_for_customers)
         other_organization = Organization.objects.create(name="Other customer")
         for organization, has_payer in (
             (self.organization, billing_has_payer),
@@ -81,6 +90,7 @@ class TestOrganizationProvisioningModel(BaseTest):
                 application=partner,
                 billing_has_payer=has_payer,
             )
-        self.organization.customer_id = "cus_example"
+        if has_stripe_customer:
+            self.organization.customer_id = "cus_example"
 
-        assert get_billing_lock_partner(self.organization) == (partner if billing_has_payer else None)
+        assert get_billing_lock_partner(self.organization) == (partner if locked else None)

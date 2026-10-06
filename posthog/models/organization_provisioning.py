@@ -47,10 +47,13 @@ class OrganizationProvisioning(models.Model):
 
 
 def get_billing_lock_partner(organization: "Organization") -> OAuthApplication | None:
-    # customer_id is the organization's own Stripe customer, synced from billing. Billing gives one to
-    # a partner-paid organization too, so for an organization with a Stripe customer the lock follows
-    # billing_has_payer. Without a payer, that organization pays for itself and keeps self-serve billing.
+    # Billing decides who pays, so an organization is locked while billing reports a payer for it, even after the
+    # partner's pays_for_customers flag is switched off: the flag doesn't stop billing from invoicing the partner.
+    # Billing gives a partner-paid organization its own Stripe customer, so customer_id says nothing about who pays.
+    # Before billing has linked a payer, an organization without a customer_id is locked when its partner has
+    # pays_for_customers, so its members can't start self-serve billing first.
     provisioned = Q(provisioned_organizations__organization=organization)
-    if organization.customer_id:
-        provisioned &= Q(provisioned_organizations__billing_has_payer=True)
-    return OAuthApplication.objects.filter(provisioned, _provisioning_config__pays_for_customers=True).first()
+    partner_pays = Q(provisioned_organizations__billing_has_payer=True)
+    if not organization.customer_id:
+        partner_pays |= Q(_provisioning_config__pays_for_customers=True)
+    return OAuthApplication.objects.filter(provisioned & partner_pays).first()
