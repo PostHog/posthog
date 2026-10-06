@@ -111,7 +111,7 @@ class ImpervaSource(ResumableSource[ImpervaSourceConfig, ImpervaResumeConfig]):
             if status == 401:
                 return False, AUTH_ERROR
             if status == 403:
-                return (True, None) if schema_name is None else (False, PERMISSION_ERROR)
+                return False, PERMISSION_ERROR
             raise
         return True, None
 

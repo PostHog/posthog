@@ -28,7 +28,7 @@ CONFIG = ImpervaSourceConfig(api_id="fake-api-id", api_key="fake-api-key", accou
         (200, {"res": 9415}, "sites", (False, PERMISSION_ERROR)),
         (200, {"res": 9415}, None, (True, None)),
         (401, {}, None, (False, AUTH_ERROR)),
-        (403, {}, None, (True, None)),
+        (403, {}, None, (False, PERMISSION_ERROR)),
         (403, {}, "sites", (False, PERMISSION_ERROR)),
     ],
 )
