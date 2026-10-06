@@ -31,10 +31,7 @@ class K6CloudEndpointConfig:
     # `@nextLink` URL in the response). `load_zones` returns every row in one page.
     paginated: bool = True
     should_sync_default: bool = True
-    # Set for per-test-run detail endpoints that fan out over the `test_runs` listing.
     fanout: Optional[DependentEndpointConfig] = None
-    # Read by `build_dependent_resource` through its endpoint protocol. The k6 fan-out sends
-    # `$top` through `fanout.parent_params` and never merges, so these keep their defaults.
     page_size: int = PAGE_SIZE
     default_incremental_field: Optional[str] = None
 
@@ -50,9 +47,6 @@ def _created_incremental_field() -> list[IncrementalField]:
     ]
 
 
-# Streams mirror the canonical Grafana Cloud k6 v6 resources a user actually wants in a
-# warehouse: Projects, Load tests, Test runs, Schedules, Load zones, Labels, and the per-run
-# load zone distribution. The metrics endpoints are not part of the v6 API, so they are left out.
 K6_CLOUD_ENDPOINTS: dict[str, K6CloudEndpointConfig] = {
     # Test runs are the natural incremental stream: `/cloud/v6/test_runs` exposes
     # `created_after` (inclusive) as a server-side filter on the immutable `created`
@@ -106,8 +100,6 @@ K6_CLOUD_ENDPOINTS: dict[str, K6CloudEndpointConfig] = {
         paginated=False,
         should_sync_default=False,
     ),
-    # Organization label keys, returned in a single page with no timestamps. Full refresh,
-    # off by default as lookup data.
     "labels": K6CloudEndpointConfig(
         name="labels",
         path="/labels",
