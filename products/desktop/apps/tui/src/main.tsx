@@ -1,5 +1,6 @@
 import { render } from "ink";
 import { TuiAuth } from "./auth";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Root } from "./components/Root";
 import { stopLocals } from "./local";
 import { MouseInput } from "./mouse";
@@ -9,9 +10,15 @@ const background = await detectBackground();
 if (background) applyBackground(background);
 else applyTheme("dark");
 const mouse = new MouseInput();
+// Each swapped-in Root gets a fresh boundary, so a fixed copy of the code clears an error shown by the last one.
+let generation = 0;
 const root = (Component: typeof Root) => (
-  <Component initialAuth={TuiAuth.load()} mouse={mouse.events} />
+  <ErrorBoundary key={generation++}>
+    <Component initialAuth={TuiAuth.load()} mouse={mouse.events} />
+  </ErrorBoundary>
 );
+// cli.mjs loads the app again after an edit that left nothing on screen.
+const mounted = globalThis as { __posthogTuiMounted?: boolean };
 const instance = render(root(Root), {
   stdin: mouse.stdin,
   alternateScreen: true,
@@ -20,6 +27,7 @@ const instance = render(root(Root), {
   kittyKeyboard: { mode: "enabled" },
 });
 mouse.enable();
+mounted.__posthogTuiMounted = true;
 
 let reloading = false;
 if (import.meta.hot) {
@@ -31,6 +39,7 @@ if (import.meta.hot) {
   const teardown = (): void => {
     if (reloading) return;
     reloading = true;
+    mounted.__posthogTuiMounted = false;
     mouse.dispose();
     instance.unmount();
   };

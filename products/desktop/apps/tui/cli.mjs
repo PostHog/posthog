@@ -35,4 +35,36 @@ process.once("exit", () => {
 // Ctrl+R in the app: throw away every loaded module and run the app again from disk.
 globalThis.__posthogTuiReload = () =>
   server.environments.ssr.hot.send({ type: "full-reload" });
-await runner.import("/src/main.tsx");
+
+// An edit that breaks loading (a missing export, a syntax error) must not end the process: it holds the local
+// agents, which may be the very session making the edit. Show the error and load again after the next save.
+const appMounted = () => globalThis.__posthogTuiMounted === true;
+const showFailure = (error) => {
+  const detail =
+    error instanceof Error ? (error.stack ?? error.message) : String(error);
+  appendFileSync(
+    LOG_PATH,
+    `${new Date().toISOString()} error [load] ${detail}\n`,
+  );
+  if (appMounted() || !process.stdout.isTTY) return;
+  const message = error instanceof Error ? error.message : String(error);
+  process.stdout.write(
+    `\x1b[2J\x1b[H The TUI failed to load: ${message}\r\n\r\n` +
+      ` Save a fix and it loads again. Local agents keep running. The log is at ${LOG_PATH}.\r\n` +
+      " Ctrl+C quits.\r\n",
+  );
+};
+const start = () => runner.import("/src/main.tsx").catch(showFailure);
+process.on("unhandledRejection", showFailure);
+process.on("uncaughtException", showFailure);
+// After an edit settles, a screen with no app on it means the reload failed, so try again from disk.
+let retry = null;
+server.watcher.on("change", () => {
+  clearTimeout(retry);
+  retry = setTimeout(() => {
+    if (appMounted()) return;
+    runner.clearCache();
+    void start();
+  }, 1_000);
+});
+await start();

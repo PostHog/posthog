@@ -1,6 +1,4 @@
 import { appendFileSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import type { AuthService } from "@posthog/core/auth/auth";
 import { createCloudTaskEngine } from "@posthog/core/cloud-task/cloud-task-engine";
@@ -19,12 +17,11 @@ import { McpProxyService } from "@posthog/workspace-server/services/mcp-proxy/mc
 import { LocalPiRpcClientFactory } from "@posthog/workspace-server/services/pi-session/pi-rpc-client-factory";
 import type { TuiAuth } from "./auth";
 import { currentRepository, PiChats } from "./chats";
+import { LOG_PATH } from "./errors";
 import { LocalSession } from "./local";
 import { LocalChats } from "./localChats";
 import { type PiCommand, type PiControl, piControl } from "./models";
 import { CloudRuns } from "./runs";
-
-export const LOG_PATH = join(tmpdir(), "posthog-tui.log");
 
 interface TokenSource {
   getAccessToken(): Promise<string>;
