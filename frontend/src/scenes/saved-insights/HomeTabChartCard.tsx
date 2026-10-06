@@ -13,7 +13,7 @@ import { getHomeTabExploreUrl, type HomeTabChartOption } from './homeTabDefaultT
 
 interface HomeTabChartCardProps {
     option: HomeTabChartOption
-    size: 'primary' | 'supporting' | 'ranking' | 'heatmap'
+    size: 'primary' | 'supporting' | 'ranking'
     control?: ReactNode
     source?: string
 }

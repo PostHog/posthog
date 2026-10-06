@@ -210,7 +210,9 @@ describe('homeTabDefaultTiles', () => {
     })
 
     it('counts web and mobile activity with the series and filters supported by each audience chart', () => {
-        const [map, devices, calendar] = getHomeTabAudienceOptions({ date_from: '-1h', date_to: null })
+        const charts = getHomeTabAudienceOptions({ date_from: '-1h', date_to: null })
+        const [map, devices] = charts
+        expect(charts.map(({ key }) => key)).toEqual(['users_by_country', 'sessions_by_device'])
         expect(map.query.source).toMatchObject({
             series: [
                 {
@@ -229,12 +231,7 @@ describe('homeTabDefaultTiles', () => {
             trendsFilter: { display: ChartDisplayType.ActionsDonut },
             breakdownFilter: { breakdown: '$device_type' },
         })
-        expect(calendar.query.source).toMatchObject({
-            series: [{ kind: NodeKind.EventsNode, event: null, math: BaseMathType.UniqueUsers }],
-            properties: [{ key: 'event', type: 'event_metadata', operator: 'exact', value: ['$pageview', '$screen'] }],
-            trendsFilter: { display: ChartDisplayType.CalendarHeatmap },
-        })
-        for (const chart of [map, devices, calendar]) {
+        for (const chart of charts) {
             const destination = combineUrl(getHomeTabExploreUrl(chart.query))
             expect(JSON.parse(destination.hashParams.q).source).toEqual(JSON.parse(JSON.stringify(chart.query.source)))
         }

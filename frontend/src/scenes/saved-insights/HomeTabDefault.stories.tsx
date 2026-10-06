@@ -80,45 +80,6 @@ async function homeQueryMock({ request }: { request: Request }): Promise<[number
     if (query?.trendsFilter?.display === ChartDisplayType.ActionsDonut) {
         return [200, { results: rankedResults(['Desktop', 'Mobile', 'Tablet'], [3820, 1980, 332]) }]
     }
-    if (query?.trendsFilter?.display === ChartDisplayType.CalendarHeatmap) {
-        const data = Array.from({ length: 7 * 24 }, (_, index) => {
-            const row = Math.floor(index / 24)
-            const column = index % 24
-            const workingHour = column >= 8 && column <= 18
-            const weekday = row > 0 && row < 6
-            return { row, column, value: Math.round((workingHour ? 120 : 18) * (weekday ? 1 : 0.4) + column * 2) }
-        })
-        const allAggregations = data.reduce((sum, cell) => sum + cell.value, 0)
-        return [
-            200,
-            {
-                results: [
-                    {
-                        ...trendsLine.result[0],
-                        data: [],
-                        aggregated_value: allAggregations,
-                        calendar_heatmap_data: {
-                            data,
-                            rowAggregations: Array.from({ length: 7 }, (_, row) => ({
-                                row,
-                                value: data
-                                    .filter((cell) => cell.row === row)
-                                    .reduce((sum, cell) => sum + cell.value, 0),
-                            })),
-                            columnAggregations: Array.from({ length: 24 }, (_, column) => ({
-                                column,
-                                value: data
-                                    .filter((cell) => cell.column === column)
-                                    .reduce((sum, cell) => sum + cell.value, 0),
-                            })),
-                            allAggregations,
-                        },
-                    },
-                ],
-            },
-        ]
-    }
-
     if (query?.trendsFilter?.display === ChartDisplayType.ActionsBarValue) {
         if (query.breakdownFilter?.breakdown === '$pathname') {
             return [

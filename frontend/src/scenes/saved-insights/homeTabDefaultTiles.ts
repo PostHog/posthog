@@ -366,31 +366,6 @@ export function getHomeTabAudienceOptions(dateRange: DateRange): HomeTabChartOpt
                 },
             },
         },
-        {
-            key: 'active_hours',
-            title: 'Active hours',
-            description: 'See when people are active by weekday and hour, in your project timezone.',
-            query: {
-                kind: NodeKind.InsightVizNode,
-                embedded: true,
-                source: {
-                    ...trendsQuery(
-                        { kind: NodeKind.EventsNode, event: null, math: BaseMathType.UniqueUsers },
-                        dateRange,
-                        false
-                    ),
-                    properties: [
-                        {
-                            key: 'event',
-                            type: PropertyFilterType.EventMetadata,
-                            operator: PropertyOperator.Exact,
-                            value: ['$pageview', '$screen'],
-                        },
-                    ],
-                    trendsFilter: { display: ChartDisplayType.CalendarHeatmap },
-                },
-            },
-        },
     ]
 }
 

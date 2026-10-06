@@ -118,7 +118,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
             <section className="flex flex-col gap-3" aria-label="Your audience">
                 <h2 className="m-0 text-base font-semibold">Your audience</h2>
                 <div className="grid min-w-0 grid-cols-1 gap-3 @min-[56rem]/home-overview:grid-cols-[2fr_1fr]">
-                    {audienceCharts.slice(0, 2).map((option) => (
+                    {audienceCharts.map((option) => (
                         <HomeTabChartCard
                             key={option.key}
                             option={option}
@@ -127,7 +127,6 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                         />
                     ))}
                 </div>
-                <HomeTabChartCard option={audienceCharts[2]} size="heatmap" source="Pageviews and screen views" />
             </section>
 
             <div className="grid min-w-0 grid-cols-1 gap-3 @min-[44rem]/home-overview:grid-cols-2">
