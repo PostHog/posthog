@@ -5,18 +5,19 @@
 //! failure fences everything outstanding (in order, with the messages handed
 //! back) so the dispatcher's deferral path can replay it.
 
+mod common;
+
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use common::key_table_batcher;
 use common_kafka_consumer::Partition;
-use ingestion_consumer::batcher::Batcher;
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::routing::RoutingStrategy;
-use ingestion_consumer::scheduler::SchedulerKind;
 use ingestion_consumer::transport::TransportError;
 use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
 use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
@@ -27,7 +28,6 @@ use ingestion_worker_proto::ingestion::worker::v1::{
     ingest_stream_request, ingest_stream_response, IngestStreamRequest, IngestStreamResponse,
     StreamReady, SubBatch, SubBatchAck, SubBatchStatus,
 };
-use lifecycle::{ComponentOptions, Manager};
 use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
@@ -861,25 +861,18 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
         format!("http://{second_addr}"),
     ];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
         registry,
         RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
     ));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let mut manager = Manager::builder("key-table-watchdog-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let _monitor = manager.monitor_background();
-    let (batcher, mut outputs) = Batcher::new(
-        dispatcher,
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
         transport,
-        handle,
         Duration::from_millis(100),
         Duration::from_millis(20),
     );
@@ -936,7 +929,7 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
         .expect("batcher error channel stays open");
     assert_eq!(
         error,
-        "key-table work made no progress within the stall timeout"
+        "pending work made no progress within the stall timeout"
     );
     assert!(
         final_attempt_released.load(Ordering::Relaxed),
@@ -950,31 +943,23 @@ async fn key_table_watchdog_bounds_overlapping_busy_retries() {
 }
 
 #[tokio::test]
-async fn key_table_parked_retry_drains_after_shutdown_signal() {
+async fn key_table_retries_a_busy_send_until_it_completes() {
     let (attempts_tx, mut attempts_rx) = mpsc::unbounded_channel();
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
         registry,
         RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
     ));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let mut manager = Manager::builder("key-table-retry-recovery-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let shutdown = handle.shutdown_token();
-    let _monitor = manager.monitor_background();
-    let (batcher, mut outputs) = Batcher::new(
-        dispatcher,
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
         transport,
-        handle,
         Duration::from_millis(500),
         Duration::from_millis(20),
     );
@@ -988,10 +973,9 @@ async fn key_table_parked_retry_drains_after_shutdown_signal() {
         .expect("initial send reaches the worker")
         .expect("attempt channel stays open");
     assert!(first.reply.send(ControlledReply::Busy).is_ok());
-    shutdown.cancel();
     let retry = tokio::time::timeout(Duration::from_secs(1), attempts_rx.recv())
         .await
-        .expect("parked retry reaches the worker")
+        .expect("the retry reaches the worker")
         .expect("attempt channel stays open");
     assert!(retry.reply.send(ControlledReply::Ok).is_ok());
 
@@ -1013,25 +997,18 @@ async fn key_table_watchdog_allows_in_flight_success_after_the_deadline() {
     let addr = start_controlled_busy_worker(0, attempts_tx).await;
     let worker_urls = vec![format!("http://{addr}")];
     let registry = Arc::new(WorkerRegistry::new(&worker_urls, registry_config()));
-    let dispatcher = Arc::new(Dispatcher::with_scheduler(
+    let dispatcher = Arc::new(Dispatcher::with_strategy(
         registry,
         RoutingStrategy::BinPack,
-        SchedulerKind::KeyTable,
     ));
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
         1,
         Duration::from_secs(30),
     ));
-    let mut manager = Manager::builder("key-table-late-success-test")
-        .with_trap_signals(false)
-        .build();
-    let handle = manager.register("batcher", ComponentOptions::new());
-    let _monitor = manager.monitor_background();
-    let (batcher, mut outputs) = Batcher::new(
-        dispatcher,
+    let (batcher, mut outputs) = key_table_batcher(
+        &dispatcher,
         transport,
-        handle,
         Duration::from_millis(100),
         Duration::from_millis(20),
     );

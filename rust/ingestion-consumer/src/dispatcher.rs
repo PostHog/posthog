@@ -10,12 +10,11 @@ use crate::batcher::worker_pool::{WorkerPool, WorkerPoolSource};
 use crate::debug_recorder::{
     record_if, DebugEventKind, DebugRecorder, DispatcherLoad, LoadEntry, RoutingDebug, SubBatchInfo,
 };
-use crate::key_table::KeyTableScheduler;
 use crate::order_sentinel::KeyOrderSentinel;
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::scheduler::{
-    Deadline, Dispatch, KeyRun, PinStashScheduler, Scheduler, SchedulerEffects, SchedulerKind,
-    Settlement, SettlementOutcome, WorkerHealth, WorkerSnapshot,
+    Dispatch, KeyRun, PinStashScheduler, Scheduler, SchedulerEffects, Settlement,
+    SettlementOutcome, WorkerHealth, WorkerSnapshot,
 };
 use crate::types::{Accumulator, Group, SerializedKafkaMessage};
 use crate::worker_registry::{WorkerId, WorkerRegistry};
@@ -153,142 +152,11 @@ pub struct Submission<T> {
     pub retained: bool,
 }
 
-/// The selected scheduler. An enum rather than a trait object, so the
-/// pin-stash-only methods below stay off the [`Scheduler`] trait and the
-/// cleanup change deletes one arm.
-enum SchedulerImpl {
-    PinStash(PinStashScheduler),
-    KeyTable(KeyTableScheduler),
-}
-
-impl SchedulerImpl {
-    fn new(kind: SchedulerKind, router: Router) -> Self {
-        match kind {
-            SchedulerKind::PinStash => SchedulerImpl::PinStash(PinStashScheduler::new(router)),
-            SchedulerKind::KeyTable => SchedulerImpl::KeyTable(KeyTableScheduler::new(router)),
-        }
-    }
-
-    // Pin-stash-only bookkeeping. The key table is batch-blind: it registers
-    // nothing, defers nothing per batch, and reports its own gauges.
-
-    fn register_batch(&mut self, batch_id: &str) {
-        if let SchedulerImpl::PinStash(scheduler) = self {
-            scheduler.register_batch(batch_id);
-        }
-    }
-
-    fn release_batch(&mut self, batch_id: &str) {
-        if let SchedulerImpl::PinStash(scheduler) = self {
-            scheduler.release_batch(batch_id);
-        }
-    }
-
-    fn has_batch(&self, batch_id: &str) -> bool {
-        match self {
-            SchedulerImpl::PinStash(scheduler) => scheduler.has_batch(batch_id),
-            SchedulerImpl::KeyTable(_) => false,
-        }
-    }
-
-    fn pin_count(&self) -> usize {
-        match self {
-            SchedulerImpl::PinStash(scheduler) => scheduler.pin_count(),
-            SchedulerImpl::KeyTable(_) => 0,
-        }
-    }
-
-    fn stashed_messages(&self) -> usize {
-        match self {
-            SchedulerImpl::PinStash(scheduler) => scheduler.stashed_messages(),
-            SchedulerImpl::KeyTable(_) => 0,
-        }
-    }
-
-    fn stashed_batches(&self) -> usize {
-        match self {
-            SchedulerImpl::PinStash(scheduler) => scheduler.stashed_batches(),
-            SchedulerImpl::KeyTable(_) => 0,
-        }
-    }
-
-    fn stash_failed(&mut self, batch_id: &str, runs: Vec<KeyRun>) -> u64 {
-        match self {
-            SchedulerImpl::PinStash(scheduler) => scheduler.stash_failed(batch_id, runs),
-            SchedulerImpl::KeyTable(_) => 0,
-        }
-    }
-
-    #[cfg(test)]
-    fn pins(&self) -> &HashMap<String, crate::scheduler::Pin> {
-        match self {
-            SchedulerImpl::PinStash(scheduler) => &scheduler.pins,
-            SchedulerImpl::KeyTable(_) => panic!("pins are pin-stash state"),
-        }
-    }
-
-    #[cfg(test)]
-    fn pins_mut(&mut self) -> &mut HashMap<String, crate::scheduler::Pin> {
-        match self {
-            SchedulerImpl::PinStash(scheduler) => &mut scheduler.pins,
-            SchedulerImpl::KeyTable(_) => panic!("pins are pin-stash state"),
-        }
-    }
-}
-
-impl Scheduler for SchedulerImpl {
-    fn on_groups(
-        &mut self,
-        snapshot: &WorkerSnapshot,
-        batch_id: &str,
-        assignment_epoch: u64,
-        groups: Vec<KeyRun>,
-    ) -> SchedulerEffects {
-        match self {
-            SchedulerImpl::PinStash(scheduler) => {
-                scheduler.on_groups(snapshot, batch_id, assignment_epoch, groups)
-            }
-            SchedulerImpl::KeyTable(scheduler) => {
-                scheduler.on_groups(snapshot, batch_id, assignment_epoch, groups)
-            }
-        }
-    }
-
-    fn on_settled(
-        &mut self,
-        snapshot: &WorkerSnapshot,
-        settlement: Settlement,
-    ) -> SchedulerEffects {
-        match self {
-            SchedulerImpl::PinStash(scheduler) => scheduler.on_settled(snapshot, settlement),
-            SchedulerImpl::KeyTable(scheduler) => scheduler.on_settled(snapshot, settlement),
-        }
-    }
-
-    fn on_deadline(
-        &mut self,
-        snapshot: &WorkerSnapshot,
-        deadline: Deadline<'_>,
-    ) -> SchedulerEffects {
-        match self {
-            SchedulerImpl::PinStash(scheduler) => scheduler.on_deadline(snapshot, deadline),
-            SchedulerImpl::KeyTable(scheduler) => scheduler.on_deadline(snapshot, deadline),
-        }
-    }
-
-    fn on_partitions_revoked(&mut self, partitions: &[(String, i32)]) -> SchedulerEffects {
-        match self {
-            SchedulerImpl::PinStash(scheduler) => scheduler.on_partitions_revoked(partitions),
-            SchedulerImpl::KeyTable(scheduler) => scheduler.on_partitions_revoked(partitions),
-        }
-    }
-}
-
 /// The scheduler and the load table, behind the dispatcher's single Mutex.
 struct DispatcherInner {
     /// The decision core. Every ordering and placement decision happens in
     /// its seam calls; the dispatcher applies the returned effects.
-    scheduler: SchedulerImpl,
+    scheduler: PinStashScheduler,
     /// Outstanding (in-flight) message count per worker. Both routing
     /// strategies use it as the per-worker load signal so new key-groups land
     /// on lightly-loaded workers — load is balanced by message volume rather
@@ -311,8 +179,6 @@ pub struct Dispatcher {
     /// The configured routing strategy; the scheduler owns the router itself.
     /// Kept here for view construction (aperture narrowing) and debug.
     strategy: RoutingStrategy,
-    /// The selected scheduler kind, for the batcher's driver choice.
-    scheduler_kind: SchedulerKind,
     /// Per-key send/ACK order checker. Called under the inner lock (lock
     /// order: inner → sentinel; the sentinel never takes the inner lock),
     /// so its check order matches the intended per-key send order.
@@ -332,16 +198,7 @@ impl Dispatcher {
 
     /// Construct a dispatcher with an explicit routing strategy.
     pub fn with_strategy(registry: Arc<WorkerRegistry>, strategy: RoutingStrategy) -> Self {
-        Self::with_scheduler(registry, strategy, SchedulerKind::default())
-    }
-
-    /// Construct a dispatcher with an explicit routing strategy and scheduler.
-    pub fn with_scheduler(
-        registry: Arc<WorkerRegistry>,
-        strategy: RoutingStrategy,
-        kind: SchedulerKind,
-    ) -> Self {
-        Self::from_router(registry, strategy, kind, Router::new(strategy))
+        Self::from_router(registry, strategy, Router::new(strategy))
     }
 
     /// Test-only constructor with a seeded RNG so P2C selection is deterministic.
@@ -351,29 +208,25 @@ impl Dispatcher {
         strategy: RoutingStrategy,
         seed: u64,
     ) -> Self {
-        Self::from_router(
-            registry,
-            strategy,
-            SchedulerKind::default(),
-            Router::with_seed(strategy, seed),
-        )
+        Self::from_router(registry, strategy, Router::with_seed(strategy, seed))
     }
 
     fn from_router(
         registry: Arc<WorkerRegistry>,
         strategy: RoutingStrategy,
-        kind: SchedulerKind,
         router: Router,
     ) -> Self {
         Self {
             inner: Mutex::new(DispatcherInner {
-                scheduler: SchedulerImpl::new(kind, router),
+                // Under `key_table` the batcher state machine schedules, so
+                // this dispatcher only serves the worker pool and the debug
+                // routing view.
+                scheduler: PinStashScheduler::new(router),
                 in_flight: WorkerLoad::new(),
             }),
             pool_source: WorkerPoolSource::new(Arc::clone(&registry), strategy),
             registry,
             strategy,
-            scheduler_kind: kind,
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
             debug_recorder: None,
         }
@@ -490,19 +343,13 @@ impl Dispatcher {
         groups: Vec<Group>,
         send: impl FnMut(SubBatch) -> T,
     ) -> Submission<T> {
-        let has_groups = !groups.is_empty();
         let mut inner = self.inner.lock().unwrap();
         let pending = self
             .assign_groups(&mut inner, batch_id, assignment_epoch, groups)
             .into_iter()
             .map(send)
             .collect();
-        let retained = match &inner.scheduler {
-            SchedulerImpl::PinStash(scheduler) => scheduler.has_batch(batch_id),
-            // Every non-empty key-table submission is synchronously enqueued
-            // before assignment returns, even when no worker is routable.
-            SchedulerImpl::KeyTable(_) => has_groups,
-        };
+        let retained = inner.scheduler.has_batch(batch_id);
         Submission { pending, retained }
     }
 
@@ -642,15 +489,6 @@ impl Dispatcher {
         self.inner.lock().unwrap().scheduler.stashed_messages()
     }
 
-    /// Messages the scheduler holds for later, whichever scheduler runs:
-    /// the pin-stash's stash, or the key table's queues.
-    pub fn held_messages(&self) -> usize {
-        match &self.inner.lock().unwrap().scheduler {
-            SchedulerImpl::PinStash(scheduler) => scheduler.stashed_messages(),
-            SchedulerImpl::KeyTable(scheduler) => scheduler.table().queued_messages(),
-        }
-    }
-
     /// Number of live sticky pins. Exposed so tests can assert the pin table
     /// drains back to zero once all in-flight work has resolved — a leak here
     /// permanently skews routing.
@@ -713,69 +551,9 @@ impl Dispatcher {
             .collect()
     }
 
-    /// Fire the parked-retry deadline and hand each sub-batch to `send`
-    /// under the lock, like `flush_deferred_and_send`. The key table's pump
-    /// calls this on its interval; keys that still cannot route stay parked
-    /// for the next call.
-    pub fn parked_retry_and_send<T>(&self, send: impl FnMut(SubBatch) -> T) -> Vec<T> {
-        let mut inner = self.inner.lock().unwrap();
-        let snapshot = self.worker_snapshot(&inner.in_flight);
-        let SchedulerEffects { dispatches, .. } = inner
-            .scheduler
-            .on_deadline(&snapshot, Deadline::ParkedRetry);
-        if dispatches.is_empty() {
-            return Vec::new();
-        }
-        let assignments = self.note_and_assemble(dispatches);
-        for (worker, message_count) in assignments.routed_counts() {
-            *inner.in_flight.entry(worker.clone()).or_insert(0) += message_count;
-            counter!(
-                "ingestion_consumer_dispatcher_messages_routed_total",
-                "worker" => worker.clone(),
-            )
-            .increment(message_count as u64);
-        }
-        assignments
-            .into_sub_batches()
-            .into_iter()
-            .map(send)
-            .collect()
-    }
-
-    /// The scheduler selected at construction.
-    pub fn scheduler_kind(&self) -> SchedulerKind {
-        self.scheduler_kind
-    }
-
-    /// Drop the scheduler's queued messages for revoked partitions, as
-    /// `(topic, partition)`. Called from the consumer's rebalance callback.
-    pub fn purge_revoked(&self, partitions: &[(String, i32)]) {
-        let mut inner = self.inner.lock().unwrap();
-        let effects = inner.scheduler.on_partitions_revoked(partitions);
-        debug_assert!(effects.dispatches.is_empty(), "a purge never dispatches");
-        let mut sentinel = self.key_sentinel.batch();
-        for key in &effects.evicted_keys {
-            sentinel.evict(key);
-        }
-    }
-
-    /// The key table's `(queued messages, outstanding keys)`, for the pump's
-    /// stall watchdog; `None` under the pin-stash scheduler.
-    pub fn key_work(&self) -> Option<(usize, usize)> {
-        match &self.inner.lock().unwrap().scheduler {
-            SchedulerImpl::PinStash(_) => None,
-            SchedulerImpl::KeyTable(scheduler) => Some((
-                scheduler.table().queued_messages(),
-                scheduler.table().outstanding_keys(),
-            )),
-        }
-    }
-
     fn flush_groups(&self, inner: &mut DispatcherInner, batch_id: &str) -> Vec<SubBatch> {
         let snapshot = self.worker_snapshot(&inner.in_flight);
-        let SchedulerEffects { dispatches, .. } = inner
-            .scheduler
-            .on_deadline(&snapshot, Deadline::Batch(batch_id));
+        let SchedulerEffects { dispatches, .. } = inner.scheduler.on_deadline(&snapshot, batch_id);
         if dispatches.is_empty() {
             return Vec::new();
         }
@@ -1330,7 +1108,7 @@ mod tests {
             .lock()
             .unwrap()
             .scheduler
-            .pins()
+            .pins
             .contains_key("t:user-1"));
 
         dispatcher.on_sub_batch_resolved(
@@ -1346,7 +1124,7 @@ mod tests {
             .lock()
             .unwrap()
             .scheduler
-            .pins()
+            .pins
             .contains_key("t:user-1"));
     }
 
@@ -1361,7 +1139,7 @@ mod tests {
         // Second batch, same key, pin not yet resolved: ref_count should be 2.
         dispatcher.assign("b", make_msgs(&["t:user-1"]));
         assert_eq!(
-            dispatcher.inner.lock().unwrap().scheduler.pins()["t:user-1"].ref_count,
+            dispatcher.inner.lock().unwrap().scheduler.pins["t:user-1"].ref_count,
             2
         );
 
@@ -1375,8 +1153,8 @@ mod tests {
         );
         {
             let inner = dispatcher.inner.lock().unwrap();
-            assert!(inner.scheduler.pins().contains_key("t:user-1"));
-            assert_eq!(inner.scheduler.pins()["t:user-1"].ref_count, 1);
+            assert!(inner.scheduler.pins.contains_key("t:user-1"));
+            assert_eq!(inner.scheduler.pins["t:user-1"].ref_count, 1);
         }
     }
 
@@ -1687,19 +1465,13 @@ mod tests {
         let mut dispatcher =
             Dispatcher::with_strategy(healthy_registry(6), RoutingStrategy::Aperture);
         dispatcher.set_aperture(peer_tracker("10.0.0.2", &["10.0.0.1", "10.0.0.2"]), 2);
-        dispatcher
-            .inner
-            .lock()
-            .unwrap()
-            .scheduler
-            .pins_mut()
-            .insert(
-                "t:pinned".to_string(),
-                Pin {
-                    worker: wid(0),
-                    ref_count: 1,
-                },
-            );
+        dispatcher.inner.lock().unwrap().scheduler.pins.insert(
+            "t:pinned".to_string(),
+            Pin {
+                worker: wid(0),
+                ref_count: 1,
+            },
+        );
 
         let sub_batches = dispatcher.assign("b", make_msgs(&["t:pinned"]));
 
@@ -1787,38 +1559,6 @@ mod tests {
         assert_eq!(flushed[0].worker, wid(0));
         assert_eq!(flushed[0].messages.len(), 1);
         assert!(!dispatcher.has_deferred("batch-1"));
-    }
-
-    #[test]
-    fn test_key_table_parked_key_retries_when_a_worker_returns() {
-        let registry = healthy_registry(0);
-        let dispatcher = Dispatcher::with_scheduler(
-            Arc::clone(&registry),
-            RoutingStrategy::BinPack,
-            SchedulerKind::KeyTable,
-        );
-
-        let sub_batches = dispatcher.assign("b1", make_msgs(&["t:user-1"]));
-        assert!(sub_batches.is_empty(), "nothing routable yet");
-        assert_eq!(
-            dispatcher.key_work(),
-            Some((1, 0)),
-            "the key table keeps the parked message"
-        );
-
-        // Still nothing healthy: the key stays parked for the next tick.
-        assert!(dispatcher.parked_retry_and_send(|sub| sub).is_empty());
-
-        registry.add_worker(wid(0));
-        let retried = dispatcher.parked_retry_and_send(|sub| sub);
-        assert_eq!(retried.len(), 1);
-        assert_eq!(retried[0].worker, wid(0));
-        assert_eq!(retried[0].messages.len(), 1);
-        assert_eq!(
-            dispatcher.key_work(),
-            Some((0, 1)),
-            "outstanding until settled"
-        );
     }
 
     #[test]

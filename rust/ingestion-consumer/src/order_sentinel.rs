@@ -122,7 +122,7 @@ struct KeyState {
 pub struct KeyOrderSentinel {
     /// Keyed by customer-chosen routing keys, so the hasher is seeded per
     /// map to resist collision flooding.
-    keys: Mutex<HashMap<String, KeyState, ahash::RandomState>>,
+    keys: Mutex<HashMap<Arc<str>, KeyState, ahash::RandomState>>,
     /// Kill switch (`CONSUMER_ORDER_SENTINEL_ENABLED`). When off, checks
     /// no-op and no state accumulates.
     enabled: AtomicBool,
@@ -174,30 +174,65 @@ impl KeyOrderSentinel {
         self.keys.lock().unwrap().len()
     }
 }
+/// A routing key the sentinel looks up as `&str` and stores as `Arc<str>`,
+/// so a caller that already shares its keys stores them without a copy.
+pub trait SentinelKey {
+    fn as_key(&self) -> &str;
+    fn to_shared(&self) -> Arc<str>;
+}
+
+impl SentinelKey for str {
+    fn as_key(&self) -> &str {
+        self
+    }
+
+    fn to_shared(&self) -> Arc<str> {
+        Arc::from(self)
+    }
+}
+
+impl SentinelKey for String {
+    fn as_key(&self) -> &str {
+        self
+    }
+
+    fn to_shared(&self) -> Arc<str> {
+        Arc::from(self.as_str())
+    }
+}
+
+impl SentinelKey for Arc<str> {
+    fn as_key(&self) -> &str {
+        self
+    }
+
+    fn to_shared(&self) -> Arc<str> {
+        Arc::clone(self)
+    }
+}
 
 /// A run of sentinel calls under one lock. Disabled, every call is a no-op.
 pub struct SentinelBatch<'a> {
-    keys: Option<MutexGuard<'a, HashMap<String, KeyState, ahash::RandomState>>>,
+    keys: Option<MutexGuard<'a, HashMap<Arc<str>, KeyState, ahash::RandomState>>>,
 }
 
 impl SentinelBatch<'_> {
     /// Record that `messages` for `routing_key` are being handed to a worker.
     /// `kind` distinguishes a fresh assignment (offsets must only move
     /// forward) from a retry-path resend (repeating un-ACKed offsets is
-    /// legal). Call at assignment time, under the dispatcher's pin-table
-    /// lock, so the check order matches the intended per-key send order.
-    /// Null-key messages are skipped — they carry no per-key order promise
-    /// (see module docs). Emits metrics and logs; returns violations for
-    /// tests.
+    /// legal). Call in the intended per-key send order. Null-key messages are
+    /// skipped — they carry no per-key order promise (see module docs). Emits
+    /// metrics and logs; returns violations for tests.
     pub fn note_sent(
         &mut self,
-        routing_key: &str,
+        key: &(impl SentinelKey + ?Sized),
         messages: &[SerializedKafkaMessage],
         kind: SendKind,
     ) -> Vec<KeyOrderViolation> {
         let Some(keys) = self.keys.as_mut() else {
             return Vec::new();
         };
+        let routing_key = key.as_key();
         let mut violations = Vec::new();
         let mut first: Option<&SerializedKafkaMessage> = None;
         let mut last: Option<&SerializedKafkaMessage> = None;
@@ -233,7 +268,7 @@ impl SentinelBatch<'_> {
         match keys.get_mut(routing_key) {
             None => {
                 keys.insert(
-                    routing_key.to_string(),
+                    key.to_shared(),
                     KeyState {
                         partition: first.partition,
                         last_sent: last.offset,
@@ -337,13 +372,12 @@ impl Drop for SentinelBatch<'_> {
 
 /// The consumer's rdkafka context: observes async commit results (a
 /// fire-and-forget `CommitMode::Async` failure is otherwise invisible until
-/// restart-time redelivery), resets sentinel baselines around rebalances, and
+/// restart-time redelivery), forgets revoked partitions around rebalances, and
 /// exports librdkafka's internal statistics (see [`crate::kafka_stats`]).
 pub struct SentinelContext {
     /// Where the consumer's frontiers go. Held here so the rebalance
     /// callbacks tell it which partitions leave the assignment.
     commit_sentinel: Arc<CommitSentinel>,
-    key_sentinel: Arc<KeyOrderSentinel>,
     /// The offset ledger the commit path settles against. Owned here so the
     /// rebalance callbacks forget partitions on the same ledger.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
@@ -357,17 +391,15 @@ pub struct SentinelContext {
     revoke_hook: OnceLock<RevokeHook>,
 }
 
-type RevokeHook = Box<dyn Fn(&[(String, i32)]) + Send + Sync>;
+pub type RevokeHook = Box<dyn Fn(&[(String, i32)]) + Send + Sync>;
 
 impl SentinelContext {
     pub fn new(
         commit_sentinel: Arc<CommitSentinel>,
-        key_sentinel: Arc<KeyOrderSentinel>,
         topic_offset_ledger: Arc<TopicOffsetLedger>,
     ) -> Self {
         Self {
             commit_sentinel,
-            key_sentinel,
             topic_offset_ledger,
             assignment_epoch: None,
             revoke_hook: OnceLock::new(),
@@ -392,7 +424,6 @@ impl SentinelContext {
     pub fn detached() -> Self {
         Self::new(
             Arc::new(CommitSentinel::new(ImmediateCommitPacer::new())),
-            Arc::new(KeyOrderSentinel::new()),
             Arc::new(TopicOffsetLedger::new()),
         )
     }
@@ -451,10 +482,6 @@ impl ConsumerContext for SentinelContext {
                     "Rebalance: partitions revoked"
                 );
                 self.forget_ledger_partitions(tpl);
-                // Revoked partitions may be replayed by another consumer (or by
-                // us after re-assignment) from the last commit — every per-key
-                // baseline is stale.
-                self.key_sentinel.clear();
                 // The hook must run after the ledger forget above: it stamps
                 // each revocation with the bumped generation so only older
                 // poll slices are stripped.
