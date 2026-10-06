@@ -52,6 +52,7 @@ from posthog.temporal.common.liveness_tracker import LivenessInterceptor, get_li
 from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.shutdown import ShutdownSignalListener
 from posthog.temporal.common.worker import ManagedWorker, create_worker
+from posthog.temporal.common.zombie_exit import ZombieActivityExit
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
     SEMANTIC_ENRICHMENT_ACTIVITIES,
@@ -845,8 +846,21 @@ class Command(BaseCommand):
             if health_srv:
                 await health_srv.stop()
 
+            zombie_exit: ZombieActivityExit | None = None
+            if settings.TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED:
+                zombie_exit = ZombieActivityExit(
+                    tracker=get_liveness_tracker(),
+                    grace_seconds=settings.TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS,
+                    task_queue=task_queue,
+                )
+                zombie_exit.start()
+
             # Then shutdown the worker
-            await worker.shutdown()
+            try:
+                await worker.shutdown()
+            finally:
+                if zombie_exit is not None:
+                    zombie_exit.stop()
 
         def shutdown_on_signal(
             worker: ManagedWorker,
@@ -879,6 +893,8 @@ class Command(BaseCommand):
                 health_port=health_port,
                 health_max_idle_seconds=health_max_idle_seconds,
                 combined_metrics_server_enabled=not disable_combined_metrics_server,
+                zombie_exit_enabled=settings.TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED,
+                zombie_exit_grace_seconds=settings.TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS,
             )
             logger.info("Starting Temporal Worker")
 

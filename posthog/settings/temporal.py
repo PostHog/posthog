@@ -23,6 +23,15 @@ TEMPORAL_FALLBACK_SECRET_KEYS: list[str] = get_list(os.getenv("TEMPORAL_FALLBACK
 GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = get_from_env(
     "GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS", None, optional=True, type_cast=int
 )
+# After SIGTERM plus the grace, the worker exits when every activity that still runs is one the
+# Temporal server already closed (timed out, and retried on another worker if attempts remain).
+# Off by default: without it, such an activity holds the worker for the full graceful shutdown timeout.
+TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED: bool = get_from_env(
+    "TEMPORAL_WORKER_ZOMBIE_EXIT_ENABLED", False, type_cast=str_to_bool
+)
+TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS: float = get_from_env(
+    "TEMPORAL_WORKER_ZOMBIE_EXIT_GRACE_SECONDS", 180.0, type_cast=float
+)
 MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
