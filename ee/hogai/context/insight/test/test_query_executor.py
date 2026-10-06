@@ -40,7 +40,7 @@ from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
-from posthog.errors import ExposedCHQueryError, InternalCHQueryError
+from posthog.errors import CHQueryErrorIllegalTypeOfArgument, ExposedCHQueryError, InternalCHQueryError
 from posthog.models import Organization, Team, User
 
 from ee.hogai.context.insight.context import InsightContext
@@ -307,18 +307,47 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertIn("HogQL error", str(context.exception))
 
+    @parameterized.expand(
+        [
+            ("unknown", ExposedCHQueryError("ClickHouse error"), "ClickHouse error", "internal", None),
+            (
+                "argument_type",
+                CHQueryErrorIllegalTypeOfArgument("Expected an integer argument", code=43),
+                "Expected an integer argument",
+                "validation",
+                "illegal_type_of_argument",
+            ),
+            (
+                "bad_arguments",
+                ExposedCHQueryError("This function requires two arguments", code=36),
+                "This function requires two arguments",
+                "validation",
+                "bad_arguments",
+            ),
+            (
+                "server_error",
+                ExposedCHQueryError("Server failure", code=99999, code_name="caller-supplied-name"),
+                "Server failure",
+                "internal",
+                None,
+            ),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_run_and_format_query_handles_exposed_ch_query_error(self, mock_process_query):
-        """Test handling of ExposedCHQueryError"""
-
-        mock_process_query.side_effect = ExposedCHQueryError("ClickHouse error")
+    async def test_run_and_format_query_handles_exposed_ch_query_error(
+        self, _name, error, expected_message, expected_type, expected_code, mock_process_query
+    ):
+        mock_process_query.side_effect = error
 
         query = AssistantTrendsQuery(series=[])
 
         with self.assertRaises(MaxToolRetryableError) as context:
             await self.query_runner.arun_and_format_query(query)
 
-        self.assertIn("ClickHouse error", str(context.exception))
+        self.assertEqual(str(context.exception), expected_message)
+        self.assertEqual(context.exception.error_type, expected_type)
+        self.assertEqual(context.exception.error_code, expected_code)
+        self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     async def test_run_and_format_query_handles_generic_exception(self, mock_process_query):

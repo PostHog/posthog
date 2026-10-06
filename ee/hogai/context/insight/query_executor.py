@@ -51,6 +51,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, t
 from posthog.dataclasses import frozen
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
+    USER_ERROR_CODE_NAMES,
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
@@ -533,7 +534,14 @@ class AssistantQueryExecutor:
                     raise MaxToolFatalError(err_message, error_type="api_5xx") from err
             elif isinstance(err, APIException) and err.status_code == 429:
                 raise MaxToolTransientError(err_message, error_type="rate_limited") from err
-            raise MaxToolRetryableError(err_message, error_type=error_type) from err
+            error_code = (
+                look_up_clickhouse_error_code_meta(err).name.lower() if isinstance(err, ExposedCHQueryError) else None
+            )
+            raise MaxToolRetryableError(
+                err_message,
+                error_type=error_type,
+                error_code=error_code if error_code in USER_ERROR_CODE_NAMES else None,
+            ) from err
         except Exception as err:
             if isinstance(err, InternalCHQueryError):
                 error_code = look_up_clickhouse_error_code_meta(err).name.lower()
