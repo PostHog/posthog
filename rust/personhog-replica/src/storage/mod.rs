@@ -6,10 +6,9 @@ pub mod types;
 pub use error::{StorageError, StorageResult};
 
 pub use types::{
-    CohortMembership, DeletePersonsMode, DeletePersonsOutcome, DistinctIdMapping,
-    DistinctIdWithVersion, Group, GroupIdentifier, GroupKey, GroupTypeMapping, HashKeyOverride,
-    HashKeyOverrideContext, Person, SplitResult, TombstonedDeleteOutcome, TombstonedDistinctId,
-    TombstonedPerson,
+    CohortMembership, DeletePersonsOutcome, DistinctIdMapping, DistinctIdWithVersion, Group,
+    GroupIdentifier, GroupKey, GroupTypeMapping, HashKeyOverride, HashKeyOverrideContext, Person,
+    SplitResult, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
 };
 
 pub use traits::{CohortStorage, DistinctIdLookup, FeatureFlagStorage, GroupStorage, PersonLookup};
