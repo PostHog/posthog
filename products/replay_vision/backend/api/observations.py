@@ -405,8 +405,10 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ChoiceField(choices=PromptValence.choices, allow_null=True))
     def get_prompt_valence(self, obj: ReplayObservation) -> PromptValence | None:
+        snapshot = obj.scanner_snapshot or {}
         return valence_for_snapshot(
-            snapshot=obj.scanner_snapshot,
+            snapshot_config=snapshot.get("scanner_config"),
+            scanner_type=snapshot.get("scanner_type"),
             valence=getattr(obj, "scanner_prompt_valence", "") or "",
             source=getattr(obj, "scanner_prompt_question_source", "") or "",
         )

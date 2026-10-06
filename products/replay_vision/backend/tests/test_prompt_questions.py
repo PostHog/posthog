@@ -32,7 +32,7 @@ from products.replay_vision.backend.prompt_questions import (
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
-TEMPLATE_PROMPT, TEMPLATE_QUESTION = next(iter(TEMPLATE_QUESTIONS.items()))
+TEMPLATE_PROMPT, (TEMPLATE_QUESTION, _) = next(iter(TEMPLATE_QUESTIONS.items()))
 PROMPT = "Did the user struggle to complete checkout?\n\nAnswer yes if they retried the payment form."
 LONG_FIRST_LINE = "Look at " + "the checkout flow and " * 20
 
@@ -82,14 +82,21 @@ class TestPromptQuestions(APIBaseTest):
                 "Did the user struggle at checkout?",
                 "bad",
             ),
-            ("not_a_question", "Checkout struggles", PROMPT, True, "Did the user struggle to complete checkout?", ""),
+            (
+                "not_a_question_keeps_valence",
+                "Checkout struggles",
+                PROMPT,
+                True,
+                "Did the user struggle to complete checkout?",
+                "bad",
+            ),
             (
                 "too_long",
                 "Did " + "x" * MAX_QUESTION_CHARS + "?",
                 PROMPT,
                 True,
                 "Did the user struggle to complete checkout?",
-                "",
+                "bad",
             ),
             ("model_error", None, PROMPT, True, "Did the user struggle to complete checkout?", ""),
             ("client_setup_fails", "setup-fails", PROMPT, True, "Did the user struggle to complete checkout?", ""),
@@ -111,15 +118,6 @@ class TestPromptQuestions(APIBaseTest):
             ),
             ("empty_prompt", "Did anything happen?", "   ", True, "", ""),
             ("template_needs_no_call", "Did anything happen?", TEMPLATE_PROMPT, False, TEMPLATE_QUESTION, "bad"),
-            (
-                "classifier_has_no_direction",
-                "Which friction patterns appear?",
-                PROMPT,
-                True,
-                "Which friction patterns appear?",
-                "",
-                ScannerType.CLASSIFIER,
-            ),
         ]
     )
     def test_condense_prompt(
@@ -130,7 +128,6 @@ class TestPromptQuestions(APIBaseTest):
         consent: bool,
         expected: str,
         expected_valence: str,
-        scanner_type: str = ScannerType.MONITOR,
     ) -> None:
         if reply is None:
             self.client_mock.return_value.models.generate_content.side_effect = RuntimeError("provider down")
@@ -141,10 +138,10 @@ class TestPromptQuestions(APIBaseTest):
         self.organization.is_ai_data_processing_approved = consent
         self.organization.save()
 
-        question = condense_prompt(team_id=self.team.id, scanner_type=scanner_type, scanner_config={"prompt": prompt})
+        question = condense_prompt(team_id=self.team.id, scanner_type="monitor", scanner_config={"prompt": prompt})
 
         assert question.question == expected
-        assert question.valence == expected_valence
+        assert (question.valence or "") == expected_valence
         assert question.source == prompt_fingerprint(prompt)
         if not consent:
             self.client_mock.return_value.models.generate_content.assert_not_called()

@@ -39,14 +39,20 @@ const VERDICT_ICON: Record<MonitorVerdict, typeof IconCheckCircle> = {
     inconclusive: IconQuestion,
 }
 
-function verdictClass(verdict: MonitorVerdict, valence: PromptValenceEnumApi | null): string {
+type Direction = 'good' | 'bad'
+
+function direction(valence: PromptValenceEnumApi | null): Direction | null {
+    return valence === 'good' || valence === 'bad' ? valence : null
+}
+
+function verdictClass(verdict: MonitorVerdict, yesIs: Direction | null): string {
     if (verdict === 'inconclusive') {
         return 'text-secondary dark:text-default'
     }
-    if (valence !== 'good' && valence !== 'bad') {
+    if (!yesIs) {
         return 'text-default'
     }
-    return (verdict === 'yes') === (valence === 'good') ? GOOD_CLASS : BAD_CLASS
+    return (verdict === 'yes') === (yesIs === 'good') ? GOOD_CLASS : BAD_CLASS
 }
 
 function scorerScale(observation: ReplayObservationApi): { min: number; max: number | null; label: string | null } {
@@ -80,13 +86,10 @@ function headlineLabel(observation: ReplayObservationApi, scannerType: ScannerTy
     return `${label} · ${shown}`
 }
 
-/** Red at the bad end of the scale through amber to green at the good end, null when its direction is unknown. */
-function scoreColor(score: number, min: number, max: number, valence: PromptValenceEnumApi | null): string | null {
-    if (valence !== 'good' && valence !== 'bad') {
-        return null
-    }
+/** Red at the bad end of the scale through amber to green at the good end. */
+function scoreColor(score: number, min: number, max: number, highIs: Direction): string {
     const fromMin = max > min ? Math.min(1, Math.max(0, (score - min) / (max - min))) : 1
-    const position = valence === 'good' ? fromMin : 1 - fromMin
+    const position = highIs === 'good' ? fromMin : 1 - fromMin
     return position < 0.5
         ? `color-mix(in oklab, var(--warning) ${Math.round(position * 200)}%, var(--danger))`
         : `color-mix(in oklab, var(--success) ${Math.round((position - 0.5) * 200)}%, var(--warning))`
@@ -109,7 +112,7 @@ function HeadlineValue({
         const Icon = VERDICT_ICON[verdict]
         return (
             <span
-                className={`inline-flex items-center gap-1.5 text-xl font-bold ${verdictClass(verdict, observation.prompt_valence)}`}
+                className={`inline-flex items-center gap-1.5 text-xl font-bold ${verdictClass(verdict, direction(observation.prompt_valence))}`}
                 data-attr="vision-observation-verdict"
             >
                 <Icon className="text-2xl" />
@@ -121,7 +124,8 @@ function HeadlineValue({
     if (scannerType === 'scorer') {
         const score = readScore(observation)
         const { min, max } = scorerScale(observation)
-        const color = score !== null && max !== null ? scoreColor(score, min, max, observation.prompt_valence) : null
+        const highIs = direction(observation.prompt_valence)
+        const color = score !== null && max !== null && highIs ? scoreColor(score, min, max, highIs) : null
         return (
             <span className="text-3xl font-bold tabular-nums">
                 <span

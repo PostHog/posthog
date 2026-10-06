@@ -7,7 +7,6 @@ prompt can tell the question no longer describes it.
 """
 
 import uuid
-from typing import Literal
 
 from django.conf import settings
 from django.core.cache import cache
@@ -66,22 +65,31 @@ Respond with JSON matching the schema.
 """
 
 
-# Questions for the scanner templates the app offers, keyed by the template's exact prompt, so a scanner
-# made from one needs no model call. Most scanners are unedited copies of a template. Keep the prompts in
+# Questions and valences for the scanner templates the app offers, keyed by the template's exact prompt, so a
+# scanner made from one needs no model call. Most scanners are unedited copies of a template. Keep the prompts in
 # step with `frontend/replay_scanners/scannerTemplates.ts`: a prompt that no longer matches falls back to
 # the model.
-TEMPLATE_QUESTIONS: dict[str, str] = {
-    "Answer yes if the user appears stuck on a page: scrolling without engaging, hovering over elements with no clear CTA, or abandoning the session shortly after arriving. Otherwise answer no.": "Did the user get stuck on a page?",
-    "Summarize what the user did in this session: which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.": "What did the user do in this session?",
-    "Classify what the user appeared to be trying to accomplish in this session, based on their primary actions. Pick from the configured categories.": "What was the user trying to accomplish in this session?",
-    "Score how frustrated the user appeared during this session. 0 means a smooth session with no visible friction. 10 means clear, sustained frustration: rage clicks, repeated failures, abandonment. Use the full range; most sessions land somewhere in the middle.": "How frustrated did the user appear during this session?",
-    "Classify what happened in this session. Did the user complete what they were trying to do, abandon partway through, hit an error that blocked them, or just browse without a clear task? Pick from the configured categories.": "How did this session end for the user?",
-}
-
-
-TEMPLATE_VALENCES: dict[str, PromptValence] = {
-    "Answer yes if the user appears stuck on a page: scrolling without engaging, hovering over elements with no clear CTA, or abandoning the session shortly after arriving. Otherwise answer no.": PromptValence.BAD,
-    "Score how frustrated the user appeared during this session. 0 means a smooth session with no visible friction. 10 means clear, sustained frustration: rage clicks, repeated failures, abandonment. Use the full range; most sessions land somewhere in the middle.": PromptValence.BAD,
+TEMPLATE_QUESTIONS: dict[str, tuple[str, PromptValence]] = {
+    "Answer yes if the user appears stuck on a page: scrolling without engaging, hovering over elements with no clear CTA, or abandoning the session shortly after arriving. Otherwise answer no.": (
+        "Did the user get stuck on a page?",
+        PromptValence.BAD,
+    ),
+    "Summarize what the user did in this session: which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.": (
+        "What did the user do in this session?",
+        PromptValence.NEUTRAL,
+    ),
+    "Classify what the user appeared to be trying to accomplish in this session, based on their primary actions. Pick from the configured categories.": (
+        "What was the user trying to accomplish in this session?",
+        PromptValence.NEUTRAL,
+    ),
+    "Score how frustrated the user appeared during this session. 0 means a smooth session with no visible friction. 10 means clear, sustained frustration: rage clicks, repeated failures, abandonment. Use the full range; most sessions land somewhere in the middle.": (
+        "How frustrated did the user appear during this session?",
+        PromptValence.BAD,
+    ),
+    "Classify what happened in this session. Did the user complete what they were trying to do, abandon partway through, hit an error that blocked them, or just browse without a clear task? Pick from the configured categories.": (
+        "How did this session end for the user?",
+        PromptValence.NEUTRAL,
+    ),
 }
 
 _DIRECTIONAL_TYPES = frozenset({ScannerType.MONITOR, ScannerType.SCORER})
@@ -89,23 +97,21 @@ _DIRECTIONAL_TYPES = frozenset({ScannerType.MONITOR, ScannerType.SCORER})
 
 class _LlmQuestion(BaseModel):
     question: str = Field(description="The single question the scanner answers about each session.")
-    valence: Literal["good", "bad", "neutral"] = Field(
-        default="neutral", description="Whether a yes, or a high score, is good or bad news for the team."
-    )
+    valence: PromptValence = Field(description="Whether a yes, or a high score, is good or bad news for the team.")
 
 
 @frozen
 class PromptQuestion:
     question: str
     source: str
-    valence: str = ""
+    valence: PromptValence | None = None
 
     def as_fields(self) -> dict[str, str]:
         """The scanner columns this question fills, for a create or update call."""
         return {
             "prompt_question": self.question,
             "prompt_question_source": self.source,
-            "prompt_valence": self.valence,
+            "prompt_valence": self.valence or "",
         }
 
 
@@ -129,7 +135,16 @@ def _clean(question: str) -> str | None:
     return question
 
 
-def _generate(*, prompt: str, scanner_type: str, team_id: int) -> _LlmQuestion | None:
+def _scale_line(scanner_config: object) -> str:
+    """A scorer's scale often says which end is good ("frustration" or "satisfaction"), so the model sees it too."""
+    scale = scanner_config.get("scale") if isinstance(scanner_config, dict) else None
+    if not isinstance(scale, dict):
+        return ""
+    label = scale.get("label")
+    return f"\n\nScale: {scale.get('min')} to {scale.get('max')}" + (f", measuring {label}" if label else "")
+
+
+def _generate(*, prompt: str, scale_line: str, scanner_type: str, team_id: int) -> _LlmQuestion | None:
     config = GenerateContentConfig(
         system_instruction=_SYSTEM_PROMPT,
         response_mime_type="application/json",
@@ -147,16 +162,14 @@ def _generate(*, prompt: str, scanner_type: str, team_id: int) -> _LlmQuestion |
         )
         response = client.models.generate_content(
             model=_QUESTION_MODEL,
-            contents=f"Scanner type: {scanner_type}\n\nInstructions:\n{prompt}",
+            contents=f"Scanner type: {scanner_type}{scale_line}\n\nInstructions:\n{prompt}",
             config=config,
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_trace_id=str(uuid.uuid4()),
             posthog_properties={"ai_product": "replay_vision", "feature": "prompt_question", "team_id": team_id},
             posthog_groups={"project": str(team_id)},
         )
-        answer = _LlmQuestion.model_validate_json(response.text or "")
-        question = _clean(answer.question)
-        return answer.model_copy(update={"question": question}) if question else None
+        return _LlmQuestion.model_validate_json(response.text or "")
     except Exception:
         logger.exception("replay_vision.prompt_question.generate_failed", team_id=team_id)
         return None
@@ -183,11 +196,8 @@ def template_question(scanner_config: object) -> PromptQuestion | None:
     prompt = _prompt_of(scanner_config)
     if prompt not in TEMPLATE_QUESTIONS:
         return None
-    return PromptQuestion(
-        question=TEMPLATE_QUESTIONS[prompt],
-        source=prompt_fingerprint(prompt),
-        valence=TEMPLATE_VALENCES.get(prompt, PromptValence.NEUTRAL),
-    )
+    question, valence = TEMPLATE_QUESTIONS[prompt]
+    return PromptQuestion(question=question, source=prompt_fingerprint(prompt), valence=valence)
 
 
 def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object, metered: bool = True) -> PromptQuestion:
@@ -203,12 +213,14 @@ def condense_prompt(*, team_id: int, scanner_type: str, scanner_config: object, 
     answer = None
     # The prompt is the team's own text, but it still only goes to the model under the org's AI consent.
     if is_ai_data_processing_approved(team_id) and (not metered or _take_model_call(team_id)):
-        answer = _generate(prompt=prompt, scanner_type=scanner_type, team_id=team_id)
-    if answer is None:
+        answer = _generate(
+            prompt=prompt, scale_line=_scale_line(scanner_config), scanner_type=scanner_type, team_id=team_id
+        )
+    question = _clean(answer.question) if answer else None
+    if question is None:
         logger.warning("replay_vision.prompt_question.fell_back", team_id=team_id)
-        return PromptQuestion(question=fallback_question(prompt), source=source)
-    valence = answer.valence if scanner_type in _DIRECTIONAL_TYPES else ""
-    return PromptQuestion(question=answer.question, source=source, valence=valence)
+        question = fallback_question(prompt)
+    return PromptQuestion(question=question, source=source, valence=answer.valence if answer else None)
 
 
 def question_fields_for_save(
@@ -234,19 +246,23 @@ def scanner_question(scanner: ReplayScanner) -> str:
     return fallback_question(prompt)
 
 
+def _from_snapshot_prompt(snapshot_config: object, source: str) -> bool:
+    return source == prompt_fingerprint(_prompt_of(snapshot_config))
+
+
 def question_for_snapshot(*, snapshot_config: object, question: str, source: str) -> str | None:
     """The scanner's question if it came from the prompt this observation was scanned with, else None."""
-    if not question or source != prompt_fingerprint(_prompt_of(snapshot_config)):
+    if not question or not _from_snapshot_prompt(snapshot_config, source):
         return None
     return question
 
 
-def valence_for_snapshot(*, snapshot: object, valence: str, source: str) -> PromptValence | None:
-    """The scanner's valence if it came from the prompt this observation was scanned with, else None."""
-    snapshot = snapshot if isinstance(snapshot, dict) else {}
-    if snapshot.get("scanner_type") not in _DIRECTIONAL_TYPES or not valence:
-        return None
-    if source != prompt_fingerprint(_prompt_of(snapshot.get("scanner_config"))):
+def valence_for_snapshot(
+    *, snapshot_config: object, scanner_type: object, valence: str, source: str
+) -> PromptValence | None:
+    """The scanner's valence if its type answers with a direction and it came from the prompt this observation was
+    scanned with, else None."""
+    if scanner_type not in _DIRECTIONAL_TYPES or not valence or not _from_snapshot_prompt(snapshot_config, source):
         return None
     return PromptValence(valence)
 
@@ -307,13 +323,13 @@ def backfill_prompt_questions(
             )
             condensed[key] = question
         fields = question.as_fields()
+        # Zero rows when the prompt was edited mid-run, which is then not a write of ours.
+        unchanged = ReplayScanner.all_origins.filter(pk=scanner.pk, scanner_config=scanner.scanner_config)
         if question_is_current:
-            # A fallback carries no valence, and writing its question would replace a model-written one.
+            # A failed model call carries no valence, and writing its question would replace a model-written one.
             if not question.valence:
                 continue
             fields = {"prompt_valence": question.valence}
-        # Zero rows when the prompt was edited mid-run, which is then not a write of ours.
-        written += ReplayScanner.all_origins.filter(pk=scanner.pk, scanner_config=scanner.scanner_config).update(
-            **fields
-        )
+            unchanged = unchanged.filter(prompt_valence="")
+        written += unchanged.update(**fields)
     return BackfillResult(checked=checked, written=written)
