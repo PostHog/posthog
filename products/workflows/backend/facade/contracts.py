@@ -327,6 +327,24 @@ class TwilioAccount(TypedDict, total=False):
 
 
 @frozen
+class MessageAsset:
+    invocation_id: str
+    action_id: str
+    function_id: str
+    parent_run_id: str
+    kind: str
+    distinct_id: str
+    person_id: str
+    recipient: str
+    subject: str
+    status: str
+    sent_at: datetime
+    # Human-readable workflow name; enriched by the endpoint before serialization.
+    # Left blank when the workflow no longer exists so the frontend falls back to function_id.
+    function_name: str = ""
+
+
+@frozen
 class WorkflowRevisionSummary:
     """One entry of a workflow's version history, without the content snapshot."""
 

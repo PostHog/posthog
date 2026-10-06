@@ -51,7 +51,7 @@ from .organization_invite import OrganizationInvite, InviteExpiredException
 from .organization_provisioning import OrganizationProvisioning
 from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 from .personal_api_key import PersonalAPIKey
-from .project_secret_api_key import ProjectSecretAPIKey
+from .project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from .product_intent import ProductIntent
 from .project import Project
 from .property import Property
@@ -146,6 +146,7 @@ __all__ = [
     "PersonDistinctId",
     "PersonalAPIKey",
     "ProjectSecretAPIKey",
+    "RevokedTeamSecretToken",
     "PersonOverride",
     "PersonOverrideMapping",
     "ProductIntent",

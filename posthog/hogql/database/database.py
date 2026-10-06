@@ -324,6 +324,15 @@ def is_reserved_system_name(name: str) -> bool:
     return name == "system" or name.startswith("system.")
 
 
+MODELS_NAMESPACE_ROOT_ERROR = "The models namespace needs a model name, for example models.revenue."
+MODELS_NAMESPACE_QUERY_ERROR = "The models namespace is reserved for data models. Choose a different name."
+MODELS_NAMESPACE_TABLE_ERROR = "The models namespace is reserved for data models. Choose a different table name."
+
+
+def is_reserved_models_name(name: str) -> bool:
+    return name == "models" or name.startswith("models.")
+
+
 def _revenue_trigger_prefixes(handles: list[SourceHandle]) -> set[str]:
     """Lowercased first segments of the dotted names the handles' views will get."""
     return {"revenue_analytics" if handle.type == "events" else handle.type.lower() for handle in handles}
