@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+    assertExclusionsNameRealFields,
     buildResponseFilter,
     composeToolSchema,
     extractPathParams,
@@ -2305,7 +2306,7 @@ describe('optional param with state fallback', () => {
     })
 })
 
-describe('composeToolSchema exclude_params', () => {
+describe('assertExclusionsNameRealFields', () => {
     const resolvedWithBody = makeResolved({
         method: 'POST',
         path: '/api/projects/{project_id}/things/',
@@ -2350,7 +2351,7 @@ describe('composeToolSchema exclude_params', () => {
         'accepts %s, which names a real field',
         (entry) => {
             expect(() =>
-                composeToolSchema(withExclusions([entry]), resolvedWithBody, spec, stubGetQuerySchema)
+                assertExclusionsNameRealFields('things-create', withExclusions([entry]), resolvedWithBody, spec)
             ).not.toThrow()
         }
     )
@@ -2362,10 +2363,14 @@ describe('composeToolSchema exclude_params', () => {
         ['stepz.*.selector_regex'],
         ['steps.*'],
         ['inputs.*.bytecod'],
+        ['constructor'],
+        ['project_id'],
     ])('rejects %s, which names no field and would leave the intended one exposed', (entry) => {
         expect(() =>
-            composeToolSchema(withExclusions(['secret', entry]), resolvedWithBody, spec, stubGetQuerySchema)
-        ).toThrow(`things_create: exclude_params entry "${entry}" names no parameter or body field`)
+            assertExclusionsNameRealFields('things-create', withExclusions(['secret', entry]), resolvedWithBody, spec)
+        ).toThrow(
+            `Enabled tool "things-create": exclude_params entry "${entry}" names no query parameter or body field`
+        )
     })
 })
 

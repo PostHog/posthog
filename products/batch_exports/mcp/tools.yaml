@@ -72,7 +72,6 @@ tools:
             Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. The destination
             type cannot be changed. Do not change the model field on an existing batch export.
         exclude_params:
-            - id
             - filters
     batch-exports-backfills-cancel-create:
         operation: batch_exports_backfills_cancel_create
