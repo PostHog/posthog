@@ -1,7 +1,7 @@
 import { Dayjs, dayjs } from 'lib/dayjs'
 
 import {
-    FeatureFlagFilters,
+    FeatureFlagConfig,
     FeatureFlagGroupType,
     FeatureFlagType,
     RecurrenceInterval,
@@ -123,7 +123,7 @@ export function maxUntargetedRolloutPercentage(
  * side. The chart would then draw a gain or a loss of reach that the flag never makes.
  */
 export function projectedRolloutPercentage(
-    filters: Pick<FeatureFlagFilters, 'groups' | 'aggregation_group_type_index'>
+    filters: Pick<FeatureFlagConfig, 'groups' | 'aggregation_group_type_index'>
 ): number | null {
     return maxUntargetedRolloutPercentage(
         filters.groups,
