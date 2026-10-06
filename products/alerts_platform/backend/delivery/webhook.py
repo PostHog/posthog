@@ -8,10 +8,12 @@ transition is one message.
 import hashlib
 from datetime import UTC, datetime
 from typing import Any, ClassVar, Final
+from urllib.parse import urlsplit
 
 from django.conf import settings
 
 from products.alerts_platform.backend.delivery.message import AlertMessage
+from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.delivery.webhook_url import WebhookUrlTransport
 from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition
 
@@ -91,6 +93,12 @@ class WebhookTransport(WebhookUrlTransport):
     provider = PROVIDER
     display_name = "webhook"
     headers: ClassVar[dict[str, str]] = {"X-PostHog-Webhook-Version": WEBHOOK_VERSION}
+
+    def check_url(self, url: str) -> None:
+        # Plain HTTP would expose the URL, which is the credential, and the alert body to anyone on
+        # the path. Teams and Discord URLs are always HTTPS, so only the generic webhook needs this.
+        if urlsplit(url).scheme != "https":
+            raise DeliveryError("This webhook destination's URL must use https.")
 
     def body_for(self, message: AlertMessage) -> dict[str, Any]:
         return alertmanager_body(message)

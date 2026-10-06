@@ -66,19 +66,30 @@ class WebhookUrlTransport(ABC):
         try:
             # `pinned_session` validates the URL and connects to the IPs it validated, which
             # closes the window where DNS changes between the check and the connection.
-            # `stream=True` with no read means a destination cannot make the worker download a
-            # response body of any size.
             with pinned_session(url) as session:
-                response = session.post(
-                    url,
-                    # UTF-8 rather than `json=`, which escapes every non-ASCII character to six
-                    # bytes or more. A provider limits the bytes it receives, so a body sized by its
-                    # UTF-8 length must be sent as UTF-8.
-                    data=json.dumps(body, ensure_ascii=False).encode(),
-                    headers={"Content-Type": "application/json", **self.headers},
-                    timeout=(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS),
-                    allow_redirects=False,
+                request = session.prepare_request(
+                    requests.Request(
+                        "POST",
+                        url,
+                        # UTF-8 rather than `json=`, which escapes every non-ASCII character to six
+                        # bytes or more. A provider limits the bytes it receives, so a body sized by
+                        # its UTF-8 length must be sent as UTF-8.
+                        data=json.dumps(body, ensure_ascii=False).encode(),
+                        headers={"Content-Type": "application/json", **self.headers},
+                    )
+                )
+                settings = session.merge_environment_settings(request.url, {}, True, None, None)
+                # The adapter rather than `session.send`, and `stream=True` with no read. Even with
+                # redirects off, the session reads a redirect's whole body to work out where it
+                # points, so a destination answering 3xx with an unbounded body would fill the
+                # worker's memory. The adapter returns the response unread and follows nothing.
+                response = session.get_adapter(request.url or url).send(
+                    request,
                     stream=True,
+                    timeout=(CONNECT_TIMEOUT_SECONDS, READ_TIMEOUT_SECONDS),
+                    verify=settings["verify"],
+                    cert=settings["cert"],
+                    proxies=settings["proxies"],
                 )
                 status = response.status_code
                 response.close()

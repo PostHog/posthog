@@ -1,9 +1,14 @@
+import io
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
+
+from requests import PreparedRequest, Response, Session
+from requests.adapters import BaseAdapter
+from requests.structures import CaseInsensitiveDict
 
 from products.alerts_platform.backend.delivery.message import AlertMessage, MessageDetail
 from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition
@@ -43,13 +48,50 @@ def alert_message(
     )
 
 
+class UnreadBody(io.BytesIO):
+    def __init__(self, content: bytes) -> None:
+        super().__init__(content)
+        self.bytes_read = 0
+
+    def read(self, size: int | None = -1) -> bytes:
+        chunk = super().read(size)
+        self.bytes_read += len(chunk)
+        return chunk
+
+
+class RecordingAdapter(BaseAdapter):
+    def __init__(self, status: int, error: Exception | None, headers: dict[str, str], body: bytes) -> None:
+        super().__init__()
+        self.status = status
+        self.error = error
+        self.headers = headers
+        self.body = UnreadBody(body)
+        self.sent: list[PreparedRequest] = []
+
+    def send(self, request: PreparedRequest, *args: Any, **kwargs: Any) -> Response:
+        self.sent.append(request)
+        if self.error:
+            raise self.error
+        response = Response()
+        response.status_code = self.status
+        response.headers = CaseInsensitiveDict(self.headers)
+        response.raw = self.body
+        response.url = request.url or ""
+        response.request = request
+        return response
+
+    def close(self) -> None:
+        return None
+
+
 @contextmanager
-def pinned_post(status: int = 200, error: Exception | None = None) -> Iterator[MagicMock]:
-    session = MagicMock()
-    if error:
-        session.post.side_effect = error
-    else:
-        session.post.return_value.status_code = status
+def pinned_post(
+    status: int = 200, error: Exception | None = None, headers: dict[str, str] | None = None, body: bytes = b""
+) -> Iterator[RecordingAdapter]:
+    adapter = RecordingAdapter(status, error, headers or {}, body)
+    session = Session()
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
     with patch("products.alerts_platform.backend.delivery.webhook_url.pinned_session") as pinned_session:
         pinned_session.return_value.__enter__.return_value = session
-        yield session
+        yield adapter

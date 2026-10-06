@@ -121,12 +121,28 @@ class TestAlertmanagerBody(SimpleTestCase):
 class TestWebhookTransport(SimpleTestCase):
     @parameterized.expand([("ok", 200), ("accepted", 202)])
     def test_any_success_status_is_a_delivery(self, _name: str, status: int) -> None:
-        with pinned_post(status) as session:
+        with pinned_post(status) as adapter:
             handle = WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
 
         assert handle is None
-        assert session.post.call_args.kwargs["headers"]["X-PostHog-Webhook-Version"] == "2"
-        assert session.post.call_args.kwargs["allow_redirects"] is False
+        assert adapter.sent[-1].headers["X-PostHog-Webhook-Version"] == "2"
+
+    def test_a_redirect_is_refused_without_reading_its_body(self) -> None:
+        with pinned_post(302, headers={"Location": "https://elsewhere.example.com/"}, body=b"x" * 1_000_000) as adapter:
+            with pytest.raises(DeliveryError):
+                WebhookTransport().deliver(team_id=2, target=TARGET, message=alert_message())
+
+        assert len(adapter.sent) == 1
+        assert adapter.body.bytes_read == 0
+
+    def test_a_plain_http_url_is_refused_before_anything_is_sent(self) -> None:
+        target = cast(AlertDestinationData, {"type": "webhook", "webhook_url": "http://hooks.example.com/alerts"})
+
+        with pinned_post() as adapter:
+            with pytest.raises(DeliveryError):
+                WebhookTransport().deliver(team_id=2, target=target, message=alert_message())
+
+        assert adapter.sent == []
 
     @parameterized.expand(
         [
@@ -168,7 +184,7 @@ class TestWebhookThreads(APIBaseTest):
             consecutive_failures=0,
             transitions=(announced_transition(kind),),
         )
-        with pinned_post() as session, patch("products.alerts_platform.backend.delivery.dispatch.record_delivery"):
+        with pinned_post() as adapter, patch("products.alerts_platform.backend.delivery.dispatch.record_delivery"):
             deliver(
                 transport=WebhookTransport(),
                 thread_store=DatabaseThreadStore(self.team.id),
@@ -178,12 +194,12 @@ class TestWebhookThreads(APIBaseTest):
                 target=TARGET,
                 announcement=announcement,
             )
-        return session
+        return adapter
 
     def test_a_retry_posts_once_although_the_webhook_returns_nothing_to_reply_to(self) -> None:
-        assert self._deliver(AlertEventKind.FIRING, "eval-1").post.call_count == 1
-        assert self._deliver(AlertEventKind.FIRING, "eval-1").post.call_count == 0
-        assert self._deliver(AlertEventKind.RESOLVED, "eval-2").post.call_count == 1
+        assert len(self._deliver(AlertEventKind.FIRING, "eval-1").sent) == 1
+        assert len(self._deliver(AlertEventKind.FIRING, "eval-1").sent) == 0
+        assert len(self._deliver(AlertEventKind.RESOLVED, "eval-2").sent) == 1
 
         with team_scope(self.team.id):
             thread = PlatformAlertThread.objects.get(configuration_id=self.configuration.id)
