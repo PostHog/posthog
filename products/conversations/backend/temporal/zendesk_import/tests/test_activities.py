@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.db import close_old_connections, connection, transaction
 from django.db.utils import OperationalError
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -222,6 +223,41 @@ class TestZendeskImportBatchActivity(BaseTest):
         self.assertEqual(ticket.message_count, 2)
         self.assertEqual(ticket.unread_team_count, 0)
         self.assertEqual(ticket.unread_customer_count, 0)
+
+    def test_counter_writes_do_not_scale_with_batch_size(self) -> None:
+        # The persist transaction holds the per-team ticket-number lock, which live ticket
+        # creation also waits on. One counter write per ticket makes that wait grow with the
+        # batch, so the whole batch must take a single write.
+        ticket_ids = [221, 222, 223]
+        comments = {
+            tid: [
+                _zd_comment(tid * 10 + 1, 10, public=True, body="customer msg"),
+                _zd_comment(tid * 10 + 2, 20, public=True, body="agent reply"),
+            ]
+            for tid in ticket_ids
+        }
+
+        with CaptureQueriesContext(connection) as captured:
+            result, _ = self._run_batch(
+                ticket_ids,
+                tickets=[_zd_ticket(tid, 10) for tid in ticket_ids],
+                users={10: _zd_user(10, "requester@x.com"), 20: _zd_user(20, "agent@x.com", role="agent")},
+                comments_by_ticket=comments,
+            )
+
+        self.assertEqual(result.imported, 3)
+        counter_writes = [
+            q["sql"]
+            for q in captured.captured_queries
+            if q["sql"].lstrip().upper().startswith("UPDATE") and "message_count" in q["sql"]
+        ]
+        self.assertEqual(len(counter_writes), 1)
+        for tid in ticket_ids:
+            ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=tid)
+            self.assertEqual(ticket.message_count, 2)
+            self.assertEqual(ticket.unread_team_count, 1)
+            self.assertEqual(ticket.unread_customer_count, 1)
+            self.assertEqual(ticket.last_message_text, "agent reply")
 
     def test_unmatched_requester_sets_anonymous_traits_for_display(self) -> None:
         # The customer must render as their Zendesk name/email (via anonymous_traits) instead of
