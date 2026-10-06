@@ -397,7 +397,7 @@ class TestPartitionMeasurementPreservesConcurrentKeys(BaseTest):
 
         update_sync_type_config_keys(schema.id, self.team.pk, removes=["repartition_swap"])
         assert stale.abandon_repartition_if_claimed("latest")
-        schema.refresh_from_db()
+        schema = ExternalDataSchema.objects.get(id=schema.id)
         assert schema.repartition_rewrite is None
         assert schema.last_repartition_at is not None
 
