@@ -447,6 +447,7 @@ the row lists both.
 | katana                           | HTTP                        | requests                                                        | ✅                          |
 | kernel                           | HTTP                        | requests                                                        | ✅                          |
 | kickscale                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| kisi                             | HTTP                        | requests                                                        | ✅                          |
 | klaus                            | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                          | HTTP                        | requests                                                        | ✅                          |
 | knock                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1206,7 +1207,6 @@ doesn't conflict with concurrent PRs.
 - kickstarter
 - kinde
 - kion
-- kisi
 - kissmetrics
 - klarna
 - komodor
