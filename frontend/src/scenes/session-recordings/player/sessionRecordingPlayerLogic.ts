@@ -1129,6 +1129,9 @@ export interface sessionRecordingPlayerLogicActions {
     restartIframePlayback: () => {
         value: true
     }
+    restartPlayerFrameLoad: () => {
+        value: true
+    }
     retryLoadingSnapshots: () => {
         value: true
     }
@@ -1629,6 +1632,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         playerFrameDocumentLoadFailed: (iframe: HTMLIFrameElement | null) => ({ iframe }),
         retryPlayerFrameLoad: true,
         stopRetryingPlayerFrameLoad: true,
+        restartPlayerFrameLoad: true,
         fingerprintReported: (fingerprint: string) => ({ fingerprint }),
         setDebugSnapshotTypes: (types: EventType[]) => ({ types }),
         setDebugSnapshotIncrementalSources: (incrementalSources: IncrementalSource[]) => ({ incrementalSources }),
@@ -1834,10 +1838,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
-        playerFrameLoadFailures: [0, { playerFrameDocumentLoadFailed: (failures) => failures + 1 }],
-        // PlayerFrame adds this to the frame's src, because a frame loads again only when its src changes.
-        playerFrameLoadRetries: [0, { retryPlayerFrameLoad: (retries) => retries + 1 }],
-        playerFrameLoadStopped: [false, { stopRetryingPlayerFrameLoad: () => true }],
+        // A restart from the error state gives the frame its full set of retries again.
+        playerFrameLoadFailures: [
+            0,
+            { playerFrameDocumentLoadFailed: (failures) => failures + 1, restartPlayerFrameLoad: () => 0 },
+        ],
+        // PlayerFrame keys the frame on this and adds it to the frame's src, so each retry loads a new frame element.
+        playerFrameLoadRetries: [
+            0,
+            { retryPlayerFrameLoad: (retries) => retries + 1, restartPlayerFrameLoad: (retries) => retries + 1 },
+        ],
+        playerFrameLoadStopped: [
+            false,
+            { stopRetryingPlayerFrameLoad: () => true, restartPlayerFrameLoad: () => false },
+        ],
         playerError: [
             null as string | null,
             {
@@ -1912,7 +1926,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     })),
     selectors({
-        // Nothing resets this, because the frame's src stops changing once the retries run out.
+        // Only restartPlayerFrameLoad resets this, because the frame's src stops changing once the retries run out.
         playerFrameDocumentFailed: [
             (s) => [s.playerFrameLoadFailures, s.playerFrameLoadStopped],
             (playerFrameLoadFailures: number, playerFrameLoadStopped: boolean): boolean =>

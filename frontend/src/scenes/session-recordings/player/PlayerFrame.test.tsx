@@ -17,6 +17,17 @@ describe('PlayerFrame', () => {
         setupSessionRecordingTest()
     })
 
+    // Each retry renders a new frame element, so a test looks the frame up again after each one.
+    function currentFrame(container: HTMLElement): HTMLIFrameElement {
+        const iframe = container.querySelector('iframe.PlayerFrame__document')
+        if (!(iframe instanceof HTMLIFrameElement)) {
+            throw new Error('the player did not render its frame')
+        }
+        // jsdom leaves the frame document mid-load, and the player judges a document that finished loading.
+        Object.defineProperty(iframe.contentDocument!, 'readyState', { value: 'complete', configurable: true })
+        return iframe
+    }
+
     function renderPlayerFrame(): HTMLIFrameElement {
         const { container } = render(
             <Provider>
@@ -25,13 +36,7 @@ describe('PlayerFrame', () => {
                 </BindLogic>
             </Provider>
         )
-        const iframe = container.querySelector('iframe.PlayerFrame__document')
-        if (!(iframe instanceof HTMLIFrameElement)) {
-            throw new Error('the player did not render its frame')
-        }
-        // jsdom leaves the frame document mid-load, and the player judges a document that finished loading.
-        Object.defineProperty(iframe.contentDocument!, 'readyState', { value: 'complete', configurable: true })
-        return iframe
+        return currentFrame(container)
     }
 
     it('mounts the player on the frame document once the frame loads', () => {
@@ -66,19 +71,19 @@ describe('PlayerFrame', () => {
             act(() => {
                 jest.advanceTimersByTime(10000)
             })
-            expect(container.querySelector('iframe')).toBe(iframe)
             expect(captureSpy).toHaveBeenCalledWith(
                 'replay player frame load retried',
                 expect.objectContaining({ attempt: 1 })
             )
 
-            // The retry changes the src, and the reloaded frame's load also never fires. The frame
-            // gets MAX_PLAYER_FRAME_LOAD_RETRIES retries, so failures 1 and 2 retry and failure 3
-            // reaches the error state.
+            // The retry replaces the frame, because a frame stuck on about:blank can ignore a new src.
+            // The new frame's load also never fires. The frame gets MAX_PLAYER_FRAME_LOAD_RETRIES
+            // retries, so failures 1 and 2 retry and failure 3 reaches the error state.
             act(() => {
                 jest.advanceTimersByTime(1000)
             })
-            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
+            expect(currentFrame(container)).not.toBe(iframe)
+            expect(currentFrame(container)).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
 
             act(() => {
                 jest.advanceTimersByTime(10000)
@@ -91,7 +96,7 @@ describe('PlayerFrame', () => {
             act(() => {
                 jest.advanceTimersByTime(2000)
             })
-            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=2')
+            expect(currentFrame(container)).toHaveAttribute('src', '/replay_player_frame/index.html?retry=2')
 
             act(() => {
                 jest.advanceTimersByTime(10000)
@@ -140,8 +145,7 @@ describe('PlayerFrame', () => {
             act(() => {
                 jest.advanceTimersByTime(1000)
             })
-            expect(container.querySelector('iframe')).toBe(iframe)
-            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
+            expect(currentFrame(container)).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
         } finally {
             jest.useRealTimers()
         }
@@ -174,25 +178,28 @@ describe('PlayerFrame', () => {
         try {
             const captureSpy = jest.spyOn(posthog, 'capture')
             const captureExceptionSpy = jest.spyOn(posthog, 'captureException')
-            const iframe = renderPlayerFrame()
+            const container = renderPlayerFrame().parentElement!
             const logic = sessionRecordingPlayerLogic(logicProps)
 
-            fireEvent.load(iframe)
+            fireEvent.load(currentFrame(container))
             act(() => {
                 jest.advanceTimersByTime(1000)
             })
-            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
+            const retriedFrame = currentFrame(container)
+            expect(retriedFrame).toHaveAttribute('src', '/replay_player_frame/index.html?retry=1')
 
             // A browser error page is cross-origin to the app, so the frame's document is unreadable.
-            Object.defineProperty(iframe, 'contentDocument', { value: null, configurable: true })
-            fireEvent.load(iframe)
+            Object.defineProperty(retriedFrame, 'contentDocument', { value: null, configurable: true })
+            fireEvent.load(retriedFrame)
             act(() => {
                 jest.advanceTimersByTime(2000)
             })
-            expect(iframe).toHaveAttribute('src', '/replay_player_frame/index.html?retry=2')
+            expect(currentFrame(container)).toHaveAttribute('src', '/replay_player_frame/index.html?retry=2')
             expect(logic.values.currentPlayerState).not.toBe(SessionPlayerState.ERROR)
 
-            fireEvent.load(iframe)
+            const lastFrame = currentFrame(container)
+            Object.defineProperty(lastFrame, 'contentDocument', { value: null, configurable: true })
+            fireEvent.load(lastFrame)
 
             expect(logic.values.currentPlayerState).toBe(SessionPlayerState.ERROR)
             expect(
@@ -207,6 +214,32 @@ describe('PlayerFrame', () => {
             expect(captureExceptionSpy.mock.calls[0][1]).toMatchObject({ attempt: 3, frameDocumentReadable: false })
         } finally {
             jest.useRealTimers()
+        }
+    })
+
+    // The error card's button used to reload the whole page, which repeated the same failed load.
+    it('loads a new frame and mounts the player when the viewer retries from the error state', () => {
+        const onLine = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
+        try {
+            const container = renderPlayerFrame().parentElement!
+            const logic = sessionRecordingPlayerLogic(logicProps)
+            fireEvent.load(currentFrame(container))
+            expect(logic.values.currentPlayerState).toBe(SessionPlayerState.ERROR)
+            onLine.mockReturnValue(true)
+
+            act(() => {
+                logic.actions.restartPlayerFrameLoad()
+            })
+
+            expect(logic.values.currentPlayerState).not.toBe(SessionPlayerState.ERROR)
+            const frameDocument = currentFrame(container).contentDocument!
+            frameDocument.open()
+            frameDocument.write('<div id="player-frame-content"></div>')
+            frameDocument.close()
+            fireEvent.load(currentFrame(container))
+            expect(logic.values.rootFrame).toBe(frameDocument.getElementById('player-frame-content'))
+        } finally {
+            onLine.mockRestore()
         }
     })
 
