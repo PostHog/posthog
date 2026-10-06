@@ -66,12 +66,13 @@ def create_desktop_feedback_ticket(
         "$session_id": context.session_id,
     }
     session_context.update({key: value for key, value in optional_context.items() if value})
+    distinct_id = user.distinct_id or user.email
 
     with transaction.atomic():
         ticket = Ticket.objects.create_with_number(
             team=team,
             channel_source=Channel.EMAIL,
-            distinct_id=str(user.uuid),
+            distinct_id=distinct_id,
             widget_session_id=str(uuid4()),
             status=Status.NEW,
             email_config=email_channel,
@@ -100,11 +101,15 @@ def create_desktop_feedback_ticket(
             rich_content={
                 "type": "doc",
                 "content": [
-                    {"type": "paragraph", "content": [{"type": "text", "text": content}]},
+                    *[
+                        {"type": "paragraph", "content": [{"type": "text", "text": line}]}
+                        for raw_line in content.split("\n")
+                        if (line := raw_line.strip())
+                    ],
                     *[{"type": "image", "attrs": {"src": url}} for url in image_urls],
                 ],
             },
-            item_context={"author_type": "customer", "distinct_id": str(user.uuid), "is_private": False},
+            item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
         )
         if app_logs:
             Comment.objects.create(

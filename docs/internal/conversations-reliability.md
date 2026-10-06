@@ -149,6 +149,8 @@ An invalid or deleted role rejects the submission without saving a ticket or its
 The ticket, assignment, and messages commit together.
 Assignment events run after the transaction commits.
 Desktop feedback tickets show the Exceptions panel only when they have a session ID.
+Tickets and customer comments use the same analytics identity as Desktop: the user's distinct ID, with their email as the fallback.
+Feedback text renders as separate paragraphs for each non-empty line, followed by any attached images.
 
 ## What must not happen
 

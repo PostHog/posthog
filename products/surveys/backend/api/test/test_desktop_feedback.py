@@ -72,32 +72,37 @@ class TestDesktopFeedback(APIBaseTest):
             is_default=True,
         )
 
-    @parameterized.expand([("assigned", True), ("unassigned", False)])
+    @parameterized.expand([("assigned", True, "desktop-test-identity"), ("unassigned", False, "")])
     @patch("products.conversations.backend.api.tickets.capture_ticket_assigned")
     @patch("posthog.models.uploaded_media.object_storage.write")
     @patch("products.surveys.backend.desktop_feedback.get_client")
     def test_creates_ticket_with_private_attachments_and_email_reply_path(
-        self, _name: str, assign_role: bool, get_client, _write_object, capture_assigned
+        self, _name: str, assign_role: bool, distinct_id: str, get_client, _write_object, capture_assigned
     ) -> None:
         channel = self.configure_feedback_tickets()
+        self.user.distinct_id = distinct_id
+        self.user.save(update_fields=["distinct_id"])
         if not assign_role:
             self.internal_team.conversations_settings = {"email_enabled": True}
             self.internal_team.save()
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/desktop_feedback/",
-            {
-                "response": "The search results are empty",
-                "source": "Generic (Leave feedback button)",
-                "feedback_view": "task-detail",
-                "feedback_task_id": "example-task",
-                "feedback_folder_id": "example-folder",
-                "session_id": "00000000-0000-0000-0000-000000000002",
-                "feedback_app_logs": "[info] Example search",
-                "app_version": "1.2.3",
-                "screenshot": _image_file(),
-            },
-            format="multipart",
-        )
+        content = "The search results are empty\n\nSteps to reproduce:\nSearch for a saved task"
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/desktop_feedback/",
+                {
+                    "response": content,
+                    "source": "Generic (Leave feedback button)",
+                    "feedback_view": "task-detail",
+                    "feedback_task_id": "example-task",
+                    "feedback_folder_id": "example-folder",
+                    "session_id": "00000000-0000-0000-0000-000000000002",
+                    "feedback_app_logs": "[info] Example search",
+                    "app_version": "1.2.3",
+                    "screenshot": _image_file(),
+                },
+                format="multipart",
+            )
+            capture_assigned.assert_not_called()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         ticket = Ticket.objects.get(id=response.json()["response_id"])
         assert ticket.team_id == self.internal_team.id
@@ -105,9 +110,13 @@ class TestDesktopFeedback(APIBaseTest):
         if assign_role:
             assert ticket.assignment.role_id == self.support_role.id
             assert ticket.assignment.user_id is None
-            capture_assigned.assert_not_called()
+            capture_assigned.assert_called_once_with(
+                ticket, "role", str(self.support_role.id), actor=None, actor_type="user"
+            )
         else:
             assert not TicketAssignment.objects.filter(ticket=ticket).exists()
+            capture_assigned.assert_not_called()
+        assert ticket.distinct_id == (distinct_id or self.user.email)
         assert ticket.email_from == self.user.email
         assert ticket.channel_source == "email"
         assert ticket.session_context == {
@@ -122,10 +131,16 @@ class TestDesktopFeedback(APIBaseTest):
         assert ticket.session_id == "00000000-0000-0000-0000-000000000002"
         assert ticket.identity_verified is True
         message = Comment.objects.get(item_id=str(ticket.id), item_context__is_private=False)
-        assert message.content == "The search results are empty"
+        assert message.content == content
+        assert message.item_context["distinct_id"] == ticket.distinct_id
         media = UploadedMedia.objects.get()
         assert isinstance(message.rich_content, dict)
-        image_url = message.rich_content["content"][1]["attrs"]["src"]
+        assert message.rich_content["content"][:3] == [
+            {"type": "paragraph", "content": [{"type": "text", "text": "The search results are empty"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "Steps to reproduce:"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "Search for a saved task"}]},
+        ]
+        image_url = message.rich_content["content"][3]["attrs"]["src"]
         assert (
             urlsplit(image_url).path
             == f"/api/projects/{self.internal_team.id}/desktop_feedback/attachments/{media.id}/"
