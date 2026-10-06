@@ -24,12 +24,12 @@ impl WorkerAssigner {
         }
     }
 
-    pub fn has_in_flight(&self, worker: &WorkerId) -> bool {
-        self.requests_on(worker) > 0
-    }
-
     pub fn in_flight_messages(&self) -> usize {
         self.message_load.values().sum()
+    }
+
+    pub fn busy_workers(&self) -> impl Iterator<Item = &WorkerId> {
+        self.request_load.keys()
     }
 
     pub fn prefers_largest_first(&self) -> bool {

@@ -51,6 +51,7 @@ The ledger emits its own metrics, so any consumer built on the crate reports the
 
 Under `key_table`:
 
+- One task owns the state machine and applies polls, worker responses, revokes and retry wakeups one at a time.
 - Each key has a FIFO queue, and at most one request per key is in flight, which preserves per-key order.
 - The packer groups ready keys into requests near a target size. A request never mixes assignment epochs or fresh and replayed messages.
 - A request is placed on a worker when it is sent, against the load at that moment. Each worker takes at most `INGESTION_WORKER_CONCURRENT_BATCHES` requests at a time.

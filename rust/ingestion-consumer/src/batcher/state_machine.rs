@@ -206,9 +206,10 @@ impl BatcherStateMachine {
         self.work().map_or(0, Work::pending_messages)
     }
 
-    pub fn has_in_flight(&self, worker: &WorkerId) -> bool {
+    pub fn busy_workers(&self) -> impl Iterator<Item = &WorkerId> {
         self.work()
-            .is_some_and(|work| work.assigner.has_in_flight(worker))
+            .into_iter()
+            .flat_map(|work| work.assigner.busy_workers())
     }
 
     pub fn in_flight_messages(&self) -> usize {

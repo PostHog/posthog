@@ -32,12 +32,12 @@ use std::time::{Duration, Instant};
 use common_kafka_consumer::{AssignmentEpoch, GroupCompletion, Offset, Partition};
 use lifecycle::Handle;
 use metrics::{counter, histogram};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 use self::driver::StateMachineDriver;
-use self::state_machine::{BatcherStateMachine, StateMachineConfig};
+use self::state_machine::StateMachineConfig;
 use self::worker_pool::WorkerPoolSource;
 use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch, Submission};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
@@ -179,8 +179,7 @@ impl Batcher {
         ))
     }
 
-    /// The per-key order sentinel, shared with the consumer's rdkafka
-    /// context so rebalances can reset its baselines.
+    /// The per-key order sentinel, so the consumer can enable it.
     pub fn key_order_sentinel(&self) -> Arc<KeyOrderSentinel> {
         match &self.backend {
             Backend::Dispatcher(inner) => inner.key_order_sentinel(),
@@ -191,8 +190,12 @@ impl Batcher {
     /// The batcher's half of the consumer's revocation hook.
     pub fn revoker(&self) -> Revoker {
         match &self.backend {
-            Backend::Dispatcher(_) => Revoker(None),
-            Backend::StateMachine(driver) => Revoker(Some(driver.shared())),
+            Backend::Dispatcher(inner) => {
+                Revoker(RevokeTarget::Dispatcher(inner.key_order_sentinel()))
+            }
+            Backend::StateMachine(driver) => {
+                Revoker(RevokeTarget::StateMachine(driver.revoke_sender()))
+            }
         }
     }
 
@@ -213,7 +216,7 @@ impl Batcher {
                 &inner.inner.dispatcher,
             ))),
             Backend::StateMachine(driver) => {
-                BatcherObserver(ObserverTarget::StateMachine(driver.shared()))
+                BatcherObserver(ObserverTarget::StateMachine(driver.snapshot()))
             }
         }
     }
@@ -235,7 +238,7 @@ pub struct BatcherObserver(ObserverTarget);
 #[derive(Clone)]
 enum ObserverTarget {
     Dispatcher(Arc<Dispatcher>),
-    StateMachine(Arc<driver::Shared>),
+    StateMachine(watch::Receiver<driver::Snapshot>),
 }
 
 impl BatcherObserver {
@@ -244,8 +247,8 @@ impl BatcherObserver {
     pub fn has_in_flight(&self, worker: &WorkerId) -> bool {
         match &self.0 {
             ObserverTarget::Dispatcher(dispatcher) => dispatcher.has_in_flight(worker),
-            ObserverTarget::StateMachine(shared) => {
-                shared.read(|state| state.has_in_flight(worker))
+            ObserverTarget::StateMachine(snapshot) => {
+                snapshot.borrow().busy_workers.contains(worker)
             }
         }
     }
@@ -255,18 +258,14 @@ impl BatcherObserver {
     pub fn held_messages(&self) -> usize {
         match &self.0 {
             ObserverTarget::Dispatcher(dispatcher) => dispatcher.stashed_messages(),
-            ObserverTarget::StateMachine(shared) => {
-                shared.read(BatcherStateMachine::pending_messages)
-            }
+            ObserverTarget::StateMachine(snapshot) => snapshot.borrow().pending_messages,
         }
     }
 
     pub fn total_in_flight(&self) -> usize {
         match &self.0 {
             ObserverTarget::Dispatcher(dispatcher) => dispatcher.total_in_flight(),
-            ObserverTarget::StateMachine(shared) => {
-                shared.read(BatcherStateMachine::in_flight_messages)
-            }
+            ObserverTarget::StateMachine(snapshot) => snapshot.borrow().in_flight_messages,
         }
     }
 
@@ -280,20 +279,27 @@ impl BatcherObserver {
 }
 
 /// Purges revoked partitions from the batcher. Runs on the rebalance
-/// callback. The pin-stash scheduler keeps nothing to purge.
-pub struct Revoker(Option<Arc<driver::Shared>>);
+/// callback.
+pub struct Revoker(RevokeTarget);
+
+enum RevokeTarget {
+    /// The pin-stash scheduler keeps nothing to purge.
+    Dispatcher(Arc<KeyOrderSentinel>),
+    StateMachine(driver::RevokeSender),
+}
 
 impl Revoker {
     pub fn purge_revoked(&self, partitions: &[(String, i32)]) {
-        if let Some(shared) = &self.0 {
-            shared.purge_revoked(partitions);
+        match &self.0 {
+            RevokeTarget::Dispatcher(key_sentinel) => key_sentinel.clear(),
+            RevokeTarget::StateMachine(sender) => sender.purge_revoked(partitions),
         }
     }
 
     /// Whether purged messages never complete, so the consumer must drop the
     /// in-flight polls that hold a revoked partition.
     pub fn drops_revoked_polls(&self) -> bool {
-        self.0.is_some()
+        matches!(self.0, RevokeTarget::StateMachine(_))
     }
 }
 

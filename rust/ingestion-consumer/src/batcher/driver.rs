@@ -1,41 +1,76 @@
-use std::sync::{Arc, Mutex};
+use std::collections::HashSet;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Instant;
 
 use common_kafka_consumer::{AssignmentEpoch, GroupCompletion};
+use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, histogram};
-use tokio::sync::{mpsc, Notify};
-use tokio::task::JoinHandle;
+use tokio::sync::{mpsc, watch};
 use tracing::error;
 
 use super::in_flight::RequestId;
 use super::key_queues::KeyRun;
 use super::state_machine::{BatcherStateMachine, FailureCause, Send, StateMachineConfig, Step};
-use super::worker_pool::{WorkerPool, WorkerPoolSource};
+use super::worker_pool::WorkerPoolSource;
 use super::{make_batch_id, BatcherOutputs};
-use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
+use crate::grpc_transport::GrpcTransport;
 use crate::order_sentinel::{KeyOrderSentinel, SendKind};
 use crate::routing::Router;
 use crate::transport::SendError;
 use crate::types::Accumulator;
+use crate::worker_registry::WorkerId;
 
-/// Performs the steps of the batcher state machine: begins its sends,
-/// awaits their responses, and fires its wakeups.
+/// Hands inputs to the batcher task, which owns the state machine, begins
+/// its sends, awaits their responses, and fires its wakeups.
 pub(super) struct StateMachineDriver {
-    shared: Arc<Shared>,
-    timer: JoinHandle<()>,
+    inputs: mpsc::UnboundedSender<Input>,
+    assignment_epoch: AssignmentEpoch,
+    key_sentinel: Arc<KeyOrderSentinel>,
+    snapshot: watch::Receiver<Snapshot>,
 }
 
-pub(super) struct Shared {
-    /// `None` only while an action runs under the lock.
-    state: Mutex<Option<BatcherStateMachine>>,
+enum Input {
+    Groups {
+        assignment_epoch: u64,
+        runs: Vec<KeyRun>,
+    },
+    PartitionsRevoked(Vec<(String, i32)>),
+    Shutdown,
+}
+
+/// The state machine's load after its latest step.
+#[derive(Clone, Debug, Default)]
+pub(super) struct Snapshot {
+    pub pending_messages: usize,
+    pub in_flight_messages: usize,
+    pub busy_workers: HashSet<WorkerId>,
+}
+
+/// Weak, so the rebalance hook does not keep the batcher task alive after
+/// the batcher is dropped.
+pub(super) struct RevokeSender(mpsc::WeakUnboundedSender<Input>);
+
+type Response =
+    Pin<Box<dyn Future<Output = (RequestId, Result<u32, SendError>)> + std::marker::Send>>;
+
+struct BatcherTask {
+    inputs: mpsc::UnboundedReceiver<Input>,
+    responses: FuturesUnordered<Response>,
+    wakeup: Option<Instant>,
     pool_source: WorkerPoolSource,
     transport: Arc<GrpcTransport>,
     key_sentinel: Arc<KeyOrderSentinel>,
-    assignment_epoch: AssignmentEpoch,
     completions: mpsc::UnboundedSender<GroupCompletion>,
     errors: mpsc::UnboundedSender<String>,
-    wakeup: Mutex<Option<Instant>>,
-    wakeup_changed: Notify,
+    snapshot: watch::Sender<Snapshot>,
+}
+
+enum Event {
+    Input(Input),
+    Response(RequestId, Result<u32, SendError>),
+    Wakeup,
 }
 
 impl StateMachineDriver {
@@ -46,22 +81,31 @@ impl StateMachineDriver {
     ) -> Result<(Self, BatcherOutputs), String> {
         let router = Router::new(pool_source.strategy());
         let state = BatcherStateMachine::new(config, router, Instant::now())?;
+        let (inputs_tx, inputs_rx) = mpsc::unbounded_channel();
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
         let (errors_tx, errors_rx) = mpsc::unbounded_channel();
-        let shared = Arc::new(Shared {
-            state: Mutex::new(Some(state)),
-            assignment_epoch: transport.assignment_epoch(),
+        let (snapshot_tx, snapshot_rx) = watch::channel(Snapshot::default());
+        let key_sentinel = Arc::new(KeyOrderSentinel::new());
+        let assignment_epoch = transport.assignment_epoch();
+        let task = BatcherTask {
+            inputs: inputs_rx,
+            responses: FuturesUnordered::new(),
+            wakeup: None,
             pool_source,
             transport,
-            key_sentinel: Arc::new(KeyOrderSentinel::new()),
+            key_sentinel: Arc::clone(&key_sentinel),
             completions: completions_tx,
             errors: errors_tx,
-            wakeup: Mutex::new(None),
-            wakeup_changed: Notify::new(),
-        });
-        let timer = tokio::spawn(run_timer(Arc::clone(&shared)));
+            snapshot: snapshot_tx,
+        };
+        drop(tokio::spawn(task.run(state)));
         Ok((
-            Self { shared, timer },
+            Self {
+                inputs: inputs_tx,
+                assignment_epoch,
+                key_sentinel,
+                snapshot: snapshot_rx,
+            },
             BatcherOutputs {
                 completions: completions_rx,
                 errors: errors_rx,
@@ -69,16 +113,20 @@ impl StateMachineDriver {
         ))
     }
 
-    pub(super) fn shared(&self) -> Arc<Shared> {
-        Arc::clone(&self.shared)
+    pub(super) fn key_order_sentinel(&self) -> Arc<KeyOrderSentinel> {
+        Arc::clone(&self.key_sentinel)
     }
 
-    pub(super) fn key_order_sentinel(&self) -> Arc<KeyOrderSentinel> {
-        Arc::clone(&self.shared.key_sentinel)
+    pub(super) fn snapshot(&self) -> watch::Receiver<Snapshot> {
+        self.snapshot.clone()
+    }
+
+    pub(super) fn revoke_sender(&self) -> RevokeSender {
+        RevokeSender(self.inputs.downgrade())
     }
 
     pub(super) fn submit(&self, accumulator: Accumulator) -> u64 {
-        let assignment_epoch = self.shared.assignment_epoch.current();
+        let assignment_epoch = self.assignment_epoch.current();
         let runs = KeyRun::from_groups(accumulator.into_groups());
         let unkeyed = runs
             .iter()
@@ -89,53 +137,114 @@ impl StateMachineDriver {
                 .increment(unkeyed as u64);
         }
         histogram!("ingestion_consumer_routing_keys_per_batch").record(runs.len() as f64);
-        let assign_start = Instant::now();
-        self.shared
-            .apply(|state, now, pool| state.on_groups(now, pool, assignment_epoch, runs));
-        histogram!("ingestion_consumer_assign_duration_seconds")
-            .record(assign_start.elapsed().as_secs_f64());
+        self.send(Input::Groups {
+            assignment_epoch,
+            runs,
+        });
         assignment_epoch
     }
 
     pub(super) fn begin_shutdown(&self) {
-        self.shared
-            .apply(|state, now, pool| state.on_shutdown(now, pool));
+        self.send(Input::Shutdown);
+    }
+
+    fn send(&self, input: Input) {
+        if self.inputs.send(input).is_err() {
+            error!("Batcher task is gone");
+        }
     }
 }
 
-impl Drop for StateMachineDriver {
-    fn drop(&mut self) {
-        self.timer.abort();
+impl RevokeSender {
+    /// Runs on the rebalance callback, inside the consumer loop's Kafka
+    /// poll, so a blocking wait here would stall a runtime worker. The purge
+    /// queues behind the polls submitted before the rebalance and ahead of
+    /// any submitted after it.
+    pub(super) fn purge_revoked(&self, partitions: &[(String, i32)]) {
+        if let Some(inputs) = self.0.upgrade() {
+            let _ = inputs.send(Input::PartitionsRevoked(partitions.to_vec()));
+        }
     }
 }
 
-impl Shared {
-    /// Reads the current state. The state is absent only inside an action,
-    /// which holds the same lock.
-    pub(super) fn read<T>(&self, read: impl FnOnce(&BatcherStateMachine) -> T) -> T {
-        let guard = self.state.lock().unwrap();
-        read(
-            guard
-                .as_ref()
-                .expect("every action puts the next state back"),
-        )
+impl BatcherTask {
+    /// Inputs win ties, so a revocation applies before a response that is
+    /// ready at the same time can start a send for a revoked key.
+    async fn run(mut self, mut state: BatcherStateMachine) {
+        loop {
+            let wakeup = self.wakeup;
+            let event = tokio::select! {
+                biased;
+                input = self.inputs.recv() => match input {
+                    Some(input) => Event::Input(input),
+                    None => return,
+                },
+                Some((request, result)) = self.responses.next(), if !self.responses.is_empty() => {
+                    Event::Response(request, result)
+                }
+                _ = sleep_until(wakeup), if wakeup.is_some() => Event::Wakeup,
+            };
+            state = self.handle(state, event);
+        }
     }
 
-    /// Runs on the rebalance callback, which is not a runtime task. The
-    /// revoke action never sends, so nothing here needs the runtime.
-    pub(super) fn purge_revoked(self: &Arc<Self>, partitions: &[(String, i32)]) {
-        self.apply(|state, now, _| state.on_partitions_revoked(now, partitions));
+    fn handle(&mut self, state: BatcherStateMachine, event: Event) -> BatcherStateMachine {
+        let now = Instant::now();
+        let mut assigned = false;
+        let mut fence_guard = None;
+        let (state, step) = match event {
+            Event::Input(Input::Groups {
+                assignment_epoch,
+                runs,
+            }) => {
+                assigned = true;
+                state.on_groups(now, &self.pool_source.pool(), assignment_epoch, runs)
+            }
+            Event::Input(Input::PartitionsRevoked(partitions)) => {
+                // Cleared here, in order with the sends, so no revoked
+                // message is noted as sent after the clear.
+                self.key_sentinel.clear();
+                state.on_partitions_revoked(now, &partitions)
+            }
+            Event::Input(Input::Shutdown) => state.on_shutdown(now, &self.pool_source.pool()),
+            Event::Response(request, Ok(accepted)) => state.on_request_succeeded(
+                now,
+                &self.pool_source.pool(),
+                request,
+                accepted,
+                Vec::new(),
+            ),
+            Event::Response(request, Err(failure)) => {
+                // Backpressure is transient, so it does not count against the
+                // worker's health.
+                let cause = if failure.error.is_backpressure() {
+                    FailureCause::Busy
+                } else {
+                    FailureCause::Fault
+                };
+                fence_guard = failure.fence_guard;
+                state.on_request_failed(
+                    now,
+                    &self.pool_source.pool(),
+                    request,
+                    cause,
+                    failure.messages,
+                )
+            }
+            Event::Wakeup => state.on_wakeup(now, &self.pool_source.pool()),
+        };
+        self.perform(&state, step);
+        // The worker stream fences new sends until the failed messages are
+        // back in their queues, so the guard drops only now.
+        drop(fence_guard);
+        if assigned {
+            histogram!("ingestion_consumer_assign_duration_seconds")
+                .record(now.elapsed().as_secs_f64());
+        }
+        state
     }
 
-    fn apply(
-        self: &Arc<Self>,
-        action: impl FnOnce(BatcherStateMachine, Instant, &WorkerPool) -> (BatcherStateMachine, Step),
-    ) {
-        let pool = self.pool_source.pool();
-        let mut guard = self.state.lock().unwrap();
-        let state = guard.take().expect("every action puts the next state back");
-        let (next, step) = action(state, Instant::now(), &pool);
-        *guard = Some(next);
+    fn perform(&mut self, state: &BatcherStateMachine, step: Step) {
         let Step {
             sends,
             completions,
@@ -146,8 +255,7 @@ impl Shared {
             fatal,
             next_wakeup,
         } = step;
-        // Sentinel calls and sends begin under the lock, so they follow the
-        // state machine's per-key order. An ACK advances before its key is evicted.
+        // An ACK advances before its key is evicted.
         for ack in &key_acks {
             self.key_sentinel
                 .note_acked(&ack.routing_key, ack.max_offset);
@@ -155,9 +263,9 @@ impl Shared {
         for key in &evicted_keys {
             self.key_sentinel.evict(key);
         }
-        let pending: Vec<(RequestId, PendingWorkerStreamSend)> =
-            sends.into_iter().map(|send| self.begin(send)).collect();
-        drop(guard);
+        for send in sends {
+            self.begin(send);
+        }
 
         let registry = self.pool_source.registry();
         for outcome in worker_outcomes {
@@ -182,17 +290,11 @@ impl Shared {
                 error!("Batcher error channel closed; consumer is gone");
             }
         }
-        self.set_wakeup(next_wakeup);
-        for (request, pending) in pending {
-            drop(tokio::spawn(await_response(
-                Arc::clone(self),
-                request,
-                pending,
-            )));
-        }
+        self.wakeup = next_wakeup;
+        self.publish(state);
     }
 
-    fn begin(&self, send: Send) -> (RequestId, PendingWorkerStreamSend) {
+    fn begin(&mut self, send: Send) {
         let kind = if send.class.replay {
             SendKind::Resend
         } else {
@@ -207,58 +309,37 @@ impl Shared {
         let pending =
             self.transport
                 .begin_send(&send.worker, &make_batch_id(), messages, send.class.replay);
-        (send.request, pending)
+        let request = send.request;
+        self.responses
+            .push(Box::pin(async move { (request, pending.wait().await) }));
     }
 
-    fn set_wakeup(&self, next: Option<Instant>) {
-        let mut wakeup = self.wakeup.lock().unwrap();
-        if *wakeup != next {
-            *wakeup = next;
-            self.wakeup_changed.notify_one();
-        }
-    }
-}
-
-async fn await_response(shared: Arc<Shared>, request: RequestId, pending: PendingWorkerStreamSend) {
-    match pending.wait().await {
-        Ok(accepted) => shared.apply(|state, now, pool| {
-            state.on_request_succeeded(now, pool, request, accepted, Vec::new())
-        }),
-        Err(SendError {
-            error,
-            messages,
-            fence_guard,
-        }) => {
-            // Backpressure is transient, so it does not count against the
-            // worker's health.
-            let cause = if error.is_backpressure() {
-                FailureCause::Busy
-            } else {
-                FailureCause::Fault
-            };
-            shared.apply(|state, now, pool| {
-                state.on_request_failed(now, pool, request, cause, messages)
-            });
-            // The worker stream fences new sends until the failed messages
-            // are back in their queues, so the guard drops only now.
-            drop(fence_guard);
-        }
-    }
-}
-
-async fn run_timer(shared: Arc<Shared>) {
-    loop {
-        let wakeup = *shared.wakeup.lock().unwrap();
-        match wakeup {
-            Some(at) => {
-                tokio::select! {
-                    _ = tokio::time::sleep_until(at.into()) => {
-                        shared.apply(|state, now, pool| state.on_wakeup(now, pool));
-                    }
-                    _ = shared.wakeup_changed.notified() => {}
-                }
+    /// The busy-worker set is rebuilt only when it changed, so a step that
+    /// keeps the same workers busy allocates nothing.
+    fn publish(&self, state: &BatcherStateMachine) {
+        self.snapshot.send_if_modified(|snapshot| {
+            let pending_messages = state.pending_messages();
+            let in_flight_messages = state.in_flight_messages();
+            let mut modified = snapshot.pending_messages != pending_messages
+                || snapshot.in_flight_messages != in_flight_messages;
+            snapshot.pending_messages = pending_messages;
+            snapshot.in_flight_messages = in_flight_messages;
+            let busy_changed = state.busy_workers().count() != snapshot.busy_workers.len()
+                || state
+                    .busy_workers()
+                    .any(|worker| !snapshot.busy_workers.contains(worker));
+            if busy_changed {
+                snapshot.busy_workers = state.busy_workers().cloned().collect();
+                modified = true;
             }
-            None => shared.wakeup_changed.notified().await,
-        }
+            modified
+        });
+    }
+}
+
+async fn sleep_until(wakeup: Option<Instant>) {
+    match wakeup {
+        Some(at) => tokio::time::sleep_until(at.into()).await,
+        None => std::future::pending().await,
     }
 }

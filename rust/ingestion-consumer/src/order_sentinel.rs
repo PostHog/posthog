@@ -313,13 +313,12 @@ impl KeyOrderSentinel {
 
 /// The consumer's rdkafka context: observes async commit results (a
 /// fire-and-forget `CommitMode::Async` failure is otherwise invisible until
-/// restart-time redelivery), resets sentinel baselines around rebalances, and
+/// restart-time redelivery), forgets revoked partitions around rebalances, and
 /// exports librdkafka's internal statistics (see [`crate::kafka_stats`]).
 pub struct SentinelContext {
     /// Where the consumer's frontiers go. Held here so the rebalance
     /// callbacks tell it which partitions leave the assignment.
     commit_sentinel: Arc<CommitSentinel>,
-    key_sentinel: Arc<KeyOrderSentinel>,
     /// The offset ledger the commit path settles against. Owned here so the
     /// rebalance callbacks forget partitions on the same ledger.
     topic_offset_ledger: Arc<TopicOffsetLedger>,
@@ -338,12 +337,10 @@ pub type RevokeHook = Box<dyn Fn(&[(String, i32)]) + Send + Sync>;
 impl SentinelContext {
     pub fn new(
         commit_sentinel: Arc<CommitSentinel>,
-        key_sentinel: Arc<KeyOrderSentinel>,
         topic_offset_ledger: Arc<TopicOffsetLedger>,
     ) -> Self {
         Self {
             commit_sentinel,
-            key_sentinel,
             topic_offset_ledger,
             assignment_epoch: None,
             revoke_hook: OnceLock::new(),
@@ -368,7 +365,6 @@ impl SentinelContext {
     pub fn detached() -> Self {
         Self::new(
             Arc::new(CommitSentinel::new(ImmediateCommitPacer::new())),
-            Arc::new(KeyOrderSentinel::new()),
             Arc::new(TopicOffsetLedger::new()),
         )
     }
@@ -427,10 +423,6 @@ impl ConsumerContext for SentinelContext {
                     "Rebalance: partitions revoked"
                 );
                 self.forget_ledger_partitions(tpl);
-                // Revoked partitions may be replayed by another consumer (or by
-                // us after re-assignment) from the last commit — every per-key
-                // baseline is stale.
-                self.key_sentinel.clear();
                 // The hook must run after the ledger forget above: it stamps
                 // each revocation with the bumped generation so only older
                 // poll slices are stripped.

@@ -450,12 +450,12 @@ impl IngestionConsumer {
         );
         let commit_sentinel = Arc::new(CommitSentinel::new(ImmediateCommitPacer::new()));
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
-        let key_sentinel = batcher.key_order_sentinel();
-        key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
+        batcher
+            .key_order_sentinel()
+            .set_enabled(config.consumer_order_sentinel_enabled);
         let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
         let mut context = SentinelContext::new(
             Arc::clone(&commit_sentinel),
-            key_sentinel,
             Arc::clone(&topic_offset_ledger),
         );
         context.set_assignment_epoch(transport.assignment_epoch());
