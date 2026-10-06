@@ -1,7 +1,7 @@
 import json
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -10,7 +10,7 @@ from requests import HTTPError, Response, Session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.microsoftdefendercloudapps import (
     MicrosoftDefenderCloudAppsSourceConfig,
 )
@@ -36,6 +36,11 @@ def response(body: dict[str, Any], status: int = 200) -> Response:
     result._content = json.dumps(body).encode()
     result.headers["Content-Type"] = "application/json"
     return result
+
+
+def rows_from(result: SourceResponse) -> list[Any]:
+    pages = cast(Iterable[list[Any]], result.items())
+    return [row for page in pages for row in page]
 
 
 @pytest.fixture
@@ -114,7 +119,7 @@ def test_requests_and_pagination(
         db_incremental_field_last_value=watermark,
     )
     result = MicrosoftDefenderCloudAppsSource().source_for_pipeline(config, manager, inputs)
-    rows = [row for page in result.items() for row in page]
+    rows = rows_from(result)
     assert rows == [{"_id": "first"}, {"_id": "second"}, {"_id": "last"}]
     assert send.call_count == 2
     bodies = []
@@ -157,7 +162,7 @@ def test_terminal_page(
     rows = [{"_id": str(index)} for index in range(size)]
     send.return_value = response({"data": rows, "hasNext": False})
     result = MicrosoftDefenderCloudAppsSource().source_for_pipeline(config, manager, inputs)
-    assert [row for page in result.items() for row in page] == rows
+    assert rows_from(result) == rows
     send.assert_called_once()
     manager.save_state.assert_not_called()
 
@@ -181,7 +186,7 @@ def test_malformed_pages_fail_instead_of_truncating(
     send.return_value = response(body)
     result = MicrosoftDefenderCloudAppsSource().source_for_pipeline(config, manager, inputs)
     with pytest.raises(ValueError):
-        list(result.items())
+        rows_from(result)
 
 
 def test_resume_keeps_original_filter_with_offset(
@@ -194,7 +199,7 @@ def test_resume_keeps_original_filter_with_offset(
     manager.load_state.return_value = DefenderResumeConfig(offset=200, since=1000, until=2000)
     send.return_value = response({"data": [{"_id": "resumed"}], "hasNext": False})
     result = MicrosoftDefenderCloudAppsSource().source_for_pipeline(config, manager, inputs)
-    assert [row for page in result.items() for row in page] == [{"_id": "resumed"}]
+    assert rows_from(result) == [{"_id": "resumed"}]
     body = json.loads(send.call_args.args[0].body)
     assert body["skip"] == 200
     assert body["filters"] == {"date": {"gte": 1000, "lte": 2000}}
