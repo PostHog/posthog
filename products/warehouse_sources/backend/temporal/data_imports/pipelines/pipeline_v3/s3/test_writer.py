@@ -6,8 +6,12 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
+import botocore.exceptions
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    ObjectStorePermissionDeniedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import (
     S3BatchWriter,
     _write_parquet_to_s3,
@@ -49,6 +53,38 @@ class TestWriteParquetToS3:
             _write_parquet_to_s3(s3, "bucket/part-0000.parquet", pa.table({"id": [1]}), "zstd")
 
         assert mock_write_table.call_count == 4
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("pyarrow.parquet.write_table")
+    def test_retries_read_timeout_then_succeeds(self, mock_write_table, _mock_sleep) -> None:
+        # A read/connect timeout never gets s3fs's OSError translation (there's no response to
+        # translate), so it reaches here as the raw botocore exception rather than an OSError.
+        # It's exactly the transient blip this retry exists for and shouldn't fail the batch.
+        f = MagicMock()
+        s3 = _fake_s3([f, f])
+        mock_write_table.side_effect = [
+            botocore.exceptions.ReadTimeoutError(endpoint_url="https://example.com/part-0000.parquet"),
+            None,
+        ]
+
+        _write_parquet_to_s3(s3, "bucket/part-0000.parquet", pa.table({"id": [1]}), "zstd")
+
+        assert mock_write_table.call_count == 2
+
+    @patch("pyarrow.parquet.write_table")
+    def test_does_not_retry_ssl_error(self, mock_write_table) -> None:
+        # SSLError is a ConnectionError subclass but usually means a bad/expired certificate,
+        # not a network blip — retrying just delays a failure that will happen on every attempt.
+        f = MagicMock()
+        s3 = _fake_s3([f])
+        mock_write_table.side_effect = botocore.exceptions.SSLError(
+            endpoint_url="https://example.com/part-0000.parquet", error=Exception("certificate verify failed")
+        )
+
+        with pytest.raises(botocore.exceptions.SSLError):
+            _write_parquet_to_s3(s3, "bucket/part-0000.parquet", pa.table({"id": [1]}), "zstd")
+
+        assert mock_write_table.call_count == 1
 
     @patch("pyarrow.parquet.write_table")
     def test_does_not_retry_permission_error(self, mock_write_table) -> None:
@@ -115,6 +151,35 @@ class TestBatchByteSize:
         result = writer.write_batch(pa.table({"id": [1]}), 0)
 
         assert result.byte_size == expected
+
+
+class TestWriteBatchPermissionDenied:
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer._write_parquet_to_s3"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.ensure_bucket")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.get_s3_client")
+    def test_write_batch_wraps_access_denied_instead_of_raising_raw_error(
+        self,
+        _mock_get_s3_client,
+        _mock_ensure_bucket,
+        mock_write,
+    ) -> None:
+        # The data warehouse bucket is PostHog's own, so an AccessDenied writing to it used to
+        # escape write_batch as a raw PermissionError: it read to the customer as if their source
+        # credentials were bad, and error tracking grouped a fresh issue per retry instead of one
+        # stable title.
+        mock_write.side_effect = PermissionError("Access Denied")
+
+        job = MagicMock()
+        job.team_id = 1
+        job.created_at = datetime(2026, 8, 5, tzinfo=UTC)
+        writer = S3BatchWriter(MagicMock(), job, schema_id="schema-1", run_uuid="run-1")
+
+        with pytest.raises(ObjectStorePermissionDeniedError) as raised:
+            writer.write_batch(pa.table({"id": [1]}), 0)
+
+        assert raised.value.__cause__ is mock_write.side_effect
 
 
 class TestSchemaAccumulation:

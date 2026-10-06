@@ -20,29 +20,48 @@ class TestGongSource:
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
         # Only the call-date-filtered endpoints expose a server-side timestamp filter.
-        for name in ("calls", "calls_extensive", "calls_content", "transcripts"):
+        for name, field in (
+            ("calls", "started"),
+            ("calls_extensive", "started"),
+            ("calls_content", "started"),
+            ("transcripts", "started"),
+            ("answered_scorecards", "reviewTime"),
+            ("interaction_stats", "day"),
+            ("daily_activity", "fromDate"),
+        ):
             assert schemas[name].supports_incremental is True
             assert schemas[name].supports_append is True
-            assert any(f["field"] == "started" for f in schemas[name].incremental_fields)
+            assert any(f["field"] == field for f in schemas[name].incremental_fields)
 
         # Gong transcribes asynchronously, so transcripts re-read a trailing week on every run
         # rather than leaving a call that had no transcript yet stranded below the watermark.
         assert schemas["transcripts"].default_incremental_lookback_seconds == 7 * 24 * 60 * 60
 
-        for name in ("users", "scorecards", "workspaces"):
+        for name in (
+            "users",
+            "scorecards",
+            "trackers",
+            "call_outcomes",
+            "library_folders",
+            "library_folder_calls",
+            "flows",
+            "workspaces",
+        ):
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
 
-    def test_only_call_content_is_default_off(self):
+    def test_only_call_content_and_scorecard_answers_are_default_off(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
-        # Call summaries reach the warehouse only when an admin picks them, so one-shot setup and
-        # new-schema auto-sync must leave this table alone.
-        assert schemas["calls_content"].should_sync_default is False
+        # Call summaries and reviewers' feedback on calls reach the warehouse only when an admin
+        # picks them, so one-shot setup and new-schema auto-sync must leave these tables alone.
+        default_off = {"calls_content", "answered_scorecards"}
+        for name in default_off:
+            assert schemas[name].should_sync_default is False
 
         # Derived from ENDPOINTS rather than a fixed list, so a table added later is covered here
         # without editing this test.
-        for name in set(ENDPOINTS) - {"calls_content"}:
+        for name in set(ENDPOINTS) - default_off:
             assert schemas[name].should_sync_default is True
 
     def test_get_schemas_filtered_by_names(self):

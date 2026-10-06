@@ -130,6 +130,11 @@ export interface PipelineActivityRowApi {
      * @nullable
      */
     origin: string | null
+    /**
+     * Id of the source the run belongs to, for linking to it. Null for model runs.
+     * @nullable
+     */
+    source_id?: string | null
 }
 
 export interface PipelineActivityResponseApi {
@@ -3161,6 +3166,7 @@ export interface CredentialApi {
  * * `Donorbox` - Donorbox
  * * `Doorloop` - Doorloop
  * * `Dovetail` - Dovetail
+ * * `Dragonboat` - Dragonboat
  * * `Drchrono` - Drchrono
  * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
  * * `EcbDataPortal` - EcbDataPortal
@@ -3509,6 +3515,7 @@ export interface CredentialApi {
  * * `AudioGO` - AudioGO
  * * `ExactOnline` - ExactOnline
  * * `LettrLabs` - LettrLabs
+ * * `GrafanaIRM` - GrafanaIRM
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4519,6 +4526,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Donorbox: 'Donorbox',
     Doorloop: 'Doorloop',
     Dovetail: 'Dovetail',
+    Dragonboat: 'Dragonboat',
     Drchrono: 'Drchrono',
     Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
     EcbDataPortal: 'EcbDataPortal',
@@ -4867,6 +4875,7 @@ export const ExternalDataSourceTypeEnumApi = {
     AudioGO: 'AudioGO',
     ExactOnline: 'ExactOnline',
     LettrLabs: 'LettrLabs',
+    GrafanaIRM: 'GrafanaIRM',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5297,10 +5306,11 @@ export type DataWarehouseCompletedActivityRetrieveParams = {
      */
     offset?: number
     /**
-     * Which outcome to return: 'completed' or 'failed'. Defaults to 'completed'.
+     * Which outcome to return: 'completed', 'failed', or 'all' for every run that finished either way. Defaults to 'completed'. Running jobs come from `running_activity` instead.
      *
      * * `completed` - completed
      * * `failed` - failed
+     * * `all` - all
      * @minLength 1
      */
     outcome?: DataWarehouseCompletedActivityRetrieveOutcome
@@ -5321,6 +5331,7 @@ export type DataWarehouseCompletedActivityRetrieveOutcome =
 export const DataWarehouseCompletedActivityRetrieveOutcome = {
     Completed: 'completed',
     Failed: 'failed',
+    All: 'all',
 } as const
 
 export type DataWarehouseJobStatsRetrieveParams = {
@@ -5404,6 +5415,39 @@ export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
      */
     source_id: string
 }
+
+export type DataWarehouseRunningActivityRetrieveParams = {
+    /**
+     * Only include runs created within this many days of now. Defaults to 30.
+     */
+    cutoff_days?: number
+    /**
+     * Which runs to return: 'import' for warehouse source syncs, 'model' for materialized view runs, 'all' for both. Defaults to 'all'.
+     *
+     * * `all` - all
+     * * `import` - import
+     * * `model` - model
+     * @minLength 1
+     */
+    kind?: DataWarehouseRunningActivityRetrieveKind
+    /**
+     * Max rows to return. Capped at 50 server-side. Defaults to 20.
+     */
+    limit?: number
+    /**
+     * Rows to skip, for pagination. Defaults to 0.
+     */
+    offset?: number
+}
+
+export type DataWarehouseRunningActivityRetrieveKind =
+    (typeof DataWarehouseRunningActivityRetrieveKind)[keyof typeof DataWarehouseRunningActivityRetrieveKind]
+
+export const DataWarehouseRunningActivityRetrieveKind = {
+    All: 'all',
+    Import: 'import',
+    Model: 'model',
+} as const
 
 export type FixHogqlListParams = {
     /**

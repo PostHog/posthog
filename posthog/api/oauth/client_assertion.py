@@ -21,6 +21,8 @@ from django.core.cache import cache
 
 import jwt
 import structlog
+from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePublicKey
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from jwt import PyJWK, PyJWKSet
 
 from posthog.api.oauth.cimd import CIMDFetchError, CIMDValidationError, fetch_client_json_document
@@ -42,6 +44,7 @@ CLIENT_ASSERTION_TYPE_JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:
 # Asymmetric signatures only. Allowing an HMAC family here would be a key-confusion hole:
 # the "public" key we fetch is attacker-publishable, so an HS256 assertion signed with that
 # same value as the shared secret would verify. "none" is excluded for the same reason.
+# The selected key's own algorithm is held to this list too, because PyJWT verifies with it.
 ALLOWED_ASSERTION_ALGORITHMS = ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"]
 
 # An assertion is a single-use credential presented immediately, so it needs no real
@@ -201,6 +204,8 @@ def _fetch_jwks_document(jwks_uri: str) -> dict:
     keys = parsed.get("keys")
     if isinstance(keys, list) and len(keys) > JWKS_MAX_KEYS:
         raise ClientAssertionError(f"JWKS must not contain more than {JWKS_MAX_KEYS} keys")
+    if isinstance(keys, list) and any(isinstance(key, dict) and key.get("kty") == "oct" for key in keys):
+        raise ClientAssertionError('JWKS contains a symmetric key (kty "oct"). Publish only RSA or EC public keys.')
 
     try:
         PyJWKSet.from_dict(parsed)
@@ -278,13 +283,17 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
         raise ClientAssertionError("This client is not registered for private_key_jwt authentication")
 
     key = _select_key_allowing_rotation(app.jwks_uri, assertion)
+    if key.algorithm_name not in ALLOWED_ASSERTION_ALGORITHMS or not isinstance(
+        key.key, (RSAPublicKey, EllipticCurvePublicKey)
+    ):
+        raise ClientAssertionError("Client signing key must be an RSA or EC public key")
     client_identifier = app.client_id
 
     try:
         claims = jwt.decode(
             assertion,
             key=key,
-            algorithms=ALLOWED_ASSERTION_ALGORITHMS,
+            algorithms=[key.algorithm_name],
             audience=audiences if audiences is not None else expected_assertion_audiences(AGENTIC_TOKEN_ENDPOINT_PATH),
             issuer=client_identifier,
             leeway=ASSERTION_CLOCK_SKEW_SECONDS,

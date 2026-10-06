@@ -195,6 +195,10 @@
     color: var(--primary-foreground);
 }
 
+[data-quill] .text-primary-on-foreground {
+    color: var(--primary-on-foreground);
+}
+
 [data-quill] .text-destructive-foreground {
     color: var(--destructive-foreground);
 }
@@ -325,4 +329,16 @@
     --color-text-secondary: var(--color-neutral-350);
     --color-border-primary: var(--color-neutral-cool-800);
     --color-border-secondary: var(--color-neutral-cool-600);
+}
+
+/*
+ * Quill also names two of its status fills `--success` and `--warning`, and tokens.scoped.css
+ * sets them on every element under [data-quill], not only on the wrapper. So the hatch must
+ * set Lemon's values on each descendant too, or LemonTag and LemonBanner text turns pale.
+ * base.scss gives these one value for both themes.
+ */
+[data-quill] [data-not-quill],
+[data-quill] [data-not-quill] * {
+    --success: #388600;
+    --warning: #f7a501;
 }

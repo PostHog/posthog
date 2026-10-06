@@ -9,6 +9,9 @@ feature: engineering_analytics
 url_prefix: /engineering-analytics
 ui_apps: {}
 tools:
+    engineering-analytics-attention-pull-requests:
+        operation: engineering_analytics_attention_pull_requests
+        enabled: false
     engineering-analytics-author-friction:
         operation: engineering_analytics_author_friction
         enabled: false
@@ -39,8 +42,8 @@ tools:
             and already spreading across branches, not on trunk yet), potentially_resolved (hit trunk but that job is
             green again), flaky (sporadic across two or more branches over more than a day), or pr_only (confined to one
             branch: one PR's own problem). Also returns breaking_master_jobs, the default-branch jobs whose latest run
-            is red. Pass a row's latest_run_id to run-failure-logs to read the actual failing lines. Caveats:
-            fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the
+            is red. Pass a row's latest_run_id and latest_ci_engine to run-failure-logs to read the failing lines.
+            Caveats: fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the
             breaking/resolved distinction needs the job-level source synced: without it those failures fall through to
             flaky/pr_only rather than being misreported. Counts are absolute, never rates (passing runs aren't in this
             data).
@@ -66,7 +69,7 @@ tools:
             its workflow runs across every push (via the pull_requests association, not the latest commit), so earlier
             pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the
             short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the
-            run/job metadata behind these logs.
+            run/job metadata behind these logs. Jobs carry ci_engine; null means unknown historical provenance.
         feature_flag: engineering-analytics
     engineering-analytics-ci-signals-config-retrieve:
         operation: engineering_analytics_ci_signals_config_retrieve
@@ -166,7 +169,8 @@ tools:
             per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the
             job-level source isn't synced yet: every figure is then zero/null, so check it before trusting a $0.00.
             estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs
-            still running that are left out of the estimate.
+            still running that are left out of the estimate. Key by_run by (ci_engine, run_id, run_attempt). This covers
+            curated work and excludes suppressed relay/wait overhead; it is not an invoice total.
         feature_flag: engineering-analytics
     engineering-analytics-pr-runs:
         operation: engineering_analytics_pr_runs
@@ -209,7 +213,8 @@ tools:
             surrounding context, with "... N lines omitted ..." markers) as ordered lines, every line carrying its
             original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail
             or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and
-            want all its runs' failures.
+            want all its runs' failures. Pass ci_engine with run_id (latest_ci_engine for a triage row). Ambiguous
+            integer IDs return 400. Null engine means unknown historical provenance.
         feature_flag: engineering-analytics
     engineering-analytics-sources:
         operation: engineering_analytics_sources
@@ -295,7 +300,7 @@ tools:
             time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the
             latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free
             GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced
-            yet.
+            yet. Pass ci_engine with run_id when following an engine-qualified run; ambiguous integer IDs return 400.
         feature_flag: engineering-analytics
     engineering-analytics-workflow-run:
         operation: engineering_analytics_workflow_run
@@ -319,7 +324,8 @@ tools:
             spend first. Each row is a tier (provider + runner_label) with its job_count, billable_minutes, and
             estimated_cost_usd. Use this for "which runner tier drives this workflow's CI bill" and to spot oversized
             runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns
-            an empty list when the job-level source isn't synced yet.
+            an empty list when the job-level source isn't synced yet. Suppressed relay and wait overhead is excluded;
+            these curated estimates are not invoice totals.
         feature_flag: engineering-analytics
     engineering-analytics-workflow-runs:
         operation: engineering_analytics_workflow_runs
@@ -362,8 +368,11 @@ tools:
             ready-for-review transition (only the last draft/ready switch counts), or minus created_at for a merged PR
             verifiably never drafted. Null means "not observed" (the issue-events window is bounded), never zero. CI
             counts come from the latest run per workflow on the head SHA and can lag until the workflow_run webhook
-            settles a late completion. Bots and drafts are present; exclude them (is_bot, is_draft) for throughput
-            questions.
+            settles a late completion. Cost and billable minutes can lag new CI by up to 5 minutes. Bots and drafts are
+            present; exclude them (author.is_bot, is_draft) for throughput questions. To list every PR merged in a
+            window, pass state=merged: open PRs then do not count against the page, and rows come newest merged_at first
+            with number as the tie-breaker. Pages hold up to 1000 rows; while truncated is true, call again with offset
+            increased by limit, and keep date_to fixed across pages so new merges do not move rows between pages.
         param_overrides:
             date_from:
                 description: >

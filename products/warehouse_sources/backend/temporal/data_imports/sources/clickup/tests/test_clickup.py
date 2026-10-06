@@ -158,7 +158,22 @@ class TestValidateCredentials:
 
         bad, message = validate_credentials("pk_token", workspace_id="404")
         assert bad is False
-        assert message is not None and "404" in message
+        assert message is not None and "can't access this workspace" in message
+
+    @pytest.mark.parametrize(
+        "workspace_id",
+        ["https://app.clickup.com/9/settings/team/9/general", "app.clickup.com/9/home"],
+    )
+    @mock.patch(CLICKUP_SESSION_PATCH)
+    def test_workspace_url_is_rejected_before_calling_clickup(
+        self, mock_session: mock.MagicMock, workspace_id: str
+    ) -> None:
+        valid, message = validate_credentials("pk_token", workspace_id=workspace_id)
+
+        assert valid is False
+        assert message is not None and "Enter only that number" in message
+        assert workspace_id not in message
+        mock_session.return_value.get.assert_not_called()
 
     @mock.patch(CLICKUP_SESSION_PATCH)
     def test_request_exception_returns_error(self, mock_session: mock.MagicMock) -> None:

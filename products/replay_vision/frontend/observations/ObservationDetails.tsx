@@ -1,4 +1,3 @@
-import { useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
@@ -6,15 +5,13 @@ import { Link } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { formatDurationMilliseconds } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { modelLabel, modelNamingVariant } from '../replay_scanners/types'
+import { modelLabel } from '../replay_scanners/types'
 import { Fact, FactList } from './FactList'
 
 function durationLabel(observation: ReplayObservationApi): string | null {
@@ -28,8 +25,6 @@ function durationLabel(observation: ReplayObservationApi): string | null {
 export function ObservationDetails({ observation }: { observation: ReplayObservationApi }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const snapshot = observation.scanner_snapshot
-    const { featureFlags } = useValues(featureFlagLogic)
-    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const duration = durationLabel(observation)
 
     return (
@@ -47,7 +42,12 @@ export function ObservationDetails({ observation }: { observation: ReplayObserva
             {expanded && (
                 <FactList>
                     <Fact label="Observation ID">
-                        <CopyToClipboardInline explicitValue={observation.id} iconSize="xsmall" className="min-w-0">
+                        <CopyToClipboardInline
+                            data-attr="vision-observation-copy"
+                            explicitValue={observation.id}
+                            iconSize="xsmall"
+                            className="min-w-0"
+                        >
                             <span className="font-mono text-xs truncate">{observation.id}</span>
                         </CopyToClipboardInline>
                     </Fact>
@@ -63,7 +63,12 @@ export function ObservationDetails({ observation }: { observation: ReplayObserva
                     {/* The backend emits the event only once a scan succeeds. */}
                     {observation.status === 'succeeded' && observation.completed_at && (
                         <Fact label="Observation event">
-                            <Link to={urls.event(observation.id, observation.completed_at)}>$recording_observed</Link>
+                            <Link
+                                data-attr="vision-observation-open-event"
+                                to={urls.event(observation.id, observation.completed_at)}
+                            >
+                                $recording_observed
+                            </Link>
                         </Fact>
                     )}
                     {observation.started_at && (
@@ -77,7 +82,7 @@ export function ObservationDetails({ observation }: { observation: ReplayObserva
                         </Fact>
                     )}
                     {duration && <Fact label="Duration">{duration}</Fact>}
-                    {snapshot?.model && <Fact label="Model">{modelLabel(snapshot.model, namingVariant)}</Fact>}
+                    {snapshot?.model && <Fact label="Model">{modelLabel(snapshot.model)}</Fact>}
                 </FactList>
             )}
         </div>

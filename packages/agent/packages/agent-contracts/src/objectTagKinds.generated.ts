@@ -2,6 +2,6 @@
 // Source of truth: posthog/object_tags/kinds.py — after editing it,
 // run `hogli build:projections` and commit the result.
 
-/** The kind list the rich-output prompt teaches agents. */
-export const OBJECT_TAG_PROMPT_KIND_LIST =
-  "insight, dashboard, error, replay, flag, experiment, survey, ticket, report, trace, eval, event, cohort, action, person";
+/** The object paths the rich-output prompt teaches agents to link. */
+export const OBJECT_LINK_PROMPT_PATH_LIST =
+  "insight `/insights/<id>`, dashboard `/dashboard/<id>`, error `/error_tracking/<id>`, replay `/replay/<id>`, flag `/feature_flags/<id>`, experiment `/experiments/<id>`, survey `/surveys/<id>`, ticket `/support/tickets/<id>`, report `/inbox/<id>`, trace `/ai-observability/traces/<id>`, eval `/ai-evals/evaluations/<id>`, event `/data-management/events/<id>`, cohort `/cohorts/<id>`, action `/data-management/actions/<id>`, person `/persons/<id>`";

@@ -175,8 +175,6 @@ integrationTwilioPhoneNumbers projects/{}/integrations/{}/twilio_phone_numbers
 integrations projects/{}/integrations
 integrationsDomainConnectApplyUrl projects/{}/integrations/domain-connect/apply-url
 integrationsDomainConnectCheck projects/{}/integrations/domain-connect/check
-link projects/{}/links/{}
-links projects/{}/links
 logsExplainWithAI projects/{}/logs/explainLogWithAI
 logsExport projects/{}/logs/export
 logsHasLogs projects/{}/logs/has_logs
@@ -247,8 +245,6 @@ task projects/{}/tasks/{}
 taskRun projects/{}/tasks/{}/runs/{}
 taskRuns projects/{}/tasks/{}/runs
 tasks projects/{}/tasks
-userInterview projects/{}/user_interviews/{}
-userInterviews projects/{}/user_interviews
 users users
 webAnalyticsFilterPreset projects/{}/web_analytics_filter_presets/{}
 webAnalyticsFilterPresets projects/{}/web_analytics_filter_presets

@@ -23,6 +23,21 @@ const session = (id: string, lastActivityAt: string, run: Record<string, unknown
 const PINNED = [session('task-p', '2026-09-28T12:00:00Z', { id: 'run-p', status: 'in_progress', environment: 'cloud' })]
 const RECENT = [session('task-a', '2026-09-28T11:00:00Z'), session('task-b', '2026-09-28T10:00:00Z')]
 
+const escapeHandledByMenu = (): void => {
+    const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })
+    event.preventDefault()
+    window.dispatchEvent(event)
+}
+
+const escapeFromOpenMenu = (): void => {
+    const menu = document.createElement('div')
+    menu.setAttribute('role', 'menu')
+    menu.setAttribute('data-open', '')
+    document.body.append(menu)
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    menu.remove()
+}
+
 describe('todaySessionSelectionLogic', () => {
     let logic: ReturnType<typeof todaySessionSelectionLogic.build>
     let requests: string[]
@@ -119,5 +134,38 @@ describe('todaySessionSelectionLogic', () => {
         clear()
 
         expect(logic.values.selectedSessionIds).toEqual([])
+    })
+
+    it.each([
+        ['a menu already handled it', () => escapeHandledByMenu()],
+        ['it comes from inside an open menu', () => escapeFromOpenMenu()],
+    ])('keeps the selection on the first Escape when %s, and clears it on the next', (_, closeMenu) => {
+        logic.actions.setSelection({ ids: ['task-a', 'task-b'], anchorId: 'task-b' })
+        closeMenu()
+
+        expect(logic.values.selectedSessionIds).toEqual(['task-a', 'task-b'])
+
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+
+        expect(logic.values.selectedSessionIds).toEqual([])
+    })
+
+    it.each([
+        ['drops', 'a desktop window', 1280, []],
+        ['keeps', 'a phone', 375, ['task-a']],
+    ])('%s a picked session from a collapsed Recent section in %s', (_, __, width, expected) => {
+        const originalWidth = window.innerWidth
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: width })
+        window.dispatchEvent(new Event('resize'))
+        todaySpacesLogic.actions.toggleSection('recent')
+        try {
+            logic.actions.toggleSessionSelection('task-a')
+
+            expect(logic.values.selectedSessionIds).toEqual(expected)
+        } finally {
+            todaySpacesLogic.actions.toggleSection('recent')
+            Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+            window.dispatchEvent(new Event('resize'))
+        }
     })
 })
