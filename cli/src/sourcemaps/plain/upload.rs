@@ -322,13 +322,21 @@ fn prepare_uploads(
 ) -> Result<Vec<SymbolSetUpload>> {
     // Payload preparation (serialization + zstd compression) is CPU-bound,
     // so spread it across cores.
-    let uploads = pairs
+    let mut uploads = pairs
         .into_par_iter()
-        .map(|pair| pair.into_upload(release_mode))
-        .collect::<Result<Vec<SymbolSetUpload>>>()
+        .map(|pair| {
+            let source_carries_native_debug_id =
+                !pair.has_chunk_id() && pair.source.get_debug_id().is_some();
+            pair.into_upload(release_mode)
+                .map(|upload| (source_carries_native_debug_id, upload))
+        })
+        .collect::<Result<Vec<_>>>()
         .context("While preparing files for upload")?;
 
-    Ok(dedup_uploads_by_chunk_id(uploads))
+    uploads.sort_by_key(|(source_carries_native_debug_id, _)| !source_carries_native_debug_id);
+    Ok(dedup_uploads_by_chunk_id(
+        uploads.into_iter().map(|(_, upload)| upload).collect(),
+    ))
 }
 
 fn canonical_selection_roots(paths: &[PathBuf]) -> Vec<PathBuf> {
@@ -865,6 +873,37 @@ mod tests {
             std::fs::read_to_string(runtime_map_path).unwrap(),
             runtime_map
         );
+    }
+
+    #[test]
+    fn native_debug_id_dedup_prefers_the_source_that_carries_the_id() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let debug_id = "11111111-2222-4333-8444-555555555555";
+        let alias = "console.log('alias');\n//# sourceMappingURL=shared.js.map\n";
+        let instrumented = format!(
+            "console.log('instrumented');\n//# debugId={debug_id}\n//# sourceMappingURL=shared.js.map\n"
+        );
+        std::fs::write(dir.path().join("a-alias.js"), alias).expect("Failed to write alias");
+        std::fs::write(dir.path().join("z-instrumented.js"), &instrumented)
+            .expect("Failed to write instrumented source");
+        std::fs::write(
+            dir.path().join("shared.js.map"),
+            format!(
+                r#"{{"version":3,"sources":["app.ts"],"mappings":"AAAA","debugId":"{debug_id}"}}"#
+            ),
+        )
+        .expect("Failed to write shared sourcemap");
+        let mut pairs = read_dir_pairs(dir.path());
+        pairs.sort_by_key(|pair| pair.source.inner.path.clone());
+
+        let uploads = prepare_uploads(pairs, ReleaseMode::Event)
+            .expect("Failed to prepare native debug ID uploads");
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].chunk_id, debug_id);
+        let stored: SourceAndMap =
+            read_symbol_data(&uploads[0].data).expect("Failed to read upload payload");
+        assert_eq!(stored.minified_source, instrumented);
     }
 
     #[test]
