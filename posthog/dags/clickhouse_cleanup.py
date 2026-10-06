@@ -641,7 +641,8 @@ def wait_for_drain_to_stop(context: dagster.OpExecutionContext) -> None:
         if time.monotonic() >= deadline:
             raise dagster.Failure(
                 f"The Postgres drain did not stop within {DRAIN_STOP_TIMEOUT_SECONDS}s: {'; '.join(blockers)}. "
-                "Cancel it, then re-execute this run."
+                "Cancel it, then launch a new sweep run, or re-execute this run from "
+                "persist_deleted_persons if that op failed."
             )
         context.log.info(f"Waiting {DRAIN_STOP_POLL_SECONDS}s for the Postgres drain to stop: {'; '.join(blockers)}")
         time.sleep(DRAIN_STOP_POLL_SECONDS)
