@@ -19,6 +19,7 @@ import requests
 from prometheus_client import Counter
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError
+from posthog.security.outbound_proxy import internal_requests
 
 from products.tasks.backend.logic.services.desktop_gateway_token import (
     POSTHOG_CODE_PRODUCT,
@@ -40,6 +41,7 @@ from products.tasks.backend.logic.services.run_actor import is_slack_interaction
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 
 if TYPE_CHECKING:
+    from posthog.llm.gateway_client import AIGatewayConfig
     from posthog.models.team.team import Team
 
 logger = logging.getLogger(__name__)
@@ -308,14 +310,16 @@ def token_cap_usd(team_id: int, ai_product: str) -> str:
     return str(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD)
 
 
-def revoke_scoped_token(token: str) -> None:
-    base_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
-    mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
+def revoke_scoped_token(token: str, *, gateway_config: "AIGatewayConfig | None" = None) -> None:
+    gateway_url = gateway_config.url if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_URL
+    base_url = (gateway_url or "").rstrip("/").removesuffix("/v1")
+    mint_key = gateway_config.api_key if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_MINT_KEY
     if not base_url or not mint_key:
         raise GatewayNotConfiguredError("The AI gateway mint configuration is required to revoke a private token")
+    post = internal_requests.post if gateway_config is not None else requests.post
     for attempt in range(_MINT_ATTEMPTS):
         try:
-            response = requests.post(
+            response = post(
                 f"{base_url}/v1/tokens/revoke",
                 json={"token": token},
                 headers={"Authorization": f"Bearer {mint_key}"},
@@ -348,6 +352,7 @@ def mint_scoped_token(
     limit_tier: str | None = None,
     capture_mode: Literal["none"] | None = None,
     expires_in_seconds: int | None = None,
+    gateway_config: "AIGatewayConfig | None" = None,
 ) -> str | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
@@ -357,10 +362,12 @@ def mint_scoped_token(
     Retries mint rate limits (429) and transient upstream errors with jittered
     backoff. Private callers require an acknowledged capture pin and fail closed on None.
     """
-    base_url = (settings.SANDBOX_AI_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
-    mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
+    gateway_url = gateway_config.url if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_URL
+    base_url = (gateway_url or "").rstrip("/").removesuffix("/v1")
+    mint_key = gateway_config.api_key if gateway_config is not None else settings.SANDBOX_AI_GATEWAY_MINT_KEY
     if not base_url or not mint_key:
         return None
+    post = internal_requests.post if gateway_config is not None else requests.post
 
     body: dict[str, Any] = {
         "cap_usd": token_cap_usd(team_id, ai_product),
@@ -382,7 +389,7 @@ def mint_scoped_token(
     last_error: str = ""
     for attempt in range(_MINT_ATTEMPTS):
         try:
-            response = requests.post(
+            response = post(
                 f"{base_url}/v1/tokens",
                 json=body,
                 headers={"Authorization": f"Bearer {mint_key}"},
@@ -402,7 +409,7 @@ def mint_scoped_token(
                 if isinstance(token, str) and token:
                     if capture_mode is not None and payload.get("capture_mode") != capture_mode:
                         # Older gateways ignore unknown fields; never use their unprotected token.
-                        revoke_scoped_token(token)
+                        revoke_scoped_token(token, gateway_config=gateway_config)
                         last_error = "mint response did not acknowledge capture suppression"
                         break
                     AI_GATEWAY_TOKEN_MINTS.labels(result="ok").inc()
