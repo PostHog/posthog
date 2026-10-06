@@ -48,7 +48,7 @@ def may_get_briefing(user: User, team: Team) -> bool:
 
 
 def may_ask_jev(user: User, team: Team) -> bool:
-    """PostHog pays for Jev calls, so they skip the organization's AI credit limit."""
+    """Jev calls are not billed as AI credits, so they skip the organization's credit limit."""
     return _may_send_to_ai(user, team) and all(
         _flag_on(flag, user, team) for flag in (TODAY_REPORT_JEV_FLAG, TODAY_RAIL_NAV_FLAG)
     )

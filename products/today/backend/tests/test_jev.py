@@ -7,6 +7,7 @@ from django.test import SimpleTestCase, override_settings
 
 from posthog.llm.system_one import NoulAnswer, Question, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
 from posthog.llm.system_one_client import GatewaySystemOneClient
+from posthog.tasks.usage_report import POSTHOG_AI_PRODUCTS
 
 from products.today.backend.facade.contracts import JevTimedOut
 from products.today.backend.logic.jev import GatewayJev
@@ -32,7 +33,7 @@ class TestGatewayJev(SimpleTestCase):
             patch.object(GatewaySystemOneClient, "adecide", adecide),
         ):
             answers = GatewayJev(team_id=team_id, distinct_id="person").yes_probability(items, "Is it broken?")
-        assert all("team_id" not in call.kwargs for call in build.call_args_list)
+        assert all(call.kwargs["ai_product"] not in POSTHOG_AI_PRODUCTS for call in build.call_args_list)
         return answers
 
     def test_asks_the_model_once_for_each_distinct_text(self) -> None:
