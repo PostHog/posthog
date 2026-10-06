@@ -6,6 +6,9 @@ import os
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.db import IntegrityError
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
@@ -15,7 +18,7 @@ from posthog.models import Organization, Project, Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
-from products.surveys.backend.models import Survey
+from products.surveys.backend.models import SURVEY_NAME_UNIQUE_CONSTRAINT, Survey
 
 from .max_tools import CreateSurveyTool, EditSurveyTool, SimpleSurveyQuestion, SurveyAnalysisTool
 
@@ -109,6 +112,24 @@ class TestSurveyCreatorTool(BaseTest):
         assert artifact["error"] == "validation_failed"
         assert "already a survey with this name" in artifact["error_message"]
         assert await Survey.objects.filter(team=self.team, name="Existing Survey").acount() == 1
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_concurrent_duplicate_name_is_handled(self):
+        tool = self._setup_tool()
+
+        with (
+            patch.object(Survey.objects, "acreate", side_effect=IntegrityError(SURVEY_NAME_UNIQUE_CONSTRAINT)),
+            patch("products.surveys.backend.max_tools.capture_exception") as mock_capture,
+        ):
+            content, artifact = await tool._arun_impl(
+                name="Race Survey",
+                questions=[SimpleSurveyQuestion(type="open", question="How are we doing?")],
+            )
+
+        assert artifact["error"] == "validation_failed"
+        assert "already a survey with this name" in artifact["error_message"]
+        mock_capture.assert_not_called()
 
     @parameterized.expand([("single_choice",), ("multiple_choice",)])
     @pytest.mark.django_db
@@ -721,6 +742,22 @@ class TestEditSurveyTool(BaseTest):
         assert "already a survey with this name" in artifact["error_message"]
         unchanged_survey = await Survey.objects.aget(id=survey.id)
         assert unchanged_survey.name == "Test Survey"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_concurrent_duplicate_name_is_handled(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey()
+
+        with (
+            patch.object(Survey, "save", side_effect=IntegrityError(SURVEY_NAME_UNIQUE_CONSTRAINT)),
+            patch("products.surveys.backend.max_tools.capture_exception") as mock_capture,
+        ):
+            content, artifact = await tool._arun_impl(survey_id=str(survey.id), name="Race Name")
+
+        assert artifact["error"] == "validation_failed"
+        assert "already a survey with this name" in artifact["error_message"]
+        mock_capture.assert_not_called()
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
