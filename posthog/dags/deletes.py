@@ -1256,8 +1256,8 @@ def find_partitions_to_cleanup(
         "min_age_months": config.min_age_months,
     }
 
-    # Each events table is read on its own cluster: a month can hold old rows in one table and none
-    # in the other, and the cleanup only visits the months found here.
+    # Each events table is read on every shard of its own cluster: a month can hold old rows in one
+    # table or shard and none in the others, and the cleanup only visits the months found here.
     found: set[int] = set()
     for placement in resolve_placements(cluster, EVENTS_TARGETS):
         query = f"""
@@ -1266,10 +1266,8 @@ def find_partitions_to_cleanup(
             WHERE team_id IN %(team_ids)s
             AND age('month', timestamp, now()) >= %(min_age_months)s
         """
-        results = placement.cluster.any_host_by_role(
-            Query(query, parameters=parameters), placement.cluster.shard_role
-        ).result()
-        found.update(partition for (partition,) in results)
+        results = placement.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
+        found.update(partition for rows in results.values() for (partition,) in rows)
     partitions = sorted(found, reverse=True)
 
     context.add_output_metadata(
