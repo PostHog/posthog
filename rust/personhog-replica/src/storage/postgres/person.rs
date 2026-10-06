@@ -712,8 +712,6 @@ impl PersonLookup for PostgresStorage {
         if uuids.is_empty() {
             return Ok(TombstonedDeleteOutcome::default());
         }
-        // Without max_versions every tombstoned person qualifies, so its bound admits any version.
-        // A uuid missing from max_versions gets a bound no version is at or below.
         let bound_of = |uuid: &Uuid| -> i64 {
             match max_versions {
                 None => i64::MAX,
@@ -748,8 +746,8 @@ impl PersonLookup for PostgresStorage {
             .execute(&mut *tx)
             .await?;
 
-        // One unlocked read classifies each uuid once. The delete re-checks the tombstone and the
-        // bound under its row lock, so a person revived or tombstoned again since reads as neither.
+        // This read takes no lock. The delete re-checks the tombstone and the bound under its row
+        // lock, so a person revived or tombstoned again after this read lands in no outcome bucket.
         let persons = sqlx::query!(
             r#"
             SELECT id::bigint AS "id!", uuid AS "uuid!", is_deleted AS "is_deleted!",
@@ -810,11 +808,10 @@ impl PersonLookup for PostgresStorage {
             ..
         } = admission;
 
-        // Lock only the persons that are still tombstoned at or below their bound, in id order.
-        // READ COMMITTED re-checks both conditions on the row version that wins the lock, so a
-        // person revived or tombstoned again a moment ago drops out here, trimmed person
-        // included. Live writers touch live persons, never locked here, and the identity saga
-        // locks persons before distinct ids in this same order.
+        // READ COMMITTED re-checks the tombstone and the bound on the row version that wins the
+        // lock, so a person revived or tombstoned again a moment ago drops out, trimmed or not.
+        // Live writers touch only live persons, which this never locks, and the identity saga locks
+        // persons before distinct ids in this same id order.
         let (lock_ids, lock_bounds): (Vec<i64>, Vec<i64>) = admitted
             .iter()
             .chain(trim.iter())
