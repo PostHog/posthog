@@ -533,6 +533,7 @@ the row lists both.
 | nebius_ai                        | HTTP                        | requests                                                        | ✅                          |
 | neon                             | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | netlify                          | HTTP                        | requests                                                        | ✅                          |
+| netsuite                         | HTTP (SuiteQL)              | requests + requests-oauthlib / PyJWT                            | ✅                          |
 | new_relic                        | HTTP (GraphQL/NerdGraph)    | requests                                                        | ✅                          |
 | new_york_times                   | HTTP                        | requests                                                        | ✅                          |
 | news_api                         | HTTP                        | requests                                                        | ✅                          |
@@ -1273,7 +1274,6 @@ doesn't conflict with concurrent PRs.
 - nationbuilder
 - navan
 - neon_crm
-- netsuite
 - news_api
 - nexhealth
 - nexiopay
