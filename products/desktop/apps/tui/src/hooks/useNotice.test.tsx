@@ -14,12 +14,12 @@ describe("useNotice", () => {
     }
     const { instance } = renderInTerminal(<Probe />);
 
-    current?.flashNotice("first", 8_000);
+    current?.flashNotice("first");
     await vi.advanceTimersByTimeAsync(6_000);
-    current?.flashNotice("second", 8_000);
+    current?.flashNotice("second");
     await vi.advanceTimersByTimeAsync(4_000);
     try {
-      await vi.waitFor(() => expect(current?.notice).toBe("second"));
+      await vi.waitFor(() => expect(current?.shown?.text).toBe("second"));
     } finally {
       instance.unmount();
     }

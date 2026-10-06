@@ -12,6 +12,7 @@ import { allPanes, type LayoutState, renameTask } from "../layout";
 import { type LocalSession, runningLocals, stopLocals } from "../local";
 import { LEGACY_PREFIX, LocalChats, linkLocalChats } from "../localChats";
 import type { AgentPrompt } from "../prompts";
+import type { FlashNotice } from "./useNotice";
 
 export interface LocalChatsState {
   // True for a chat that runs on this machine, also before its agent has started.
@@ -48,7 +49,7 @@ export function useLocalChats({
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
   setFresh: Dispatch<SetStateAction<Map<string, Task>>>;
-  flashNotice: (text: string) => void;
+  flashNotice: FlashNotice;
 }): LocalChatsState {
   const localChats = useRef(new LocalChats()).current;
   const [localActive, setLocalActive] = useState(() => localChats.list());
@@ -94,7 +95,9 @@ export function useLocalChats({
         (error: unknown) => {
           runningLocals.delete(id);
           watched.delete(id);
-          flashNotice(`Couldn't start the local agent: ${messageOf(error)}`);
+          flashNotice(`Couldn't start the local agent: ${messageOf(error)}`, {
+            taskId: id,
+          });
         },
       );
     }

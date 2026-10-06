@@ -58,7 +58,7 @@ Logic sits in plain modules with unit tests. Components under `src/components/` 
 | `images.ts` | Images for any chat: Ctrl+V reads the clipboard's image (macOS), a dropped image file is read from its pasted path, and the composer shows each as an `[Image #n]` marker. A sent image is saved under `~/.config/posthog-tui/images/` by a hash of its bytes, and its row under the message opens it. A cloud run gets them uploaded as artifacts (`ImageUploads` in `chats.ts`, the desktop app's `CloudArtifactService`), and its sandbox hands them to pi as image data |
 | `auth.ts`, `cloud.ts` | OAuth tokens and the engine, API client and local-session wiring |
 | `components/App.tsx`, `components/PaneTree.tsx` | Wiring the hooks together, and drawing the sidebar and the split panes |
-| `hooks/` | App state, one hook per concern: notices, work list, local chats, pane views, sheets, models, `!` commands, sending, sidebar, search, turns, keys, pointer, terminal input |
+| `hooks/` | App state, one hook per concern: notices (a chat's notice wraps in a row above its composer and falls back to the sidebar while no pane shows the chat; app-wide ones stay in the sidebar), work list, local chats, pane views, sheets, models, `!` commands, sending, sidebar, search, turns, keys, pointer, terminal input |
 
 ## Things that bit us
 

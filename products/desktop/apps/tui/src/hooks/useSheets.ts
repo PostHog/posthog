@@ -11,6 +11,7 @@ import {
   takesText,
 } from "../prompts";
 import { moveCursor, type Sheet, type SheetKey } from "../sheet";
+import type { FlashNotice } from "./useNotice";
 
 export interface OpenModal {
   sheet: Sheet;
@@ -49,7 +50,7 @@ export function useSheets({
   setPromptCursor: (promptId: string, index: number) => void;
   localSessions: Map<string, LocalSession>;
   composerFor: (paneId: string) => Composer;
-  flashNotice: (text: string) => void;
+  flashNotice: FlashNotice;
 }): Sheets {
   // Modal sheets the app opened, one per pane; they take the pane's keys until closed.
   const [modals, setModals] = useState<Map<string, OpenModal>>(new Map());
@@ -71,7 +72,7 @@ export function useSheets({
       local
         .answer(prompt, promptReply(prompt, answer))
         .catch((error: unknown) =>
-          flashNotice(`Couldn't answer: ${messageOf(error)}`),
+          flashNotice(`Couldn't answer: ${messageOf(error)}`, { taskId }),
         );
     };
     return {
