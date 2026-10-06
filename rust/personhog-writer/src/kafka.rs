@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use common_kafka::config::KafkaConfig;
@@ -15,15 +16,20 @@ use rdkafka::{ClientConfig, ClientContext, TopicPartitionList};
 /// drop their buffered rows before the new owner starts reading them.
 struct RebalanceContext {
     revoked: Arc<Mutex<Vec<i32>>>,
+    joined: Arc<AtomicBool>,
 }
 
 impl ClientContext for RebalanceContext {}
 
 impl ConsumerContext for RebalanceContext {
     fn pre_rebalance(&self, _base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance<'_>) {
-        if let Rebalance::Revoke(partitions) = rebalance {
-            let mut revoked = self.revoked.lock().unwrap();
-            revoked.extend(partitions.elements().iter().map(|e| e.partition()));
+        match rebalance {
+            Rebalance::Assign(_) => self.joined.store(true, Ordering::SeqCst),
+            Rebalance::Revoke(partitions) => {
+                let mut revoked = self.revoked.lock().unwrap();
+                revoked.extend(partitions.elements().iter().map(|e| e.partition()));
+            }
+            Rebalance::Error(_) => {}
         }
     }
 }
@@ -34,6 +40,7 @@ pub struct PersonConsumer {
     consumer: StreamConsumer<RebalanceContext>,
     topic: String,
     revoked: Arc<Mutex<Vec<i32>>>,
+    joined: Arc<AtomicBool>,
 }
 
 impl PersonConsumer {
@@ -98,15 +105,18 @@ impl PersonConsumer {
     /// the config directly (e.g., mock clusters).
     pub fn new(config: &ClientConfig, topic: String) -> Result<Self, rdkafka::error::KafkaError> {
         let revoked = Arc::new(Mutex::new(Vec::new()));
+        let joined = Arc::new(AtomicBool::new(false));
         let consumer: StreamConsumer<RebalanceContext> =
             config.create_with_context(RebalanceContext {
                 revoked: Arc::clone(&revoked),
+                joined: Arc::clone(&joined),
             })?;
         consumer.subscribe(&[&topic])?;
         Ok(Self {
             consumer,
             topic,
             revoked,
+            joined,
         })
     }
 
@@ -118,14 +128,21 @@ impl PersonConsumer {
         std::mem::take(&mut *self.revoked.lock().unwrap())
     }
 
-    pub fn assigned_partitions(&self) -> Result<HashSet<i32>, rdkafka::error::KafkaError> {
-        Ok(self
-            .consumer
-            .assignment()?
-            .elements()
-            .iter()
-            .map(|e| e.partition())
-            .collect())
+    /// `None` until the first assignment arrives: before that, an empty
+    /// assignment means the group is still forming, not that this pod owns
+    /// nothing.
+    pub fn assigned_partitions(&self) -> Result<Option<HashSet<i32>>, rdkafka::error::KafkaError> {
+        if !self.joined.load(Ordering::SeqCst) {
+            return Ok(None);
+        }
+        Ok(Some(
+            self.consumer
+                .assignment()?
+                .elements()
+                .iter()
+                .map(|e| e.partition())
+                .collect(),
+        ))
     }
 
     pub fn positions(&self) -> Result<HashMap<i32, i64>, rdkafka::error::KafkaError> {
@@ -151,7 +168,7 @@ impl PersonConsumer {
 
         // A partition revoked while its batch was in flight belongs to
         // another pod now; committing it here would move that pod's offset.
-        let assigned = self.assigned_partitions()?;
+        let assigned = self.assigned_partitions()?.unwrap_or_default();
         let mut tpl = TopicPartitionList::new();
         let mut skipped: u64 = 0;
         for (partition, offset) in offsets {

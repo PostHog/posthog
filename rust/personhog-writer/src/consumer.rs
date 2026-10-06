@@ -10,12 +10,12 @@ use rdkafka::message::Message as KafkaMessage;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::buffer::PersonBuffer;
+use crate::buffer::{BufferedPerson, PersonBuffer};
 use crate::kafka::PersonConsumer;
 
 /// Batch of persons and their Kafka offsets, sent from consumer to writer.
 pub struct FlushBatch {
-    pub persons: Vec<Person>,
+    pub persons: Vec<BufferedPerson>,
     pub offsets: HashMap<i32, i64>,
     /// Timestamp of the oldest Kafka message in this batch (millis since epoch).
     /// Used to compute end-to-end latency from ingestion to PG commit.
@@ -34,7 +34,8 @@ fn drop_revoked_partitions(consumer: &PersonConsumer, lanes: &mut [Lane]) {
         .map(|lane| lane.buffer.remove_partitions(&revoked))
         .sum();
     counter!("personhog_writer_partitions_revoked_total").increment(revoked.len() as u64);
-    counter!("personhog_writer_revoked_rows_dropped_total").increment(dropped as u64);
+    counter!("personhog_writer_revoked_rows_dropped_total", "stage" => "buffer")
+        .increment(dropped as u64);
     info!(
         partitions = revoked.len(),
         rows = dropped,

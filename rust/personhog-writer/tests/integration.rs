@@ -10,6 +10,7 @@ use common::{
     unique_team_id, KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
 };
 use personhog_proto::personhog::types::v1::Person;
+use personhog_writer::buffer::BufferedPerson;
 use personhog_writer::consumer::{ConsumerTask, FlushBatch};
 use personhog_writer::kafka::PersonConsumer;
 use personhog_writer::pg::PgStore;
@@ -22,6 +23,16 @@ use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::producer::FutureRecord;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use tokio::sync::mpsc;
+
+fn rows(persons: Vec<Person>) -> Vec<BufferedPerson> {
+    persons
+        .into_iter()
+        .map(|person| BufferedPerson {
+            partition: 0,
+            person,
+        })
+        .collect()
+}
 
 // ============================================================
 // PG Writer: upsert correctness
@@ -715,12 +726,15 @@ async fn multi_lane_consumer_routes_partitions_and_flushes_independently() {
     assert_eq!(batch0.offsets.keys().copied().collect::<Vec<_>>(), vec![0]);
     assert_eq!(batch0.offsets[&0], 3); // four messages, offsets 0..=3
     let mut persons0 = batch0.persons;
-    persons0.sort_by_key(|p| p.id);
+    persons0.sort_by_key(|p| p.person.id);
     assert_eq!(
-        persons0.iter().map(|p| p.id).collect::<Vec<_>>(),
+        persons0.iter().map(|p| p.person.id).collect::<Vec<_>>(),
         vec![1, 2, 3]
     );
-    assert_eq!(persons0[0].version, 2, "dedup must keep the latest version");
+    assert_eq!(
+        persons0[0].person.version, 2,
+        "dedup must keep the latest version"
+    );
 
     // Lane 1 is below its size threshold and the timer is far away, so a
     // lane-0 flush must not have drained it.
@@ -755,7 +769,7 @@ async fn multi_lane_consumer_routes_partitions_and_flushes_independently() {
         .expect("lane 1 channel should be open");
     assert_eq!(batch1.offsets.keys().copied().collect::<Vec<_>>(), vec![1]);
     assert_eq!(batch1.offsets[&1], 2); // three messages, offsets 0..=2
-    let mut ids1: Vec<i64> = batch1.persons.iter().map(|p| p.id).collect();
+    let mut ids1: Vec<i64> = batch1.persons.iter().map(|p| p.person.id).collect();
     ids1.sort_unstable();
     assert_eq!(ids1, vec![4, 5, 6]);
 }
@@ -832,7 +846,7 @@ async fn capped_drains_commit_only_the_partitions_they_carry() {
         let partitions_in_batch: std::collections::HashSet<i32> = batch
             .persons
             .iter()
-            .map(|p| if p.id <= 3 { 0 } else { 1 })
+            .map(|p| if p.person.id <= 3 { 0 } else { 1 })
             .collect();
         let committed: std::collections::HashSet<i32> = batch.offsets.keys().copied().collect();
         assert_eq!(
@@ -966,7 +980,7 @@ async fn revoked_partitions_are_dropped_and_their_offsets_stay_uncommitted() {
     let mut flushed_ids = Vec::new();
     let mut flushed_partitions = HashSet::new();
     while let Ok(Some(batch)) = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await {
-        flushed_ids.extend(batch.persons.iter().map(|p| p.id));
+        flushed_ids.extend(batch.persons.iter().map(|p| p.person.id));
         flushed_partitions.extend(batch.offsets.keys().copied());
     }
     flushed_ids.sort_unstable();
@@ -1038,7 +1052,7 @@ async fn writer_processes_batch_from_channel() {
     // Send a batch directly through the channel
     let person = make_person(team_id as i64, 1, 1);
     let batch = FlushBatch {
-        persons: vec![person],
+        persons: rows(vec![person]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
     };
@@ -1150,7 +1164,7 @@ async fn writer_crashes_after_exhausting_transient_retries() {
     tokio::spawn(async move { writer_task.run().await });
 
     let batch = FlushBatch {
-        persons: vec![make_person(99_040, 1, 1)],
+        persons: rows(vec![make_person(99_040, 1, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
     };
@@ -1203,7 +1217,7 @@ async fn writer_recovers_on_transient_retry() {
     tokio::spawn(async move { writer_task.run().await });
 
     let batch = FlushBatch {
-        persons: vec![make_person(99_041, 1, 1)],
+        persons: rows(vec![make_person(99_041, 1, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
     };
@@ -1212,7 +1226,7 @@ async fn writer_recovers_on_transient_retry() {
     // Send a second batch to verify the writer is still alive after recovery
     tokio::time::sleep(Duration::from_secs(3)).await;
     let batch2 = FlushBatch {
-        persons: vec![make_person(99_041, 2, 1)],
+        persons: rows(vec![make_person(99_041, 2, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
     };
@@ -1260,7 +1274,7 @@ async fn writer_falls_back_to_per_row_on_data_error() {
     tokio::spawn(async move { writer_task.run().await });
 
     let batch = FlushBatch {
-        persons: vec![make_person(99_042, 1, 1), make_person(99_042, 2, 1)],
+        persons: rows(vec![make_person(99_042, 1, 1), make_person(99_042, 2, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
     };
@@ -1269,7 +1283,7 @@ async fn writer_falls_back_to_per_row_on_data_error() {
     // Writer should handle the data error via fallback and stay alive
     tokio::time::sleep(Duration::from_secs(1)).await;
     let batch2 = FlushBatch {
-        persons: vec![make_person(99_042, 3, 1)],
+        persons: rows(vec![make_person(99_042, 3, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
     };
@@ -1327,12 +1341,12 @@ async fn unapplyable_batch_halts_the_writer_before_any_later_batch() {
     // A second batch is already buffered behind the poison one — the
     // regression this guards is the writer pulling and committing it.
     let poison = FlushBatch {
-        persons: vec![make_person(99_043, 1, 1)],
+        persons: rows(vec![make_person(99_043, 1, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
     };
     let buffered = FlushBatch {
-        persons: vec![make_person(99_043, 2, 1)],
+        persons: rows(vec![make_person(99_043, 2, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
     };
