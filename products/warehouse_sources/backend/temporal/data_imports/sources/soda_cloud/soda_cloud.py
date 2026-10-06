@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
     EndpointResource,
     PageNumberPaginatorConfig,
 )
@@ -101,10 +102,8 @@ def soda_cloud_source(
         PageNumberPaginatorConfig,
         {"type": "page_number", "base_page": 0, "total_path": "totalPages"},
     )
-    resource_config: EndpointResource = {
-        "name": inputs.schema_name,
-        "endpoint": {"path": inputs.schema_name, "data_selector": "content", "params": params},
-    }
+    endpoint: Endpoint = {"path": inputs.schema_name, "data_selector": "content", "params": params}
+    resource_config: EndpointResource = {"name": inputs.schema_name, "endpoint": endpoint}
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": get_base_url(config.region, api_version),
