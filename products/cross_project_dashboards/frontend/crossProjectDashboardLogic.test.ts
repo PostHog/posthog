@@ -13,6 +13,7 @@ import {
     crossProjectDashboardsPartialUpdate,
     crossProjectDashboardsRetrieve,
     crossProjectDashboardsTilesCreate,
+    crossProjectDashboardsTilesDestroy,
     crossProjectDashboardsTilesPartialUpdate,
 } from './generated/api'
 
@@ -34,6 +35,7 @@ const mockedRetrieve = crossProjectDashboardsRetrieve as jest.Mock
 const mockedPartialUpdate = crossProjectDashboardsPartialUpdate as jest.Mock
 const mockedTilePartialUpdate = crossProjectDashboardsTilesPartialUpdate as jest.Mock
 const mockedTileCreate = crossProjectDashboardsTilesCreate as jest.Mock
+const mockedTileDestroy = crossProjectDashboardsTilesDestroy as jest.Mock
 
 const DASHBOARD_ID = '01a0f19d-1c44-715a-a679-188869bd033f'
 
@@ -65,6 +67,8 @@ describe('crossProjectDashboardLogic', () => {
         mockedRetrieve.mockReset()
         mockedPartialUpdate.mockReset()
         mockedTilePartialUpdate.mockReset()
+        mockedTileCreate.mockReset()
+        mockedTileDestroy.mockReset()
         mockedTilePartialUpdate.mockImplementation(async (_org, _id, tileId, body) => ({
             ...TILE,
             id: tileId,
@@ -131,14 +135,28 @@ describe('crossProjectDashboardLogic', () => {
             color: 'green',
             filters_overrides: { date_from: '-30d' },
         }
-        mockedRetrieve.mockImplementation(async () => ({ ...dashboardWith({}), tiles: [styledTile] }))
+        // The mocks keep a tile list, so each reload reads back what the delete and the create left.
+        let storedTiles: Record<string, unknown>[] = [styledTile]
+        mockedRetrieve.mockImplementation(async () => ({ ...dashboardWith({}), tiles: storedTiles }))
+        mockedTileDestroy.mockImplementation(async (_org, _id, tileId) => {
+            storedTiles = storedTiles.filter((tile) => tile.id !== tileId)
+        })
+        mockedTileCreate.mockImplementation(async (_org, _id, body) => {
+            storedTiles = [...storedTiles, { id: 'tile-restored', ...body }]
+        })
         const toastInfo = jest.spyOn(lemonToast, 'info')
         await mountWith({})
 
         logic.actions.removeTile(styledTile.id)
         await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.tiles).toEqual([])
+        // A second click lands while the toast closes, before the first restore returns.
+        toastInfo.mock.calls[0][1]?.button?.action()
         toastInfo.mock.calls[0][1]?.button?.action()
         await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockedTileCreate).toHaveBeenCalledTimes(1)
+        expect(logic.values.tiles).toEqual([expect.objectContaining({ id: 'tile-restored' })])
 
         expect(mockedTileCreate).toHaveBeenCalledWith('org-1', DASHBOARD_ID, {
             project_id: styledTile.project_id,

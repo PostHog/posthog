@@ -319,6 +319,8 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
         // Saves send the whole filters object, so they run one at a time to never start from a stale copy.
         // A rename joins the same queue, so a late response cannot put back filters that a newer save replaced.
         let saves: Promise<boolean> = Promise.resolve(true)
+        // Undo stays clickable while its toast closes, and a second restore of the same tile fails as a duplicate.
+        const restoringTileIds = new Set<string>()
         const saveDashboard = (
             changes: () => PatchedCrossProjectDashboardApi,
             errorMessage: string
@@ -498,9 +500,10 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
             // Removal deletes the tile, so undo adds it back with everything it carried.
             restoreTile: async ({ tile }) => {
                 const organizationId = organizationLogic.values.currentOrganization?.id
-                if (!organizationId) {
+                if (!organizationId || restoringTileIds.has(tile.id)) {
                     return
                 }
+                restoringTileIds.add(tile.id)
                 try {
                     await crossProjectDashboardsTilesCreate(organizationId, props.id, {
                         project_id: tile.project_id,
@@ -512,6 +515,8 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                     lemonToast.success('Tile restored')
                 } catch (error: any) {
                     lemonToast.error(error?.detail || 'Could not restore the tile. Add the insight again.')
+                } finally {
+                    restoringTileIds.delete(tile.id)
                 }
                 actions.loadDashboard()
             },
