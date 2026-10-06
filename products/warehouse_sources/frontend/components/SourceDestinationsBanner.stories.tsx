@@ -18,7 +18,10 @@ const Template: StoryFn<typeof SourceDestinationsBanner> = () => <SourceDestinat
 
 export const Default = Template.bind({})
 
-// Without the flag the destinations scene is not reachable, so the banner stays out of the way.
-export const FlagOff = Template.bind({})
+// Keep a sized story root so visual tests can verify the banner stays absent without the flag.
+export const FlagOff: StoryFn<typeof SourceDestinationsBanner> = () => (
+    <div className="h-px">
+        <SourceDestinationsBanner />
+    </div>
+)
 FlagOff.parameters = { featureFlags: [] }
-FlagOff.tags = ['test-skip']
