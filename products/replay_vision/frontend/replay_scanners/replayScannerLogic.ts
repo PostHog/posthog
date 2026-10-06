@@ -20,8 +20,10 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
@@ -70,9 +72,11 @@ import { clampDurationFilter, durationFilterError } from './durationBounds'
 import {
     ExperimentScannerContext,
     buildExperimentTargeting,
+    experimentScannerConfig,
     experimentScannerName,
     parseExperimentScannerParams,
     prefillScannerForExperiment,
+    ScannerExperimentScope,
     reconcileVariantKey,
     scannerExperimentScope,
 } from './experimentTargeting'
@@ -93,6 +97,7 @@ import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
+    ExperimentScannerConfig,
     MAX_CREDIT_LIMIT,
     OBSERVATION_LIST_URL_PARAM_KEYS,
     SamplingMode,
@@ -190,6 +195,56 @@ function defaultConfigForType(scannerType: ScannerType): ScannerConfig {
         return { prompt: '', length: 'medium', experiment_id: null, variants: null, balance_variants: true }
     }
     return { prompt: '' }
+}
+
+/** Until experiment scanners ship, the experiment entry points keep creating legacy targeting. */
+function experimentScannersEnabled(): boolean {
+    return !!featureFlagLogic.values.featureFlags[FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]
+}
+
+/** The experiment a goal draft named, in the experiment type's config or in the legacy targeting. */
+function draftExperimentScope(goalDraft: DraftScannerResponseApi): ScannerExperimentScope | null {
+    if (goalDraft.scanner_type === 'experiment') {
+        const config = goalDraft.scanner_config as ExperimentScannerConfig
+        return config.experiment_id ? { experimentId: config.experiment_id, variants: config.variants ?? null } : null
+    }
+    const targeting = goalDraft.experiment_targeting
+    return targeting?.experiment_id
+        ? { experimentId: targeting.experiment_id, variants: targeting.variant ? [targeting.variant] : null }
+        : null
+}
+
+/** A draft that watches an experiment becomes the experiment type, keeping the drafted prompt as its focus. */
+function draftScannerTypeAndConfig(
+    goalDraft: DraftScannerResponseApi,
+    draftedExperiment: ScannerExperimentScope | null,
+    context: ExperimentScannerContext | null
+): Pick<ScannerFormValues, 'scanner_type' | 'scanner_config'> {
+    const draftConfig = goalDraft.scanner_config as ScannerConfig
+    const scope =
+        draftedExperiment ??
+        (context
+            ? {
+                  experimentId: context.experiment.id as number,
+                  variants: context.variantKey ? [context.variantKey] : null,
+              }
+            : null)
+    if (!scope) {
+        return { scanner_type: goalDraft.scanner_type as ScannerType, scanner_config: draftConfig } as Pick<
+            ScannerFormValues,
+            'scanner_type' | 'scanner_config'
+        >
+    }
+    return {
+        scanner_type: 'experiment',
+        scanner_config: {
+            prompt: draftConfig.prompt,
+            length: ('length' in draftConfig && draftConfig.length) || 'medium',
+            experiment_id: scope.experimentId,
+            variants: scope.variants,
+            balance_variants: true,
+        },
+    }
 }
 
 function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
@@ -1820,7 +1875,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                 experiment,
                                 variantKey: reconcileVariantKey(experiment, experimentParams.variantKey),
                             }
-                            const prefilled = prefillScannerForExperiment(experimentBase, context)
+                            const prefilled = prefillScannerForExperiment(
+                                experimentBase,
+                                context,
+                                experimentScannersEnabled()
+                            )
                             // Set the context only after the prefill is built, so a throw inside it
                             // doesn't leave a dangling context that the next startFromTemplate re-applies.
                             actions.setExperimentContext(context)
@@ -1901,11 +1960,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.rebuildExperimentContext()
             },
 
-            // Rebuilds the targeting card from the form's current targeting — a loaded scanner or a
-            // restored draft — so the variant picker and detach stay usable wherever it came from.
-            // The API nulls experiment_targeting for viewers denied the experiment, so this never
-            // fetches an experiment the viewer can't see. Fails soft: without the card the scanner
-            // still edits normally.
+            // Rebuilds the experiment context from the form's current experiment — a loaded scanner
+            // or a restored draft — so the editor can name it and list its variants wherever it came
+            // from. The API hides the experiment from viewers denied it, so this never fetches an
+            // experiment the viewer can't see. Fails soft: without the context the scanner still
+            // edits normally.
             rebuildExperimentContext: async () => {
                 const scope = scannerExperimentScope(values.scanner)
                 if (!scope) {
@@ -1942,8 +2001,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
-            // The reducer has already stored the new key; targeting lives in its own field, so a
-            // variant change never touches `query` and filters the user added by hand survive.
+            // The variants belong to the old experiment, so they reset with it. Only an unsaved scanner
+            // gets here: the API fixes the experiment after creation.
+            // Legacy targeting only. The reducer has already stored the new key; targeting lives in its
+            // own field, so a variant change never touches `query` and filters added by hand survive.
             setExperimentVariant: () => {
                 const context = values.experimentContext
                 if (!context) {
@@ -1952,8 +2013,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.setScannerValue('experiment_targeting', buildExperimentTargeting(context))
             },
 
-            // The variants belong to the old experiment, so they reset with it. Only an unsaved scanner
-            // gets here: the API fixes the experiment after creation.
             setScannerExperiment: ({ experimentId }) => {
                 actions.setScannerValues({ scanner_config: { experiment_id: experimentId, variants: null } })
                 actions.rebuildExperimentContext()
@@ -1978,11 +2037,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // Only re-derive a name the user never edited, so a typed name always survives a type change.
                 const keepsDefaultName =
                     !current.name?.trim() || current.name === defaultScannerName(teamName, current.scanner_type)
+                const context = values.experimentContext
+                // A wizard entered from an experiment keeps watching it when the type returns to experiment.
+                const config =
+                    scannerType === 'experiment' && context
+                        ? experimentScannerConfig(context.experiment, context.variantKey ? [context.variantKey] : null)
+                        : defaultConfigForType(scannerType)
                 actions.resetScanner({
                     ...current,
                     name: keepsDefaultName ? defaultScannerName(teamName, scannerType) : current.name,
                     scanner_type: scannerType,
-                    scanner_config: defaultConfigForType(scannerType),
+                    scanner_config: config,
                 } as ScannerFormValues)
                 persistDraft()
             },
@@ -2021,19 +2086,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 ) {
                     return
                 }
-                // An experiment prefill (targeting, scoped name, test-account setting) has to survive
-                // the AI draft the same way it survives a template pick, or a scanner started from an
-                // experiment would end up watching every visitor instead of the participants. A draft
-                // that named an experiment itself is fresher intent, so it wins.
-                const context = goalDraft.experiment_targeting ? null : values.experimentContext
-                if (goalDraft.experiment_targeting && values.experimentContext) {
+                // An experiment prefill (experiment type, scoped name, test-account setting) has to
+                // survive the AI draft the same way it survives a template pick, or a scanner started
+                // from an experiment would end up watching every visitor instead of the participants.
+                // A draft that named an experiment itself is fresher intent, so it wins.
+                const asExperimentScanner = experimentScannersEnabled()
+                const draftedExperiment = draftExperimentScope(goalDraft)
+                const context = draftedExperiment ? null : values.experimentContext
+                if (draftedExperiment && values.experimentContext) {
                     // rebuildExperimentContext keeps a card whose experiment id already matches, so a
                     // draft that renames the variant would leave the Recordings step showing the old
                     // one while the scanner saves the new one. Drop the card and let it rebuild.
                     actions.setExperimentContext(null)
                 }
                 const base = newScanner(null, teamLogic.values.currentTeam?.name)
-                actions.resetScanner(context ? prefillScannerForExperiment(base, context) : base)
+                actions.resetScanner(context ? prefillScannerForExperiment(base, context, asExperimentScanner) : base)
                 const draftQuery = goalDraft.query as RecordingsQuery | undefined
                 // Applied as form values (not baked into the reset) so the draft persists like hand-edited
                 // input and survives a reload of the configure step.
@@ -2042,8 +2109,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     goal: payload?.goal.trim() || null,
                     name: context ? experimentScannerName(goalDraft.name, context.experiment.name) : goalDraft.name,
                     description: goalDraft.description,
-                    scanner_type: goalDraft.scanner_type as ScannerType,
-                    scanner_config: goalDraft.scanner_config as ScannerConfig,
+                    ...(asExperimentScanner
+                        ? draftScannerTypeAndConfig(goalDraft, draftedExperiment, context)
+                        : {
+                              scanner_type: goalDraft.scanner_type as ScannerType,
+                              scanner_config: goalDraft.scanner_config as ScannerConfig,
+                          }),
                     // The drafted session filter (when the goal mapped to real screens or events); the
                     // triggers step shows it for review like any hand-picked filter. Under an
                     // experiment prefill it keeps that experiment's test-account setting.
@@ -2067,14 +2138,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     ...(goalDraft.credit_limit != null
                         ? { credit_limit: goalDraft.credit_limit, credit_limit_enabled: true }
                         : {}),
-                    // The experiment the goal named, if any. It watches that experiment's
-                    // participants, which the query itself can't express — the backend derives the
-                    // exposure filter from this field at scan time.
-                    experiment_targeting:
-                        goalDraft.experiment_targeting ?? (context ? buildExperimentTargeting(context) : null),
+                    // The experiment type carries the experiment. Without it, the experiment the goal
+                    // named (or the one the wizard was entered from) stays legacy targeting.
+                    experiment_targeting: asExperimentScanner
+                        ? null
+                        : (goalDraft.experiment_targeting ?? (context ? buildExperimentTargeting(context) : null)),
                 })
-                // Loads the targeted experiment so the Triggers step shows its card and variant
-                // picker, the same way it does for a scanner started from the experiment itself.
+                // Loads the experiment so the editor shows its name and variants, the same way it
+                // does for a scanner started from the experiment itself.
                 actions.rebuildExperimentContext()
                 // Solved dials mark a goal-flow draft, which reviews on the overview; legacy drafts
                 // open the details step. The goal flow is already on the overview (pushed on request),
@@ -2157,7 +2228,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 // reset, so re-apply it when the wizard was entered from an experiment.
                 const base = newScanner(templateKey, teamLogic.values.currentTeam?.name)
                 const context = values.experimentContext
-                actions.resetScanner(context ? prefillScannerForExperiment(base, context) : base)
+                actions.resetScanner(
+                    context ? prefillScannerForExperiment(base, context, experimentScannersEnabled()) : base
+                )
             },
             discardScannerDraft: () => {
                 // Storage holds one draft, and it belongs to the new-scanner wizard.
