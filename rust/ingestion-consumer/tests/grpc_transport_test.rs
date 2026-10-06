@@ -238,7 +238,7 @@ fn msg(distinct_id: &str, offset: i64) -> SerializedKafkaMessage {
     headers.insert("token".to_string(), "tok".to_string());
     headers.insert("distinct_id".to_string(), distinct_id.to_string());
     SerializedKafkaMessage {
-        topic: "events".to_string(),
+        topic: "events".into(),
         partition: 0,
         offset,
         timestamp: 0,

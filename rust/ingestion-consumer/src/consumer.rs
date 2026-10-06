@@ -765,6 +765,8 @@ impl IngestionConsumer {
         let batch_start_ms = current_time_ms();
 
         let mut stream = self.consumer.stream();
+        // Messages of one topic share its name rather than each owning a copy.
+        let mut topic_name: Option<Arc<str>> = None;
 
         loop {
             if accumulator.message_count() >= self.batch_size {
@@ -784,7 +786,14 @@ impl IngestionConsumer {
             let poll_wait = remaining.min(Duration::from_secs(10));
             match tokio::time::timeout(poll_wait, stream.next()).await {
                 Ok(Some(Ok(borrowed_message))) => {
-                    let topic = borrowed_message.topic().to_string();
+                    let topic = match &topic_name {
+                        Some(name) if **name == *borrowed_message.topic() => Arc::clone(name),
+                        _ => {
+                            let name: Arc<str> = Arc::from(borrowed_message.topic());
+                            topic_name = Some(Arc::clone(&name));
+                            name
+                        }
+                    };
                     let partition = borrowed_message.partition();
                     let offset = borrowed_message.offset();
                     let kafka_ts = borrowed_message.timestamp().to_millis().unwrap_or(0);
@@ -818,7 +827,7 @@ impl IngestionConsumer {
                         kafka_ts,
                         lag_ms,
                     };
-                    let key = TopicPartition::new(topic.clone(), partition);
+                    let key = TopicPartition::new(topic.to_string(), partition);
                     let generations_version = self.topic_offset_ledger.generations_version();
                     match partitions.get_mut(&key) {
                         Some(deliveries) => deliveries.record(
