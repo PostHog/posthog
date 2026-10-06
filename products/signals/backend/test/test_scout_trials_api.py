@@ -233,8 +233,9 @@ class TestScoutTrialAPI(APIBaseTest):
 @override_settings(
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
     AI_GATEWAY_URL="https://gateway.example/v1",
-    SANDBOX_AI_GATEWAY_URL="https://gateway.example",
-    SANDBOX_AI_GATEWAY_MINT_KEY="phs_synthetic_mint_key",
+    AI_GATEWAY_API_KEY="phs_synthetic_api_key",
+    SANDBOX_AI_GATEWAY_URL=None,
+    SANDBOX_AI_GATEWAY_MINT_KEY=None,
 )
 class TestScoutTrialLaunch(APIBaseTest):
     def setUp(self) -> None:
@@ -350,8 +351,7 @@ class TestScoutTrialLaunch(APIBaseTest):
         [
             ("SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", False, "Private capture"),
             ("AI_GATEWAY_URL", "", "AI_GATEWAY_URL"),
-            ("SANDBOX_AI_GATEWAY_URL", "", "Go sandbox gateway"),
-            ("SANDBOX_AI_GATEWAY_MINT_KEY", "", "mint credential"),
+            ("AI_GATEWAY_API_KEY", "", "AI_GATEWAY_API_KEY"),
         ]
     )
     def test_setup_remains_readable_when_unavailable_and_excludes_inaccessible_models(

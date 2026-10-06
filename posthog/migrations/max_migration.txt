@@ -1,1 +1,1 @@
-1392_organization_member_notice
+1393_revokedteamsecrettoken

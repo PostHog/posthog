@@ -307,7 +307,7 @@ export const MarketingAnalyticsTable = ({
                     <MarketingAnalyticsNotReady />
                 </div>
             ) : (
-                <div className="relative marketing-analytics-table-container">
+                <div className="relative marketing-analytics-table-container max-h-[36rem] overflow-auto">
                     <Query
                         attachTo={attachTo}
                         query={tableQuery}

@@ -121,6 +121,9 @@ class ClickHouseUser(StrEnum):
     # Low-privilege reader baked into dictionary SOURCE blocks, decoupling
     # dictionary credentials from the default user.
     DICT_READER = "dict_reader"
+    # Static reader that Dagster embeds in dictionary SOURCE blocks. ClickHouse stores the
+    # SOURCE password, so this user cannot use the rotating token.
+    DAGSTER_DICT_READER = "dagster_dict_reader"
 
 
 EXPIRED_TOKEN_PASSWORD_FALLBACK_COUNTER = Counter(
