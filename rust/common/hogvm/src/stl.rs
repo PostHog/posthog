@@ -414,6 +414,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
         // `if(isNull(...), false, …)` guard yield `false` rather than erroring.
         ("toDateTime", native_func(err_to_null(to_datetime))),
         ("toDate", native_func(err_to_null(to_date))),
+        ("extract", native_func(extract)),
         (
             "multiSearchAnyCaseInsensitive",
             native_func(|vm, args| {
@@ -1617,6 +1618,80 @@ fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
         json!({ "__hogDate__": true, "year": dt.year(), "month": dt.month(), "day": dt.day() }),
         0,
     )
+}
+
+/// `extract(part, value)` → one calendar field of a Hog Date or DateTime, read in the DateTime's
+/// own zone. A value with no wall-clock yields NaN, as an invalid luxon DateTime does in the
+/// reference.
+fn extract(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
+    assert_argc(&args, 2, "extract")?;
+    let part = print_hog_string_output(&vm.heap, &args[0])?;
+    let field: fn(&NaiveDateTime) -> i64 = match part.as_str() {
+        "year" => |dt| dt.year().into(),
+        "month" => |dt| dt.month().into(),
+        "day" => |dt| dt.day().into(),
+        "hour" => |dt| dt.hour().into(),
+        "minute" => |dt| dt.minute().into(),
+        "second" => |dt| dt.second().into(),
+        _ => {
+            return Err(VmError::NativeCallFailed(format!(
+                "Unknown extract part: {part}"
+            )))
+        }
+    };
+    let number = match extract_wall_clock(vm, &args[1])? {
+        Some(dt) => Num::Integer(field(&dt)),
+        None => Num::Float(f64::NAN),
+    };
+    Ok(HogLiteral::Number(number).into())
+}
+
+// The wall-clock `extract` reads its field from, or None where the reference's luxon DateTime is
+// invalid. The reference parses a string with luxon `fromISO`. Here a string must match the shared
+// date grammar in a form `fromISO` also accepts: a `T` separator, an uppercase `Z`, no surrounding
+// whitespace. Forms only `fromISO` accepts, such as `2024`, `20240315` and `2024-W11`, are None.
+fn extract_wall_clock(vm: &HogVM, value: &HogValue) -> Result<Option<NaiveDateTime>, VmError> {
+    let heap = &vm.heap;
+    match value.deref(heap)? {
+        HogLiteral::Object(obj) if obj_marker(heap, obj, "__hogDateTime__")? => {
+            let Some(secs) = obj_number(heap, obj, "dt")?.filter(|s| s.is_finite()) else {
+                return Ok(None);
+            };
+            let zone = obj_string(heap, obj, "zone")?.unwrap_or_else(|| "UTC".to_string());
+            let Ok(tz) = zone.parse::<chrono_tz::Tz>() else {
+                return Ok(None);
+            };
+            Ok(tz
+                .timestamp_opt(secs.floor() as i64, 0)
+                .single()
+                .map(|dt| dt.naive_local()))
+        }
+        HogLiteral::Object(obj) if obj_marker(heap, obj, "__hogDate__")? => {
+            let year = obj_number(heap, obj, "year")?.unwrap_or(f64::NAN);
+            let month = obj_number(heap, obj, "month")?.unwrap_or(f64::NAN);
+            let day = obj_number(heap, obj, "day")?.unwrap_or(f64::NAN);
+            if !(year.is_finite() && month.is_finite() && day.is_finite()) {
+                return Ok(None);
+            }
+            Ok(
+                NaiveDate::from_ymd_opt(year as i32, month as u32, day as u32)
+                    .and_then(|d| d.and_hms_opt(0, 0, 0)),
+            )
+        }
+        HogLiteral::String(s) => {
+            let luxon_iso_form = s.trim() == s.as_str()
+                && s.as_bytes().get(10).is_none_or(|sep| *sep == b'T')
+                && !s.ends_with('z');
+            if !luxon_iso_form {
+                return Ok(None);
+            }
+            Ok(parse_datetime_to_seconds(s, None)
+                .ok()
+                .and_then(|secs| DateTime::from_timestamp(secs.floor() as i64, 0))
+                .map(|dt| dt.naive_utc()))
+        }
+        _ => Ok(None),
+    }
 }
 
 /// The shared "date-like string" grammar, implemented identically by all three HogVMs. This is the
