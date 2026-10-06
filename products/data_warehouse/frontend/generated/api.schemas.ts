@@ -3525,6 +3525,7 @@ export interface CredentialApi {
  * * `Ledyer` - Ledyer
  * * `Supermetrics` - Supermetrics
  * * `SQLite` - SQLite
+ * * `Modal` - Modal
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4894,6 +4895,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Ledyer: 'Ledyer',
     Supermetrics: 'Supermetrics',
     SQLite: 'SQLite',
+    Modal: 'Modal',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
