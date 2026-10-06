@@ -1,4 +1,3 @@
-# Cross-lane gate test: remove before merge.
 import sys
 from collections.abc import Sequence
 from functools import cached_property, lru_cache

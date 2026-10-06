@@ -1,4 +1,3 @@
-// Cross-lane gate test: remove before merge.
 use std::future::ready;
 use std::sync::Arc;
 use std::time::Duration;
