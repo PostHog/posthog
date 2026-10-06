@@ -1,12 +1,13 @@
 from datetime import datetime
 
 import time_machine
-from posthog.test.base import BaseTest, QueryMatchingTest, _create_event, _create_person
+from posthog.test.base import BaseTest, QueryMatchingTest, _create_action, _create_event, _create_person
 from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.schema import (
+    ActionsNode,
     BaseMathType,
     Breakdown,
     BreakdownFilter,
@@ -101,6 +102,7 @@ class TestTrendsQueryBuilder(QueryMatchingTest, BaseTest):
             ("hour", "UTC", "total", 3, None, "$pageview", False),
             ("hour", "UTC", "total", None, "ActionsLineGraphCumulative", "$pageview", False),
             ("hour", "UTC", "total", None, None, "$pageview", True),
+            ("hour", "UTC", "total", None, None, "$pageview", False, True),
         ]
     )
     @time_machine.travel("2023-02-03", tick=False)
@@ -113,6 +115,7 @@ class TestTrendsQueryBuilder(QueryMatchingTest, BaseTest):
         display: ChartDisplayType | None,
         event: str,
         multiple: bool,
+        action: bool = False,
     ) -> None:
         self.team.timezone = project_timezone
         self.team.save()
@@ -125,10 +128,14 @@ class TestTrendsQueryBuilder(QueryMatchingTest, BaseTest):
                     timestamp=f"2023-02-01T{index % 2:02d}:00:00Z",
                     properties={"bucket": bucket},
                 )
+        series: EventsNode | ActionsNode = EventsNode(event=event, math=math)
+        if action:
+            saved_action = _create_action(team=self.team, name=event)
+            series = ActionsNode(id=saved_action.id, math=math)
         query = TrendsQuery(
             dateRange=DateRange(date_from="2023-02-01", date_to="2023-02-02"),
             interval=interval,
-            series=[EventsNode(event=event, math=math)],
+            series=[series],
             breakdownFilter=(
                 BreakdownFilter(breakdowns=[Breakdown(property="bucket", type="event")], breakdown_limit=2)
                 if multiple
