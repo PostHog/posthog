@@ -1034,6 +1034,8 @@ doesn't conflict with concurrent PRs.
 - cart_com
 - cashfree
 - castor_edc
+- chargebackstop
+- chargeflow
 - checkly
 - chift
 - chorus
@@ -1086,6 +1088,7 @@ doesn't conflict with concurrent PRs.
 - dragonboat
 - drata
 - drchrono
+- dreamdata
 - dremio
 - dropbox
 - dubsado
@@ -1167,6 +1170,7 @@ doesn't conflict with concurrent PRs.
 - google_ad_manager
 - google_adsense
 - google_analytics
+- google_business_profile
 - google_calendar
 - google_chat
 - google_classroom
@@ -1226,6 +1230,7 @@ doesn't conflict with concurrent PRs.
 - lambda_labs
 - lawmatics
 - learnworlds
+- ledyer
 - lemon_squeezy
 - lettrlabs
 - lever
@@ -1434,6 +1439,7 @@ doesn't conflict with concurrent PRs.
 - streamlabs
 - substack
 - sumsub
+- supermetrics
 - superwall
 - surveymonkey
 - svix
