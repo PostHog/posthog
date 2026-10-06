@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     mark_initial_sync_complete,
     mark_schema_running_unless_halted,
     process_incremental_value,
+    staged_handoff_resume_point,
     staged_handoff_resume_value,
     update_sync_type_config_keys,
 )
@@ -274,6 +275,24 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
         assert schema.promote_staged_incremental_values("wfrun-1-a2")
         schema.refresh_from_db()
         assert schema.sync_type_config["incremental_field_last_value"] == 90
+
+    def test_a_resume_value_inherited_without_a_new_batch_keeps_the_earlier_owner(self) -> None:
+        # Attempt a2 inherits a1's resume value before it has queued a batch of its own: the batches
+        # the value describes still belong to a1, so a3 must finalize a1, not a2, if a2 never queues one.
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field_type": IncrementalFieldType.Integer},
+        )
+        schema.stage_handoff_resume_value("wfrun-1-a1", 40)
+        schema.stage_handoff_resume_value("wfrun-1-a2", 40, owner_run_uuid="wfrun-1-a1")
+
+        schema.refresh_from_db()
+        assert staged_handoff_resume_point(schema.sync_type_config, "wfrun-1") == ("wfrun-1-a1", 40)
+
+        # Once a2 queues a batch of its own, it becomes the owner for any later attempt.
+        schema.stage_handoff_resume_value("wfrun-1-a2", 55)
+        schema.refresh_from_db()
+        assert staged_handoff_resume_point(schema.sync_type_config, "wfrun-1") == ("wfrun-1-a2", 55)
 
     def test_promote_staged_incremental_values_save_skips_activity_log(self) -> None:
         schema = self._create(

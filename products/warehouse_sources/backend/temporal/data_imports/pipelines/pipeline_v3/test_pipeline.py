@@ -1270,8 +1270,8 @@ class TestIncrementalHandoffCheckpoint:
             incremental_field_type=IncrementalFieldType.Integer,
             table=None,
         )
-        pipeline._schema.stage_handoff_resume_value.side_effect = lambda run_uuid, value: events.append(
-            ("resume_value", value)
+        pipeline._schema.stage_handoff_resume_value.side_effect = lambda run_uuid, value, owner_run_uuid=None: (
+            events.append(("resume_value", value))
         )
         pipeline._s3_batch_writer = MagicMock(
             write_batch=MagicMock(
@@ -1331,6 +1331,25 @@ class TestIncrementalHandoffCheckpoint:
 
         monitor.is_worker_shutdown.side_effect = is_shutdown
         monitor.raise_if_is_worker_shutdown.side_effect = raise_if_shutdown
+
+    @pytest.mark.asyncio
+    async def test_an_inherited_value_keeps_the_earlier_owner_until_this_attempt_queues_a_batch(self) -> None:
+        # a2 inherits a1's value before extracting anything. If a2 hands off before queuing a batch
+        # of its own, a3 must still finalize a1 - the run whose queue rows the value describes.
+        events: list[Any] = []
+        pipeline = self._pipeline(lambda: iter(()), events, resumed_from=40)
+        pipeline._resumed_incremental_run_uuid = "run-0"
+
+        await pipeline._stage_handoff_resume_value(force=True)
+
+        assert pipeline._schema.stage_handoff_resume_value.call_args.args == ("run-1", 40, "run-0")
+
+        # Once a2 queues a batch of its own, it owns the queue rows and the recorded owner follows.
+        pipeline._queued_own_batch = True
+        pipeline._handoff_checkpoint._resume_value = 55
+        await pipeline._stage_handoff_resume_value()
+
+        assert pipeline._schema.stage_handoff_resume_value.call_args.args == ("run-1", 55, "run-1")
 
     @pytest.mark.asyncio
     async def test_a_handoff_stages_the_buffered_rows_and_then_records_where_to_continue(self) -> None:
