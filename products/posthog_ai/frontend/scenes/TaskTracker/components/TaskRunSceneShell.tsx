@@ -21,7 +21,6 @@ import {
     ScenePanelDivider,
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
-import { TodayChatVisibilityBanner } from '~/layout/today/TodayChatVisibilityBanner'
 import { TodayChatVisibilityButton } from '~/layout/today/TodayChatVisibilityButton'
 import { TodaySessionIcon } from '~/layout/today/TodaySessionIcon'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
@@ -199,6 +198,7 @@ export function TaskRunSceneShell({
                                             title={task.title}
                                             spaceId={task.channel ?? null}
                                             ownerId={task.created_by?.id ?? null}
+                                            ownerName={task.created_by?.first_name || task.created_by?.email || null}
                                         />
                                     )}
                                     {task && (
@@ -248,15 +248,6 @@ export function TaskRunSceneShell({
 
                             {headerDivider && <LemonDivider className="hidden lg:block mb-0 mt-2" />}
                         </header>
-                    )}
-
-                    {task && todayRailEnabled && (
-                        <TodayChatVisibilityBanner
-                            taskId={task.id}
-                            spaceId={task.channel ?? null}
-                            ownerId={task.created_by?.id ?? null}
-                            ownerName={task.created_by?.first_name || task.created_by?.email || null}
-                        />
                     )}
 
                     {children}
