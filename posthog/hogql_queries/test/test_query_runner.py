@@ -188,6 +188,9 @@ _QUERY_SCAN_FLAG_LOG_ONLY = QueryScanFlag(
 
 def _calculate_recording_clickhouse_stats(_self):
     record(rows_read=12, duration_ms=34.0, workload="ONLINE")
+    stats = get_active()
+    assert stats is not None
+    stats.add_warehouse_tables({"table-b", "table-a"})
     return TheTestBasicQueryResponse(results=[])
 
 
@@ -916,6 +919,8 @@ class TestQueryRunner(BaseTest):
 
         assert fresh_props["cache_hit"] is False
         assert hit_props["cache_hit"] is True
+        assert fresh_props["warehouse_tables_referenced"] == []
+        assert hit_props["warehouse_tables_referenced"] is None
         assert fresh_props["query_hash"] == hit_props["query_hash"]
         assert fresh_props["runtime_hash"] == hit_props["runtime_hash"]
 
@@ -936,6 +941,7 @@ class TestQueryRunner(BaseTest):
         assert props["clickhouse_rows_read"] == 12
         assert props["clickhouse_query_count"] == 1
         assert props["clickhouse_workload"] == "ONLINE"
+        assert props["warehouse_tables_referenced"] == ["table-a", "table-b"]
 
     @parameterized.expand(
         [

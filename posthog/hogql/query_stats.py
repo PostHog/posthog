@@ -61,6 +61,7 @@ class QueryStats:
     # References only, filled by the executor, so the job can explain each execution without rerunning it.
     executions: list[RecordedExecution] = field(default_factory=list, repr=False, compare=False)
     workloads: set[str] = field(default_factory=set, repr=False, compare=False)
+    warehouse_table_ids: set[str] = field(default_factory=set, repr=False, compare=False)
 
     def add(self, *, rows_read: int, duration_ms: float, lookup: bool = False, workload: str | None = None) -> None:
         with self.lock:
@@ -72,6 +73,10 @@ class QueryStats:
                 self.lookup_duration_ms += duration_ms
             if workload is not None:
                 self.workloads.add(workload)
+
+    def add_warehouse_tables(self, table_ids: set[str]) -> None:
+        with self.lock:
+            self.warehouse_table_ids |= table_ids
 
     def record_execution(
         self,

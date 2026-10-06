@@ -2678,6 +2678,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "clickhouse_duration_ms": cached_query_scan.duration_ms if cached_query_scan else None,
             "clickhouse_workload": None,
             "clickhouse_query_count": None,
+            "warehouse_tables_referenced": None,
             **cache_tracking_props,
             **phase_times,
         }
@@ -2932,6 +2933,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "clickhouse_duration_ms": round(query_stats.duration_ms),
                 "clickhouse_workload": query_stats.workload(),
                 "clickhouse_query_count": query_stats.query_count,
+                "warehouse_tables_referenced": sorted(query_stats.warehouse_table_ids),
                 "query_scan_triggered": scan_skip is None,
                 "query_scan_skipped_reason": scan_skip,
                 **phase_times,
