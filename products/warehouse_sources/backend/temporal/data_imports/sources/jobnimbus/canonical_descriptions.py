@@ -2,12 +2,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
-# Descriptions sourced from the JobNimbus Open API docs (https://documenter.getpostman.com/view/3919598/S11PpG7g).
+# Descriptions sourced from the JobNimbus Open API docs (https://documenter.getpostman.com/view/3919598/S11PpG4x).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "contacts": {
         "description": "A person or company in your JobNimbus CRM — a lead, customer, or business contact.",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "jnid": "The unique ID of the contact.",
             "display_name": "The contact's display name.",
@@ -23,7 +23,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "jobs": {
         "description": "A job or project tracked in JobNimbus, typically linked to one or more contacts.",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "jnid": "The unique ID of the job.",
             "name": "The job name.",
@@ -37,7 +37,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "tasks": {
         "description": "A to-do or scheduled task linked to a contact or job.",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "jnid": "The unique ID of the task.",
             "title": "The task title.",
@@ -52,7 +52,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "activities": {
         "description": "An activity or note recorded against a contact or job (calls, emails, updates).",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "jnid": "The unique ID of the activity.",
             "note": "The activity note or message body.",
@@ -60,6 +60,78 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "primary": "The primary related record (contact or job) the activity is attached to.",
             "date_created": "When the activity was created (epoch seconds).",
             "date_updated": "When the activity was last updated (epoch seconds).",
+        },
+    },
+    "payments": {
+        "description": "A payment collected from a customer, applied against one or more invoices.",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
+        "columns": {
+            "jnid": "The unique ID of the payment.",
+            "customer": "The ID of the customer the payment belongs to.",
+            "total": "The total payment amount.",
+            "credit": "The credit amount applied by the payment.",
+            "refunded_amount": "The amount refunded from the payment.",
+            "invoices": "The invoices the payment is applied to, with the amount applied to each.",
+            "reference": "The payment reference, such as a check number.",
+            "date_payment": "When the payment was made (epoch seconds).",
+            "sales_rep": "The ID of the sales rep assigned to the payment.",
+            "date_created": "When the payment was created (epoch seconds).",
+            "date_updated": "When the payment was last updated (epoch seconds).",
+        },
+    },
+    "estimates": {
+        "description": "A quote sent to a customer for a job, with line items and totals.",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
+        "columns": {
+            "jnid": "The unique ID of the estimate.",
+            "number": "The estimate number.",
+            "customer": "The ID of the customer the estimate belongs to.",
+            "status": "The numeric status of the estimate.",
+            "status_name": "The status name of the estimate.",
+            "cost": "The total cost of the estimate.",
+            "margin": "The profit margin of the estimate.",
+            "subtotal": "The subtotal amount.",
+            "tax": "The tax amount.",
+            "total": "The total estimate amount.",
+            "items": "The line items in the estimate.",
+            "related": "The related records (jobs, contacts) the estimate is attached to.",
+            "esigned": "Whether the estimate was signed electronically.",
+            "date_estimate": "The estimate date (epoch seconds).",
+            "date_signed": "When the estimate was signed (epoch seconds).",
+            "date_status_change": "When the estimate status last changed (epoch seconds).",
+            "date_created": "When the estimate was created (epoch seconds).",
+            "date_updated": "When the estimate was last updated (epoch seconds).",
+        },
+    },
+    "users": {
+        "description": "A user or team member of the JobNimbus account.",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
+        "columns": {
+            "id": "The user's ID. Matches the owner, sales rep, and assignee IDs on other records.",
+            "first_name": "The user's first name.",
+            "last_name": "The user's last name.",
+            "email": "The user's email address.",
+            "is_active": "Whether the user is active or disabled.",
+        },
+    },
+    "workflows": {
+        "description": "A workflow configured in the account, with the statuses it contains.",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
+        "columns": {
+            "id": "The unique ID of the workflow.",
+            "name": "The workflow name.",
+            "object_type": "The record type the workflow applies to, such as contact or job.",
+            "status": "The statuses in the workflow. Their IDs match the status IDs on contacts and jobs.",
+            "is_active": "Whether the workflow is active.",
+        },
+    },
+    "lead_sources": {
+        "description": "A lead source configured in the account.",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
+        "columns": {
+            "JobSourceId": "The unique ID of the lead source. Matches the source ID on contacts and jobs.",
+            "SourceName": "The lead source name.",
+            "IsActive": "Whether the lead source is active.",
         },
     },
 }
