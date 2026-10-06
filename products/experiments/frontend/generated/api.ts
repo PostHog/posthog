@@ -746,7 +746,7 @@ export const getExperimentsMetricsRecalculationCreateUrl = (projectId: string, i
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
  * already pending or in progress for this experiment. A manual trigger within five minutes after the latest
- * completed run finished also returns 200 with that run. The response payload intentionally does not
+ * completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.

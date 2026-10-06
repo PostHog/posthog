@@ -151,10 +151,10 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
     @mock.patch("products.experiments.backend.recalculation.sync_connect")
     @mock.patch("products.experiments.backend.recalculation.asyncio.run")
-    def test_post_manual_inside_refresh_window_returns_latest_run_without_a_workflow(self, mock_run, mock_connect):
+    def test_post_manual_inside_refresh_window_returns_429_without_a_workflow(self, mock_run, mock_connect):
         exp = self._launched_experiment()
         now = timezone.now()
-        latest = ExperimentMetricsRecalculation.objects.create(
+        ExperimentMetricsRecalculation.objects.create(
             team=self.team,
             experiment=exp,
             status="completed",
@@ -164,9 +164,9 @@ class TestMetricsRecalculationAPI(APIBaseTest):
 
         resp = self.client.post(self._post_url(exp.id), {"trigger": "manual"}, format="json")
 
-        assert resp.status_code == status.HTTP_200_OK, resp.content
-        assert resp.json()["id"] == str(latest.id)
-        assert resp.json()["is_existing"] is True
+        assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS, resp.content
+        assert resp.json()["code"] == "recalculation_rate_limited"
+        assert 170 <= int(resp["Retry-After"]) <= 180
         assert not mock_connect.called
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 

@@ -24,6 +24,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import (
+    RecalculationRateLimited,
     build_timeseries_cold_start_payload,
     get_active_recalculation,
     get_latest_recalculation,
@@ -105,8 +106,8 @@ class TestRecalculationService(BaseTest):
     @parameterized.expand(
         [
             # (name, trigger, latest_status, latest_trigger, minutes_since_completed, expects_new_run)
-            ("manual_inside_window_reuses_latest", "manual", "completed", "manual", 2, False),
-            ("agent_mcp_inside_window_reuses_latest", "agent_mcp", "completed", "manual", 2, False),
+            ("manual_inside_window_is_rate_limited", "manual", "completed", "manual", 2, False),
+            ("agent_mcp_inside_window_is_rate_limited", "agent_mcp", "completed", "manual", 2, False),
             ("manual_outside_window_starts_new", "manual", "completed", "manual", 6, True),
             ("manual_after_failed_run_starts_new", "manual", "failed", "manual", 2, True),
             ("manual_after_timeseries_sync_starts_new", "manual", "completed", "timeseries_sync", 2, True),
@@ -135,25 +136,19 @@ class TestRecalculationService(BaseTest):
             completed_at=now - timedelta(minutes=minutes_since_completed),
         )
 
-        if not expects_new_run:
-            # An older run at the same window must not shadow the newest one the latest read serves.
-            ExperimentMetricsRecalculation.objects.filter(id=latest.id).update(created_at=now - timedelta(seconds=30))
-            older = ExperimentMetricsRecalculation.objects.create(
-                team=self.team,
-                experiment=exp,
-                status="completed",
-                query_to=latest.query_to,
-                completed_at=latest.completed_at,
-            )
-            ExperimentMetricsRecalculation.objects.filter(id=older.id).update(created_at=now - timedelta(minutes=2))
-        rows_before = ExperimentMetricsRecalculation.objects.filter(experiment=exp).count()
+        if expects_new_run:
+            result = request_recalculation(exp, self.user, trigger)
+            assert result["is_existing"] is False
+            assert result["id"] != str(latest.id)
+            assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
+            return
 
-        result = request_recalculation(exp, self.user, trigger)
-
-        assert result["is_existing"] is (not expects_new_run)
-        assert (result["id"] != str(latest.id)) is expects_new_run
-        rows_after = ExperimentMetricsRecalculation.objects.filter(experiment=exp).count()
-        assert rows_after == rows_before + (1 if expects_new_run else 0)
+        with pytest.raises(RecalculationRateLimited) as exc_info:
+            request_recalculation(exp, self.user, trigger)
+        # Three minutes of the window remain; the wait tells the caller when to try again.
+        assert exc_info.value.wait is not None
+        assert 170 <= exc_info.value.wait <= 180
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
     def test_request_recalculation_is_idempotent(self):
         exp = self._launched_experiment()

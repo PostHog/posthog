@@ -19,7 +19,7 @@ from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from prometheus_client import Counter
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import Throttled, ValidationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
@@ -55,9 +55,7 @@ from products.experiments.backend.temporal.recalculation_logic import discover_e
 # backstop if that rollback itself fails.
 _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 
-# A user-driven POST within this window after the latest completed run finished returns that run instead of
-# starting a new one, the same five minutes a dashboard waits between bulk refreshes. System triggers are
-# exempt: they reuse the window or follow a config change, so they never spam ClickHouse by hand.
+# rate limiting manual reloads (including agents).
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
@@ -65,6 +63,19 @@ _RATE_LIMITED_TRIGGERS = frozenset(
         ExperimentMetricsRecalculation.Trigger.AGENT_MCP,
     }
 )
+
+
+class RecalculationRateLimited(Throttled):
+    """A user-driven trigger landed inside MIN_USER_RECALCULATION_INTERVAL. The API layer renders it as a 429
+    with a Retry-After header, so a client or an agent knows when the next run is allowed."""
+
+    # DRF sets this in Throttled.__init__ and its handler turns it into Retry-After; the stubs omit it.
+    wait: float | None
+
+    default_code = "recalculation_rate_limited"
+    # DRF appends "Expected available in N seconds." to this, so the wait is not repeated here.
+    default_detail = "Metrics were recalculated less than 5 minutes ago."
+
 
 # A daily timeseries point older than this no longer stands in for a recalculation on the cold-start read. The
 # daily run happens once per day, so a fresh experiment always has a point inside the bound.
@@ -79,7 +90,7 @@ _recalculation_reuse_counter = Counter(
 # Counts user-driven POSTs that landed inside MIN_USER_RECALCULATION_INTERVAL and got the latest run back.
 _recalculation_rate_limited_counter = Counter(
     "experiment_metrics_recalculation_rate_limited",
-    "POST requests that returned the latest terminal run because a user-driven run was requested too soon.",
+    "POST requests answered with 429 because a user-driven run was requested inside the refresh window.",
 )
 # Fires whenever the 30-min staleness threshold marks a PENDING/IN_PROGRESS row FAILED so the experiment
 # can recalculate again. A sustained climb is a leading indicator of Temporal connect failures or the
@@ -304,7 +315,7 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
     If an active (pending or in_progress) run already exists for this experiment, returns the existing run's
     serialized payload with ``is_existing=True`` — the caller should NOT start a new workflow in that case.
     A user-driven trigger inside ``MIN_USER_RECALCULATION_INTERVAL`` after the latest completed run finished
-    returns that run the same way. Otherwise creates a fresh pending row.
+    raises ``RecalculationRateLimited``. Otherwise creates a fresh pending row.
     """
     if not experiment.is_launched:
         raise ValidationError("Cannot recalculate metrics for experiment that hasn't started")
@@ -336,11 +347,8 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
             return build_job_payload(existing, is_existing=True)
 
         if trigger in _RATE_LIMITED_TRIGGERS:
-            # The newest terminal run by created_at, as the latest read serves it. The window measures from
-            # completed_at, not query_to: a stopped experiment pins query_to to end_date, and a long run
-            # finishes well after its query_to. A failed run never anchors the window, so a reload after a
-            # failure starts a new run. A timeseries sync run never anchors it either: the sync covers only
-            # the metrics the daily workflow computes, and the gap heal runs on page load, not on a reload.
+            # get the latest terminal run and check against the rate limiting rules
+            # if matched, increment counter and raise so the API answers 429 with Retry-After
             latest = _terminal_recalculations(experiment).order_by("-created_at").first()
             if (
                 latest is not None
@@ -350,7 +358,8 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
                 and latest.completed_at >= timezone.now() - MIN_USER_RECALCULATION_INTERVAL
             ):
                 _recalculation_rate_limited_counter.inc()
-                return build_job_payload(latest, is_existing=True)
+                next_allowed_at = latest.completed_at + MIN_USER_RECALCULATION_INTERVAL
+                raise RecalculationRateLimited(wait=(next_allowed_at - timezone.now()).total_seconds())
 
         # No fresh active row, but stale tombstones might still hold the per-experiment uniqueness constraint
         # (unique_active_metrics_recalculation_per_experiment). Mark them FAILED so the constraint releases
