@@ -102,6 +102,12 @@ def _statistics_rows(body: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _resource_metadata(row: dict[str, Any]) -> dict[str, Any]:
+    # Resource options and rules can contain signing keys and origin request headers.
+    safe_fields = {"id", "cname", "created", "updated", "originGroup", "status"}
+    return {key: value for key, value in row.items() if key in safe_fields}
+
+
 def _origin_metadata(row: dict[str, Any]) -> dict[str, Any]:
     # Origin authentication settings can contain storage credentials.
     result = {key: value for key, value in row.items() if key != "auth"}
@@ -192,7 +198,9 @@ def gcore_source(
         manager,
         resume,
     )
-    if inputs.schema_name == "origin_groups":
+    if inputs.schema_name == "resources":
+        resource.add_map(_resource_metadata)
+    elif inputs.schema_name == "origin_groups":
         resource.add_map(_origin_metadata)
     return SourceResponse(
         name=inputs.schema_name, items=lambda: resource, primary_keys=PRIMARY_KEYS[inputs.schema_name], sort_mode="desc"

@@ -41,6 +41,7 @@ def manager_for(resume: GcoreCheckpoint | None = None) -> MagicMock:
 def response_for(request: PreparedRequest, body: object, status: int = 200) -> Response:
     response = Response()
     response.status_code = status
+    assert request.url is not None
     response.url = request.url
     response.request = request
     response._content = json.dumps(body).encode()
@@ -206,6 +207,41 @@ def test_unknown_table_fails_before_network() -> None:
         with pytest.raises(ValueError, match="Unknown Gcore table"):
             gcore_source("fake-token", inputs_for("unknown"), manager_for())
     send.assert_not_called()
+
+
+def test_resource_configuration_is_excluded() -> None:
+    body = {
+        "count": 1,
+        "results": [
+            {
+                "id": 1,
+                "cname": "cdn.example.com",
+                "created": "2026-01-01T00:00:00Z",
+                "updated": "2026-01-02T00:00:00Z",
+                "originGroup": 2,
+                "status": "active",
+                "options": {
+                    "secure_key": {"key": "fake-signing-key"},
+                    "staticRequestHeaders": {"value": {"Authorization": "fake-origin-credential"}},
+                },
+                "rules": [{"options": {"secure_key": {"key": "fake-rule-key"}}}],
+            }
+        ],
+    }
+    with patch("requests.Session.send", side_effect=lambda request, **kwargs: response_for(request, body)):
+        rows = list(gcore_source("fake-token", inputs_for("resources"), manager_for()).items())
+    assert rows == [
+        [
+            {
+                "id": 1,
+                "cname": "cdn.example.com",
+                "created": "2026-01-01T00:00:00Z",
+                "updated": "2026-01-02T00:00:00Z",
+                "originGroup": 2,
+                "status": "active",
+            }
+        ]
+    ]
 
 
 def test_origin_credentials_are_excluded() -> None:
