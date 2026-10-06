@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
     SourceFieldSSHTunnelConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
     SSHTunnelMixin,
@@ -19,8 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
     _SSH_HANDSHAKE_EOF_ERROR,
@@ -29,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
     MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
     MSSQLImplementation,
     MSSQLMetadataTimeoutError,
+    MSSQLResumeState,
     retry_on_transient_connection_error,
     run_metadata_with_deadline,
 )
@@ -70,10 +73,29 @@ _MSSQL_IMPLEMENTATION = MSSQLImplementation()
 
 
 @SourceRegistry.register
-class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class MSSQLSource(
+    SQLSource[MSSQLSourceConfig],
+    ResumableSource[MSSQLSourceConfig, MSSQLResumeState],
+    SSHTunnelMixin,
+    ValidateDatabaseHostMixin,
+):
     @property
     def get_implementation(self) -> MSSQLImplementation:
         return _MSSQL_IMPLEMENTATION
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MSSQLResumeState]:
+        return ResumableSourceManager[MSSQLResumeState](inputs, MSSQLResumeState)
+
+    def source_for_pipeline(  # type: ignore[override]
+        self,
+        config: MSSQLSourceConfig,
+        resumable_source_manager: ResumableSourceManager[MSSQLResumeState],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        # A reset must not continue from a checkpoint. The read starts from the first row.
+        if inputs.reset_pipeline:
+            resumable_source_manager.clear_state()
+        return self.get_implementation.build_pipeline(config, inputs, resumable_source_manager=resumable_source_manager)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
