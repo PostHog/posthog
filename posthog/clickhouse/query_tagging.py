@@ -421,6 +421,7 @@ class QueryTags(BaseModel):
 
     route_id: Optional[str] = None
     workload: Optional[str] = None  # enum connection.Workload
+    ch_user: Optional[str] = None  # enum connection.ClickHouseUser, used when a query names no user
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
     lookup: Optional[str] = None  # a runner's internal lookup before its real query, e.g. "earliest_timestamp"
