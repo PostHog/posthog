@@ -700,6 +700,9 @@ export class EmailService {
                     // dimension on the send there is no way to build an open rate in an insight that
                     // isn't deflated by however much of the audience declined tracking.
                     $email_tracking_enabled: trackingEnabled,
+                    // Internal capture has no recipient IP, and GeoIP would otherwise overwrite the
+                    // person's location and timezone with a placeholder value.
+                    $geoip_disable: true,
                 },
             })
         }

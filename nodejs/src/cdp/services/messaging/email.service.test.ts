@@ -1720,6 +1720,7 @@ describe('EmailService', () => {
                     $email_to: 'test@example.com',
                     $email_subject: 'Test Subject',
                     $email_tracking_enabled: true,
+                    $geoip_disable: true,
                 },
             })
         })
@@ -1743,6 +1744,7 @@ describe('EmailService', () => {
             expect(result.capturedPostHogEvents[0]).toMatchObject({
                 event: '$workflows_email_failed',
                 distinct_id: 'distinct_id',
+                properties: { $geoip_disable: true },
             })
         })
     })

@@ -1,6 +1,6 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import supertest from 'supertest'
@@ -22,6 +22,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import {
     METRIC_NAME_TO_EVENT_NAME,
     PIXEL_GIF,
@@ -315,6 +316,31 @@ describe('EmailTrackingService', () => {
                         metric_kind: 'email',
                     })
                 })
+            })
+
+            it('captures the engagement event with GeoIP disabled so the recipient location stays intact', async () => {
+                const captureSpy = jest
+                    .spyOn(TeamWorkflowsConfigService.prototype, 'shouldCaptureEngagementEvents')
+                    .mockResolvedValue(true)
+                mockInternalFetch.mockClear()
+                const phId = signer.generate({
+                    functionId: hogFunction.id,
+                    id: invocationId,
+                    teamId: team.id,
+                    distinctId: 'recipient-distinct-id',
+                })
+                await supertest(app).get(`/public/m/pixel?ph_id=${phId}`)
+
+                await waitForExpect(() => {
+                    expect(mockInternalFetch).toHaveBeenCalledTimes(1)
+                    const body = JSON.parse(mockInternalFetch.mock.calls[0][1].body)
+                    expect(body).toMatchObject({
+                        event: '$workflows_email_opened',
+                        distinct_id: 'recipient-distinct-id',
+                        properties: { $geoip_disable: true },
+                    })
+                })
+                captureSpy.mockRestore()
             })
 
             it('should return a 200 even if the tracking code is invalid', async () => {
