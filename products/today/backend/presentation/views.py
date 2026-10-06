@@ -22,11 +22,7 @@ from .serializers import BriefingSerializer, CandidateListSerializer, ReportPage
 
 class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "today"
-    scope_object_read_actions = [
-        "briefing",
-        "candidates",
-        "report_page",
-    ]
+    scope_object_read_actions = ["briefing", "candidates"]
     scope_object_write_actions = ["refresh"]
 
     def _user(self) -> User:
@@ -87,9 +83,14 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @validated_request(
         responses={200: OpenApiResponse(response=ReportPageSerializer)},
         summary="Get a report's page",
-        description="What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation.",
+        description="What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation. A scoped key needs task:read as well, because the page shows the report's signals.",
     )
-    @action(detail=False, methods=["get"], url_path=rf"reports/(?P<report_id>{UUID_REGEX}|sample-[a-z]+)/page")
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=rf"reports/(?P<report_id>{UUID_REGEX}|sample-[a-z]+)/page",
+        required_scopes=["today:read", "task:read"],
+    )
     def report_page(self, request: Request, report_id: str, **kwargs) -> Response:
         if not api.is_enabled_for(cast(User, request.user), self.team):
             raise NotFound()
