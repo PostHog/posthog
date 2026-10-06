@@ -27,6 +27,9 @@ class MetricStatus(StrEnum):
     APPROVED = "approved"
 
 
+APPROVED_ICON = "\U0001f6e1\ufe0f"
+
+
 class CreatedSource(StrEnum):
     """Who authored a catalog entry, for review context."""
 

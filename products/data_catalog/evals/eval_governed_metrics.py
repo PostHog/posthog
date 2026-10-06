@@ -76,6 +76,7 @@ from products.data_catalog.evals.scorers import (
     MetricsCatalogBeforeDataDiscovery,
     MetricsCatalogNotQueried,
     MetricsCatalogQueried,
+    TrustBadgeShown,
 )
 from products.data_catalog.evals.seeders import (
     seed_ambiguous_customer_count_metrics,
@@ -112,6 +113,7 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             name="governed_metric_approved",
             prompt="What's our MRR right now?",
             expected={
+                "trust_badge": {"shown": True},
                 "metrics_catalog_queried": {},
                 "metrics_catalog_before_answer": {},
                 "canonical_metric_run": {
@@ -188,6 +190,7 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             name="governed_metric_implicit_ranking",
             prompt="give me the top 10 B2C customers by revenue and tell me which tool you used.",
             expected={
+                "trust_badge": {"shown": True},
                 "metrics_catalog_queried": {},
                 "metrics_catalog_before_data_discovery": {},
                 "canonical_metric_run": {
@@ -294,6 +297,7 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             name="governed_metric_proposed_only",
             prompt="What's our activation rate? Is there an approved company definition I should be using?",
             expected={
+                "trust_badge": {"shown": False},
                 "metrics_catalog_queried": {},
                 "governed_behavior_correctness": {
                     "expected_behavior": (
@@ -311,6 +315,7 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             name="governed_metric_drifted",
             prompt="Do we have an official weekly active users metric? Give me the current number.",
             expected={
+                "trust_badge": {"shown": False},
                 "metrics_catalog_queried": {},
                 "governed_behavior_correctness": {
                     "expected_behavior": (
@@ -690,6 +695,7 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
             CanonicalMetricRun(),
             MetricsCatalogNotQueried(),
             GovernedBehaviorCorrectness(),
+            TrustBadgeShown(),
             # A case is one turn, so the user never answers the offer. Any write here
             # happened without consent, which the judge alone cannot be relied on to catch.
             NoToolCall({METRIC_CREATE_TOOL, METRIC_UPDATE_TOOL}, name="no_metric_write"),

@@ -27363,6 +27363,11 @@ export namespace Schemas {
          * @nullable
          */
       instructions: string | null;
+      /**
+         * Markdown line to show the user, word for word, as the first line of any answer that uses this result. Set only when the metric is approved and not drifted, so the result is canonical. Null otherwise: then show no badge, and never write one yourself.
+         * @nullable
+         */
+      trust_badge: string | null;
     }
 
     /**

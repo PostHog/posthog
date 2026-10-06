@@ -1137,10 +1137,16 @@ describe('exec tool', () => {
             expect(result).toContain('Do not present this as the answer')
         })
 
-        it('leaves an approved, non-drifted result unmarked', async () => {
-            const exec = metricRunExec({ status: 'approved', is_drifted: false, results: [[42]] })
+        it('leaves an approved, non-drifted result unmarked and leads with its trust badge', async () => {
+            const exec = metricRunExec({
+                status: 'approved',
+                is_drifted: false,
+                results: [[42]],
+                trust_badge: 'APPROVED BADGE',
+            })
             const result = await exec.handler(mockContext, { command: 'call data-catalog-metric-run' })
             expect(result).not.toContain('NONCANONICAL')
+            expect(result.indexOf('APPROVED BADGE')).toBeLessThan(result.indexOf('status'))
         })
 
         it('leaves other tools alone', async () => {

@@ -44,6 +44,7 @@ from ..models import Metric
 from .analytics import METRIC_RUN_EVENT, METRIC_RUN_FAILED_EVENT, capture_metric_event
 from .drift import compute_drift
 from .exceptions import MetricHasNoDefinition
+from .trust_badge import build_trust_badge
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -83,7 +84,7 @@ def run_metric(
             # as a run for attribution.
             _touch_last_run(team, metric)
             capture_run(METRIC_RUN_EVENT)
-            return _markdown_envelope(metric, is_drifted)
+            return _markdown_envelope(team, metric, is_drifted)
 
         try:
             query = prepare_execution_query(metric.definition, date_from=date_from, date_to=date_to, interval=interval)
@@ -211,10 +212,11 @@ def _envelope(metric: Metric, payload: dict, team: Team, prepared_query: dict, i
         "row_limit": row_limit,
         "posthog_url": _deep_link(team, prepared_query),
         "instructions": None,
+        "trust_badge": build_trust_badge(team, metric, is_drifted),
     }
 
 
-def _markdown_envelope(metric: Metric, is_drifted: bool) -> dict:
+def _markdown_envelope(team: Team, metric: Metric, is_drifted: bool) -> dict:
     return {
         "status": metric.status,
         "is_drifted": is_drifted,
@@ -228,6 +230,7 @@ def _markdown_envelope(metric: Metric, is_drifted: bool) -> dict:
         "row_limit": None,
         "posthog_url": None,
         "instructions": (metric.definition or {}).get("markdown"),
+        "trust_badge": build_trust_badge(team, metric, is_drifted),
     }
 
 

@@ -21,6 +21,7 @@ from products.data_catalog.evals.scorers import (
     MetricsCatalogBeforeDataDiscovery,
     MetricsCatalogQueried,
     SemanticMetadataQueried,
+    TrustBadgeShown,
 )
 
 CATALOG_QUERY = "SELECT name, status, is_drifted FROM system.information_schema.metrics"
@@ -442,6 +443,7 @@ def test_deprecation_proposed(
         (CanonicalMetricRun(), "canonical_metric_run"),
         (DeprecationProposed(), "deprecation_proposed"),
         (MetricDescriptionConcise(), "metric_description_concise"),
+        (TrustBadgeShown(), "trust_badge"),
     ]
 )
 def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_name: str) -> None:
@@ -449,6 +451,20 @@ def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_na
 
     assert score.name == scorer_name
     assert score.score is None
+
+
+@parameterized.expand(
+    [
+        ("badge_expected_and_shown", True, "\U0001f6e1\ufe0f **From your data catalog**: [MRR](u)\n\n$42k", 1.0),
+        ("badge_expected_but_missing", True, "MRR is $42k.", 0.0),
+        ("no_badge_expected_and_none", False, "Activation is 31%. This is a one-off calculation.", 1.0),
+        ("badge_claimed_for_unapproved", False, "\U0001f6e1 Activation is 31%.", 0.0),
+    ]
+)
+def test_trust_badge_shown(_name: str, should_show: bool, answer: str, expected_score: float) -> None:
+    score = TrustBadgeShown()._run_eval_sync({"last_message": answer}, {"trust_badge": {"shown": should_show}})
+
+    assert score.score == expected_score
 
 
 _SHORT_DESCRIPTION = "Canonical MRR over the trailing 30 days, excluding personal/free plans."

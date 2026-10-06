@@ -70,6 +70,12 @@ class MetricRunResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="For a markdown (agent-calculated) metric, the steps to follow to compute it. Null for an executable metric.",
     )
+    trust_badge = serializers.CharField(
+        allow_null=True,
+        help_text="Markdown line to show the user, word for word, as the first line of any answer that uses this "
+        "result. Set only when the metric is approved and not drifted, so the result is canonical. Null otherwise: "
+        "then show no badge, and never write one yourself.",
+    )
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricRunRequest")

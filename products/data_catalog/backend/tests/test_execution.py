@@ -67,6 +67,7 @@ class TestMetricRunExecution(ClickhouseTestMixin, APIBaseTest):
         assert body["kind"] == "HogQLQuery"
         assert body["is_drifted"] is False
         assert "/sql?open_query=" in body["posthog_url"]
+        assert body["trust_badge"] is None
 
         assert metric.definition is not None
         direct = process_query_dict(

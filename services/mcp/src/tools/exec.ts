@@ -88,7 +88,9 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
     const status = envelope.status
     const isDrifted = envelope.is_drifted === true
     if (status === APPROVED_METRIC_STATUS && !isDrifted) {
-        return result
+        // Lead with the badge, as the NONCANONICAL warning leads, so the agent reads it before the rows.
+        const { trust_badge: trustBadge, ...rest } = envelope
+        return typeof trustBadge === 'string' ? { trust_badge: trustBadge, ...rest } : result
     }
     return {
         NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric, label the result noncanonical in \`context\`, and tell the reader plainly that the number is a one-off calculation rather than a saved definition.`,

@@ -12,6 +12,7 @@ import re
 import json
 from typing import Any
 
+from products.data_catalog.backend.facade.enums import APPROVED_ICON
 from products.data_catalog.evals.constants import (
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
@@ -44,6 +45,7 @@ __all__ = [
     "ClarificationAsked",
     "ProposedMetricNotRun",
     "MetricDescribeBeforeAdaptedSql",
+    "TrustBadgeShown",
 ]
 
 SQL_TOOL = "execute-sql"
@@ -886,3 +888,33 @@ CANARY_ROUTING_SCORERS: list[Scorer] = [
     ClarificationAsked(),
     MetricDescribeBeforeAdaptedSql(),
 ]
+
+
+class TrustBadgeShown(Scorer):
+    """Binary: does the final answer show the approved-metric badge exactly when it should?
+
+    ``expected["trust_badge"]["shown"]`` is true when the run returns a badge (an approved, non-drifted
+    metric) and false when no badge may appear (a proposed or drifted metric, or a derived number).
+    """
+
+    def _name(self) -> str:
+        return "trust_badge"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        should_show = spec.get("shown") if isinstance(spec, dict) else None
+        if not isinstance(should_show, bool):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected value"})
+        answer = (output or {}).get("last_message") or ""
+        if not answer:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "no final answer"})
+
+        # The variation selector is optional in rendered text, so match the shield code point alone.
+        has_badge = APPROVED_ICON[0] in answer
+        return Score(
+            name=self._name(),
+            score=1.0 if has_badge is should_show else 0.0,
+            metadata={"expected_shown": should_show, "has_badge": has_badge},
+        )
