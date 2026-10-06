@@ -2678,6 +2678,9 @@ class QueryScanFindingKind(StrEnum):
     NO_EVENT_FILTER = "no_event_filter"
     NO_START_DATE = "no_start_date"
     PERSONS_JOIN = "persons_join"
+    REPEATED_CTE_EXPANSION = "repeated_cte_expansion"
+    CROSS_JOIN_EQUALITY = "cross_join_equality"
+    DATE_ARRAYS_BEFORE_BREAKDOWN_LIMIT = "date_arrays_before_breakdown_limit"
 
 
 class QueryScanFixLocation(StrEnum):

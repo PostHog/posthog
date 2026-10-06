@@ -139,6 +139,29 @@ def _findings_for_plan(
     range_share = _share(_read_granules(explained), explained.range_granules)
     view_name = tree.view_name if tree is not None else None
     findings: list[QueryScanWarning] = []
+    if tree is not None and subquery_index is None:
+        structures = [
+            (
+                QueryScanFindingKind.REPEATED_CTE_EXPANSION,
+                tree.repeated_cte_expansions,
+                f"{tree.repeated_cte_expansions} additional reference(s) to non-materialized CTEs in the executed tree.",
+            ),
+            (
+                QueryScanFindingKind.CROSS_JOIN_EQUALITY,
+                tree.cross_join_equalities,
+                f"{tree.cross_join_equalities} equality predicate(s) between CROSS JOIN sources in the executed tree.",
+            ),
+            (
+                QueryScanFindingKind.DATE_ARRAYS_BEFORE_BREAKDOWN_LIMIT,
+                tree.date_arrays_before_breakdown_limit,
+                "Date groupArray and breakdown ranking occur in the same grouped SELECT in the executed tree.",
+            ),
+        ]
+        for kind, present, evidence in structures:
+            if present:
+                findings.append(
+                    build_warning(kind=kind, query_kind=query_kind, evidence=evidence, subquery_index=subquery_index)
+                )
 
     # "All time" reaches the plan as a bound at the project's first event, so only the setting
     # says the person chose no start date; it applies to the outer query, not its subqueries. It is

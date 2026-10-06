@@ -20,6 +20,7 @@
 # HogQL, its query runners, and the ClickHouse layer below them
 posthog/hogql
 posthog/hogql_queries
+posthog/query_scan
 posthog/session_recordings/queries
 posthog/clickhouse/test
 ee/clickhouse

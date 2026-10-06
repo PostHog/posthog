@@ -99,6 +99,16 @@ class TestAnalyze(SimpleTestCase):
             # event gate the other way: the read is a small share, so nothing is flagged
             ("no event filter, under the ratio", "plan_no_event_filter", {"range_granules": 100_000_000}, []),
             ("event filter in the key stays quiet", "plan_event_filter_used", {}, []),
+            (
+                "structural findings do not require cardinality estimates",
+                "plan_event_filter_used",
+                {
+                    "tree": TreeFacts(
+                        repeated_cte_expansions=1, cross_join_equalities=2, date_arrays_before_breakdown_limit=True
+                    )
+                },
+                ["repeated_cte_expansion", "cross_join_equality", "date_arrays_before_breakdown_limit"],
+            ),
             ("event filter inside an OR still used", "plan_event_filter_in_or", {}, []),
             ("no date bound is flagged", "plan_no_date_bound", {}, ["no_start_date"]),
             # A date range with a start and an end is bounded, whatever order ClickHouse lists the two
@@ -232,6 +242,20 @@ class TestAnalyze(SimpleTestCase):
     @parameterized.expand(
         [
             ("no bound at all", "plan_no_date_bound", {}, [("no_start_date", True)]),
+            (
+                "structural findings remain informational",
+                "plan_event_filter_used",
+                {
+                    "tree": TreeFacts(
+                        repeated_cte_expansions=1, cross_join_equalities=1, date_arrays_before_breakdown_limit=True
+                    )
+                },
+                [
+                    ("repeated_cte_expansion", False),
+                    ("cross_join_equality", False),
+                    ("date_arrays_before_breakdown_limit", False),
+                ],
+            ),
             (
                 "a bound clickhouse could not use",
                 "plan_no_date_bound",
