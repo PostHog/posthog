@@ -91,9 +91,6 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
     const detailId = `today-signal-${signal.signal_id}`
 
     const onClick = (): void => {
-        if (!hint) {
-            return
-        }
         if (expanded) {
             collapseEvidence(signal.signal_id)
             return
@@ -117,7 +114,7 @@ export function TodayReportSignalRow({ reportId, signal }: { reportId: string; s
                 variant="default"
                 size="sm"
                 render={rowElement(action, hint, expanded)}
-                onClick={onClick}
+                onClick={hint ? onClick : undefined}
                 aria-controls={expanded ? detailId : undefined}
                 className={cn(
                     'group/row w-full rounded-md border-0 px-2 py-2 text-left text-foreground no-underline',

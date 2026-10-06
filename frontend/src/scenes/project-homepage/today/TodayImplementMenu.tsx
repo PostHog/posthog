@@ -61,7 +61,7 @@ export function TodayImplementMenu({
             />
             <DropdownMenuContent align="start" className="TodayImplementMenu w-52">
                 <DropdownMenuItem
-                    onClick={() => onStartWithPostHog(reportWorkPrompt(report, reportUrl))}
+                    onClick={() => sendPrompt('posthog', onStartWithPostHog)}
                     disabled={!!postHogDisabledReason}
                     title={postHogDisabledReason ?? undefined}
                     data-attr="today-report-start-task"
