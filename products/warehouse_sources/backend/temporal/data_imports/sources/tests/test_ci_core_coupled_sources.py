@@ -20,6 +20,11 @@ from pathlib import Path
 # the concrete `PostgresSource`/`MySQLSource`/... symbols, which it CAN see; the direct-SQL
 # adapters import those explicitly alongside SourceRegistry.
 #
+# The generated source configs are watched one module at a time. Watching the whole package
+# would re-run the Django suite for every source, including the ones only this product's tests
+# exercise. A config must be watched when the contract reaches it: the facade re-exports it, or
+# a watched vendor imports it. The second test fails when such a config is not an input.
+#
 # Deliberately uses stdlib ast over a path walk, NOT the repo's `grimp` dependency: grimp
 # does not descend products/warehouse_sources/backend/temporal/data_imports/ (an implicit namespace package — no
 # __init__.py), so its graph contains zero source modules and the guard would pass blind.
@@ -34,6 +39,7 @@ _FACADE_MODULES = frozenset({_SOURCE_MGMT, _SOURCES})
 _SCAN_ROOTS = ("posthog", "ee", "products/product_analytics")
 
 _INPUTS_PREFIX = "backend/temporal/data_imports/sources/"
+_GENERATED_CONFIGS = "generated_configs"
 
 
 def _repo_root() -> Path:
@@ -67,14 +73,26 @@ def _vendor_from_target(dotted: str) -> str | None:
     return None
 
 
-def _facade_symbol_to_vendor(root: Path) -> dict[str, str]:
-    """Map each facade re-exported symbol to the source vendor it resolves to, across the two
-    facade modules that re-export source internals. Symbols whose target isn't a source module
-    (SourceRegistry, cdc adapters, NamingConvention) are omitted."""
+def _generated_config_module(dotted: str) -> str | None:
+    """The generated config module a dotted module path names, or None if it names none.
+
+    "sources.generated_configs.stripe" -> "stripe"; "...sources.generated_configs" (the
+    hand-written resolver) -> "__init__"; "sources.postgres.source" -> None.
+    """
+    parts = dotted.split(".")
+    if _GENERATED_CONFIGS not in parts:
+        return None
+    i = parts.index(_GENERATED_CONFIGS)
+    return parts[i + 1] if i + 1 < len(parts) else "__init__"
+
+
+def _facade_symbol_to_target(root: Path) -> dict[str, str]:
+    """Map each facade re-exported symbol to the dotted module it comes from, across the two
+    facade modules that re-export source internals."""
     mapping: dict[str, str] = {}
 
     # source_management.py: `_LAZY = {"Symbol": "sources.<vendor>...."}` (relative to the
-    # data_imports package). Resolve each entry's target to its vendor.
+    # data_imports package).
     sm_tree = ast.parse((root / _FACADE_DIR / "source_management.py").read_text())
     for node in ast.walk(sm_tree):
         if not (
@@ -90,21 +108,27 @@ def _facade_symbol_to_vendor(root: Path) -> dict[str, str]:
                 and isinstance(value.value, str)
             ):
                 continue
-            vendor = _vendor_from_target(value.value)
-            if vendor:
-                mapping[key.value] = vendor
+            mapping[key.value] = value.value
 
     # sources.py: `from products.warehouse_sources...sources.<vendor>... import (A, B, ...)`.
     src_tree = ast.parse((root / _FACADE_DIR / "sources.py").read_text())
     for node in ast.walk(src_tree):
         if not isinstance(node, ast.ImportFrom) or not node.module:
             continue
-        vendor = _vendor_from_target(node.module)
-        if not vendor:
-            continue
         for alias in node.names:
-            mapping[alias.asname or alias.name] = vendor
+            mapping[alias.asname or alias.name] = node.module
 
+    return mapping
+
+
+def _facade_symbol_to_vendor(root: Path) -> dict[str, str]:
+    """Map each facade re-exported symbol to the source vendor it resolves to. Symbols whose
+    target isn't a source module (SourceRegistry, cdc adapters, NamingConvention) are omitted."""
+    mapping = {
+        symbol: vendor
+        for symbol, target in _facade_symbol_to_target(root).items()
+        if (vendor := _vendor_from_target(target))
+    }
     assert mapping, "parsed no source re-exports from the warehouse_sources facade"
     return mapping
 
@@ -131,16 +155,21 @@ def _core_consumed_facade_symbols(tree: ast.AST) -> set[str]:
     return found
 
 
-def _contract_covered_sources(root: Path) -> set[str] | None:
-    """Vendor dirs the narrowed contract-check inputs watch, or None when the product has no
-    narrowing override — turbo then falls back to watching all of backend/, so every vendor is
-    covered and there is nothing to enumerate."""
+def _contract_check_inputs(root: Path) -> list[str] | None:
+    """The narrowed contract-check inputs, or None when the product has no narrowing override —
+    turbo then falls back to watching all of backend/, so there is nothing to enumerate."""
     turbo_path = root / "products" / "warehouse_sources" / "turbo.json"
     if not turbo_path.exists():
         return None
     turbo = json.loads(turbo_path.read_text())
-    inputs = turbo.get("tasks", {}).get("backend:contract-check", {}).get("inputs")
-    if not inputs:
+    return turbo.get("tasks", {}).get("backend:contract-check", {}).get("inputs") or None
+
+
+def _contract_covered_sources(root: Path) -> set[str] | None:
+    """Vendor dirs the narrowed contract-check inputs watch, or None when every vendor is
+    covered."""
+    inputs = _contract_check_inputs(root)
+    if inputs is None:
         return None
     covered = {
         rest.split("/")[0].removesuffix(".py")
@@ -183,4 +212,47 @@ def test_core_facade_coupled_sources_are_covered_by_contract_check():
         f"not covered by products/warehouse_sources/turbo.json backend:contract-check inputs "
         f"{sorted(covered)}. A change to those sources would skip the Core tests that exercise them. "
         f"Add backend/temporal/data_imports/sources/<vendor>/** to the contract-check inputs."
+    )
+
+
+def _contract_covered_generated_configs(root: Path) -> set[str] | None:
+    """Generated config modules the contract-check inputs watch, or None when they watch the
+    whole package."""
+    inputs = _contract_check_inputs(root)
+    if inputs is None:
+        return None
+    prefix = f"{_INPUTS_PREFIX}{_GENERATED_CONFIGS}/"
+    names = {entry[len(prefix) :] for entry in inputs if entry.startswith(prefix)}
+    if "**" in names:
+        return None
+    return {name.removesuffix(".py") for name in names}
+
+
+def test_generated_configs_the_contract_reaches_are_covered_by_contract_check():
+    root = _repo_root()
+    covered_configs = _contract_covered_generated_configs(root)
+    covered_vendors = _contract_covered_sources(root)
+    if covered_configs is None or covered_vendors is None:
+        return
+
+    reached = {
+        module for target in _facade_symbol_to_target(root).values() if (module := _generated_config_module(target))
+    }
+    sources_dir = root / "products" / "warehouse_sources" / _INPUTS_PREFIX
+    for vendor in covered_vendors - {_GENERATED_CONFIGS}:
+        for file in (sources_dir / vendor).rglob("*.py"):
+            for node in ast.walk(ast.parse(file.read_text(), filename=str(file))):
+                if (
+                    isinstance(node, ast.ImportFrom)
+                    and node.module
+                    and (module := _generated_config_module(node.module))
+                ):
+                    reached.add(module)
+
+    missing = reached - covered_configs
+    assert not missing, (
+        f"The warehouse_sources contract reaches generated configs {sorted(missing)}, through a facade "
+        f"re-export or a watched vendor, but they are not backend:contract-check inputs in "
+        f"products/warehouse_sources/turbo.json. A change to those configs would skip the Django suite. "
+        f"Add {_INPUTS_PREFIX}{_GENERATED_CONFIGS}/<module>.py to the contract-check inputs."
     )
