@@ -1,6 +1,7 @@
 import { SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { IncomingMessage, Server, ServerResponse, createServer } from 'node:http'
 import { AddressInfo } from 'node:net'
+import { isNativeError } from 'node:util/types'
 import { z } from 'zod'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -66,7 +67,7 @@ export class LocalSes {
                 signal: AbortSignal.timeout(10_000),
             })
         } catch (error) {
-            const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : String(error)
+            const cause = isNativeError(error) && isNativeError(error.cause) ? error.cause.message : String(error)
             throw new Error(`Local SES fake unreachable at ${this.fakeEndpoint}: ${cause}`)
         }
     }
