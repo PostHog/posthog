@@ -41,6 +41,7 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    WAIT_TIMEOUT_ERROR,
     LazyComputationResult,
     LazyComputationTable,
     TtlSchedule,
@@ -82,6 +83,9 @@ _TASK_BUDGET_SECONDS = 20 * 60
 # A budget only stops new inserts, so a running insert can pass it. The mark that a refresh runs
 # must last as long as the task can, or a second refresh of the team starts next to the first.
 REFRESH_TASK_TIME_LIMIT_SECONDS = 35 * 60
+# After a failed insert the team starts no refresh for this long. A load lands every few minutes, and
+# a day that cannot be stored would otherwise scan the warehouse tables again on each one.
+_FAILED_REFRESH_PAUSE_SECONDS = 30 * 60
 
 
 def _raw_day(moment: str) -> str:
@@ -230,23 +234,31 @@ def ensure_stored(
 
 def refresh_after_load(team: Team) -> None:
     """Store the days that a data load made out of date, for every repository of the team that syncs
-    both runs and jobs. A load that lands while a refresh of the team runs starts no second one."""
+    both runs and jobs. A load that lands while a refresh of the team runs starts no second one, and
+    neither does a load that lands soon after an insert failed."""
     if not team_flag(STORED_READS_FEATURE_FLAG, team):
         return
     running = f"engineering_analytics:ci_precompute_refresh:{team.pk}"
     if not cache.add(running, True, timeout=REFRESH_TASK_TIME_LIMIT_SECONDS):
         return
+    failed = True
     try:
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.PREAGGREGATION, team_id=team.pk):
-            _refresh(team)
+            failed = _refresh(team)
     finally:
-        cache.delete(running)
+        if failed:
+            cache.set(running, True, timeout=_FAILED_REFRESH_PAUSE_SECONDS)
+        else:
+            cache.delete(running)
 
 
-def _refresh(team: Team) -> None:
+def _refresh(team: Team) -> bool:
+    """Whether an insert failed. A refresh that only ran out of its budget did not fail: the next
+    load continues it."""
     sources = resolve_precompute_sources(team)
     if not sources:
-        return
+        return False
+    failed = False
     # One catalog for every insert: the framework otherwise builds the team's catalog for each day.
     database = Database.create_for(
         team=team,
@@ -259,7 +271,7 @@ def _refresh(team: Team) -> None:
         for stored in (STORED_RUNS, STORED_JOBS):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return
+                return failed
             result = ensure_stored(
                 stored,
                 team,
@@ -278,3 +290,5 @@ def _refresh(team: Team) -> None:
                     repository=source.repository,
                     errors=result.errors,
                 )
+                failed = failed or any(error != WAIT_TIMEOUT_ERROR for error in result.errors)
+    return failed
