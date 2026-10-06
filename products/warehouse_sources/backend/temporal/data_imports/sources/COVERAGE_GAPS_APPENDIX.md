@@ -3692,10 +3692,10 @@ Today (7): `customers`, `events`, `mandates`, `payments`, `payouts`, `refunds`, 
 
 Diffed against: <https://developer.gocardless.com/api-reference/>
 
-- [ ] `payout_items (/payouts/{id}/items)` — line items that reconcile each payout to its underlying payments, refunds and fees - the core payout reconciliation join (high)
-- [ ] `customer_bank_accounts` — lookup resolving the customer_bank_account IDs carried on every mandate and payment we already sync (high)
-- [ ] `creditors` — lookup resolving the creditor ID on payments, payouts and mandates (high)
-- [ ] `balances` — current available/pending funds per creditor - the headline treasury metric (medium)
+- [x] `payout_items (/payouts/{id}/items)` — line items that reconcile each payout to its underlying payments, refunds and fees - the core payout reconciliation join (high)
+- [x] `customer_bank_accounts` — lookup resolving the customer_bank_account IDs carried on every mandate and payment we already sync (high)
+- [x] `creditors` — lookup resolving the creditor ID on payments, payouts and mandates (high)
+- [x] `balances` — current available/pending funds per creditor - the headline treasury metric (medium)
 - [ ] `instalment_schedules` — payment plans that group the individual payments we sync (medium)
 - [ ] `billing_requests` — the modern checkout/mandate-setup funnel object, needed to measure setup conversion (medium)
 - [ ] `payment_account_transactions` — transaction ledger for embedded payment accounts (medium)
@@ -4470,12 +4470,12 @@ Today (9): `buildings`, `categories`, `computer_groups`, `computers`, `departmen
 
 Diffed against: <https://developer.jamf.com/jamf-pro/reference/get_v1-buildings>
 
-- [ ] `GET /api/v1/users` — lookup resolving the user/owner assigned to the computers and mobile devices we sync (high)
+- [x] `GET /api/v1/users` — lookup resolving the user/owner assigned to the computers and mobile devices we sync (high)
 - [ ] `GET /api/v2/computer-groups/smart-group-membership/{id} and /static-group-membership/{id}` — membership junction for the computer_groups we already sync — group rows without members are unusable (high)
 - [ ] `GET /api/v2/mobile-device-groups (+ smart/static group membership)` — mobile equivalent of computer_groups plus its membership; we sync mobile_devices but no groups (high)
-- [ ] `GET /api/v3/patch-software-title-configurations and /{id}/patch-report, /{id}/patch-summary` — patch compliance per software title and per device — Jamf's headline reporting surface (high)
-- [ ] `GET /api/v2/mdm-commands` — MDM command history and status per device; the state-transition record for device management (high)
-- [ ] `GET /api/v1/managed-software-updates/update-statuses (+ /computers/{id}, /computer-groups/{id})` — OS update enforcement status per device — core compliance metric (high)
+- [x] `GET /api/v3/patch-software-title-configurations and /{id}/patch-report, /{id}/patch-summary` — patch compliance per software title and per device — Jamf's headline reporting surface (high)
+- [x] `GET /api/v2/mdm-commands` — MDM command history and status per device; the state-transition record for device management (high)
+- [x] `GET /api/v1/managed-software-updates/update-statuses (+ /computers/{id}, /computer-groups/{id})` — OS update enforcement status per device — core compliance metric (high)
 - [ ] `GET /api/v2/patch-policies and /api/v2/patch-policies/{id}/logs` — per-device patch deployment outcomes for the packages we sync (medium)
 - [ ] `GET /api/v1/computers-inventory/filevault (and /{id}/filevault)` — FileVault encryption compliance per computer (medium)
 - [ ] `GET /api/v1/computer-extension-attributes and /api/v1/mobile-device-extension-attributes` — lookup resolving the custom extension-attribute IDs embedded in inventory records (medium)
@@ -4528,10 +4528,10 @@ Today (4): `artifacts`, `builds`, `repositories`, `storage_summary`
 
 Diffed against: <https://docs.jfrog.com/artifactory/docs/aql-entities-fields-reference.md>
 
-- [ ] `AQL promotion domain (build promotions)` — build state transition history - when a build moved to which repo, by whom, with what status (high)
-- [ ] `AQL statistic domain (stat.downloads, stat.downloaded, stat.downloaded_by)` — artifact download counts and last-download - the headline consumption metric for a registry (high)
-- [ ] `AQL artifact / module / dependency domains (build artifacts and dependencies)` — line items joining the already-synced builds to the already-synced artifacts, plus the dependency graph (high)
-- [ ] `Xray Get Violations (/xray/api/v1/violations)` — security and license policy violations per artifact/build, the main security-analytics fact table (high)
+- [x] `AQL promotion domain (build promotions)` — build state transition history - when a build moved to which repo, by whom, with what status (high)
+- [x] `AQL statistic domain (stat.downloads, stat.downloaded, stat.downloaded_by)` — artifact download counts and last-download - the headline consumption metric for a registry (high)
+- [x] `AQL artifact / module / dependency domains (build artifacts and dependencies)` — line items joining the already-synced builds to the already-synced artifacts, plus the dependency graph (high)
+- [x] `Xray Get Violations (/xray/api/v1/violations)` — security and license policy violations per artifact/build, the main security-analytics fact table (high)
 - [ ] `AQL property domain (artifact properties)` — key/value metadata on artifacts used for promotion and environment labelling (medium)
 - [ ] `Xray Artifact Summary / Build Summary (/xray/api/v1/summary/*)` — per-artifact and per-build vulnerability and license rollups (medium)
 - [ ] `Release bundles: Get All Bundles / Get All Bundle Versions (AQL release domain)` — release-level grouping of artifacts, the unit teams actually ship (medium)
@@ -4564,15 +4564,16 @@ Note: The connector covers only the platform v3 lookup tables plus /search/jql i
 
 ## JobNimbus — **thin**
 
-Today (4): `activities`, `contacts`, `jobs`, `tasks`
+Today (9): `activities`, `contacts`, `estimates`, `jobs`, `lead_sources`, `payments`, `tasks`, `users`, `workflows`
 
 Diffed against: <https://documenter.gw.postman.com/api/collections/3919598/S11PpG4x?segregateAuth=true&versionTag=latest>
 
 - [ ] `/api1/v2/invoices` — billed revenue per job - the core financial fact table (high)
-- [ ] `/api1/v2/estimates` — quoted value and win/loss analysis against jobs (high)
-- [ ] `/api1/payments` — cash actually collected, needed for AR and collection-rate reporting (high)
-- [ ] `/api1/account/users` — lookup resolving the sales rep / owner / assignee IDs carried on jobs, contacts and tasks (high)
-- [ ] `/api1/account/settings (workflows, statuses, lead sources, custom fields)` — lookup resolving the workflow, status and lead-source IDs on jobs and contacts (high)
+- [x] `/api1/v2/estimates` — quoted value and win/loss analysis against jobs (high)
+- [x] `/api1/payments` — cash actually collected, needed for AR and collection-rate reporting (high)
+- [x] `/api1/account/users` — lookup resolving the sales rep / owner / assignee IDs carried on jobs, contacts and tasks (high)
+- [x] `/api1/account/settings (workflows, statuses, lead sources)` — lookup resolving the workflow, status and lead-source IDs on jobs and contacts (high)
+- [ ] `/api1/account/settings (custom fields)` — not in the documented settings response (medium)
 - [ ] `/api1/v2/products` — product catalog that estimate and invoice line items reference (medium)
 - [ ] `/api1/budgets` — job budget vs actual, the input to job-level profitability (medium)
 - [ ] `/api1/v2/workorders` — scheduled work per job, links crews to jobs (medium)
@@ -4580,7 +4581,7 @@ Diffed against: <https://documenter.gw.postman.com/api/collections/3919598/S11Pp
 - [ ] `/api1/account/settings?field=groups` — team/group lookup for rolling users up to crews or offices (medium)
 - [ ] `/api1/utility/uoms` — unit-of-measure lookup for product and order line items (low)
 
-Note: The doc URL in the payload (documenter.getpostman.com/view/3919598/S11PpG7g) 404s; the live collection is S11PpG4x. The connector exposes 4 of the ~13 GET-able resources and, notably, none of the money ones (estimates, invoices, payments, budgets) - for a roofing/contracting CRM that is where nearly all the analytical value is. File upload endpoints were excluded per the rules.
+Note: The doc URL in the payload (documenter.getpostman.com/view/3919598/S11PpG7g) 404s; the live collection is S11PpG4x. The connector exposes 9 of the ~13 GET-able resources, including estimates and payments; invoices and budgets remain the largest financial gaps. File upload endpoints were excluded per the rules.
 
 ## Jotform — gaps
 
@@ -4588,10 +4589,10 @@ Today (4): `forms`, `questions`, `reports`, `submissions`
 
 Diffed against: <https://api.jotform.com/docs/>
 
-- [ ] `GET /user/usage` — monthly submission, upload, view and payment counts - Jotform's headline account metric (high)
-- [ ] `GET /user/folders` — lookup grouping forms into folders, the org dimension for form reporting (medium)
-- [ ] `GET /user/history` — account activity log (form created/deleted/edited events) (medium)
-- [ ] `GET /user/labels and GET /label/{id}/resources` — label lookup plus the label-to-form/submission edges that resolve tags (medium)
+- [x] `GET /user/usage` — monthly submission, upload, view and payment counts - Jotform's headline account metric (high). Added as `usage` (single-row snapshot of the current month).
+- [ ] `GET /user/folders` — lookup grouping forms into folders, the org dimension for form reporting (medium). Skipped: Jotform marks the folder endpoints deprecated in favor of labels, which `labels` covers.
+- [x] `GET /user/history` — account activity log (form created/deleted/edited events) (medium). Added as `history`.
+- [x] `GET /user/labels and GET /label/{id}/resources` — label lookup plus the label-to-form/submission edges that resolve tags (medium). Added as `labels` (flattened label tree) and `label_resources` (fan-out over `labels`).
 - [ ] `GET /user/subusers` — sub-account users, needed to attribute forms and submissions in team accounts (low)
 - [ ] `GET /user` — account record (plan, limits) as the parent row for usage (low)
 
@@ -4609,14 +4610,14 @@ Note: The OpenAPI 3.0 spec (served to ReDoc from https://judge.me/api/docs.yaml)
 
 ## Jumpcloud — **thin**
 
-Today (6): `applications`, `events`, `system_groups`, `systems`, `user_groups`, `users`
+Today (11): `application_user_groups`, `application_users`, `applications`, `events`, `system_group_members`, `system_groups`, `system_users`, `systems`, `user_group_members`, `user_groups`, `users`
 
 Diffed against: <https://docs.jumpcloud.com/api/2.0/index.yaml>
 
-- [ ] `/api/v2/usergroups/{group_id}/members (and /membership)` — the user-to-group edges; user_groups and users are synced but the join between them is not (high)
-- [ ] `/api/v2/systemgroups/{group_id}/members (and /membership)` — the system-to-group edges completing the already-synced system_groups table (high)
-- [ ] `/api/v2/systems/{system_id}/users (or /api/v2/users/{user_id}/systems)` — which users can log into which devices - the central access-review fact table (high)
-- [ ] `/api/v2/applications/{application_id}/users and /usergroups` — SSO application entitlements per user and group, resolving the synced applications table (high)
+- [x] `/api/v2/usergroups/{group_id}/members (and /membership)` — the user-to-group edges; user_groups and users are synced but the join between them is not (high)
+- [x] `/api/v2/systemgroups/{group_id}/members (and /membership)` — the system-to-group edges completing the already-synced system_groups table (high)
+- [x] `/api/v2/systems/{system_id}/users (or /api/v2/users/{user_id}/systems)` — which users can log into which devices - the central access-review fact table (high)
+- [x] `/api/v2/applications/{application_id}/users and /usergroups` — SSO application entitlements per user and group, resolving the synced applications table (high)
 - [ ] `/api/v2/systeminsights/* (apps, programs, os_version, patches, disk_encryption, browser_plugins, chrome_extensions, ...)` — ~60 device inventory and compliance fact tables keyed by system_id - the richest analytical surface in the API (high)
 - [ ] `/api/v2/policies, /api/v2/policyresults, /api/v2/systems/{id}/policystatuses` — policy catalog plus per-device application results - device compliance state over time (high)
 - [ ] `/api/commands and /api/commandresults` — remote command execution history with exit codes and output (medium)
