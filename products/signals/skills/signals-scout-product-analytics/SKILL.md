@@ -91,6 +91,7 @@ That is the same shape as a real regression.
 - The funnel `dateRange` bounds every step, not only the entry step.
   A `steps` query over only the entrant week cuts off conversions at the week's end, so late entrants never get the full interval.
   To score maturity correctly, run `query-funnel` with `funnelVizType: trends`, `interval: week` (or `day`), and a `dateRange` that ends now.
+  Start the `dateRange` at least one conversion interval plus N+1 entrant periods before now, so that the latest mature point and N mature baseline points remain after the maturity filter.
   Each point is one entrant period, and its conversions can fall after the period ends.
   Pass `output_format: "json"`, because the default optimized output shows only rates and no entrant counts.
   Each result holds `days`, `data` (conversion %), `reached_from_step_count` (entrants) and `reached_to_step_count`, with matching indexes.
