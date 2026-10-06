@@ -1886,10 +1886,17 @@ class TestVersionDeclaration:
 
 
 class TestReportTableMissingIncrementalField:
-    def test_incremental_report_table_without_incremental_field_defaults_to_segments_date(self):
-        # A report table's schema can arrive flagged incremental but with no incremental field
-        # (a config inconsistency). Its only valid field is always segments.date, so the sync must
-        # default to it and run rather than crashing with "incremental_field ... can't be None".
+    @pytest.mark.parametrize(
+        "incremental_field,incremental_field_type",
+        [
+            (None, None),
+            ("segments_date", IncrementalFieldType.Date),
+        ],
+    )
+    def test_incremental_report_table_always_queries_segments_date(self, incremental_field, incremental_field_type):
+        # A report table's schema can arrive flagged incremental with no incremental field, or with
+        # the normalized column name, which Google rejects as UNRECOGNIZED_FIELD. Its only valid
+        # field is always segments.date, so the sync must query on it.
         table = _stats_table()
         assert table.alias is not None
         config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
@@ -1905,15 +1912,17 @@ class TestReportTableMissingIncrementalField:
                 resumable_source_manager=mock.Mock(),
                 api_version="v25",
                 should_use_incremental_field=True,
-                incremental_field=None,
-                incremental_field_type=None,
+                incremental_field=incremental_field,
+                incremental_field_type=incremental_field_type,
                 db_incremental_field_last_value=dt.date.today(),
             )
             list(typing.cast(collections.abc.Iterable, response.items()))
 
-        # The windowed drain ran (no crash) and queried on the defaulted segments.date field.
         assert search.call_count >= 1
-        assert "segments.date" in search.call_args_list[0].args[2]
+        query = search.call_args_list[0].args[2]
+        assert "WHERE segments.date >= " in query
+        assert "ORDER BY segments.date ASC" in query
+        assert "segments_date" not in query
 
 
 class TestUnknownResource:
