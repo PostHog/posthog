@@ -175,15 +175,22 @@ const MOCK_ANNOTATION_DASHBOARD_SCOPED_3: RawAnnotationType = {
     ...BASE_MOCK_ANNOTATION,
 }
 
-function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): void {
+/** A null interval mocks a SQL insight, which has no Trends interval. */
+function useInsightMocks(interval: string | null = 'day', timezone: string = 'UTC'): void {
     const insight = {
         result: {},
         id: MOCK_INSIGHT_NUMERIC_ID,
         short_id: MOCK_INSIGHT_SHORT_ID,
-        query: {
-            kind: NodeKind.InsightVizNode,
-            source: { kind: NodeKind.TrendsQuery, series: [], interval },
-        },
+        query:
+            interval === null
+                ? {
+                      kind: NodeKind.DataVisualizationNode,
+                      source: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+                  }
+                : {
+                      kind: NodeKind.InsightVizNode,
+                      source: { kind: NodeKind.TrendsQuery, series: [], interval },
+                  },
         timezone,
     }
     useMocks({
@@ -827,8 +834,25 @@ describe('annotationsOverlayLogic', () => {
         })
     })
 
+    it('ends a SQL monthly range at the next calendar month when February sets the smallest gap', async () => {
+        useInsightMocks(null)
+        logic = annotationsOverlayLogic({
+            dashboardItemId: MOCK_INSIGHT_SHORT_ID,
+            insightNumericId: MOCK_INSIGHT_NUMERIC_ID,
+            dates: ['2023-01-01', '2023-02-01', '2023-03-01'],
+            ticks: [{ value: 0 }, { value: 1 }, { value: 2 }],
+            dashboardId: MOCK_DASHBOARD_ID,
+        })
+        logic.mount()
+        await expectLogic(
+            insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
+        ).toDispatchActions(['loadInsightSuccess'])
+
+        expect(logic.values.dateRange?.[1].toISOString()).toEqual('2023-04-01T00:00:00.000Z')
+    })
+
     describe('annotationBadgeDataIndices', () => {
-        it.each<{ interval: IntervalType; dates: string[]; expected: Record<string, number> }>([
+        it.each<{ interval: IntervalType | null; dates: string[]; expected: Record<string, number> }>([
             {
                 interval: 'month',
                 dates: ['2022-08-01', '2022-09-01', '2022-10-01'],
@@ -839,6 +863,23 @@ describe('annotationsOverlayLogic', () => {
                 interval: 'week',
                 dates: ['2022-08-08', '2022-08-15', '2022-08-22', '2022-08-29', '2022-09-05', '2022-09-12'],
                 expected: { '2022-08-10 00:00:00+0000': 2 / 7, '2022-09-10 00:00:00+0000': 4 + 5 / 7 },
+            },
+            {
+                // SQL insight: the interval comes from the date spacing, so badges don't clamp onto the last point.
+                interval: null,
+                dates: ['2022-08-08', '2022-08-15', '2022-08-22', '2022-08-29', '2022-09-05', '2022-09-12'],
+                expected: { '2022-08-10 00:00:00+0000': 2 / 7, '2022-09-10 00:00:00+0000': 4 + 5 / 7 },
+            },
+            {
+                // Sparse SQL weeks: the badge sits between the real neighbors, not where a full weekly series would put it.
+                interval: null,
+                dates: ['2022-08-08', '2022-08-15', '2022-09-05', '2022-09-12'],
+                expected: { '2022-08-10 00:00:00+0000': 2 / 7, '2022-09-10 00:00:00+0000': 2 + 5 / 7 },
+            },
+            {
+                interval: null,
+                dates: ['2022-08-01', '2022-09-01', '2022-10-01'],
+                expected: { '2022-08-10 00:00:00+0000': 9 / 31, '2022-09-10 00:00:00+0000': 1 + 9 / 30 },
             },
         ])('$interval chart → fractional indices', async ({ interval, dates, expected }) => {
             useInsightMocks(interval)
@@ -855,10 +896,10 @@ describe('annotationsOverlayLogic', () => {
                 insightLogic({ dashboardItemId: MOCK_INSIGHT_SHORT_ID, dashboardId: MOCK_DASHBOARD_ID })
             ).toDispatchActions(['loadInsightSuccess'])
 
-            for (const b of logic.values.annotationBadgeDataIndices as { dateKey: string; dataIndex: number }[]) {
-                if (expected[b.dateKey] !== undefined) {
-                    expect(b.dataIndex).toBeCloseTo(expected[b.dateKey], 5)
-                }
+            const badges = logic.values.annotationBadgeDataIndices as { dateKey: string; dataIndex: number }[]
+            for (const [dateKey, expectedIndex] of Object.entries(expected)) {
+                const badge = badges.find((b) => b.dateKey === dateKey)
+                expect(badge?.dataIndex).toBeCloseTo(expectedIndex, 5)
             }
         })
     })

@@ -50,6 +50,68 @@ export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: Interva
     return date.startOf(getGroupingUnit(intervalUnit)).format('YYYY-MM-DD HH:mm:ssZZ')
 }
 
+const MINUTE_MS = 60 * 1000
+const HOUR_MS = 60 * MINUTE_MS
+const DAY_MS = 24 * HOUR_MS
+
+/** Data point timestamps for charts without a query interval (e.g. SQL insights). */
+interface InferredBuckets {
+    startsMs: number[]
+    /** The smallest gap ignores missing buckets. */
+    smallestGapMs: number
+}
+
+function inferBuckets(dates: string[], timezone: string): InferredBuckets | null {
+    const startsMs = dates.map((date) => parseDateInTimezone(date, timezone).valueOf())
+    let smallestGapMs = Infinity
+    for (let i = 1; i < startsMs.length; i++) {
+        const gapMs = startsMs[i] - startsMs[i - 1]
+        if (Number.isNaN(gapMs) || gapMs <= 0) {
+            return null
+        }
+        smallestGapMs = Math.min(smallestGapMs, gapMs)
+    }
+    return smallestGapMs === Infinity ? null : { startsMs, smallestGapMs }
+}
+
+/** The thresholds allow for DST and uneven month lengths. */
+function intervalForGap(gapMs: number): IntervalType {
+    if (gapMs >= 360 * DAY_MS) {
+        return 'year'
+    }
+    if (gapMs >= 85 * DAY_MS) {
+        return 'quarter'
+    }
+    if (gapMs >= 27 * DAY_MS) {
+        return 'month'
+    }
+    if (gapMs >= 6 * DAY_MS) {
+        return 'week'
+    }
+    if (gapMs >= 20 * HOUR_MS) {
+        return 'day'
+    }
+    if (gapMs >= 50 * MINUTE_MS) {
+        return 'hour'
+    }
+    if (gapMs >= 50 * 1000) {
+        return 'minute'
+    }
+    return 'second'
+}
+
+/** Fractional index of `timestampMs` between the data points, or -1 before the first point. */
+function interpolatedDataIndex(timestampMs: number, startsMs: number[]): number {
+    let index = -1
+    while (index + 1 < startsMs.length && startsMs[index + 1] <= timestampMs) {
+        index++
+    }
+    if (index === -1 || index === startsMs.length - 1) {
+        return index
+    }
+    return index + (timestampMs - startsMs[index]) / (startsMs[index + 1] - startsMs[index])
+}
+
 function hasPersonPropertyFiltersOrBreakdown(
     properties: AnyPropertyFilter[] | PropertyGroupFilter | null | undefined,
     breakdownFilter: BreakdownFilter | null | undefined
@@ -97,6 +159,7 @@ export interface annotationsOverlayLogicValues {
     dateRange: [Dayjs, Dayjs] | null
     groupedAnnotations: Record<number | string, DatedAnnotationType[]>
     groupingUnit: IntervalType
+    inferredBuckets: InferredBuckets | null
     intervalUnit: IntervalType
     isDateLocked: boolean
     isPopoverShown: boolean
@@ -143,7 +206,15 @@ export interface annotationsOverlayLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
         annotationsOverlayProps: (arg: any) => AnnotationsOverlayLogicProps
-        intervalUnit: (interval: IntervalType | null | undefined) => IntervalType
+        inferredBuckets: (
+            interval: IntervalType | null | undefined,
+            timezone: string,
+            arg: string[]
+        ) => InferredBuckets | null
+        intervalUnit: (
+            interval: IntervalType | null | undefined,
+            inferredBuckets: InferredBuckets | null
+        ) => IntervalType
         groupingUnit: (intervalUnit: IntervalType) => IntervalType
         tickPositions: (
             ticks: {
@@ -172,7 +243,8 @@ export interface annotationsOverlayLogicMeta {
             groupedAnnotations: Record<number | string, DatedAnnotationType[]>,
             intervalUnit: IntervalType,
             timezone: string,
-            arg: string[]
+            arg: string[],
+            inferredBuckets: InferredBuckets | null
         ) => Array<{
             dataIndex: number
             date: Dayjs
@@ -252,7 +324,16 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             () => [(_, props) => props],
             (props: AnnotationsOverlayLogicProps): AnnotationsOverlayLogicProps => props,
         ],
-        intervalUnit: [(s) => [s.interval], (interval: IntervalType | null | undefined) => interval || 'day'],
+        inferredBuckets: [
+            (s) => [s.interval, s.timezone, (_, props: AnnotationsOverlayLogicProps) => props.dates],
+            (interval: IntervalType | null | undefined, timezone: string, dates: string[]): InferredBuckets | null =>
+                interval ? null : inferBuckets(dates, timezone),
+        ],
+        intervalUnit: [
+            (s) => [s.interval, s.inferredBuckets],
+            (interval: IntervalType | null | undefined, inferredBuckets: InferredBuckets | null): IntervalType =>
+                interval || (inferredBuckets ? intervalForGap(inferredBuckets.smallestGapMs) : 'day'),
+        ],
         groupingUnit: [
             (s) => [s.intervalUnit],
             (intervalUnit: IntervalType): IntervalType => getGroupingUnit(intervalUnit),
@@ -388,12 +469,14 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 s.intervalUnit,
                 s.timezone,
                 (_, props: AnnotationsOverlayLogicProps) => props.dates,
+                s.inferredBuckets,
             ],
             (
                 groupedAnnotations: Record<number | string, DatedAnnotationType[]>,
                 intervalUnit: IntervalType,
                 timezone: string,
-                dates: string[]
+                dates: string[],
+                inferredBuckets: InferredBuckets | null
             ): Array<{ dateKey: string; date: Dayjs; dataIndex: number }> => {
                 if (dates.length === 0) {
                     return []
@@ -405,6 +488,14 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 return Object.entries(groupedAnnotations)
                     .map(([dateKey, annotations]) => {
                         const date = annotations[0].date_marker.startOf(getGroupingUnit(intervalUnit))
+                        if (inferredBuckets) {
+                            // Missing buckets make the unit ambiguous, so interpolate between the real data points.
+                            return {
+                                dateKey,
+                                date,
+                                dataIndex: interpolatedDataIndex(date.valueOf(), inferredBuckets.startsMs),
+                            }
+                        }
                         const wholeIndex = date.diff(firstDate, intervalUnit)
                         const intervalStart = firstDate.add(wholeIndex, intervalUnit)
                         const intervalEnd = intervalStart.add(1, intervalUnit)
