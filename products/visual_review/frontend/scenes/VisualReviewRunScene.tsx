@@ -623,17 +623,21 @@ export function VisualReviewRunScene(): JSX.Element {
                         </div>
                     )}
 
-                    {showCleanQuarantinedToggle && showCleanQuarantined && run.pr_number != null && (
-                        <CleanQuarantinedSnapshots
-                            groups={cleanQuarantinedGroups}
-                            prNumber={run.pr_number}
-                            // The groups read both lists, so either one still loading or failed leaves them unknown.
-                            liftsLoading={quarantineLiftsLoading || quarantinedIdentifiersLoading}
-                            liftsLoadFailed={quarantineLiftsLoadFailed || quarantinedIdentifiersLoadFailed}
-                            selectedSnapshotId={selectedSnapshotId}
-                            onSelect={setSelectedSnapshotId}
-                        />
-                    )}
+                    {showCleanQuarantinedToggle &&
+                        showCleanQuarantined &&
+                        // A failed reload keeps the previous rows, which no longer describe this run.
+                        !quarantinedRunSnapshotsLoadFailed &&
+                        run.pr_number != null && (
+                            <CleanQuarantinedSnapshots
+                                groups={cleanQuarantinedGroups}
+                                prNumber={run.pr_number}
+                                // The groups read both lists, so either one still loading or failed leaves them unknown.
+                                liftsLoading={quarantineLiftsLoading || quarantinedIdentifiersLoading}
+                                liftsLoadFailed={quarantineLiftsLoadFailed || quarantinedIdentifiersLoadFailed}
+                                selectedSnapshotId={selectedSnapshotId}
+                                onSelect={setSelectedSnapshotId}
+                            />
+                        )}
                 </div>
 
                 {/* Body: diff viewer */}
