@@ -160,6 +160,7 @@ export enum NodeKind {
     MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
     MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
     MarketingAnalyticsRetentionQuery = 'MarketingAnalyticsRetentionQuery',
+    MarketingAnalyticsSearchQuery = 'MarketingAnalyticsSearchQuery',
 
     // Experiment queries
     ExperimentMetric = 'ExperimentMetric',
@@ -245,6 +246,7 @@ export type AnyDataNode =
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
+    | MarketingAnalyticsSearchQuery
     | WebOverviewQuery
     | WebStatsTableQuery
     | WebExternalClicksTableQuery
@@ -363,6 +365,7 @@ export type QuerySchema =
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
     | MarketingAnalyticsRetentionQuery
+    | MarketingAnalyticsSearchQuery
 
     // Interface nodes
     | DataVisualizationNode
@@ -5541,6 +5544,15 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     displayLabel?: string
     /** Other terms that find this item in search, for example the names of its tabs or common synonyms */
     searchKeywords?: string[]
+    /** Tabs of this item that search lists as their own results */
+    searchTabs?: FileSystemSearchTab[]
+}
+
+export interface FileSystemSearchTab {
+    name: string
+    href: string
+    flag?: string
+    searchKeywords?: string[]
 }
 
 export interface FileSystemViewLogEntry {
@@ -8145,6 +8157,50 @@ export interface MarketingAnalyticsRetentionQueryResponse extends AnalyticsQuery
 export type CachedMarketingAnalyticsRetentionQueryResponse =
     CachedQueryResponse<MarketingAnalyticsRetentionQueryResponse>
 
+export interface MarketingAnalyticsSearchSource {
+    sourceType: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
+    statsTable: string
+    keywordTable?: string
+    queryPageTable?: boolean
+}
+
+export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyticsSearchQueryResponse> {
+    kind: NodeKind.MarketingAnalyticsSearchQuery
+    dateRange?: DateRange
+    sources: MarketingAnalyticsSearchSource[]
+    compareFilter?: CompareFilter
+    search?: string
+    breakdown?: 'keyword' | 'page'
+    keyword?: string
+    page?: string
+}
+
+export interface MarketingAnalyticsSearchMetrics {
+    clicks: number
+    impressions: number
+    cost: number | null
+    conversions: number | null
+    ctr: number | null
+    cpc: number | null
+    cpa: number | null
+    position?: number | null
+}
+
+export interface MarketingAnalyticsSearchRow extends MarketingAnalyticsSearchMetrics {
+    keyword: string | null
+    page?: string | null
+    platform: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
+    matchType: string | null
+    currency: string | null
+    previous?: MarketingAnalyticsSearchMetrics | null
+}
+
+export interface MarketingAnalyticsSearchQueryResponse extends AnalyticsQueryResponseBase {
+    results: MarketingAnalyticsSearchRow[]
+}
+
+export type CachedMarketingAnalyticsSearchQueryResponse = CachedQueryResponse<MarketingAnalyticsSearchQueryResponse>
+
 export interface WebAnalyticsExternalSummaryRequest {
     date_from: string
     date_to: string
@@ -9037,6 +9093,18 @@ export interface SidebarConfiguration {
     [key: string]: unknown
 }
 
+/** Customization of the SQL editor. Extra keys are tolerated so older servers accept configs written by newer clients. */
+export interface SQLEditorConfiguration {
+    /** Whether the SQL editor uses Vim keybindings. An absent value falls back to the legacy browser preference. */
+    vim_mode_enabled?: boolean
+    /**
+     * Vim commands to run when Vim mode starts, one per line, such as `imap jj <Esc>` or `set cursorblink`.
+     * @maxLength 10000
+     */
+    vimrc?: string
+    [key: string]: unknown
+}
+
 /**
  * Per-user UI customization, persisted on the User model as a single JSONB blob.
  * A null configuration and any absent key mean "default", which for visibility is "shown",
@@ -9050,6 +9118,7 @@ export interface UserUIConfiguration {
      */
     version: number
     sidebar?: SidebarConfiguration
+    sql_editor?: SQLEditorConfiguration
     [key: string]: unknown
 }
 

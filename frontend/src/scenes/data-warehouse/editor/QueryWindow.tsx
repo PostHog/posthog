@@ -18,7 +18,6 @@ import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
@@ -29,6 +28,8 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { VimrcModal } from 'products/data_warehouse/frontend/shared/components/VimrcModal'
+import { sqlEditorVimLogic } from 'products/data_warehouse/frontend/shared/logics/sqlEditorVimLogic'
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { BIEditor } from './bi/BIEditor'
@@ -124,8 +125,8 @@ export function QueryWindow({
     const { setSuggestedQueryInput, reportAIQueryPromptOpen, fixIndexUsageWithAI } = useActions(logic)
     const biModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
     const vimModeFeatureEnabled = useFeatureFlag('SQL_EDITOR_VIM_MODE')
-    const { editorVimModeEnabled } = useValues(userPreferencesLogic)
-    const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
+    const { vimModeEnabled, vimrc, editorSettingsMenuKey } = useValues(sqlEditorVimLogic)
+    const { setVimModeEnabled, openVimrcModal, setEditorSettingsMenuOpen } = useActions(sqlEditorVimLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
     const { setDatabaseTreeCollapsed } = useActions(editorSizingLogic)
     // Raw-only connections are forced to raw SQL mode — no toggle to show.
@@ -232,8 +233,8 @@ export function QueryWindow({
                       custom: true,
                       label: () => (
                           <LemonSwitch
-                              checked={editorVimModeEnabled}
-                              onChange={setEditorVimModeEnabled}
+                              checked={vimModeEnabled}
+                              onChange={setVimModeEnabled}
                               label="Vim mode"
                               size="small"
                               fullWidth
@@ -241,6 +242,16 @@ export function QueryWindow({
                           />
                       ),
                   },
+                  ...(vimModeEnabled
+                      ? [
+                            {
+                                label: 'Edit vimrc',
+                                onClick: () => openVimrcModal(codeEditorKey),
+                                size: 'small' as const,
+                                'data-attr': 'sql-editor-vimrc-edit',
+                            },
+                        ]
+                      : []),
               ]
             : []),
         ...(canSendRawQuery
@@ -336,7 +347,13 @@ export function QueryWindow({
                     <div className="ml-auto flex items-center gap-2">
                         <FixErrorButton type="secondary" size="small" source="action-bar" />
                         {editorSettingsItems.length > 0 ? (
-                            <LemonMenu items={editorSettingsItems} closeOnClickInside={false} placement="bottom-end">
+                            <LemonMenu
+                                items={editorSettingsItems}
+                                closeOnClickInside={false}
+                                placement="bottom-end"
+                                visible={editorSettingsMenuKey === codeEditorKey}
+                                onVisibilityChange={(open) => setEditorSettingsMenuOpen(codeEditorKey, open)}
+                            >
                                 <LemonButton
                                     icon={<IconGear />}
                                     type="secondary"
@@ -346,6 +363,7 @@ export function QueryWindow({
                                 />
                             </LemonMenu>
                         ) : null}
+                        {vimModeFeatureEnabled ? <VimrcModal editorKey={codeEditorKey} /> : null}
                         {mode === SQLEditorMode.Embedded && (
                             <SceneTitlePanelButton
                                 buttonClassName="size-[26px]"
@@ -369,7 +387,8 @@ export function QueryWindow({
                     sourceQuery={sourceQuery.source}
                     promptError={null}
                     onRun={runQuery}
-                    editorVimModeEnabled={vimModeFeatureEnabled && editorVimModeEnabled}
+                    editorVimModeEnabled={vimModeFeatureEnabled && vimModeEnabled}
+                    editorVimrc={vimrc}
                     constrainHeight={showOutputPanel}
                     codeEditorProps={{
                         queryKey: codeEditorKey,

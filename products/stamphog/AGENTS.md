@@ -46,7 +46,11 @@ head-changing event must retract standing approvals itself:
 The one deliberate exception is **approval retention**.
 A head-changing delivery whose push left the PR's own diff byte-identical skips both the retraction and the review (`_standing_approval_retention` in the Celery task, deciding through [`logic/approval_retention.py`](backend/logic/approval_retention.py)).
 It is content-based rather than commit-based: the PR's own unified diff at the approved head against the same at the current head.
-So a merge of the base branch that touches none of the PR's files retains, and a merge that resolves a conflict inside one of them re-reviews.
+So a merge of the base branch that touches none of the PR's files retains.
+A base merge that also edits a PR file changes the diff text, because the PR's hunks move. It still retains through `base_merge_is_clean`, which proves two things.
+The lineage proof: the head has exactly two parents, the first is an approved or already retained head, and the second is an ancestor of the payload's base sha.
+The content proof: every file that differs between the two diffs is exactly the `git merge-file` result of the merge base, the approved parent and the base parent.
+A conflict resolution, or any other content that the author put in the merge commit, fails that proof and re-reviews.
 Comparing the diff text rather than per-file blob shas is deliberate, because the text carries file modes and renames, and a blob sha covers contents only.
 The one thing the text does not carry is binary content, which git renders as `Binary files ... differ` over an abbreviated blob id, so a diff mentioning one is refused rather than compared.
 

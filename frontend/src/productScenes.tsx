@@ -59,6 +59,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     BusinessKnowledgeSource: () =>
         import('../../products/business_knowledge/frontend/scenes/source/KnowledgeSourceScene'),
     CanvasNew: () => import('../../products/canvas/frontend/newCanvas/CanvasNewScene'),
+    Canvases: () => import('../../products/canvas/frontend/list/CanvasesScene'),
     CanvasDetail: () => import('../../products/canvas/frontend/scene/CanvasScene'),
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
@@ -67,6 +68,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
     SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
     MyTickets: () => import('../../products/conversations/frontend/scenes/myTickets/MyTicketsScene'),
+    CrossProjectDashboards: () =>
+        import('../../products/cross_project_dashboards/frontend/CrossProjectDashboardsScene'),
+    CrossProjectDashboard: () => import('../../products/cross_project_dashboards/frontend/CrossProjectDashboardScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsAccount: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsAccountScene/CustomerAnalyticsAccountScene'),
