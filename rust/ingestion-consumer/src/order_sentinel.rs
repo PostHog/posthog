@@ -122,7 +122,7 @@ struct KeyState {
 pub struct KeyOrderSentinel {
     /// Keyed by customer-chosen routing keys, so the hasher is seeded per
     /// map to resist collision flooding.
-    keys: Mutex<HashMap<String, KeyState, ahash::RandomState>>,
+    keys: Mutex<HashMap<Arc<str>, KeyState, ahash::RandomState>>,
     /// Kill switch (`CONSUMER_ORDER_SENTINEL_ENABLED`). When off, checks
     /// no-op and no state accumulates.
     enabled: AtomicBool,
@@ -164,7 +164,7 @@ impl KeyOrderSentinel {
     /// See [`SentinelBatch::note_sent`].
     pub fn note_sent(
         &self,
-        routing_key: &str,
+        routing_key: &(impl SentinelKey + ?Sized),
         messages: &[SerializedKafkaMessage],
         kind: SendKind,
     ) -> Vec<KeyOrderViolation> {
@@ -194,9 +194,46 @@ impl KeyOrderSentinel {
         self.keys.lock().unwrap().len()
     }
 }
+/// A routing key the sentinel looks up as `&str` and stores as `Arc<str>`,
+/// so a caller that already shares its keys stores them without a copy.
+pub trait SentinelKey {
+    fn as_key(&self) -> &str;
+    fn to_shared(&self) -> Arc<str>;
+}
+
+impl SentinelKey for str {
+    fn as_key(&self) -> &str {
+        self
+    }
+
+    fn to_shared(&self) -> Arc<str> {
+        Arc::from(self)
+    }
+}
+
+impl SentinelKey for String {
+    fn as_key(&self) -> &str {
+        self
+    }
+
+    fn to_shared(&self) -> Arc<str> {
+        Arc::from(self.as_str())
+    }
+}
+
+impl SentinelKey for Arc<str> {
+    fn as_key(&self) -> &str {
+        self
+    }
+
+    fn to_shared(&self) -> Arc<str> {
+        Arc::clone(self)
+    }
+}
+
 /// A run of sentinel calls under one lock. Disabled, every call is a no-op.
 pub struct SentinelBatch<'a> {
-    keys: Option<MutexGuard<'a, HashMap<String, KeyState, ahash::RandomState>>>,
+    keys: Option<MutexGuard<'a, HashMap<Arc<str>, KeyState, ahash::RandomState>>>,
 }
 
 impl SentinelBatch<'_> {
@@ -208,13 +245,14 @@ impl SentinelBatch<'_> {
     /// metrics and logs; returns violations for tests.
     pub fn note_sent(
         &mut self,
-        routing_key: &str,
+        key: &(impl SentinelKey + ?Sized),
         messages: &[SerializedKafkaMessage],
         kind: SendKind,
     ) -> Vec<KeyOrderViolation> {
         let Some(keys) = self.keys.as_mut() else {
             return Vec::new();
         };
+        let routing_key = key.as_key();
         let mut violations = Vec::new();
         let mut first: Option<&SerializedKafkaMessage> = None;
         let mut last: Option<&SerializedKafkaMessage> = None;
@@ -250,7 +288,7 @@ impl SentinelBatch<'_> {
         match keys.get_mut(routing_key) {
             None => {
                 keys.insert(
-                    routing_key.to_string(),
+                    key.to_shared(),
                     KeyState {
                         partition: first.partition,
                         last_sent: last.offset,
