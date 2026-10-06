@@ -32,9 +32,21 @@ Widget writes stay synchronous in Postgres because the API must return ticket an
 
 ## Workflow email account history
 
-Only non-test SES sends from Workflow email steps with **Match email to Accounts** enabled queue account-history capture. The step setting defaults off, including for existing workflows; standalone email destinations and other sends never run account matching. SES sends first, without waiting for an account lookup. When the dedicated `CONVERSATIONS_WORKFLOW_EMAILS_JWT_SECRET` is configured, the worker queues a capture job after SES accepts the send. The Conversations API then checks the `customer-analytics-csp` flag, verifies the sender, and matches external recipients against account known emails and domains. It does not run the person-group event lookup. Unmatched sends create no email thread, and Workflow ingestion writes matched account links without scheduling thread-link recalculation. General email ingestion still schedules recalculation. Full recalculations also skip person-group lookups for threads containing only Workflow emails; a later reply through another email source uses normal matching. Missing JWT configuration does not delay sends.
+Workflow email steps can add SES sends to account history when **Match email to Accounts** is enabled.
+The setting defaults off for new and existing workflows.
+Test sends and standalone email destinations do not queue capture.
+SES sends first, without waiting for an account lookup.
+When `CONVERSATIONS_WORKFLOW_EMAILS_JWT_SECRET` is configured, the worker queues capture after SES accepts the send.
+The Conversations API checks `customer-analytics-csp` and retains only sends matched to an account.
+Missing JWT configuration does not delay sends.
 
-After SES accepts an opted-in send, the worker enqueues a separate Cyclotron capture job before acknowledging the original email job. A failed Conversations API call retries the capture job, not the SES send. If the capture queue cannot accept a job, the worker records a privacy-safe skip signal with `queue_unavailable` and tries to acknowledge the sent email instead of retrying SES. That send has no account-history record. This does not make SES sends exactly-once across a worker crash or a failed Cyclotron acknowledgement. The endpoint authenticates a team- and invocation-scoped JWT, verifies the sender integration, and deduplicates by Workflow invocation before RFC Message-ID. Only customer recipients with unambiguous known-email or domain matches create a protected `EmailThreadMessage` and account link. BCC is not part of the capture payload. HTML-only sends become plain text before capture; oversized bodies do not enter the capture queue and emit the same privacy-safe skip signal. The SES provider ID maps to `<{provider ID}@email.amazonses.com>` for this send path, so Gmail replies join through `In-Reply-To` and `References`. Account-history capture does not require Support to be enabled; the Customer Analytics flag and account match control retention.
+After SES accepts an opted-in send, the worker queues capture before acknowledging the original email job.
+Retries of capture jobs do not resend email.
+If capture cannot be queued, the worker records a `queue_unavailable` skip and tries to acknowledge the sent email.
+That send has no account-history record.
+A worker crash or failed acknowledgement can still cause a duplicate SES send.
+The capture API uses scoped authentication and deduplicates repeated capture requests.
+Capture does not require Support to be enabled.
 
 Deploy the new capture-job worker to every email queue consumer before provisioning the JWT key. To stop new captures, remove the key from CDP without deleting existing messages. Drain queued capture jobs on the new worker before rolling back its code; old workers cannot process the new job type. Keep Django's verification key until those jobs finish.
 
