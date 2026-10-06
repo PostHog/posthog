@@ -48,6 +48,7 @@ import {
 } from './durationBuckets'
 import { type HeatmapBrushSelection, heatmapBrushToFilters } from './heatmapBrush'
 import { traceLookupDateRange } from './traceLinks'
+import { traceRows } from './traceRows'
 import {
     type TracingFilters,
     type TracingOrderBy,
@@ -1302,13 +1303,13 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 filters.chartType === 'heatmap' &&
                 !compareActive,
         ],
-        // The rows the list renders. 'traces' mode shows root spans only (one row per trace);
+        // The rows the list renders. 'traces' mode shows one row per trace (see traceRows);
         // 'spans' mode shows every matching span (root and child) flat. The fetch passes flatSpans
         // to match, so in 'spans' mode the loaded spans are already the flat set.
         listRows: [
             (s) => [s.spans, s.filters],
             (spans: Span[], filters: TracingFilters): Span[] => {
-                return filters.viewMode === 'spans' ? spans : spans.filter((s) => s.is_root_span)
+                return filters.viewMode === 'spans' ? spans : traceRows(spans, filters.orderBy, filters.orderDirection)
             },
         ],
         // Memoized separately so visibleRowDurationRange (recomputed on every scroll tick) doesn't

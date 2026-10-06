@@ -128,7 +128,12 @@ describe('tracingDataLogic', () => {
         it('ignores non-root spans when deriving the range', () => {
             const withChild = [
                 createMockSpan('root-1', '2024-01-01T00:00:00Z'),
-                { ...createMockSpan('child-1', '2024-01-01T05:00:00Z'), parent_span_id: 'root-1', is_root_span: false },
+                {
+                    ...createMockSpan('child-1', '2024-01-01T05:00:00Z'),
+                    trace_id: 'trace-root-1',
+                    parent_span_id: 'root-1',
+                    is_root_span: false,
+                },
                 createMockSpan('root-2', '2024-01-01T01:00:00Z'),
             ]
             logic.actions.fetchSpansSuccess(withChild)
@@ -199,7 +204,12 @@ describe('tracingDataLogic', () => {
     describe('view mode', () => {
         const withChildSpans: Span[] = [
             createMockSpan('root-1', '2024-01-01T00:00:00Z'),
-            { ...createMockSpan('child-1', '2024-01-01T00:00:01Z'), parent_span_id: 'root-1', is_root_span: false },
+            {
+                ...createMockSpan('child-1', '2024-01-01T00:00:01Z'),
+                trace_id: 'trace-root-1',
+                parent_span_id: 'root-1',
+                is_root_span: false,
+            },
             createMockSpan('root-2', '2024-01-01T01:00:00Z'),
         ]
 

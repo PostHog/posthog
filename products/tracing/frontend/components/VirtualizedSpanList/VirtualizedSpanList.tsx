@@ -7,6 +7,7 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { TZLabel } from 'lib/components/TZLabel'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 
 import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } from '../../dateFormats'
@@ -184,6 +185,13 @@ function spanCellContent(column: SpanColumnConfig, span: Span): JSX.Element | nu
                         <LemonTag type="highlight" size="small">
                             trace
                         </LemonTag>
+                    )}
+                    {span.root_missing && (
+                        <Tooltip title="Root span never arrived. Usually an upstream service started the trace and doesn't send its spans to PostHog.">
+                            <LemonTag type="muted" size="small">
+                                no root
+                            </LemonTag>
+                        </Tooltip>
                     )}
                 </span>
             )
