@@ -172,6 +172,62 @@ describe("CloudRuns", () => {
     run.stop();
   });
 
+  it("pages a pi task's earlier run in above the current one once the current run's log runs out", async () => {
+    // r1 is the earlier run with a0..a4; r2, the current run, has b0 and b1.
+    const sessionLogs: SessionLogs = vi.fn(
+      async (_taskId, runId, { limit, offset = 0 }) => {
+        const total = runId === "r1" ? 5 : 2;
+        const name = runId === "r1" ? "a" : "b";
+        const entries = Array.from(
+          { length: Math.max(0, Math.min(limit, total - offset)) },
+          (_, i) => entry(`${name}${offset + i}`),
+        );
+        return {
+          entries,
+          hasMore: offset + entries.length < total,
+          matchingCount: total,
+        };
+      },
+    );
+    const engine = Object.assign(new EventEmitter(), {
+      watch: vi.fn(),
+      unwatch: vi.fn(),
+    });
+    const runs = new CloudRuns(
+      engine as unknown as CloudTaskEngine,
+      async () => ({ apiHost: "https://us.posthog.com", teamId: 2 }),
+      sessionLogs,
+      undefined,
+      async () => ["r1"],
+    );
+    let latest = emptyRunView;
+    const run = runs.watch(
+      "t1",
+      "r2",
+      (view) => {
+        latest = view;
+      },
+      { olderPageSize: 3, withEarlierRuns: true },
+    );
+    engine.emit(CloudTaskEvent.Update, {
+      taskId: "t1",
+      runId: "r2",
+      kind: "snapshot",
+      newEntries: [entry("b0"), entry("b1")],
+      totalEntryCount: 2,
+    });
+    await vi.waitFor(() => expect(latest.windowStart).toBe(5));
+
+    await run.loadOlder();
+    expect(ids(latest)).toEqual(["a2", "a3", "a4", "b0", "b1"]);
+    expect(latest.windowStart).toBe(2);
+
+    await run.loadOlder();
+    expect(ids(latest)).toEqual(["a0", "a1", "a2", "a3", "a4", "b0", "b1"]);
+    expect(latest.windowStart).toBe(0);
+    run.stop();
+  });
+
   it("shows a prefetched tail as soon as a run is opened", async () => {
     const { runs } = setup(logOf(500));
     await runs.prefetch("t1", "r1", 300);
