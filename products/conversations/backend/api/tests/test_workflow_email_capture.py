@@ -85,7 +85,7 @@ class TestWorkflowEmailCapture(BaseTest):
             config={"verified": True, "email": "sender@example.com", "domain": "example.com"},
         )
         self.account = self.create_account(known_emails=["customer@example.com"])
-        self.url = f"/api/projects/{self.team.id}/internal/conversations/workflow-emails"
+        self.url = f"/api/projects/{self.team.id}/internal/conversations/workflow_emails"
         self.payload = {
             "source_id": "invocation-1",
             "provider_message_id": "010001-fake-000000",
