@@ -356,6 +356,7 @@ the row lists both.
 | g2                               | HTTP                        | requests                                                        | ✅                          |
 | gainsight_cs                     | HTTP                        | requests                                                        | ✅                          |
 | gainsight_px                     | HTTP                        | requests                                                        | ✅                          |
+| gcore                            | HTTP                        | requests                                                        | ✅                          |
 | genesys_cloud                    | HTTP                        | requests                                                        | ✅                          |
 | gerrit                           | HTTP                        | requests                                                        | ✅                          |
 | getdx                            | HTTP                        | requests                                                        | ✅                          |
@@ -392,6 +393,7 @@ the row lists both.
 | gumroad                          | HTTP                        | requests                                                        | ✅                          |
 | guru                             | HTTP                        | requests                                                        | ✅                          |
 | gusto                            | HTTP                        | requests                                                        | ✅                          |
+| harness                          | HTTP                        | requests                                                        | ✅                          |
 | harvest                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | harvey                           | HTTP                        | requests                                                        | ✅                          |
 | hatchet                          | HTTP                        | requests                                                        | ✅                          |
@@ -424,6 +426,7 @@ the row lists both.
 | imagga                           | HTTP                        | requests                                                        | ✅                          |
 | impact                           | HTTP                        | requests                                                        | ✅                          |
 | impact_partner                   | HTTP                        | requests                                                        | ✅                          |
+| imperva                          | HTTP                        | requests                                                        | ✅                          |
 | incident_io                      | HTTP                        | requests                                                        | ✅                          |
 | infisical                        | HTTP                        | requests                                                        | ✅                          |
 | inflowinventory                  | HTTP                        | requests                                                        | ✅                          |
@@ -465,6 +468,7 @@ the row lists both.
 | knock                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | knowbe4                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | kommo                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| komodor                          | HTTP                        | requests                                                        | ✅                          |
 | koyeb                            | HTTP                        | requests                                                        | ✅                          |
 | kong_konnect                     | HTTP                        | requests                                                        | ✅                          |
 | kubecost                         | HTTP                        | requests                                                        | ✅                          |
@@ -569,6 +573,7 @@ the row lists both.
 | omnisend                         | HTTP                        | requests                                                        | ✅                          |
 | octopus_deploy                   | HTTP                        | requests                                                        | ✅                          |
 | oncehub                          | HTTP                        | requests                                                        | ✅                          |
+| onehundredms                     | HTTP                        | requests                                                        | ✅                          |
 | onepagecrm                       | HTTP                        | requests                                                        | ✅                          |
 | onepassword                      | HTTP (cursor pagination)    | requests                                                        | ✅                          |
 | onfleet                          | HTTP (cursor pagination)    | requests                                                        | ✅                          |
@@ -751,6 +756,7 @@ the row lists both.
 | snowflake                        | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | snowplow                         | HTTP                        | requests                                                        | ✅                          |
 | snyk                             | HTTP                        | requests                                                        | ✅                          |
+| soda_cloud                       | HTTP                        | requests                                                        | ✅                          |
 | solarwinds_service_desk          | HTTP                        | requests                                                        | ✅                          |
 | sonar_cloud                      | HTTP                        | requests                                                        | ✅                          |
 | sonarqube                        | HTTP                        | requests                                                        | ✅                          |
@@ -1119,7 +1125,6 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - freshservice
 - fulcrum
-- gcore
 - gcp_apigee
 - gcp_artifact_registry
 - gcp_bigtable
@@ -1174,7 +1179,6 @@ doesn't conflict with concurrent PRs.
 - greythr
 - guesty
 - gumloop
-- harness
 - harness_ccm
 - harness_sei
 - harvey
@@ -1194,7 +1198,6 @@ doesn't conflict with concurrent PRs.
 - ikas
 - illumina_basespace
 - imf_data
-- imperva
 - influxdb_cloud
 - infor_nexus
 - insightful
@@ -1216,7 +1219,6 @@ doesn't conflict with concurrent PRs.
 - kion
 - kissmetrics
 - klarna
-- komodor
 - koyeb
 - kyve
 - labelbox
@@ -1293,7 +1295,6 @@ doesn't conflict with concurrent PRs.
 - odoo
 - oecd
 - onedrive
-- onehundredms
 - oneleet
 - onelogin
 - onesignal
@@ -1416,7 +1417,6 @@ doesn't conflict with concurrent PRs.
 - smokeball
 - snovio
 - socialpilot
-- soda_cloud
 - solarwinds_service_desk
 - sonar_cloud
 - sonatype_nexus
