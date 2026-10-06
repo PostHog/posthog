@@ -131,7 +131,7 @@ from products.customer_analytics.backend.facade.contracts import PinnedAccountPr
 from products.customer_analytics.backend.facade.enums import ACCOUNT_PROPERTY_PIN_KIND_CHOICES
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_usage_tab_flag_evaluations_mode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
 from products.logs.backend.models import TeamLogsConfig
@@ -1524,7 +1524,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Team) -> int:
-        return get_usage_tab_flag_evaluations_mode(obj.organization_id)
+        return get_flag_evaluations_read_mode(obj.organization_id)
 
     @extend_schema_field(
         serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))

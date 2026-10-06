@@ -33,6 +33,8 @@ const SOURCES = [
                 id: `example-${name}`,
                 name,
                 should_sync: true,
+                sync_frequency: '24hour',
+                last_synced_at: '2025-02-14T12:00:00Z',
                 status: 'Completed',
                 table: { name: `example_${name}`, hogql_name: `example.${name}` },
             })
@@ -48,6 +50,8 @@ const SOURCES = [
             id: `example-bing-${name}`,
             name,
             should_sync: true,
+            sync_frequency: '24hour',
+            last_synced_at: '2025-02-14T12:00:00Z',
             status: 'Completed',
             table: { name: `example_bing_${name}`, hogql_name: `example.bing_${name}` },
         })),
@@ -63,6 +67,8 @@ const SOURCES = [
                 id: `example-organic-${name}`,
                 name,
                 should_sync: true,
+                sync_frequency: '24hour',
+                last_synced_at: '2025-02-14T12:00:00Z',
                 status: 'Completed',
                 table: { name: `example_organic_${name}`, hogql_name: `example.organic_${name}` },
             })
@@ -242,6 +248,7 @@ const meta: Meta<typeof SearchPerformanceTab> = {
     ],
     parameters: {
         layout: 'fullscreen',
+        mockDate: '2025-02-15T12:00:00Z',
         msw: { mocks: MOCKS },
         pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&date_from=-7d`,
         featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
@@ -329,7 +336,7 @@ export const AwaitingSync: Story = {
                     '/api/environments/:team_id/external_data_sources/': {
                         results: SOURCES.map((source) => ({
                             ...source,
-                            schemas: source.schemas.map((schema) => ({ ...schema, table: null })),
+                            schemas: source.schemas.map((schema) => ({ ...schema, table: null, last_synced_at: null })),
                         })),
                         count: SOURCES.length,
                         next: null,
@@ -339,6 +346,72 @@ export const AwaitingSync: Story = {
             },
         },
     },
+}
+export const StaleAggregate: Story = {
+    parameters: {
+        ...Comparison.parameters,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/external_data_sources/': {
+                        results: SOURCES.map((source) => ({
+                            ...source,
+                            schemas: source.schemas.map((schema) => ({
+                                ...schema,
+                                last_synced_at:
+                                    schema.name === 'search_analytics_by_query'
+                                        ? '2025-02-01T12:00:00Z'
+                                        : schema.last_synced_at,
+                            })),
+                        })),
+                        count: SOURCES.length,
+                        next: null,
+                        previous: null,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText(/Showing query-and-page data instead/)).toBeVisible()
+        await expect(await canvas.findByText('1,240')).toBeVisible()
+    },
+}
+export const UnavailableSources: Story = {
+    parameters: {
+        ...Comparison.parameters,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/external_data_sources/': {
+                        results: SOURCES.map((source) => ({
+                            ...source,
+                            schemas: source.schemas.map((schema) => ({
+                                ...schema,
+                                should_sync: source.source_type !== 'GoogleAds',
+                                last_synced_at: source.source_type === 'BingAds' ? null : '2025-02-01T12:00:00Z',
+                            })),
+                        })),
+                        count: SOURCES.length,
+                        next: null,
+                        previous: null,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText(/Enable keyword and keyword_stats/)).toBeVisible()
+        await expect(await canvas.findByText(/Waiting for the first sync/)).toBeVisible()
+        await expect(await canvas.findByText(/out of date/)).toBeVisible()
+        expect(canvas.queryByRole('table')).toBeNull()
+    },
+}
+export const UnavailableSourcesNarrow: Story = {
+    ...UnavailableSources,
+    decorators: Narrow.decorators,
 }
 export const OnlyGoogleAds: Story = {
     parameters: {

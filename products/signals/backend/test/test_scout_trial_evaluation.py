@@ -98,6 +98,7 @@ WORKFLOW_MODULE = "products.signals.backend.temporal.agentic.scout_trial_evaluat
 @override_settings(
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
     AI_GATEWAY_URL="https://gateway.example/v1",
+    AI_GATEWAY_API_KEY="phs_synthetic_api_key",
     SANDBOX_AI_GATEWAY_URL="https://gateway.example",
     SANDBOX_AI_GATEWAY_MINT_KEY="phs_synthetic_mint_key",
 )
@@ -156,6 +157,7 @@ class TestScoutTrialEvaluationValidation(SimpleTestCase):
 @override_settings(
     SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
     AI_GATEWAY_URL="https://gateway.example/v1",
+    AI_GATEWAY_API_KEY="phs_synthetic_api_key",
     SANDBOX_AI_GATEWAY_URL="https://gateway.example",
     SANDBOX_AI_GATEWAY_MINT_KEY="phs_synthetic_mint_key",
 )

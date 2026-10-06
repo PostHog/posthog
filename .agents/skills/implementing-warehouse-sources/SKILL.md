@@ -900,6 +900,7 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `hog
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
 - Source won't connect despite a valid token: `validate_credentials(schema_name=None)` probes every resource's scope instead of just the token, so one missing scope — often on a table the user won't sync — blocks the whole source. Probe only the token at create; report per-table scope via `get_endpoint_permissions`.
 - Resumable state never saved: forgot to call `save_state`; or called `commit()` on a cursor that covers rows the pipeline has not written yet, which skips them on resume.
+- Resumable state saved after the `yield` it covers: a hand-off loses the state of the last batch, so the next attempt reads that batch again. `posthog/test/repo_invariants/test_resume_state_staged_before_yield.py` fails on a new generator that does this in a loop. Its baseline lists the existing ones and may only get shorter.
 - A deploy waits hours on a resumable source: it pages through responses with no rows and never calls `manager.safe_point()`, so it never sees the worker shutdown.
 - Webhook rows not landing: schema `is_webhook=False`, or `initial_sync_complete=False`.
 - Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).

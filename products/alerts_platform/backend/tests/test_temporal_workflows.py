@@ -57,7 +57,10 @@ from products.alerts_platform.backend.facade.temporal import (
 )
 from products.alerts_platform.backend.logic import demand
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
-from products.alerts_platform.backend.temporal import postgres
+from products.alerts_platform.backend.temporal import (
+    postgres,
+    workflows as alert_workflows,
+)
 from products.alerts_platform.backend.temporal.workflows import (
     THREAD_BUSY,
     AlertsPlatformEvaluateWorkflow,
@@ -368,9 +371,14 @@ async def test_delivery_waits_out_a_held_thread_and_fails_when_it_never_frees(
 
 @pytest.mark.parametrize("timeout_type", [TimeoutType.START_TO_CLOSE, TimeoutType.SCHEDULE_TO_CLOSE])
 async def test_probe_timeout_still_starts_independent_delivery(
-    environment: WorkflowEnvironment, caplog: pytest.LogCaptureFixture, timeout_type: TimeoutType
+    environment: WorkflowEnvironment,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    timeout_type: TimeoutType,
 ) -> None:
     caplog.set_level(logging.WARNING, logger="temporalio.workflow")
+    monkeypatch.setattr(alert_workflows, "POSTGRES_PROBE_START_TO_CLOSE_TIMEOUT", dt.timedelta(seconds=5))
+    monkeypatch.setattr(alert_workflows, "POSTGRES_PROBE_SCHEDULE_TO_CLOSE_TIMEOUT", dt.timedelta(seconds=15))
     activity_started = asyncio.Event()
     release_activity = asyncio.Event()
 
@@ -401,7 +409,7 @@ async def test_probe_timeout_still_starts_independent_delivery(
                 pass
         if timeout_type == TimeoutType.SCHEDULE_TO_CLOSE:
             # Separate the close deadlines instead of racing schedule-to-start at the same deadline.
-            await environment.sleep(25)
+            await environment.sleep(12)
         async with Worker(
             client,
             task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,

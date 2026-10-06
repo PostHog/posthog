@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import datetime as dt
 import contextvars
 from typing import Any
@@ -10,8 +11,10 @@ from django.db import InterfaceError, InternalError, OperationalError
 
 import psycopg.errors
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.exceptions_capture import ambient_exception_properties
+from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -21,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionBudgetExceededError,
     RepartitionSchemePersistError,
+    RepartitionStoppedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
@@ -336,6 +340,62 @@ class TestBudgetExhaustion:
         emitted = [c.args[0] for c in mock_capture_event.call_args_list]
         assert "warehouse_repartition_failed" not in emitted
         assert "warehouse_repartition_skipped" in emitted
+
+    @parameterized.expand([("first_attempt", 0), ("last_attempt_before_give_up", 2)])
+    @patch(f"{MODULE}.capture_exception")
+    @patch(f"{MODULE}.capture_repartition_event")
+    @patch(f"{MODULE}.HeartbeaterSync")
+    @patch(f"{MODULE}.repartition_table_in_place", new_callable=AsyncMock)
+    @patch(f"{MODULE}.DeltaTableRef")
+    @patch(f"{MODULE}.ExternalDataJob")
+    @patch(f"{MODULE}.ExternalDataSchema")
+    def test_a_worker_shutdown_hands_the_rewrite_off_without_burning_an_attempt(
+        self,
+        _name: str,
+        prior_attempts: int,
+        mock_schema_model: MagicMock,
+        _mock_job_model: MagicMock,
+        _mock_helper_cls: MagicMock,
+        mock_repartition: AsyncMock,
+        _mock_heartbeater: MagicMock,
+        mock_capture_event: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        schema = _schema(
+            name="public.usages",
+            s3_folder_name="usages",
+            pending={**PENDING_TARGET, "attempts": prior_attempts},
+            rewrite={"rows_written": 50_000, "temp_uri": TEMP_URI},
+        )
+        mock_schema_model.objects.select_related.return_value.get.return_value = schema
+
+        async def rewrite_until_asked_to_stop(*, should_stop: Any, **_kwargs: Any) -> dict[str, Any]:
+            async with asyncio.timeout(10):
+                while not should_stop():
+                    await asyncio.sleep(0.01)
+            raise RepartitionStoppedError("stopped", rows_written=180_000)
+
+        mock_repartition.side_effect = rewrite_until_asked_to_stop
+        environment = ActivityEnvironment()
+        environment.worker_shutdown()
+
+        with pytest.raises(WorkerShuttingDownError):
+            environment.run(
+                _maybe_repartition_table,
+                RepartitionActivityInputs(team_id=TEAM_ID, schema_id=SCHEMA_ID, job_id=JOB_ID, source_id=SOURCE_ID),
+                MagicMock(),
+            )
+
+        # The charge is released, so the retry that continues the rewrite is not judged as the retry
+        # of a killed attempt, and the cap counts only the attempts that failed.
+        assert schema.repartition_pending["attempts"] == prior_attempts
+        assert schema.repartition_pending["charged_job_id"] is None
+        schema.clear_repartition_pending.assert_not_called()
+        schema.clear_repartition_rewrite.assert_not_called()
+        schema.stamp_last_repartition_at.assert_not_called()
+        emitted = [c.args[0] for c in mock_capture_event.call_args_list]
+        assert "warehouse_repartition_failed" not in emitted
+        mock_capture_exception.assert_not_called()
 
     @patch(f"{MODULE}.capture_exception")
     @patch(f"{MODULE}.capture_repartition_event")

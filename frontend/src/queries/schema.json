@@ -2924,6 +2924,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "session",
                 "hogql",
                 "cohort",
@@ -6155,6 +6156,9 @@
                     },
                     "type": "array"
                 },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
                 "dateField": {
                     "anyOf": [
                         {
@@ -6764,6 +6768,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "group",
                 "session",
                 "hogql",
@@ -29387,6 +29392,10 @@
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
                 },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}."
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -30973,6 +30982,7 @@
                 "customerio-webhook",
                 "customerio-track",
                 "apns",
+                "apple-ads",
                 "postgresql",
                 "aws-s3",
                 "aws-redshift",
@@ -39117,15 +39127,11 @@
                     "type": "string"
                 },
                 "interval": {
-                    "description": "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.",
+                    "description": "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15, minute_30, hour, hour_6, day, week; auto-picked from the range when omitted. Coarsened when the range would need more than 10,000 buckets.",
                     "type": "string"
                 },
                 "kind": {
                     "const": "MetricsQuery",
-                    "type": "string"
-                },
-                "minInterval": {
-                    "description": "Finest bucket size the query may use, from the same set as `interval`; raises a finer interval or auto pick",
                     "type": "string"
                 },
                 "modifiers": {
@@ -39613,6 +39619,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "group",
                 "session",
                 "hogql",

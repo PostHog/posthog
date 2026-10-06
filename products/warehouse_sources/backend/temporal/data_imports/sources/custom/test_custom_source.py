@@ -2792,14 +2792,13 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         assert result.row_count == PREVIEW_MAX_ROWS
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
-    def test_engine_manifest_is_single_page_incremental_stripped_session_injected(self, mock_resources):
+    def test_engine_manifest_is_single_page_resource_incremental_stripped_session_injected(self, mock_resources):
         mock_resources.return_value = [_PageResource("users", [[]])]
         manifest = _minimal_manifest()
+        # Default endpoint incrementals are invalid; their rejection is covered by
+        # test_incremental_in_resource_defaults_rejected.
         manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
         manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
-        manifest["resource_defaults"] = {
-            "endpoint": {"incremental": {"cursor_path": "id", "start_param": "after", "cursor_type": "integer"}}
-        }
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
         source.preview_resource(config, team_id=999, resource_name="users")
@@ -2808,7 +2807,6 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         endpoint = engine_manifest["resources"][0]["endpoint"]
         assert endpoint["paginator"] == {"type": "single_page"}
         assert "incremental" not in endpoint
-        assert "incremental" not in engine_manifest["resource_defaults"]["endpoint"]
         assert isinstance(engine_manifest["client"]["session"], _PreviewSession)
         assert engine_manifest["client"]["max_retries"] == 1
         assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] is None

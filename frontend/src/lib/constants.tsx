@@ -350,6 +350,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_EARLY_EXIT: 'feature-flag-early-exit', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_NOTIFICATIONS: 'feature-flag-notifications', // owner: @reecejones #team-platform-features
     FEATURE_FLAG_REQUEST_USAGE: 'feature-flag-request-usage', // owner: #team-feature-flags
+    FEATURE_FLAG_RULES_V2_EDITOR: 'feature-flag-rules-v2-editor', // owner: @andehen #team-feature-flags, entry points of the rules v2 flag editor
     FIELD_NOTES: 'field-notes', // owner: @adamleithp
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
@@ -758,6 +759,8 @@ export const LOGS_ALERT_FIRING_EVENT_ID = '$logs_alert_firing'
 export const LOGS_ALERT_RESOLVED_EVENT_ID = '$logs_alert_resolved'
 export const LOGS_ALERT_AUTO_DISABLED_EVENT_ID = '$logs_alert_auto_disabled'
 export const LOGS_ALERT_ERRORED_EVENT_ID = '$logs_alert_errored'
+export const LOGS_ALERT_INCIDENT_OPENED_EVENT_ID = '$logs_alert_incident_opened'
+export const LOGS_ALERT_INCIDENT_CLOSED_EVENT_ID = '$logs_alert_incident_closed'
 
 export const COHORT_PERSONS_QUERY_LIMIT = 10000
 

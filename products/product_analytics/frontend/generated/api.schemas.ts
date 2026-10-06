@@ -239,6 +239,7 @@ export const BreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -253,6 +254,7 @@ export const MultipleBreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -4355,6 +4357,7 @@ export const IntegrationKindApi = {
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
     Apns: 'apns',
+    AppleAds: 'apple-ads',
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
     AwsRedshift: 'aws-redshift',
@@ -5832,6 +5835,8 @@ export interface PathsV2ActorsQueryApi {
 export interface HogQLFiltersApi {
     /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
     breakdownFilter?: BreakdownFilterApi | null
+    /** Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}. */
+    compareFilter?: CompareFilterApi | null
     dateRange?: DateRangeApi | null
     filterTestAccounts?: boolean | null
     /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
@@ -8395,6 +8400,7 @@ export interface BIValueApi {
 export interface BIConfigApi {
     chartType: ChartDisplayTypeApi
     columns: BIFieldApi[]
+    compareFilter?: CompareFilterApi | null
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIFieldApi | null
     dateRange?: DateRangeApi | null

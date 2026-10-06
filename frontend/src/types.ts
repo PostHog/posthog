@@ -3146,6 +3146,7 @@ export type BreakdownType =
     | 'person'
     | 'event'
     | 'event_metadata'
+    | 'element'
     | 'group'
     | 'session'
     | 'hogql'
@@ -4541,6 +4542,15 @@ export interface FeatureFlagUnsupportedConfig extends WithoutFeatureFlagFiltersK
     aggregation_group_type_index?: never
 }
 
+/** A rule while the editor drafts it: a new rule has no `id` until the server assigns one, and no draft holds a `seed`. */
+export type FeatureFlagRulesV2DraftRule =
+    | (Omit<FeatureFlagRulesV2TargetedReleaseRule, 'id'> & { id?: string })
+    | (Omit<FeatureFlagRulesV2PercentageRolloutRule, 'id' | 'seed'> & { id?: string })
+
+export interface FeatureFlagRulesV2DraftConfig extends Omit<FeatureFlagRulesV2Config, 'rules'> {
+    rules: FeatureFlagRulesV2DraftRule[]
+}
+
 /** What the API stores under a flag's `filters`, discriminated by `version` (absent means 1). */
 export type FeatureFlagConfig = FeatureFlagFilters | FeatureFlagRulesV2Config | FeatureFlagUnsupportedConfig
 
@@ -5713,6 +5723,7 @@ export const INTEGRATION_KINDS = [
     'customerio-webhook',
     'customerio-track',
     'apns',
+    'apple-ads',
     'postgresql',
     'aws-s3',
     'aws-redshift',

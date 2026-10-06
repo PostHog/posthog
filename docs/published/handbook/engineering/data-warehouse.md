@@ -6,6 +6,16 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
+## Model namespace reservation
+
+The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
+
+Existing reserved-name rows remain queryable, editable, and deletable. Model validation enforces the reservation on creation and renaming, during saves and `full_clean()`. Authored models can use private materialization backing tables with their model names.
+
+Direct-connection catalogs contain no authored models and are exempt from the reservation. Upstream tables and schemas named `models` remain available there, including case variants resolved by Snowflake and Trino.
+
+This reservation does not add qualified names to existing models or require a namespace on new models.
+
 ## SQL editor drafts
 
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
@@ -28,9 +38,17 @@ Older saves containing only SQL still open in the SQL editor. Their original she
 
 The worksheet date picker supports rolling windows, fixed ranges, this/last month and quarter, and year to date. **Date** selects the column that receives dashboard date ranges; **No date column** explicitly opts out. A dashboard range replaces the worksheet range. Dashboard property filters combine with worksheet conditions. Event-based tables retain standard PostHog property filtering with any date-column selection, using `{filters.native(date_expression)}` or `{filters.native(null)}` when overriding the default date column. Other tables bind dashboard property keys to worksheet fields, including the property key in a field such as `properties.plan`. Unmapped or ambiguous property keys produce a query error instead of silently applying the wrong filter. Reopen and save older BI worksheets to update their generated SQL with dashboard-aware placeholders.
 
+The comparison picker adds the previous period or a custom offset, including one year earlier. Tables, bar, line, and area charts support comparisons with up to two dimensions. Previous-period dates align to the current axis, and the legend identifies each period. Both periods use the effective dashboard date range and property filters. Comparisons require a bounded range and turn off when the worksheet switches to all time or an unsupported chart.
+
+Generated comparison queries use `{filters.previous}` (or its column-bound form) for the comparison range and `{filters.compareDate(expr)}` to align date dimensions. Custom native date columns use `{filters.previous.native(expr)}`. Month, quarter, and year dimensions pass their bucket as a second argument to `compareDate`, so month lengths and leap years do not move points into the wrong bucket. `HogQLFilters.compareFilter` supplies the comparison offset; missing offsets use the previous period.
+
 Use the table picker in the data pane to browse PostHog, warehouse, view, and system tables, with direct-connection tables grouped by schema.
 The selected table is highlighted; expanding a folder does not select it.
 Direct connections group tables by schema. Search matches table and folder names without changing the sidebar search.
+
+**Related tables** exposes existing lazy joins, virtual tables, and configured warehouse joins as expandable nodes. Fields reached through a relation keep the original source and a qualified path, so adding a customer's field to a charges worksheet does not switch tables. PostHog property fields, including `person.properties` under events, expand into searchable, paginated property definitions. Numeric definitions become measures; other definitions become dimensions. Restricted and hidden properties are excluded. Warehouse relationships use the existing join configuration; the worksheet does not create joins or infer arbitrary JSON keys.
+
+**Search fields** also searches property definitions in the selected table and expanded related tables. Search for `$browser`, `$pathname`, or a custom property name to open matching property groups, then drag or double-click a property onto a shelf. Clearing the search restores each group's previous expansion and local search. Searching for a group's name, such as `properties`, shows all its definitions.
 
 ## Calculated measures in BI mode
 
