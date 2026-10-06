@@ -454,8 +454,6 @@ describe('PersonHogPersonRepository', () => {
 
             const result = await repo.updatePerson(TEST_PERSON, {
                 properties: {},
-                properties_last_updated_at: {},
-                properties_last_operation: null,
                 is_identified: true,
                 created_at: CREATED_AT,
             })

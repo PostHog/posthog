@@ -343,6 +343,48 @@ describe('PostgresPersonRepository', () => {
 
         it.each([
             [
+                'updatePersonsBatch',
+                (update: ReturnType<typeof buildPersonUpdate>) => repository.updatePersonsBatch([update]),
+            ],
+            [
+                'updatePersonAssertVersion',
+                (update: ReturnType<typeof buildPersonUpdate>) => repository.updatePersonAssertVersion(update),
+            ],
+        ])('%s leaves properties_last_updated_at and properties_last_operation as created', async (_tag, run) => {
+            const lastUpdatedAt = { name: '2024-01-16T10:30:00.000Z' }
+            const lastOperation = { name: PropertyUpdateOperation.Set }
+            const created = await repository.createPerson(
+                TIMESTAMP,
+                { name: 'Jane' },
+                lastUpdatedAt,
+                lastOperation,
+                team.id,
+                null,
+                true,
+                new UUIDT().toString(),
+                { distinctId: 'legacy-columns-did' }
+            )
+            if (!created.success) {
+                throw new Error('Failed to create person')
+            }
+
+            // buildPersonUpdate carries {} for both columns, so a write-back would be visible
+            await run(buildPersonUpdate(created.person, 'legacy-columns-did', created.person.version))
+
+            const { rows } = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT properties_last_updated_at, properties_last_operation FROM posthog_person WHERE team_id = $1 AND id = $2',
+                [team.id, created.person.id],
+                'fetchLegacyColumns'
+            )
+            expect(rows[0]).toEqual({
+                properties_last_updated_at: lastUpdatedAt,
+                properties_last_operation: lastOperation,
+            })
+        })
+
+        it.each([
+            [
                 'fetchPersonsByDistinctIds',
                 (_person: InternalPerson) =>
                     repository.fetchPersonsByDistinctIds([{ teamId: team.id, distinctId: 'pruning-person' }]),
@@ -3035,38 +3077,21 @@ describe('PostgresPersonRepository', () => {
 
             const update = {
                 properties: { name: 'Bob Updated', city: 'San Francisco', data: 'x'.repeat(1000) },
-                properties_last_updated_at: { name: '2024-01-16T10:30:00.000Z', city: '2024-01-16T10:30:00.000Z' },
-                properties_last_operation: { name: PropertyUpdateOperation.Set, city: PropertyUpdateOperation.Set },
             }
 
             // Pre-serialize to calculate expected sizes
             const expectedPropertiesSize = JSON.stringify(update.properties).length
-            const expectedPropertiesLastUpdatedAtSize = JSON.stringify(update.properties_last_updated_at).length
-            const expectedPropertiesLastOperationSize = JSON.stringify(update.properties_last_operation).length
 
             await repository.updatePerson(person, createPersonUpdateFields(person, update))
 
-            // Verify metrics were recorded for all updated fields (3 calls total)
-            expect(observeCalls).toHaveLength(3)
+            // properties is the only JSON field an update writes
+            expect(observeCalls).toHaveLength(1)
 
-            // Verify each field was recorded with exact size
             const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
-            const propertiesLastUpdatedAtCall = observeCalls.find(
-                (c) => c.labels.field === 'properties_last_updated_at'
-            )
-            const propertiesLastOperationCall = observeCalls.find((c) => c.labels.field === 'properties_last_operation')
 
             expect(propertiesCall).toBeDefined()
             expect(propertiesCall!.labels.operation).toBe('updatePerson')
             expect(propertiesCall!.value).toBe(expectedPropertiesSize)
-
-            expect(propertiesLastUpdatedAtCall).toBeDefined()
-            expect(propertiesLastUpdatedAtCall!.labels.operation).toBe('updatePerson')
-            expect(propertiesLastUpdatedAtCall!.value).toBe(expectedPropertiesLastUpdatedAtSize)
-
-            expect(propertiesLastOperationCall).toBeDefined()
-            expect(propertiesLastOperationCall!.labels.operation).toBe('updatePerson')
-            expect(propertiesLastOperationCall!.value).toBe(expectedPropertiesLastOperationSize)
         })
 
         it('should only track metrics for fields being updated', async () => {
@@ -3084,8 +3109,7 @@ describe('PostgresPersonRepository', () => {
 
             await repository.updatePerson(person, createPersonUpdateFields(person, update))
 
-            // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
-            expect(observeCalls).toHaveLength(3)
+            expect(observeCalls).toHaveLength(1)
 
             const propertiesCall = observeCalls.find((c) => c.labels.field === 'properties')
             expect(propertiesCall).toBeDefined()
@@ -3149,9 +3173,8 @@ describe('PostgresPersonRepository', () => {
 
             await repository.updatePerson(person, createPersonUpdateFields(person, update))
 
-            // Since we always pass all fields for consistent query plans, all 3 JSONB fields are tracked
-            // even though the values haven't changed from the person object
-            expect(observeCalls).toHaveLength(3)
+            // properties is always passed for a consistent query plan, so its size is tracked even when unchanged
+            expect(observeCalls).toHaveLength(1)
         })
     })
 
