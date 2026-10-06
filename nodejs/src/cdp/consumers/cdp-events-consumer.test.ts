@@ -606,7 +606,7 @@ describe('CdpEventsConsumer', () => {
                 hub.CDP_DLQ_ENABLED = true
             })
 
-            it('parks an event whose filter throws, naming only the function that failed', async () => {
+            it('parks each event whose filter throws with its own bytes, naming only the function that failed', async () => {
                 const erroringFunction = await insertHogFunction({
                     ...HOG_EXAMPLES.input_printer,
                     ...HOG_INPUTS_EXAMPLES.secret_inputs,
@@ -617,21 +617,27 @@ describe('CdpEventsConsumer', () => {
                     ...HOG_INPUTS_EXAMPLES.simple_fetch,
                     ...HOG_FILTERS_EXAMPLES.no_filters,
                 })
-                const event = createIncomingEvent(team.id, {})
+                const events = [createIncomingEvent(team.id, {}), createIncomingEvent(team.id, {})]
 
-                await handleBatch([createKafkaMessage(event)])
+                await handleBatch(events.map((event, index) => createKafkaMessage(event, { offset: 10 + index })))
 
+                // Two events, so a failure traced back to the wrong message parks the other event's bytes.
                 const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
-                expect(parked).toHaveLength(1)
-                expect(parked[0].value).toMatchObject({ uuid: event.uuid })
-                expect(parked[0].headers).toMatchObject({
-                    dlq_step: 'filter',
-                    dlq_team_id: String(team.id),
-                    dlq_hog_function_ids: erroringFunction.id,
-                    dlq_class: 'drift',
-                })
-                expect(mockQueueInvocations).toHaveBeenCalledWith([
-                    expect.objectContaining({ functionId: healthyFunction.id }),
+                expect(parked).toHaveLength(2)
+                for (const [index, event] of events.entries()) {
+                    const record = parked.find((message) => message.value?.uuid === event.uuid)
+                    expect(record?.headers).toMatchObject({
+                        dlq_step: 'filter',
+                        dlq_team_id: String(team.id),
+                        dlq_offset: String(10 + index),
+                        dlq_hog_function_ids: erroringFunction.id,
+                        dlq_class: 'drift',
+                    })
+                }
+                const queued = mockQueueInvocations.mock.calls.flatMap(([invocations]: [any[]]) => invocations)
+                expect(queued.map((invocation: any) => invocation.functionId)).toEqual([
+                    healthyFunction.id,
+                    healthyFunction.id,
                 ])
             })
 
@@ -806,6 +812,30 @@ describe('CdpEventsConsumer', () => {
                 const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
                 expect(parked).toHaveLength(1)
                 expect(parked[0].headers).toMatchObject({ dlq_step: 'parse', dlq_reason: 'kaboom' })
+            })
+
+            it('fails the batch on a dependency outage while parsing, rather than parking every event', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                const outage: Error & { isRetriable?: boolean } = new Error('Postgres is down')
+                outage.isRetriable = true
+                const lookup = jest
+                    .spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam')
+                    .mockRejectedValue(outage)
+
+                await expect(handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])).rejects.toThrow(
+                    'Postgres is down'
+                )
+
+                // The failed batch never reaches the write, so a failure recorded for it would be
+                // parked by the next batch instead.
+                lookup.mockRestore()
+                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
             })
 
             it('parks nothing when every function builds', async () => {
