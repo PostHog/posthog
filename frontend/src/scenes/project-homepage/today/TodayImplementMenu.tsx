@@ -104,9 +104,7 @@ export function TodayImplementMenu({
                 {AGENTS.map((agent) => (
                     <DropdownMenuItem
                         key={agent.key}
-                        onClick={() =>
-                            sendPrompt(agent.key, (prompt) => window.open(agent.buildDeepLink(prompt), '_blank'))
-                        }
+                        onClick={() => sendPrompt(agent.key, agent.open)}
                         data-attr={`today-report-open-${agent.key}`}
                     >
                         {agent.icon}

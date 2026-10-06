@@ -6,7 +6,7 @@ import { Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
-import { Composer } from 'products/posthog_ai/frontend/api/primitives'
+import { Composer } from 'products/posthog_ai/frontend/api/composer'
 import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import type {
     ImplementationSlotClaim,
