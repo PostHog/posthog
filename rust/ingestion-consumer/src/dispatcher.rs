@@ -218,9 +218,6 @@ impl Dispatcher {
     ) -> Self {
         Self {
             inner: Mutex::new(DispatcherInner {
-                // Under `key_table` the batcher state machine schedules, so
-                // this dispatcher only serves the worker pool and the debug
-                // routing view.
                 scheduler: PinStashScheduler::new(router),
                 in_flight: WorkerLoad::new(),
             }),
