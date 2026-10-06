@@ -7173,9 +7173,23 @@ export namespace Schemas {
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
     }
 
+    export interface HogQLFixEdit {
+      end: number;
+      start: number;
+      text: string;
+    }
+
+    export interface HogQLFixAction {
+      /** Applied together as a single undoable edit. */
+      edits: HogQLFixEdit[];
+      /** Shown as the quick-fix title. */
+      title: string;
+    }
+
     export interface HogQLNotice {
       end?: number | null;
       fix?: string | null;
+      fix_action?: HogQLFixAction | null;
       message: string;
       start?: number | null;
     }
@@ -7263,6 +7277,19 @@ export namespace Schemas {
       type: string;
     }
 
+    export interface UnprunedTableScan {
+      end?: number | null;
+      /** Advice naming a predicate that would bound the partition key. Prose, not replacement text. */
+      fix: string;
+      /** Absent when the query shape has no unambiguous place to write the bound. */
+      fix_action?: HogQLFixAction | null;
+      message: string;
+      /** Partition key the scan does not bound, e.g. `toYYYYMM(timestamp)`. */
+      partition_key: string;
+      start?: number | null;
+      table_name: string;
+    }
+
     export interface HogQLMetadataResponse {
       ch_table_names?: string[] | null;
       errors: HogQLNotice[];
@@ -7275,6 +7302,8 @@ export namespace Schemas {
       output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
       table_names?: string[] | null;
+      /** One entry per table scan with no bound on its partition key. Empty when every scan is bounded. */
+      unpruned_scans?: UnprunedTableScan[] | null;
       warnings: HogQLNotice[];
     }
 
@@ -87063,10 +87092,10 @@ export namespace Schemas {
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
-      /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
-      output_columns?: HogQLMetadataColumn[] | null;
       query?: string | null;
       table_names?: string[] | null;
+      /** One entry per table scan with no bound on its partition key. Empty when every scan is bounded. */
+      unpruned_scans?: UnprunedTableScan[] | null;
       warnings: HogQLNotice[];
     }
 
