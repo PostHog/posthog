@@ -133,11 +133,18 @@ const ROOTS = [
         forbidden: [],
     },
     {
-        root: 'src/scenes/project-homepage/ProjectHomepage.tsx',
-        label: 'project home scene',
-        // 2026-10-01: 14.94 MiB (5579 files), linked stylesheet included. ~10% headroom.
-        budgetBytes: 17_240_000,
-        forbidden: [],
+        root: [
+            AUTHENTICATED_SHELL,
+            'src/scenes/project-homepage/ProjectHomepage.tsx',
+            'src/scenes/project-homepage/today/TodayHome.tsx',
+        ],
+        label: 'today home path',
+        budgetBytes: 9_000_000,
+        forbidden: [
+            'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
+            'src/scenes/project-homepage/today/TodayReportPage.tsx',
+            'src/queries/Query/Query.tsx',
+        ],
     },
     {
         root: 'src/scenes/activity/explore/EventsScene.tsx',
@@ -442,7 +449,7 @@ for (const { root: rootSpec, label, budgetBytes, forbidden } of ROOTS) {
         files: eagerBytesByFile.size,
         budgetBytes,
         overBudget,
-        forbidden,
+        forbidden: forbidden.map(forbiddenPattern),
         forbiddenHits,
         largest: largest.map(([f, b]) => ({ file: f, bytes: b })),
     })

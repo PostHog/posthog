@@ -150,9 +150,13 @@ tools:
             idempotent: true
         title: Lift a visual review quarantine
         description: >
-            Lift every active quarantine on one identifier and run type, so the snapshot gates runs again. Lift one
-            after the fix that stabilizes the story merges, or when its flakiness entry has `needs_decision`. If the
-            story still flakes, the next pull request that renders it fails.
+            Lift every active quarantine on one identifier and run type. The lift is scoped to the current
+            default-branch commit: a run whose commit contains it gates the snapshot again, and a branch that forked
+            earlier keeps the quarantine for up to 30 days or until it merges the default branch. Lift one after the fix
+            that stabilizes the story merges, or when its flakiness entry has `needs_decision`. If the story still
+            flakes, the next pull request that contains the lift and renders it fails. On `503 lift_commit_unknown`
+            GitHub could not name the default-branch head, so the quarantine stays: retry later. On `429 rate_limited`,
+            wait for `Retry-After`.
         param_overrides:
             id:
                 description: The repo's UUID, from `visual-review-repos-list`.

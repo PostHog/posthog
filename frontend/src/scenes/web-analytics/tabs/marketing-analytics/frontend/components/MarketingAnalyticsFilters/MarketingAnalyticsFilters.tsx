@@ -11,7 +11,8 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -27,7 +28,10 @@ import { ConversionGoalModal } from './ConversionGoalModal'
 import { IntegrationFilter } from './IntegrationFilter'
 
 export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
-    const { compareFilter, dateFilter, shouldFilterTestAccounts, optionsOpen } = useValues(marketingAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { compareFilter, dateFilter, shouldFilterTestAccounts, optionsOpen, isAdPerformance } =
+        useValues(marketingAnalyticsLogic)
+    const showSearch = isAdPerformance && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
     const { currentTeamLoading } = useValues(teamLogic)
     const { setCompareFilter, setDates, updateFilterTestAccounts, setOptionsOpen } = useActions(marketingAnalyticsLogic)
     // The setting lives on the project, so flipping it changes what everyone sees.
@@ -40,9 +44,9 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
             <FilterBar
                 top={tabs}
-                className="[&>div]:flex-wrap"
+                className="[&>div]:flex-wrap [&>div>div]:max-w-full [&>div>div>div]:min-w-0 [&>div>div>div>div]:max-w-full"
                 left={
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0 max-w-full">
                         <DateFilter
                             allowTimePrecision
                             dateFrom={dateFilter.dateFrom}
@@ -59,6 +63,7 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                             <ReloadAll />
                         </Shortcut>
                         <ConversionGoalFilterButton />
+                        {showSearch && <IntegrationFilter />}
                     </div>
                 }
                 right={
@@ -89,12 +94,14 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                                             updateCompareFilter={setCompareFilter}
                                         />
                                     </div>
-                                    <div>
-                                        <div className="text-muted mb-2 text-xs font-semibold uppercase">
-                                            Integrations
+                                    {!showSearch && (
+                                        <div>
+                                            <div className="text-muted mb-2 text-xs font-semibold uppercase">
+                                                Integrations
+                                            </div>
+                                            <IntegrationFilter />
                                         </div>
-                                        <IntegrationFilter />
-                                    </div>
+                                    )}
                                     <LemonDivider className="my-0" />
                                     {/* Only the event side honors this: ad spend comes from the platforms. */}
                                     <TestAccountFilterSwitch

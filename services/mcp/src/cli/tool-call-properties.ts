@@ -1,6 +1,9 @@
 import { MCPToolResultError } from '@/lib/errors'
+import { AnalyticsEvent } from '@/lib/posthog/analytics'
+import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { ExecInnerCallProperties } from '@/tools/exec'
 import { getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
+import type { Context } from '@/tools/types'
 
 /**
  * `$mcp_tool_call` properties for the CLI. Value-free by design: raw error
@@ -30,6 +33,22 @@ export function buildToolCallProperties(
             ? { error_status: properties.error_status, $mcp_error_status: properties.error_status }
             : {}),
     }
+}
+
+/**
+ * Records one inner `exec` call as `$mcp_tool_call`. An operator key is an ordinary key, so the
+ * scout trial launch and result calls are dropped here. The hosted server drops them too, because
+ * comparison activity must stay out of scout-readable analytics.
+ */
+export function trackCliToolCall(
+    context: Pick<Context, 'trackEvent'>,
+    toolName: string,
+    properties: ExecInnerCallProperties
+): void {
+    if (isPrivateScoutTrialTool(toolName)) {
+        return
+    }
+    void context.trackEvent(AnalyticsEvent.MCP_TOOL_CALL, buildToolCallProperties(toolName, properties))
 }
 
 function errorClass(properties: ExecInnerCallProperties): 'validation_error' | 'api_error' | 'error' {
