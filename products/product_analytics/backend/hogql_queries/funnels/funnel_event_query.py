@@ -477,8 +477,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         elif breakdownType == "session":
             return get_breakdown_expr(breakdown, "session")
         elif breakdownType == "element":
-            assert isinstance(breakdown, list)
-            return ast.Array(exprs=[element_property_key_to_breakdown_expr(str(value)) for value in breakdown])
+            values = breakdown if isinstance(breakdown, list) else [breakdown]
+            return ast.Array(exprs=[element_property_key_to_breakdown_expr(str(value)) for value in values])
         elif breakdownType == "hogql" or breakdownType == "event_metadata":
             assert isinstance(breakdown, list)
             exprs = [strip_user_aliases(parse_expr(str(value))) for value in breakdown]

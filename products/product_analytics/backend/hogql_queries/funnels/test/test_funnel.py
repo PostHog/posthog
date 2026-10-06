@@ -49,6 +49,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.api.instance_settings import get_instance_setting
@@ -4308,6 +4309,16 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             },
             expected,
         )
+
+    def test_element_breakdown_with_integer_value_raises_query_error(self) -> None:
+        query = FunnelsQuery(
+            series=[EventsNode(event="$autocapture"), EventsNode(event="completed")],
+            dateRange=DateRange(date_from="2024-03-22", date_to="2024-03-22"),
+            breakdownFilter=BreakdownFilter(breakdown=5, breakdown_type=BreakdownType.ELEMENT),
+        )
+
+        with self.assertRaises(QueryError):
+            FunnelsQueryRunner(query=query, team=self.team).calculate()
 
     def test_funnel_query_with_event_metadata_breakdown(self):
         _create_person(
