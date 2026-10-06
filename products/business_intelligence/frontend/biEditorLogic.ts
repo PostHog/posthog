@@ -41,6 +41,7 @@ import {
     normalizeBIConfig,
 } from 'products/business_intelligence/frontend/biEditorTypes'
 
+import { matchesBIFieldSearch } from './biPropertyFields'
 import { getBIDateField } from './biQueryFilters'
 
 export interface BIEditorLogicProps {
@@ -795,7 +796,7 @@ export const biEditorLogic = kea<biEditorLogicType>([
                 if (!needle) {
                     return dataPaneFields
                 }
-                const matches = (field: BIField): boolean => field.name.toLowerCase().includes(needle)
+                const matches = (field: BIField): boolean => matchesBIFieldSearch(field, needle)
                 return {
                     dimensions: dataPaneFields.dimensions.filter(matches),
                     measures: dataPaneFields.measures.filter(matches),

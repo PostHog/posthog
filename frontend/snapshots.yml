@@ -6302,6 +6302,10 @@ snapshots:
         hash: v1.k794b7964.3c027b2e0731f9738cdfe21d14b6a893375c0fe0a0f11b587580adafc09340f9.GfzW8vynGlDg1ZO7Mp1sS9oDhRiKra5Vxhtopyi31Go
     products-alerts-shared-components--notifications-multiple-slack-workspaces--light:
         hash: v1.k794b7964.63ec31eddf76c6f6544838a9b765e091bbe84325070fff837ed94d2cc1e85ba8.rPHnjzF-XA_HZd7mJ9KKN8iLGsZVXVdne4uww2vsx4w
+    products-alerts-shared-components--notifications-pager-duty--dark:
+        hash: v1.k794b7964.c3a3b73806e040d29cf7bfce8d565543a0e7e4b47a56556414e047f2511da17b.SGZtwKir5o45QYI1dRjvgbzHGHTrnWqW6mmktzjN3jk
+    products-alerts-shared-components--notifications-pager-duty--light:
+        hash: v1.k794b7964.211c55b2e573ce2620f4ff11dfe2692c56f6a7ae320af57557bd302430b40d87.KtzQY8KdtOwLt-LOiH6XneFrqpaKvdGg8Wa3oAElMSQ
     products-alerts-shared-components--preview--dark:
         hash: v1.k794b7964.c9bdafae1ad47e45cba8bc136bc1f911fcd38d3f3adc0109c73c608fc7aff1a7.JQQcVBlkdE7zlG0B9V18hFYCe7DRINlSu1YhOXTSNFg
     products-alerts-shared-components--preview--light:
@@ -9591,9 +9595,9 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--bi-data-source-picker--light:
         hash: v1.k794b7964.e23f5b15f3c99bf3064768fd3a048a436e9b443117cfc0a00c4d73a3f4ba2f22.nxKhSmvyyrnC7kdphG8cL24MkT9I2nGDK4vfruY2Vw0
     scenes-app-data-warehouse-sql-editor--bi-edit-saved-insight--dark:
-        hash: v1.k794b7964.7e42ca6aa089cac5248ca5ef9344fdd857999f0719cd845ccb7ddc528f28ef15.TTDCOg_BKAoQ1kEvU5M7Awe_RT1Kep8feCfO6DNCArk
+        hash: v1.k794b7964.be1c7af3ea56ab263804c40dc88ee390b48279b51f0843223572c4a6d6e3dd6e.NAhufubM0yajuhGMw8mZOiSJwNwAX5nSIXUDvx7SVhc
     scenes-app-data-warehouse-sql-editor--bi-edit-saved-insight--light:
-        hash: v1.k794b7964.82d19296d65f2c10ad57794c4b1f93ee51f12ec1c8a1fa50d566792cf313ff60.WxJmjeoJlfxXKbIjA3n8xHc2_FhQrl4KpxnMTBDqQWI
+        hash: v1.k794b7964.dbe9d7e7f469dfb7eb4ec9109b10d1fba19239b46bfee80ea915daf4532c935b.ZLFZ6KVb6v80JYsVv68pSmtqkFJE0pBnxW4FvOnvm08
     scenes-app-data-warehouse-sql-editor--bi-empty-worksheet--dark:
         hash: v1.k794b7964.a396976c1ac19d1018d181cb7a1a45b9094c1afae27b09ce5c47370dbd32719e.8W7iOXmHeV_jCUjH5EIjAg3Le0HCj-m8Uf0zVxal0ic
     scenes-app-data-warehouse-sql-editor--bi-empty-worksheet--light:
