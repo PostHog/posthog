@@ -1,5 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
+from typing import Any, Literal, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -31,7 +33,10 @@ def response(body: object, status: int = 200) -> Response:
     return result
 
 
-def config(region: str = "EU") -> FronteggSourceConfig:
+Region = Literal["EU", "US", "CA", "AU"]
+
+
+def config(region: Region = "EU") -> FronteggSourceConfig:
     return FronteggSourceConfig(client_id="example-client", api_key="fake-api-key", region=region)
 
 
@@ -69,10 +74,10 @@ class TestFronteggTransport:
                 {"token": "fake-token", "expiresIn": 3600}
             )
             session = Session()
-            session.send = MagicMock(side_effect=send)
             factory.return_value = session
-            source = frontegg_source(config(), manager, inputs, "v3")
-            rows = [row for batch in source.items() for row in batch]
+            with patch.object(session, "send", side_effect=send):
+                source = frontegg_source(config(), manager, inputs, "v3")
+                rows = [row for batch in cast(Iterable[Any], source.items()) for row in batch]
         assert rows == [{"id": "first"}] + ([] if empty_terminal else [{"id": "last"}])
         assert len(sent) == 2
         for index, request in enumerate(sent):
@@ -96,11 +101,12 @@ class TestFronteggTransport:
             patch(f"{REST_CLIENT}.make_tracked_session") as factory,
         ):
             session = Session()
-            session.send = MagicMock(return_value=response(rows))
             factory.return_value = session
-            assert [row for batch in frontegg_source(config(), manager, inputs, "v3").items() for row in batch] == rows
-        session.send.assert_called_once()
-        request = session.send.call_args.args[0]
+            with patch.object(session, "send", return_value=response(rows)) as send:
+                items = frontegg_source(config(), manager, inputs, "v3").items()
+                assert [row for batch in cast(Iterable[Any], items) for row in batch] == rows
+        send.assert_called_once()
+        request = send.call_args.args[0]
         assert request.url == "https://api.frontegg.com/identity/resources/permissions/v1"
         manager.save_state.assert_not_called()
 
@@ -113,7 +119,7 @@ class TestFronteggTransport:
             ("AU", "api.au.frontegg.com"),
         ],
     )
-    def test_token_exchange_refresh_and_redaction(self, region: str, host: str) -> None:
+    def test_token_exchange_refresh_and_redaction(self, region: Region, host: str) -> None:
         auth = FronteggAuth(config(region))
         with patch(f"{TRANSPORT}.make_tracked_session") as factory:
             post = factory.return_value.__enter__.return_value.post
@@ -154,4 +160,4 @@ class TestFronteggTransport:
 
     def test_invalid_region(self) -> None:
         with pytest.raises(ValueError, match="Select a supported Frontegg region"):
-            FronteggAuth(config("https://example.com"))
+            FronteggAuth(config(cast(Any, "https://example.com")))

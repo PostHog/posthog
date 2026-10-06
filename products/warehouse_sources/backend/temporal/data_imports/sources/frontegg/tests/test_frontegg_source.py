@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 import pytest
 from unittest.mock import patch
 
@@ -52,7 +54,7 @@ class TestFronteggSource:
         assert any(pattern in f"{status} Client Error" for pattern in mappings) == (status in (400, 401, 403))
 
     def test_invalid_region_does_not_send_credentials(self) -> None:
-        config = FronteggSourceConfig(client_id="example-client", api_key="fake-key", region="invalid")
+        config = FronteggSourceConfig(client_id="example-client", api_key="fake-key", region=cast(Any, "invalid"))
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.frontegg.source.FronteggAuth"
         ) as auth:

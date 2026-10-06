@@ -68,9 +68,12 @@ def frontegg_source(
         raise ValueError(f"Unsupported Frontegg table: {inputs.schema_name}")
     auth = FronteggAuth(config)
     endpoint = ENDPOINTS[inputs.schema_name].copy()
-    endpoint["path"] = endpoint["path"].format(api_version=api_version)
+    path = endpoint["path"]
+    if path is None:
+        raise ValueError(f"Frontegg table has no endpoint path: {inputs.schema_name}")
+    endpoint["path"] = path.format(api_version=api_version)
     rest_config: RESTAPIConfig = {
-        "client": {"base_url": REGIONS[config.region], "auth": auth},
+        "client": {"base_url": REGIONS[config.region], "auth": auth, "request_timeout": (10, 60)},
         "resources": [{"name": inputs.schema_name, "endpoint": endpoint}],
     }
     resume = manager.load_state() if manager.can_resume() else None
