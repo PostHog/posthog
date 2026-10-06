@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { ActivityDisclosure } from './ActivityDisclosure'
 import { ActivitySubsteps } from './ActivitySubsteps'
-import type { ActivityProps, ActivityStatus } from './activityTypes'
+import { ACTIVITY_DETAILS_BOUND_CLASS, type ActivityProps, type ActivityStatus } from './activityTypes'
 import { QuillActivity } from './quill/QuillActivity'
 import { useQuillThread } from './quill/quillThreadContext'
 import { useActivityDisclosure } from './useActivityDisclosure'
@@ -267,8 +267,10 @@ function LemonActivity({
             <ActivityDisclosure open={isDetailsExpanded && hasDetails}>
                 <div className="pt-1">
                     <ActivityDetails hasIcon={!!icon}>
-                        {substeps.length > 0 && <ActivitySubsteps id={id} substeps={substeps} status={status} />}
-                        {details}
+                        <div className={clsx('space-y-1', ACTIVITY_DETAILS_BOUND_CLASS)}>
+                            {substeps.length > 0 && <ActivitySubsteps id={id} substeps={substeps} status={status} />}
+                            {details}
+                        </div>
                     </ActivityDetails>
                 </div>
             </ActivityDisclosure>

@@ -12,7 +12,6 @@ import {
 
 import { MarkdownMessage } from '../../messages/MarkdownMessage'
 import type { ThreadItem } from '../../types/streamTypes'
-import { userMessageDisplayText } from '../../utils/userMessageDisplay'
 import { ThreadAttachments } from '../ThreadAttachments'
 import { TurnRevealContext } from '../TurnRevealContext'
 import { footerRevealClass } from './footerReveal'
@@ -86,26 +85,44 @@ function ClampedContent({ children }: { children: ReactNode }): JSX.Element {
     )
 }
 
-export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { item: ThreadItem }): JSX.Element {
-    const text = userMessageDisplayText(item.text ?? '')
+export interface QuillHumanMessageProps {
+    id: string
+    /** Plain message text: rendered as markdown unless `children` replaces it, and copied by the footer button. */
+    text: string
+    startedAt?: number
+    attachments?: ThreadItem['attachments']
+    /** Content above the bubble, such as the context the message was sent with. */
+    header?: ReactNode
+    children?: ReactNode
+}
+
+export const QuillHumanMessage = memo(function QuillHumanMessage({
+    id,
+    text,
+    startedAt,
+    attachments,
+    header,
+    children,
+}: QuillHumanMessageProps): JSX.Element {
     const revealed = useContext(TurnRevealContext)
     return (
         <ChatMessage align="end" data-attr="posthog-ai-human-message">
             <ChatMessageContent className="gap-1">
-                {item.attachments && (
+                {header && <div className="self-end">{header}</div>}
+                {attachments && (
                     <div className="self-end">
-                        <ThreadAttachments attachments={item.attachments} />
+                        <ThreadAttachments attachments={attachments} />
                     </div>
                 )}
                 <ChatBubble align="end" className="rounded-lg">
                     <ChatBubbleContent>
                         <ClampedContent>
-                            <MarkdownMessage content={text || '*No text.*'} id={item.id} />
+                            {children ?? <MarkdownMessage content={text || '*No text.*'} id={id} />}
                         </ClampedContent>
                     </ChatBubbleContent>
                 </ChatBubble>
                 <ChatMessageFooter className={cn('min-h-5 items-center gap-1', footerRevealClass(revealed))}>
-                    {item.startedAt !== undefined && <QuillFooterTimestamp time={item.startedAt} />}
+                    {startedAt !== undefined && <QuillFooterTimestamp time={startedAt} />}
                     {text && (
                         <QuillCopyButton value={text} label="Copy message" dataAttr="posthog-ai-human-message-copy" />
                     )}
@@ -115,19 +132,32 @@ export const QuillHumanMessage = memo(function QuillHumanMessage({ item }: { ite
     )
 })
 
-export const QuillAssistantMessage = memo(function QuillAssistantMessage({ item }: { item: ThreadItem }): JSX.Element {
+export interface QuillAssistantMessageProps {
+    id: string
+    content: string
+    /** Content below the prose, such as answer actions. */
+    action?: ReactNode
+}
+
+export const QuillAssistantMessage = memo(function QuillAssistantMessage({
+    id,
+    content,
+    action,
+}: QuillAssistantMessageProps): JSX.Element {
     return (
-        <ChatMessage align="start">
+        // A ghost bubble sets no text color, so the prose takes quill's foreground here rather than the host page's.
+        <ChatMessage align="start" className="text-[var(--foreground)]">
             <ChatMessageContent className="gap-1">
                 <ChatBubble variant="ghost">
                     <ChatBubbleContent>
                         <MarkdownMessage
-                            content={item.text ?? ''}
-                            id={item.id}
+                            content={content}
+                            id={id}
                             className={cn(ASSISTANT_TABLE_CLASS, ASSISTANT_CODE_CLASS, ASSISTANT_TASK_LIST_CLASS)}
                         />
                     </ChatBubbleContent>
                 </ChatBubble>
+                {action && <div data-not-quill>{action}</div>}
             </ChatMessageContent>
         </ChatMessage>
     )

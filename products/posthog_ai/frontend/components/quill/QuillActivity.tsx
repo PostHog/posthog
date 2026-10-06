@@ -1,7 +1,7 @@
 import { cn } from '@posthog/quill-primitives'
 
 import { ActivitySubsteps } from '../ActivitySubsteps'
-import type { ActivityProps } from '../activityTypes'
+import { ACTIVITY_DETAILS_BOUND_CLASS, type ActivityProps } from '../activityTypes'
 import { useActivityDisclosure } from '../useActivityDisclosure'
 import { ThreadMarker } from './ThreadMarker'
 
@@ -27,7 +27,10 @@ export function QuillActivity({
     const isRunning = status === 'in_progress'
     const body = hasDetails ? (
         <div
-            className="flex min-w-0 flex-col gap-1 text-[length:var(--text-ui,0.8125rem)] leading-[1.625] text-foreground [&_.LemonMarkdown_p]:mb-0"
+            className={cn(
+                'flex min-w-0 flex-col gap-1 text-[length:var(--text-ui,0.8125rem)] leading-[1.625] text-foreground [&_.LemonMarkdown_p]:mb-0',
+                ACTIVITY_DETAILS_BOUND_CLASS
+            )}
             data-not-quill
         >
             {substeps.length > 0 && <ActivitySubsteps id={id} substeps={substeps} status={status} />}

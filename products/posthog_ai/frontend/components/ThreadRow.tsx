@@ -148,10 +148,12 @@ export const ThreadRow = memo(function ThreadRow({
 }: ThreadRowProps): JSX.Element | null {
     const quill = useQuillThread()
     if (item.type === 'human_message') {
-        if (quill) {
-            return <QuillHumanMessage item={item} />
-        }
         const text = userMessageDisplayText(item.text ?? '')
+        if (quill) {
+            return (
+                <QuillHumanMessage id={item.id} text={text} startedAt={item.startedAt} attachments={item.attachments} />
+            )
+        }
         return (
             <MessageTemplate
                 type="human"
@@ -165,7 +167,7 @@ export const ThreadRow = memo(function ThreadRow({
     }
     if (item.type === 'assistant_message') {
         if (quill) {
-            return <QuillAssistantMessage item={item} />
+            return <QuillAssistantMessage id={item.id} content={item.text ?? ''} />
         }
         return (
             <MessageTemplate type="ai" wrapperClassName="max-w-4/5">

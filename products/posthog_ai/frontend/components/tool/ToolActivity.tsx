@@ -98,7 +98,12 @@ export function ToolActivity({
             details={
                 subtitle || body ? (
                     <div className="flex flex-col gap-2 min-w-0">
-                        {subtitle && <div className="text-muted break-words">{subtitle}</div>}
+                        {/* A long command gets its own bound, so the output below it stays in view. */}
+                        {subtitle && (
+                            <div className="text-muted break-words max-h-32 overflow-y-auto overscroll-contain">
+                                {subtitle}
+                            </div>
+                        )}
                         {body}
                     </div>
                 ) : undefined

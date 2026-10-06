@@ -78,11 +78,15 @@ import {
     ContextUsageChip,
     MarkdownMessage,
     MessageTemplate,
+    QuillAssistantMessage,
+    QuillHumanMessage,
     ReasoningAnswer,
     RecordingsWidget,
+    ThreadSkinContext,
     ThreadView,
     TurnFeedbackActions,
     type TurnTrailer,
+    useQuillThread,
     useThreadSkin,
 } from 'products/posthog_ai/frontend/api/primitives'
 import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
@@ -200,7 +204,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
         }
         return (
             <div className={containerClassName}>
-                <LegacyThread showTrailers={false} />
+                <ThreadSkinContext.Provider value={threadSkin}>
+                    <LegacyThread showTrailers={false} />
+                </ThreadSkinContext.Provider>
                 <LemonDivider dashed label="Message history was converted to the new format" className="my-3" />
                 <BindLogic
                     logic={runStreamLogic}
@@ -215,7 +221,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     // Pure LangGraph conversation.
     return (
         <div className={containerClassName}>
-            <LegacyThread showTrailers />
+            <ThreadSkinContext.Provider value={threadSkin}>
+                <LegacyThread showTrailers />
+            </ThreadSkinContext.Provider>
         </div>
     )
 }
@@ -527,6 +535,7 @@ const Message = React.memo(function Message({
     const { activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread, pendingApprovalsData, resolvedApprovalStatuses } = useValues(maxThreadLogic)
     const { conversationId } = useValues(maxLogic)
+    const quill = useQuillThread()
 
     const groupType = message.type === 'human' ? 'human' : 'ai'
     const key = message.id || 'no-id'
@@ -589,6 +598,30 @@ const Message = React.memo(function Message({
                         const maybeCommand = MAX_SLASH_COMMANDS.find(
                             (cmd) => cmd.name === message.content.split(' ', 1)[0]
                         )
+                        const contextSummary = message.ui_context && Object.keys(message.ui_context).length > 0 && (
+                            <ContextSummary
+                                insights={message.ui_context.insights}
+                                dashboards={message.ui_context.dashboards}
+                                events={message.ui_context.events}
+                                actions={message.ui_context.actions}
+                                notebooks={message.ui_context.notebooks}
+                                useCurrentPageContext={false}
+                            />
+                        )
+
+                        // A failed send keeps the lemon bubble, whose red border marks it.
+                        if (quill && message.status !== 'error') {
+                            return (
+                                <QuillHumanMessage
+                                    key={key}
+                                    id={message.id || 'no-text'}
+                                    text={message.content}
+                                    header={contextSummary}
+                                >
+                                    {maybeCommand ? <span className="font-mono">{message.content}</span> : undefined}
+                                </QuillHumanMessage>
+                            )
+                        }
 
                         return (
                             <MessageTemplate
@@ -596,16 +629,7 @@ const Message = React.memo(function Message({
                                 type="human"
                                 boxClassName={message.status === 'error' ? 'border-danger' : undefined}
                             >
-                                {message.ui_context && Object.keys(message.ui_context).length > 0 && (
-                                    <ContextSummary
-                                        insights={message.ui_context.insights}
-                                        dashboards={message.ui_context.dashboards}
-                                        events={message.ui_context.events}
-                                        actions={message.ui_context.actions}
-                                        notebooks={message.ui_context.notebooks}
-                                        useCurrentPageContext={false}
-                                    />
-                                )}
+                                {contextSummary}
                                 {maybeCommand ? (
                                     <div className="flex items-center">
                                         <Tooltip
@@ -880,6 +904,7 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
     { message, interactable, isFinalGroup, withActions = true },
     ref
 ) {
+    const quill = useQuillThread()
     const retriable = !!(interactable && isFinalGroup)
 
     const action = withActions
@@ -917,6 +942,12 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
     if (isFailureMessage(message)) {
         return (
             <AssistantFailureMessage id={message.id || 'error'} content={message.content} ref={ref} action={action} />
+        )
+    }
+
+    if (quill && message.status !== 'error') {
+        return (
+            <QuillAssistantMessage id={message.id || 'in-progress'} content={message.content || ''} action={action} />
         )
     }
 
