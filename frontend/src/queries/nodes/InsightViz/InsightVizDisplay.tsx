@@ -1,11 +1,14 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     BoxPlotMissingPropertyState,
@@ -30,7 +33,6 @@ import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { isBoxPlotMissingProperty } from 'scenes/insights/utils/queryUtils'
-import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
@@ -65,6 +67,12 @@ import { TrendInsight } from 'products/product_analytics/frontend/insights/trend
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
+
+// Query.tsx reaches this file through static imports, so a static import of web analytics puts its
+// tiles on every page that shows an insight.
+const WebAnalyticsInsight = lazyWithRetry(() =>
+    import('scenes/web-analytics/WebAnalyticsInsight').then((m) => ({ default: m.WebAnalyticsInsight }))
+)
 
 /** When the dashboard is still streaming/refreshing tiles, prefer loading UX over "Chart data didn't load". */
 function DashboardInsightRefreshHintOrLoading({
@@ -430,7 +438,23 @@ export function InsightVizDisplay({
             case InsightType.JOURNEYS:
                 return <Journeys showPersonsModal={!inSharedMode} />
             case InsightType.WEB_ANALYTICS:
-                return <WebAnalyticsInsight context={context} editMode={editMode} />
+                return (
+                    <ChunkLoadErrorBoundary>
+                        <Suspense
+                            fallback={
+                                <InsightLoadingState
+                                    queryId={queryId}
+                                    key={queryId}
+                                    insightProps={insightProps}
+                                    renderEmptyStateAsSkeleton={context?.renderEmptyStateAsSkeleton}
+                                    suppressSlowQuerySuggestions={context?.suppressSlowQuerySuggestions}
+                                />
+                            }
+                        >
+                            <WebAnalyticsInsight context={context} editMode={editMode} />
+                        </Suspense>
+                    </ChunkLoadErrorBoundary>
+                )
             default:
                 return null
         }
