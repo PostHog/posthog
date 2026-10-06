@@ -42,7 +42,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
-from posthog.errors import QueryErrorCategory, classify_query_error
+from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models.team import Team
 
@@ -136,6 +136,15 @@ _FLOORED_SOURCES = (_FLOORED_RUNS, _FLOORED_JOBS, _FLOORED_JOB_COSTS)
 
 STORED_QUERY_TYPE_SUFFIX = ".stored"
 _STORED_READ_REJECTED = (QueryErrorCategory.USER_ERROR, QueryErrorCategory.ERROR)
+
+
+def _stored_rows_rejected(error: Exception) -> bool:
+    """Whether the raw tables can answer a query that failed on the stored rows.
+
+    A read that ran out of time, memory or capacity fails harder on the raw tables. So does one that
+    lost its connection, which the classifier files with the rejected queries."""
+    return not isinstance(error, CH_TRANSIENT_ERRORS) and classify_query_error(error) in _STORED_READ_REJECTED
+
 
 _READY_BY_PR_JOIN = "LEFT JOIN ready_by_pr AS re ON re.pr_number = pr.number"
 _PUSH_RUN_PREDICATE = "pr_number > 0 AND NOT is_merge_queue"
@@ -534,6 +543,11 @@ class CuratedGitHubSource:
                 self._stored_reader_resolved = True
             return self._stored_reader
 
+    def _drop_stored_ci_reader(self) -> None:
+        with self._stored_reader_lock:
+            self._stored_reader = None
+            self._stored_reader_resolved = True
+
     def _resolve_stored_ci_reader(self) -> StoredCiReader | None:
         distinct_id = self._user.distinct_id if self._user else None
         if not team_flag(STORED_READS_FEATURE_FLAG, self._team, distinct_id=distinct_id, only_evaluate_locally=True):
@@ -553,8 +567,12 @@ class CuratedGitHubSource:
             # The stored rows were built with no user. This reader takes them only when the raw read would
             # give the same rows: the same Depot CI, and every raw table behind the stored rows allowed.
             depot = source.depot_job_attempts
-            raw_tables = [source.github_workflow_runs, source.github_workflow_jobs, source.pull_requests]
-            raw_tables.append(depot.table if depot else None)
+            raw_tables = (
+                source.github_workflow_runs,
+                source.github_workflow_jobs,
+                source.pull_requests,
+                depot.table if depot else None,
+            )
             if depot != self._depot_job_attempts() or not self._may_read(filter(None, raw_tables)):
                 return None
         return StoredCiReader(self._team, source)
@@ -783,9 +801,7 @@ class CuratedGitHubSource:
         except Exception:
             # The stored rows only make a read faster, so a failure to find them must not fail the read.
             stored_sql = None
-            with self._stored_reader_lock:
-                self._stored_reader = None
-                self._stored_reader_resolved = True
+            self._drop_stored_ci_reader()
             logger.warning(
                 "engineering_analytics_stored_read_unavailable",
                 team_id=self._team.pk,
@@ -801,11 +817,9 @@ class CuratedGitHubSource:
                     workload=workload,
                 )
             except Exception as error:
-                # A read that ran out of time, memory or capacity fails harder on the raw tables.
-                if classify_query_error(error) not in _STORED_READ_REJECTED:
+                if not _stored_rows_rejected(error):
                     raise
-                with self._stored_reader_lock:
-                    self._stored_reader = None
+                self._drop_stored_ci_reader()
                 logger.warning(
                     "engineering_analytics_stored_read_failed",
                     team_id=self._team.pk,

@@ -366,7 +366,7 @@ class StoredCiReader:
         when a day in that span is not stored or the floor is not a date."""
         try:
             since = datetime.strptime(floor, "%Y-%m-%d").replace(tzinfo=UTC) - reach
-        except ValueError:
+        except (ValueError, OverflowError):
             return None
         # A floor below the stored days can never be served, and a lookup from a far-off floor
         # walks every day up to now.

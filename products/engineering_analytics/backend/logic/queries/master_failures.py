@@ -70,8 +70,9 @@ def query_master_failures(
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
 
-    # The runs carry the floor that the jobs read below carries, so both reads take the same tables. A
-    # run from the raw tables with its jobs from an older stored table would show no failed job.
+    # The floor lets the runs take the stored rows. The jobs read below takes them only when the days
+    # this read needs are stored too, so a raw run never meets older stored jobs, which would show it
+    # with no failed job.
     runs_response = curated.run(
         _FAILED_RUNS_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True)).replace(
             "__DATE_TO__", date_to_clause
