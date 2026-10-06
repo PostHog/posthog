@@ -2,12 +2,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
-# Descriptions sourced from the JobNimbus Open API docs (https://documenter.getpostman.com/view/3919598/S11PpG7g).
+# Descriptions sourced from the JobNimbus Open API docs (https://documenter.getpostman.com/view/3919598/S11PpG4x).
 # Partial coverage is fine — uncovered columns fall back to LLM enrichment.
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "contacts": {
         "description": "A person or company in your JobNimbus CRM — a lead, customer, or business contact.",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "jnid": "The unique ID of the contact.",
             "display_name": "The contact's display name.",
@@ -23,7 +23,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "jobs": {
         "description": "A job or project tracked in JobNimbus, typically linked to one or more contacts.",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "jnid": "The unique ID of the job.",
             "name": "The job name.",
@@ -37,7 +37,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "tasks": {
         "description": "A to-do or scheduled task linked to a contact or job.",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "jnid": "The unique ID of the task.",
             "title": "The task title.",
@@ -52,7 +52,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "activities": {
         "description": "An activity or note recorded against a contact or job (calls, emails, updates).",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "jnid": "The unique ID of the activity.",
             "note": "The activity note or message body.",
@@ -64,7 +64,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "payments": {
         "description": "A payment collected from a customer, applied against one or more invoices.",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "jnid": "The unique ID of the payment.",
             "customer": "The ID of the customer the payment belongs to.",
@@ -81,7 +81,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "estimates": {
         "description": "A quote sent to a customer for a job, with line items and totals.",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "jnid": "The unique ID of the estimate.",
             "number": "The estimate number.",
@@ -105,7 +105,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "users": {
         "description": "A user or team member of the JobNimbus account.",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "id": "The user's ID. Matches the owner, sales rep, and assignee IDs on other records.",
             "first_name": "The user's first name.",
@@ -116,7 +116,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "workflows": {
         "description": "A workflow configured in the account, with the statuses it contains.",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "id": "The unique ID of the workflow.",
             "name": "The workflow name.",
@@ -127,7 +127,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     },
     "lead_sources": {
         "description": "A lead source configured in the account.",
-        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG7g",
+        "docs_url": "https://documenter.getpostman.com/view/3919598/S11PpG4x",
         "columns": {
             "JobSourceId": "The unique ID of the lead source. Matches the source ID on contacts and jobs.",
             "SourceName": "The lead source name.",
