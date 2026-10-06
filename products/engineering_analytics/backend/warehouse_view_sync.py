@@ -80,7 +80,7 @@ def sync_engineering_analytics_views(schema: ExternalDataSchema, source: Externa
             source_id=str(source.id),
         )
         # A refresh waits on ClickHouse inserts, so it runs outside the import pipeline.
-        refresh_ci_precompute.delay(team_id=schema.team_id, schema_name=schema.name)
+        refresh_ci_precompute.delay(team_id=schema.team_id)
     except (OperationalError, InterfaceError) as e:
         # Transient pooler connection drop — swallowed, so the view stays stale until the next
         # runs/jobs load re-runs this hook on a fresh connection. Log for visibility but don't

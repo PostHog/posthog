@@ -56,5 +56,5 @@ def emit_team_test_census(team_id: int) -> None:
 
 @shared_task(ignore_result=True, soft_time_limit=30 * 60, time_limit=35 * 60)
 @with_team_scope()
-def refresh_ci_precompute(team_id: int, schema_name: str) -> None:
-    refresh_after_load(Team.objects.get(id=team_id), schema_name)
+def refresh_ci_precompute(team_id: int) -> None:
+    refresh_after_load(Team.objects.get(id=team_id))

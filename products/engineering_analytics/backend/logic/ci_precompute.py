@@ -28,12 +28,15 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from django.core.cache import cache
+
 import structlog
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
@@ -50,13 +53,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     CI_LOOKBACK,
     JOB_FLOOR_SLACK_ON_RUN_STARTED,
 )
-from products.engineering_analytics.backend.logic.sources import (
-    DEPOT_JOB_ATTEMPTS_SCHEMA,
-    WORKFLOW_JOBS_SCHEMA,
-    WORKFLOW_RUNS_SCHEMA,
-    JobSourceTables,
-    resolve_precompute_sources,
-)
+from products.engineering_analytics.backend.logic.sources import JobSourceTables, resolve_precompute_sources
 from products.engineering_analytics.backend.logic.views import depot_ci, job_costs, workflow_jobs, workflow_runs
 from products.engineering_analytics.backend.logic.views.created_window import CreatedWindow
 
@@ -73,7 +70,7 @@ RUN_LIFETIME = timedelta(days=35)
 STORED_JOB_DAYS = _LOWEST_RUN_STARTED_FLOOR + JOB_FLOOR_SLACK_ON_RUN_STARTED
 STORED_RUN_DAYS = STORED_JOB_DAYS + RUN_LIFETIME
 
-_RECENT_DAYS_MAX_AGE_SECONDS = 5 * 60
+_RECENT_DAYS_MAX_AGE_SECONDS = 15 * 60
 _LAST_WEEK_MAX_AGE_SECONDS = 6 * 60 * 60
 _OLDER_DAYS_MAX_AGE_SECONDS = 5 * 24 * 60 * 60
 _OLDER_DAYS_MAX_AGE_SPREAD_SECONDS = 2 * 24 * 60 * 60
@@ -164,13 +161,11 @@ def _jobs_insert_query(source: JobSourceTables) -> str:
 
 @frozen
 class StoredRows:
-    """One table of stored rows. ``refreshed_after`` names the warehouse schemas whose load changes
-    the rows."""
+    """One table of stored rows."""
 
     table: LazyComputationTable
     insert_query: Callable[[JobSourceTables], str]
     days: timedelta
-    refreshed_after: tuple[str, ...]
     query_type: str
 
 
@@ -178,15 +173,12 @@ STORED_RUNS = StoredRows(
     table=LazyComputationTable.ENGINEERING_ANALYTICS_CI_RUNS_PRECOMPUTED,
     insert_query=_runs_insert_query,
     days=STORED_RUN_DAYS,
-    # The hand-off shell flag of a run reads its jobs.
-    refreshed_after=(WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA, DEPOT_JOB_ATTEMPTS_SCHEMA),
     query_type="engineering_analytics.ci_runs_precompute",
 )
 STORED_JOBS = StoredRows(
     table=LazyComputationTable.ENGINEERING_ANALYTICS_CI_JOBS_PRECOMPUTED,
     insert_query=_jobs_insert_query,
     days=STORED_JOB_DAYS,
-    refreshed_after=(WORKFLOW_JOBS_SCHEMA, DEPOT_JOB_ATTEMPTS_SCHEMA),
     query_type="engineering_analytics.ci_jobs_precompute",
 )
 
@@ -232,12 +224,22 @@ def ensure_stored(
     )
 
 
-def refresh_after_load(team: Team, schema_name: str) -> None:
-    """Store the days that the load of ``schema_name`` made out of date, for every repository of the
-    team that syncs both runs and jobs."""
-    tables = [stored for stored in (STORED_RUNS, STORED_JOBS) if schema_name in stored.refreshed_after]
-    if not tables or not team_flag(STORED_READS_FEATURE_FLAG, team):
+def refresh_after_load(team: Team) -> None:
+    """Store the days that a data load made out of date, for every repository of the team that syncs
+    both runs and jobs. A load that lands while a refresh of the team runs starts no second one."""
+    if not team_flag(STORED_READS_FEATURE_FLAG, team):
         return
+    running = f"engineering_analytics:ci_precompute_refresh:{team.pk}"
+    if not cache.add(running, True, timeout=_TASK_BUDGET_SECONDS):
+        return
+    try:
+        with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.PREAGGREGATION, team_id=team.pk):
+            _refresh(team)
+    finally:
+        cache.delete(running)
+
+
+def _refresh(team: Team) -> None:
     sources = resolve_precompute_sources(team)
     if not sources:
         return
@@ -250,7 +252,7 @@ def refresh_after_load(team: Team, schema_name: str) -> None:
     )
     deadline = time.monotonic() + _TASK_BUDGET_SECONDS
     for source in sources:
-        for stored in tables:
+        for stored in (STORED_RUNS, STORED_JOBS):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return

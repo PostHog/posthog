@@ -107,7 +107,7 @@ class TestSyncEngineeringAnalyticsViews(BaseTest):
 
         mock_sync.assert_called_once()
         assert self._has_viewset()
-        mock_refresh.assert_called_once_with(team_id=self.team.pk, schema_name=schema.name)
+        mock_refresh.assert_called_once_with(team_id=self.team.pk)
 
     @parameterized.expand([("operational", OperationalError), ("interface", InterfaceError)])
     @patch("products.engineering_analytics.backend.warehouse_view_sync.capture_exception")
