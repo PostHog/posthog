@@ -9,7 +9,7 @@ from products.review_hog.backend.reviewer.persistence import upsert_review_repor
 from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_VALIDATION_SKILL_NAME
 from products.review_hog.backend.temporal.activities import _sync_review_skills
 from products.skills.backend.api.skill_services import publish_skill_version
-from products.skills.backend.models.skills import LLMSkill
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 
 class TestRecordTurnMarker(BaseTest):
@@ -80,3 +80,26 @@ class TestRecordTurnMarker(BaseTest):
             (2, edited.fingerprint),
             (3, reverted.fingerprint),
         ]
+
+    def test_an_archived_skill_sharing_name_and_version_with_the_live_one_is_ignored(self) -> None:
+        original = self._record(run_index=1)
+        live = LLMSkill.objects.get(team=self.team, name=REVIEW_HOG_VALIDATION_SKILL_NAME, is_latest=True)
+        live_files = list(live.files.all())
+        LLMSkill.objects.filter(id=live.id).update(deleted=True, body="archived text")
+        recreated = LLMSkill.objects.create(
+            team=self.team,
+            name=live.name,
+            description=live.description,
+            body=live.body,
+            allowed_tools=live.allowed_tools,
+            version=live.version,
+            is_latest=True,
+        )
+        LLMSkillFile.objects.bulk_create(
+            [
+                LLMSkillFile(skill=recreated, path=f.path, content=f.content, content_type=f.content_type)
+                for f in live_files
+            ]
+        )
+
+        assert self._record(run_index=2).fingerprint == original.fingerprint

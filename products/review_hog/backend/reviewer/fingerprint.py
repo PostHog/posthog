@@ -14,6 +14,8 @@ import json
 import hashlib
 from typing import Any
 
+from django.db.models import Q
+
 from posthog.dataclasses import frozen
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
@@ -33,7 +35,6 @@ from products.review_hog.backend.reviewer.constants import (
     reviewhog_version_for_mode,
     validation_arm_for_mode,
 )
-from products.review_hog.backend.reviewer.lazy_seed import compute_skill_row_hash
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
 from products.review_hog.backend.reviewer.skill_loader import (
     load_blind_spots_skill_for_run,
@@ -46,7 +47,7 @@ from products.review_hog.backend.reviewer.tools.issues_review import REVIEW_SYST
 from products.review_hog.backend.reviewer.tools.select_perspectives import SELECTION_SYSTEM_PROMPT
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import CHUNKING_SYSTEM_PROMPT
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.skills.backend.models.skills import LLMSkill
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 # The prompt directories a review turn renders. `thread_resolution` is left out: the resolution
 # stage runs as its own workflow after the turn, not as part of it.
@@ -67,6 +68,8 @@ _REVIEW_TURN_SYSTEM_PROMPTS = {
 }
 
 FINGERPRINT_LENGTH = 7
+
+_SKILL_FILE_CHUNK_SIZE = 20
 
 
 @frozen
@@ -132,12 +135,29 @@ class TurnFingerprint:
         validation = load_validation_skill_for_run(team_id, acting_user_id)
         pinned.append((blind_spots.skill_name, blind_spots.version))
         pinned.append((validation.skill_name, validation.version))
-        hashes: dict[str, str] = {}
+        pinned_filter = Q()
         for skill_name, version in pinned:
-            skill = LLMSkill.objects.prefetch_related("files").get(team_id=team_id, name=skill_name, version=version)
-            # Content only, not the version number: the same text on two teams gives the same hash.
-            hashes[skill_name] = compute_skill_row_hash(skill, list(skill.files.all()))
-        return hashes
+            pinned_filter |= Q(name=skill_name, version=version)
+        # An archived row can share name and version with a live one; only the live row is unique.
+        skills = list(LLMSkill.objects.filter(pinned_filter, team_id=team_id, deleted=False))
+        names = {skill.id: skill.name for skill in skills}
+        # Content only, not the version number: the same text on two teams gives the same hash.
+        hashers = {
+            skill.id: hashlib.sha256(
+                json.dumps([skill.description, skill.body, sorted(skill.allowed_tools or [])]).encode()
+            )
+            for skill in skills
+        }
+        # A custom skill can bundle many large files, so stream them into the hash one at a time.
+        files = (
+            LLMSkillFile.objects.filter(skill_id__in=list(hashers))
+            .order_by("skill_id", "path")
+            .values_list("skill_id", "path", "content_type", "content")
+            .iterator(chunk_size=_SKILL_FILE_CHUNK_SIZE)
+        )
+        for skill_id, path, content_type, content in files:
+            hashers[skill_id].update(json.dumps([path, content_type, content]).encode())
+        return {names[skill_id]: hasher.hexdigest() for skill_id, hasher in hashers.items()}
 
     @classmethod
     def for_turn(
