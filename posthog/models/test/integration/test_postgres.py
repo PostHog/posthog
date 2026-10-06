@@ -1,6 +1,9 @@
 """Tests for direct-connection PostgreSQL-protocol integrations."""
 
+import ipaddress
+
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized, parameterized_class
 
@@ -10,9 +13,14 @@ from posthog.models.integration import (
     Authority,
     Credentials,
     Integration,
+    IntegrationError,
     PostgreSQLIntegration,
     RedshiftIntegration,
 )
+from posthog.security.postgres_hosts import IPV6_ONLY_HOST_MESSAGE, SUPABASE_DIRECT_HOST_DESTINATION_HINT
+
+IPV4 = ipaddress.ip_address("203.0.113.10")
+IPV6 = ipaddress.ip_address("2001:db8::10")
 
 
 @parameterized_class(
@@ -123,3 +131,43 @@ class TestPostgreSQLIntegrationModel(BaseTest):
 
         assert integration.sensitive_config["password"] == "super-secret"
         assert pq.integration_kind == self.integration_kind
+
+    @parameterized.expand(
+        [
+            ("ipv6_only_no_route", "db.example.com", {IPV6}, False, IPV6_ONLY_HOST_MESSAGE),
+            (
+                "several_ipv6_no_route",
+                "db.example.com",
+                {IPV6, ipaddress.ip_address("2001:db8::11")},
+                False,
+                IPV6_ONLY_HOST_MESSAGE,
+            ),
+            ("ipv6_only_with_route", "db.example.com", {IPV6}, True, None),
+            ("dual_stack_no_route", "db.example.com", {IPV4, IPV6}, False, None),
+            ("ipv4_only_no_route", "db.example.com", {IPV4}, False, None),
+            ("unresolved_is_left_to_host_validation", "db.example.com", set(), False, None),
+            (
+                "supabase_direct_host_gets_pooler_hint",
+                "db.abcdefghijklmnop.supabase.co",
+                {IPV6},
+                False,
+                SUPABASE_DIRECT_HOST_DESTINATION_HINT,
+            ),
+            ("supabase_direct_host_with_ipv4_add_on", "db.abcdefghijklmnop.supabase.co", {IPV4}, False, None),
+        ]
+    )
+    def test_integration_from_config_rejects_ipv6_only_hosts(self, _name, host, resolved, has_route, expected_error):
+        kwargs = {"team_id": self.team.pk, "host": host, "port": 5432, "user": "exporter", "password": "pw"}
+
+        with (
+            patch("posthog.models.integration.postgres.validate_external_host"),
+            patch("posthog.models.integration.postgres.resolve_host_ips", return_value=resolved),
+            patch("posthog.models.integration.postgres.has_ipv6_route", return_value=has_route),
+        ):
+            if expected_error is None:
+                integration = self.integration_cls.integration_from_config(**kwargs)
+                assert integration.config["host"] == host
+            else:
+                with self.assertRaises(IntegrationError) as raised:
+                    self.integration_cls.integration_from_config(**kwargs)
+                assert str(raised.exception) == expected_error

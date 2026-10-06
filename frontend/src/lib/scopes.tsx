@@ -4,6 +4,16 @@ import type { APIScopeAction, APIScopeObject } from '~/types'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
 
+export type ScopeAccessLevel = 'none' | 'read' | 'write'
+
+export const countScopeRowsByLevel = (rows: { value: ScopeAccessLevel }[]): Record<ScopeAccessLevel, number> => {
+    const counts: Record<ScopeAccessLevel, number> = { none: 0, read: 0, write: 0 }
+    for (const row of rows) {
+        counts[row.value] += 1
+    }
+    return counts
+}
+
 export type APIScope = {
     key: APIScopeObject
     objectName: string
@@ -278,6 +288,7 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
     batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
     mcp_registry: 'Behind a feature flag.',
+    cross_project_dashboard: 'Behind a feature flag.',
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
 }
 
@@ -315,9 +326,23 @@ export const API_KEY_CREATION_DISABLED_SCOPES = new Set(
     API_SCOPES.flatMap(({ key, disabledActions }) => (disabledActions ?? []).map((action) => `${key}:${action}`))
 )
 
-export const AGENT_CLI_API_KEY_SCOPES = AGENT_USE_CASE_SCOPES.filter((scope) =>
-    API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)
-)
+// A preset must not set a level the key picker cannot show, or the picker shows the level on a
+// disabled segment. A write on a write-disabled object falls back to read, which write implies on the
+// server anyway. A scope with no allowed level is dropped.
+export const clampToKeyCreationScopes = (scopes: readonly string[]): string[] => [
+    ...new Set(
+        scopes.flatMap((scope) => {
+            if (API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)) {
+                return [scope]
+            }
+            const [object, action] = scope.split(':')
+            const read = `${object}:read`
+            return action === 'write' && API_KEY_CREATION_RENDERABLE_SCOPES.has(read) ? [read] : []
+        })
+    ),
+]
+
+export const AGENT_CLI_API_KEY_SCOPES = clampToKeyCreationScopes(AGENT_USE_CASE_SCOPES)
 
 export const API_KEY_SCOPE_PRESETS: {
     value: string
@@ -353,9 +378,11 @@ export const API_KEY_SCOPE_PRESETS: {
         value: 'mcp_server',
         label: 'MCP Server',
         // file_system is excluded because the MCP server doesn't request it, not because it's privileged.
-        scopes: API_SCOPES.filter(
-            ({ key, unprivilegedExcluded }) => !unprivilegedExcluded && key !== 'file_system'
-        ).map(({ key }) => `${key}:write`),
+        scopes: clampToKeyCreationScopes(
+            API_SCOPES.filter(({ key, unprivilegedExcluded }) => !unprivilegedExcluded && key !== 'file_system').map(
+                ({ key }) => `${key}:write`
+            )
+        ),
         access_type: 'all',
     },
     {
@@ -367,7 +394,9 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'read_only_access',
         label: 'Read-only access',
-        scopes: API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`),
+        scopes: clampToKeyCreationScopes(
+            API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`)
+        ),
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
@@ -406,6 +435,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'insight_variable',
             'dashboard',
             'dashboard_template',
+            'cross_project_dashboard',
             'query',
             'notebook',
             'canvas',

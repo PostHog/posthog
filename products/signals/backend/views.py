@@ -217,7 +217,11 @@ from products.signals.backend.serializers import (
     SignalUserAutonomyConfigCreateSerializer,
     SignalUserAutonomyConfigSerializer,
 )
-from products.signals.backend.signal_metadata import ReportSignalMeta, fetch_source_products_for_reports
+from products.signals.backend.signal_metadata import (
+    ReportSignalMeta,
+    fetch_signals_for_report_sync,
+    fetch_source_products_for_reports,
+)
 from products.signals.backend.slack_notification_targets import (
     is_slack_member_target,
     resolve_own_direct_message_target,
@@ -239,7 +243,6 @@ from products.signals.backend.temporal.signal_queries import (
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
     fetch_report_ids_for_source_products,
-    fetch_signals_for_report_sync,
 )
 from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
@@ -2452,22 +2455,30 @@ class SignalReportViewSet(
         description=(
             "The open, actionable reports for the current user, best first, and how many there are in "
             "total. Uses the same ranking and count as the Today briefing, so this is the short list to "
-            "show someone who asks what needs them."
+            "show someone who asks what needs them. Pass `include_unowned=false` to leave out the P0 "
+            "reports nobody owns, which belong to the project rather than to this person."
         ),
     )
     @action(detail=False, methods=["get"], url_path="for_you", required_scopes=["task:read"])
     def for_you(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         user = cast(User, request.user)
+        include_unowned = request.validated_query_data["include_unowned"]
         ranked_ids = [
             report.report_id
             for report in reports_for_briefing(
-                team_id=self.team_id, user_id=user.id, limit=request.validated_query_data["limit"]
+                team_id=self.team_id,
+                user_id=user.id,
+                limit=request.validated_query_data["limit"],
+                include_unowned=include_unowned,
             )
         ]
         by_id = {str(report.id): report for report in self.get_queryset().filter(id__in=ranked_ids)}
         reports = [by_id[report_id] for report_id in ranked_ids if report_id in by_id]
         more = open_report_counts(
-            team_id=self.team_id, user=user, exclude_report_ids=[str(report.id) for report in reports]
+            team_id=self.team_id,
+            user=user,
+            exclude_report_ids=[str(report.id) for report in reports],
+            include_unowned=include_unowned,
         )
         rows = self._render_report_rows(reports, include_source_metadata=True)
         return Response({"results": rows, "count": len(rows) + more.for_person})

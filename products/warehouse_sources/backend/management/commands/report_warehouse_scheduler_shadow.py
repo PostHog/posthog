@@ -1,3 +1,4 @@
+import time
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 
@@ -68,15 +69,23 @@ class Command(BaseCommand):
             since = datetime.now(UTC) - timedelta(hours=options["hours"])
         tolerance = timedelta(seconds=options["tolerance_seconds"])
 
+        self.stderr.write(f"window since {since.isoformat()} (tolerance {tolerance})")
+
+        self.stderr.write("fetching decisions...")
+        started_at = time.monotonic()
         with psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL) as conn:
             decisions = SchedulerStateTable.fetch_would_fires(conn, SYNC_EXTRACT_KIND, since)
         if options["team_id"] is not None:
             decisions = [d for d in decisions if d.team_id == options["team_id"]]
+        self.stderr.write(f"fetched {len(decisions)} decisions in {time.monotonic() - started_at:.1f}s")
 
+        self.stderr.write("fetching jobs...")
+        started_at = time.monotonic()
         jobs_qs = ExternalDataJob.objects.filter(created_at__gte=since - tolerance, schema_id__isnull=False)
         if options["team_id"] is not None:
             jobs_qs = jobs_qs.filter(team_id=options["team_id"])
         jobs = list(jobs_qs.values_list("schema_id", "workflow_id"))
+        self.stderr.write(f"fetched {len(jobs)} jobs in {time.monotonic() - started_at:.1f}s")
 
         # One-to-one greedy matching per schema, nearest job time to due time first.
         unmatched: dict[str, list[datetime]] = {}
@@ -86,22 +95,28 @@ class Command(BaseCommand):
         matched = 0
         temporal_only: list[str] = []
         adhoc = 0
-        for schema_uuid, workflow_id in jobs:
+        started_at = time.monotonic()
+        for job_index, (schema_uuid, workflow_id) in enumerate(jobs, start=1):
             schema_id = str(schema_uuid)
             fired_at = parse_schedule_fired_at(schema_id, workflow_id)
             if fired_at is None:
                 # Runs with no parseable schedule id are manual or backfill
                 # runs; never let them consume a shadow decision.
                 adhoc += 1
-                continue
-
-            candidates = unmatched.get(schema_id, [])
-            best = min(candidates, key=lambda due: abs(due - fired_at), default=None)
-            if best is not None and abs(best - fired_at) <= tolerance:
-                candidates.remove(best)
-                matched += 1
             else:
-                temporal_only.append(schema_id)
+                candidates = unmatched.get(schema_id, [])
+                best = min(candidates, key=lambda due: abs(due - fired_at), default=None)
+                if best is not None and abs(best - fired_at) <= tolerance:
+                    candidates.remove(best)
+                    matched += 1
+                elif fired_at >= since:
+                    # Pre-window jobs have no decision window to match.
+                    temporal_only.append(schema_id)
+
+            if job_index % 25000 == 0:
+                self.stderr.write(f"matching: {job_index}/{len(jobs)} jobs")
+
+        self.stderr.write(f"matching: done in {time.monotonic() - started_at:.1f}s")
 
         shadow_only = [schema_id for schema_id, dues in unmatched.items() for _ in dues]
 

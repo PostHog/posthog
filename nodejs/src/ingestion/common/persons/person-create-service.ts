@@ -22,7 +22,8 @@ export class PersonCreateService {
      * produce, so a transactional caller can defer it past commit instead of
      * holding the transaction open across the Kafka roundtrip.
      *
-     * @returns [Person, true if person was created by this call (false if found existing person from concurrent creation), ClickHouse messages to produce]
+     * @returns [Person, true if person was created by this call (false if found existing person from concurrent creation), ClickHouse messages to produce,
+     *   true if the conflict found a person that owns one of the requested distinct ids]
      */
     async createPerson(
         createdAt: DateTime,
@@ -35,7 +36,7 @@ export class PersonCreateService {
         primaryDistinctId: { distinctId: string; version?: number },
         extraDistinctIds?: { distinctId: string; version?: number }[],
         tx?: PersonsStoreTransactionForBatch
-    ): Promise<[InternalPerson, boolean, PersonMessage[]]> {
+    ): Promise<[InternalPerson, boolean, PersonMessage[], boolean]> {
         const uuid = uuidFromDistinctId(teamId, primaryDistinctId.distinctId)
 
         const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
@@ -65,7 +66,7 @@ export class PersonCreateService {
             )
 
             if (result.success) {
-                return [result.person, result.created, result.messages]
+                return [result.person, result.created, result.messages, false]
             }
 
             // Handle creation conflict - another process created the person concurrently
@@ -75,7 +76,7 @@ export class PersonCreateService {
                 for (const distinctIdInfo of allDistinctIds) {
                     const existingPerson = await this.store.fetchForUpdate(teamId, distinctIdInfo.distinctId)
                     if (existingPerson) {
-                        return [existingPerson, false, []]
+                        return [existingPerson, false, [], true]
                     }
                 }
 
@@ -86,7 +87,7 @@ export class PersonCreateService {
                 // mapping, so no two identities are silently merged.
                 if (result.conflictingPerson) {
                     personCreateConflictResolvedCounter.labels({ resolved_by: 'uuid' }).inc()
-                    return [result.conflictingPerson, false, []]
+                    return [result.conflictingPerson, false, [], false]
                 }
 
                 // The holder vanished between the failed write and the lookup, so there is

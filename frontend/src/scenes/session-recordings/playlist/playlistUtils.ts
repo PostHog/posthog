@@ -8,7 +8,7 @@ import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/u
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { genericOperatorMap } from 'lib/utils/operators'
-import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
+import { toLocalFilters } from 'scenes/insights/filters/ActionFilter/legacyFilters'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { teamLogic } from 'scenes/teamLogic'

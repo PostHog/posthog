@@ -10,8 +10,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jfrog_arti
 )
 
 # AQL endpoints expose server-side timestamp filters; the REST list endpoints don't.
-_INCREMENTAL_ENDPOINTS = {"artifacts", "builds"}
-_FULL_REFRESH_ENDPOINTS = {"repositories", "storage_summary"}
+_INCREMENTAL_ENDPOINTS = {"artifacts", "builds", "build_artifacts", "build_dependencies", "xray_violations"}
+_FULL_REFRESH_ENDPOINTS = {"repositories", "storage_summary", "artifact_statistics", "build_promotions"}
 
 
 class TestJfrogArtifactorySource:
@@ -64,8 +64,9 @@ class TestJfrogArtifactorySource:
         # builds/storage_summary need an admin token; syncing them by default would fail most
         # non-admin connections.
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["builds"].should_sync_default is False
-        assert schemas["storage_summary"].should_sync_default is False
+        for name in ("builds", "build_artifacts", "build_dependencies", "build_promotions", "storage_summary"):
+            assert schemas[name].should_sync_default is False
+        assert schemas["xray_violations"].should_sync_default is False
         assert schemas["repositories"].should_sync_default is True
         assert schemas["artifacts"].should_sync_default is True
 
@@ -89,6 +90,8 @@ class TestJfrogArtifactorySource:
             ((False, 403), None, True, None),
             ((False, 403), "builds", False, "admin"),
             ((False, 403), "artifacts", False, "missing the permissions"),
+            ((False, 403), "build_promotions", False, "admin"),
+            ((False, 404), "xray_violations", False, "Requires JFrog Xray"),
             ((False, None), None, False, "Could not connect"),
         ],
     )
@@ -133,6 +136,9 @@ class TestJfrogArtifactorySource:
             ((True, 200), "artifacts", None),
             ((False, 403), "builds", "admin"),
             ((False, 401), "artifacts", "cannot read"),
+            ((False, 403), "build_artifacts", "admin"),
+            ((False, 404), "xray_violations", "Requires JFrog Xray"),
+            ((False, 404), "artifacts", None),
             # A throttle or transient failure is not a missing scope.
             ((False, 429), "artifacts", None),
             ((False, None), "builds", None),
