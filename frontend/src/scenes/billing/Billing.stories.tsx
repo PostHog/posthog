@@ -127,6 +127,48 @@ export const BillingWithCredits: Story = {
     },
 }
 
+export const BillingWithAICredits: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingJson,
+                },
+                '/api/billing/ai-credits/': {
+                    available: true,
+                    balance_usd: '42.50',
+                    amounts_usd: [10, 25, 50, 100],
+                    top_ups: [
+                        {
+                            id: 3,
+                            amount_usd: '25.00',
+                            status: 'awaiting_tax',
+                            failure_reason: null,
+                            created_at: '2024-03-10T09:30:00Z',
+                        },
+                        {
+                            id: 2,
+                            amount_usd: '50.00',
+                            status: 'failed',
+                            failure_reason: 'card_declined',
+                            created_at: '2024-03-08T14:05:00Z',
+                        },
+                        {
+                            id: 1,
+                            amount_usd: '50.00',
+                            status: 'credited',
+                            failure_reason: null,
+                            created_at: '2024-03-01T11:00:00Z',
+                        },
+                    ],
+                },
+            },
+        })
+
+        return <Billing />
+    },
+}
+
 export const BillingWithCreditCTA: Story = {
     render: () => {
         useStorybookMocks({

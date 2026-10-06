@@ -21,6 +21,123 @@ export namespace Schemas {
     }
 
     /**
+     * * `awaiting_tax` - Awaiting Tax
+     * * `paid` - Paid
+     * * `credited` - Credited
+     * * `failed` - Failed
+     */
+    export type AICreditTopUpStatusEnum = typeof AICreditTopUpStatusEnum[keyof typeof AICreditTopUpStatusEnum];
+
+
+    export const AICreditTopUpStatusEnum = {
+      AwaitingTax: 'awaiting_tax',
+      Paid: 'paid',
+      Credited: 'credited',
+      Failed: 'failed',
+    } as const;
+
+    export interface AICreditTopUp {
+      /** Billing's identifier for the top-up. */
+      id: number;
+      /**
+         * Amount bought, in USD, before tax.
+         * @pattern ^-?\d{0,8}(?:\.\d{0,2})?$
+         */
+      amount_usd: string;
+      /** awaiting_tax while billing waits for tax on the invoice, paid once billing charges the card, credited once the AI gateway wallet holds the credit, failed when the purchase stopped.
+       *
+       * * `awaiting_tax` - Awaiting Tax
+       * * `paid` - Paid
+       * * `credited` - Credited
+       * * `failed` - Failed */
+      status: AICreditTopUpStatusEnum;
+      /**
+         * Why the top-up failed, or null.
+         * @nullable
+         */
+      failure_reason: string | null;
+      /** When the top-up started. */
+      created_at: string;
+    }
+
+    /**
+     * * `rejected` - Rejected
+     * * `awaiting_tax` - Awaiting Tax
+     * * `paid` - Paid
+     * * `credited` - Credited
+     * * `failed` - Failed
+     */
+    export type AICreditTopUpOutcomeEnum = typeof AICreditTopUpOutcomeEnum[keyof typeof AICreditTopUpOutcomeEnum];
+
+
+    export const AICreditTopUpOutcomeEnum = {
+      Rejected: 'rejected',
+      AwaitingTax: 'awaiting_tax',
+      Paid: 'paid',
+      Credited: 'credited',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `not_available` - Not Available
+     * * `top_up_in_flight` - Top Up In Flight
+     * * `no_payment_method` - No Payment Method
+     * * `customer_balance_not_zero` - Customer Balance Not Zero
+     */
+    export type AICreditTopUpRejectionEnum = typeof AICreditTopUpRejectionEnum[keyof typeof AICreditTopUpRejectionEnum];
+
+
+    export const AICreditTopUpRejectionEnum = {
+      NotAvailable: 'not_available',
+      TopUpInFlight: 'top_up_in_flight',
+      NoPaymentMethod: 'no_payment_method',
+      CustomerBalanceNotZero: 'customer_balance_not_zero',
+    } as const;
+
+    export interface AICreditTopUpRequest {
+      /**
+         * Amount to buy in USD. Use one of the amounts the AI credits endpoint returns.
+         * @minimum 1
+         */
+      amount_usd: number;
+    }
+
+    export interface AICreditTopUpResponse {
+      /** rejected when billing refused the top-up, otherwise the new top-up's status.
+       *
+       * * `rejected` - Rejected
+       * * `awaiting_tax` - Awaiting Tax
+       * * `paid` - Paid
+       * * `credited` - Credited
+       * * `failed` - Failed */
+      status: AICreditTopUpOutcomeEnum;
+      /** Billing's identifier for the new top-up. */
+      id?: number;
+      /** Why billing refused the top-up.
+       *
+       * * `not_available` - Not Available
+       * * `top_up_in_flight` - Top Up In Flight
+       * * `no_payment_method` - No Payment Method
+       * * `customer_balance_not_zero` - Customer Balance Not Zero */
+      reason?: AICreditTopUpRejectionEnum;
+    }
+
+    export interface AICreditsResponse {
+      /** Whether the organization can buy AI credits. */
+      available: boolean;
+      /**
+         * AI credit balance in USD, or null when the AI gateway did not answer.
+         * @nullable
+         * @pattern ^-?\d{0,10}(?:\.\d{0,2})?$
+         */
+      balance_usd?: string | null;
+      /** Amounts in USD that a top-up can buy. */
+      amounts_usd?: number[];
+      /** The ten latest top-ups, newest first. */
+      top_ups?: AICreditTopUp[];
+    }
+
+    /**
      * * `$ai_trace_id` - $ai_trace_id
      * * `$ai_session_id` - $ai_session_id
      * * `$ai_parent_id` - $ai_parent_id
