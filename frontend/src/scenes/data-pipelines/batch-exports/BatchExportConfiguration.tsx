@@ -29,6 +29,8 @@ import {
     IntegrationType,
 } from '~/types'
 
+import { SourceDestinationsBanner } from 'products/warehouse_sources/frontend/components/SourceDestinationsBanner'
+
 import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
 import {
     BatchExportConfigurationClearChangesButton,
@@ -73,6 +75,7 @@ export function BatchExportConfiguration(): JSX.Element {
 
     return (
         <Form logic={batchExportConfigFormLogic} formKey="configuration" className="flex flex-col gap-3">
+            <SourceDestinationsBanner />
             <div className="flex flex-wrap gap-4 items-start">
                 <div className="flex flex-col flex-1 max-w-200 min-w-100 gap-y-3">
                     <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">
