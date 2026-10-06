@@ -81,6 +81,37 @@ const integrationsChannelsRetrieve = (): ToolBase<
     },
 })
 
+const IntegrationsGithubAssigneesRetrieveSchema = () => {
+    const IntegrationsGithubAssigneesRetrieveParams = orvalSchemas.IntegrationsGithubAssigneesRetrieveParams()
+    const IntegrationsGithubAssigneesRetrieveQueryParams = orvalSchemas.IntegrationsGithubAssigneesRetrieveQueryParams()
+    return IntegrationsGithubAssigneesRetrieveParams.omit({ project_id: true }).extend(
+        IntegrationsGithubAssigneesRetrieveQueryParams.shape
+    )
+}
+
+const integrationsGithubAssigneesRetrieve = (): ToolBase<
+    ReturnType<typeof IntegrationsGithubAssigneesRetrieveSchema>,
+    Schemas.IntegrationAssigneesResponse
+> => ({
+    name: 'integrations-github-assignees-retrieve',
+    schema: IntegrationsGithubAssigneesRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof IntegrationsGithubAssigneesRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.IntegrationAssigneesResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/github_assignees/`,
+            query: {
+                repository: params.repository,
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
 const IntegrationsGithubReposRetrieveSchema = () => {
     const IntegrationsGithubReposRetrieveParams = orvalSchemas.IntegrationsGithubReposRetrieveParams()
     const IntegrationsGithubReposRetrieveQueryParams = orvalSchemas.IntegrationsGithubReposRetrieveQueryParams()
@@ -111,6 +142,65 @@ const integrationsGithubReposRetrieve = (): ToolBase<
     },
 })
 
+const IntegrationsGitlabMembersRetrieveSchema = () => {
+    const IntegrationsGitlabMembersRetrieveParams = orvalSchemas.IntegrationsGitlabMembersRetrieveParams()
+    const IntegrationsGitlabMembersRetrieveQueryParams = orvalSchemas.IntegrationsGitlabMembersRetrieveQueryParams()
+    return IntegrationsGitlabMembersRetrieveParams.omit({ project_id: true }).extend(
+        IntegrationsGitlabMembersRetrieveQueryParams.shape
+    )
+}
+
+const integrationsGitlabMembersRetrieve = (): ToolBase<
+    ReturnType<typeof IntegrationsGitlabMembersRetrieveSchema>,
+    Schemas.IntegrationAssigneesResponse
+> => ({
+    name: 'integrations-gitlab-members-retrieve',
+    schema: IntegrationsGitlabMembersRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsGitlabMembersRetrieveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.IntegrationAssigneesResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/gitlab_members/`,
+            query: {
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
+const IntegrationsJiraAssignableUsersRetrieveSchema = () => {
+    const IntegrationsJiraAssignableUsersRetrieveParams = orvalSchemas.IntegrationsJiraAssignableUsersRetrieveParams()
+    const IntegrationsJiraAssignableUsersRetrieveQueryParams =
+        orvalSchemas.IntegrationsJiraAssignableUsersRetrieveQueryParams()
+    return IntegrationsJiraAssignableUsersRetrieveParams.omit({ project_id: true }).extend(
+        IntegrationsJiraAssignableUsersRetrieveQueryParams.shape
+    )
+}
+
+const integrationsJiraAssignableUsersRetrieve = (): ToolBase<
+    ReturnType<typeof IntegrationsJiraAssignableUsersRetrieveSchema>,
+    Schemas.IntegrationAssigneesResponse
+> => ({
+    name: 'integrations-jira-assignable-users-retrieve',
+    schema: IntegrationsJiraAssignableUsersRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof IntegrationsJiraAssignableUsersRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.IntegrationAssigneesResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/jira_assignable_users/`,
+            query: {
+                project_key: params.project_key,
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
 const IntegrationsJiraProjectsRetrieveSchema = () => {
     const IntegrationsJiraProjectsRetrieveParams = orvalSchemas.IntegrationsJiraProjectsRetrieveParams()
     return IntegrationsJiraProjectsRetrieveParams.omit({ project_id: true })
@@ -127,6 +217,38 @@ const integrationsJiraProjectsRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.JiraProjectsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/jira_projects/`,
+        })
+        return result
+    },
+})
+
+const IntegrationsLinearTeamMembersRetrieveSchema = () => {
+    const IntegrationsLinearTeamMembersRetrieveParams = orvalSchemas.IntegrationsLinearTeamMembersRetrieveParams()
+    const IntegrationsLinearTeamMembersRetrieveQueryParams =
+        orvalSchemas.IntegrationsLinearTeamMembersRetrieveQueryParams()
+    return IntegrationsLinearTeamMembersRetrieveParams.omit({ project_id: true }).extend(
+        IntegrationsLinearTeamMembersRetrieveQueryParams.shape
+    )
+}
+
+const integrationsLinearTeamMembersRetrieve = (): ToolBase<
+    ReturnType<typeof IntegrationsLinearTeamMembersRetrieveSchema>,
+    Schemas.IntegrationAssigneesResponse
+> => ({
+    name: 'integrations-linear-team-members-retrieve',
+    schema: IntegrationsLinearTeamMembersRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof IntegrationsLinearTeamMembersRetrieveSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.IntegrationAssigneesResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/linear_team_members/`,
+            query: {
+                search: params.search,
+                team_id: params.team_id,
+            },
         })
         return result
     },
@@ -256,8 +378,12 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-delete': integrationDelete,
     'integration-get': integrationGet,
     'integrations-channels-retrieve': integrationsChannelsRetrieve,
+    'integrations-github-assignees-retrieve': integrationsGithubAssigneesRetrieve,
     'integrations-github-repos-retrieve': integrationsGithubReposRetrieve,
+    'integrations-gitlab-members-retrieve': integrationsGitlabMembersRetrieve,
+    'integrations-jira-assignable-users-retrieve': integrationsJiraAssignableUsersRetrieve,
     'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
+    'integrations-linear-team-members-retrieve': integrationsLinearTeamMembersRetrieve,
     'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,
     'integrations-list': integrationsList,
     'integrations-users-retrieve': integrationsUsersRetrieve,

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -145,6 +145,25 @@ export const IntegrationsChannelsRetrieveQueryParams = () => zod.object({
         .describe('Optional case-insensitive channel name or ID search query.'),
 })
 
+export const IntegrationsGithubAssigneesRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsGithubAssigneesRetrieveQuerySearchDefault = ``
+
+export const IntegrationsGithubAssigneesRetrieveQueryParams = () => zod.object({
+    repository: zod.string().min(1).describe('Repository name, or owner\/name, whose assignable users to list.'),
+    search: zod
+        .string()
+        .default(integrationsGithubAssigneesRetrieveQuerySearchDefault)
+        .describe('Optional case-insensitive name search. Leave blank to list the first users.'),
+})
+
 export const IntegrationsGithubReposRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
@@ -187,6 +206,43 @@ export const IntegrationsGithubReposRetrieveQueryParams = () => zod.object({
         .describe('Optional case-insensitive repository name search query.'),
 })
 
+export const IntegrationsGitlabMembersRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsGitlabMembersRetrieveQuerySearchDefault = ``
+
+export const IntegrationsGitlabMembersRetrieveQueryParams = () => zod.object({
+    search: zod
+        .string()
+        .default(integrationsGitlabMembersRetrieveQuerySearchDefault)
+        .describe('Optional case-insensitive name search. Leave blank to list the first users.'),
+})
+
+export const IntegrationsJiraAssignableUsersRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsJiraAssignableUsersRetrieveQuerySearchDefault = ``
+
+export const IntegrationsJiraAssignableUsersRetrieveQueryParams = () => zod.object({
+    project_key: zod.string().min(1).describe('Jira project key whose assignable users to list.'),
+    search: zod
+        .string()
+        .default(integrationsJiraAssignableUsersRetrieveQuerySearchDefault)
+        .describe('Optional case-insensitive name search. Leave blank to list the first users.'),
+})
+
 export const IntegrationsJiraProjectsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
     project_id: zod
@@ -194,6 +250,25 @@ export const IntegrationsJiraProjectsRetrieveParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const IntegrationsLinearTeamMembersRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsLinearTeamMembersRetrieveQuerySearchDefault = ``
+
+export const IntegrationsLinearTeamMembersRetrieveQueryParams = () => zod.object({
+    search: zod
+        .string()
+        .default(integrationsLinearTeamMembersRetrieveQuerySearchDefault)
+        .describe('Optional case-insensitive name search. Leave blank to list the first users.'),
+    team_id: zod.string().min(1).describe('Linear team ID whose members to list.'),
 })
 
 export const IntegrationsLinearTeamsRetrieveParams = () => zod.object({

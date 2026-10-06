@@ -161,7 +161,9 @@ tools:
             an optional `assignee` key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. Use
             integrations-list first to find the `integration_id` and kind; use integrations-jira-projects-retrieve,
             integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific
-            IDs.
+            IDs. To find an assignee, use integrations-linear-team-members-retrieve,
+            integrations-github-assignees-retrieve, integrations-gitlab-members-retrieve, or
+            integrations-jira-assignable-users-retrieve.
     error-tracking-external-references-destroy:
         operation: error_tracking_external_references_destroy
         enabled: false

@@ -4603,7 +4603,7 @@
         }
     },
     "error-tracking-external-references-create": {
-        "description": "Create a new external issue in GitHub, GitLab, Linear, or Jira, then link it to a PostHog error tracking issue as an external reference. This tool does not link an existing external issue by URL or key. Provide the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object with provider-specific fields. Examples: Jira config {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; Linear config {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; GitHub config {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}; GitLab config {\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}. Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Every kind also accepts an optional `assignee` key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. Use integrations-list first to find the `integration_id` and kind; use integrations-jira-projects-retrieve, integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific IDs.",
+        "description": "Create a new external issue in GitHub, GitLab, Linear, or Jira, then link it to a PostHog error tracking issue as an external reference. This tool does not link an existing external issue by URL or key. Provide the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object with provider-specific fields. Examples: Jira config {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; Linear config {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; GitHub config {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}; GitLab config {\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}. Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Every kind also accepts an optional `assignee` key: a Linear user ID, a GitHub login, a GitLab user ID, or a Jira account ID. Use integrations-list first to find the `integration_id` and kind; use integrations-jira-projects-retrieve, integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific IDs. To find an assignee, use integrations-linear-team-members-retrieve, integrations-github-assignees-retrieve, integrations-gitlab-members-retrieve, or integrations-jira-assignable-users-retrieve.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Create error tracking external reference",
@@ -7296,6 +7296,20 @@
             "readOnlyHint": true
         }
     },
+    "integrations-github-assignees-retrieve": {
+        "description": "Search the users who can be assigned issues in a repository of a connected GitHub integration. Pass `repository` (name, or owner/name) and an optional `search` that matches logins, case-insensitively. Returns up to 100 users. Pass a returned id (the GitHub login) as `config.assignee` when creating an error tracking external reference.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Search GitHub assignees",
+        "title": "Search GitHub assignees",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "integrations-github-repos-retrieve": {
         "description": "List the repositories accessible to a GitHub integration (by integration ID). Serves the cached repository list from the GitHub App installation. Supports `search` (case-insensitive name match), `limit` (default 100, max 500), and `offset` query parameters. Returns repository id, name, and full_name (owner/repo), a has_more flag, a total count, and next_offset. When has_more is true, call again with `offset` set to next_offset to get the next page. Set `compact` to false only when you need the extra repository details. Use this to validate that a repository is accessible to the integration before referencing it (e.g. when creating a GitHub data warehouse source).",
         "category": "Integrations",
@@ -7310,12 +7324,54 @@
             "readOnlyHint": true
         }
     },
+    "integrations-gitlab-members-retrieve": {
+        "description": "Search the active members of the project connected to a GitLab integration, including inherited members. Pass an optional `search` that matches names, case-insensitively. Returns up to 100 users. Pass a returned id (the numeric GitLab user ID) as `config.assignee` when creating an error tracking external reference.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Search GitLab project members",
+        "title": "Search GitLab project members",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integrations-jira-assignable-users-retrieve": {
+        "description": "Search the users who can be assigned issues in a Jira project of a connected Jira integration. Pass `project_key` and an optional `search` that matches names. Returns up to 100 users. Pass a returned id (the Jira account ID) as `config.assignee` when creating an error tracking external reference. When `reconnect_required` is true, the connection must be reconnected before users can be listed.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Search Jira assignable users",
+        "title": "Search Jira assignable users",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "integrations-jira-projects-retrieve": {
         "description": "List Jira projects available through a connected Jira integration. Use integrations-list with kind=jira first to find the integration id, then pass a returned project key as `config.project_key` when creating an error tracking external reference.",
         "category": "Integrations",
         "feature": "integrations",
         "summary": "List Jira projects",
         "title": "List Jira projects",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integrations-linear-team-members-retrieve": {
+        "description": "Search the active members of a Linear team in a connected Linear integration. Pass `team_id` (from integrations-linear-teams-retrieve) and an optional `search` that matches names, case-insensitively. Returns up to 100 users. Pass a returned id as `config.assignee` when creating an error tracking external reference.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Search Linear team members",
+        "title": "Search Linear team members",
         "required_scopes": ["integration:read"],
         "annotations": {
             "destructiveHint": false,
