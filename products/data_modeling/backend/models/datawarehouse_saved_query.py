@@ -37,7 +37,6 @@ from posthog.hogql.database.s3_table import (
     S3Table,
 )
 from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_contains_user_hogql, tags_context
@@ -467,6 +466,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         self.column_order = list(columns.keys())
 
     def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
+        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
+
         query = self.query or {}
         if not isinstance(query, dict) or "query" not in query:
             raise Exception("Saved query is missing a query definition")

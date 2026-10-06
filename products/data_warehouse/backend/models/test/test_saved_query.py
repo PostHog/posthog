@@ -104,7 +104,7 @@ class TestGetColumnsQueryTagging(BaseTest):
     feature query tags (enforced as a hard error in DEBUG). Untagged, view creation over any table —
     including ai_events — fails with UntaggedQueryError. The inference query must be tagged."""
 
-    @patch("products.data_modeling.backend.models.datawarehouse_saved_query.execute_hogql_query")
+    @patch("posthog.hogql.query.execute_hogql_query")
     def test_get_columns_tags_the_inference_query(self, mock_execute_hogql_query):
         from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 
@@ -133,24 +133,20 @@ class TestGetColumnsQueryTagging(BaseTest):
 class TestGetColumnsReadsNoRows(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
-            ("aggregation", "SELECT uuid, count() AS n FROM events GROUP BY uuid", {"uuid": "UUID", "n": "UInt64"}, 1),
+            ("aggregation", "SELECT uuid, count() AS n FROM events GROUP BY uuid", {"uuid": "UUID", "n": "UInt64"}),
             (
                 "existing_limit_and_offset",
                 "SELECT uuid, count() AS n FROM events GROUP BY uuid LIMIT 5 OFFSET 2",
                 {"uuid": "UUID", "n": "UInt64"},
-                1,
             ),
             (
                 "union_all",
                 "SELECT event AS name FROM events UNION ALL SELECT distinct_id AS name FROM events LIMIT 3",
                 {"name": "String"},
-                2,
             ),
         ]
     )
-    def test_infers_types_without_reading_rows(
-        self, _name: str, sql: str, expected_types: dict[str, str], select_count: int
-    ) -> None:
+    def test_infers_types_without_reading_rows(self, _name: str, sql: str, expected_types: dict[str, str]) -> None:
         saved_query = DataWarehouseSavedQuery(team=self.team, name="my_view", query={"query": sql})
 
         with self.capture_select_queries() as queries:
@@ -158,5 +154,6 @@ class TestGetColumnsReadsNoRows(ClickhouseTestMixin, BaseTest):
 
         assert {name: column["clickhouse"] for name, column in columns.items()} == expected_types
         assert len(queries) == 1
-        assert queries[0].count("LIMIT 0") == select_count
+        for branch in queries[0].split("UNION ALL"):
+            assert branch.count("LIMIT 0") == 1
         assert "OFFSET" not in queries[0]
