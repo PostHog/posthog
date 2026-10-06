@@ -19,8 +19,10 @@ const Template: StoryFn<typeof SourceDestinationsBanner> = () => <SourceDestinat
 export const Default = Template.bind({})
 
 // Keep a sized story root so visual tests can verify the banner stays absent without the flag.
+// `#storybook-root` is `display: inline-block`, so it needs an explicit width as well as height -
+// a height-only box still collapses to zero width and the screenshot target stays invisible.
 export const FlagOff: StoryFn<typeof SourceDestinationsBanner> = () => (
-    <div className="h-px">
+    <div className="h-px w-px">
         <SourceDestinationsBanner />
     </div>
 )
