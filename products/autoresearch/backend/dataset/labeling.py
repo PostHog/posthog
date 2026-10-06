@@ -89,6 +89,8 @@ def _identified_users_and_clause() -> str:
 # activity scan that counted it would keep a person eligible forever on nothing but their
 # own predictions, and would count the prediction as the first or last thing they did.
 PREDICTION_EVENT_NAME = "autoresearch_prediction"
+# The `$autoresearch_model_role` of a prediction a shadow-set model emits next to the champion's.
+SHADOW_MODEL_ROLE = "shadow"
 
 
 def _own_events_excluded_clause(alias: str = "") -> str:
@@ -988,7 +990,8 @@ def build_inference_anchors_sql(
     ``rolling`` keeps only ``rolling.limit`` eligible persons: first the ones the pipeline never
     scored, then the oldest last score, then the most recent member event, then a hash of the
     person. Every key reads events before the cutoff, so a retry of the same prediction date
-    selects the same people.
+    selects the same people. Shadow predictions do not count as scores, so shadow scoring does
+    not change who the champion scores next.
     """
     inference_properties = (inference_population or {}).get("properties", []) if inference_population else []
     compiled_filters = _compile_population_filters(inference_properties)
@@ -1039,6 +1042,7 @@ def build_inference_anchors_sql(
                   AND timestamp >= {cutoff_expr} - toIntervalDay({{rolling_scored_lookback}})
                   AND timestamp < {cutoff_expr}
                   AND properties.$autoresearch_pipeline_id = {{rolling_pipeline_id}}
+                  AND ifNull(properties.$autoresearch_model_role, '') != '{SHADOW_MODEL_ROLE}'
                 GROUP BY person_id
             ) AS s ON a.person_id = s.person_id
             LEFT JOIN (

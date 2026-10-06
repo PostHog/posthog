@@ -192,7 +192,9 @@ def inference_workflow_id(pipeline_id: str, prediction_date: str) -> str:
 # ── Workflow ─────────────────────────────────────────────────────────────────
 
 # Scoring can take minutes for large populations. The recipe path runs at most five batch
-# queries in sequence, so one attempt covers all of them at the full limit.
+# queries in sequence (50 minutes at the full limit). Shadow scoring then starts models for up to
+# SHADOW_TIME_BUDGET_S (20 minutes), and the last model it starts runs an anchor count, a feature
+# query, and a predict sandbox (about 30 minutes at worst). One attempt covers all of it.
 _SCORE_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30))
 _SCORE_ATTEMPT_TIMEOUT = timedelta(hours=2)
 # A lost worker is detected in minutes rather than at the end of a multi-hour attempt.

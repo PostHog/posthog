@@ -21,7 +21,7 @@ It is the only honest number in the product. A holdout AUC of 0.93 says the mode
   - **lift@k** (`_lift_at_k`) — how much better than random the top slice is; ties at the boundary score are split fractionally so the number does not depend on row order
   - **weekday** — the ISO weekday of the prediction date
 
-  Every model that emitted predictions on the date is scored, whatever its role now. Inference emits the champion only today; when challenger shadow scoring ships, their realized numbers land here without a change, which is what makes challenger promotion decidable on evidence rather than on holdout alone.
+  Every model that emitted predictions on the date is scored, whatever its role now. Inference shadow-scores every model in the shadow set on the champion's people, and each records its own inference run, so their realized numbers land here without a change. That is what makes challenger promotion decidable on evidence rather than on holdout alone. A shadow model's events carry the emitted role `shadow`.
   Results land on `AutoresearchModel.realized_score` / `.calibration_error` / `.metrics["realized"]` via `_update_model_realized_metrics()`, and each validated date records an `AutoresearchRun` whose `metrics["per_model"]` keeps the emitted role next to the current one.
   The model row keeps only the newest date. The history is on the runs: `online_performance()` in `../facade/api.py` (the pipeline's `online_performance` action and the `autoresearch-online-performance-retrieve` MCP tool) reads the newest completed run per (date, horizon) and returns one row per model per date, so an archived former champion keeps its evidence after a promotion.
 
