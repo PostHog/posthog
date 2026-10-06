@@ -40,6 +40,7 @@ from products.marketing_analytics.backend.hogql_queries.attribution_paths_query_
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )
+from products.marketing_analytics.backend.hogql_queries.constants import MARKETING_SPILL_AFTER_BYTES
 
 
 class TestAttributionSessionsRead(SimpleTestCase):
@@ -396,4 +397,4 @@ class TestAttributionSessionsRead(SimpleTestCase):
         eligible_live = live and timezone == "UTC"
         assert settings.max_threads == (16 if eligible_live else None)
         assert settings.optimize_aggregation_in_order == (True if eligible_live else None)
-        assert settings.max_bytes_before_external_group_by == 512 * 1024 * 1024
+        assert settings.max_bytes_before_external_group_by == MARKETING_SPILL_AFTER_BYTES

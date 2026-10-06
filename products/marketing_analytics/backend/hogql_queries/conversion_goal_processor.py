@@ -47,6 +47,7 @@ from .attribution_weights import (
     build_position_based_weights,
     build_time_decay_weights,
 )
+from .constants import MAX_TOUCHPOINTS_PER_PERSON
 from .conversion_goal_conditions import (
     action_match_expr,
     action_property_keys,
@@ -810,7 +811,9 @@ class ConversionGoalProcessor:
         alone would over-count out-of-range rows into the per-person arrays.
         """
         conversions = self._build_conversion_arrays_from_table(conversion_job_ids, date_from, date_to)
-        touchpoints = self._build_touchpoint_arrays_from_table(touchpoint_job_ids, date_from - window, date_to)
+        touchpoints = self._build_touchpoint_arrays_from_table(
+            touchpoint_job_ids, date_from - window, date_to, conversions, window
+        )
 
         select_columns: list[ast.Expr] = []
         for col in ("person_id", "conversion_timestamps", "conversion_math_values"):
@@ -821,13 +824,11 @@ class ConversionGoalProcessor:
             select_columns.append(
                 ast.Alias(alias=field.conversion_array, expr=ast.Field(chain=["c", field.conversion_array]))
             )
-        # LEFT JOIN: organic conversions (no matching person in the touchpoints table) get empty
-        # touchpoint arrays (ClickHouse fills missing Array columns with []), handled downstream.
-        select_columns.append(ast.Alias(alias="utm_timestamps", expr=ast.Field(chain=["t", "utm_timestamps"])))
-        for field in TRACKED_FIELDS:
-            select_columns.append(ast.Alias(alias=field.utm_array, expr=ast.Field(chain=["t", field.utm_array])))
+        # LEFT JOIN: organic conversions (no matching person in the touchpoints table) get an empty
+        # tuple array (ClickHouse fills missing Array columns with []), handled downstream.
+        select_columns.append(ast.Alias(alias="utm_touchpoints", expr=ast.Field(chain=["t", "utm_touchpoints"])))
 
-        return ast.SelectQuery(
+        array_collection = ast.SelectQuery(
             select=select_columns,
             select_from=ast.JoinExpr(
                 table=conversions,
@@ -847,6 +848,7 @@ class ConversionGoalProcessor:
                 ),
             ),
         )
+        return self._build_array_collection_with_bounded_touchpoints(array_collection)
 
     def _build_conversion_only_arrays(
         self, conversion_event: Optional[str], date_from: datetime, date_to: datetime
@@ -992,7 +994,12 @@ class ConversionGoalProcessor:
         )
 
     def _build_touchpoint_arrays_from_table(
-        self, job_ids: Sequence[str | uuid.UUID], date_from: datetime, date_to: datetime
+        self,
+        job_ids: Sequence[str | uuid.UUID],
+        date_from: datetime,
+        date_to: datetime,
+        conversions: ast.SelectQuery,
+        window: timedelta,
     ) -> ast.SelectQuery:
         """Per-person touchpoint arrays (utm_timestamps + per-field UTM arrays) read from the
         precomputed marketing_touchpoints table, matching the array shape build_array_collection_query
@@ -1005,27 +1012,17 @@ class ConversionGoalProcessor:
         conversion. We deduplicate by the FULL touchpoint identity — (person_id, touchpoint_timestamp, all
         UTM dims) — ignoring job_id/computed_at, so only true duplicates collapse.
         """
+        timestamp = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["touchpoints", "touchpoint_timestamp"])])
         select_columns: list[ast.Expr] = [
-            ast.Field(chain=["person_id"]),
+            ast.Field(chain=["touchpoints", "person_id"]),
             ast.Alias(
-                alias="utm_timestamps",
-                expr=ast.Call(
-                    name="groupArray",
-                    args=[ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["touchpoint_timestamp"])])],
+                alias="utm_touchpoints",
+                expr=self._build_bounded_touchpoints_aggregate(
+                    timestamp,
+                    [ast.Field(chain=["touchpoints", field.attributed_name]) for field in TRACKED_FIELDS],
                 ),
             ),
         ]
-        for field in TRACKED_FIELDS:
-            # Unfiltered, to stay index-parallel with `utm_timestamps` above: these arrays are read
-            # positionally against it, and a stored row can legitimately carry an empty value for any
-            # field except campaign and source (which the precompute WHERE requires). Filtering the
-            # empties out here shifted every later element onto the wrong touchpoint.
-            select_columns.append(
-                ast.Alias(
-                    alias=field.utm_array,
-                    expr=ast.Call(name="groupArray", args=[ast.Field(chain=[field.attributed_name])]),
-                )
-            )
 
         deduped_rows = self._build_distinct_preagg_rows(
             table="marketing_touchpoints_preaggregated",
@@ -1042,8 +1039,50 @@ class ConversionGoalProcessor:
 
         return ast.SelectQuery(
             select=select_columns,
-            select_from=ast.JoinExpr(table=deduped_rows),
-            group_by=[ast.Field(chain=["person_id"])],
+            select_from=ast.JoinExpr(
+                table=deduped_rows,
+                alias="touchpoints",
+                next_join=ast.JoinExpr(
+                    table=conversions,
+                    alias="conversions",
+                    join_type="INNER JOIN",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            left=ast.Field(chain=["touchpoints", "person_id"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=["conversions", "person_id"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+            where=ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        left=ast.Call(
+                            name="toUnixTimestamp", args=[ast.Field(chain=["touchpoints", "touchpoint_timestamp"])]
+                        ),
+                        op=ast.CompareOperationOp.GtEq,
+                        right=ast.ArithmeticOperation(
+                            left=ast.Call(
+                                name="arrayMin", args=[ast.Field(chain=["conversions", "conversion_timestamps"])]
+                            ),
+                            op=ast.ArithmeticOperationOp.Sub,
+                            right=ast.Constant(value=int(window.total_seconds())),
+                        ),
+                    ),
+                    ast.CompareOperation(
+                        left=ast.Call(
+                            name="toUnixTimestamp", args=[ast.Field(chain=["touchpoints", "touchpoint_timestamp"])]
+                        ),
+                        op=ast.CompareOperationOp.LtEq,
+                        right=ast.Call(
+                            name="arrayMax", args=[ast.Field(chain=["conversions", "conversion_timestamps"])]
+                        ),
+                    ),
+                ]
+            ),
+            group_by=[ast.Field(chain=["touchpoints", "person_id"])],
         )
 
     def _build_distinct_preagg_rows(
@@ -1107,6 +1146,32 @@ class ConversionGoalProcessor:
 
         # Build WHERE clause with clean separation of concerns
         final_where = self._build_comprehensive_where_clause(conversion_event, where_conditions, utm_source_field)
+        conversion_bounds = self._build_conversion_bounds_query(conversion_event, final_where)
+        conversion_condition = self._build_conversion_event_condition(conversion_event)
+        event_timestamp = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
+        touches_conversion_window = ast.Or(
+            exprs=[
+                conversion_condition,
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            left=event_timestamp,
+                            op=ast.CompareOperationOp.GtEq,
+                            right=ast.ArithmeticOperation(
+                                left=ast.Field(chain=["conversion_bounds", "first_conversion"]),
+                                op=ast.ArithmeticOperationOp.Sub,
+                                right=ast.Constant(value=self.config.attribution_window_days * DAY_IN_SECONDS),
+                            ),
+                        ),
+                        ast.CompareOperation(
+                            left=event_timestamp,
+                            op=ast.CompareOperationOp.LtEq,
+                            right=ast.Field(chain=["conversion_bounds", "last_conversion"]),
+                        ),
+                    ]
+                ),
+            ]
+        )
 
         # Build SELECT columns
         select_columns: list[ast.Expr] = [
@@ -1123,12 +1188,12 @@ class ConversionGoalProcessor:
                 self._build_conversion_utm_array(field.conversion_array, conversion_event, resolved[field.name])
             )
 
-        # Add pageview UTM arrays (timestamps + each tracked field)
-        select_columns.append(self._build_utm_pageview_array("utm_timestamps", utm_source_field, "timestamp"))
-        for field in TRACKED_FIELDS:
-            select_columns.append(
-                self._build_utm_pageview_array(field.utm_array, utm_source_field, resolved[field.name])
-            )
+        # Keep the timestamp and every field together until the person-level collection is complete.
+        # Separately collecting the parallel arrays makes each field allocate independently and leaves no
+        # safe way to trim one without shifting its indices away from the timestamp array.
+        select_columns.append(
+            self._build_utm_pageview_tuples(utm_source_field, [resolved[field.name] for field in TRACKED_FIELDS])
+        )
 
         # Build HAVING clause
         having_expr = ast.CompareOperation(
@@ -1137,12 +1202,48 @@ class ConversionGoalProcessor:
             right=ast.Constant(value=0),
         )
 
-        return ast.SelectQuery(
+        array_collection = ast.SelectQuery(
             select=select_columns,
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=final_where,
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"]),
+                next_join=ast.JoinExpr(
+                    table=conversion_bounds,
+                    alias="conversion_bounds",
+                    join_type="INNER JOIN",
+                    constraint=ast.JoinConstraint(
+                        expr=ast.CompareOperation(
+                            left=ast.Field(chain=["events", "person_id"]),
+                            op=ast.CompareOperationOp.Eq,
+                            right=ast.Field(chain=["conversion_bounds", "person_id"]),
+                        ),
+                        constraint_type="ON",
+                    ),
+                ),
+            ),
+            where=ast.And(exprs=[final_where, touches_conversion_window]),
             group_by=[ast.Field(chain=["events", "person_id"])],
             having=having_expr,
+        )
+        return self._build_array_collection_with_bounded_touchpoints(array_collection)
+
+    def _build_conversion_bounds_query(self, conversion_event: Optional[str], final_where: ast.Expr) -> ast.SelectQuery:
+        conversion_condition = self._build_conversion_event_condition(conversion_event)
+        conversion_timestamp = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
+        return ast.SelectQuery(
+            select=[
+                ast.Field(chain=["events", "person_id"]),
+                ast.Alias(
+                    alias="first_conversion",
+                    expr=ast.Call(name="min", args=[conversion_timestamp]),
+                ),
+                ast.Alias(
+                    alias="last_conversion",
+                    expr=ast.Call(name="max", args=[conversion_timestamp]),
+                ),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(exprs=[final_where, conversion_condition]),
+            group_by=[ast.Field(chain=["events", "person_id"])],
         )
 
     def _build_comprehensive_where_clause(
@@ -1458,17 +1559,56 @@ class ConversionGoalProcessor:
             ),
         )
 
-    def _build_utm_pageview_array(self, alias: str, utm_source_field: str, return_field: str) -> ast.Alias:
-        """Build array for UTM pageview data.
+    def _build_bounded_touchpoints_aggregate(
+        self,
+        timestamp: ast.Expr,
+        fields: list[ast.Expr],
+        condition: ast.Expr | None = None,
+        tie_breaker: ast.Expr | None = None,
+    ) -> ast.Expr:
+        """Keep the newest touchpoints in bounded aggregation state, ordered oldest to newest."""
+        payload_start = 3 if tie_breaker is not None else 2
+        aggregate = ast.Call(
+            name="groupArraySortedIf" if condition is not None else "groupArraySorted",
+            params=[ast.Constant(value=MAX_TOUCHPOINTS_PER_PERSON)],
+            args=[
+                ast.Tuple(
+                    exprs=[
+                        ast.ArithmeticOperation(
+                            left=ast.Constant(value=-1),
+                            op=ast.ArithmeticOperationOp.Mult,
+                            right=timestamp,
+                        ),
+                        *([tie_breaker] if tie_breaker is not None else []),
+                        timestamp,
+                        *fields,
+                    ]
+                ),
+                *([condition] if condition is not None else []),
+            ],
+        )
+        return ast.Call(
+            name="arrayMap",
+            args=[
+                ast.Lambda(
+                    args=["_tp"],
+                    expr=ast.Tuple(
+                        exprs=[
+                            ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=index)
+                            for index in range(payload_start, payload_start + len(fields) + 1)
+                        ]
+                    ),
+                ),
+                ast.Call(name="arrayReverse", args=[aggregate]),
+            ],
+        )
 
-        Every array this builds is read positionally against `utm_timestamps`
-        (`_build_filtered_utm_field_expr`, `_build_single_touch_fallback_expr`), so all of them must
-        keep exactly one element per UTM pageview, in the same order. That means **every** array is
-        filtered by the same predicate — the timestamp being non-zero, i.e. the row qualified — and
-        never by whether its own value happens to be set. `utm_source` or an ad click id is the
-        touchpoint qualifier; every other tracked field, `utm_campaign` included, is routinely empty
-        on a qualifying pageview, and dropping those positions used to shift every later element:
-        touchpoint i's timestamp paired with touchpoint j's value.
+    def _build_utm_pageview_tuples(self, utm_source_field: str, fields: list[str]) -> ast.Alias:
+        """Collect qualifying pageviews as timestamp-plus-fields tuples.
+
+        The arrays consumed downstream are positional, so every field stays in its qualifying row until
+        the bounded tuple set is expanded. This prevents an empty optional field from shifting a later
+        touchpoint onto the wrong timestamp.
         """
         pageview_with_utm = ast.And(
             exprs=[
@@ -1481,78 +1621,103 @@ class ConversionGoalProcessor:
             ]
         )
         timestamp_expr = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
-        qualified_timestamp = ast.Call(name="if", args=[pageview_with_utm, timestamp_expr, ast.Constant(value=0)])
-        qualified = ast.Lambda(
-            args=["_tp"],
-            expr=ast.CompareOperation(
-                left=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=1),
-                op=ast.CompareOperationOp.Gt,
-                right=ast.Constant(value=0),
+        return ast.Alias(
+            alias="utm_touchpoints",
+            expr=self._build_bounded_touchpoints_aggregate(
+                timestamp_expr,
+                [
+                    ast.Call(
+                        name="toString",
+                        args=[
+                            ast.Call(
+                                name="ifNull",
+                                args=[ast.Field(chain=["events", "properties", field]), ast.Constant(value="")],
+                            )
+                        ],
+                    )
+                    for field in fields
+                ],
+                pageview_with_utm,
+                # Preserve the existing winner when touchpoints share a timestamp.
+                ast.Field(chain=["events", "uuid"]),
             ),
         )
 
-        if return_field == "timestamp":
-            return ast.Alias(
-                alias=alias,
-                expr=ast.Call(
-                    name="arrayFilter",
-                    args=[
-                        ast.Lambda(
-                            args=["x"],
-                            expr=ast.CompareOperation(
-                                left=ast.Field(chain=["x"]),
-                                op=ast.CompareOperationOp.Gt,
-                                right=ast.Constant(value=0),
-                            ),
-                        ),
-                        ast.Call(name="groupArray", args=[qualified_timestamp]),
-                    ],
-                ),
-            )
+    def _build_array_collection_with_bounded_touchpoints(self, array_collection: ast.SelectQuery) -> ast.SelectQuery:
+        """Expand a person's creditable, bounded touchpoints into the parallel arrays downstream uses."""
+        passthrough_columns: list[str] = ["person_id", "conversion_timestamps", "conversion_math_values"]
+        passthrough_columns.extend(field.conversion_array for field in TRACKED_FIELDS)
 
-        value_expr = ast.Call(
-            name="toString",
+        first_conversion = ast.Call(name="arrayMin", args=[ast.Field(chain=["conversion_timestamps"])])
+        lower_bound = ast.ArithmeticOperation(
+            left=first_conversion,
+            op=ast.ArithmeticOperationOp.Sub,
+            right=ast.Constant(value=self.config.attribution_window_days * DAY_IN_SECONDS),
+        )
+        last_conversion = ast.Call(name="arrayMax", args=[ast.Field(chain=["conversion_timestamps"])])
+        creditable_touchpoints = ast.Call(
+            name="arraySlice",
             args=[
                 ast.Call(
-                    name="ifNull",
+                    name="arraySort",
                     args=[
-                        ast.Field(chain=["events", "properties", return_field]),
-                        ast.Constant(value=""),
-                    ],
-                )
-            ],
-        )
-        # Paired with the timestamp so the filter can key off the row qualifying rather than off this
-        # field being set; the tuple is unpacked immediately, so the array's shape is unchanged.
-        return ast.Alias(
-            alias=alias,
-            expr=ast.Call(
-                name="arrayMap",
-                args=[
-                    ast.Lambda(args=["_tp"], expr=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=2)),
-                    ast.Call(
-                        name="arrayFilter",
-                        args=[
-                            qualified,
-                            ast.Call(
-                                name="groupArray",
-                                args=[
-                                    ast.Tuple(
+                        ast.Lambda(
+                            args=["_tp"],
+                            expr=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=1),
+                        ),
+                        ast.Call(
+                            name="arrayFilter",
+                            args=[
+                                ast.Lambda(
+                                    args=["_tp"],
+                                    expr=ast.And(
                                         exprs=[
-                                            qualified_timestamp,
-                                            ast.Call(
-                                                name="if",
-                                                args=[pageview_with_utm, value_expr, ast.Constant(value="")],
+                                            ast.CompareOperation(
+                                                left=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=1),
+                                                op=ast.CompareOperationOp.GtEq,
+                                                right=lower_bound,
+                                            ),
+                                            ast.CompareOperation(
+                                                left=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=1),
+                                                op=ast.CompareOperationOp.LtEq,
+                                                right=last_conversion,
                                             ),
                                         ]
-                                    )
-                                ],
+                                    ),
+                                ),
+                                ast.Field(chain=["utm_touchpoints"]),
+                            ],
+                        ),
+                    ],
+                ),
+                ast.Constant(value=-MAX_TOUCHPOINTS_PER_PERSON),
+            ],
+        )
+        bounded_collection = ast.SelectQuery(
+            select=[
+                *[ast.Field(chain=[column]) for column in passthrough_columns],
+                ast.Alias(alias="bounded_utm_touchpoints", expr=creditable_touchpoints),
+            ],
+            select_from=ast.JoinExpr(table=array_collection),
+        )
+        select_columns: list[ast.Expr] = [ast.Field(chain=[column]) for column in passthrough_columns]
+        for index, alias in enumerate(["utm_timestamps", *[field.utm_array for field in TRACKED_FIELDS]], start=1):
+            select_columns.append(
+                ast.Alias(
+                    alias=alias,
+                    expr=ast.Call(
+                        name="arrayMap",
+                        args=[
+                            ast.Lambda(
+                                args=["_tp"],
+                                expr=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=index),
                             ),
+                            ast.Field(chain=["bounded_utm_touchpoints"]),
                         ],
                     ),
-                ],
-            ),
-        )
+                )
+            )
+        return ast.SelectQuery(select=select_columns, select_from=ast.JoinExpr(table=bounded_collection))
 
     def _build_single_touch_array_join_subquery(
         self, inner_query: ast.SelectQuery, attribution_window_seconds: int
