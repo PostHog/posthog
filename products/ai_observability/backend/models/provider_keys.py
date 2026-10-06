@@ -36,6 +36,7 @@ def llm_completion_provider_choices() -> list[tuple[str, str | Promise]]:
 
 
 # nosemgrep: prefer-uuid7-django-pk -- This existing table's ID default needs a separate UUIDv7 migration.
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class LLMProviderKey(CreatedMetaFields, UUIDTModel):
     class State(models.TextChoices):
         UNKNOWN = "unknown"

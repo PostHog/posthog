@@ -13,6 +13,7 @@ class HeatmapCaptureConfigVersion(TeamScopedRootMixin, UUIDModel):
     patterns = ArrayField(models.CharField(max_length=2000), default=list, blank=True, db_default=[])
     effective_from = models.DateTimeField(default=timezone.now)
     effective_to = models.DateTimeField(null=True, blank=True)
+    # nosemgrep: created-by-uses-created-meta-mixin -- the table has no created_at column, and the mixin would add one
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )

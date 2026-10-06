@@ -56,6 +56,7 @@ class InviteExpiredException(exceptions.ValidationError):
         super().__init__(message, code="expired")
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class OrganizationInvite(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     organization = models.ForeignKey(
         "posthog.Organization",

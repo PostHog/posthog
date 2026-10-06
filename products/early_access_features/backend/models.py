@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, IsolatedProductCreatedMetaFields, UUIDTModel):
     class Meta:
         db_table = "posthog_earlyaccessfeature"

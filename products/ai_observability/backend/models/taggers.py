@@ -102,6 +102,7 @@ def validate_tagger_config(tagger_type: str, tagger_config: dict) -> dict:
     return validated.model_dump(exclude_none=True)
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class Tagger(CreatedMetaFields, UUIDTModel):
     class Meta:
         db_table = "llm_analytics_tagger"

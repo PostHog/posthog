@@ -21,6 +21,7 @@ from posthog.utils import generate_short_id
 from posthog.uuidt import uuid7
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class Notebook(FileSystemSyncMixin, RootTeamMixin, CreatedMetaFields, UUIDTModel):
     class Visibility(models.TextChoices):
         INTERNAL = "internal", "internal"

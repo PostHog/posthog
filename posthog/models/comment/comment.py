@@ -18,6 +18,7 @@ from posthog.models.utils import CreatedMetaFields, RootTeamMixin, UUIDTModel
 # NOTE: This model is meant to be loosely related to the `activity_log` as they are similar in function and approach
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class Comment(UUIDTModel, RootTeamMixin, CreatedMetaFields):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     content = models.TextField(blank=True, null=True)

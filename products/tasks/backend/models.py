@@ -407,6 +407,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, related_name="+"
     )

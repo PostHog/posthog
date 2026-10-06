@@ -4,6 +4,7 @@ from posthog.models.utils import CreatedMetaFields, UUIDModel, UUIDTModel
 from posthog.utils import generate_short_id
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class SavedHeatmap(CreatedMetaFields, UUIDTModel):
     class Status(models.TextChoices):
         PROCESSING = "processing", "Processing"

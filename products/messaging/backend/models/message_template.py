@@ -3,6 +3,7 @@ from django.db import models
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class MessageTemplate(CreatedMetaFields, UUIDTModel):
     """
     A model for storing message templates used for email and eventually other messaging channels.

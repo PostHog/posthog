@@ -6,6 +6,7 @@ from posthog.models.utils import CreatedMetaFields, UUIDTModel
 from products.access_control.backend.models.organization_resource_access import OrganizationResourceAccess
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class Role(CreatedMetaFields, UUIDTModel):
     class Meta:
         app_label = "ee"

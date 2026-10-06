@@ -107,6 +107,7 @@ def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
     return list(HogFlow.OriginProduct.choices)
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class HogFlow(CreatedMetaFields, UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow

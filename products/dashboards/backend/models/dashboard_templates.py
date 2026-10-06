@@ -10,6 +10,7 @@ class DashboardTemplateManager(RootTeamManager):
         return super().get_queryset().exclude(deleted=True)
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class DashboardTemplate(UUIDTModel, RootTeamMixin, CreatedMetaFields):
     objects = DashboardTemplateManager()  # type: ignore
     objects_including_soft_deleted = RootTeamManager()

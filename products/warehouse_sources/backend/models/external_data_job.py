@@ -22,6 +22,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     # always NULL, and its index only cost a write per insert. With no index, a user delete would
     # seq-scan this table twice (Django's SET_NULL update, then the Postgres FK check), so the
     # constraint goes too and Django's cascade skips it.
+    # nosemgrep: created-by-uses-created-meta-mixin -- on_delete=DO_NOTHING and db_index=False differ from the mixin
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.DO_NOTHING,

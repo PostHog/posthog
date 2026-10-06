@@ -8,6 +8,7 @@ class MessageCategoryType(models.TextChoices):
     TRANSACTIONAL = "transactional"
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class MessageCategory(CreatedMetaFields, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     updated_at = models.DateTimeField(auto_now=True)

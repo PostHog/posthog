@@ -16,6 +16,7 @@ class SchemaPropertyType(models.TextChoices):
     Object = "Object", "Object"
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class SchemaPropertyGroup(CreatedMetaFields, UUIDTModel):
     """
     A reusable group of properties that defines a schema.

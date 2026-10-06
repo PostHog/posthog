@@ -16,6 +16,7 @@ class PlaygroundChat(TeamScopedRootMixin, UUIDModel):
         db_index=False,
         related_name="+",
     )
+    # nosemgrep: created-by-uses-created-meta-mixin -- on_delete=CASCADE deletes the row with its creator
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.CASCADE,

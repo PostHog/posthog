@@ -35,6 +35,7 @@ custom_oauth2_refresh_counter = Counter(
 _TOKEN_EXPIRY_BUFFER = timedelta(seconds=60)
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class CustomOAuth2Integration(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Encrypted token store for a Custom REST source's customer-owned OAuth2 client.
 

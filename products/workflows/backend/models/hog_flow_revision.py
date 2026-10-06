@@ -6,6 +6,7 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import IsolatedProductCreatedMetaFields, UUIDTModel
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class HogFlowRevision(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDTModel):
     """Append-only snapshot of a workflow's live content, written whenever the live config
     changes. Rollback copies a snapshot back into the draft; workers never read this table."""

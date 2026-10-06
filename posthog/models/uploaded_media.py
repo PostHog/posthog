@@ -99,6 +99,7 @@ def sniff_image_content_type(data: Optional[bytes]) -> Optional[str]:
     return content_type if content_type in _INLINE_SAFE_CONTENT_TYPES else None
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class UploadedMedia(UUIDTModel, RootTeamMixin, CreatedMetaFields):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     project = models.ForeignKey("Project", on_delete=models.CASCADE, null=True, blank=True)

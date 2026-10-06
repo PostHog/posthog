@@ -4,6 +4,7 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class AEOPrompt(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """
     One candidate question we run against answer engines to check whether the
@@ -60,6 +61,7 @@ class AEOPrompt(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMe
         return f"[{self.prompt_source}] {self.prompt[:60]}"
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class AEOCitationCheck(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDTModel):
     """
     One prompt run against one answer engine, and whether the team's domain was

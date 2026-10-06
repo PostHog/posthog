@@ -18,6 +18,7 @@ class PreferenceStatus(models.TextChoices):
     NO_PREFERENCE = "NO_PREFERENCE"
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class MessageRecipientPreference(CreatedMetaFields, UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     updated_at = models.DateTimeField(auto_now=True)

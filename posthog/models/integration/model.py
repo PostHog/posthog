@@ -201,6 +201,7 @@ class Integration(models.Model):
 
     # Meta
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    # nosemgrep: created-by-uses-created-meta-mixin -- User.integration_set reads this reverse relation, and the mixin hides it
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
     objects: IntegrationManager = IntegrationManager()

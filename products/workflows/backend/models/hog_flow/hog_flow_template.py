@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class HogFlowTemplate(CreatedMetaFields, UUIDTModel):
     """
     Stores workflow templates that can be used to create new workflows.

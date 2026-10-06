@@ -60,6 +60,7 @@ class EvaluationTarget(models.TextChoices):
     SESSION = "session", "Session"
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class Evaluation(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     class Meta:
         db_table = "llm_analytics_evaluation"

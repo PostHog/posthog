@@ -180,6 +180,7 @@ class FeatureRequestEvidence(TeamScopedRootMixin, UUIDModel):
     source_url = models.URLField(max_length=2000, blank=True, default="")
     requested_on = models.DateField(null=True, blank=True)
     image_ids = ArrayField(models.UUIDField(), default=list, blank=True)
+    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,

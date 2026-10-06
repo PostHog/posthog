@@ -7,7 +7,11 @@ from posthog.models.utils import DeletedMetaFields, IsolatedProductCreatedMetaFi
 
 
 class DataWarehouseExpression(
-    ModelActivityMixin, TeamScopedRootMixin, UUIDTModel, DeletedMetaFields, IsolatedProductCreatedMetaFields
+    ModelActivityMixin,
+    TeamScopedRootMixin,
+    UUIDTModel,  # nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
+    DeletedMetaFields,
+    IsolatedProductCreatedMetaFields,
 ):
     """A saved HogQL expression exposed as a virtual field on a table.
 

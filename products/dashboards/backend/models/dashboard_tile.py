@@ -12,6 +12,7 @@ class Text(models.Model):
     body = models.CharField(max_length=4000, null=True, blank=True)
     agent_context = models.TextField(null=True, blank=True)
 
+    # nosemgrep: created-by-uses-created-meta-mixin -- the table has no created_at column, and the mixin would add one
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(
@@ -36,6 +37,7 @@ class ButtonTile(UUIDModel):
         max_length=10, choices=[("primary", "Primary"), ("secondary", "Secondary")], default="primary"
     )
 
+    # nosemgrep: created-by-uses-created-meta-mixin -- the table has no created_at column, and the mixin would add one
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(

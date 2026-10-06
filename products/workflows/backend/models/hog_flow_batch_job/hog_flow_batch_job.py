@@ -32,6 +32,7 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
     status = models.CharField(max_length=20, choices=State.choices, default=State.QUEUED.value)
 
     created_at = models.DateTimeField(auto_now_add=True)
+    # nosemgrep: created-by-uses-created-meta-mixin -- on_delete=DO_NOTHING differs from the SET_NULL in the mixin
     created_by = models.ForeignKey("posthog.User", on_delete=models.DO_NOTHING, null=True, blank=True, related_name="+")
     updated_at = models.DateTimeField(auto_now=True)
 

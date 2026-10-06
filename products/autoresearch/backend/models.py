@@ -50,6 +50,7 @@ class AutoresearchPipeline(TeamScopedRootMixin, UUIDModel):
     # boundary crossing no import linter can see, and nothing needs to read autoresearch rows
     # off a team. Callers go through the facade.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -402,6 +403,7 @@ class AutoresearchSuggestion(PipelineScopedModel):
         AGENT = "agent", "Agent"
 
     pipeline = models.ForeignKey(AutoresearchPipeline, on_delete=models.CASCADE, related_name="suggestions")
+    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,

@@ -25,6 +25,7 @@ class MaterializedColumnSlotState(models.TextChoices):
     ERROR = "ERROR", "Error"
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class MaterializedColumnSlot(CreatedMetaFields, UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
     team = models.ForeignKey(

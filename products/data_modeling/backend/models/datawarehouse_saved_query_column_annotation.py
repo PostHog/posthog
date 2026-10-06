@@ -7,7 +7,10 @@ from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnot
 
 
 class DataWarehouseSavedQueryColumnAnnotation(
-    TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel
+    TeamScopedRootMixin,
+    IsolatedProductCreatedMetaFields,
+    UpdatedMetaFields,
+    UUIDTModel,  # nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 ):
     """Semantic description of a data warehouse saved query (view) or one of its columns, surfaced to the AI agent.
 

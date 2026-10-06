@@ -4,6 +4,7 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class WarehouseColumnStatistics(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Per-column data profile for a synced warehouse table, surfaced to the AI agent.
 

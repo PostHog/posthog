@@ -40,6 +40,7 @@ class EvaluationReportQuerySet(models.QuerySet):
         )
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class EvaluationReport(CreatedMetaFields, UUIDTModel):
     objects = EvaluationReportQuerySet.as_manager()
 

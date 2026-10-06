@@ -18,6 +18,7 @@ class AccountView(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     content = models.JSONField()
     text_content = models.TextField(default="", db_default="")
     version = models.PositiveIntegerField(default=1, db_default=1)
+    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,

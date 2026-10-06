@@ -49,6 +49,7 @@ class BillingAlertConfiguration(UUIDModel):
         related_name="+",
     )
     # Constraint-free FKs avoid locking posthog_user; DO_NOTHING preserves audit history after user deletion.
+    # nosemgrep: created-by-uses-created-meta-mixin -- on_delete=DO_NOTHING differs from the SET_NULL in the mixin
     created_by = models.ForeignKey(
         "posthog.User",
         null=True,

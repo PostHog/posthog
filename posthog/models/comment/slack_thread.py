@@ -50,6 +50,7 @@ class CommentSlackThread(TeamScopedRootMixin, UUIDModel):
 
     created_at = models.DateTimeField(auto_now_add=True)
     # db_constraint=False: posthog_user is a hot table (see team above).
+    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False, db_constraint=False
     )

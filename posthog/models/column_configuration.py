@@ -19,6 +19,7 @@ class ColumnConfiguration(UUIDModel):
     properties = models.JSONField(default=dict, null=True, blank=True)
     visibility = models.CharField(max_length=10, choices=Visibility, default=Visibility.SHARED)
 
+    # nosemgrep: created-by-uses-created-meta-mixin -- on_delete=CASCADE deletes the row with its creator
     created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)

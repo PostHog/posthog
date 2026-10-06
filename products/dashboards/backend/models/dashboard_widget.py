@@ -12,6 +12,7 @@ class DashboardWidget(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     description = models.TextField(blank=True)
     config = models.JSONField(default=dict)
 
+    # nosemgrep: created-by-uses-created-meta-mixin -- the table has no created_at column, and the mixin would add one
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     last_modified_at = models.DateTimeField(default=timezone.now)
     last_modified_by = models.ForeignKey(

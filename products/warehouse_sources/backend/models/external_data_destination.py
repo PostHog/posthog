@@ -11,7 +11,11 @@ from posthog.models.utils import (
 
 
 class ExternalDataDestination(
-    TeamScopedRootMixin, UpdatedMetaFields, DeletedMetaFields, IsolatedProductCreatedMetaFields, UUIDTModel
+    TeamScopedRootMixin,
+    UpdatedMetaFields,
+    DeletedMetaFields,
+    IsolatedProductCreatedMetaFields,
+    UUIDTModel,  # nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 ):
     """Somewhere a warehouse source writes its synced rows.
 

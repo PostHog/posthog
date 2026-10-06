@@ -107,6 +107,7 @@ def _raw_filters(filters: dict | None) -> dict:
     return {key: value for key, value in (filters or {}).items() if key not in DERIVED_FILTER_KEYS}
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class HogFunction(FileSystemSyncMixin, CreatedMetaFields, UUIDTModel):
     class Meta:
         db_table = "posthog_hogfunction"

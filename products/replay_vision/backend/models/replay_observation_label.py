@@ -22,6 +22,7 @@ class ReplayObservationLabel(UUIDModel):
         help_text="Why the scanner got it wrong / what it should have concluded. Empty for correct labels.",
     )
     # Last user to edit the shared label.
+    # nosemgrep: created-by-uses-created-meta-mixin -- this field holds the last editor, not the creator
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )

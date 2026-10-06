@@ -52,6 +52,7 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
         db_constraint=False,
         db_index=False,
     )
+    # nosemgrep: created-by-uses-created-meta-mixin -- db_index=False, and the mixin would add an index
     created_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,

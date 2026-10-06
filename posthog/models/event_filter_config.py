@@ -20,6 +20,7 @@ class EventFilterMode(models.TextChoices):
     LIVE = "live"
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class EventFilterConfig(CreatedMetaFields, UUIDTModel):
     """
     Per-team event filter configuration evaluated at ingestion time.

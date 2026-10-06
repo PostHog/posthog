@@ -19,6 +19,7 @@ class EventStream(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMeta
         db_constraint=False,
         related_name="+",
     )
+    # nosemgrep: created-by-uses-created-meta-mixin -- on_delete=CASCADE deletes the row with its creator
     created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
 
     enabled = models.BooleanField(default=False)

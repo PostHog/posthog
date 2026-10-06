@@ -890,6 +890,7 @@ class ErrorTrackingRecommendation(UUIDTModel):
         ]
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class ErrorTrackingAlert(TeamScopedRootMixin, IsolatedProductCreatedMetaFields, UUIDTModel):
     """Alert configuration for issue lifecycle notifications.
 

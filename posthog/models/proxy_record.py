@@ -120,6 +120,7 @@ def org_may_register_reserved_domain(organization_id: str | UUID, domain: str) -
     return str(organization_id) in settings.POSTHOG_INTERNAL_ORG_IDS
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class ProxyRecord(CreatedMetaFields, UUIDTModel):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="proxy_records")
     domain = models.CharField(max_length=64, unique=True)

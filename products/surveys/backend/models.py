@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
+# nosemgrep: no-new-uuidt-models -- this existing table keeps its UUIDT primary keys
 class Survey(FileSystemSyncMixin, RootTeamMixin, CreatedMetaFields, UUIDTModel):
     class SurveyType(models.TextChoices):
         POPOVER = "popover", "popover"

@@ -39,6 +39,7 @@ class ContextLayerConfig(IsolatedProductCreatedMetaFields, models.Model):
 class WikiPageProposal(TeamScopedRootMixin):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # nosemgrep: created-by-uses-created-meta-mixin -- on_delete=CASCADE deletes the row with its creator
     created_by = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     task_id = models.UUIDField()
     path = models.CharField(max_length=512)
