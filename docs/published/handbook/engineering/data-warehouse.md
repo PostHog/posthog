@@ -22,10 +22,15 @@ The SQL editor keeps unrun edits in browser storage, scoped to the user, project
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
-## Choosing data in BI mode
+## Choosing data in Business intelligence
 
-Clicking **BI** closes the SQL editor database sidebar; clicking **SQL** opens it again.
-The sidebar toggle remains available in both modes. **Locate** in the BI data pane is shown only while the sidebar is open.
+**Business intelligence** opens a visual worksheet at `/bi`, separately from the SQL editor, when the `sql-editor-bi-mode` feature flag is enabled. Both products keep their own unsaved working copies, including edits to the same saved view, insight, or draft. Existing SQL working copies remain available. Worksheet breadcrumbs preserve the visual configuration, and existing SQL editor links with `mode=bi` open in Business intelligence.
+
+Choose a connection in the **Data** panel, then select a table below it. **Run** is the first toolbar action, before **Swap rows and columns**.
+
+Discarding query edits preserves the worksheet's selected source and shelves.
+
+SQL query-scan advisories are hidden in Business intelligence. Query errors and warnings about stale sources or restricted data remain visible.
 
 Use the table picker in the data pane to browse the same source groups and folders as the database tree.
 The selected table is highlighted; expanding a folder does not select it.
@@ -33,7 +38,7 @@ Direct connections group tables by schema. Search matches table and folder names
 
 ## Calculated measures in BI mode
 
-With `SQL_EDITOR_BI_MODE` enabled, select a table in the SQL editor's BI mode and choose **Add calculated measure** in the data pane.
+With `SQL_EDITOR_BI_MODE` enabled, open **Business intelligence**, select a table and choose **Add calculated measure** in the data pane.
 Enter a name and an aggregate SQL formula, such as `sum(revenue) / nullIf(count(DISTINCT user_id), 0)` for average revenue per user.
 Use field names from the selected table. Filters apply before the formula runs for each group on the worksheet.
 

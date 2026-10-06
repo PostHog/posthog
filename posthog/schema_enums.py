@@ -1376,6 +1376,7 @@ class FileSystemIconType(StrEnum):
     MANAGED_VIEWSETS = "managed_viewsets"
     ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
+    BUSINESS_INTELLIGENCE = "business_intelligence"
     WEB_ANALYTICS = "web_analytics"
     ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"
@@ -1945,6 +1946,23 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     BOOLEAN = "boolean"
 
 
+class Breakdown1(StrEnum):
+    KEYWORD = "keyword"
+    PAGE = "page"
+
+
+class Platform(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    BING_ADS = "BingAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
+
+
+class SourceType(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    BING_ADS = "BingAds"
+    GOOGLE_SEARCH_CONSOLE = "GoogleSearchConsole"
+
+
 class MatchField(StrEnum):
     CAMPAIGN_NAME = "campaign_name"
     CAMPAIGN_ID = "campaign_id"
@@ -2196,6 +2214,7 @@ class NodeKind(StrEnum):
     MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY = "MarketingAnalyticsAttributionPathsQuery"
     MARKETING_ANALYTICS_RETENTION_QUERY = "MarketingAnalyticsRetentionQuery"
+    MARKETING_ANALYTICS_SEARCH_QUERY = "MarketingAnalyticsSearchQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
