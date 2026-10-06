@@ -23,7 +23,6 @@ from posthog.ph_client import PH_US_API_KEY
 from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket
 from products.surveys.backend.desktop_feedback import (
     DESKTOP_FEEDBACK_MEDIA_RETENTION,
-    submit_desktop_feedback,
     sweep_expired_desktop_feedback_media,
 )
 
@@ -79,6 +78,7 @@ class TestDesktopFeedback(APIBaseTest):
                 "source": "Generic (Leave feedback button)",
                 "feedback_view": "task-detail",
                 "feedback_task_id": "example-task",
+                "session_id": "00000000-0000-0000-0000-000000000002",
                 "feedback_app_logs": "[info] Example search",
                 "app_version": "1.2.3",
                 "screenshot": _image_file(),
@@ -92,11 +92,14 @@ class TestDesktopFeedback(APIBaseTest):
         assert ticket.email_from == self.user.email
         assert ticket.channel_source == "email"
         assert ticket.session_context["feedback_task_id"] == "example-task"
+        assert ticket.session_context["source_product"] == "desktop"
+        assert ticket.session_id == "00000000-0000-0000-0000-000000000002"
         assert "feedback_app_logs" not in ticket.session_context
         assert ticket.identity_verified is True
         message = Comment.objects.get(item_id=str(ticket.id), item_context__is_private=False)
         assert message.content == "The search results are empty"
         media = UploadedMedia.objects.get()
+        assert isinstance(message.rich_content, dict)
         image_url = message.rich_content["content"][1]["attrs"]["src"]
         assert (
             urlsplit(image_url).path
@@ -105,6 +108,7 @@ class TestDesktopFeedback(APIBaseTest):
         assert self.client.get(urlsplit(image_url).path).status_code == status.HTTP_403_FORBIDDEN
         assert self.client.get(media.get_absolute_url()).status_code == status.HTTP_404_NOT_FOUND
         note = Comment.objects.get(item_id=str(ticket.id), item_context__is_private=True)
+        assert note.content is not None
         assert "[info] Example search" in note.content
         assert not EmailOutboxMessage.objects.exists()
         get_client.assert_not_called()
@@ -156,19 +160,21 @@ class TestDesktopFeedback(APIBaseTest):
         delete_object.assert_called_once()
         get_client.assert_not_called()
 
-    def test_preserves_feedback_type_for_ticket_routing(self) -> None:
+    @parameterized.expand([("bug",), ("feature",), ("general",)])
+    def test_preserves_feedback_type_for_ticket_routing(self, feedback_type: str) -> None:
         self.configure_feedback_tickets()
-        ticket_id = submit_desktop_feedback(
-            user=self.user,
-            data={
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/desktop_feedback/",
+            {
                 "response": "Example feedback",
                 "source": "Generic (Leave feedback button)",
                 "feedback_view": "home",
-                "feedback_type": "bug",
+                "feedback_type": feedback_type,
             },
-            files={},
+            format="multipart",
         )
-        assert Ticket.objects.get(id=ticket_id).session_context["feedback_type"] == "bug"
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert Ticket.objects.get(id=response.json()["response_id"]).session_context["feedback_type"] == feedback_type
 
     @patch(
         "products.conversations.backend.services.feedback.Comment.objects.create",
