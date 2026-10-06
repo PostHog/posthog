@@ -530,19 +530,22 @@ describe('survey utils', () => {
             expect(result?.submitButtonTextColor).toBe('#cccccc')
         })
 
-        it('removes surveyPopupDelaySeconds for external surveys', () => {
-            const input: SurveyAppearance = {
-                backgroundColor: '#ffffff',
-                surveyPopupDelaySeconds: 5,
-                submitButtonColor: '#000000',
+        it.each([SurveyType.ExternalSurvey, SurveyType.Widget])(
+            'removes surveyPopupDelaySeconds for %s surveys',
+            (surveyType) => {
+                const input: SurveyAppearance = {
+                    backgroundColor: '#ffffff',
+                    surveyPopupDelaySeconds: 5,
+                    submitButtonColor: '#000000',
+                }
+
+                const result = sanitizeSurveyAppearance(input, false, surveyType)
+
+                expect(result?.backgroundColor).toBe('#ffffff')
+                expect(result?.submitButtonColor).toBe('#000000')
+                expect(result?.surveyPopupDelaySeconds).toBeUndefined()
             }
-
-            const result = sanitizeSurveyAppearance(input, false, SurveyType.ExternalSurvey)
-
-            expect(result?.backgroundColor).toBe('#ffffff')
-            expect(result?.submitButtonColor).toBe('#000000')
-            expect(result?.surveyPopupDelaySeconds).toBeUndefined()
-        })
+        )
 
         it('preserves surveyPopupDelaySeconds for non-external surveys', () => {
             const input: SurveyAppearance = {

@@ -137,7 +137,7 @@ export function Customization({
                         onTranslationsChange={onTranslationsChange}
                     />
                 </div>
-                {survey.type !== SurveyType.ExternalSurvey && (
+                {survey.type !== SurveyType.ExternalSurvey && survey.type !== SurveyType.Widget && (
                     <>
                         <LemonDivider className="my-3" />
                         <LemonField.Pure>

@@ -298,8 +298,11 @@ export function sanitizeSurveyAppearance(
         submitButtonTextColor: sanitizeColor(appearance.submitButtonTextColor),
         thankYouMessageHeader: sanitizeHTML(appearance.thankYouMessageHeader ?? ''),
         thankYouMessageDescription: sanitizeHTML(appearance.thankYouMessageDescription ?? ''),
+        // A widget survey opens on a click, so a delay only hides the popup after the click.
         surveyPopupDelaySeconds:
-            surveyType === SurveyType.ExternalSurvey ? undefined : appearance.surveyPopupDelaySeconds,
+            surveyType === SurveyType.ExternalSurvey || surveyType === SurveyType.Widget
+                ? undefined
+                : appearance.surveyPopupDelaySeconds,
     }
 }
 
