@@ -1,4 +1,4 @@
-import { bezierX, bezierY, computeSankeyLayout, sankeyHitAt } from './sankey-data'
+import { MAX_SANKEY_COLUMN, bezierX, bezierY, computeSankeyLayout, sankeyHitAt } from './sankey-data'
 import type { ComputeSankeyLayoutOptions, SankeyLinkInput, SankeyNodeInput } from './sankey-data'
 
 const PLOT = { plotLeft: 0, plotTop: 0, plotWidth: 600, plotHeight: 300 }
@@ -87,6 +87,15 @@ describe('computeSankeyLayout', () => {
         expect(layout.columnCount).toBe(4)
         // Headers over the empty columns need an x too, evenly spaced between the pinned ones.
         expect(layout.columnX).toEqual([0, 590 / 3, (2 * 590) / 3, 590])
+    })
+
+    it('rejects a pin past the last column before sizing the layout from it', () => {
+        const nodes: SankeyNodeInput[] = [
+            { id: 'x', column: 0 },
+            { id: 'y', column: MAX_SANKEY_COLUMN + 1 },
+        ]
+        const links: SankeyLinkInput[] = [{ source: 'x', target: 'y', value: 5 }]
+        expect(() => layoutOf({ nodes, links, nodeAlign: 'left' })).toThrow('pinned past the last column')
     })
 
     it('resolves node colors by label and defaults link color to the source node', () => {

@@ -3,11 +3,17 @@ import { type ReactElement, useMemo } from 'react'
 import { emptyStateIllustration } from '@posthog/mcp-ui'
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@posthog/quill'
 import { SankeyChart, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
-import type { SankeyChartConfig, SankeyLinkInput, SankeyNodeInput, SankeyTooltipContext } from '@posthog/quill-charts'
+import type { SankeyChartConfig, SankeyTooltipContext } from '@posthog/quill-charts'
+
+import {
+    buildPathsSankeyGraph,
+    parsePathNodeKey,
+    pathStartUsers,
+} from 'products/product_analytics/frontend/insights/paths/pathsChartTransforms'
 
 import { ChartHeader } from './ChartHeader'
 import { useMcpChartTheme } from './charts/theme'
-import type { PathsResult, PathsResultItem, PathsVisualizerProps } from './types'
+import type { PathsResultItem, PathsVisualizerProps } from './types'
 import { formatDuration, formatNumber } from './utils'
 
 const TITLE = 'Paths'
@@ -23,75 +29,9 @@ const CHART_CONFIG: SankeyChartConfig = {
     valueFormatter: formatNumber,
 }
 
-/** Node keys are `<stepIndex>_<value>`; split into the step number and the path/value. */
-function parseNode(key: string): { step: number; path: string } {
-    const sep = key.indexOf('_')
-    if (sep === -1) {
-        return { step: 0, path: key }
-    }
-    const step = Number.parseInt(key.slice(0, sep), 10)
-    return { step: Number.isNaN(step) ? 0 : step, path: key.slice(sep + 1) }
-}
-
-function parseUrl(value: string): URL | null {
-    try {
-        return new URL(value)
-    } catch {
-        return null
-    }
-}
-
-/** Page URLs read as their path in the compact chart. The host stays when the result spans more
- *  than one origin, and a hash stays when it looks like a route, so two steps that differ only
- *  there keep distinct labels. Anything that is not a URL (an event name) stays as is. */
-function nodeLabel(value: string, singleOrigin: boolean): string {
-    const url = parseUrl(value)
-    if (!url) {
-        return value
-    }
-    const route = url.hash.includes('/') ? url.hash : ''
-    const path = `${url.pathname}${url.search}${route}`
-    return singleOrigin ? path || value : `${url.host}${path}`
-}
-
-interface PathsGraph {
-    /** Node `meta` is the full value from the result key, for the tooltip. */
-    nodes: SankeyNodeInput<string>[]
-    links: SankeyLinkInput<PathsResultItem>[]
-    columnLabels: string[]
-}
-
-/** One node per `<step>_<value>` key, so a page seen at two steps is two nodes that share a label
- *  and therefore a color. Each node is pinned to its step's column, so a path that ends early or
- *  an edge whose earlier steps were cut from the result still sit under the right header. */
-function buildPathsGraph(edges: PathsResult): PathsGraph {
-    const keys = new Set(edges.flatMap((edge) => [edge.source, edge.target]))
-    const origins = new Set<string>()
-    for (const key of keys) {
-        const url = parseUrl(parseNode(key).path)
-        if (url) {
-            origins.add(url.origin)
-        }
-    }
-    const singleOrigin = origins.size <= 1
-
-    const nodes: SankeyNodeInput<string>[] = []
-    let maxStep = 0
-    for (const key of keys) {
-        const { step, path } = parseNode(key)
-        maxStep = Math.max(maxStep, step)
-        nodes.push({ id: key, label: nodeLabel(path, singleOrigin), meta: path, column: Math.max(0, step - 1) })
-    }
-    const links = edges.map(
-        (edge): SankeyLinkInput<PathsResultItem> => ({
-            source: edge.source,
-            target: edge.target,
-            value: edge.value ?? 0,
-            meta: edge,
-        })
-    )
-    const columnLabels = Array.from({ length: maxStep }, (_, i) => `Step ${i + 1}`)
-    return { nodes, links, columnLabels }
+/** Which steps a transition joins, so a pair of pages that repeats at two stages reads apart. */
+function stepRange(edge: PathsResultItem): string {
+    return `step ${parsePathNodeKey(edge.source).step} to ${parsePathNodeKey(edge.target).step}`
 }
 
 function PathsTooltip({ ctx }: { ctx: SankeyTooltipContext<string, PathsResultItem> }): ReactElement {
@@ -116,6 +56,7 @@ function PathsTooltip({ ctx }: { ctx: SankeyTooltipContext<string, PathsResultIt
             <div className="font-semibold">
                 {link.source.label} → {link.target.label}
             </div>
+            {link.meta && <div className="text-muted-foreground">{stepRange(link.meta)}</div>}
             <div>{formatNumber(link.value)} users</div>
             {link.meta?.average_conversion_time != null && (
                 <div>{formatDuration(link.meta.average_conversion_time)} on average</div>
@@ -136,11 +77,12 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
         () => [...allEdges].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).slice(0, MAX_EDGES),
         [allEdges]
     )
-    const graph = useMemo(() => buildPathsGraph(edges), [edges])
-    const config = useMemo<SankeyChartConfig>(
-        () => ({ ...CHART_CONFIG, columnLabels: graph.columnLabels }),
-        [graph.columnLabels]
+    const graph = useMemo(() => buildPathsSankeyGraph(edges, { labelUrls: true, pinSteps: true }), [edges])
+    const columnLabels = useMemo(
+        () => Array.from({ length: graph.stepCount }, (_, i) => `Step ${i + 1}`),
+        [graph.stepCount]
     )
+    const config = useMemo<SankeyChartConfig>(() => ({ ...CHART_CONFIG, columnLabels }), [columnLabels])
     const labelOf = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node.label])), [graph.nodes])
 
     if (allEdges.length === 0) {
@@ -157,11 +99,7 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
         )
     }
 
-    // Users who start a path: the outflow of the nodes nothing leads into.
-    const hasIncoming = new Set(edges.map((edge) => edge.target))
-    const totalUsers = edges
-        .filter((edge) => !hasIncoming.has(edge.source))
-        .reduce((sum, edge) => sum + (edge.value ?? 0), 0)
+    const totalUsers = pathStartUsers(allEdges)
     const truncated = edges.length < allEdges.length
 
     return (
@@ -180,7 +118,8 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
             <ul className="sr-only">
                 {edges.map((edge) => (
                     <li key={`${edge.source}→${edge.target}`}>
-                        {labelOf.get(edge.source)} to {labelOf.get(edge.target)}: {formatNumber(edge.value ?? 0)} users
+                        {labelOf.get(edge.source)} to {labelOf.get(edge.target)} ({stepRange(edge)}):{' '}
+                        {formatNumber(edge.value ?? 0)} users
                         {edge.average_conversion_time != null
                             ? `, ${formatDuration(edge.average_conversion_time)} on average`
                             : ''}
@@ -199,8 +138,8 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
                         {edges.length === 1 ? '' : 's'}
                     </>
                 )}{' '}
-                across <strong className="text-foreground">{graph.columnLabels.length}</strong> step
-                {graph.columnLabels.length === 1 ? '' : 's'}
+                across <strong className="text-foreground">{columnLabels.length}</strong> step
+                {columnLabels.length === 1 ? '' : 's'}
                 {totalUsers > 0 && (
                     <>
                         {' '}

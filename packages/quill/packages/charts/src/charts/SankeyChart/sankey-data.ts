@@ -16,7 +16,8 @@ export interface SankeyNodeInput<Meta = unknown> {
     /** Pin the node to this zero-based column. Use it when the data carries its own stage (the
      *  step in a paths result), so a flow that ends early or starts late still sits under the right
      *  `columnLabels` header. Nodes without a pin follow `nodeAlign`. Pins must be monotonic with
-     *  the graph's edges — a link whose target column is at or before its source's draws backwards. */
+     *  the graph's edges — a link whose target column is at or before its source's draws backwards.
+     *  A pin above `MAX_SANKEY_COLUMN` throws. */
     column?: number
 }
 
@@ -115,6 +116,9 @@ interface LayoutLinkProps {
     [key: string]: unknown
 }
 
+/** The layout allocates every column up to the highest pin, so one stray pin must not size it. */
+export const MAX_SANKEY_COLUMN = 1000
+
 const ALIGNMENTS = {
     left: sankeyLeft,
     right: sankeyRight,
@@ -193,6 +197,11 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     for (const node of nodes) {
         if (nodeIds.has(node.id)) {
             throw new Error(`duplicate Sankey node id: ${node.id}`)
+        }
+        if (node.column !== undefined && node.column > MAX_SANKEY_COLUMN) {
+            throw new Error(
+                `Sankey node ${node.id} is pinned past the last column (${MAX_SANKEY_COLUMN}): ${node.column}`
+            )
         }
         nodeIds.add(node.id)
     }

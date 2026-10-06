@@ -11,6 +11,7 @@ import {
     PATH_NODE_CARD_OVERLAP_GAP,
     PATH_NODE_CARD_TOP_OFFSET,
 } from './constants'
+import { parsePathNodeKey, pathUrlLabel } from './pathsChartTransforms'
 
 const PATH_NODE_CARD_TOP_ADJUSTMENTS = 33
 
@@ -48,7 +49,7 @@ export interface PathNodeData {
 }
 
 /** Path result keys carry the step as a `N_` prefix; the rest is the event or URL. */
-export const stripStepPrefix = (name: string): string => name.replace(/(^[0-9]+_)/, '')
+export const stripStepPrefix = (name: string): string => parsePathNodeKey(name).name
 
 export function getForwardConnectedIndices(startNode: PathNodeData): {
     nodeIndices: Set<number>
@@ -235,16 +236,10 @@ export function pageUrl(d: PathNodeData, display?: boolean, showFullUrls?: boole
         return name
     }
 
-    try {
-        const url = new URL(name)
-        name = incomingDomains.length !== 1 ? url.href.replace(/(^\w+:|^)\/\//, '') : url.pathname + url.search
-        if (url.hash?.includes('/')) {
-            name += url.hash
-        }
+    const label = pathUrlLabel(name, incomingDomains.length === 1)
+    if (label !== name) {
         // Decode URL-encoded characters (e.g., %3C becomes <) to display path cleaning aliases correctly
-        name = tryDecodeURIComponent(name)
-    } catch {
-        // discard if invalid url
+        name = tryDecodeURIComponent(label)
     }
 
     if (showFullUrls) {
