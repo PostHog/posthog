@@ -757,6 +757,7 @@ the row lists both.
 | sourcegraph                      | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | spacelift                        | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | sparkpost                        | HTTP + Webhook              | requests + `rest_source.RESTClient` + `WebhookSourceManager`    | ✅ (pull) / ➖ (webhook)    |
+| speedcurve                       | HTTP                        | requests                                                        | ✅                          |
 | split_io                         | HTTP                        | requests                                                        | ✅                          |
 | spot_io                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | spotlercrm                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1419,7 +1420,6 @@ doesn't conflict with concurrent PRs.
 - sonar_cloud
 - sonatype_nexus
 - spacelift
-- speedcurve
 - spotify_ads
 - sprinklr
 - sprinto
