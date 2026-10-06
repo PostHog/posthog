@@ -4668,7 +4668,7 @@ Diffed against: <https://api.k6.io/cloud/v6/openapi>
 - [ ] `test_runs/{id}/query_aggregate_k6` — aggregated metric values per test run — the headline pass/fail numbers (p95 http_req_duration, error rate) that make test_runs analyzable (high)
 - [ ] `test_runs/{id}/metrics` — metric metadata per run (name, type, origin); the join key for any metric value query (high)
 - [ ] `test_runs/{id}/series` — per-metric time series within a run, for trend and regression charts (medium)
-- [x] `test_runs/{id}/distribution` — breakdown of a run across load zones — the only per-zone dimension available (medium)
+- [x] `test_runs/{id}/distribution` — node allocation and percentage breakdown by load zone (medium)
 - [x] `labels` — lookup table of the organization's label keys (id, key, description); the values set on projects are not returned by this endpoint (medium)
 - [ ] `test_runs/{id}/labels` — label dimensions present on a run's metrics (url, status, scenario, method), needed to slice metric data (medium)
 
