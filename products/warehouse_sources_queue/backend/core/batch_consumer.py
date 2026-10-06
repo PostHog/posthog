@@ -533,12 +533,16 @@ class BatchConsumer:
         # Session-scoped SET, not a libpq startup option: PgBouncer rejects
         # statement_timeout inside the `options` startup parameter.
         timeout_ms = self._statement_timeout_ms(statement_timeout_seconds)
-        if timeout_ms is not None:
-            try:
+        try:
+            if timeout_ms is not None:
                 await conn.execute(f"SET statement_timeout = {timeout_ms}")
-            except psycopg.Error:
-                await conn.close()
-                raise
+            # The queue statements are index probes that take milliseconds, but the planner
+            # can price the claim query above jit_above_cost. JIT compilation then costs
+            # more than the whole statement, on every poll.
+            await conn.execute("SET jit = off")
+        except psycopg.Error:
+            await conn.close()
+            raise
         return conn
 
     async def _drop_conn(self, attr: str) -> None:

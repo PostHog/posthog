@@ -4,7 +4,9 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -153,9 +155,10 @@ describe('replayScannerLogic', () => {
         })
 
         // The replay filters entry point sends both when the filters scope to an experiment, since
-        // exposure can't ride inside the query. Keeping only the targeting would silently widen the
+        // exposure can't ride inside the query. Keeping only the experiment would silently widen the
         // scanner to every session; keeping only the filters would drop the experiment entirely.
         it('combines an experiment deep link with a ?filters= query rather than dropping either', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
             useMocks({
                 get: { '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }] },
             })
@@ -167,7 +170,11 @@ describe('replayScannerLogic', () => {
 
             await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
 
-            expect(logic.values.scanner?.experiment_targeting).toMatchObject({ experiment_id: 7 })
+            expect(logic.values.scanner).toMatchObject({
+                scanner_type: 'experiment',
+                scanner_config: { experiment_id: 7, variants: null },
+                experiment_targeting: null,
+            })
             expect(logic.values.scanner?.query).toMatchObject({ events: query.events })
         })
     })
@@ -237,19 +244,34 @@ describe('replayScannerLogic', () => {
             expect(logic.values.scanner?.query).toEqual({ kind: 'RecordingsQuery' })
         })
 
-        it('carries the drafted experiment targeting onto the form', async () => {
-            // Targeting is not part of the query, so the form is its only carrier: dropped here, the
-            // saved scanner watches every visitor of the drafted pages instead of the participants.
+        // The experiment is not part of the query, so the form is its only carrier: dropped here, the
+        // saved scanner watches every visitor of the drafted pages instead of the participants. The
+        // API refuses new legacy targeting, so either draft shape must become the experiment type.
+        it.each([
+            {
+                shape: 'legacy targeting on another type',
+                scanner_type: 'classifier',
+                scanner_config: { prompt: 'Describe the friction.', tags: ['smooth'], multi_label: false },
+                experiment_targeting: { experiment_id: 11, variant: 'test' },
+            },
+            {
+                shape: 'the experiment type',
+                scanner_type: 'experiment',
+                scanner_config: { prompt: 'Describe the friction.', experiment_id: 11, variants: ['test'] },
+                experiment_targeting: null,
+            },
+        ])('carries the drafted experiment onto the form from $shape', async (draft) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true })
             draftSpy.mockReturnValue([
                 200,
                 {
                     name: 'New entrypoint friction',
-                    description: 'Classifies friction in the new entrypoint.',
-                    scanner_type: 'classifier',
-                    scanner_config: { prompt: 'Classify the friction.', tags: ['smooth'], multi_label: false },
+                    description: 'Describes friction in the new entrypoint.',
                     rationale: '',
                     query: null,
-                    experiment_targeting: { experiment_id: 11, variant: 'test' },
+                    scanner_type: draft.scanner_type,
+                    scanner_config: draft.scanner_config,
+                    experiment_targeting: draft.experiment_targeting,
                 },
             ])
             router.actions.push(urls.replayVisionScannerTemplate('new'))
@@ -258,41 +280,66 @@ describe('replayScannerLogic', () => {
                 logic.actions.draftScannerFromGoal('friction in the new AI entrypoint')
             ).toFinishAllListeners()
 
-            expect(logic.values.scanner?.experiment_targeting).toEqual({ experiment_id: 11, variant: 'test' })
+            expect(logic.values.scanner).toMatchObject({
+                scanner_type: 'experiment',
+                scanner_config: { prompt: 'Describe the friction.', experiment_id: 11, variants: ['test'] },
+                experiment_targeting: null,
+            })
         })
 
-        it('keeps an experiment prefill the AI draft did not name', async () => {
-            // The experiment cross-sell deep-links targeting the goal text never mentions. Dropping it
-            // here would save a scanner watching every visitor of the drafted pages, not the participants.
-            useMocks({
-                get: {
-                    '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+        // Until the flag is on for a team, the prefill stays legacy targeting on the drafted type.
+        it.each([
+            {
+                experimentScanners: true,
+                expected: {
+                    scanner_type: 'experiment',
+                    scanner_config: { prompt: 'Watch for drop-off.', experiment_id: 7, variants: null },
+                    experiment_targeting: null,
                 },
-            })
-            draftSpy.mockReturnValue([
-                200,
-                {
-                    name: 'Billing drop-off',
-                    description: 'Watches where people give up.',
+            },
+            {
+                experimentScanners: false,
+                expected: {
                     scanner_type: 'monitor',
                     scanner_config: { prompt: 'Watch for drop-off.' },
-                    rationale: '',
-                    query: { kind: 'RecordingsQuery' },
+                    experiment_targeting: { experiment_id: 7, variant: null },
                 },
-            ])
-            router.actions.push(urls.replayVisionScannerTemplate('new'), { experiment: '7' })
-            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
-            expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 }, variantKey: null })
+            },
+        ])(
+            'keeps an experiment prefill the AI draft did not name, experiment scanners $experimentScanners',
+            async ({ experimentScanners, expected }) => {
+                // The experiment cross-sell deep-links an experiment the goal text never mentions. Dropping it
+                // here would save a scanner watching every visitor of the drafted pages, not the participants.
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: experimentScanners,
+                })
+                useMocks({
+                    get: {
+                        '/api/projects/:team/experiments/:id/': () => [200, { id: 7, name: 'Checkout redesign' }],
+                    },
+                })
+                draftSpy.mockReturnValue([
+                    200,
+                    {
+                        name: 'Billing drop-off',
+                        description: 'Watches where people give up.',
+                        scanner_type: 'monitor',
+                        scanner_config: { prompt: 'Watch for drop-off.' },
+                        rationale: '',
+                        query: { kind: 'RecordingsQuery' },
+                    },
+                ])
+                router.actions.push(urls.replayVisionScannerTemplate('new'), { experiment: '7' })
+                await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+                expect(logic.values.experimentContext).toMatchObject({ experiment: { id: 7 }, variantKey: null })
 
-            await expectLogic(logic, () =>
-                logic.actions.draftScannerFromGoal('where do people give up in billing')
-            ).toFinishAllListeners()
+                await expectLogic(logic, () =>
+                    logic.actions.draftScannerFromGoal('where do people give up in billing')
+                ).toFinishAllListeners()
 
-            expect(logic.values.scanner).toMatchObject({
-                name: 'Billing drop-off: Checkout redesign',
-                experiment_targeting: { experiment_id: 7, variant: null },
-            })
-        })
+                expect(logic.values.scanner).toMatchObject({ name: 'Billing drop-off: Checkout redesign', ...expected })
+            }
+        )
 
         it('drops a stale draft when the user has left the template step mid-request', async () => {
             draftSpy.mockReturnValue([
@@ -1135,6 +1182,7 @@ describe('replayScannerLogic', () => {
             observationDateFrom: null as string | null,
             observationDateTo: null as string | null,
             observationBackfillFilter: null as string | null,
+            observationVariantFilter: null as string | null,
             observationsSort: null,
             scanner: null,
         }
@@ -1606,6 +1654,25 @@ describe('replayScannerLogic', () => {
                 expect(sidLogic.values.observationDateFrom).toBe('2026-05-04')
                 expect(sidLogic.values.observationDateTo).toBe('2026-05-04')
                 expect(sidLogic.values.observationVerdictFilter).toEqual(['yes'])
+            } finally {
+                sidLogic.unmount()
+            }
+        })
+
+        // The Variants tab links each variant, and the unattributed row, into the list this way.
+        it('restores a variant link and sends the variant to the list endpoint', async () => {
+            const listSpy = jest.fn(() => [200, { results: [] }])
+            useMocks({ get: { '/api/projects/:team/vision/scanners/:id/observations/': listSpy } })
+            const sidLogic = replayScannerLogic({ id: 'sid' })
+            sidLogic.mount()
+            try {
+                router.actions.push(urls.replayVision('sid'), { tab: 'observations', variant: '__unattributed__' })
+                await expectLogic(sidLogic).toFinishAllListeners()
+                expect(sidLogic.values.observationVariantFilter).toBe('__unattributed__')
+
+                await expectLogic(sidLogic, () => sidLogic.actions.loadObservations()).toFinishAllListeners()
+                const url = new URL((listSpy.mock.calls.at(-1) as any)[0].request.url)
+                expect(url.searchParams.get('variant')).toBe('__unattributed__')
             } finally {
                 sidLogic.unmount()
             }

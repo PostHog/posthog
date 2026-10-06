@@ -81,6 +81,8 @@ impl Stage for ResolutionStage {
                 item.map(|mut event| {
                     if drop_team_ids.contains(&event.team_id()) {
                         event.drop_code_variables();
+                    } else {
+                        event.mask_code_variables();
                     }
                     event
                 })

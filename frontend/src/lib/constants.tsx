@@ -292,6 +292,7 @@ export const FEATURE_FLAGS = {
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
+    CROSS_PROJECT_DASHBOARDS: 'cross-project-dashboards', // owner: #team-platform-features
     CUSTOM_FACET_PINNING: 'custom-facet-pinning', // owner: #team-logs — gates pinning custom facets to the logs/tracing facet rails
     CUSTOMER_ANALYTICS: 'customer-analytics-roadmap', // owner: @arthurdedeus #team-customer-analytics
     CUSTOMER_ANALYTICS_ACCOUNT_SCENE: 'customer-analytics-account-scene', // owner: @arthurdedeus #team-customer-analytics
@@ -349,6 +350,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_EARLY_EXIT: 'feature-flag-early-exit', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_NOTIFICATIONS: 'feature-flag-notifications', // owner: @reecejones #team-platform-features
     FEATURE_FLAG_REQUEST_USAGE: 'feature-flag-request-usage', // owner: #team-feature-flags
+    FEATURE_FLAG_RULES_V2_EDITOR: 'feature-flag-rules-v2-editor', // owner: @andehen #team-feature-flags, entry points of the rules v2 flag editor
     FIELD_NOTES: 'field-notes', // owner: @adamleithp
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
@@ -357,7 +359,6 @@ export const FEATURE_FLAGS = {
     GITHUB_WORKFLOW_TRIGGERS: 'github-workflow-triggers', // owner: #team-workflows-cdp
     GROUP_PROFILE_EXPERIMENT: 'group-profile-experiment', // owner: @arthurdedeus #team-customer-analytics
     HEALTH_ASK_AI: 'health-ask-ai', // owner: @jordanm-posthog #team-web-analytics, gates the "Ask PostHog AI" buttons on the Health overview
-    HIDE_EVENTS_IN_QUERY_BUILDERS: 'hide-events-in-query-builders', // owner: #team-feature-flags, kill switch for hiding events marked hidden_in_query_builders from insight/cohort/destination pickers
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
     INBOX_GET_IT_MERGED: 'inbox-get-it-merged', // owner: #team-self-driving, gates the Get it merged action in the report Ask AI menu
@@ -412,10 +413,12 @@ export const FEATURE_FLAGS = {
     MARKETING_ANALYTICS_MULTI_TOUCH_ATTRIBUTION: 'marketing-analytics-multi-touch-attribution', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_NEW_DASHBOARD: 'new-marketing-analytics-dashboard', // owner: @jabahamondes #team-web-analytics — gates the redesigned dashboard and all of its sections
     MARKETING_ANALYTICS_OPENAI_ADS: 'marketing-analytics-openai-ads', // owner: @jabahamondes #team-web-analytics
+    MARKETING_ANALYTICS_ORGANIC_KEYWORDS: 'marketing-analytics-organic-keywords', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_RETENTION: 'marketing-analytics-retention', // owner: @jabahamondes #team-web-analytics — gates the legacy Retention explorer tab; the new dashboard ignores it
     MARKETING_ANALYTICS_RETURN_METRICS: 'marketing-analytics-return-metrics', // owner: @jabahamondes #team-web-analytics — gates the ROAS column
     MARKETING_ANALYTICS_ROKT_ADS: 'marketing-analytics-rokt-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_SETUP: 'marketing-analytics-setup', // owner: @jabahamondes #team-web-analytics — gates the Setup tab and its setup_plan / apply_setup_ops endpoints
+    MARKETING_ANALYTICS_TWITTER_ADS: 'marketing-analytics-twitter-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_UTM_AUDIT: 'marketing-analytics-utm-audit', // owner: @jabahamondes  #team-web-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
     MAX_BILLING_CONTEXT: 'max-billing-context', // owner: @pawel-cebula #team-billing
@@ -429,8 +432,8 @@ export const FEATURE_FLAGS = {
     METRICS: 'metrics', // owner: #team-apm (@jonmcwest, @frankh)
     METRICS_DASHBOARD_PANELS: 'metrics-dashboard-panels', // owner: #team-apm — gates the stat/gauge/bargauge/table panel picker entries
     METRICS_ERROR_OVERLAYS: 'metrics-error-overlays', // owner: #team-apm — gates the error-spike overlay PoC on metrics charts
-    METRICS_INSIGHT_BUILDER: 'metrics-insight-builder', // owner: #team-apm — offers Metrics in the new insight menu and the metrics builder in insight edit mode
     METRICS_FUNDAMENTALS: 'metrics-fundamentals', // owner: #team-apm (@jonmcwest, @frankh), gates the Fundamentals tab and the explain API behind it, which check the metrics viewer's own reductions
+    METRICS_INSIGHT_BUILDER: 'metrics-insight-builder', // owner: #team-apm — offers Metrics in the new insight menu and the metrics builder in insight edit mode
     ML_INFERENCE_DECISIONS: 'ml-inference-decisions', // owner: #team-ai-research, gates the decisions playground; the API checks the same flag server side
     NEW_TAB_PROJECT_EXPLORER: 'new-tab-project-explorer', // owner: #team-platform-ux
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
@@ -553,6 +556,7 @@ export const FEATURE_FLAGS = {
     TAXONOMIC_FILTER_SEARCH_INTENT: 'taxonomic-filter-search-intent', // owner: @pauldambra multivariate=control,banner,promote, classifies a picker search with the decision model. Every arm promotes the predicted group on the All tab; only banner also suggests the right tab
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
     TODAY_RAIL_NAV: 'today-rail-nav', // owner: @k11kirky, replaces the left navigation with a rail (Home, Spaces, Library, Tools) and makes the Today briefing the homepage
+    TODAY_REPORT_JEV: 'today-report-jev', // owner: @puemos, asks the decision model to label the problem, cause and fix in a Today report, to mark the numbers a source states, and to pick the code excerpt a finding describes
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     TRACING_AI_EVENTS: 'tracing-ai-events', // owner: #team-apm — shows a trace's LLM analytics events inline in the trace drawer waterfall
