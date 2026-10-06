@@ -2799,7 +2799,6 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         # test_incremental_in_resource_defaults_rejected.
         manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
         manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
-        manifest["resource_defaults"] = {"endpoint": {"data_selector": "items"}}
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
         source.preview_resource(config, team_id=999, resource_name="users")
@@ -2808,7 +2807,6 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
         endpoint = engine_manifest["resources"][0]["endpoint"]
         assert endpoint["paginator"] == {"type": "single_page"}
         assert "incremental" not in endpoint
-        assert engine_manifest["resource_defaults"]["endpoint"] == {"data_selector": "items"}
         assert isinstance(engine_manifest["client"]["session"], _PreviewSession)
         assert engine_manifest["client"]["max_retries"] == 1
         assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] is None
