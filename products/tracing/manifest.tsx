@@ -82,6 +82,8 @@ export const manifest: ProductManifest = {
                 'var(--color-product-tracing-dark)',
             ] as FileSystemIconColor,
             href: urls.tracing(),
+            searchKeywords: ['apm', 'spans', 'latency'],
+            searchTabs: [{ name: 'SQL', href: `${urls.tracing()}?tab=sql`, flag: FEATURE_FLAGS.TRACING_SCENE_TABS }],
             flag: FEATURE_FLAGS.TRACING,
             sceneKey: 'Tracing',
         },

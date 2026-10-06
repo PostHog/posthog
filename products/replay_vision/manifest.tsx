@@ -85,6 +85,11 @@ export const manifest: ProductManifest = {
                 'var(--color-product-session-replay-dark)',
             ] as FileSystemIconColor,
             href: urls.replayVision(),
+            searchKeywords: ['scanners', 'observations'],
+            searchTabs: [
+                { name: 'Search', href: `${urls.replayVision()}?tab=search` },
+                { name: 'Usage', href: `${urls.replayVision()}?tab=usage` },
+            ],
             sceneKey: 'ReplayVision',
             sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
         },

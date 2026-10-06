@@ -34,6 +34,7 @@ export const manifest: ProductManifest = {
             iconType: 'ai_gateway' as FileSystemIconType,
             iconColor: ['var(--color-product-ai-gateway-light)', 'var(--color-product-ai-gateway-dark)'],
             href: urls.aiGateway(),
+            searchKeywords: ['llm gateway', 'llm proxy', 'model router'],
             flag: FEATURE_FLAGS.AI_GATEWAY,
             tags: ['alpha'],
             sceneKey: 'AIGateway',

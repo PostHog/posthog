@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -50,6 +51,15 @@ export const manifest: ProductManifest = {
             iconType: 'dashboard',
             iconColor: ['var(--color-product-dashboards-light)'],
             href: urls.dashboards(),
+            searchKeywords: ['boards'],
+            searchTabs: [
+                { name: 'My dashboards', href: `${urls.dashboards()}?tab=yours` },
+                {
+                    name: 'Cross-project dashboards',
+                    href: `${urls.dashboards()}?tab=cross-project`,
+                    flag: FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS,
+                },
+            ],
             sceneKey: 'Dashboards',
             sceneKeys: ['Dashboard', 'Dashboards'],
         },

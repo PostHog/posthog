@@ -68,6 +68,11 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.BUSINESS_KNOWLEDGE],
             category: ProductItemCategory.DATA,
             href: urls.businessKnowledge(),
+            searchKeywords: ['knowledge base', 'company context'],
+            searchTabs: [
+                { name: 'Playground', href: urls.businessKnowledgePlayground() },
+                { name: 'Settings', href: urls.businessKnowledgeSettings() },
+            ],
             tags: ['beta'],
             iconType: 'business_knowledge',
             iconColor: [

@@ -63,7 +63,8 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.CONVERSATIONS],
             category: ProductItemCategory.MONITORING,
             href: urls.supportTickets(),
-            searchKeywords: ['tickets'],
+            searchKeywords: ['tickets', 'conversations', 'helpdesk', 'chat widget'],
+            searchTabs: [{ name: 'Settings', href: urls.supportSettings() }],
             type: 'conversations',
             iconType: 'conversations',
             iconColor: [

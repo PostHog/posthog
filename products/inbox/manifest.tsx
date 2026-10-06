@@ -19,6 +19,12 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.TOOLS,
             iconType: 'inbox' as FileSystemIconType,
             href: urls.inbox(),
+            searchKeywords: ['signals', 'triage', 'findings'],
+            searchTabs: [
+                { name: 'Reports', href: urls.inbox('reports') },
+                { name: 'Scouts', href: urls.inbox('scouts') },
+                { name: 'Settings', href: urls.inbox('settings') },
+            ],
             flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
             tags: ['beta'],
             sceneKey: 'Inbox',

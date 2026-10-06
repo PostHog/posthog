@@ -41,6 +41,11 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'survey',
             href: urls.surveys(),
+            searchKeywords: ['feedback', 'nps', 'csat', 'polls'],
+            searchTabs: [
+                { name: 'Notifications', href: `${urls.surveys()}?tab=notifications` },
+                { name: 'Settings', href: `${urls.surveys()}?tab=settings` },
+            ],
             iconType: 'survey',
             iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
             sceneKey: 'Surveys',

@@ -1,5 +1,6 @@
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -98,6 +99,22 @@ export const manifest: ProductManifest = {
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
             href: urls.logs(),
+            searchKeywords: ['drop rules', 'sampling'],
+            searchTabs: [
+                { name: 'Alerts', href: `${urls.logs()}?activeTab=alerts` },
+                { name: 'SQL', href: `${urls.logs()}?activeTab=sql` },
+                { name: 'Configuration', href: `${urls.logs()}?activeTab=configuration` },
+                {
+                    name: 'Services',
+                    href: `${urls.logs()}?activeTab=services`,
+                    flag: FEATURE_FLAGS.LOGS_SERVICES_VIEW,
+                },
+                {
+                    name: 'Anomalies',
+                    href: `${urls.logs()}?activeTab=anomalies`,
+                    flag: FEATURE_FLAGS.LOGS_ANOMALIES,
+                },
+            ],
             sceneKey: 'Logs',
         },
     ],

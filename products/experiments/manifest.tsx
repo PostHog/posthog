@@ -74,6 +74,12 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'experiment',
             href: urls.experiments(),
+            searchKeywords: ['a/b testing', 'ab test', 'split test'],
+            searchTabs: [
+                { name: 'Shared metrics', href: `${urls.experiments()}?tab=shared-metrics` },
+                { name: 'Holdout groups', href: `${urls.experiments()}?tab=holdouts` },
+                { name: 'Settings', href: `${urls.experiments()}?tab=settings` },
+            ],
             iconType: 'experiment',
             iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
             sceneKey: 'Experiments',
