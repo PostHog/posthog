@@ -187,6 +187,10 @@ describe('apiStatusLogic', () => {
                 },
             ],
             ['Enter in a dialog input', () => keyThatWrites('Enter')],
+            [
+                'an Enter that confirms an IME composition',
+                () => keyThatWrites('Enter', 'input', { isComposing: true, keyCode: 229 }),
+            ],
         ])('toasts when %s starts the blocked write', async (_name, run) => {
             await run()
             await expectLogic(logic).toFinishAllListeners()
@@ -199,10 +203,6 @@ describe('apiStatusLogic', () => {
             ['a kea loader sent it', loaderThatWrites],
             ['typing in an input started it', () => keyThatWrites('a')],
             ['Enter on a link started it', () => keyThatWrites('Enter', 'a')],
-            [
-                'an Enter that confirmed an IME composition started it',
-                () => keyThatWrites('Enter', 'input', { isComposing: true }),
-            ],
             ['a link click started it', () => clickThatWrites('a')],
             ['the click navigated first', () => clickThatWrites('button', () => router.actions.push('/elsewhere'))],
             [

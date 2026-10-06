@@ -263,13 +263,11 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         cache.disposables.add(() => {
             // `click` also fires for keyboard activation of buttons. Enter counts on its own because
             // some forms, such as LemonFormDialog, submit from a keydown handler. Other keys do not
-            // submit, and neither does an Enter that confirms an IME composition.
+            // submit. An Enter that confirms an IME composition still counts: the flag lasts only for
+            // that Enter's own task, so it can only toast for a write that this Enter started.
             const onUserAction = (event: Event): void => {
-                if (event.type === 'keydown') {
-                    const { key, isComposing } = event as KeyboardEvent
-                    if (key !== 'Enter' || isComposing) {
-                        return
-                    }
+                if (event.type === 'keydown' && (event as KeyboardEvent).key !== 'Enter') {
+                    return
                 }
                 // Activating a link is navigation, not a write. A button inside a link is still a button.
                 const control = (event.target as Element | null)?.closest?.('button, a[href]')
