@@ -127,6 +127,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
     '/my-tickets': ['MyTickets', 'myTickets'],
+    '/cross-project-dashboards': ['CrossProjectDashboards', 'crossProjectDashboards'],
+    '/cross-project-dashboards/:id': ['CrossProjectDashboard', 'crossProjectDashboard'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
     '/customer_analytics/accounts/by-external-id/*': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
@@ -719,6 +721,17 @@ export const productConfiguration: Record<string, any> = {
     SupportTicketDetail: { name: 'Ticket detail', projectBased: true, layout: 'app-container' },
     SupportSettings: { name: 'Support settings', projectBased: true, layout: 'app-container' },
     MyTickets: { name: 'Your tickets', projectBased: true, layout: 'app-container' },
+    CrossProjectDashboards: {
+        name: 'Cross-project dashboards',
+        organizationBased: true,
+        activityScope: 'CrossProjectDashboard',
+        description: 'Put insights from several projects on one page.',
+    },
+    CrossProjectDashboard: {
+        name: 'Cross-project dashboard',
+        organizationBased: true,
+        activityScope: 'CrossProjectDashboard',
+    },
     CustomerAnalytics: {
         projectBased: true,
         name: 'Customer analytics',
@@ -1319,6 +1332,8 @@ export const productUrls = {
     supportSettings: (): string => '/support/settings',
     myTickets: (ticketId?: string): string =>
         ticketId ? `/my-tickets?ticket=${encodeURIComponent(ticketId)}` : '/my-tickets',
+    crossProjectDashboards: (): string => '/cross-project-dashboards',
+    crossProjectDashboard: (id: string): string => `/cross-project-dashboards/${id}`,
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
