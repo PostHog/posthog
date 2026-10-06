@@ -755,14 +755,18 @@ def list_email_threads_for_account_matching(
 
     thread_page = list(threads.order_by("id")[:limit])
     gmail_sources_by_thread_id: dict[str, list[str]] = {}
+    source_types_by_thread_id: dict[str, set[str]] = {}
     integration_ids: set[int] = set()
     invalid_source_thread_ids: set[str] = set()
-    for thread_id, source_id in (
+    for thread_id, source_type, source_id in (
         EmailThreadMessage.objects.for_team(team_id)
-        .filter(thread_id__in=[thread.id for thread in thread_page], source_type="gmail")
-        .values_list("thread_id", "source_id")
+        .filter(thread_id__in=[thread.id for thread in thread_page])
+        .values_list("thread_id", "source_type", "source_id")
     ):
         normalized_thread_id = str(thread_id)
+        source_types_by_thread_id.setdefault(normalized_thread_id, set()).add(source_type)
+        if source_type != "gmail":
+            continue
         gmail_sources_by_thread_id.setdefault(normalized_thread_id, []).append(source_id)
         integration_id, separator, message_id = source_id.partition(":")
         if not separator or not integration_id.isdigit() or not message_id:
@@ -794,6 +798,7 @@ def list_email_threads_for_account_matching(
                     for participant in cast(list[EmailThreadParticipant], thread.customer_participants)
                 ],
                 gmail_owner_id=gmail_owner_id,
+                workflow_only=source_types_by_thread_id.get(normalized_thread_id) == {"workflow"},
             )
         )
     return matching_threads
