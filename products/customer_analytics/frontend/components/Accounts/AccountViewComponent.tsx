@@ -2,6 +2,7 @@ import { userHasAccess } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { AccountPropertiesTile } from '../../scenes/CustomerAnalyticsAccountScene/components/AccountPropertiesTile'
 import { CustomerTasksTabContent } from '../CustomerTasks/CustomerTasksTabContent'
 import { AccountBillingExpansion } from './AccountBillingExpansion'
 import { AccountConversationsExpansion } from './AccountConversationsExpansion'
@@ -63,5 +64,7 @@ export function AccountViewComponent({
             return <AccountConversationsExpansion accountId={accountId} embedded={embedded} {...tileProps} />
         case 'meetings':
             return <AccountMeetingsExpansion accountId={accountId} embedded={embedded} {...tileProps} />
+        case 'properties':
+            return <AccountPropertiesTile accountId={accountId} {...tileProps} />
     }
 }

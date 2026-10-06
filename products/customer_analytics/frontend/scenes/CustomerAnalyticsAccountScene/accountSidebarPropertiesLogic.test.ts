@@ -126,6 +126,26 @@ describe('accountSidebarPropertiesLogic', () => {
         logic?.unmount()
         resumeKeaLoadersErrors()
         jest.clearAllMocks()
+        jest.mocked(userHasAccess).mockReturnValue(true)
+    })
+
+    it('saves an unpinned property from an account view tile', async () => {
+        useMocks({
+            get: { '/api/projects/:project_id/user_customer_analytics_config/@me/': { pinned_properties: [] } },
+        })
+        logic = accountSidebarPropertiesLogic({ projectId: 1, accountId: 'account-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.propertyData).toBeNull()
+
+        await expectLogic(logic, () => logic.actions.requestAllPropertyData()).toFinishAllListeners()
+        await waitFor(() => expect(logic.values.accountProperties).toHaveLength(2))
+        await expectLogic(logic, () =>
+            logic.actions.saveCustomProperty('custom:property-1', 'Enterprise', 'account_view')
+        ).toFinishAllListeners()
+
+        expect(storedValue).toBe('Enterprise')
+        expect(logic.values.sidebarProperties).toEqual([])
     })
 
     it('defers account data until pinning and recovers the empty state after an account-data failure', async () => {
@@ -462,7 +482,7 @@ describe('accountSidebarPropertiesLogic', () => {
     })
 
     it('does not edit or save properties without resource-level editor access', async () => {
-        jest.mocked(userHasAccess).mockReturnValueOnce(false)
+        jest.mocked(userHasAccess).mockReturnValue(false)
         await mount()
         const write = jest.fn()
         useMocks({ post: { [VALUES_URL]: write, [RELATIONSHIPS_URL]: write } })

@@ -368,6 +368,39 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             expect(logic.values.accountForm.name).toBe('Draft account')
             expect(logic.values.account?.name).toBe(account.name)
         })
+
+        it('keeps an inline field edit open after a failed save and merges the retry into the latest properties', async () => {
+            const currentAccount = { ...account, properties: { sfdc_id: 'salesforce-concurrent' } }
+            jest.spyOn(posthog, 'captureException').mockImplementation()
+            mockAccountsRetrieve.mockResolvedValue(currentAccount)
+            mockAccountsPartialUpdate.mockRejectedValueOnce(new ApiError('Unavailable', 500))
+
+            logic.actions.editAccountField('website_domain', 'account_view:tile-1')
+            logic.actions.saveAccountField('website_domain', ' example.com ')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values).toMatchObject({
+                accountFieldEditor: { key: 'website_domain', scope: 'account_view:tile-1' },
+                accountFieldSaveFailed: true,
+                savingAccountField: null,
+            })
+
+            const updatedAccount = {
+                ...currentAccount,
+                properties: { ...currentAccount.properties, website_domain: 'example.com' },
+            }
+            mockAccountsPartialUpdate.mockResolvedValueOnce(updatedAccount)
+            logic.actions.saveAccountField('website_domain', ' example.com ')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockAccountsPartialUpdate).toHaveBeenLastCalledWith(String(PROJECT_ID), ACCOUNT_ID, {
+                properties: { sfdc_id: 'salesforce-concurrent', website_domain: 'example.com' },
+            })
+            expect(logic.values).toMatchObject({
+                account: updatedAccount,
+                accountFieldEditor: null,
+                accountFieldSaveFailed: false,
+            })
+        })
     })
 
     describe('tag updates', () => {
