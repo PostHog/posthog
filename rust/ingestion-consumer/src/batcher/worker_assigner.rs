@@ -1,6 +1,4 @@
 //! Picks each request's worker when it is sent, against the load in flight.
-//! A worker at its request cap takes no new request, so one slow worker
-//! cannot hold every send slot.
 
 use std::collections::HashMap;
 
@@ -42,6 +40,8 @@ impl WorkerAssigner {
     }
 
     pub fn assign(&mut self, pool: &[WorkerId], message_count: usize) -> Option<WorkerId> {
+        // A worker at the cap is skipped, so one slow worker cannot hold
+        // every send slot.
         let open: Vec<WorkerId> = pool
             .iter()
             .filter(|worker| self.requests_on(worker) < self.max_requests_per_worker)

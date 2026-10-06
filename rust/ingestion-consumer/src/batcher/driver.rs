@@ -1,14 +1,4 @@
 //! Runs the batcher state machine on one task and performs its effects.
-//! Inputs win the select's ties, so a revoke applies before a response that
-//! is ready at the same time can send a revoked key.
-//!
-//! The rebalance callback runs inside the consumer loop's Kafka poll, so it
-//! queues the revoke instead of waiting for it; the revoke still lands
-//! between the polls submitted before and after the rebalance. Applying it
-//! clears the order sentinel, so no revoked message is noted as sent after.
-//!
-//! A failed send's fence guard drops only after its messages are requeued,
-//! so the worker stream starts no new send ahead of them.
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -168,6 +158,9 @@ impl Drop for StateMachineDriver {
 }
 
 impl RevokeSender {
+    /// Called from the rebalance callback inside the consumer loop's Kafka
+    /// poll, so it queues the revoke rather than waiting for it. The revoke
+    /// lands between the polls submitted before and after the rebalance.
     pub(super) fn purge_revoked(&self, partitions: &[(String, i32)]) {
         let _ = self.0.send(Input::PartitionsRevoked(partitions.to_vec()));
     }
@@ -178,6 +171,8 @@ impl BatcherTask {
         loop {
             let wakeup = self.wakeup;
             let event = tokio::select! {
+                // Inputs first, so a revoke applies before a response ready at
+                // the same time can send a revoked key.
                 biased;
                 input = self.inputs.recv() => match input {
                     Some(input) => Event::Input(input),
@@ -205,6 +200,8 @@ impl BatcherTask {
                 state.on_groups(now, &self.pool_source.pool(), assignment_epoch, runs)
             }
             Event::Input(Input::PartitionsRevoked(partitions)) => {
+                // Cleared in order with the sends, so no revoked message is
+                // noted as sent after the revoke.
                 self.key_sentinel.clear();
                 state.on_partitions_revoked(now, &partitions)
             }
@@ -231,6 +228,8 @@ impl BatcherTask {
             Event::Wakeup => state.on_wakeup(now, &self.pool_source.pool()),
         };
         self.perform(&state, effects);
+        // The worker stream takes no new send until the failed messages are
+        // requeued.
         drop(fence_guard);
         if assigned {
             histogram!("ingestion_consumer_assign_duration_seconds")

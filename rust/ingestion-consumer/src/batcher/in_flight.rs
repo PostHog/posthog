@@ -1,7 +1,5 @@
 //! Remembers what each in-flight request carried, because a response names
-//! its request only by id. The transport hands back a failed request's
-//! messages complete and in send order, so `hand_back` cuts them into runs
-//! by length.
+//! its request only by id.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -100,6 +98,8 @@ impl InFlightRequest {
         self.runs
     }
 
+    /// The transport hands back every message of a failed request in send
+    /// order, so the runs are cut by length.
     pub fn hand_back(self, messages: Vec<SerializedKafkaMessage>) -> Result<Vec<KeyRun>, String> {
         if messages.len() != self.message_count {
             return Err(format!(

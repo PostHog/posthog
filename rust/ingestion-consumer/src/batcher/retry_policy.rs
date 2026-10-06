@@ -1,7 +1,4 @@
-//! When each kind of retry fires. Nothing signals a worker joining the pool,
-//! so a request with no candidate worker retries after the no-worker delay;
-//! that delay must be non-zero, or the state machine would wake on every
-//! action.
+//! When each kind of retry fires.
 
 use std::time::{Duration, Instant};
 
@@ -9,6 +6,7 @@ use std::time::{Duration, Instant};
 pub enum RetryReason {
     Fault,
     Busy,
+    /// Nothing signals a worker joining the pool, so placement polls for one.
     NoWorker,
 }
 
@@ -21,6 +19,7 @@ pub struct RetryPolicy {
 
 impl RetryPolicy {
     pub fn new(fault: Duration, busy: Duration, no_worker: Duration) -> Result<Self, String> {
+        // Zero would wake the state machine on every action.
         if no_worker.is_zero() {
             return Err("the no-worker retry delay must be > 0".to_string());
         }

@@ -1,9 +1,5 @@
 //! Per-key message queues that keep per-key order: a key has at most one run
-//! out, and its later messages wait until that run settles. Messages a
-//! failed run hands back go to the front of the queue as replay under the
-//! run's epoch, so redelivery keeps offset order. If a revoke happens while
-//! a run is out, its handed-back messages of revoked partitions drop. A
-//! settle without a claim is a bookkeeping error.
+//! out, and its later messages wait until that run settles.
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -63,6 +59,8 @@ pub struct ReadyRun {
     pub first_arrival: Instant,
 }
 
+/// Every settle releases a claim the queues handed out, so this is a
+/// bookkeeping bug.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[error("settled key {routing_key} without a claim")]
 pub struct UnclaimedSettle {
@@ -78,6 +76,7 @@ struct Segment {
 
 struct Claim {
     assignment_epoch: u64,
+    /// Requeued messages of these partitions drop; the new owner replays them.
     revoked: Vec<(String, i32)>,
 }
 
@@ -265,6 +264,8 @@ impl KeyQueues {
             let bytes = payload_bytes(&requeued);
             self.queued_messages += requeued.len();
             self.queued_bytes += bytes;
+            // Ahead of later arrivals and under the run's epoch, so the replay
+            // keeps offset order.
             state.queue.push_front(Segment {
                 class: RequestClass {
                     assignment_epoch: claim.assignment_epoch,

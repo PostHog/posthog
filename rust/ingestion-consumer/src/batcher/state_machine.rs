@@ -9,20 +9,9 @@
 //! no timer. `fatal` means the state machine failed and the process must
 //! exit and replay.
 //!
-//! - A worker accepts a whole request or none of it. A request that fails on
-//!   the transport hands back all its messages; they go back to the front of
-//!   their keys' queues and are sent again as replay after the retry delay.
-//! - Stall watchdog: when work is pending, nothing is in flight, and no
-//!   message was accepted for `stall_timeout`, the state machine fails, so a
-//!   wedged batcher restarts instead of growing lag. Past that deadline no
-//!   new request starts, so overlapping failures drain to nothing in flight
-//!   and the watchdog can fire. The clock starts when work becomes pending.
-//! - A revoke drops the revoked partitions' pending messages, because the
-//!   new owner replays them. Runs already in flight finish, but if they fail,
-//!   their messages for revoked partitions drop.
-//! - Shutdown takes no new groups; the state machine stops once nothing is
-//!   pending or in flight. A draining worker listed in `idle_workers` has
-//!   finished its work.
+//! When work is pending, nothing is in flight, and no message was accepted
+//! for `stall_timeout`, the state machine fails, so a wedged batcher restarts
+//! instead of growing lag.
 
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -74,6 +63,7 @@ pub struct Effects {
     pub key_acks: Vec<KeyAck>,
     pub evicted_keys: Vec<Arc<str>>,
     pub worker_outcomes: Vec<WorkerOutcome>,
+    /// A draining worker listed here has finished its work.
     pub idle_workers: Vec<WorkerId>,
     pub busy_workers: Vec<WorkerId>,
     pub fatal: Option<String>,
@@ -137,6 +127,9 @@ impl BatcherStateMachine {
         self.act(|active| active.on_request_succeeded(now, pool, request, accepted))
     }
 
+    /// A worker accepts a whole request or none of it. The failed request's
+    /// messages go back to the front of their keys' queues and are sent again
+    /// as replay after the retry delay.
     pub fn on_request_failed(
         self,
         now: Instant,
@@ -156,6 +149,9 @@ impl BatcherStateMachine {
         })
     }
 
+    /// The new owner replays the revoked partitions, so their pending
+    /// messages drop. Runs already in flight finish; if they fail, their
+    /// messages of revoked partitions drop too.
     pub fn on_partitions_revoked(
         self,
         now: Instant,
@@ -164,6 +160,8 @@ impl BatcherStateMachine {
         self.act(|active| active.on_partitions_revoked(now, partitions))
     }
 
+    /// Takes no new groups from now on, and stops once nothing is pending or
+    /// in flight.
     pub fn on_shutdown(self, now: Instant, pool: &WorkerPool) -> (Self, Effects) {
         match self {
             BatcherStateMachine::Running(active) => {
@@ -259,6 +257,8 @@ impl ActiveState {
                 .sum::<usize>()
     }
 
+    /// The stall clock starts when work becomes pending, not at the last
+    /// action before a quiet period.
     fn restart_stall_clock_if_quiet(&mut self, now: Instant) {
         if self.pending_messages() == 0 && self.in_flight.is_empty() {
             self.last_progress = now;
@@ -424,6 +424,8 @@ impl ActiveState {
         effects: &mut Effects,
     ) -> Result<(), String> {
         self.restart_stall_clock_if_quiet(now);
+        // Past the stall deadline no new request starts, so overlapping
+        // failures drain to nothing in flight and the watchdog can fire.
         let stalled = self.pending_messages() > 0 && now >= self.last_progress + self.stall_timeout;
         if !stalled {
             self.place(now, pool, effects);
