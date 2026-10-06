@@ -87,7 +87,7 @@ pub struct WorkerOutcome {
 }
 
 #[derive(Debug, Default)]
-pub struct Step {
+pub struct Effects {
     /// Sends must begin in this order, which is the per-key send order.
     pub sends: Vec<Send>,
     /// One completion per partition, so each poll is credited per offset.
@@ -106,9 +106,9 @@ pub struct Step {
     pub next_wakeup: Option<Instant>,
 }
 
-/// Every action consumes the state and returns the next state with one
-/// [`Step`], so a caller cannot act on a state it has already left.
-/// An action does no I/O.
+/// Every action consumes the state and returns the next state with the
+/// [`Effects`] to perform, so a caller cannot act on a state it has
+/// already left. An action does no I/O.
 pub enum BatcherStateMachine {
     Running(Work),
     /// Shutdown started: no new groups, every open batch seals at once, and
@@ -131,7 +131,7 @@ impl BatcherStateMachine {
         pool: &WorkerPool,
         assignment_epoch: u64,
         runs: Vec<KeyRun>,
-    ) -> (Self, Step) {
+    ) -> (Self, Effects) {
         match self {
             BatcherStateMachine::Running(mut work) => {
                 let result = work.on_groups(now, pool, assignment_epoch, runs);
@@ -140,7 +140,7 @@ impl BatcherStateMachine {
             BatcherStateMachine::Draining(_) | BatcherStateMachine::Stopped => {
                 Self::failed("groups submitted after shutdown started".to_string())
             }
-            BatcherStateMachine::Failed => (BatcherStateMachine::Failed, Step::default()),
+            BatcherStateMachine::Failed => (BatcherStateMachine::Failed, Effects::default()),
         }
     }
 
@@ -155,7 +155,7 @@ impl BatcherStateMachine {
         request: RequestId,
         accepted: u32,
         returned: Vec<SerializedKafkaMessage>,
-    ) -> (Self, Step) {
+    ) -> (Self, Effects) {
         self.act(|work, draining| {
             work.on_request_succeeded(now, pool, draining, request, accepted, returned)
         })
@@ -170,17 +170,17 @@ impl BatcherStateMachine {
         request: RequestId,
         cause: FailureCause,
         messages: Vec<SerializedKafkaMessage>,
-    ) -> (Self, Step) {
+    ) -> (Self, Effects) {
         self.act(|work, draining| {
             work.on_request_failed(now, pool, draining, request, cause, messages)
         })
     }
 
-    pub fn on_wakeup(self, now: Instant, pool: &WorkerPool) -> (Self, Step) {
+    pub fn on_wakeup(self, now: Instant, pool: &WorkerPool) -> (Self, Effects) {
         self.act(|work, draining| {
-            let mut step = Step::default();
-            work.advance(now, pool, draining, &mut step)?;
-            Ok(step)
+            let mut effects = Effects::default();
+            work.advance(now, pool, draining, &mut effects)?;
+            Ok(effects)
         })
     }
 
@@ -189,16 +189,20 @@ impl BatcherStateMachine {
     /// never sends: it runs on the rebalance callback, outside the runtime
     /// that begins sends. It asks for an immediate wakeup instead when keys
     /// became ready.
-    pub fn on_partitions_revoked(self, now: Instant, partitions: &[(String, i32)]) -> (Self, Step) {
+    pub fn on_partitions_revoked(
+        self,
+        now: Instant,
+        partitions: &[(String, i32)],
+    ) -> (Self, Effects) {
         self.act(|work, _| work.on_partitions_revoked(now, partitions))
     }
 
-    pub fn on_shutdown(self, now: Instant, pool: &WorkerPool) -> (Self, Step) {
+    pub fn on_shutdown(self, now: Instant, pool: &WorkerPool) -> (Self, Effects) {
         match self {
             BatcherStateMachine::Running(work) => {
                 BatcherStateMachine::Draining(work).on_wakeup(now, pool)
             }
-            other => (other, Step::default()),
+            other => (other, Effects::default()),
         }
     }
 
@@ -224,7 +228,10 @@ impl BatcherStateMachine {
         }
     }
 
-    fn act(self, action: impl FnOnce(&mut Work, bool) -> Result<Step, String>) -> (Self, Step) {
+    fn act(
+        self,
+        action: impl FnOnce(&mut Work, bool) -> Result<Effects, String>,
+    ) -> (Self, Effects) {
         match self {
             BatcherStateMachine::Running(mut work) => {
                 let result = action(&mut work, false);
@@ -234,31 +241,31 @@ impl BatcherStateMachine {
                 let result = action(&mut work, true);
                 Self::after(work, true, result)
             }
-            finished => (finished, Step::default()),
+            finished => (finished, Effects::default()),
         }
     }
 
-    fn after(work: Work, draining: bool, result: Result<Step, String>) -> (Self, Step) {
+    fn after(work: Work, draining: bool, result: Result<Effects, String>) -> (Self, Effects) {
         match result {
             Err(reason) => Self::failed(reason),
-            Ok(step) if draining && work.is_drained() => (
+            Ok(effects) if draining && work.is_drained() => (
                 BatcherStateMachine::Stopped,
-                Step {
+                Effects {
                     next_wakeup: None,
-                    ..step
+                    ..effects
                 },
             ),
-            Ok(step) if draining => (BatcherStateMachine::Draining(work), step),
-            Ok(step) => (BatcherStateMachine::Running(work), step),
+            Ok(effects) if draining => (BatcherStateMachine::Draining(work), effects),
+            Ok(effects) => (BatcherStateMachine::Running(work), effects),
         }
     }
 
-    fn failed(reason: String) -> (Self, Step) {
+    fn failed(reason: String) -> (Self, Effects) {
         (
             BatcherStateMachine::Failed,
-            Step {
+            Effects {
                 fatal: Some(reason),
-                ..Step::default()
+                ..Effects::default()
             },
         )
     }
@@ -323,15 +330,15 @@ impl Work {
         pool: &WorkerPool,
         assignment_epoch: u64,
         runs: Vec<KeyRun>,
-    ) -> Result<Step, String> {
+    ) -> Result<Effects, String> {
         self.restart_stall_clock_if_quiet(now);
         for run in runs {
             self.keys
                 .push(&run.routing_key, assignment_epoch, run.messages, now);
         }
-        let mut step = Step::default();
-        self.advance(now, pool, false, &mut step)?;
-        Ok(step)
+        let mut effects = Effects::default();
+        self.advance(now, pool, false, &mut effects)?;
+        Ok(effects)
     }
 
     fn on_request_succeeded(
@@ -342,9 +349,9 @@ impl Work {
         request: RequestId,
         accepted: u32,
         returned: Vec<SerializedKafkaMessage>,
-    ) -> Result<Step, String> {
-        let mut step = Step::default();
-        let sent = self.take_request(request, &mut step)?;
+    ) -> Result<Effects, String> {
+        let mut effects = Effects::default();
+        let sent = self.take_request(request, &mut effects)?;
         let returned_count = returned.len();
         let outcomes = sent
             .resolve(returned)
@@ -355,15 +362,15 @@ impl Work {
                 sent.message_count
             ));
         }
-        step.worker_outcomes.push(WorkerOutcome {
+        effects.worker_outcomes.push(WorkerOutcome {
             worker: sent.worker.clone(),
             fault: false,
         });
         if accepted > 0 {
             self.last_progress = now;
         }
-        step.completions = completions(sent.class.assignment_epoch, &outcomes);
-        step.key_acks = key_acks(&outcomes);
+        effects.completions = completions(sent.class.assignment_epoch, &outcomes);
+        effects.key_acks = key_acks(&outcomes);
         let retry_at = now + self.config.retry.timeout;
         for outcome in outcomes {
             let retry_at = (!outcome.returned.is_empty()).then_some(retry_at);
@@ -372,11 +379,11 @@ impl Work {
                 outcome.returned,
                 retry_at,
                 now,
-                &mut step,
+                &mut effects,
             );
         }
-        self.advance(now, pool, draining, &mut step)?;
-        Ok(step)
+        self.advance(now, pool, draining, &mut effects)?;
+        Ok(effects)
     }
 
     fn on_request_failed(
@@ -387,9 +394,9 @@ impl Work {
         request: RequestId,
         cause: FailureCause,
         messages: Vec<SerializedKafkaMessage>,
-    ) -> Result<Step, String> {
-        let mut step = Step::default();
-        let sent = self.take_request(request, &mut step)?;
+    ) -> Result<Effects, String> {
+        let mut effects = Effects::default();
+        let sent = self.take_request(request, &mut effects)?;
         if messages.len() != sent.message_count {
             return Err(format!(
                 "transport handed back {} of {} messages of a failed request",
@@ -400,7 +407,7 @@ impl Work {
         let outcomes = sent
             .resolve(messages)
             .map_err(|err| format!("invalid failed request: {err}"))?;
-        step.worker_outcomes.push(WorkerOutcome {
+        effects.worker_outcomes.push(WorkerOutcome {
             worker: sent.worker.clone(),
             fault: cause == FailureCause::Fault,
         });
@@ -414,21 +421,21 @@ impl Work {
                 outcome.returned,
                 Some(now + delay),
                 now,
-                &mut step,
+                &mut effects,
             );
         }
-        self.advance(now, pool, draining, &mut step)?;
-        Ok(step)
+        self.advance(now, pool, draining, &mut effects)?;
+        Ok(effects)
     }
 
     fn on_partitions_revoked(
         &mut self,
         now: Instant,
         partitions: &[(String, i32)],
-    ) -> Result<Step, String> {
-        let mut step = Step::default();
+    ) -> Result<Effects, String> {
+        let mut effects = Effects::default();
         let purged = self.keys.purge(partitions);
-        step.evicted_keys = purged.evicted_keys;
+        effects.evicted_keys = purged.evicted_keys;
 
         let (_, mut emptied_keys) = self.packer.purge(partitions);
         let revoked: HashSet<(&str, i32)> = partitions
@@ -440,27 +447,27 @@ impl Work {
         }
         self.unplaced.retain(|request| !request.runs.is_empty());
         for key in emptied_keys {
-            self.settle_key(&key, Vec::new(), None, now, &mut step);
+            self.settle_key(&key, Vec::new(), None, now, &mut effects);
         }
 
-        self.finish(now, &mut step)?;
+        self.finish(now, &mut effects)?;
         if self.keys.has_ready() {
-            step.next_wakeup = Some(now);
+            effects.next_wakeup = Some(now);
         }
-        Ok(step)
+        Ok(effects)
     }
 
     fn take_request(
         &mut self,
         request: RequestId,
-        step: &mut Step,
+        effects: &mut Effects,
     ) -> Result<InFlightRequest, String> {
         let sent = self
             .in_flight
             .take(request)
             .ok_or_else(|| format!("response for unknown request {request:?}"))?;
         if self.assigner.release(&sent.worker, sent.message_count) {
-            step.idle_workers.push(sent.worker.clone());
+            effects.idle_workers.push(sent.worker.clone());
         }
         Ok(sent)
     }
@@ -471,10 +478,10 @@ impl Work {
         returned: Vec<SerializedKafkaMessage>,
         retry_at: Option<Instant>,
         now: Instant,
-        step: &mut Step,
+        effects: &mut Effects,
     ) {
         if self.keys.settle(routing_key, returned, retry_at, now) == Settled::Evicted {
-            step.evicted_keys.push(routing_key.to_string());
+            effects.evicted_keys.push(routing_key.to_string());
         }
     }
 
@@ -483,7 +490,7 @@ impl Work {
         now: Instant,
         pool: &WorkerPool,
         draining: bool,
-        step: &mut Step,
+        effects: &mut Effects,
     ) -> Result<(), String> {
         // An open batch that seals below waited by design, so its wait does
         // not count toward a stall.
@@ -502,12 +509,12 @@ impl Work {
         let stalled =
             self.stuck_messages() > 0 && now >= self.last_progress + self.config.stall_timeout;
         if !stalled {
-            self.place(now, pool, step);
+            self.place(now, pool, effects);
         }
-        self.finish(now, step)
+        self.finish(now, effects)
     }
 
-    fn place(&mut self, now: Instant, pool: &WorkerPool, step: &mut Step) {
+    fn place(&mut self, now: Instant, pool: &WorkerPool, effects: &mut Effects) {
         let mut retry = std::mem::take(&mut self.unplaced);
         loop {
             let free = self.assigner.free_slots(&pool.healthy);
@@ -541,7 +548,7 @@ impl Work {
                     continue;
                 };
                 placed_any = true;
-                self.send(now, worker, request, step);
+                self.send(now, worker, request, effects);
             }
             if !placed_any {
                 break;
@@ -549,7 +556,13 @@ impl Work {
         }
     }
 
-    fn send(&mut self, now: Instant, worker: WorkerId, request: PackedRequest, step: &mut Step) {
+    fn send(
+        &mut self,
+        now: Instant,
+        worker: WorkerId,
+        request: PackedRequest,
+        effects: &mut Effects,
+    ) {
         let kind = if request.class.replay {
             "replay"
         } else {
@@ -564,7 +577,7 @@ impl Work {
         let id = self
             .in_flight
             .register(worker.clone(), request.class, &request.runs);
-        step.sends.push(Send {
+        effects.sends.push(Send {
             request: id,
             worker,
             class: request.class,
@@ -572,7 +585,7 @@ impl Work {
         });
     }
 
-    fn finish(&mut self, now: Instant, step: &mut Step) -> Result<(), String> {
+    fn finish(&mut self, now: Instant, effects: &mut Effects) -> Result<(), String> {
         let stuck = self.stuck_messages();
         let in_flight = self.in_flight.len();
         if stuck == 0 && in_flight == 0 {
@@ -583,7 +596,7 @@ impl Work {
         if stuck > 0 && in_flight == 0 && now >= stall_deadline {
             return Err("pending work made no progress within the stall timeout".to_string());
         }
-        step.next_wakeup = [
+        effects.next_wakeup = [
             self.keys.next_retry_at(),
             self.packer.next_deadline(),
             // Nothing signals a worker joining the pool, so requests waiting
@@ -734,22 +747,25 @@ mod tests {
         let workers = pool(&["w"]);
         let batcher = batcher(config(100, Duration::ZERO, 4), now);
 
-        let (batcher, step) =
+        let (batcher, effects) =
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
-        assert_eq!(step.sends.len(), 1);
-        assert_eq!(shape(&step.sends[0]), vec![("a", vec![1]), ("b", vec![2])]);
-        let request = step.sends[0].request;
-
-        let (batcher, step) = batcher.on_groups(now, &workers, 0, vec![run("a", &[3])]);
-        assert!(step.sends.is_empty(), "a's first run is still in flight");
-
-        let (_, step) = batcher.on_request_succeeded(now, &workers, request, 2, Vec::new());
-        assert_eq!(shape(&step.sends[0]), vec![("a", vec![3])]);
-        assert_eq!(step.completions.len(), 1);
-        assert_eq!(step.completions[0].offsets, vec![Offset(1), Offset(2)]);
-        assert_eq!(step.evicted_keys, vec!["b".to_string()]);
+        assert_eq!(effects.sends.len(), 1);
         assert_eq!(
-            step.key_acks,
+            shape(&effects.sends[0]),
+            vec![("a", vec![1]), ("b", vec![2])]
+        );
+        let request = effects.sends[0].request;
+
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[3])]);
+        assert!(effects.sends.is_empty(), "a's first run is still in flight");
+
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 2, Vec::new());
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![3])]);
+        assert_eq!(effects.completions.len(), 1);
+        assert_eq!(effects.completions[0].offsets, vec![Offset(1), Offset(2)]);
+        assert_eq!(effects.evicted_keys, vec!["b".to_string()]);
+        assert_eq!(
+            effects.key_acks,
             vec![
                 KeyAck {
                     routing_key: "a".to_string(),
@@ -771,20 +787,24 @@ mod tests {
         let batcher = batcher(config(100, budget, 4), now);
 
         let (batcher, _) = batcher.on_groups(now, &workers, 1, vec![run("k", &[1])]);
-        let (batcher, step) = batcher.on_groups(now, &workers, 2, vec![run("k", &[2])]);
-        assert!(step.sends.is_empty());
+        let (batcher, effects) = batcher.on_groups(now, &workers, 2, vec![run("k", &[2])]);
+        assert!(effects.sends.is_empty());
 
-        let (batcher, step) = batcher.on_wakeup(now + budget, &workers);
-        assert_eq!(step.sends.len(), 1, "the epoch-2 message waits for k's run");
-        assert_eq!(step.sends[0].class.assignment_epoch, 1);
-        assert_eq!(shape(&step.sends[0]), vec![("k", vec![1])]);
+        let (batcher, effects) = batcher.on_wakeup(now + budget, &workers);
+        assert_eq!(
+            effects.sends.len(),
+            1,
+            "the epoch-2 message waits for k's run"
+        );
+        assert_eq!(effects.sends[0].class.assignment_epoch, 1);
+        assert_eq!(shape(&effects.sends[0]), vec![("k", vec![1])]);
 
-        let request = step.sends[0].request;
+        let request = effects.sends[0].request;
         let later = now + budget * 2;
         let (batcher, _) = batcher.on_request_succeeded(later, &workers, request, 1, Vec::new());
-        let (_, step) = batcher.on_wakeup(later + budget, &workers);
-        assert_eq!(step.sends[0].class.assignment_epoch, 2);
-        assert_eq!(shape(&step.sends[0]), vec![("k", vec![2])]);
+        let (_, effects) = batcher.on_wakeup(later + budget, &workers);
+        assert_eq!(effects.sends[0].class.assignment_epoch, 2);
+        assert_eq!(shape(&effects.sends[0]), vec![("k", vec![2])]);
     }
 
     #[test]
@@ -792,26 +812,26 @@ mod tests {
         let now = Instant::now();
         let workers = pool(&["w"]);
         let batcher = batcher(config(100, Duration::ZERO, 4), now);
-        let (batcher, step) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1, 2, 3])]);
-        let request = step.sends[0].request;
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1, 2, 3])]);
+        let request = effects.sends[0].request;
         let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("a", &[4])]);
 
         let returned = vec![message("a", 0, 2), message("a", 0, 3)];
-        let (batcher, step) = batcher.on_request_succeeded(now, &workers, request, 1, returned);
-        assert!(step.sends.is_empty());
-        assert_eq!(step.completions[0].offsets, vec![Offset(1)]);
-        assert_eq!(step.next_wakeup, Some(now + TIMEOUT_DELAY));
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 1, returned);
+        assert!(effects.sends.is_empty());
+        assert_eq!(effects.completions[0].offsets, vec![Offset(1)]);
+        assert_eq!(effects.next_wakeup, Some(now + TIMEOUT_DELAY));
 
         let retry = now + TIMEOUT_DELAY;
-        let (batcher, step) = batcher.on_wakeup(retry, &workers);
-        assert!(step.sends[0].class.replay);
-        assert_eq!(shape(&step.sends[0]), vec![("a", vec![2, 3])]);
+        let (batcher, effects) = batcher.on_wakeup(retry, &workers);
+        assert!(effects.sends[0].class.replay);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![2, 3])]);
 
         // The fresh message behind the replay waits for it, so order holds.
-        let replay = step.sends[0].request;
-        let (_, step) = batcher.on_request_succeeded(retry, &workers, replay, 2, Vec::new());
-        assert!(!step.sends[0].class.replay);
-        assert_eq!(shape(&step.sends[0]), vec![("a", vec![4])]);
+        let replay = effects.sends[0].request;
+        let (_, effects) = batcher.on_request_succeeded(retry, &workers, replay, 2, Vec::new());
+        assert!(!effects.sends[0].class.replay);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![4])]);
     }
 
     #[test]
@@ -820,40 +840,40 @@ mod tests {
         let budget = Duration::from_millis(10);
         let workers = pool(&["w"]);
         let batcher = batcher(config(2, budget, 4), now);
-        let (batcher, step) =
+        let (batcher, effects) =
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
-        let request = step.sends[0].request;
+        let request = effects.sends[0].request;
 
         let messages = vec![message("a", 0, 1), message("b", 0, 2)];
-        let (batcher, step) =
+        let (batcher, effects) =
             batcher.on_request_failed(now, &workers, request, FailureCause::Fault, messages);
         assert_eq!(
-            step.worker_outcomes,
+            effects.worker_outcomes,
             vec![WorkerOutcome {
                 worker: WorkerId::from("w"),
                 fault: true
             }]
         );
-        assert!(step.completions.is_empty());
-        assert_eq!(step.next_wakeup, Some(now + FAULT_DELAY));
+        assert!(effects.completions.is_empty());
+        assert_eq!(effects.next_wakeup, Some(now + FAULT_DELAY));
 
-        let (batcher, step) = batcher.on_wakeup(now + budget, &workers);
+        let (batcher, effects) = batcher.on_wakeup(now + budget, &workers);
         assert!(
-            step.sends.is_empty(),
+            effects.sends.is_empty(),
             "the pack budget does not pace retries"
         );
 
-        let (_, step) = batcher.on_wakeup(now + FAULT_DELAY, &workers);
-        assert_eq!(step.sends.len(), 1, "the retries pack into one request");
-        assert!(step.sends[0].class.replay);
+        let (_, effects) = batcher.on_wakeup(now + FAULT_DELAY, &workers);
+        assert_eq!(effects.sends.len(), 1, "the retries pack into one request");
+        assert!(effects.sends[0].class.replay);
     }
 
     #[test]
     fn a_replay_is_sent_past_a_fresh_request_that_no_candidate_can_take() {
         let now = Instant::now();
         let batcher = batcher(config(100, Duration::ZERO, 4), now);
-        let (batcher, step) = batcher.on_groups(now, &pool(&["w"]), 0, vec![run("b", &[2])]);
-        let request = step.sends[0].request;
+        let (batcher, effects) = batcher.on_groups(now, &pool(&["w"]), 0, vec![run("b", &[2])]);
+        let request = effects.sends[0].request;
         let (batcher, _) = batcher.on_request_failed(
             now,
             &pool(&["w"]),
@@ -866,17 +886,18 @@ mod tests {
             healthy: pool(&["w"]).healthy,
             candidates: Vec::new(),
         };
-        let (batcher, step) = batcher.on_groups(now, &outside_the_slice, 0, vec![run("a", &[1])]);
+        let (batcher, effects) =
+            batcher.on_groups(now, &outside_the_slice, 0, vec![run("a", &[1])]);
         assert!(
-            step.sends.is_empty(),
+            effects.sends.is_empty(),
             "a fresh request routes only within the slice"
         );
 
         let retry = now + Duration::from_millis(20);
-        let (_, step) = batcher.on_wakeup(retry, &outside_the_slice);
-        assert_eq!(step.sends.len(), 1);
-        assert!(step.sends[0].class.replay);
-        assert_eq!(shape(&step.sends[0]), vec![("b", vec![2])]);
+        let (_, effects) = batcher.on_wakeup(retry, &outside_the_slice);
+        assert_eq!(effects.sends.len(), 1);
+        assert!(effects.sends[0].class.replay);
+        assert_eq!(shape(&effects.sends[0]), vec![("b", vec![2])]);
     }
 
     #[test]
@@ -885,13 +906,13 @@ mod tests {
         let workers = pool(&["w1", "w2"]);
         let batcher = batcher(config(1, Duration::ZERO, 4), now);
 
-        let (_, step) = batcher.on_groups(
+        let (_, effects) = batcher.on_groups(
             now,
             &workers,
             0,
             vec![run("small", &[1]), run("large", &[2, 3, 4])],
         );
-        let placed: Vec<_> = step
+        let placed: Vec<_> = effects
             .sends
             .iter()
             .map(|send| (send.runs[0].routing_key.as_str(), send.worker.as_ref()))
@@ -906,12 +927,12 @@ mod tests {
         let workers = pool(&["w"]);
         let batcher = batcher(config(100, budget, 4), now);
 
-        let (batcher, step) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
-        assert!(step.sends.is_empty());
-        assert_eq!(step.next_wakeup, Some(now + budget));
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        assert!(effects.sends.is_empty());
+        assert_eq!(effects.next_wakeup, Some(now + budget));
 
-        let (_, step) = batcher.on_wakeup(now + budget, &workers);
-        assert_eq!(shape(&step.sends[0]), vec![("a", vec![1])]);
+        let (_, effects) = batcher.on_wakeup(now + budget, &workers);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
     }
 
     #[test]
@@ -919,14 +940,14 @@ mod tests {
         let now = Instant::now();
         let batcher = batcher(config(100, Duration::ZERO, 4), now);
 
-        let (batcher, step) = batcher.on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
-        assert!(step.sends.is_empty());
+        let (batcher, effects) = batcher.on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
+        assert!(effects.sends.is_empty());
         assert_eq!(batcher.pending_messages(), 1);
-        assert!(step.next_wakeup.is_some());
+        assert!(effects.next_wakeup.is_some());
 
         let later = now + Duration::from_millis(100);
-        let (_, step) = batcher.on_wakeup(later, &pool(&["w"]));
-        assert_eq!(shape(&step.sends[0]), vec![("a", vec![1])]);
+        let (_, effects) = batcher.on_wakeup(later, &pool(&["w"]));
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
     }
 
     #[test]
@@ -935,13 +956,13 @@ mod tests {
         let workers = pool(&["w"]);
         let batcher = batcher(config(1, Duration::ZERO, 1), now);
 
-        let (batcher, step) =
+        let (batcher, effects) =
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
-        assert_eq!(step.sends.len(), 1);
-        let request = step.sends[0].request;
+        assert_eq!(effects.sends.len(), 1);
+        let request = effects.sends[0].request;
 
-        let (_, step) = batcher.on_request_succeeded(now, &workers, request, 1, Vec::new());
-        assert_eq!(shape(&step.sends[0]), vec![("b", vec![2])]);
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1, Vec::new());
+        assert_eq!(shape(&effects.sends[0]), vec![("b", vec![2])]);
     }
 
     /// Where the revoked message waits: in an open pack batch, sealed with no
@@ -961,16 +982,16 @@ mod tests {
             healthy: pool(healthy).healthy,
             candidates: pool(candidates).candidates,
         };
-        let (batcher, step) = batcher.on_groups(now, &at_arrival, 0, vec![run("a", &[1])]);
-        assert!(step.sends.is_empty());
+        let (batcher, effects) = batcher.on_groups(now, &at_arrival, 0, vec![run("a", &[1])]);
+        assert!(effects.sends.is_empty());
 
-        let (batcher, step) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
-        assert!(step.sends.is_empty());
-        assert_eq!(step.evicted_keys, vec!["a".to_string()]);
+        let (batcher, effects) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        assert!(effects.sends.is_empty());
+        assert_eq!(effects.evicted_keys, vec!["a".to_string()]);
         assert_eq!(batcher.pending_messages(), 0);
 
-        let (_, step) = batcher.on_wakeup(now + budget + STALL / 2, &pool(&["w"]));
-        assert!(step.sends.is_empty());
+        let (_, effects) = batcher.on_wakeup(now + budget + STALL / 2, &pool(&["w"]));
+        assert!(effects.sends.is_empty());
     }
 
     #[test]
@@ -980,13 +1001,14 @@ mod tests {
         let batcher = batcher(config(100, Duration::from_secs(10), 4), now);
         let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
 
-        let (batcher, step) = batcher.on_shutdown(now, &workers);
+        let (batcher, effects) = batcher.on_shutdown(now, &workers);
         assert!(matches!(batcher, BatcherStateMachine::Draining(_)));
-        let request = step.sends[0].request;
+        let request = effects.sends[0].request;
 
-        let (batcher, step) = batcher.on_request_succeeded(now, &workers, request, 1, Vec::new());
+        let (batcher, effects) =
+            batcher.on_request_succeeded(now, &workers, request, 1, Vec::new());
         assert!(matches!(batcher, BatcherStateMachine::Stopped));
-        assert_eq!(step.next_wakeup, None);
+        assert_eq!(effects.next_wakeup, None);
     }
 
     #[rstest]
@@ -1006,10 +1028,10 @@ mod tests {
         let batcher = batcher(config(100, Duration::ZERO, 4), now);
         let (batcher, _) = batcher.on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
 
-        let (batcher, step) = batcher.on_wakeup(now + STALL, &pool(&[]));
+        let (batcher, effects) = batcher.on_wakeup(now + STALL, &pool(&[]));
         assert!(matches!(batcher, BatcherStateMachine::Failed));
-        assert!(step.fatal.is_some());
-        assert_eq!(step.next_wakeup, None);
+        assert!(effects.fatal.is_some());
+        assert_eq!(effects.next_wakeup, None);
     }
 
     #[test]
@@ -1021,9 +1043,9 @@ mod tests {
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
 
         let late = now + STALL * 2;
-        let (batcher, step) = batcher.on_wakeup(late, &workers);
+        let (batcher, effects) = batcher.on_wakeup(late, &workers);
         assert!(matches!(batcher, BatcherStateMachine::Running(_)));
-        assert!(step.next_wakeup.is_some_and(|at| at > late));
+        assert!(effects.next_wakeup.is_some_and(|at| at > late));
     }
 
     #[test]
@@ -1031,19 +1053,19 @@ mod tests {
         let now = Instant::now();
         let workers = pool(&["w"]);
         let batcher = batcher(config(1, Duration::ZERO, 1), now);
-        let (batcher, step) =
+        let (batcher, effects) =
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
-        let request = step.sends[0].request;
+        let request = effects.sends[0].request;
 
         let late = now + STALL;
-        let (batcher, step) = batcher.on_request_failed(
+        let (batcher, effects) = batcher.on_request_failed(
             late,
             &workers,
             request,
             FailureCause::Busy,
             vec![message("a", 0, 1)],
         );
-        assert!(step.sends.is_empty(), "b stays unsent past the deadline");
+        assert!(effects.sends.is_empty(), "b stays unsent past the deadline");
         assert!(matches!(batcher, BatcherStateMachine::Failed));
     }
 
@@ -1055,13 +1077,13 @@ mod tests {
         let batcher = batcher(config(100, budget, 4), start);
 
         let arrival = start + STALL * 3;
-        let (batcher, step) = batcher.on_groups(arrival, &workers, 0, vec![run("a", &[1])]);
+        let (batcher, effects) = batcher.on_groups(arrival, &workers, 0, vec![run("a", &[1])]);
         assert!(matches!(batcher, BatcherStateMachine::Running(_)));
-        assert_eq!(step.next_wakeup, Some(arrival + budget));
+        assert_eq!(effects.next_wakeup, Some(arrival + budget));
 
-        let (batcher, step) = batcher.on_wakeup(arrival + budget, &workers);
+        let (batcher, effects) = batcher.on_wakeup(arrival + budget, &workers);
         assert!(matches!(batcher, BatcherStateMachine::Running(_)));
-        assert_eq!(shape(&step.sends[0]), vec![("a", vec![1])]);
+        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![1])]);
     }
 
     #[test]
@@ -1069,12 +1091,12 @@ mod tests {
         let now = Instant::now();
         let workers = pool(&["w"]);
         let batcher = batcher(config(100, Duration::ZERO, 4), now);
-        let (batcher, step) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1, 2])]);
-        let request = step.sends[0].request;
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1, 2])]);
+        let request = effects.sends[0].request;
 
-        let (batcher, step) =
+        let (batcher, effects) =
             batcher.on_request_succeeded(now, &workers, request, 1, vec![message("a", 0, 1)]);
         assert!(matches!(batcher, BatcherStateMachine::Failed));
-        assert!(step.fatal.is_some());
+        assert!(effects.fatal.is_some());
     }
 }

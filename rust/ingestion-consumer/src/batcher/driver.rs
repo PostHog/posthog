@@ -13,7 +13,7 @@ use tracing::error;
 
 use super::in_flight::RequestId;
 use super::key_queues::KeyRun;
-use super::state_machine::{BatcherStateMachine, FailureCause, Send, StateMachineConfig, Step};
+use super::state_machine::{BatcherStateMachine, Effects, FailureCause, Send, StateMachineConfig};
 use super::worker_pool::WorkerPoolSource;
 use super::{make_batch_id, BatcherOutputs};
 use crate::grpc_transport::GrpcTransport;
@@ -42,7 +42,7 @@ enum Input {
     Shutdown,
 }
 
-/// The state machine's load after its latest step.
+/// The state machine's load after its latest action.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Snapshot {
     pub pending_messages: usize,
@@ -197,7 +197,7 @@ impl BatcherTask {
         let now = Instant::now();
         let mut assigned = false;
         let mut fence_guard = None;
-        let (state, step) = match event {
+        let (state, effects) = match event {
             Event::Input(Input::Groups {
                 assignment_epoch,
                 runs,
@@ -238,7 +238,7 @@ impl BatcherTask {
             }
             Event::Wakeup => state.on_wakeup(now, &self.pool_source.pool()),
         };
-        self.perform(&state, step);
+        self.perform(&state, effects);
         // The worker stream fences new sends until the failed messages are
         // back in their queues, so the guard drops only now.
         drop(fence_guard);
@@ -249,8 +249,8 @@ impl BatcherTask {
         state
     }
 
-    fn perform(&mut self, state: &BatcherStateMachine, step: Step) {
-        let Step {
+    fn perform(&mut self, state: &BatcherStateMachine, effects: Effects) {
+        let Effects {
             sends,
             completions,
             key_acks,
@@ -259,7 +259,7 @@ impl BatcherTask {
             idle_workers,
             fatal,
             next_wakeup,
-        } = step;
+        } = effects;
         // An ACK advances before its key is evicted.
         for ack in &key_acks {
             self.key_sentinel
@@ -319,8 +319,8 @@ impl BatcherTask {
             .push(Box::pin(async move { (request, pending.wait().await) }));
     }
 
-    /// The busy-worker set is rebuilt only when it changed, so a step that
-    /// keeps the same workers busy allocates nothing.
+    /// The busy-worker set is rebuilt only when it changed, so an action
+    /// that keeps the same workers busy allocates nothing.
     fn publish(&self, state: &BatcherStateMachine) {
         self.snapshot.send_if_modified(|snapshot| {
             let pending_messages = state.pending_messages();
