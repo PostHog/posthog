@@ -3524,6 +3524,7 @@ export interface CredentialApi {
  * * `GoogleBusinessProfile` - GoogleBusinessProfile
  * * `Ledyer` - Ledyer
  * * `Supermetrics` - Supermetrics
+ * * `Modal` - Modal
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4892,6 +4893,7 @@ export const ExternalDataSourceTypeEnumApi = {
     GoogleBusinessProfile: 'GoogleBusinessProfile',
     Ledyer: 'Ledyer',
     Supermetrics: 'Supermetrics',
+    Modal: 'Modal',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

@@ -790,6 +790,7 @@ from .missive.source import MissiveSource
 from .mistral_ai.source import MistralAISource
 from .mixmax.source import MixMaxSource
 from .mixpanel.source import MixpanelSource
+from .modal.source import ModalSource
 from .mode.source import ModeSource
 from .moengage.source import MoEngageSource
 from .moesif.source import MoesifSource
