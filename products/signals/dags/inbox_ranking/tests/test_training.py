@@ -1349,8 +1349,13 @@ def test_an_empty_scores_write_is_refused_over_a_partition_that_holds_rows(exist
         ),
         ([STATE_MODEL_NAME], [], [STATE_MODEL_NAME]),
         ([], [STATE_MODEL_NAME], []),
+        (
+            ["tabular_xgb", EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME],
+            [EMBEDDINGS_MODEL_NAME, TITLE_EMBEDDINGS_MODEL_NAME],
+            [],
+        ),
     ],
-    ids=["one_family_skipped", "every_family_scored", "nothing_scored", "first_write"],
+    ids=["one_family_skipped", "every_family_scored", "nothing_scored", "first_write", "retired_family_held"],
 )
 def test_a_rewrite_that_drops_a_family_names_the_rows_it_would_delete(existing, scored, expected):
     # One object holds every family, so a re-run in a state where a family is not loadable would

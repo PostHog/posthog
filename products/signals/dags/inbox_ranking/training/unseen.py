@@ -64,6 +64,9 @@ CHAMPION_ROLE = "champion"
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
 REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
 TITLE_EMBEDDINGS_MODEL_NAME = "title_embeddings"
+# Families this build no longer trains. Saved scores objects still hold their rows, and no re-run can
+# produce those rows again, so the rewrite guard does not require them.
+RETIRED_MODEL_NAMES = frozenset({"tabular_xgb"})
 
 # A shuffle plus one AUC rather than a refit, so this sits far above the trainer's NULL_PERMUTATIONS.
 NULL_PERMUTATIONS = 25
@@ -341,9 +344,11 @@ def families_lost_by_rewrite(existing: pd.DataFrame, scores: pd.DataFrame) -> li
     `empty_scores_write_allowed` refuses for a run that scored nothing, and a family is skipped
     whenever its models or its set's side input are missing for the partition, so the partial case
     is as ordinary as the empty one. Reading the object settles what it holds, which the row-count
-    stamp alone cannot.
+    stamp alone cannot. A retired family's rows do not count: no re-run can produce them, so
+    counting them would refuse every re-run of the days that hold them.
     """
-    return sorted(set(with_model_names(existing)["model_name"].unique()) - set(scores["model_name"].unique()))
+    held = set(with_model_names(existing)["model_name"].unique()) - RETIRED_MODEL_NAMES
+    return sorted(held - set(scores["model_name"].unique()))
 
 
 def score_pool(
