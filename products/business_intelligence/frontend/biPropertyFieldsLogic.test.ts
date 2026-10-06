@@ -57,6 +57,22 @@ describe('BI properties', () => {
             await expectLogic(logic, () => logic.actions.setSearch('annual')).toFinishAllListeners()
             expect(list).toHaveBeenLastCalledWith('997', expect.objectContaining({ search: 'annual', offset: 0 }))
             expect(logic.values.fields).toHaveLength(1)
+            const localPage = logic.values.page
+            logic.actions.toggleExpanded()
+            list.mockResolvedValue({ count: 1, results: [definition('plan')] })
+            await expectLogic(logic, () => {
+                biPropertyFieldsLogic({ tabId: 'properties', field, dataPaneSearch: 'plan' })
+            }).toFinishAllListeners()
+            expect(logic.values.fields[0].name).toContain('plan')
+            const callsBeforeClear = list.mock.calls.length
+            await expectLogic(logic, () => {
+                biPropertyFieldsLogic({ tabId: 'properties', field, dataPaneSearch: '' })
+            }).toFinishAllListeners()
+            expect(logic.values.expanded).toBe(false)
+            expect(logic.values.page).toEqual(localPage)
+            await expectLogic(logic, () => logic.actions.toggleExpanded()).toFinishAllListeners()
+            expect(list).toHaveBeenCalledTimes(callsBeforeClear)
+            expect(logic.values.fields[0].name).toContain('annual_spend')
         } finally {
             logic.unmount()
             list.mockRestore()
@@ -123,12 +139,15 @@ describe('BI properties', () => {
             expect(logic.values.fields.map((field) => field.expression)).toEqual([`${name}.$pathname`])
             expect(list).toHaveBeenLastCalledWith('997', expect.objectContaining({ search: '$pathname', offset: 0 }))
 
+            const callsBeforeClear = list.mock.calls.length
             await expectLogic(logic, () => {
                 biPropertyFieldsLogic({ ...logicProps, dataPaneSearch: '' })
             }).toFinishAllListeners()
             expect(logic.values.expanded).toBe(false)
-            expect(list).toHaveBeenLastCalledWith('997', expect.objectContaining({ search: undefined, offset: 0 }))
+            expect(logic.values.page).toBeNull()
+            expect(list).toHaveBeenCalledTimes(callsBeforeClear)
             await expectLogic(logic, () => logic.actions.toggleExpanded()).toFinishAllListeners()
+            expect(list).toHaveBeenLastCalledWith('997', expect.objectContaining({ search: undefined, offset: 0 }))
             await expectLogic(logic, () => logic.actions.setSearch('local')).toFinishAllListeners()
             await expectLogic(logic, () => {
                 biPropertyFieldsLogic({ ...logicProps, dataPaneSearch: 'PROPERTIES' })

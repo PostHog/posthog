@@ -65,6 +65,9 @@ export interface biPropertyFieldsLogicActions {
             offset: number
         }
     }
+    restorePage: (page: PaginatedEnterprisePropertyDefinitionListApi | null) => {
+        page: PaginatedEnterprisePropertyDefinitionListApi | null
+    }
     setSearch: (search: string) => {
         search: string
     }
@@ -95,8 +98,12 @@ export const biPropertyFieldsLogic: LogicWrapper<biPropertyFieldsLogicType> = ke
     key(({ tabId, field }) => JSON.stringify([tabId, field.id])),
     path((key) => ['products', 'business_intelligence', 'frontend', 'biPropertyFieldsLogic', key]),
     connect({ values: [projectLogic, ['currentProjectId']] }),
-    actions({ toggleExpanded: true, setSearch: (search: string) => ({ search }) }),
-    loaders(({ props, values }) => ({
+    actions({
+        toggleExpanded: true,
+        setSearch: (search: string) => ({ search }),
+        restorePage: (page: PaginatedEnterprisePropertyDefinitionListApi | null) => ({ page }),
+    }),
+    loaders(({ props, values, cache }) => ({
         page: [
             null as PaginatedEnterprisePropertyDefinitionListApi | null,
             {
@@ -104,6 +111,7 @@ export const biPropertyFieldsLogic: LogicWrapper<biPropertyFieldsLogicType> = ke
                     { offset }: { offset: number },
                     breakpoint
                 ): Promise<PaginatedEnterprisePropertyDefinitionListApi | null> => {
+                    const searchVersion = cache.searchVersion
                     const target = getBIPropertyTarget(props.field)
                     if (!target || !values.currentProjectId) {
                         return null
@@ -111,19 +119,32 @@ export const biPropertyFieldsLogic: LogicWrapper<biPropertyFieldsLogicType> = ke
                     if (values.search) {
                         await breakpoint(250)
                     }
-                    const response = await api.propertyDefinitionsList(String(values.currentProjectId), {
-                        type: target.type,
-                        group_type_index: target.groupTypeIndex,
-                        exclude_hidden: true,
-                        exclude_restricted: true,
-                        search: values.search.trim() || undefined,
-                        limit: 25,
-                        offset,
-                    })
-                    breakpoint()
-                    return {
-                        ...response,
-                        results: [...(offset ? (values.page?.results ?? []) : []), ...response.results],
+                    if (searchVersion !== cache.searchVersion) {
+                        return values.page
+                    }
+                    try {
+                        const response = await api.propertyDefinitionsList(String(values.currentProjectId), {
+                            type: target.type,
+                            group_type_index: target.groupTypeIndex,
+                            exclude_hidden: true,
+                            exclude_restricted: true,
+                            search: values.search.trim() || undefined,
+                            limit: 25,
+                            offset,
+                        })
+                        breakpoint()
+                        if (searchVersion !== cache.searchVersion) {
+                            return values.page
+                        }
+                        return {
+                            ...response,
+                            results: [...(offset ? (values.page?.results ?? []) : []), ...response.results],
+                        }
+                    } catch (error) {
+                        if (searchVersion !== cache.searchVersion) {
+                            return values.page
+                        }
+                        throw error
                     }
                 },
             },
@@ -134,9 +155,16 @@ export const biPropertyFieldsLogic: LogicWrapper<biPropertyFieldsLogicType> = ke
         localSearch: ['', { setSearch: (_, { search }) => search }],
         page: [
             null as PaginatedEnterprisePropertyDefinitionListApi | null,
-            { loadPage: (page, { offset }) => (offset ? page : null) },
+            {
+                loadPage: (page, { offset }) => (offset ? page : null),
+                restorePage: (_, { page }) => page,
+            },
         ],
-        error: [null as string | null, { loadPage: () => null, loadPageFailure: (_, { error }) => error }],
+        pageLoading: [false, { restorePage: () => false }],
+        error: [
+            null as string | null,
+            { loadPage: () => null, restorePage: () => null, loadPageFailure: (_, { error }) => error },
+        ],
     }),
     selectors(({ props }) => ({
         expanded: [
@@ -172,9 +200,19 @@ export const biPropertyFieldsLogic: LogicWrapper<biPropertyFieldsLogicType> = ke
             actions.loadPage({ offset: 0 })
         }
     }),
-    propsChanged(({ actions, props }, oldProps) => {
-        if (props.dataPaneSearch?.trim() !== oldProps.dataPaneSearch?.trim()) {
-            actions.loadPage({ offset: 0 })
+    propsChanged(({ actions, props, values, cache }, oldProps) => {
+        const search = props.dataPaneSearch?.trim()
+        if (search !== oldProps.dataPaneSearch?.trim()) {
+            cache.searchVersion = (cache.searchVersion ?? 0) + 1
+            if (!oldProps.dataPaneSearch?.trim()) {
+                cache.localPage = values.page
+                cache.localPageSearch = values.localSearch
+            }
+            if (!search && !values.expanded) {
+                actions.restorePage(cache.localPageSearch === values.localSearch ? (cache.localPage ?? null) : null)
+            } else {
+                actions.loadPage({ offset: 0 })
+            }
         }
     }),
 ])
