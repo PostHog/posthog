@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Composer } from 'products/posthog_ai/frontend/api/primitives'
+import { Composer } from 'products/posthog_ai/frontend/api/composer'
 import {
     InboxQuestionSource,
     captureInboxReportAction,
