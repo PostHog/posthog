@@ -252,9 +252,7 @@ async def generate_ai_report(
                 freshly_planned = True
             # A report that will not show its charts must not build or render them: each render is a
             # headless PNG export holding a slot in a pool every concurrent report shares.
-            charts_enabled_for_team = include_charts and await database_sync_to_async(
-                charts_enabled, thread_sensitive=False
-            )(team, user)
+            charts_enabled_for_team = include_charts and charts_enabled(user)
             execution = await _execute_plan(
                 spec, team, user, window, trace_correlation_id, charts_enabled_for_team=charts_enabled_for_team
             )
