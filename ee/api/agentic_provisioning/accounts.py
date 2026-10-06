@@ -9,7 +9,6 @@ from urllib.parse import urlencode
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.db.models import Q
 from django.utils import timezone
 
 from posthog.api.authentication import password_reset_token_generator
@@ -229,8 +228,7 @@ def find_partner_organization(user: User, partner: OAuthApplication) -> Organiza
     # otherwise put this partner's project, and the partner's bill for it, in that organization.
     candidates = (
         Organization.objects.filter(
-            Q(provisioning_application=partner)
-            | Q(provisioning_source__isnull=True, partner_provisioning__application=partner),
+            provisioning_application=partner,
             membership__user=user,
             membership__level=OrganizationMembership.Level.OWNER,
         )

@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization_provisioning import OrganizationProvisioning, get_billing_lock_partner
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 
@@ -293,33 +293,23 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
             Organization.ProvisioningSource.PROVISIONING_API,
             self.partner.id,
         )
-        assert not OrganizationProvisioning.objects.filter(organization=organization).exists()
         assert get_billing_lock_partner(organization) == self.partner
         assert TeamProvisioningConfig.objects.get(team=team).application == self.partner
         self.user.refresh_from_db()
         assert (self.user.current_organization_id, self.user.current_team_id) == (self.organization.id, self.team.id)
 
-    @parameterized.expand([("organization_fields", False), ("legacy_record", True)])
-    def test_paying_partner_confirm_reuses_the_organization_the_partner_already_provisioned(
-        self, _name: str, legacy_record: bool
-    ) -> None:
+    def test_paying_partner_confirm_reuses_the_organization_the_partner_already_provisioned(self) -> None:
         self.partner.update_provisioning(pays_for_customers=True)
         organization = Organization.objects.create(
             name="Partner-created organization",
-            provisioning_source=None if legacy_record else Organization.ProvisioningSource.PROVISIONING_API,
-            provisioning_application=None if legacy_record else self.partner,
+            provisioning_source=Organization.ProvisioningSource.PROVISIONING_API,
+            provisioning_application=self.partner,
         )
         OrganizationMembership.objects.create(
             user=self.user, organization=organization, level=OrganizationMembership.Level.OWNER
         )
         team = Team.objects.create_with_data(initiating_user=self.user, organization=organization)
         TeamProvisioningConfig.objects.create(team=team, application=self.partner)
-        if legacy_record:
-            OrganizationProvisioning.objects.create(
-                organization=organization,
-                partner=OrganizationProvisioning.Partner.PROVISIONING_API,
-                application=self.partner,
-            )
         organization_count = Organization.objects.count()
 
         self._set_pending_auth("state_again", self.user.email)
