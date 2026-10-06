@@ -98,6 +98,14 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 fields=["pipeline", "-created_at"],
                 name="idx_extdatajob_pipe_created",
             ),
+            # Serves the newest-job-for-a-schema reads (table statistics, snapshot pins, schema
+            # cancel and resync, the v3 lock holder): equality on schema ordered by created_at DESC.
+            # It leads with schema, not team, so reads that filter on schema alone can use it too.
+            # Without it the FK index walks every job of the schema and sorts.
+            models.Index(
+                fields=["schema", "-created_at"],
+                name="idx_extdatajob_schema_created",
+            ),
         ]
 
     def folder_path(self) -> str:
