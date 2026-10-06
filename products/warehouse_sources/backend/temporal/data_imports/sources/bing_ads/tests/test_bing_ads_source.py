@@ -79,6 +79,7 @@ class TestBingAdsSource:
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.valid_config, self.team_id)
+        assert next(schema for schema in schemas if schema.name == "keyword_performance_report").should_sync_default
 
         assert len(schemas) > 0
 
