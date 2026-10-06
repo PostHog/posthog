@@ -1,6 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { urls } from 'scenes/urls'
+
+import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
+import { ProjectTreeRef } from '~/types'
 
 import { productsItemName } from '../navbar/tabs/productsCatalog'
 import { getCustomIcon } from './customIconRegistry'
@@ -8,6 +12,7 @@ import { getDefaultTreeData, getDefaultTreeProducts, iconForType } from './defau
 import {
     convertFileSystemEntryToTreeDataItem,
     escapePath,
+    isProjectTreeItemActive,
     joinPath,
     matchesRefType,
     reparentPath,
@@ -20,6 +25,25 @@ const catalogProducts = [...getDefaultTreeProducts(), ...getDefaultTreeData()].f
 )
 
 describe('project tree utils', () => {
+    describe('isProjectTreeItemActive', () => {
+        const insight: TreeDataItem = {
+            id: 'project/sql-insight',
+            name: 'SQL insight',
+            record: { type: 'insight', ref: 'sql123', href: '/insights/sql123' },
+        }
+
+        it.each<[string, string, ProjectTreeRef | null, boolean]>([
+            ['view mode', '/insights/sql123', null, true],
+            ['edit mode', '/sql', { type: 'insight', ref: 'sql123' }, true],
+            ['another insight', '/sql', { type: 'insight', ref: 'other' }, false],
+            ['another resource with the same ID', '/sql', { type: 'dashboard', ref: 'sql123' }, false],
+            ['unsaved SQL', '/sql', null, false],
+            ['new insight', '/sql', { type: 'insight', ref: null }, false],
+        ])('highlights the current insight in %s', (_, pathname, ref, expected) => {
+            expect(isProjectTreeItemActive(insight, pathname, ref)).toBe(expected)
+        })
+    })
+
     describe('resolveProjectTreeDrop', () => {
         const note: FileSystemEntry = { id: 'note', type: 'notebook', ref: 'note-ref', path: 'Research/Notes' }
         const folder: FileSystemEntry = { id: 'folder', type: 'folder', path: 'Research' }
@@ -180,6 +204,34 @@ describe('project tree utils', () => {
             expect(matchesRefType(undefined, 'dashboard')).toBe(false)
         })
     })
+
+    it.each(['trends', 'funnels', 'retention', 'paths', 'lifecycle', 'stickiness', 'hog', undefined, 'unknown'])(
+        'renders a saved insight with type %s using its insight icon and destination',
+        (insightType) => {
+            const [node] = convertFileSystemEntryToTreeDataItem({
+                imports: [
+                    {
+                        id: 'report',
+                        ref: 'report1',
+                        href: '/insights/report1',
+                        path: 'Report',
+                        type: 'insight',
+                        meta: { insight_type: insightType },
+                    },
+                ],
+                folderStates: {},
+                checkedItems: {},
+                root: 'project://',
+            })
+            expect(node.record?.href).toEqual(
+                insightType === 'hog' ? urls.sqlEditor({ insightShortId: 'report1' }) : '/insights/report1'
+            )
+            const expectedType = insightType && insightType !== 'unknown' ? `insight/${insightType}` : 'insight'
+            expect(renderToStaticMarkup(node.icon as JSX.Element)).toEqual(
+                renderToStaticMarkup(iconForType(expectedType as FileSystemIconType))
+            )
+        }
+    )
 
     describe('starred products', () => {
         it.each(catalogProducts.map((item) => [item.path, item]))(

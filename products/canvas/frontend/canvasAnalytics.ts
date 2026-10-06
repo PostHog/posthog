@@ -10,7 +10,7 @@ export const CANVAS_EVENTS = {
 } as const
 
 // pinned: `surface` values, shared with PostHog Desktop
-export type CanvasSurface = 'web_new_canvas_page' | 'web_canvas_scene' | 'web_canvas_side_panel'
+export type CanvasSurface = 'web_new_canvas_page' | 'web_canvas_scene' | 'web_canvas_side_panel' | 'web_canvases_list'
 
 // pinned: `action_type` values of the Dashboard action event. "revert" and "edit_toggle" are shared
 // with PostHog Desktop. The rest name web actions Desktop does not track yet, so Desktop should reuse them.
@@ -33,6 +33,7 @@ export type CanvasDashboardActionType =
     | 'panel_toggle'
     | 'fullscreen_toggle'
     | 'comment_create'
+    | 'comment_open'
     | 'comment_reply'
     | 'comment_resolve'
     | 'build_retry'
@@ -50,6 +51,7 @@ export function captureCanvasAction(
         surface?: CanvasSurface
         success?: boolean
         tab?: string
+        source?: 'highlight' | 'menu'
         open?: boolean
         origin?: 'build' | 'runtime'
         outcome?: string

@@ -887,6 +887,7 @@ const dashboardsGetAll = (): ToolBase<
                 folder: params.folder,
                 limit: params.limit,
                 offset: params.offset,
+                ordering: params.ordering,
                 pinned: params.pinned,
                 search: params.search,
             },

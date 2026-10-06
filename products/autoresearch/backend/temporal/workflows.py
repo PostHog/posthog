@@ -40,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
         AutoresearchRun,
         AutoresearchTrainingRun,
     )
+    from products.autoresearch.backend.query import BATCH_QUERY
     from products.autoresearch.backend.training.runner import run_training
     from products.tasks.backend.facade.access import get_desktop_access_decision
     from products.tasks.backend.facade.usage import task_run_usage_limited
@@ -136,6 +137,8 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
             prediction_date=date.fromisoformat(inp.prediction_date),
             user=user,
             run=manual_run,
+            query_context=BATCH_QUERY,
+            scheduled=manual_run is None,
         )
     return RunInferenceResult(
         run_id=str(run.pk),
@@ -188,7 +191,8 @@ def inference_workflow_id(pipeline_id: str, prediction_date: str) -> str:
 
 # ── Workflow ─────────────────────────────────────────────────────────────────
 
-# Scoring can take minutes for large populations.
+# Scoring can take minutes for large populations. The recipe path runs at most five batch
+# queries in sequence, so one attempt covers all of them at the full limit.
 _SCORE_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30))
 _SCORE_ATTEMPT_TIMEOUT = timedelta(hours=2)
 # A lost worker is detected in minutes rather than at the end of a multi-hour attempt.
@@ -285,20 +289,27 @@ class RunValidationResult:
 # Validation does all its work (HogQL + sklearn) inside a single activity to
 # keep the Temporal payload small — we only return summary counts, not raw data.
 _VALIDATION_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=30))
-_VALIDATION_ATTEMPT_TIMEOUT = timedelta(hours=1)
-_VALIDATION_WORKFLOW_TIMEOUT = timedelta(hours=3)
+# Each date runs two batch queries of up to HOGQL_INCREASED_MAX_EXECUTION_TIME (600 s) each.
+# An attempt claims another date only while that worst case, plus the metrics and writes, still
+# fits in the attempt. The rest of a larger backlog stays pending for the next sweep, so the
+# attempt completes instead of timing out part-way.
+_VALIDATION_ATTEMPT_TIMEOUT = timedelta(hours=2)
+_VALIDATION_DATE_RESERVE = timedelta(minutes=30)
+# Covers both attempts plus their backoff, as for inference.
+_VALIDATION_WORKFLOW_TIMEOUT = timedelta(hours=5)
 
 
 @activity.defn(name="autoresearch-validation.run_validation")
 def activity_run_validation(inp: RunValidationInput) -> RunValidationResult:
     """Find all matured unvalidated prediction dates and validate each one."""
+    claim_deadline = django_timezone.now() + _VALIDATION_ATTEMPT_TIMEOUT - _VALIDATION_DATE_RESERVE
     with HeartbeaterSync(), team_scope(inp.team_id):
         pipeline = AutoresearchPipeline.objects.select_related("team__organization", "created_by").get(
             pk=inp.pipeline_id
         )
         if pipeline.status not in _LIVE_STATUSES or _sweep_access_block(pipeline):
             return RunValidationResult(dates_validated=0, total_rows=0, status="skipped")
-        runs = run_online_validation_for_pipeline(pipeline)
+        runs = run_online_validation_for_pipeline(pipeline, query_context=BATCH_QUERY, claim_deadline=claim_deadline)
     # A per-date failure is recorded on its own run rather than raised, so inspect the
     # statuses here. Reporting completed regardless would leave the retry policy unused
     # even when every matured date failed; the coordinator isolates the failure per
