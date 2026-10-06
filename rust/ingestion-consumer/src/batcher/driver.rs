@@ -378,3 +378,371 @@ async fn sleep_until(wakeup: Option<Instant>) {
         None => std::future::pending().await,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tokio::sync::oneshot;
+
+    use super::*;
+    use crate::batcher::retry_policy::RetryPolicy;
+    use crate::batcher::test_support::{message, offsets};
+    use crate::batcher::worker_assigner::WorkerAssigner;
+    use crate::routing::{Router, RoutingStrategy};
+    use crate::transport::{FenceGuard, TransportError};
+
+    const FAULT_DELAY: Duration = Duration::from_millis(200);
+    const BUSY_DELAY: Duration = Duration::from_millis(20);
+    const NO_WORKER_DELAY: Duration = Duration::from_millis(100);
+    const STALL: Duration = Duration::from_secs(60);
+
+    struct Sent {
+        worker: WorkerId,
+        offsets: Vec<i64>,
+        replay: bool,
+        fence_released: Option<bool>,
+        reply: oneshot::Sender<Result<u32, SendError>>,
+    }
+
+    struct FakeSender {
+        assignment_epoch: AssignmentEpoch,
+        sent: Mutex<Vec<Sent>>,
+        fence: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
+    }
+
+    impl RequestSender for FakeSender {
+        fn assignment_epoch(&self) -> AssignmentEpoch {
+            self.assignment_epoch.clone()
+        }
+
+        fn send(
+            &self,
+            worker: &WorkerId,
+            messages: Vec<SerializedKafkaMessage>,
+            replay: bool,
+        ) -> BoxFuture<'static, Result<u32, SendError>> {
+            let fence_released = self
+                .fence
+                .lock()
+                .unwrap()
+                .as_mut()
+                .map(|released| released.try_recv().is_ok());
+            let (reply, response) = oneshot::channel();
+            self.sent.lock().unwrap().push(Sent {
+                worker: worker.clone(),
+                offsets: offsets(&messages),
+                replay,
+                fence_released,
+                reply,
+            });
+            async move { response.await.expect("the test replies to every send") }.boxed()
+        }
+    }
+
+    #[derive(Default)]
+    struct WorkersState {
+        candidates: Vec<WorkerId>,
+        outcomes: Vec<(WorkerId, bool)>,
+        idle: Vec<WorkerId>,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeWorkers(Arc<Mutex<WorkersState>>);
+
+    impl Workers for FakeWorkers {
+        fn candidates(&self) -> Vec<WorkerId> {
+            self.0.lock().unwrap().candidates.clone()
+        }
+
+        fn record_outcome(&self, worker: &WorkerId, fault: bool) {
+            self.0
+                .lock()
+                .unwrap()
+                .outcomes
+                .push((worker.clone(), fault));
+        }
+
+        fn idle(&self, worker: &WorkerId) {
+            self.0.lock().unwrap().idle.push(worker.clone());
+        }
+    }
+
+    struct Harness {
+        driver: StateMachineDriver,
+        outputs: BatcherOutputs,
+        sender: Arc<FakeSender>,
+        workers: FakeWorkers,
+    }
+
+    impl Harness {
+        fn new(workers: &[&str], max_requests_per_worker: usize) -> Self {
+            let assigner = WorkerAssigner::new(
+                Router::new(RoutingStrategy::BinPack),
+                max_requests_per_worker,
+            )
+            .expect("valid request cap");
+            let retry = RetryPolicy::new(FAULT_DELAY, BUSY_DELAY, NO_WORKER_DELAY)
+                .expect("valid retry policy");
+            let state = BatcherStateMachine::new(
+                assigner,
+                retry,
+                STALL,
+                tokio::time::Instant::now().into_std(),
+            )
+            .expect("valid stall timeout");
+            let fake_workers = FakeWorkers::default();
+            fake_workers.set_candidates(workers);
+            let sender = Arc::new(FakeSender {
+                assignment_epoch: AssignmentEpoch::new(),
+                sent: Mutex::new(Vec::new()),
+                fence: Mutex::new(None),
+            });
+            let (driver, outputs) =
+                StateMachineDriver::new(state, fake_workers.clone(), Arc::clone(&sender));
+            Self {
+                driver,
+                outputs,
+                sender,
+                workers: fake_workers,
+            }
+        }
+
+        fn submit(&self, runs: Vec<KeyRun>) {
+            self.driver.send(Input::Groups {
+                assignment_epoch: 0,
+                runs,
+            });
+        }
+
+        fn take_sent(&self) -> Vec<Sent> {
+            std::mem::take(&mut *self.sender.sent.lock().unwrap())
+        }
+
+        fn completed_offsets(&mut self) -> Vec<i64> {
+            let mut completed = Vec::new();
+            while let Ok(completion) = self.outputs.completions.try_recv() {
+                completed.extend(completion.offsets.iter().map(|offset| offset.0));
+            }
+            completed
+        }
+    }
+
+    impl FakeWorkers {
+        fn set_candidates(&self, workers: &[&str]) {
+            self.0.lock().unwrap().candidates =
+                workers.iter().map(|w| WorkerId::from(*w)).collect();
+        }
+
+        fn outcomes(&self) -> Vec<(WorkerId, bool)> {
+            self.0.lock().unwrap().outcomes.clone()
+        }
+
+        fn idle(&self) -> Vec<WorkerId> {
+            self.0.lock().unwrap().idle.clone()
+        }
+    }
+
+    /// Lets the batcher task handle everything queued for it.
+    async fn settle() {
+        for _ in 0..8 {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    fn run(key: &str, offsets: &[i64]) -> KeyRun {
+        KeyRun {
+            routing_key: key.into(),
+            messages: offsets
+                .iter()
+                .map(|&offset| message(key, 0, offset))
+                .collect(),
+        }
+    }
+
+    fn busy(sent: &Sent, fence_guard: Option<FenceGuard>) -> SendError {
+        SendError {
+            error: TransportError::WorkerStreamBusy("test"),
+            messages: sent
+                .offsets
+                .iter()
+                .map(|&offset| message("a", 0, offset))
+                .collect(),
+            fence_guard,
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_accepted_send_completes_its_offsets_and_idles_the_worker() {
+        let mut h = Harness::new(&["w"], 4);
+        h.submit(vec![run("a", &[1, 2])]);
+        settle().await;
+
+        let sent = h.take_sent();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].worker, WorkerId::from("w"));
+        assert_eq!(sent[0].offsets, vec![1, 2]);
+        assert!(!sent[0].replay);
+
+        let send = sent.into_iter().next().unwrap();
+        send.reply.send(Ok(2)).unwrap();
+        settle().await;
+        assert_eq!(h.completed_offsets(), vec![1, 2]);
+        assert_eq!(h.workers.outcomes(), vec![(WorkerId::from("w"), false)]);
+        assert_eq!(h.workers.idle(), vec![WorkerId::from("w")]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_busy_send_replays_after_the_busy_delay() {
+        let h = Harness::new(&["w"], 4);
+        h.submit(vec![run("a", &[1])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+        let failure = busy(&send, None);
+        send.reply.send(Err(failure)).unwrap();
+        settle().await;
+        assert!(h.take_sent().is_empty());
+        assert_eq!(h.workers.outcomes(), vec![(WorkerId::from("w"), false)]);
+
+        tokio::time::advance(BUSY_DELAY - Duration::from_millis(1)).await;
+        settle().await;
+        assert!(h.take_sent().is_empty(), "the retry waits for its delay");
+
+        tokio::time::advance(Duration::from_millis(1)).await;
+        settle().await;
+        let replay = h.take_sent();
+        assert_eq!(replay.len(), 1);
+        assert!(replay[0].replay);
+        assert_eq!(replay[0].offsets, vec![1]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_send_counts_against_the_worker() {
+        let h = Harness::new(&["w"], 4);
+        h.submit(vec![run("a", &[1])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+        send.reply
+            .send(Err(SendError {
+                error: TransportError::WorkerStreamFailed("test"),
+                messages: vec![message("a", 0, 1)],
+                fence_guard: None,
+            }))
+            .unwrap();
+        settle().await;
+        assert_eq!(h.workers.outcomes(), vec![(WorkerId::from("w"), true)]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_sends_fence_is_released_before_the_next_send_to_its_worker() {
+        let h = Harness::new(&["w"], 1);
+        h.submit(vec![run("a", &[1]), run("b", &[2])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+        assert_eq!(send.offsets, vec![1], "b waits for the only slot");
+
+        let (release, released) = mpsc::unbounded_channel();
+        *h.sender.fence.lock().unwrap() = Some(released);
+        let failure = busy(&send, Some(FenceGuard::new(release)));
+        send.reply.send(Err(failure)).unwrap();
+        settle().await;
+
+        let next = h.take_sent();
+        assert_eq!(next.len(), 1);
+        assert_eq!(next[0].offsets, vec![2]);
+        assert_eq!(next[0].fence_released, Some(true));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_revoke_queued_with_a_ready_response_applies_first() {
+        let mut h = Harness::new(&["w"], 4);
+        h.submit(vec![run("a", &[1])]);
+        settle().await;
+        h.submit(vec![run("a", &[2])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+
+        send.reply.send(Ok(1)).unwrap();
+        h.driver
+            .revoke_sender()
+            .purge_revoked(&[("events".to_string(), 0)]);
+        settle().await;
+
+        assert!(
+            h.take_sent().is_empty(),
+            "a's queued message was revoked before the response released a"
+        );
+        assert_eq!(h.completed_offsets(), vec![1]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_revoke_clears_the_order_sentinel() {
+        let h = Harness::new(&["w"], 4);
+        h.submit(vec![run("a", &[1])]);
+        settle().await;
+        let sentinel = h.driver.key_order_sentinel();
+        assert_eq!(sentinel.key_count(), 1);
+
+        h.driver
+            .revoke_sender()
+            .purge_revoked(&[("events".to_string(), 9)]);
+        settle().await;
+        assert_eq!(sentinel.key_count(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_load_tracks_pending_in_flight_and_busy_workers() {
+        let h = Harness::new(&[], 2);
+        let load = h.driver.load();
+        h.submit(vec![run("a", &[1]), run("b", &[2, 3])]);
+        settle().await;
+        assert_eq!(load.pending_messages.load(Ordering::Relaxed), 3);
+        assert!(load.busy_workers.lock().unwrap().is_empty());
+
+        h.workers.set_candidates(&["w"]);
+        tokio::time::advance(NO_WORKER_DELAY).await;
+        settle().await;
+        assert_eq!(load.pending_messages.load(Ordering::Relaxed), 0);
+        assert_eq!(load.in_flight_messages.load(Ordering::Relaxed), 3);
+        assert_eq!(
+            *load.busy_workers.lock().unwrap(),
+            HashSet::from([WorkerId::from("w")])
+        );
+
+        let mut sent = h.take_sent();
+        let accepted = |send: &Sent| send.offsets.len() as u32;
+        let first = sent.remove(0);
+        let count = accepted(&first);
+        first.reply.send(Ok(count)).unwrap();
+        settle().await;
+        assert!(!load.busy_workers.lock().unwrap().is_empty());
+
+        let last = sent.remove(0);
+        let count = accepted(&last);
+        last.reply.send(Ok(count)).unwrap();
+        settle().await;
+        assert!(load.busy_workers.lock().unwrap().is_empty());
+        assert_eq!(load.in_flight_messages.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_state_machine_failure_reaches_the_error_channel() {
+        let mut h = Harness::new(&["w"], 4);
+        h.submit(vec![run("a", &[1, 2])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+        send.reply.send(Ok(1)).unwrap();
+        settle().await;
+        assert!(h.outputs.errors.try_recv().is_ok());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropping_the_driver_stops_its_task() {
+        let h = Harness::new(&["w"], 4);
+        let sender = Arc::clone(&h.sender);
+        assert_eq!(Arc::strong_count(&sender), 3);
+        drop(h);
+        settle().await;
+        assert_eq!(Arc::strong_count(&sender), 1);
+    }
+}
