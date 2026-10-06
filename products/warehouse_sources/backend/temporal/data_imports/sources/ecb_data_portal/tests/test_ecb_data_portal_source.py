@@ -103,6 +103,32 @@ class TestEcbDataPortalSource:
         assert "Your access has been blocked due to security concerns" in errors
         assert all(message for message in errors.values())
 
+    @pytest.mark.parametrize(
+        "error_msg, retryable",
+        [
+            (
+                "500 Server Error: Internal Server Error for url: "
+                "https://data-api.ecb.europa.eu/service/data/EXR/D..EUR.SP00.A?format=csvdata&startPeriod=2024-01-01",
+                True,
+            ),
+            (
+                "503 Server Error: Service Unavailable for url: "
+                "https://data-api.ecb.europa.eu/service/data/ICP/M.U2.N.000000.4.ANR?format=csvdata",
+                True,
+            ),
+            (
+                "500 Server Error: Internal Server Error for url: https://example.com/service/data/EXR",
+                False,
+            ),
+            (
+                "400 Client Error: Bad Request for url: https://data-api.ecb.europa.eu/service/data/EXR/D..EUR.SP00.A",
+                False,
+            ),
+        ],
+    )
+    def test_get_retryable_errors_match_only_ecb_server_errors(self, error_msg: str, retryable: bool) -> None:
+        assert any(pattern in error_msg for pattern in self.source.get_retryable_errors()) is retryable
+
     def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
         manager = self.source.get_resumable_source_manager(_make_inputs())
         assert isinstance(manager, ResumableSourceManager)
