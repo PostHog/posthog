@@ -1891,7 +1891,7 @@ class TestReportTableMissingIncrementalField:
         [
             pytest.param(None, None, id="missing"),
             # A stored config can also carry the underscore-joined synced column name
-            # (`segments_date`) instead of the queryable `segments.date` — e.g. a stale value from
+            # (`segments_date`) instead of the queryable `segments.date`, for example a stale value from
             # before a schema was reconciled. Google rejects that field name outright, so it must be
             # corrected the same way a missing field is.
             pytest.param("segments_date", IncrementalFieldType.Date, id="stale_underscore_value"),
