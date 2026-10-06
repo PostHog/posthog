@@ -360,10 +360,11 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="cross-lane",
-        label="Python or frontend changes mixed with Node or Rust changes (fails CI)",
+        label="Python or frontend changes mixed with Node or Rust changes (fails CI without a label)",
         triggers=["*"],
         verify=None,
         run=check_cross_lane,
+        soft=True,
     ),
     DiffCheck(
         key="merge-queue-lane",
