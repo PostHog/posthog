@@ -1807,6 +1807,16 @@ export const ScannerEditorTriggers: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerTriggers(summarizerScanner.id) },
 }
 
+// The experiment shows as the first condition of the filters, so a scanner with no filters of its own
+// does not read as scanning every recording.
+export const ScannerEditorTriggersExperiment: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerTriggers(experimentScanner.id),
+        featureFlags: { [FEATURE_FLAGS.VISION_EXPERIMENT_SCANNER]: true },
+    },
+    decorators: [variantsDecorator(variantsReadout())],
+}
+
 export const ScannerEditorBudget: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerBudget(summarizerScanner.id) },
 }
