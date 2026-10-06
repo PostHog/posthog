@@ -573,7 +573,14 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
         self.create_and_materialize_viewsets()
 
         # Breaking down by revenue doesnt make any sense, but this is just proving it works
-        with time_machine.travel(self.QUERY_TIMESTAMP, tick=False), self.snapshot_select_queries():
+        with (
+            time_machine.travel(self.QUERY_TIMESTAMP, tick=False),
+            self.snapshot_select_queries(),
+            patch(
+                "products.product_analytics.backend.hogql_queries.trends.trends_query_builder.feature_enabled_or_false",
+                side_effect=lambda flag, *args, **kwargs: flag != "trends-breakdown-rank-before-arrays",
+            ),
+        ):
             query = TrendsQuery(
                 **{
                     "kind": "TrendsQuery",
