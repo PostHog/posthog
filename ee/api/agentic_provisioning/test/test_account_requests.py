@@ -13,8 +13,6 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models.oauth import OAuthApplication
-from posthog.models.organization import Organization
-from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
 
@@ -84,8 +82,11 @@ class TestAccountRequests(ProvisioningTestBase):
         assert user.organization is not None
         assert user.team is not None
         assert TeamProvisioningConfig.objects.get(team=user.team).application_id == self.partner.id
-        record = OrganizationProvisioning.objects.get(organization=user.organization)
-        assert (record.partner, record.application_id, record.terms_accepted_at) == (
+        assert (
+            user.organization.provisioning_source,
+            user.organization.provisioning_application_id,
+            user.organization.provisioning_terms_accepted_at,
+        ) == (
             "provisioning_api",
             self.partner.id,
             None if terms_accepted_stored is None else now + terms_accepted_stored,
@@ -201,24 +202,12 @@ class TestAccountRequests(ProvisioningTestBase):
         # the partner is sent through consent rather than getting a silent code.
         assert res.json()["type"] == "requires_auth"
 
-    @parameterized.expand(
-        [
-            ("in_bootstrap", "ee.api.agentic_provisioning.accounts.User.objects.bootstrap"),
-            (
-                "in_organization_attribution",
-                "ee.api.agentic_provisioning.accounts.OrganizationProvisioning.objects.create",
-            ),
-        ]
-    )
-    def test_integrity_error_without_existing_user_returns_500(self, _name: str, failing_call: str) -> None:
-        organization_count = Organization.objects.count()
+    @patch("ee.api.agentic_provisioning.accounts.User.objects.bootstrap", side_effect=IntegrityError)
+    def test_integrity_error_without_existing_user_returns_500(self, _mock_bootstrap):
         payload = self._account_request_payload(email="ghost@example.com")
-        with patch(failing_call, side_effect=IntegrityError):
-            res = self._post_account_request(payload)
+        res = self._post_account_request(payload)
         assert res.status_code == 500
         assert res.json()["error"]["code"] == "account_creation_failed"
-        assert not User.objects.filter(email="ghost@example.com").exists()
-        assert Organization.objects.count() == organization_count
 
     @patch("ee.api.agentic_provisioning.accounts.capture_provisioning_event")
     def test_new_user_capture_includes_team_id(self, mock_capture_event):

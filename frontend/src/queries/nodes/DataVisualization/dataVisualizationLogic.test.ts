@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { ConditionalFormattingRule, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { ConditionalFormattingRule, VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -15,7 +15,7 @@ import {
 const testKey = 'test-auto-visualization'
 const dataNodeCollectionId = 'new-test-SQL'
 
-const defaultQuery: DataVisualizationNode = {
+const defaultQuery: VisualizationNode = {
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
@@ -729,7 +729,7 @@ describe('dataVisualizationLogic', () => {
     })
 
     it('does not mutate the original query when updating y-axis formatting', async () => {
-        const queryWithAxisSettings: DataVisualizationNode = {
+        const queryWithAxisSettings: VisualizationNode = {
             ...defaultQuery,
             chartSettings: {
                 yAxis: [

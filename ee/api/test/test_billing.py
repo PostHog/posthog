@@ -1207,12 +1207,11 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         self.organization_membership.save()
 
     def _provision(
-        self, pays_for_customers: bool | None, partner_name: str = "Example Partner"
+        self, pays_for_customers: bool | None, partner_name: str = "Example Partner", *, legacy: bool = False
     ) -> OAuthApplication | None:
         if pays_for_customers is None:
-            OrganizationProvisioning.objects.create(
-                organization=self.organization, partner=OrganizationProvisioning.Partner.VERCEL
-            )
+            self.organization.provisioning_source = Organization.ProvisioningSource.VERCEL
+            self.organization.save(update_fields=["provisioning_source"])
             return None
         application = OAuthApplication.objects.create(
             client_id="example-partner",
@@ -1225,11 +1224,16 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
             is_provisioning_partner=True,
         )
         application.update_provisioning(pays_for_customers=pays_for_customers)
-        OrganizationProvisioning.objects.create(
-            organization=self.organization,
-            partner=OrganizationProvisioning.Partner.PROVISIONING_API,
-            application=application,
-        )
+        if legacy:
+            OrganizationProvisioning.objects.create(
+                organization=self.organization,
+                partner=OrganizationProvisioning.Partner.PROVISIONING_API,
+                application=application,
+            )
+        else:
+            self.organization.provisioning_source = Organization.ProvisioningSource.PROVISIONING_API
+            self.organization.provisioning_application = application
+            self.organization.save(update_fields=["provisioning_source", "provisioning_application"])
         return application
 
     @parameterized.expand(
@@ -1316,22 +1320,53 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         answer.json.return_value = body
         return answer
 
+    @parameterized.expand(
+        [
+            ("organization_fields", False, False, False),
+            ("organization_fields_with_customer", False, True, False),
+            ("legacy_attribution", True, False, False),
+            ("legacy_attribution_with_customer", True, True, False),
+            ("concurrent_confirmation", False, True, True),
+        ]
+    )
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("ee.billing.billing_manager.http_session.post")
     def test_owner_detach_tells_billing_records_its_time_and_lifts_the_partner_lock(
-        self, mock_post: MagicMock, mock_get_billing: MagicMock
+        self,
+        _name: str,
+        legacy: bool,
+        has_customer: bool,
+        confirmed_elsewhere: bool,
+        mock_post: MagicMock,
+        mock_get_billing: MagicMock,
     ) -> None:
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
-        self._provision(pays_for_customers=True)
+        self._provision(pays_for_customers=True, legacy=legacy)
+        self.organization.customer_id = "cus_example" if has_customer else None
+        self.organization.billing_has_payer = True
+        self.organization.save(update_fields=["customer_id", "billing_has_payer"])
         mock_post.return_value = self._billing_answer(200, {"detached_at": "2026-10-05T12:00:00+00:00"})
+        expected_detached_at = datetime(2026, 10, 5, 11 if confirmed_elsewhere else 12, tzinfo=UTC)
+        if confirmed_elsewhere:
+
+            def confirm_elsewhere(*args: Any, **kwargs: Any) -> MagicMock:
+                Organization.objects.filter(pk=self.organization.pk).update(
+                    partner_payer_detached_at=expected_detached_at
+                )
+                return mock_post.return_value
+
+            mock_post.side_effect = confirm_elsewhere
         mock_get_billing.return_value = {"available_product_features": [], "products": []}
 
         response = self.client.post(
             "/api/billing/payer/detach", {"organization_id": str(self.organization.id)}, content_type="application/json"
         )
 
-        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"detached_at": "2026-10-05T12:00:00Z"})
+        assert (response.status_code, response.json()) == (
+            status.HTTP_200_OK,
+            {"detached_at": expected_detached_at.isoformat().replace("+00:00", "Z")},
+        )
         token = mock_post.call_args.kwargs["headers"]["Authorization"].removeprefix("Bearer ")
         claims = jwt.decode(
             token, self.license.key.split("::")[1], algorithms=["HS256"], audience="posthog:license-key"
@@ -1341,9 +1376,11 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
             str(self.organization.id),
             "owner",
         )
-        assert OrganizationProvisioning.objects.get(organization=self.organization).payer_detached_at == datetime(
-            2026, 10, 5, 12, tzinfo=UTC
-        )
+        self.organization.refresh_from_db()
+        assert self.organization.billing_has_payer is False
+        assert self.organization.partner_payer_detached_at == expected_detached_at
+        self.organization.billing_has_payer = True
+        self.organization.save(update_fields=["billing_has_payer"])
         assert self.client.get("/api/billing").json()["billing_managed_by_partner"] is None
 
     @parameterized.expand(
@@ -1398,7 +1435,8 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_post.assert_not_called()
-        assert OrganizationProvisioning.objects.get(organization=self.organization).payer_detached_at is None
+        self.organization.refresh_from_db()
+        assert self.organization.partner_payer_detached_at is None
 
     @parameterized.expand(
         [
@@ -1438,7 +1476,8 @@ class TestPartnerManagedBillingAPI(APILicensedTest):
         )
 
         assert (response.status_code, response.json().get("code")) == (status.HTTP_502_BAD_GATEWAY, expected_code)
-        assert OrganizationProvisioning.objects.get(organization=self.organization).payer_detached_at is None
+        self.organization.refresh_from_db()
+        assert self.organization.partner_payer_detached_at is None
         assert self.client.get("/api/billing").json()["billing_managed_by_partner"] == {
             "partner_name": "Example Partner"
         }

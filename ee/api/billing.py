@@ -6,6 +6,7 @@ from typing import Any, NoReturn, Optional, cast
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
+from django.db import transaction
 from django.http import HttpResponse, StreamingHttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -28,7 +29,7 @@ from posthog.event_usage import groups, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
-from posthog.models.organization_provisioning import OrganizationProvisioning, get_billing_lock_partner
+from posthog.models.organization_provisioning import get_billing_lock_partner
 from posthog.permissions import get_authenticator_scoped_team_ids, get_authenticator_scopes
 from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 from posthog.user_permissions import UserPermissions
@@ -340,8 +341,8 @@ class BillingManagedByPartnerSerializer(serializers.Serializer):
 
 
 BILLING_MANAGED_BY_PARTNER_HELP_TEXT = (
-    "Set when a provisioning partner pays for this organization and the organization has no Stripe customer of "
-    "its own. Self-serve subscription and payment changes are refused while it is set. Null otherwise."
+    "Set when a provisioning partner pays for this organization. "
+    "Self-serve subscription and payment changes are refused while it is set. Null otherwise."
 )
 
 
@@ -796,13 +797,15 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 raise PayerDetachRefused() from error
             raise PayerDetachOutcomeUnknown() from error
 
-        OrganizationProvisioning.objects.filter(organization=organization, payer_detached_at__isnull=True).update(
-            payer_detached_at=detached_at
-        )
+        with transaction.atomic():
+            organization = Organization.objects.select_for_update().get(pk=organization.pk)
+            organization.partner_payer_detached_at = organization.partner_payer_detached_at or detached_at
+            organization.billing_has_payer = False
+            organization.save(update_fields=["partner_payer_detached_at", "billing_has_payer"])
         report_user_action(
             cast(User, request.user), "billing payer detached", organization=organization, request=request
         )
-        return Response(PayerDetachResponseSerializer({"detached_at": detached_at}).data)
+        return Response(PayerDetachResponseSerializer({"detached_at": organization.partner_payer_detached_at}).data)
 
     class DeactivateSerializer(serializers.Serializer):
         products = serializers.CharField()

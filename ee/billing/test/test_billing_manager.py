@@ -547,18 +547,16 @@ class TestBillingManager(BaseTest):
         assert self.team.logs_settings == {"retention_days": 30}
 
     def test_update_org_details_ignores_empty_feature_list(self):
-        """A partial or error-path billing response must not downgrade the org or reset retention."""
-        organization = self.organization
-        organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
-        organization.save()
-        self.team.logs_settings = {"retention_days": 30}
-        self.team.save()
-
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
+        organization = self.organization
+        organization.available_product_features = [{"key": "logs_retention_30d", "name": "30-day logs retention"}]
+        organization.save()
+        self.team.logs_settings = {"retention_days": 30}
+        self.team.save()
 
         billing_status: dict[str, Any] = {"customer": {"available_product_features": []}}
 
@@ -961,6 +959,41 @@ class TestBillingManager(BaseTest):
             BillingManager(license=None).update_org_details(organization, cast(BillingStatus, billing_status))
         organization.refresh_from_db()
         assert organization.has_active_subscription is expected
+
+    @parameterized.expand(
+        [
+            ("billing_reports_a_payer", False, {"has_payer": True}, True),
+            ("billing_reports_no_payer", True, {"has_payer": False}, False),
+            ("billing_status_without_the_key", True, {}, True),
+            ("organization_without_a_provisioning_row", None, {"has_payer": True, "customer_id": "cus_example"}, True),
+        ]
+    )
+    def test_update_org_details_mirrors_has_payer_onto_the_organization(
+        self, _name: str, before: bool | None, customer: dict[str, Any], after: bool | None
+    ) -> None:
+        self.organization.billing_has_payer = before
+        self.organization.save()
+
+        BillingManager(license=None).update_org_details(self.organization, cast(BillingStatus, {"customer": customer}))
+
+        assert self.organization.billing_has_payer == after
+        self.organization.refresh_from_db()
+        assert self.organization.billing_has_payer == after
+
+    def test_billing_sync_preserves_a_concurrent_partner_detach(self) -> None:
+        detached_at = datetime.datetime(2026, 10, 5, 12, tzinfo=datetime.UTC)
+        Organization.objects.filter(pk=self.organization.pk).update(
+            partner_payer_detached_at=detached_at, billing_has_payer=False
+        )
+
+        BillingManager(license=None).update_org_details(
+            self.organization,
+            cast(BillingStatus, {"customer": {"customer_id": "cus_example", "has_payer": True}}),
+        )
+
+        assert self.organization.partner_payer_detached_at == detached_at
+        self.organization.refresh_from_db()
+        assert self.organization.partner_payer_detached_at == detached_at
 
 
 class TestBillingSession(SimpleTestCase):

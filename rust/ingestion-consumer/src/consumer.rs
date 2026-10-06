@@ -765,6 +765,7 @@ impl IngestionConsumer {
         let batch_start_ms = current_time_ms();
 
         let mut stream = self.consumer.stream();
+        let mut current_topic: Option<Arc<str>> = None;
 
         loop {
             if accumulator.message_count() >= self.batch_size {
@@ -784,7 +785,10 @@ impl IngestionConsumer {
             let poll_wait = remaining.min(Duration::from_secs(10));
             match tokio::time::timeout(poll_wait, stream.next()).await {
                 Ok(Some(Ok(borrowed_message))) => {
-                    let topic = borrowed_message.topic().to_string();
+                    if current_topic.as_deref() != Some(borrowed_message.topic()) {
+                        current_topic = Some(Arc::from(borrowed_message.topic()));
+                    }
+                    let topic = Arc::clone(current_topic.as_ref().expect("set above"));
                     let partition = borrowed_message.partition();
                     let offset = borrowed_message.offset();
                     let kafka_ts = borrowed_message.timestamp().to_millis().unwrap_or(0);
@@ -818,7 +822,7 @@ impl IngestionConsumer {
                         kafka_ts,
                         lag_ms,
                     };
-                    let key = TopicPartition::new(topic.clone(), partition);
+                    let key = TopicPartition::new(topic.to_string(), partition);
                     let generations_version = self.topic_offset_ledger.generations_version();
                     match partitions.get_mut(&key) {
                         Some(deliveries) => deliveries.record(

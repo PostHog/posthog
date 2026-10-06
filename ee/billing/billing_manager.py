@@ -678,13 +678,17 @@ class BillingManager:
         """
         Ensure the relevant organization details are up-to-date locally
         """
-        org_modified = False
+        updated_fields: set[str] = set()
 
         data = billing_status["customer"]
 
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
             organization.customer_id = data["customer_id"]
-            org_modified = True
+            updated_fields.add("customer_id")
+
+        if "has_payer" in data and data["has_payer"] != organization.billing_has_payer:
+            organization.billing_has_payer = data["has_payer"]
+            updated_fields.add("billing_has_payer")
 
         should_update_org_billing_quotas = False
 
@@ -723,7 +727,7 @@ class BillingManager:
             usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
 
             if usage_changed:
-                org_modified = True
+                updated_fields.add("usage")
 
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
@@ -742,12 +746,12 @@ class BillingManager:
             previous_retention_months = organization_events_retention_months(organization)
             organization.available_product_features = data["available_product_features"]
             events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
-            org_modified = True
+            updated_fields.add("available_product_features")
 
         never_drop_data = cast(bool | None, data.get("never_drop_data"))
         if never_drop_data != organization.never_drop_data:
             organization.never_drop_data = never_drop_data
-            org_modified = True
+            updated_fields.add("never_drop_data")
 
         # A missing key (partial or error-path response) must not reset a known value to unknown.
         if "has_active_subscription" in data:
@@ -758,7 +762,7 @@ class BillingManager:
                 has_active_subscription = True
             if has_active_subscription != organization.has_active_subscription:
                 organization.has_active_subscription = has_active_subscription
-                org_modified = True
+                updated_fields.add("has_active_subscription")
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
@@ -783,10 +787,11 @@ class BillingManager:
             }
             if updated_customer_trust_scores != current_customer_trust_scores:
                 organization.customer_trust_scores = updated_customer_trust_scores
-                org_modified = True
+                updated_fields.add("customer_trust_scores")
 
-        if org_modified:
-            organization.save()
+        if updated_fields:
+            organization.save(update_fields=updated_fields)
+            organization.refresh_from_db(fields=["partner_payer_detached_at"])
 
         if events_retention_changed:
             reconcile_organization_events_retention(organization)
@@ -1049,7 +1054,7 @@ class BillingManager:
 
         Raises:
             ValueError: If billing_provider is specified but the organization doesn't have the integration
-            BillingManagedByPartnerError: If a partner pays for the organization and it has no Stripe customer
+            BillingManagedByPartnerError: If a partner pays for the organization
         """
         raise_if_billing_managed_by_partner(organization)
 

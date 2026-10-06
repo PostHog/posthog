@@ -1,15 +1,11 @@
-from contextlib import AbstractContextManager
-
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.db import IntegrityError
 from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
-from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.user import User
 
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
@@ -58,33 +54,20 @@ class TestAccountRequests(StripeProvisioningTestBase):
 
         new_organization = User.objects.get(email="brand-new@example.com").organization
         assert new_organization is not None
-        assert list(OrganizationProvisioning.objects.values_list("organization_id", "partner", "application_id")) == [
-            (new_organization.id, "stripe_projects", self.stripe_app.id)
-        ]
+        assert list(
+            Organization.objects.filter(provisioning_source__isnull=False).values_list(
+                "id", "provisioning_source", "provisioning_application_id"
+            )
+        ) == [(new_organization.id, "stripe_projects", self.stripe_app.id)]
 
-    @parameterized.expand(
-        [
-            ("without_the_stripe_app", override_settings(STRIPE_POSTHOG_OAUTH_CLIENT_ID=""), "server_error"),
-            (
-                "when_recording_the_organization_partner_fails",
-                patch(
-                    "ee.partners.stripe.api.provisioning.core.OrganizationProvisioning.objects.create",
-                    side_effect=IntegrityError,
-                ),
-                "account_creation_failed",
-            ),
-        ]
-    )
-    def test_new_user_is_not_created(
-        self, _name: str, failure: AbstractContextManager[object], error_code: str
-    ) -> None:
+    @override_settings(STRIPE_POSTHOG_OAUTH_CLIENT_ID="")
+    def test_new_user_is_not_created_without_the_stripe_app(self) -> None:
         organization_count = Organization.objects.count()
 
-        with failure:
-            res = self._post_signed(URL, data=_account_request("brand-new@example.com"))
+        res = self._post_signed(URL, data=_account_request("brand-new@example.com"))
 
         assert res.status_code == 500
-        assert res.json()["error"]["code"] == error_code
+        assert res.json()["error"]["code"] == "server_error"
         assert not User.objects.filter(email="brand-new@example.com").exists()
         assert Organization.objects.count() == organization_count
 

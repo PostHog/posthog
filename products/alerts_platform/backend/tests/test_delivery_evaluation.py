@@ -1,13 +1,17 @@
 from datetime import UTC, datetime
 from typing import Any, cast
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from parameterized import parameterized
 
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
 from products.alerts_platform.backend.delivery.message import AlertMessage
-from products.alerts_platform.backend.delivery.transport import MessageHandle
+from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
+from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -27,6 +31,8 @@ RESOLVED_EVENT = "$logs_alert_resolved"
 
 SLACK = cast(AlertDestinationData, {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": "C-1"})
 WEBHOOK = cast(AlertDestinationData, {"type": DestinationType.WEBHOOK, "webhook_url": "https://example.com/hook"})
+TEAMS = cast(AlertDestinationData, {"type": DestinationType.TEAMS, "webhook_url": "https://example.com/teams"})
+UNSUPPORTED = cast(AlertDestinationData, {"type": "pagerduty"})
 
 
 class RecordingTransport:
@@ -43,6 +49,20 @@ class RecordingTransport:
     ) -> MessageHandle | None:
         RecordingTransport.sends.append((self.channel_target(target), message))
         return MessageHandle(external_ref={"channel": self.channel_target(target), "ts": "1"})
+
+
+class RefusingTransport(RecordingTransport):
+    provider = "webhook"
+
+    def deliver(self, **kwargs: Any) -> MessageHandle | None:
+        raise DeliveryError("The webhook destination refused the message with status 410.")
+
+
+class HeldTransport(RecordingTransport):
+    provider = "teams"
+
+    def deliver(self, **kwargs: Any) -> MessageHandle | None:
+        raise ThreadBusy("thread is being posted to by another send")
 
 
 def _request(team_id: int) -> AlertDeliveryRequest:
@@ -66,11 +86,14 @@ def _transition(kind: AlertEventKind, grouping_key: str = "") -> AnnouncedTransi
         condition={},
         source_config={},
         error_message=None,
+        occurred_at=FIRING,
     )
 
 
 def _announcement(*transitions: AnnouncedTransition) -> EvaluationAnnouncement:
-    return EvaluationAnnouncement(alert_name="API errors", consecutive_failures=0, transitions=transitions)
+    return EvaluationAnnouncement(
+        configuration_id="cfg-1", alert_name="API errors", consecutive_failures=0, transitions=transitions
+    )
 
 
 def _group(data: AlertDestinationData, fully_enabled: bool = True) -> AlertDestinationGroup:
@@ -82,7 +105,13 @@ class TestDeliverEvaluation(APIBaseTest):
         super().setUp()
         RecordingTransport.sends = []
 
-    def _run(self, announced: Any, by_event: dict[str, list[AlertDestinationGroup]], live: bool = True) -> Any:
+    def _run(
+        self,
+        announced: Any,
+        by_event: dict[str, list[AlertDestinationGroup]],
+        live: bool = True,
+        transports: dict[DestinationType, type] | None = None,
+    ) -> Any:
         def groups(*, team_id: int, alert_id: str, allowed_event_ids: list[str]) -> list[AlertDestinationGroup]:
             return by_event.get(allowed_event_ids[0], [])
 
@@ -91,7 +120,7 @@ class TestDeliverEvaluation(APIBaseTest):
             patch(f"{_MODULE}.announcement", return_value=announced),
             patch(f"{_MODULE}.list_alert_destination_groups", side_effect=groups),
             patch(f"{_MODULE}.DatabaseThreadStore"),
-            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
+            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport, **(transports or {})}),
         ):
             return deliver_evaluation(_request(self.team.id))
 
@@ -128,11 +157,29 @@ class TestDeliverEvaluation(APIBaseTest):
     def test_a_destination_with_no_transport_is_skipped_rather_than_failing_the_send(self) -> None:
         outcome = self._run(
             _announcement(_transition(AlertEventKind.FIRING)),
-            {FIRING_EVENT: [_group(SLACK), _group(WEBHOOK)]},
+            {FIRING_EVENT: [_group(SLACK), _group(UNSUPPORTED)]},
         )
 
         assert [channel for channel, _ in RecordingTransport.sends] == ["C-1"]
         assert (outcome.sent, outcome.skipped_without_transport) == (1, 1)
+
+    @parameterized.expand(
+        [
+            ("a_refusal_is_raised_after_the_rest_are_sent", DeliveryError, [WEBHOOK, SLACK]),
+            ("a_held_thread_wins_over_a_refusal", ThreadBusy, [WEBHOOK, TEAMS, SLACK]),
+        ]
+    )
+    def test_one_destination_failing_does_not_cost_the_others_their_message(
+        self, _name: str, raised: type[Exception], destinations: list[AlertDestinationData]
+    ) -> None:
+        with pytest.raises(raised, match="status 410"):
+            self._run(
+                _announcement(_transition(AlertEventKind.FIRING)),
+                {FIRING_EVENT: [_group(destination) for destination in destinations]},
+                transports={DestinationType.WEBHOOK: RefusingTransport, DestinationType.TEAMS: HeldTransport},
+            )
+
+        assert [channel for channel, _ in RecordingTransport.sends] == ["C-1"]
 
     def test_a_destination_that_is_not_fully_enabled_receives_nothing(self) -> None:
         outcome = self._run(

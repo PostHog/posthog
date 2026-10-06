@@ -35,6 +35,7 @@ class OrganizationProvisioning(models.Model):
     )
     # Reported by the partner that created the organization, not observed by PostHog.
     terms_accepted_at = models.DateTimeField(null=True, blank=True)
+    billing_has_payer = models.BooleanField(default=False, db_default=False)
     payer_detached_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -49,12 +50,15 @@ class OrganizationProvisioning(models.Model):
 
 
 def get_billing_lock_partner(organization: "Organization") -> OAuthApplication | None:
-    # customer_id is the organization's own Stripe customer, synced from billing. An organization
-    # that already has one keeps paying for itself, and keeps self-serve billing to manage it.
-    if organization.customer_id:
+    if organization.partner_payer_detached_at is not None:
         return None
-    return OAuthApplication.objects.filter(
-        provisioned_organizations__organization=organization,
-        provisioned_organizations__payer_detached_at__isnull=True,
-        _provisioning_config__pays_for_customers=True,
-    ).first()
+    applications = OAuthApplication.objects.all()
+    if not organization.billing_has_payer:
+        if organization.customer_id:
+            return None
+        applications = applications.filter(_provisioning_config__pays_for_customers=True)
+    if organization.provisioning_source is not None:
+        if organization.provisioning_application_id is None:
+            return None
+        return applications.filter(pk=organization.provisioning_application_id).first()
+    return applications.filter(provisioned_organizations__organization=organization).first()
