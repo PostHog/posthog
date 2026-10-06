@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     APPLICATION_FEE_RESOURCE_NAME,
+    BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
     BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
     BILLING_CREDIT_GRANT_RESOURCE_NAME,
@@ -1084,6 +1085,13 @@ class TestWebhookEventMapping:
         # Customer balance transactions have no Stripe webhook event, so the resource must not be in
         # the event map — otherwise we'd subscribe the source webhook to unrelated events.
         assert CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME not in RESOURCE_TO_STRIPE_WEBHOOK_EVENT
+
+    def test_balance_transaction_has_no_webhook_event(self):
+        # No Stripe event carries a `balance_transaction` object, so offering webhook sync for this
+        # table would leave it completing every run with zero rows.
+        assert BALANCE_TRANSACTION_RESOURCE_NAME not in RESOURCE_TO_STRIPE_WEBHOOK_EVENT
+        assert BALANCE_TRANSACTION_RESOURCE_NAME not in RESOURCE_TO_STRIPE_OBJECT_TYPE
+        assert "transfer" in RESOURCE_TO_STRIPE_WEBHOOK_EVENT.values()
 
     def test_billing_alert_events_not_subscribed(self):
         # Narrowed from a blanket "no billing.* events" assertion now that BillingMeter,
