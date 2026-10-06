@@ -420,7 +420,7 @@ export const ManyColumns: Story = {
         mswDecorator({
             get: {
                 'api/projects/:team_id/column_configurations/': { count: 0, next: null, results: [] },
-                'api/environments/:team_id/customer_journeys/': { count: 0, next: null, results: [] },
+                'api/projects/:team_id/customer_journeys/': { count: 0, next: null, results: [] },
                 'api/projects/:team_id/custom_property_definitions/': {
                     count: ADDITIONAL_COLUMN_DEFINITIONS.length,
                     next: null,
@@ -482,11 +482,12 @@ export const ManyColumns: Story = {
                 const input = cell.querySelector('[data-attr="accounts-custom-property-value-input"]')
                 const save = cell.querySelector('[data-attr="accounts-custom-property-value-save"]')
                 const cancel = cell.querySelector('[data-attr="accounts-custom-property-value-cancel"]')
-                if (!input || !save || !cancel) {
+                const clear = cell.querySelector('[data-attr="accounts-custom-property-value-clear"]')
+                if (!input || !save || !cancel || !clear) {
                     throw new Error('Inline editor controls are missing')
                 }
                 const cellBounds = cell.getBoundingClientRect()
-                for (const control of [input, save, cancel]) {
+                for (const control of [input, save, cancel, clear]) {
                     const bounds = control.getBoundingClientRect()
                     if (
                         bounds.left < cellBounds.left ||
@@ -500,8 +501,8 @@ export const ManyColumns: Story = {
                 const inputBounds = input.getBoundingClientRect()
                 const saveBounds = save.getBoundingClientRect()
                 const cancelBounds = cancel.getBoundingClientRect()
-                if (saveBounds.top < inputBounds.bottom || saveBounds.top !== cancelBounds.top) {
-                    throw new Error('Save and Cancel must wrap together below the input in narrow columns')
+                if (saveBounds.top < inputBounds.bottom + 8 || saveBounds.top !== cancelBounds.top) {
+                    throw new Error('Save and Cancel must wrap together with an 8px gap below the input')
                 }
                 if (cancelBounds.right <= inputBounds.right) {
                     throw new Error('Save and Cancel must align to the right of the available cell space')
@@ -512,6 +513,149 @@ export const ManyColumns: Story = {
             })
         }
         canvasElement.querySelector('[data-attr="accounts-custom-property-value-save"]')?.scrollIntoView()
+    },
+}
+
+const CLEARABLE_PROPERTY_FIXTURES = [
+    { name: 'Onboarding status', display_type: 'select' as const, value: 'New account' },
+    { name: 'Seats', display_type: 'number' as const, value: '0' },
+    { name: 'Active', display_type: 'boolean' as const, value: 'false' },
+    { name: 'Start date', display_type: 'date' as const, value: '2026-05-01' },
+    { name: 'Check-in time', display_type: 'datetime' as const, value: '2026-05-01T10:00:00Z' },
+    { name: 'Website', display_type: 'link' as const, value: 'https://example.com' },
+    { name: 'Description', display_type: 'text' as const, value: 'Example account' },
+    { name: 'Subscription cost', display_type: 'currency' as const, value: '100' },
+    { name: 'Progress', display_type: 'percent' as const, value: '0.5' },
+]
+const CLEARABLE_PROPERTY_DEFINITIONS: CustomPropertyDefinitionApi[] = CLEARABLE_PROPERTY_FIXTURES.map(
+    (fixture, index) => ({
+        ...ADDITIONAL_COLUMN_DEFINITIONS[0],
+        id: `10000000-0000-0000-0000-00000000000${index}`,
+        name: fixture.name,
+        display_type: fixture.display_type,
+        options: fixture.display_type === 'select' ? [{ label: 'New account', color: 'preset-1' }] : undefined,
+    })
+)
+
+let finishClearPropertyWrite: (() => void) | undefined
+
+export const ClearCustomProperties: Story = {
+    render: () => <App />,
+    parameters: {
+        pageUrl: `${urls.customerAnalyticsAccounts()}#view=${encodeURIComponent(
+            JSON.stringify({
+                columns: [
+                    ...ACCOUNTS_DEFAULT_COLUMNS,
+                    ...CLEARABLE_PROPERTY_DEFINITIONS.map(
+                        ({ id }) => `accounts.custom_properties.values.\`${id}\` AS ${customPropertyAlias(id)}`
+                    ),
+                ],
+            })
+        )}`,
+        testOptions: { viewport: { width: 1280, height: 960 } },
+    },
+    decorators: [
+        (Story, context) => {
+            const values = Object.fromEntries(
+                CLEARABLE_PROPERTY_FIXTURES.map(({ value }, index) => [CLEARABLE_PROPERTY_DEFINITIONS[index].id, value])
+            )
+            return mswDecorator({
+                get: {
+                    'api/projects/:team_id/column_configurations/': { count: 0, next: null, results: [] },
+                    'api/projects/:team_id/customer_journeys/': { count: 0, next: null, results: [] },
+                    [CUSTOM_PROPERTY_DEFINITIONS_ENDPOINT]: {
+                        count: CLEARABLE_PROPERTY_DEFINITIONS.length,
+                        next: null,
+                        previous: null,
+                        results: CLEARABLE_PROPERTY_DEFINITIONS,
+                    },
+                },
+                post: {
+                    [QUERY_ENDPOINT]: mockAccountsTableQuery(SINGLE_ROW, values),
+                    [ACCOUNT_PROPERTY_VALUES_ENDPOINT]: async ({ request }) => {
+                        const body = (await request.json()) as { definition: string; value: unknown }
+                        if (body.value !== null) {
+                            throw new Error('Clearing a property must send null')
+                        }
+                        await new Promise<void>((resolve) => {
+                            finishClearPropertyWrite = () => {
+                                delete values[body.definition]
+                                resolve()
+                            }
+                        })
+                        return [204, null]
+                    },
+                },
+            })(Story, context)
+        },
+    ],
+    // A failed run leaves its resolver behind, and a remount in the same page would release the wrong request.
+    beforeEach: () => {
+        finishClearPropertyWrite = undefined
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByText('New account')
+        for (const definition of CLEARABLE_PROPERTY_DEFINITIONS) {
+            const header = canvasElement
+                .querySelector(`[data-attr="accounts-table-sort-${customPropertyAlias(definition.id)}"]`)
+                ?.closest('th')
+            const cell = header?.closest('table')?.querySelector('tbody tr')?.children[header.cellIndex]
+            const edit = cell?.querySelector<HTMLElement>('[data-attr="accounts-custom-property-value-edit"]')
+            if (!cell || !edit) {
+                throw new Error('Editable custom property cell is missing')
+            }
+            await userEvent.click(edit)
+            const clear = cell.querySelector<HTMLElement>('[data-attr="accounts-custom-property-value-clear"]')
+            if (!clear) {
+                throw new Error('Every custom property editor must offer Clear value')
+            }
+            await userEvent.click(clear)
+            const dialog = await within(document.body).findByText(`Clear ${definition.name}?`)
+            const modal = dialog.closest('.LemonModal')
+            if (!modal) {
+                throw new Error('Clear confirmation dialog is missing')
+            }
+            if (definition.display_type === 'select') {
+                await userEvent.click(within(modal as HTMLElement).getByText('Cancel'))
+                if (!cell.querySelector('[data-attr="accounts-custom-property-value-clear"]')) {
+                    throw new Error('Canceling a clear must keep the inline editor open')
+                }
+                await waitFor(() => {
+                    if (document.body.contains(modal)) {
+                        throw new Error('Canceled confirmation must close')
+                    }
+                })
+                await userEvent.click(clear)
+            }
+            const confirmation = (await within(document.body).findByText(`Clear ${definition.name}?`)).closest(
+                '.LemonModal'
+            )
+            await userEvent.click(within(confirmation as HTMLElement).getByText('Clear value'))
+            await waitFor(() => {
+                if (cell.querySelector('[data-attr="accounts-custom-property-value-clear"]')) {
+                    throw new Error('Confirming a clear must close the inline editor')
+                }
+                if (!within(cell as HTMLElement).queryByText('—')) {
+                    throw new Error('Cleared values must render as unset')
+                }
+                if (!finishClearPropertyWrite) {
+                    throw new Error('Clear request must reach the API')
+                }
+            })
+            finishClearPropertyWrite?.()
+            finishClearPropertyWrite = undefined
+            await waitFor(() => {
+                const currentEdit = cell.querySelector('[data-attr="accounts-custom-property-value-edit"]')
+                if (
+                    !currentEdit ||
+                    currentEdit.hasAttribute('disabled') ||
+                    currentEdit.getAttribute('aria-disabled') === 'true'
+                ) {
+                    throw new Error('Property write must finish before the next edit')
+                }
+            })
+        }
     },
 }
 
