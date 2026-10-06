@@ -459,19 +459,30 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            (code, error_message, expected_message)
-            for code, expected_message in [
-                (
-                    "unknown_identifier",
-                    "A column in this query doesn't exist in the data. Check the column names. "
-                    "If the query uses a view, check that the view still matches its source table. "
-                    "Look up the table columns in `system.information_schema.columns`. "
-                    "In a join, prefix each column with its table alias.",
-                ),
-                ("unsupported_method", "ClickHouse rejected the query with error UNSUPPORTED_METHOD."),
-                ("syntax_error", "ClickHouse rejected the query with error SYNTAX_ERROR."),
-            ]
-            for error_message in [None, "An existing safe query explanation."]
+            (
+                "unknown_identifier",
+                None,
+                "A column in this query doesn't exist in the data. Check the column names. "
+                "If the query uses a view, check that the view still matches its source table. "
+                "Look up the table columns in `system.information_schema.columns`. "
+                "In a join, prefix each column with its table alias.",
+            ),
+            (
+                "unknown_identifier",
+                "Check the column selected by this view.",
+                "Check the column selected by this view. "
+                "Look up the table columns in `system.information_schema.columns`. "
+                "In a join, prefix each column with its table alias.",
+            ),
+            ("unsupported_method", None, "ClickHouse rejected the query with error UNSUPPORTED_METHOD."),
+            ("unsupported_method", "Use a supported query method.", "Use a supported query method."),
+            ("syntax_error", None, "ClickHouse rejected the query with error SYNTAX_ERROR."),
+            ("syntax_error", "Close the parenthesis before FROM.", "Close the parenthesis before FROM."),
+            (
+                "bad_arguments",
+                "This function requires an integer argument.",
+                "This function requires an integer argument.",
+            ),
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
