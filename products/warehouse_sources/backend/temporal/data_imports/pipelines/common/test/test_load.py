@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
     IncrementalFieldMissingFromDataError,
     get_incremental_field_value,
+    normalize_column_name,
     notify_revenue_analytics_that_sync_has_completed,
     parse_member_path,
     run_post_load_operations,
@@ -569,6 +570,24 @@ class TestGetIncrementalFieldValue:
         table = pa.table({"meta": ['{"updated_at": 10}', '{"updated_at": 20}'], "meta_updated_at": [999, 999]})
 
         assert get_incremental_field_value(self._schema("meta.updated_at"), table) == 20
+
+    def test_rejected_path_name_still_resolves_the_flat_column(self):
+        # parse_member_path rejects "cursor[utc]" (it contains "["), but resolution falls back to the
+        # normalized flat column all the same. Without that fallback, a schema that synced before this
+        # change would now pause with IncrementalFieldMissingFromDataError instead of advancing.
+        flat = normalize_column_name("cursor[utc]")
+        table = pa.table({"id": ["a", "b"], flat: [10, 20]})
+
+        assert get_incremental_field_value(self._schema("cursor[utc]"), table) == 20
+
+    def test_flat_column_that_is_not_a_scalar_is_not_a_cursor(self):
+        # A single-segment field naming a struct/list column has no scalar cursor value. The nested
+        # type guard must make it fail with the error the pause map matches, rather than handing a
+        # list of Python lists/dicts to process_incremental_value.
+        table = pa.table({"id": ["a"], "meta": pa.array([None], type=pa.list_(pa.int64()))})
+
+        with pytest.raises(IncrementalFieldMissingFromDataError):
+            get_incremental_field_value(self._schema("meta"), table)
 
     def test_nested_member_skips_null_parents_and_null_values(self):
         # A null parent, an explicit JSON null, and a record without the member all contribute

@@ -123,41 +123,41 @@ def parse_member_path(path: str) -> list[str] | None:
     return parts
 
 
-def resolve_incremental_values(table: pa.Table, field_name: str) -> list[Any] | None:
-    """Return the per-row raw cursor values for `field_name`, or None if unresolvable.
+def resolve_incremental_values(table: pa.Table, field_name: str) -> list | None:
+    """Return row-aligned raw cursor values, or None if the field cannot be resolved.
 
-    Only the first segment is normalized: top-level columns are normalized by
-    `normalize_table_column_names`, while nested keys keep the source's spelling.
+    For parsed dotted paths, only the top-level column name is normalized; nested
+    JSON keys retain their source spelling. Nested paths can resolve from JSON-string
+    columns. If at least one row resolves, unresolved rows are None; otherwise the
+    normalized flat-column lookup is tried, including for paths rejected by the parser.
     """
+
     parts = parse_member_path(field_name)
-    if parts is None:
+    if parts is not None:
+        root_name = normalize_column_name(parts[0])
+        if root_name in table.column_names:
+            root_column = table[root_name]
+            # Nested struct/list columns may already be JSON strings here, serialized upstream by
+            # evolve_pyarrow_schema; resolve dotted paths from that representation.
+            if len(parts) > 1 and (pa.types.is_string(root_column.type) or pa.types.is_large_string(root_column.type)):
+                root_values = root_column.to_pylist()
+                if not root_values:
+                    return []  # empty batch -> leave the cursor alone
+                values = [_get_json_path_value(v, parts[1:]) for v in root_values]
+                if any(v is not _UNRESOLVED for v in values):
+                    return [None if v is _UNRESOLVED else v for v in values]
+
+    # Fallback: a real top-level column. Covers single-segment paths, pre-flattened
+    # keys such as "meta_updated_at", and (compatibility) names that are not valid
+    # member paths but still normalize onto a real flat column.
+    flat_name = normalize_column_name(field_name)
+    if not flat_name or flat_name not in table.column_names:
         return None
 
-    root_name = normalize_column_name(parts[0])
-    if root_name in table.column_names:
-        root_column = table[root_name]
-
-        # Nested columns are JSON-serialized before cursor extraction.
-        if len(parts) > 1 and (pa.types.is_string(root_column.type) or pa.types.is_large_string(root_column.type)):
-            root_values = root_column.to_pylist()
-            if not root_values:
-                return []  # empty batch -> leave cursor
-
-            values = [_get_json_path_value(value, parts[1:]) for value in root_values]
-            if any(value is not _UNRESOLVED for value in values):
-                return [None if value is _UNRESOLVED else value for value in values]
-
-    # Fallback to a top-level column named after the normalized configured path. This covers
-    # single-segment fields and flattened dotted names when normalization maps dots to
-    # underscores (e.g. "meta.updated_at" -> "meta_updated_at").
-    flat_name = normalize_column_name(".".join(parts))
-    if flat_name in table.column_names:
-        column = table[flat_name]
-        if pa.types.is_struct(column.type) or pa.types.is_list(column.type):
-            return None
-        return column.to_pylist()
-
-    return None
+    column = table[flat_name]
+    if pa.types.is_nested(column.type):
+        return None
+    return column.to_pylist()
 
 
 def get_incremental_field_value(
