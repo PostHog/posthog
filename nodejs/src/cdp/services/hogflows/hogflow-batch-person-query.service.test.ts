@@ -363,19 +363,21 @@ describe('HogFlowBatchPersonQueryService', () => {
         // The alert reads the outcome label; a fetch filed under the wrong one keeps it silent.
         it.each([
             [
+                'a 200 response',
                 'success',
                 {
                     fetchResponse: createFetchResponse(200, { users_affected: [], cursor: null, has_more: false }),
                     fetchError: null,
                 },
             ],
-            ['error', { fetchResponse: createFetchResponse(500, 'boom'), fetchError: null }],
-            ['error', { fetchResponse: null, fetchError: new Error('network down') }],
+            ['a 500 response', 'error', { fetchResponse: createFetchResponse(500, 'boom'), fetchError: null }],
+            ['a transport error', 'error', { fetchResponse: null, fetchError: new Error('network down') }],
             [
+                'a client timeout',
                 'timeout',
                 { fetchResponse: null, fetchError: Object.assign(new Error('aborted'), { name: 'TimeoutError' }) },
             ],
-        ])('records a %s fetch under its outcome', async (outcome, result) => {
+        ])('records %s under outcome %s', async (_name, outcome, result) => {
             const service = createService()
             const before = await fetchCount('user_blast_radius_persons', outcome)
 

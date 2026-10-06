@@ -34,7 +34,7 @@ const counterAudienceFetchTimeout = new Counter({
 // Bucket edges sit around the fetch budget; instrumented_function_duration_seconds jumps from 25.6s to 102.4s.
 const histogramAudienceFetchDuration = new Histogram({
     name: 'cdp_batch_hog_flow_audience_fetch_duration_seconds',
-    help: 'Wall time of one audience fetch for a batch hog flow, from request to parsed response',
+    help: 'Wall time of one audience fetch for a batch hog flow, from request to response body read',
     labelNames: ['endpoint', 'outcome'], // success | timeout | error
     buckets: [1, 2, 5, 10, 20, 30, 40, 50, 60, 90, 120],
 })
@@ -132,22 +132,24 @@ export class HogFlowBatchPersonQueryService {
                 body: JSON.stringify(body),
             },
         })
-        const durationMs = Math.round(performance.now() - startedAt)
+        const elapsedMs = (): number => Math.round(performance.now() - startedAt)
 
         if (!fetchResponse || fetchError) {
-            this.failFetch(endpoint, urlPath, fetchError, durationMs)
+            this.failFetch(endpoint, urlPath, fetchError, elapsedMs())
         }
+
+        const text = await fetchResponse.text()
+        const durationMs = elapsedMs()
 
         if (fetchResponse.status !== 200) {
             histogramAudienceFetchDuration.labels({ endpoint, outcome: 'error' }).observe(durationMs / 1000)
-            const errorText = await fetchResponse.text()
             logger.error(`Failed to fetch ${failureLabel} from Django`, {
                 status: fetchResponse.status,
-                error: errorText,
+                error: text,
                 urlPath,
                 durationMs,
             })
-            throw new Error(`Failed to fetch ${failureLabel}: ${fetchResponse.status} ${errorText}`)
+            throw new Error(`Failed to fetch ${failureLabel}: ${fetchResponse.status} ${text}`)
         }
 
         histogramAudienceFetchDuration.labels({ endpoint, outcome: 'success' }).observe(durationMs / 1000)
@@ -160,7 +162,7 @@ export class HogFlowBatchPersonQueryService {
                 timeoutMs: this.audienceFetchTimeoutMs,
             })
         }
-        return parseJSON(await fetchResponse.text()) as T
+        return parseJSON(text) as T
     }
 
     /**
