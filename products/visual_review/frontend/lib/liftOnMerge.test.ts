@@ -29,19 +29,32 @@ describe('liftOnMerge', () => {
             expectsOtherPicture: true,
         },
         {
+            name: 'pending without a linked artifact',
+            request: lift('pending', 'older'),
+            group: 'liftRequested',
+            expectsOtherPicture: false,
+            currentArtifact: null,
+        },
+        {
             name: 'cancelled for an older picture',
             request: lift('cancelled', 'older'),
             group: 'notRequested',
             expectsOtherPicture: false,
         },
-    ])('groups a clean quarantined story with $name', ({ request, group, expectsOtherPicture }) => {
+    ])('groups a clean quarantined story with $name', ({ request, group, expectsOtherPicture, currentArtifact }) => {
+        const rendered = currentArtifact === null ? { ...snapshot, current_artifact: null } : snapshot
         const groups = groupCleanQuarantinedStories(
-            [snapshot as SnapshotApi],
+            [rendered as SnapshotApi],
             request ? { [snapshot.identifier]: request } : {},
             [quarantine as QuarantinedIdentifierEntryApi]
         )
 
-        const story = { snapshot, liftRequest: request, quarantineReason: quarantine.reason, expectsOtherPicture }
+        const story = {
+            snapshot: rendered,
+            liftRequest: request,
+            quarantineReason: quarantine.reason,
+            expectsOtherPicture,
+        }
         expect(groups).toEqual({ liftRequested: [], notRequested: [], [group]: [story] })
     })
 })

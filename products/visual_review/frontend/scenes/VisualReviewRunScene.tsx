@@ -264,6 +264,8 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedRunSnapshotsLoadFailed,
         quarantineLiftsLoading,
         quarantineLiftsLoadFailed,
+        quarantinedIdentifiersLoading,
+        quarantinedIdentifiersLoadFailed,
         repoFullName,
         isFinalizing,
         isApprovingSnapshot,
@@ -593,12 +595,12 @@ export function VisualReviewRunScene(): JSX.Element {
                     {/* Pagination — below thumbnails, right-aligned */}
                     {(showFooterToggles || sortedChangedSnapshots.length > 1) && (
                         <div
-                            className={`flex items-center gap-2 px-3 pb-2 ${
+                            className={`flex flex-wrap items-center gap-2 px-3 pb-2 ${
                                 showFooterToggles ? 'justify-between' : 'justify-end'
                             }`}
                         >
                             {showFooterToggles && (
-                                <div className="flex items-center gap-1.5 text-xs text-muted">
+                                <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
                                     {showQuarantinedToggle && (
                                         <QuarantinedThumbnailsToggle
                                             hiddenCount={hiddenQuarantinedCount}
@@ -653,8 +655,9 @@ export function VisualReviewRunScene(): JSX.Element {
                         <CleanQuarantinedSnapshots
                             groups={cleanQuarantinedGroups}
                             prNumber={run.pr_number}
-                            liftsLoading={quarantineLiftsLoading}
-                            liftsLoadFailed={quarantineLiftsLoadFailed}
+                            // The groups read both lists, so either one still loading or failed leaves them unknown.
+                            liftsLoading={quarantineLiftsLoading || quarantinedIdentifiersLoading}
+                            liftsLoadFailed={quarantineLiftsLoadFailed || quarantinedIdentifiersLoadFailed}
                             selectedSnapshotId={selectedSnapshotId}
                             onSelect={setSelectedSnapshotId}
                         />

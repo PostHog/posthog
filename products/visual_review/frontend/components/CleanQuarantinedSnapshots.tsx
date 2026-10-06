@@ -1,6 +1,7 @@
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import type { CleanQuarantinedGroups, CleanQuarantinedStory } from '../lib/liftOnMerge'
+import type { CleanQuarantinedGroups } from '../lib/liftOnMerge'
+import { CleanQuarantinedStoryList } from './CleanQuarantinedStoryList'
 
 interface CleanQuarantinedSnapshotsProps {
     groups: CleanQuarantinedGroups
@@ -9,48 +10,6 @@ interface CleanQuarantinedSnapshotsProps {
     liftsLoadFailed: boolean
     selectedSnapshotId: string | null
     onSelect: (snapshotId: string) => void
-}
-
-function storyNote(story: CleanQuarantinedStory): string | null {
-    if (story.expectsOtherPicture) {
-        return 'The request expects a different picture than this run rendered. Request the lift again.'
-    }
-    return story.liftRequest?.state === 'pending' ? story.liftRequest.detail : story.quarantineReason
-}
-
-function StoryList({
-    title,
-    stories,
-    selectedSnapshotId,
-    onSelect,
-}: {
-    title: string
-    stories: CleanQuarantinedStory[]
-    selectedSnapshotId: string | null
-    onSelect: (snapshotId: string) => void
-}): JSX.Element {
-    return (
-        <div className="flex flex-col gap-0.5">
-            <div className="text-xs font-semibold">{title}</div>
-            {stories.map((story) => (
-                <LemonButton
-                    key={story.snapshot.id}
-                    size="xsmall"
-                    fullWidth
-                    active={story.snapshot.id === selectedSnapshotId}
-                    onClick={() => onSelect(story.snapshot.id)}
-                    data-attr="visual-review-clean-quarantined-select"
-                >
-                    <span className="flex min-w-0 flex-col items-start text-xs font-normal">
-                        <span className="max-w-full truncate font-mono">{story.snapshot.identifier}</span>
-                        <span className={story.expectsOtherPicture ? 'text-warning-dark' : 'text-muted'}>
-                            {storyNote(story)}
-                        </span>
-                    </span>
-                </LemonButton>
-            ))}
-        </div>
-    )
 }
 
 /** Quarantined stories this run rendered exactly as their baseline, grouped by whether a lift is requested. */
@@ -72,12 +31,12 @@ export function CleanQuarantinedSnapshots({
                 <LemonSkeleton className="h-4 w-1/3" />
             ) : liftsLoadFailed ? (
                 <div className="text-xs text-muted" data-attr="visual-review-clean-quarantined-error">
-                    Couldn't load the lift requests of this pull request. Reload the page.
+                    Couldn't load the quarantines and lift requests of this pull request. Reload the page.
                 </div>
             ) : (
                 <>
                     {groups.liftRequested.length > 0 && (
-                        <StoryList
+                        <CleanQuarantinedStoryList
                             title={`Lift requested (${groups.liftRequested.length})`}
                             stories={groups.liftRequested}
                             selectedSnapshotId={selectedSnapshotId}
@@ -85,7 +44,7 @@ export function CleanQuarantinedSnapshots({
                         />
                     )}
                     {groups.notRequested.length > 0 && (
-                        <StoryList
+                        <CleanQuarantinedStoryList
                             title={`Not requested (${groups.notRequested.length}), stay quarantined after the merge`}
                             stories={groups.notRequested}
                             selectedSnapshotId={selectedSnapshotId}

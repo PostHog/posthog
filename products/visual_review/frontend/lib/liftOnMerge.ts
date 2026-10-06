@@ -51,12 +51,13 @@ export function groupCleanQuarantinedStories(
     for (const snapshot of snapshots) {
         const liftRequest = liftRequestByIdentifier[snapshot.identifier] ?? null
         const pendingRequest = liftRequest?.state === 'pending' ? liftRequest : null
+        const renderedHash = snapshot.current_artifact?.content_hash
         const story: CleanQuarantinedStory = {
             snapshot,
             liftRequest,
             quarantineReason: quarantinedIdentifiers.find((q) => q.identifier === snapshot.identifier)?.reason ?? null,
-            expectsOtherPicture:
-                !!pendingRequest && pendingRequest.expected_hash !== snapshot.current_artifact?.content_hash,
+            // Without a linked artifact the rendered hash is unknown, which is not a mismatch.
+            expectsOtherPicture: !!pendingRequest && !!renderedHash && pendingRequest.expected_hash !== renderedHash,
         }
         if (pendingRequest) {
             groups.liftRequested.push(story)
