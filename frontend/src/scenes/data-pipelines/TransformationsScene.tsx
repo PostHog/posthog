@@ -1,8 +1,11 @@
+import { useActions, useValues } from 'kea'
+
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -12,6 +15,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { transformationsEmptyState } from 'products/cdp/frontend/emptyState/transformationsEmptyState'
+import { TransformationsFlow } from 'products/cdp/frontend/transformationsFlow/TransformationsFlow'
 
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
 import { transformationsSceneLogic } from './transformationsSceneLogic'
@@ -45,6 +49,11 @@ export function TransformationsScene(): JSX.Element {
         </Shortcut>
     )
 
+    const flowViewEnabled = useFeatureFlag('TRANSFORMATIONS_FLOW_VIEW')
+    const { view } = useValues(transformationsSceneLogic)
+    const { setView } = useActions(transformationsSceneLogic)
+    const showFlow = flowViewEnabled && view === 'flow'
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -53,9 +62,26 @@ export function TransformationsScene(): JSX.Element {
                 resourceType={{
                     type: sceneConfigurations[Scene.Transformations].iconType || 'default_icon_type',
                 }}
-                actions={action}
+                actions={
+                    flowViewEnabled ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <LemonSegmentedButton
+                                size="small"
+                                value={view}
+                                onChange={setView}
+                                options={[
+                                    { value: 'list', label: 'List', 'data-attr': 'transformations-view-list' },
+                                    { value: 'flow', label: 'Flow', 'data-attr': 'transformations-view-flow' },
+                                ]}
+                            />
+                            {action}
+                        </div>
+                    ) : (
+                        action
+                    )
+                }
             />
-            <DataPipelinesHogFunctions kind="transformation" />
+            {showFlow ? <TransformationsFlow /> : <DataPipelinesHogFunctions kind="transformation" />}
         </SceneContent>
     )
 }
