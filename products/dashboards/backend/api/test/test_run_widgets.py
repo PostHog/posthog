@@ -580,8 +580,16 @@ class TestDashboardRunWidgets(APIBaseTest):
             ("invalid_severity", {"severityLevels": ["critical"]}),
             ("filters_list", ["invalid"]),
             ("filters_string", "invalid"),
+            ("filters_empty_list", []),
+            ("filters_empty_string", ""),
+            ("filters_false", False),
+            ("filters_zero", 0),
             ("date_range_list", {"dateRange": ["invalid"]}),
             ("date_range_string", {"dateRange": "invalid"}),
+            ("date_range_empty_list", {"dateRange": []}),
+            ("date_range_empty_string", {"dateRange": ""}),
+            ("date_range_false", {"dateRange": False}),
+            ("date_range_zero", {"dateRange": 0}),
         ]
     )
     @patch("products.dashboards.backend.widgets.logs_list.LogsQueryRunner")

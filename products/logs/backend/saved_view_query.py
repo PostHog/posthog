@@ -40,11 +40,13 @@ def build_logs_query_for_saved_view(
     if view is None:
         return None
 
-    filters = view.filters or {}
+    filters = view.filters if view.filters is not None else {}
     if not isinstance(filters, dict):
         logger.warning("logs_widget_saved_view_filters_invalid", extra={"short_id": short_id, "team_id": team.pk})
         return None
-    date_range_raw = filters.get("dateRange") or {}
+    date_range_raw = filters.get("dateRange")
+    if date_range_raw is None:
+        date_range_raw = {}
     if not isinstance(date_range_raw, dict):
         logger.warning("logs_widget_saved_view_filters_invalid", extra={"short_id": short_id, "team_id": team.pk})
         return None
