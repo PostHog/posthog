@@ -2405,29 +2405,40 @@ class TestComposeTicketAPI(APIBaseTest):
         assert first.status_code == status.HTTP_201_CREATED
         get_client().flushall()
 
-        # Created straight through the model, not the throttled compose endpoint: the burst here
-        # is deliberately larger than the endpoint's per-minute rate limit.
-        for i in range(20):
-            noise_ticket = Ticket.objects.create_with_number(
-                team=self.team,
-                channel_source=Channel.EMAIL,
-                distinct_id="pitch@test.com",
-                status=Status.OPEN,
-                widget_session_id=f"noise-session-{i}",
-                email_config=self.email_config,
-                email_from="pitch@test.com",
-                email_subject=f"Unrelated subject {i}",
-                anonymous_traits={"email": "pitch@test.com"},
-                identity_verified=None,
-            )
-            Comment.objects.create(
-                team=self.team,
-                created_by=self.user,
-                scope="conversations_ticket",
-                item_id=str(noise_ticket.id),
-                content="Unrelated content",
-                item_context={"author_type": "human", "is_private": False},
-            )
+        # The burst exceeds the compose endpoint's rate limit; unrelated rows need no
+        # ticket-number allocation or comment side effects.
+        first_ticket_number = first.json()["ticket_number"]
+        noise_tickets = Ticket.objects.bulk_create(
+            [
+                Ticket(
+                    team=self.team,
+                    ticket_number=first_ticket_number + i + 1,
+                    channel_source=Channel.EMAIL,
+                    distinct_id="pitch@test.com",
+                    status=Status.OPEN,
+                    widget_session_id=f"noise-session-{i}",
+                    email_config=self.email_config,
+                    email_from="pitch@test.com",
+                    email_subject=f"Unrelated subject {i}",
+                    anonymous_traits={"email": "pitch@test.com"},
+                    identity_verified=None,
+                )
+                for i in range(20)
+            ]
+        )
+        Comment.objects.bulk_create(
+            [
+                Comment(
+                    team=self.team,
+                    created_by=self.user,
+                    scope="conversations_ticket",
+                    item_id=str(noise_ticket.id),
+                    content="Unrelated content",
+                    item_context={"author_type": "human", "is_private": False},
+                )
+                for noise_ticket in noise_tickets
+            ]
+        )
         get_client().flushall()
 
         second = self._compose(payload)

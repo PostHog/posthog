@@ -11071,6 +11071,7 @@ class BIConfig(BaseModel):
     )
     chartType: ChartDisplayType
     columns: list[BIField]
+    compareFilter: CompareFilter | None = None
     dateField: BIField | None = Field(
         default=None,
         description="Column that receives the worksheet and dashboard date range.",
@@ -27958,6 +27959,10 @@ class HogQLFilters(BaseModel):
             "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
         ),
     )
+    compareFilter: CompareFilter | None = Field(
+        default=None,
+        description=("Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}."),
+    )
     dateRange: DateRange | None = None
     filterTestAccounts: bool | None = None
     interval: IntervalType | None = Field(
@@ -28957,19 +28962,12 @@ class MetricsQuery(BaseModel):
     interval: str | None = Field(
         default=None,
         description=(
-            "Bucket size, one of: second, minute, minute_5, minute_15, hour, hour_6,"
-            " day, week; auto-picked from the range when omitted. Coarsened when the"
-            " range would need more than 10,000 buckets."
+            "Bucket size, one of: second_15, second_30, minute, minute_5, minute_15,"
+            " minute_30, hour, hour_6, day, week; auto-picked from the range when"
+            " omitted. Coarsened when the range would need more than 10,000 buckets."
         ),
     )
     kind: Literal["MetricsQuery"] = "MetricsQuery"
-    minInterval: str | None = Field(
-        default=None,
-        description=(
-            "Finest bucket size the query may use, from the same set as `interval`;"
-            " raises a finer interval or auto pick"
-        ),
-    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MetricsQueryResponse | None = None
     tags: QueryLogTags | None = None
