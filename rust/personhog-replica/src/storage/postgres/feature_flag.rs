@@ -184,20 +184,17 @@ impl FeatureFlagStorage for PostgresStorage {
         let result = sqlx::query!(
             r#"
             INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
-            SELECT $1, t.person_id, t.flag_key, $2
-            FROM (
-                SELECT DISTINCT p.person_id, f.flag_key
-                FROM posthog_persondistinctid p
-                CROSS JOIN UNNEST($4::text[]) AS f(flag_key)
-                WHERE p.team_id = $1 AND p.distinct_id = ANY($3) AND p.is_deleted = false
-                  AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
-                  AND NOT EXISTS (
-                      SELECT 1 FROM posthog_featureflaghashkeyoverride o
-                      WHERE o.team_id = p.team_id AND o.person_id = p.person_id
-                        AND o.feature_flag_key = f.flag_key AND o.hash_key <> $5
-                  )
-                ORDER BY p.person_id, f.flag_key
-            ) t
+            SELECT DISTINCT $1::integer, p.person_id, f.flag_key, $2::text
+            FROM posthog_persondistinctid p
+            CROSS JOIN UNNEST($4::text[]) AS f(flag_key)
+            WHERE p.team_id = $1 AND p.distinct_id = ANY($3) AND p.is_deleted = false
+              AND EXISTS (SELECT 1 FROM posthog_person WHERE id = p.person_id AND team_id = p.team_id AND is_deleted = false)
+              AND NOT EXISTS (
+                  SELECT 1 FROM posthog_featureflaghashkeyoverride o
+                  WHERE o.team_id = p.team_id AND o.person_id = p.person_id
+                    AND o.feature_flag_key = f.flag_key AND o.hash_key <> $5
+              )
+            ORDER BY p.person_id, f.flag_key
             ON CONFLICT (team_id, person_id, feature_flag_key) DO UPDATE
                 SET hash_key = EXCLUDED.hash_key
                 WHERE posthog_featureflaghashkeyoverride.hash_key = $5

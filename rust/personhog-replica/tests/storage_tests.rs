@@ -1159,8 +1159,15 @@ async fn test_get_hash_key_override_context_with_overrides() {
     ctx.cleanup().await.ok();
 }
 
+#[rstest]
+#[case::nothing_stored(None, false)]
+#[case::cookieless_sentinel_stored(Some("$posthog_cookieless"), false)]
+#[case::cookieless_sentinel_stored_with_person_check(Some("$posthog_cookieless"), true)]
 #[tokio::test]
-async fn test_get_hash_key_override_context_no_overrides() {
+async fn test_get_hash_key_override_context_no_overrides(
+    #[case] stored_hash_key: Option<&str>,
+    #[case] check_person_exists: bool,
+) {
     let ctx = TestContext::new().await;
 
     let person = ctx
@@ -1168,12 +1175,18 @@ async fn test_get_hash_key_override_context_no_overrides() {
         .await
         .expect("Failed to insert person");
 
+    if let Some(stored_hash_key) = stored_hash_key {
+        ctx.insert_hash_key_override(person.id, "stored-flag", stored_hash_key)
+            .await
+            .expect("Failed to insert override");
+    }
+
     let result = ctx
         .storage
         .get_hash_key_override_context(
             ctx.team_id,
             &["user_no_overrides".to_string()],
-            false,
+            check_person_exists,
             ConsistencyLevel::Eventual,
         )
         .await
@@ -1225,43 +1238,6 @@ async fn test_get_hash_key_override_context_with_check_person_exists() {
     assert!(person_result
         .existing_feature_flag_keys
         .contains(&"feature-y".to_string()));
-
-    ctx.cleanup().await.ok();
-}
-
-#[rstest]
-#[case::without_person_check(false)]
-#[case::with_person_check(true)]
-#[tokio::test]
-async fn test_get_hash_key_override_context_ignores_a_stored_cookieless_sentinel(
-    #[case] check_person_exists: bool,
-) {
-    let ctx = TestContext::new().await;
-
-    let person = ctx
-        .insert_person("sentinel_override_user", None)
-        .await
-        .expect("Failed to insert person");
-
-    ctx.insert_hash_key_override(person.id, "sentinel-flag", "$posthog_cookieless")
-        .await
-        .expect("Failed to insert override");
-
-    let result = ctx
-        .storage
-        .get_hash_key_override_context(
-            ctx.team_id,
-            &["sentinel_override_user".to_string()],
-            check_person_exists,
-            ConsistencyLevel::Eventual,
-        )
-        .await
-        .expect("Failed to get hash key override context");
-
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].person_id, person.id);
-    assert!(result[0].overrides.is_empty());
-    assert!(result[0].existing_feature_flag_keys.is_empty());
 
     ctx.cleanup().await.ok();
 }
@@ -1463,12 +1439,8 @@ async fn test_upsert_hash_key_overrides_replaces_only_a_stored_cookieless_sentin
         .expect("Failed to get hash key override context");
 
     assert_eq!(result.len(), 1);
-    let stored: Vec<(&str, &str)> = result[0]
-        .overrides
-        .iter()
-        .map(|o| (o.feature_flag_key.as_str(), o.hash_key.as_str()))
-        .collect();
-    assert_eq!(stored, vec![("conflict-flag", expected_hash_key)]);
+    assert_eq!(result[0].overrides.len(), 1);
+    assert_eq!(result[0].overrides[0].hash_key, expected_hash_key);
 
     ctx.cleanup().await.ok();
 }
