@@ -69,7 +69,7 @@ export class WorkflowConversationCaptureService {
                 throw new Error('Workflow conversation service JWT unavailable')
             }
             const response = await internalFetch(
-                `${this.internalApiBaseUrl}/api/projects/${invocation.teamId}/internal/conversations/workflow-emails`,
+                `${this.internalApiBaseUrl}/api/projects/${invocation.teamId}/internal/conversations/workflow_emails`,
                 {
                     method: 'POST',
                     headers: {
