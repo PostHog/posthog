@@ -38,6 +38,14 @@
       datasourceTemplate: 'custom.chrome-for-testing',
       versioningTemplate: 'loose',
     },
+    {
+      customType: 'regex',
+      description: 'Update the Renovate version pinned in the dashboard digest workflow',
+      managerFilePatterns: ['/^\\.github/workflows/renovate-dashboard-digest\\.yml$/'],
+      matchStrings: ['renovate@(?<currentValue>\\d+\\.\\d+\\.\\d+)'],
+      depNameTemplate: 'renovate',
+      datasourceTemplate: 'npm',
+    },
   ],
   customDatasources: {
     'chrome-for-testing': {
