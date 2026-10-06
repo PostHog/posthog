@@ -10703,6 +10703,21 @@ export namespace Schemas {
       key: string;
     }
 
+    export interface BITopN {
+      /** @minimum 1 */
+      count: number;
+      fieldId: string;
+      includeOther: boolean;
+      /** @minimum 0 */
+      measureIndex: number;
+    }
+
+    export interface BITotals {
+      columns?: boolean | null;
+      rows?: boolean | null;
+      subtotals?: boolean | null;
+    }
+
     export type BIAggregation = typeof BIAggregation[keyof typeof BIAggregation];
 
 
@@ -10716,11 +10731,32 @@ export namespace Schemas {
       Custom: 'custom',
     } as const;
 
+    export type BITableCalculationType = typeof BITableCalculationType[keyof typeof BITableCalculationType];
+
+
+    export const BITableCalculationType = {
+      PercentOfTotal: 'percent_of_total',
+      RunningTotal: 'running_total',
+      Difference: 'difference',
+      PercentChange: 'percent_change',
+      MovingAverage: 'moving_average',
+      Rank: 'rank',
+    } as const;
+
+    export interface BITableCalculation {
+      /** Dimension ID to traverse. Unset chooses the date dimension; 'table' traverses all dimensions. */
+      computeUsing?: string | null;
+      type: BITableCalculationType;
+      /** Number of points, including the current point, in a trailing moving average. */
+      window?: number | null;
+    }
+
     export interface BIValue {
       aggregation: BIAggregation;
       customExpression?: string | null;
       field: BIField;
       label?: string | null;
+      tableCalculation?: BITableCalculation | null;
     }
 
     export interface BIConfig {
@@ -10736,6 +10772,8 @@ export namespace Schemas {
       /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
       sort?: BISort | null;
       source?: BIDataSource | null;
+      topN?: BITopN | null;
+      totals?: BITotals | null;
       values: BIValue[];
     }
 

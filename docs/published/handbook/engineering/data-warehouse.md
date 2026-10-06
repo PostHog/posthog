@@ -52,6 +52,10 @@ Direct connections group tables by schema. Search matches table and folder names
 
 ## Calculated measures in BI mode
 
+The **Marks** card offers table calculations per measure: percent of total, running total, difference or percent change from the preceding point, trailing moving average, and rank. **Compute using** selects the dimension to traverse, with the date dimension chosen by default; other dimensions partition the calculation. Moving averages count returned points, including the current point. Missing date buckets are not filled. Calculations run before the result limit, and zero denominators produce empty cells.
+
+The **Analysis** card ranks **Top N** categories by a selected measure across the full current date range. **Include "Other"** combines the remaining source rows and re-aggregates them, including averages and distinct counts. Removing the ranking measure turns Top N off. Previous-period comparisons use the current period's category selection. Tables offer a grand total; pivot tables offer row and column grand totals. Both support hierarchy subtotals when an axis has multiple dimensions. Totals re-aggregate source rows; table-calculation cells remain blank on total rows. Summary rows can occupy at most half the result limit, reserving room for detail cells. The BI visualization requests an extra row to determine whether more results exist, then removes it before building tables and charts. Saved SQL and exports retain the worksheet's configured limit. A notice appears only when the response confirms more results beyond that limit, which also applies across comparison periods. Cached results and execution caps may prevent the extra row from being returned.
+
 With `SQL_EDITOR_BI_MODE` enabled, open **Business intelligence**, select a table and choose **Add calculated measure** in the data pane.
 Enter a name and an aggregate SQL formula, such as `sum(revenue) / nullIf(count(DISTINCT user_id), 0)` for average revenue per user.
 Use field names from the selected table. Filters apply before the formula runs for each group on the worksheet.

@@ -12,6 +12,9 @@ import {
     BIField,
     BIFilter,
     BIFilterOperator,
+    BITableCalculation,
+    BITopN,
+    BITotals,
     BIQueryLimit,
     BISort,
 } from '~/queries/schema/schema-business-intelligence'
@@ -171,7 +174,20 @@ function removeFieldFromConfig(config: BIConfig, shelf: BIShelf, index: number):
         case 'columns':
             return { ...config, [shelf]: config[shelf].filter((_, fieldIndex) => fieldIndex !== index) }
         case 'values':
-            return { ...config, values: config.values.filter((_, valueIndex) => valueIndex !== index) }
+            return {
+                ...config,
+                values: config.values.filter((_, valueIndex) => valueIndex !== index),
+                topN:
+                    !config.topN || config.topN.measureIndex === index
+                        ? undefined
+                        : {
+                              ...config.topN,
+                              measureIndex:
+                                  config.topN.measureIndex > index
+                                      ? config.topN.measureIndex - 1
+                                      : config.topN.measureIndex,
+                          },
+            }
         case 'filters':
             return { ...config, filters: config.filters.filter((_, filterIndex) => filterIndex !== index) }
     }
@@ -192,6 +208,7 @@ function setFieldExpressionInConfig(config: BIConfig, shelf: BIShelf, index: num
                 values: config.values.map((value, valueIndex) =>
                     valueIndex === index ? { ...value, field: updateField(value.field) } : value
                 ),
+                topN: config.topN?.measureIndex === index ? undefined : config.topN,
             }
         case 'filters':
             return {
@@ -417,6 +434,19 @@ export interface biEditorLogicActions {
     setSort: (sort: BISort | null) => {
         sort: BISort | null
     }
+    setTableCalculation: (
+        index: number,
+        tableCalculation: BITableCalculation | undefined
+    ) => {
+        index: number
+        tableCalculation: BITableCalculation | undefined
+    }
+    setTopN: (topN: BITopN | undefined) => {
+        topN: BITopN | undefined
+    }
+    setTotals: (totals: BITotals) => {
+        totals: BITotals
+    }
     setValueAggregation: (
         index: number,
         aggregation: BIAggregation
@@ -537,6 +567,12 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setDateField: (field: BIField | null) => ({ field }),
         setDataSource: (source: BIDataSource) => ({ source }),
         setValueAggregation: (index: number, aggregation: BIAggregation) => ({ index, aggregation }),
+        setTableCalculation: (index: number, tableCalculation: BITableCalculation | undefined) => ({
+            index,
+            tableCalculation,
+        }),
+        setTopN: (topN: BITopN | undefined) => ({ topN }),
+        setTotals: (totals: BITotals) => ({ totals }),
         setFilterOperator: (index: number, operator: BIFilterOperator) => ({ index, operator }),
         setFilterValue: (index: number, value: string) => ({ index, value }),
         updateFilter: (index: number, update: Partial<Pick<BIFilter, 'values' | 'valueTo' | 'enabled'>>) => ({
@@ -664,6 +700,14 @@ export const biEditorLogic = kea<biEditorLogicType>([
                         valueIndex === index ? { ...value, aggregation } : value
                     ),
                 }),
+                setTableCalculation: (config, { index, tableCalculation }) => ({
+                    ...config,
+                    values: config.values.map((value, valueIndex) =>
+                        valueIndex === index ? { ...value, tableCalculation } : value
+                    ),
+                }),
+                setTopN: (config, { topN }) => ({ ...config, topN }),
+                setTotals: (config, { totals }) => ({ ...config, totals }),
                 setFilterOperator: (config, { index, operator }) => ({
                     ...config,
                     filters: config.filters.map((filter, filterIndex) =>
@@ -848,6 +892,9 @@ export const biEditorLogic = kea<biEditorLogicType>([
         setDateField: () => actions.runAfterChange(),
         setDataSource: () => actions.runAfterChange(),
         setValueAggregation: () => actions.runAfterChange(),
+        setTableCalculation: () => actions.runAfterChange(),
+        setTopN: () => actions.runAfterChange(),
+        setTotals: () => actions.runAfterChange(),
         setFilterOperator: () => actions.runAfterChange(),
         setFilterValue: () => actions.runAfterChange(),
         updateFilter: () => actions.runAfterChange(),
