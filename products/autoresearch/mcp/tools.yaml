@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product autoresearch
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product autoresearch
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Autoresearch
 feature: autoresearch
 url_prefix: /autoresearch
@@ -55,9 +53,6 @@ tools:
             - status
             - iteration_budget_remaining
         feature_flag: autoresearch
-    autoresearch-destroy:
-        operation: autoresearch_destroy
-        enabled: false
     autoresearch-list:
         operation: autoresearch_list
         enabled: true
@@ -174,9 +169,6 @@ tools:
             the date had few positives. Rows exist only after a prediction horizon has elapsed and online validation has
             run. Use limit to bound the number of dates (default 60).
         feature_flag: autoresearch
-    autoresearch-partial-update:
-        operation: autoresearch_partial_update
-        enabled: false
     autoresearch-pause-create:
         operation: autoresearch_pause_create
         enabled: false
@@ -283,9 +275,6 @@ tools:
                 - started_at
                 - completed_at
                 - created_at
-    autoresearch-runs-retrieve:
-        operation: autoresearch_runs_retrieve
-        enabled: false
     autoresearch-score-create:
         operation: autoresearch_score_create
         enabled: true
@@ -649,12 +638,6 @@ tools:
                 - started_at
                 - completed_at
                 - created_at
-    autoresearch-training-runs-retrieve:
-        operation: autoresearch_training_runs_retrieve
-        enabled: false
-    autoresearch-update:
-        operation: autoresearch_update
-        enabled: false
     autoresearch-validate-create:
         operation: autoresearch_validate_create
         enabled: true

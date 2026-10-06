@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product cdp
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product cdp
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Functions
 feature: hog_functions
 url_prefix: /pipeline
@@ -191,9 +189,6 @@ tools:
         description: >
             Throw away the config staged on a function, leaving the live config untouched. Idempotent — discarding when
             nothing is staged is a no-op. Returns 400 when drafts aren't enabled for the project.
-    cdp-functions-enable-backfills-create:
-        operation: hog_functions_enable_backfills_create
-        enabled: false
     cdp-functions-get-revision:
         operation: hog_functions_revisions_retrieve
         enabled: true
@@ -208,12 +203,6 @@ tools:
             Get one version of a function's config by version number, including the full snapshot (hog, inputs_schema,
             inputs, filters, mappings, masking) as it was at that version. Secret input values are never included. Use
             cdp-functions-list-revisions first to find the version you want.
-    cdp-functions-icon-retrieve:
-        operation: hog_functions_icon_retrieve
-        enabled: false
-    cdp-functions-icons-retrieve:
-        operation: hog_functions_icons_retrieve
-        enabled: false
     cdp-functions-invocations-create:
         operation: hog_functions_invocations_create
         enabled: true
@@ -309,9 +298,6 @@ tools:
             failure counts over a configurable interval (hour, day, or week). Use to understand function health,
             identify failure spikes, and monitor delivery reliability. Supports breakdown by metric kind
             (success/failure) or name, and time range filtering.
-    cdp-functions-metrics-totals-retrieve:
-        operation: hog_functions_metrics_totals_retrieve
-        enabled: false
     cdp-functions-partial-update:
         operation: hog_functions_partial_update
         enabled: true
@@ -433,6 +419,3 @@ tools:
         description: >
             Get a specific function by ID. Returns the full configuration including source code, inputs schema, input
             values (secrets are masked), filters, mappings, masking config, and runtime status.
-    cdp-functions-update:
-        operation: hog_functions_update
-        enabled: false

@@ -1,41 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product conversations
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product conversations
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Conversations
 feature: conversations
 url_prefix: /support/tickets
 ui_apps: {}
 tools:
-    conversations-ai-context-account-properties-list:
-        operation: conversations_ai_context_account_properties_list
-        enabled: false
-    conversations-ai-reply-playbook-retrieve:
-        operation: conversations_ai_reply_playbook_retrieve
-        enabled: false
-    conversations-tickets-ai-feedback-create:
-        operation: conversations_tickets_ai_feedback_create
-        enabled: false
-    conversations-tickets-ai-human-outcome-create:
-        operation: conversations_tickets_ai_human_outcome_create
-        enabled: false
-    conversations-tickets-bulk-update-status-create:
-        operation: conversations_tickets_bulk_update_status_create
-        enabled: false
-    conversations-tickets-bulk-update-tags-create:
-        operation: conversations_tickets_bulk_update_tags_create
-        enabled: false
-    conversations-tickets-compose-create:
-        operation: conversations_tickets_compose_create
-        enabled: false
-    conversations-tickets-destroy:
-        operation: conversations_tickets_destroy
-        enabled: false
-    conversations-tickets-full-update:
-        operation: conversations_tickets_update
-        enabled: false
     conversations-tickets-list:
         operation: conversations_tickets_list
         enabled: true
@@ -69,9 +40,6 @@ tools:
                 - unread_team_count
                 - created_at
                 - updated_at
-    conversations-tickets-messages-full-email-retrieve:
-        operation: conversations_tickets_messages_full_email_retrieve
-        enabled: false
     conversations-tickets-messages-retrieve:
         operation: conversations_tickets_messages_list
         enabled: true
@@ -200,9 +168,6 @@ tools:
                 - distinct_id
                 - created_at
                 - updated_at
-    conversations-tickets-unread-count-retrieve:
-        operation: conversations_tickets_unread_count_retrieve
-        enabled: false
     conversations-tickets-update:
         operation: conversations_tickets_partial_update
         enabled: true
@@ -246,9 +211,6 @@ tools:
                 - filters
                 - is_favorited
                 - created_at
-    conversations-views-destroy:
-        operation: conversations_views_destroy
-        enabled: false
     conversations-views-list:
         operation: conversations_views_list
         enabled: true
@@ -324,9 +286,3 @@ tools:
                 - filters
                 - is_favorited
                 - created_at
-    conversations-zendesk-imports-create:
-        operation: conversations_zendesk_imports_create
-        enabled: false
-    conversations-zendesk-imports-status-retrieve:
-        operation: conversations_zendesk_imports_status_retrieve
-        enabled: false
