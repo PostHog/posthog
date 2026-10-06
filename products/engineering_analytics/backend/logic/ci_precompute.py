@@ -75,9 +75,13 @@ _LAST_WEEK_MAX_AGE_SECONDS = 6 * 60 * 60
 _OLDER_DAYS_MAX_AGE_SECONDS = 5 * 24 * 60 * 60
 _OLDER_DAYS_MAX_AGE_SPREAD_SECONDS = 2 * 24 * 60 * 60
 
-# A refresh that runs out of this keeps the days it stored, and the next load continues from there.
+# The time one table of one repository has to start its inserts, and the time a whole refresh has.
+# A refresh that runs out of either keeps the days it stored, and the next load continues from there.
 _REFRESH_BUDGET_SECONDS = 4 * 60
 _TASK_BUDGET_SECONDS = 20 * 60
+# A budget only stops new inserts, so a running insert can pass it. The mark that a refresh runs
+# must last as long as the task can, or a second refresh of the team starts next to the first.
+REFRESH_TASK_TIME_LIMIT_SECONDS = 35 * 60
 
 
 def _raw_day(moment: str) -> str:
@@ -230,7 +234,7 @@ def refresh_after_load(team: Team) -> None:
     if not team_flag(STORED_READS_FEATURE_FLAG, team):
         return
     running = f"engineering_analytics:ci_precompute_refresh:{team.pk}"
-    if not cache.add(running, True, timeout=_TASK_BUDGET_SECONDS):
+    if not cache.add(running, True, timeout=REFRESH_TASK_TIME_LIMIT_SECONDS):
         return
     try:
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.PREAGGREGATION, team_id=team.pk):

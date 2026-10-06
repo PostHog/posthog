@@ -283,8 +283,7 @@ def resolve_precompute_sources(team: Team) -> list[JobSourceTables]:
     """
     depot_tables = resolve_depot_job_attempts_tables(team)
     return [
-        replace(repository, depot_job_attempts=depot_tables.get(repository.repository))
-        for repository in _repositories_with_jobs(team)
+        replace(entry, depot_job_attempts=depot_tables.get(entry.repository)) for entry in _repositories_with_jobs(team)
     ]
 
 
