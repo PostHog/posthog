@@ -72,12 +72,15 @@ class Command(BaseCommand):
             decisions = SchedulerStateTable.fetch_would_fires(conn, SYNC_EXTRACT_KIND, since)
         if options["team_id"] is not None:
             decisions = [d for d in decisions if d.team_id == options["team_id"]]
+        self.stderr.write(f"fetched {len(decisions)} decisions")
 
         jobs_qs = ExternalDataJob.objects.filter(created_at__gte=since - tolerance, schema_id__isnull=False)
         if options["team_id"] is not None:
             jobs_qs = jobs_qs.filter(team_id=options["team_id"])
         jobs = list(jobs_qs.values_list("schema_id", "workflow_id"))
+        self.stderr.write(f"fetched {len(jobs)} jobs")
 
+        self.stderr.write("matching...")
         # One-to-one greedy matching per schema, nearest job time to due time first.
         unmatched: dict[str, list[datetime]] = {}
         for decision in decisions:
@@ -100,7 +103,8 @@ class Command(BaseCommand):
             if best is not None and abs(best - fired_at) <= tolerance:
                 candidates.remove(best)
                 matched += 1
-            else:
+            elif fired_at >= since:
+                # Pre-window jobs have no decision window to match.
                 temporal_only.append(schema_id)
 
         shadow_only = [schema_id for schema_id, dues in unmatched.items() for _ in dues]
