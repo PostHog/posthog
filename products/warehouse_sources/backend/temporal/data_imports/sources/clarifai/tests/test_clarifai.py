@@ -67,6 +67,9 @@ class TestClarifaiTransport:
                 ClarifaiResumeConfig(page=first_page + 1),
                 ClarifaiResumeConfig(page=first_page + 2),
             ]
+            assert response.on_complete is not None
+            response.on_complete()
+            manager.clear_state.assert_called_once_with()
 
     @pytest.mark.parametrize("terminal", [{"models": []}, {}])
     def test_empty_success_stops(

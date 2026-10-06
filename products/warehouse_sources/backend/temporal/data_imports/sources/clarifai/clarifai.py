@@ -125,7 +125,7 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
                 "allowed_hosts": [],
                 "allow_redirects": False,
                 "request_timeout": (10, 60),
-                "paginator": "single_page" if probe else {"type": "page_number", "base_page": 1, "total_path": None},
+                "paginator": "single_page" if probe else {"type": "page_number", "initial_page": 1, "total_path": None},
             },
             "resources": [
                 {
@@ -159,7 +159,13 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
             initial_paginator_state={"page": resume.page} if resume else None,
             resume_hook=save_checkpoint,
         )
-        return SourceResponse(name=endpoint, items=lambda: resource, primary_keys=PRIMARY_KEYS, sort_mode=None)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: resource,
+            primary_keys=PRIMARY_KEYS,
+            sort_mode=None,
+            on_complete=manager.clear_state,
+        )
 
 
 def validate_credentials(
