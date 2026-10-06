@@ -148,9 +148,10 @@ impl Harness {
                 SendKind::Fresh
             };
             self.responses += 1;
-            let returned = (self.partial_every > 0 && self.responses.is_multiple_of(self.partial_every))
-                .then(|| send.runs[0].messages.last().cloned())
-                .flatten();
+            let returned = (self.partial_every > 0
+                && self.responses.is_multiple_of(self.partial_every))
+            .then(|| send.runs[0].messages.last().cloned())
+            .flatten();
             let mut messages = Vec::new();
             for run in send.runs {
                 self.sentinel

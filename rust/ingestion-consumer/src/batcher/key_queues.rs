@@ -262,7 +262,7 @@ impl KeyQueues {
         if !claim.revoked.is_empty() {
             returned.retain(|message| {
                 !claim.revoked.iter().any(|(topic, partition)| {
-                    *topic == message.topic && *partition == message.partition
+                    topic.as_str() == &*message.topic && *partition == message.partition
                 })
             });
         }
@@ -313,8 +313,8 @@ impl KeyQueues {
             }
             let before = state.queue.len();
             state.queue.retain(|queued| {
-                let keep = !revoked_set
-                    .contains(&(queued.message.topic.as_str(), queued.message.partition));
+                let keep =
+                    !revoked_set.contains(&(&*queued.message.topic, queued.message.partition));
                 if !keep {
                     purged_bytes += queued.message.payload_bytes();
                 }

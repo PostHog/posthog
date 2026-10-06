@@ -210,7 +210,7 @@ pub(crate) fn purge_request(
     request.runs.retain_mut(|run| {
         let before = run.messages.len();
         run.messages
-            .retain(|message| !revoked.contains(&(message.topic.as_str(), message.partition)));
+            .retain(|message| !revoked.contains(&(&*message.topic, message.partition)));
         purged += before - run.messages.len();
         if run.messages.is_empty() {
             emptied_keys.push(run.routing_key.clone());

@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use super::key_queues::KeyRun;
 use super::request_class::RequestClass;
@@ -10,7 +11,7 @@ pub struct RequestId(u64);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SentMessage {
-    pub topic: String,
+    pub topic: Arc<str>,
     pub partition: i32,
     pub offset: i64,
     pub keyed: bool,
@@ -141,7 +142,7 @@ impl InFlightRequest {
         for (run_index, run) in self.runs.iter().enumerate() {
             for (message_index, message) in run.messages.iter().enumerate() {
                 position.insert(
-                    (message.topic.as_str(), message.partition, message.offset),
+                    (&*message.topic, message.partition, message.offset),
                     (run_index, message_index),
                 );
             }
@@ -152,17 +153,17 @@ impl InFlightRequest {
         let mut seen: HashSet<(usize, usize)> = HashSet::new();
         for message in returned {
             let Some(&(run_index, message_index)) =
-                position.get(&(message.topic.as_str(), message.partition, message.offset))
+                position.get(&(&*message.topic, message.partition, message.offset))
             else {
                 return Err(ResolveError::Unknown {
-                    topic: message.topic,
+                    topic: message.topic.to_string(),
                     partition: message.partition,
                     offset: message.offset,
                 });
             };
             if !seen.insert((run_index, message_index)) {
                 return Err(ResolveError::Duplicate {
-                    topic: message.topic,
+                    topic: message.topic.to_string(),
                     partition: message.partition,
                     offset: message.offset,
                 });
@@ -266,11 +267,11 @@ mod tests {
     )]
     #[case::outside_the_request(
         vec![message("a", 0, 99)],
-        ResolveError::Unknown { topic: "events".to_string(), partition: 0, offset: 99 },
+        ResolveError::Unknown { topic: "events".into(), partition: 0, offset: 99 },
     )]
     #[case::more_copies_than_the_run_holds(
         vec![message("b", 0, 10), message("b", 0, 10)],
-        ResolveError::Duplicate { topic: "events".to_string(), partition: 0, offset: 10 },
+        ResolveError::Duplicate { topic: "events".into(), partition: 0, offset: 10 },
     )]
     fn a_response_outside_the_contract_is_a_protocol_error(
         #[case] returned: Vec<SerializedKafkaMessage>,

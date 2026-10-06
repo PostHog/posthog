@@ -4,7 +4,7 @@ use crate::types::SerializedKafkaMessage;
 
 pub fn message(key: &str, partition: i32, offset: i64) -> SerializedKafkaMessage {
     SerializedKafkaMessage {
-        topic: "events".to_string(),
+        topic: "events".into(),
         partition,
         offset,
         timestamp: 0,
