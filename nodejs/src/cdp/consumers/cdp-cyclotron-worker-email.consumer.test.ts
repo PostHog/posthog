@@ -11,6 +11,7 @@ import { invocationToV2JobInit, v2JobToInvocation } from '~/cdp/services/job-que
 import { teamEmailCapBuckets } from '~/cdp/services/messaging/email.service'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
+import * as redisV2 from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -34,6 +35,7 @@ jest.mock('node:dns/promises', () => ({
 
 describe('CdpCyclotronWorkerEmail', () => {
     let hub: Hub
+    let pools: TestRedisV2[]
 
     beforeAll(async () => {
         hub = await createHub()
@@ -43,14 +45,39 @@ describe('CdpCyclotronWorkerEmail', () => {
         await closeHub(hub)
     })
 
-    it('should set queue to email', () => {
-        const worker = new CdpCyclotronWorkerEmail(hub, createCdpConsumerDeps(hub), createMockJobQueue())
-        expect(worker['queue']).toBe('email')
+    beforeEach(() => {
+        pools = []
+        jest.spyOn(redisV2, 'createRedisV2PoolFromConfig').mockImplementation((config) => {
+            const pool = new TestRedisV2(config)
+            pools.push(pool)
+            return pool
+        })
     })
 
-    it('should extend CdpCyclotronWorkerHogFlow', () => {
-        const worker = new CdpCyclotronWorkerEmail(hub, createCdpConsumerDeps(hub), createMockJobQueue())
-        expect(worker['name']).toBe('CdpCyclotronWorkerEmail')
+    afterEach(async () => {
+        await Promise.all(pools.map((pool) => pool.close()))
+        jest.restoreAllMocks()
+    })
+
+    describe('construction', () => {
+        let worker: CdpCyclotronWorkerEmail
+
+        beforeEach(() => {
+            worker = new CdpCyclotronWorkerEmail(hub, createCdpConsumerDeps(hub), createMockJobQueue())
+        })
+
+        afterEach(async () => {
+            worker.emailService.sesV2Client?.destroy()
+            await worker.stop()
+        })
+
+        it('should set queue to email', () => {
+            expect(worker['queue']).toBe('email')
+        })
+
+        it('should extend CdpCyclotronWorkerHogFlow', () => {
+            expect(worker['name']).toBe('CdpCyclotronWorkerEmail')
+        })
     })
 
     describe('rescheduled emails through the v2 job codec preserve origin queue and priority (M17)', () => {

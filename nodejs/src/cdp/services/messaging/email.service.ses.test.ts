@@ -1,6 +1,7 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { AddressInfo, createServer } from 'node:net'
 import SMTPTransport from 'nodemailer/lib/smtp-transport'
+import { register } from 'prom-client'
 
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
@@ -523,36 +524,52 @@ describe('EmailService with local SES', () => {
         })
     })
 
-    describe('post-send faults (M19, M20; flip in Silthus/posthog#312)', () => {
+    describe('post-send faults (M19, M20)', () => {
         it.each(['engagement config', 'asset row'] as const)(
-            'reports a failure after SES accepts when %s fails',
+            'keeps the email sent after SES accepts when %s fails',
             async (stage) => {
+                const metricStage = stage === 'asset row' ? 'message_asset' : 'engagement_config'
+                const failures = register.getSingleMetric('cdp_email_bookkeeping_failures_total')
+                const countBefore =
+                    (await failures?.get())?.values.find((value) => value.labels.stage === metricStage)?.value ?? 0
                 if (stage === 'engagement config') {
                     jest.spyOn(configService, 'shouldCaptureEngagementEvents').mockRejectedValue(
                         new Error('Engagement config fault')
                     )
-
-                    await expect(service.executeSendEmail(invocation)).rejects.toThrow('Engagement config fault')
                 } else {
                     jest.spyOn(assets, 'buildRowForEmail').mockImplementation(() => {
                         throw new Error('Asset row fault')
                     })
-
-                    const result = await service.executeSendEmail(invocation)
-
-                    expect(result).toMatchObject({
-                        finished: true,
-                        error: 'Asset row fault',
-                        metrics: [expect.objectContaining({ metric_name: 'email_failed' })],
-                        messageAssets: [],
-                        capturedPostHogEvents: [expect.objectContaining({ event: '$workflows_email_failed' })],
-                    })
-                    expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
-                    expect(result.invocation.queueParameters).toBeUndefined()
-                    expect(result.invocation.queueScheduledAt).toBeUndefined()
                 }
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toBeUndefined()
+                expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_sent', 'email_untracked'])
+                expect(result.messageAssets).toHaveLength(stage === 'asset row' ? 0 : 1)
+                expect(result.capturedPostHogEvents).toEqual(
+                    stage === 'engagement config' ? [] : [expect.objectContaining({ event: '$workflows_email_sent' })]
+                )
+                expect(result.logs).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({
+                            level: 'warn',
+                            message:
+                                stage === 'asset row'
+                                    ? 'Email sent, but its saved copy could not be created.'
+                                    : 'Email sent, but its engagement event could not be recorded.',
+                        }),
+                    ])
+                )
+                expect(result.logs.some((log) => log.message.includes('[Email:'))).toBe(stage !== 'asset row')
+                expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
+                expect(result.invocation.queueParameters).toBeUndefined()
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
                 expect(ses.requests).toHaveLength(1)
                 expect(await ses.getEmails()).toEqual([expect.objectContaining({ subject: params.subject })])
+                expect((await failures?.get())?.values.find((value) => value.labels.stage === metricStage)?.value).toBe(
+                    countBefore + 1
+                )
             }
         )
     })
