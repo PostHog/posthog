@@ -2811,6 +2811,8 @@ const api = {
                 after?: string
                 offset?: number
                 prefetchSpans?: number
+                // true (default) only selects traces with a root span.
+                rootSpans?: boolean
                 // false (default) groups by trace_id and returns root spans; true returns every
                 // matching span (root and child) flat. See products/tracing/backend logic.py.
                 flatSpans?: boolean
