@@ -2106,6 +2106,8 @@ class SignalReportViewSet(
                         content=content,
                         attribution=attribution,
                     )
+            # The prefetch predates these edits, so the response would mark a now-stale score fresh.
+            report.__dict__.pop("prefetched_latest_edit_artefacts", None)
         return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @validated_request(

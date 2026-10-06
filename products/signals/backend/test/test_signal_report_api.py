@@ -836,6 +836,7 @@ class TestSignalReportListAPI(APIBaseTest):
             ("edit_after_the_vector_before_scored_at", datetime(2026, 9, 20, 11, 0, tzinfo=UTC), 11, True),
             ("edit_after_scored_at_without_a_vector_time", None, 13, True),
             ("edit_before_scored_at_without_a_vector_time", None, 11, False),
+            ("naive_vector_time_reads_as_not_stale", datetime(2026, 9, 20, 11, 0), 13, False),
         ]
     )
     def test_ranking_score_is_stale_after_a_newer_edit(self, _name, embedding_inserted_at, edit_hour, expected_stale):
@@ -875,6 +876,18 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{edited.id}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["ranking"]["stale"] is expected_stale
+
+    def test_patch_response_marks_the_score_stale(self):
+        self.user.is_staff = True
+        self.user.save()
+        report = self._create_report()
+        self._ranking_score_artefact(report, embedding_inserted_at=datetime(2026, 9, 20, 11, 0, tzinfo=UTC))
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/signals/reports/{report.id}/", data={"title": "New title"}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["ranking"]["stale"] is True
 
     @parameterized.expand([("staff", True, ["ranking_score"]), ("non_staff", False, [])])
     def test_artefact_routes_show_ranking_scores_to_staff_only(self, _name, is_staff, expected_types):
@@ -1145,6 +1158,17 @@ class TestSignalReportListAPI(APIBaseTest):
         self._ranking_score_artefact(no_head, scores={"open": 0.5})
         stale = self._ranking_score_artefact(low, scores={"pr_merged": 0.99})
         SignalReportArtefact.objects.filter(pk=stale.pk).update(created_at=timezone.now() - timedelta(days=1))
+        impossible_time = self._create_report(title="Impossible time")
+        impossible_score = self._ranking_score_artefact(impossible_time, scores={"pr_merged": 0.4})
+        SignalReportArtefact.objects.filter(pk=impossible_score.pk).update(
+            content=impossible_score.content.replace("2026-09-20T12:00:00Z", "2026-02-31T12:00:00Z")
+        )
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=impossible_time,
+            type=SignalReportArtefact.ArtefactType.TITLE_CHANGE,
+            content=json.dumps({"old_title": "Old", "new_title": "Impossible time"}),
+        )
         bad_latest = self._create_report(title="Bad latest")
         older_valid = self._ranking_score_artefact(bad_latest, scores={"pr_merged": 0.99})
         SignalReportArtefact.objects.filter(pk=older_valid.pk).update(created_at=timezone.now() - timedelta(days=1))
@@ -1153,9 +1177,9 @@ class TestSignalReportListAPI(APIBaseTest):
         response = self.client.get(self._list_url(status="ready", ordering=f"{ordering},status,-updated_at"))
         assert response.status_code == status.HTTP_200_OK
         ids = [r["id"] for r in response.json()["results"]]
-        scored = [str(high.id), str(low.id)] if ordering.startswith("-") else [str(low.id), str(high.id)]
-        assert ids[:2] == scored
-        assert set(ids[2:]) == {str(unscored.id), str(no_head.id), str(bad_latest.id)}
+        scored = [str(high.id), str(impossible_time.id), str(low.id)]
+        assert ids[:3] == (scored if ordering.startswith("-") else scored[::-1])
+        assert set(ids[3:]) == {str(unscored.id), str(no_head.id), str(bad_latest.id)}
 
     @parameterized.expand(
         [

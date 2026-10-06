@@ -27,9 +27,15 @@ EDIT_ARTEFACT_TYPES: tuple[str, ...] = (
     SignalReportArtefact.ArtefactType.SUMMARY_CHANGE,
 )
 
-# The ISO 8601 form pydantic writes for an aware datetime. A value of another form is not cast,
-# because one cast error in the sort subquery would fail the whole list.
+# The ISO 8601 form pydantic writes for an aware datetime. A naive value has no fixed instant, so it
+# is not read. One cast error in the sort subquery would fail the whole list, so the value is
+# parsed by a silent jsonpath `datetime()`, which gives NULL for an impossible date or time.
+# That parser does not accept a `Z` offset, so `Z` becomes `+00:00` first.
 _ISO_TIMESTAMP_PATTERN = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$"
+_SAFE_TIMESTAMP_TEMPLATE = (
+    "(jsonb_path_query_first(to_jsonb(regexp_replace(%(expressions)s, 'Z$', '+00:00')), "
+    "'$.datetime()', '{}', true) #>> '{}')"
+)
 
 
 def score_read_at(score: RankingScore) -> datetime:
@@ -38,7 +44,11 @@ def score_read_at(score: RankingScore) -> datetime:
 
 
 def is_stale_score(score: RankingScore, latest_edit_at: datetime | None) -> bool:
-    return latest_edit_at is not None and latest_edit_at > score_read_at(score)
+    read_at = score_read_at(score)
+    # The sort does not read a naive time, so it is not stale here either.
+    if latest_edit_at is None or read_at.tzinfo is None:
+        return False
+    return latest_edit_at > read_at
 
 
 def annotate_stale_score(scores: QuerySet[SignalReportArtefact]) -> QuerySet[SignalReportArtefact]:
@@ -64,7 +74,10 @@ def annotate_stale_score(scores: QuerySet[SignalReportArtefact]) -> QuerySet[Sig
             _score_read_at=Case(
                 When(
                     _score_read_at_text__regex=_ISO_TIMESTAMP_PATTERN,
-                    then=Cast(F("_score_read_at_text"), output_field=DateTimeField()),
+                    then=Cast(
+                        Func(F("_score_read_at_text"), template=_SAFE_TIMESTAMP_TEMPLATE, output_field=CharField()),
+                        output_field=DateTimeField(),
+                    ),
                 ),
                 default=Value(None),
                 output_field=DateTimeField(),
