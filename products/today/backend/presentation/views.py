@@ -5,7 +5,7 @@ from typing import cast
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -31,6 +31,10 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not api.may_get_briefing(user, self.team):
             raise NotFound()
         return user
+
+    def _check_report_access(self, user: User) -> None:
+        if not signals.may_read_reports(user=user, team=self.team):
+            raise PermissionDenied()
 
     @validated_request(
         query_serializer=TodayQuerySerializer,
@@ -83,7 +87,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @validated_request(
         responses={200: OpenApiResponse(response=ReportPageSerializer)},
         summary="Get a report's page",
-        description="What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation. A scoped key needs task:read as well, because the page shows the report's signals.",
+        description="What the Today report page shows for a report: its lead, the proposal and the impact sentence cut to whole sentences, and the pull request it names. Sample report ids return the built-in sample reports. 404 when the report is missing or the person does not have the new navigation. 403 when the person may not read Inbox reports, and a scoped key needs task:read as well, because the page shows the report's signals.",
     )
     @action(
         detail=False,
@@ -92,8 +96,10 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         required_scopes=["today:read", "task:read"],
     )
     def report_page(self, request: Request, report_id: str, **kwargs) -> Response:
-        if not api.is_enabled_for(cast(User, request.user), self.team):
+        user = cast(User, request.user)
+        if not api.is_enabled_for(user, self.team):
             raise NotFound()
+        self._check_report_access(user)
         page = api.report_page(team=self.team, report_id=report_id)
         if page is None:
             raise NotFound()

@@ -1482,3 +1482,7 @@ def scout_creation_available(*, team_id: int, user_id: int) -> bool:
     if not team_is_enrolled(canonical_team.id):
         return False
     return can_create_scout(user, canonical_team)
+
+
+def may_read_reports(*, user: User, team: Team) -> bool:
+    return UserAccessControl(user=user, team=team.parent_team or team).check_access_level_for_resource("task", "viewer")
