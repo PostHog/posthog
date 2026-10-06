@@ -9,6 +9,8 @@ rather than here so its heavy imports stay off the request path.
 
 from typing import Any
 
+from django.db import DEFAULT_DB_ALIAS, router
+
 from products.mcp_registry.backend import logic
 from products.mcp_registry.backend.connect import build_connect_instructions
 from products.mcp_registry.backend.constants import MCP_REGISTRY_FEATURE_FLAG as MCP_REGISTRY_FEATURE_FLAG
@@ -30,6 +32,11 @@ def is_valid_version(version: str) -> bool:
 
 def default_ranking_version() -> str:
     return DEFAULT_RANKING_VERSION
+
+
+def read_db_alias() -> str:
+    """The database alias that registry reads route to."""
+    return router.db_for_read(MCPRegistryServer) or DEFAULT_DB_ALIAS
 
 
 def _to_tool(tool: Any) -> contracts.RegistryTool:

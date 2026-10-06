@@ -121246,6 +121246,8 @@ export namespace Schemas {
     version?: string;
     };
 
+    export type McpRegistryServersDiscoverRetrieve503 = { [key: string]: unknown };
+
     export type McpServerInstallationsListParams = {
     /**
      * Number of results to return per page.
