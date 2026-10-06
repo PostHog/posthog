@@ -11,7 +11,7 @@ import {
     PATH_NODE_CARD_OVERLAP_GAP,
     PATH_NODE_CARD_TOP_OFFSET,
 } from './constants'
-import { parsePathNodeKey, pathUrlLabel } from './pathsChartTransforms'
+import { parsePathNodeKey, pathOrigins, pathUrlLabel } from './pathsChartTransforms'
 
 const PATH_NODE_CARD_TOP_ADJUSTMENTS = 33
 
@@ -217,18 +217,7 @@ export function roundedRect(
 }
 
 export function pageUrl(d: PathNodeData, display?: boolean, showFullUrls?: boolean): string {
-    const incomingUrls = d.targetLinks
-        .map((l) => stripStepPrefix(l?.source?.name ?? ''))
-        .filter((a) => {
-            try {
-                new URL(a)
-            } catch {
-                return false
-            }
-            return a
-        })
-        .map((a) => new URL(a))
-    const incomingDomains = Array.from(new Set(incomingUrls.map((url) => url.origin)))
+    const incomingOrigins = pathOrigins(d.targetLinks.map((l) => stripStepPrefix(l?.source?.name ?? '')))
 
     let name = stripStepPrefix(d.name)
 
@@ -236,7 +225,7 @@ export function pageUrl(d: PathNodeData, display?: boolean, showFullUrls?: boole
         return name
     }
 
-    const label = pathUrlLabel(name, incomingDomains.length === 1)
+    const label = pathUrlLabel(name, incomingOrigins.size === 1)
     if (label !== name) {
         // Decode URL-encoded characters (e.g., %3C becomes <) to display path cleaning aliases correctly
         name = tryDecodeURIComponent(label)
