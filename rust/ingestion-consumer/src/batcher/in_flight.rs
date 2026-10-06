@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::key_queues::KeyRun;
@@ -11,7 +11,6 @@ pub struct RequestId(u64);
 
 #[derive(Debug)]
 pub struct SentMessage {
-    pub topic: Arc<str>,
     pub partition: i32,
     pub offset: i64,
     pub keyed: bool,
@@ -20,7 +19,6 @@ pub struct SentMessage {
 impl SentMessage {
     fn of(message: &SerializedKafkaMessage) -> Self {
         Self {
-            topic: message.topic.clone(),
             partition: message.partition,
             offset: message.offset,
             keyed: message.key.is_some(),
@@ -28,9 +26,9 @@ impl SentMessage {
     }
 }
 
-struct SentRun {
-    routing_key: Arc<str>,
-    messages: Vec<SentMessage>,
+pub struct SentRun {
+    pub routing_key: Arc<str>,
+    pub messages: Vec<SentMessage>,
 }
 
 pub struct InFlightRequest {
@@ -38,30 +36,6 @@ pub struct InFlightRequest {
     pub class: RequestClass,
     pub message_count: usize,
     runs: Vec<SentRun>,
-}
-
-pub struct KeyOutcome {
-    pub routing_key: Arc<str>,
-    pub accepted: Vec<SentMessage>,
-    pub unprocessed: Vec<SerializedKafkaMessage>,
-}
-
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub enum ResolveError {
-    #[error("unprocessed message {topic}/{partition}@{offset} was not in the request")]
-    Unknown {
-        topic: String,
-        partition: i32,
-        offset: i64,
-    },
-    #[error("unprocessed message {topic}/{partition}@{offset} appears more than once")]
-    Duplicate {
-        topic: String,
-        partition: i32,
-        offset: i64,
-    },
-    #[error("unprocessed messages of key {routing_key} are not a suffix of its run")]
-    NotASuffix { routing_key: String },
 }
 
 /// A response references its request by id only, so this keeps what each
@@ -119,93 +93,36 @@ impl InFlightRequests {
 }
 
 impl InFlightRequest {
-    /// Every key of the request gets an outcome, in send order. A key's
-    /// unprocessed messages must be a suffix of the run it sent, because the
-    /// worker processes a key's messages in order. A response that breaks
-    /// this is a protocol error.
-    pub fn resolve(
-        self,
-        unprocessed: Vec<SerializedKafkaMessage>,
-    ) -> Result<Vec<KeyOutcome>, ResolveError> {
-        if unprocessed.is_empty() {
-            return Ok(self
-                .runs
-                .into_iter()
-                .map(|run| KeyOutcome {
-                    routing_key: run.routing_key,
-                    accepted: run.messages,
-                    unprocessed: Vec::new(),
-                })
-                .collect());
-        }
-        let mut position: HashMap<(&str, i32, i64), (usize, usize)> = HashMap::new();
-        for (run_index, run) in self.runs.iter().enumerate() {
-            for (message_index, message) in run.messages.iter().enumerate() {
-                position.insert(
-                    (&*message.topic, message.partition, message.offset),
-                    (run_index, message_index),
-                );
-            }
-        }
-
-        let mut unprocessed_by_run: Vec<Vec<(usize, SerializedKafkaMessage)>> =
-            self.runs.iter().map(|_| Vec::new()).collect();
-        let mut seen: HashSet<(usize, usize)> = HashSet::new();
-        for message in unprocessed {
-            let Some(&(run_index, message_index)) =
-                position.get(&(&*message.topic, message.partition, message.offset))
-            else {
-                return Err(ResolveError::Unknown {
-                    topic: message.topic.to_string(),
-                    partition: message.partition,
-                    offset: message.offset,
-                });
-            };
-            if !seen.insert((run_index, message_index)) {
-                return Err(ResolveError::Duplicate {
-                    topic: message.topic.to_string(),
-                    partition: message.partition,
-                    offset: message.offset,
-                });
-            }
-            unprocessed_by_run[run_index].push((message_index, message));
-        }
-
-        drop(position);
+    /// Every key's run, in send order, after the worker accepted the whole
+    /// request.
+    pub fn accepted(self) -> Vec<SentRun> {
         self.runs
+    }
+
+    /// The transport hands back every message of a failed request, in send
+    /// order, so each key gets back exactly the run it sent.
+    pub fn hand_back(self, messages: Vec<SerializedKafkaMessage>) -> Result<Vec<KeyRun>, String> {
+        if messages.len() != self.message_count {
+            return Err(format!(
+                "transport handed back {} of {} messages of a failed request",
+                messages.len(),
+                self.message_count
+            ));
+        }
+        let mut messages = messages.into_iter();
+        Ok(self
+            .runs
             .into_iter()
-            .zip(unprocessed_by_run)
-            .map(|(run, mut unprocessed)| {
-                unprocessed.sort_by_key(|(message_index, _)| *message_index);
-                let first_unprocessed = run.messages.len() - unprocessed.len();
-                let is_suffix = unprocessed
-                    .iter()
-                    .enumerate()
-                    .all(|(rank, (message_index, _))| *message_index == first_unprocessed + rank);
-                if !is_suffix {
-                    return Err(ResolveError::NotASuffix {
-                        routing_key: run.routing_key.to_string(),
-                    });
-                }
-                let mut accepted = run.messages;
-                accepted.truncate(first_unprocessed);
-                Ok(KeyOutcome {
-                    routing_key: run.routing_key,
-                    accepted,
-                    unprocessed: unprocessed
-                        .into_iter()
-                        .map(|(_, message)| message)
-                        .collect(),
-                })
+            .map(|run| KeyRun {
+                messages: messages.by_ref().take(run.messages.len()).collect(),
+                routing_key: run.routing_key,
             })
-            .collect()
+            .collect())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
     use super::*;
     use crate::batcher::test_support::{message, offsets};
 
@@ -224,64 +141,35 @@ mod tests {
         }
     }
 
-    fn request() -> (InFlightRequests, RequestId) {
+    fn request() -> InFlightRequest {
         let mut requests = InFlightRequests::new();
         let id = requests.register(
             WorkerId::from("w"),
             FRESH,
             &[run("a", &[1, 2, 3]), run("b", &[10])],
         );
-        (requests, id)
+        requests.take(id).expect("registered")
     }
 
     #[test]
-    fn a_partial_response_splits_each_key_into_accepted_prefix_and_unprocessed_suffix() {
-        let (mut requests, id) = request();
-        let request = requests.take(id).expect("registered");
-        assert_eq!(request.message_count, 4);
-
-        let outcomes = request
-            .resolve(vec![message("a", 0, 3), message("a", 0, 2)])
-            .expect("a suffix");
-        let shapes: Vec<_> = outcomes
+    fn a_failed_request_hands_each_key_back_its_run() {
+        let request = request();
+        let handed_back = vec![
+            message("a", 0, 1),
+            message("a", 0, 2),
+            message("a", 0, 3),
+            message("b", 0, 10),
+        ];
+        let runs = request.hand_back(handed_back).expect("every message");
+        let shapes: Vec<_> = runs
             .iter()
-            .map(|outcome| {
-                (
-                    &*outcome.routing_key,
-                    outcome
-                        .accepted
-                        .iter()
-                        .map(|m| m.offset)
-                        .collect::<Vec<_>>(),
-                    offsets(&outcome.unprocessed),
-                )
-            })
+            .map(|run| (&*run.routing_key, offsets(&run.messages)))
             .collect();
-        assert_eq!(
-            shapes,
-            vec![("a", vec![1], vec![2, 3]), ("b", vec![10], vec![])]
-        );
+        assert_eq!(shapes, vec![("a", vec![1, 2, 3]), ("b", vec![10])]);
     }
 
-    #[rstest]
-    #[case::skips_an_accepted_message(
-        vec![message("a", 0, 2)],
-        ResolveError::NotASuffix { routing_key: "a".into() },
-    )]
-    #[case::outside_the_request(
-        vec![message("a", 0, 99)],
-        ResolveError::Unknown { topic: "events".into(), partition: 0, offset: 99 },
-    )]
-    #[case::more_copies_than_the_run_holds(
-        vec![message("b", 0, 10), message("b", 0, 10)],
-        ResolveError::Duplicate { topic: "events".into(), partition: 0, offset: 10 },
-    )]
-    fn a_response_outside_the_contract_is_a_protocol_error(
-        #[case] unprocessed: Vec<SerializedKafkaMessage>,
-        #[case] expected: ResolveError,
-    ) {
-        let (mut requests, id) = request();
-        let request = requests.take(id).expect("registered");
-        assert_eq!(request.resolve(unprocessed).err(), Some(expected));
+    #[test]
+    fn a_hand_back_missing_messages_is_an_error() {
+        assert!(request().hand_back(vec![message("a", 0, 1)]).is_err());
     }
 }

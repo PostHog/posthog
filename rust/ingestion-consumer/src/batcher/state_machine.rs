@@ -11,18 +11,17 @@
 //!
 //! - Per-key order: a key has at most one run out at a time, and its later
 //!   messages queue behind that run.
-//! - A response may be partial. The unprocessed messages must be a suffix of
-//!   each key's run, or the state machine fails. They go back to the front of
-//!   the key's queue and are sent again as replay after the retry delay, as
-//!   are all messages of a request that failed on the transport.
+//! - A worker accepts a whole request or none of it. A request that fails on
+//!   the transport hands back all its messages; they go back to the front of
+//!   their keys' queues and are sent again as replay after the retry delay.
 //! - Stall watchdog: when work is pending, nothing is in flight, and no
 //!   message was accepted for `stall_timeout`, the state machine fails, so a
 //!   wedged batcher restarts instead of growing lag. Past that deadline no
 //!   new request starts, so overlapping failures drain to nothing in flight
 //!   and the watchdog can fire. The clock starts when work becomes pending.
 //! - A revoke drops the revoked partitions' pending messages, because the
-//!   new owner replays them. Runs already in flight finish, but their
-//!   unprocessed messages for revoked partitions drop.
+//!   new owner replays them. Runs already in flight finish, but if they fail,
+//!   their messages for revoked partitions drop.
 //! - Shutdown takes no new groups; the state machine stops once nothing is
 //!   pending or in flight. A draining worker listed in `idle_workers` has
 //!   finished its work.
@@ -35,7 +34,7 @@ use std::time::{Duration, Instant};
 use common_kafka_consumer::{GroupCompletion, Offset, Partition};
 use metrics::{gauge, histogram};
 
-use super::in_flight::{InFlightRequest, InFlightRequests, KeyOutcome, RequestId};
+use super::in_flight::{InFlightRequest, InFlightRequests, RequestId, SentRun};
 use super::key_queues::{KeyQueues, KeyRun};
 use super::request::{purge_request, Request, RequestClass};
 use super::retry_policy::{RetryPolicy, RetryReason};
@@ -136,9 +135,8 @@ impl BatcherStateMachine {
         pool: &WorkerPool,
         request: RequestId,
         accepted: u32,
-        unprocessed: Vec<SerializedKafkaMessage>,
     ) -> (Self, Effects) {
-        self.act(|active| active.on_request_succeeded(now, pool, request, accepted, unprocessed))
+        self.act(|active| active.on_request_succeeded(now, pool, request, accepted))
     }
 
     pub fn on_request_failed(
@@ -296,40 +294,28 @@ impl ActiveState {
         pool: &WorkerPool,
         request: RequestId,
         accepted: u32,
-        unprocessed: Vec<SerializedKafkaMessage>,
     ) -> Result<Effects, String> {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
-        let unprocessed_count = unprocessed.len();
-        let message_count = sent.message_count;
-        let assignment_epoch = sent.class.assignment_epoch;
+        if accepted as usize != sent.message_count {
+            return Err(format!(
+                "worker accepted {accepted} of {} messages",
+                sent.message_count
+            ));
+        }
         effects.worker_outcomes.push(WorkerOutcome {
             worker: sent.worker.clone(),
             fault: false,
         });
-        let outcomes = sent
-            .resolve(unprocessed)
-            .map_err(|err| format!("invalid response: {err}"))?;
-        if accepted as usize != message_count - unprocessed_count {
-            return Err(format!(
-                "worker accepted {accepted} of {message_count} messages, with {unprocessed_count} unprocessed"
-            ));
-        }
         if accepted > 0 {
             self.last_progress = now;
         }
-        effects.completions = completions(assignment_epoch, &outcomes);
-        effects.key_acks = key_acks(&outcomes);
-        let retry_at = self.retry.retry_at(now, RetryReason::Unprocessed);
-        for outcome in outcomes {
-            let retry_at = (!outcome.unprocessed.is_empty()).then_some(retry_at);
-            self.settle_key(
-                &outcome.routing_key,
-                outcome.unprocessed,
-                retry_at,
-                now,
-                &mut effects,
-            )?;
+        let assignment_epoch = sent.class.assignment_epoch;
+        let runs = sent.accepted();
+        effects.completions = completions(assignment_epoch, &runs);
+        effects.key_acks = key_acks(&runs);
+        for run in runs {
+            self.settle_key(&run.routing_key, Vec::new(), None, now, &mut effects)?;
         }
         self.advance(now, pool, &mut effects)?;
         Ok(effects)
@@ -345,20 +331,11 @@ impl ActiveState {
     ) -> Result<Effects, String> {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
-        if messages.len() != sent.message_count {
-            return Err(format!(
-                "transport handed back {} of {} messages of a failed request",
-                messages.len(),
-                sent.message_count
-            ));
-        }
         effects.worker_outcomes.push(WorkerOutcome {
             worker: sent.worker.clone(),
             fault: cause == FailureCause::Fault,
         });
-        let outcomes = sent
-            .resolve(messages)
-            .map_err(|err| format!("invalid failed request: {err}"))?;
+        let runs = sent.hand_back(messages)?;
         let retry_at = self.retry.retry_at(
             now,
             match cause {
@@ -366,10 +343,10 @@ impl ActiveState {
                 FailureCause::Busy => RetryReason::Busy,
             },
         );
-        for outcome in outcomes {
+        for run in runs {
             self.settle_key(
-                &outcome.routing_key,
-                outcome.unprocessed,
+                &run.routing_key,
+                run.messages,
                 Some(retry_at),
                 now,
                 &mut effects,
@@ -427,14 +404,14 @@ impl ActiveState {
     fn settle_key(
         &mut self,
         routing_key: &Arc<str>,
-        unprocessed: Vec<SerializedKafkaMessage>,
+        requeued: Vec<SerializedKafkaMessage>,
         retry_at: Option<Instant>,
         now: Instant,
         effects: &mut Effects,
     ) -> Result<(), String> {
         let evicted = self
             .keys
-            .settle(routing_key, unprocessed, retry_at, now)
+            .settle(routing_key, requeued, retry_at, now)
             .map_err(|err| err.to_string())?;
         if evicted {
             effects.evicted_keys.push(Arc::clone(routing_key));
@@ -549,10 +526,10 @@ impl ActiveState {
     }
 }
 
-fn completions(assignment_epoch: u64, outcomes: &[KeyOutcome]) -> Vec<GroupCompletion> {
+fn completions(assignment_epoch: u64, runs: &[SentRun]) -> Vec<GroupCompletion> {
     let mut by_partition: HashMap<i32, Vec<Offset>> = HashMap::new();
-    for outcome in outcomes {
-        for message in &outcome.accepted {
+    for run in runs {
+        for message in &run.messages {
             by_partition
                 .entry(message.partition)
                 .or_default()
@@ -572,12 +549,11 @@ fn completions(assignment_epoch: u64, outcomes: &[KeyOutcome]) -> Vec<GroupCompl
     completions
 }
 
-fn key_acks(outcomes: &[KeyOutcome]) -> Vec<KeyAck> {
-    outcomes
-        .iter()
-        .filter_map(|outcome| {
-            let max_offset = outcome
-                .accepted
+fn key_acks(runs: &[SentRun]) -> Vec<KeyAck> {
+    runs.iter()
+        .filter_map(|run| {
+            let max_offset = run
+                .messages
                 .iter()
                 // An unkeyed message lives on an arbitrary partition under a
                 // synthetic key, so it does not advance an ACK high-water mark.
@@ -585,7 +561,7 @@ fn key_acks(outcomes: &[KeyOutcome]) -> Vec<KeyAck> {
                 .map(|message| message.offset)
                 .max()?;
             Some(KeyAck {
-                routing_key: Arc::clone(&outcome.routing_key),
+                routing_key: Arc::clone(&run.routing_key),
                 max_offset,
             })
         })
@@ -602,14 +578,12 @@ mod tests {
 
     const FAULT_DELAY: Duration = Duration::from_millis(200);
     const BUSY_DELAY: Duration = Duration::from_millis(20);
-    const UNPROCESSED_DELAY: Duration = Duration::from_millis(50);
     const NO_WORKER_DELAY: Duration = Duration::from_millis(100);
     const STALL: Duration = Duration::from_secs(60);
 
     /// Distinct delays, so a wakeup time shows which retry reason applied.
     fn retry_policy() -> RetryPolicy {
-        RetryPolicy::new(FAULT_DELAY, BUSY_DELAY, UNPROCESSED_DELAY, NO_WORKER_DELAY)
-            .expect("valid retry policy")
+        RetryPolicy::new(FAULT_DELAY, BUSY_DELAY, NO_WORKER_DELAY).expect("valid retry policy")
     }
 
     fn batcher(max_requests_per_worker: usize, now: Instant) -> BatcherStateMachine {
@@ -663,7 +637,7 @@ mod tests {
         let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[3])]);
         assert!(effects.sends.is_empty(), "a's first run is still in flight");
 
-        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1, Vec::new());
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
         assert_eq!(shape(&effects.sends[0]), vec![("a", vec![3])]);
         assert_eq!(effects.completions.len(), 1);
         assert_eq!(effects.completions[0].offsets, vec![Offset(1)]);
@@ -691,37 +665,9 @@ mod tests {
             "the epoch-2 message waits for k's run"
         );
 
-        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1, Vec::new());
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
         assert_eq!(effects.sends[0].class.assignment_epoch, 2);
         assert_eq!(shape(&effects.sends[0]), vec![("k", vec![2])]);
-    }
-
-    #[test]
-    fn a_partial_response_replays_the_unprocessed_suffix_after_the_timeout_delay() {
-        let now = Instant::now();
-        let workers = pool(&["w"]);
-        let batcher = batcher(4, now);
-        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1, 2, 3])]);
-        let request = effects.sends[0].request;
-        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("a", &[4])]);
-
-        let unprocessed = vec![message("a", 0, 2), message("a", 0, 3)];
-        let (batcher, effects) =
-            batcher.on_request_succeeded(now, &workers, request, 1, unprocessed);
-        assert!(effects.sends.is_empty());
-        assert_eq!(effects.completions[0].offsets, vec![Offset(1)]);
-        assert_eq!(effects.next_wakeup, Some(now + UNPROCESSED_DELAY));
-
-        let retry = now + UNPROCESSED_DELAY;
-        let (batcher, effects) = batcher.on_wakeup(retry, &workers);
-        assert!(effects.sends[0].class.replay);
-        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![2, 3])]);
-
-        // The fresh message behind the replay waits for it, so order holds.
-        let replay = effects.sends[0].request;
-        let (_, effects) = batcher.on_request_succeeded(retry, &workers, replay, 2, Vec::new());
-        assert!(!effects.sends[0].class.replay);
-        assert_eq!(shape(&effects.sends[0]), vec![("a", vec![4])]);
     }
 
     #[test]
@@ -829,7 +775,7 @@ mod tests {
         assert_eq!(effects.sends.len(), 1);
         let request = effects.sends[0].request;
 
-        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1, Vec::new());
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
         assert_eq!(shape(&effects.sends[0]), vec![("b", vec![2])]);
         // The freed slot is refilled in the same action, so the worker is
         // reported idle and then busy again.
@@ -849,10 +795,10 @@ mod tests {
         assert_eq!(effects.busy_workers, vec![WorkerId::from("w")]);
         let (first, second) = (effects.sends[0].request, effects.sends[1].request);
 
-        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, first, 1, Vec::new());
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, first, 1);
         assert!(effects.idle_workers.is_empty());
 
-        let (_, effects) = batcher.on_request_succeeded(now, &workers, second, 1, Vec::new());
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, second, 1);
         assert_eq!(effects.idle_workers, vec![WorkerId::from("w")]);
     }
 
@@ -894,8 +840,7 @@ mod tests {
         let (batcher, _) = batcher.on_shutdown(now, &workers);
         assert!(matches!(batcher, BatcherStateMachine::Draining(_)));
 
-        let (batcher, effects) =
-            batcher.on_request_succeeded(now, &workers, request, 1, Vec::new());
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
         assert!(matches!(batcher, BatcherStateMachine::Stopped));
         assert_eq!(effects.next_wakeup, None);
     }
@@ -969,15 +914,14 @@ mod tests {
     }
 
     #[test]
-    fn a_response_that_breaks_the_suffix_contract_fails_the_state_machine() {
+    fn a_worker_accepting_fewer_messages_than_sent_fails_the_state_machine() {
         let now = Instant::now();
         let workers = pool(&["w"]);
         let batcher = batcher(4, now);
         let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1, 2])]);
         let request = effects.sends[0].request;
 
-        let (batcher, effects) =
-            batcher.on_request_succeeded(now, &workers, request, 1, vec![message("a", 0, 1)]);
+        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
         assert!(matches!(batcher, BatcherStateMachine::Failed));
         assert!(effects.fatal.is_some());
     }

@@ -210,13 +210,9 @@ impl BatcherTask {
                 state.on_partitions_revoked(now, &partitions)
             }
             Event::Input(Input::Shutdown) => state.on_shutdown(now, &self.pool_source.pool()),
-            Event::Response(request, Ok(accepted)) => state.on_request_succeeded(
-                now,
-                &self.pool_source.pool(),
-                request,
-                accepted,
-                Vec::new(),
-            ),
+            Event::Response(request, Ok(accepted)) => {
+                state.on_request_succeeded(now, &self.pool_source.pool(), request, accepted)
+            }
             Event::Response(request, Err(failure)) => {
                 // Backpressure is transient, so it does not count against the
                 // worker's health.
