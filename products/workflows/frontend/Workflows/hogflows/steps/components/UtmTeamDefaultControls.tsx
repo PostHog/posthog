@@ -34,6 +34,7 @@ export function UtmTeamDefaultControls({ value, onSavedAsTeamDefault }: UtmTeamD
                 type="secondary"
                 size="xsmall"
                 loading={currentTeamLoading}
+                disabledReason={currentTeam?.workflows_config ? undefined : 'Loading your workflow settings'}
                 onClick={async () => {
                     await updateCurrentTeam({
                         workflows_config: {

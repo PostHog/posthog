@@ -9,7 +9,7 @@ import { WorkflowsUtmDefaultsApplyDialog } from './WorkflowsUtmDefaultsApplyDial
 import { workflowsUtmDefaultsApplyLogic } from './workflowsUtmDefaultsApplyLogic'
 
 export function WorkflowsUtmDefaultsSettings(): JSX.Element {
-    const { currentTeamLoading } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { form, hasUnsavedChanges } = useValues(workflowsUtmDefaultsApplyLogic)
     const { setDraftEnabled, setDraftParams, saveDefaults, openApplyDialog } =
         useActions(workflowsUtmDefaultsApplyLogic)
@@ -35,7 +35,13 @@ export function WorkflowsUtmDefaultsSettings(): JSX.Element {
                     type="primary"
                     size="small"
                     loading={currentTeamLoading}
-                    disabledReason={hasUnsavedChanges ? undefined : 'No changes to save'}
+                    disabledReason={
+                        !currentTeam?.workflows_config
+                            ? 'Loading your workflow settings'
+                            : hasUnsavedChanges
+                              ? undefined
+                              : 'No changes to save'
+                    }
                     onClick={saveDefaults}
                     data-attr="workflows-utm-defaults-save"
                 >
