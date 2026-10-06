@@ -10,18 +10,18 @@ describe('pathsChartTransforms', () => {
         expect(pathStartCount(edges)).toBe(10)
     })
 
-    it('pins each node to its step and labels URLs by path on a single origin', () => {
+    it('pins each node to its step, labels URLs by path on a single origin, and keeps event names whole', () => {
         const graph = buildPathsSankeyGraph(
             [
                 { source: '1_https://example.com/home', target: '3_https://example.com/#/app/settings', value: 4 },
-                { source: '1_https://example.com/home', target: '2_signed_up', value: 2 },
+                { source: '1_https://example.com/home', target: '2_clicked: signup button', value: 2 },
             ],
             { labelUrls: true, pinSteps: true }
         )
         expect(graph.nodes.map(({ label, column }) => [label, column])).toEqual([
             ['/home', 0],
             ['/#/app/settings', 2],
-            ['signed_up', 1],
+            ['clicked: signup button', 1],
         ])
         expect(graph.stepCount).toBe(3)
     })

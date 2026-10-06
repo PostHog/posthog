@@ -34,9 +34,12 @@ export function pathNodeKeys(edges: PathsEdge[]): string[] {
     return [...keys]
 }
 
+/** A page URL, or null. `new URL` also accepts any `word:` prefix, so an event named
+ *  `clicked: signup` would otherwise lose its prefix as a pathless URL. */
 function parseUrl(value: string): URL | null {
     try {
-        return new URL(value)
+        const url = new URL(value)
+        return url.protocol === 'http:' || url.protocol === 'https:' ? url : null
     } catch {
         return null
     }

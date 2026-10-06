@@ -71,9 +71,10 @@ export interface SankeyLayout<N extends SankeyExtraProperties, L extends SankeyE
     nodeAlign(nodeAlign: (node: SankeyNode<N, L>, n: number) => number): this
 
     /** Pins a node to a column regardless of its depth in the graph; return `undefined` to fall
-     *  back to `nodeAlign` for that node. The column count grows to fit the highest pin. The caller
-     *  owns monotonicity: a pin at or before a source feeding it draws that link backwards, with no
-     *  error. */
+     *  back to `nodeAlign` for that node. The column count grows to fit the highest pin, and a fractional
+     *  pin rounds down. The caller owns monotonicity: a pin at or before a source feeding it draws that
+     *  link backwards, with no error. An unpinned node is placed by depth and ignores its neighbours'
+     *  pins, so pin every node or none. */
     nodeColumn(): ((node: SankeyNode<N, L>) => number | undefined) | null
     nodeColumn(nodeColumn: ((node: SankeyNode<N, L>) => number | undefined) | null): this
 
@@ -456,7 +457,7 @@ export function sankeyLayout<
         // and silently drop the node from the render; treat it as unpinned instead.
         const pinned = (node: SankeyNode<N, L>): number | undefined => {
             const value = column?.(node)
-            return value !== undefined && Number.isFinite(value) ? value : undefined
+            return value !== undefined && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : undefined
         }
         const x = Math.max(max(nodeList, (d) => d.depth)!, max(nodeList, (d) => pinned(d) ?? 0)!) + 1
         const kx = x <= 1 ? 0 : (x1 - x0 - dx) / (x - 1)

@@ -74,8 +74,12 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
     const pathStarts = pathStartCount(allEdges)
     // Past five steps the chart grows a fifth of the frame per step and scrolls, as the paths
     // insight does, so long paths keep readable columns.
-    // Unpinned, the chart lays out its longest path, which the edges bound.
-    const columnCount = Math.min(graph.stepsPinned ? graph.stepCount : edges.length + 1, MAX_SCROLL_COLUMNS)
+    // Unpinned, the chart lays nodes out by depth, and every edge moves one step on, so the
+    // distinct steps bound its columns where the highest step index does not.
+    const columnCount = Math.min(
+        graph.stepsPinned ? graph.stepCount : new Set(graph.nodes.map((node) => parsePathNodeKey(node.id).step)).size,
+        MAX_SCROLL_COLUMNS
+    )
     const chartWidth = columnCount > MAX_STEPS_IN_FRAME ? `${(columnCount / MAX_STEPS_IN_FRAME) * 100}%` : '100%'
     const truncated = edges.length < allEdges.length
 

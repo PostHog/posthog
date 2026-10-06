@@ -15,7 +15,8 @@ export interface SankeyNodeInput<Meta = unknown> {
     meta?: Meta
     /** Pin the node to this zero-based column. Use it when the data carries its own stage (the
      *  step in a paths result), so a flow that ends early or starts late still sits under the right
-     *  `columnLabels` header. Nodes without a pin follow `nodeAlign`. Pins must be monotonic with
+     *  `columnLabels` header. Nodes without a pin follow `nodeAlign` and ignore their neighbours' pins, so
+     *  pin every node or none. Pins must be monotonic with
      *  the graph's edges — a link whose target column is at or before its source's draws backwards.
      *  A pin that is not a whole number from 0 to `MAX_SANKEY_COLUMN` throws. */
     column?: number
@@ -228,7 +229,8 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     if (!Number.isFinite(nodePadding) || nodePadding < 0) {
         throw new Error(`Sankey nodePadding must be a finite number of 0 or more: ${nodePadding}`)
     }
-    const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, columnCountOf(nodes, links)))
+    const columnCount = columnCountOf(nodes, links)
+    const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, columnCount))
 
     // The engine mutates its inputs, so hand it fresh objects.
     const engineNodes: LayoutNodeProps[] = nodes.map((node) => {
@@ -297,7 +299,6 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
         }
     })
 
-    const columnCount = graph.nodes.reduce((max, node) => Math.max(max, node.layer + 1), 0)
     // A pinned column can hold no node, so derive every column's x from the engine's spacing
     // rather than from the nodes that happen to land in it, and headers never read a hole.
     const columnStep = columnCount > 1 ? (plot.plotWidth - effectiveNodeWidth) / (columnCount - 1) : 0

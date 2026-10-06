@@ -89,6 +89,26 @@ describe('computeSankeyLayout', () => {
         expect(layout.columnX).toEqual([0, 590 / 3, (2 * 590) / 3, 590])
     })
 
+    it('spaces column headers like the nodes when the last column the engine allots is empty', () => {
+        // The unpinned chain is five deep, but `b` is pinned back to column 2, so column 4 holds no node.
+        const nodes: SankeyNodeInput[] = [
+            { id: 'a', column: 0 },
+            { id: 'u1' },
+            { id: 'u2' },
+            { id: 'u3' },
+            { id: 'b', column: 2 },
+        ]
+        const links: SankeyLinkInput[] = [
+            { source: 'a', target: 'u1', value: 5 },
+            { source: 'u1', target: 'u2', value: 5 },
+            { source: 'u2', target: 'u3', value: 5 },
+            { source: 'u3', target: 'b', value: 5 },
+        ]
+        const layout = layoutOf({ nodes, links, nodeAlign: 'left' })
+        expect(layout.columnCount).toBe(5)
+        expect(layout.nodes.map((node) => layout.columnX[node.column])).toEqual(layout.nodes.map((node) => node.x0))
+    })
+
     it.each([MAX_SANKEY_COLUMN + 1, -1, 1.5, NaN])('rejects a pin of %p instead of moving the node', (column) => {
         const nodes: SankeyNodeInput[] = [
             { id: 'x', column: 0 },
