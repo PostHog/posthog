@@ -42,17 +42,18 @@
 }
 
 .AnnotationsPopover {
-    --annotations-popover-width: 30rem;
+    --annotations-popover-width: min(30rem, calc(100vw - 1rem));
 
     z-index: var(--z-annotation-popover) !important;
+    width: var(--annotations-popover-width);
     transition:
         left 200ms ease,
         opacity 100ms ease,
         transform 100ms ease;
 
     .LemonModal {
-        min-width: var(--annotations-popover-width);
-        max-width: var(--annotations-popover-width);
+        min-width: 0;
+        max-width: 100%;
         min-height: 100%;
         margin: 0;
         border: none;
