@@ -50,7 +50,7 @@ use personhog_proto::personhog::types::v1::{
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-use crate::storage::types::{DeletePersonsMode, COOKIELESS_SENTINEL_VALUE};
+use crate::storage::types::COOKIELESS_SENTINEL_VALUE;
 use crate::storage::{self, FullStorage};
 
 const MAX_BATCH_LOOKUP_SIZE: usize = 250;
@@ -421,21 +421,24 @@ impl PersonHogReplica for PersonHogReplicaService {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| Status::invalid_argument(format!("Invalid UUID: {e}")))?;
 
-        let mode = match ProtoDeletePersonsMode::try_from(req.mode) {
-            Ok(ProtoDeletePersonsMode::Unspecified) => DeletePersonsMode::Hard,
-            Ok(ProtoDeletePersonsMode::Hard) => DeletePersonsMode::Hard,
-            Ok(ProtoDeletePersonsMode::Tombstone) => DeletePersonsMode::Tombstone,
+        match ProtoDeletePersonsMode::try_from(req.mode) {
+            Ok(ProtoDeletePersonsMode::Unspecified | ProtoDeletePersonsMode::Tombstone) => {}
+            Ok(ProtoDeletePersonsMode::Hard) => {
+                return Err(Status::invalid_argument(
+                    "DELETE_PERSONS_MODE_HARD is not supported: tombstone the persons, or delete a deleted team's persons with DeletePersonsBatchForTeam",
+                ))
+            }
             Err(_) => {
                 return Err(Status::invalid_argument(format!(
                     "Unknown DeletePersonsMode {}",
                     req.mode
                 )))
             }
-        };
+        }
 
         let outcome = self
             .storage
-            .delete_persons(req.team_id, &uuids, mode)
+            .delete_persons(req.team_id, &uuids)
             .await
             .map_err(|e| log_and_convert_error(e, "delete_persons"))?;
 
