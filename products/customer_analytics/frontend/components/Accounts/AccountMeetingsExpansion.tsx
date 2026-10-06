@@ -229,13 +229,13 @@ export function AccountMeetingsExpansion({
         {
             title: 'When',
             key: 'start_time',
-            width: 140,
+            width: 180,
             render: (_, meeting) => (
-                <div className="flex flex-col items-start gap-0.5">
+                <div className="flex items-center gap-1 whitespace-nowrap">
                     <TZLabel time={meeting.start_time} />
                     {meeting.is_recurring && dayjs(meeting.start_time).isAfter(dayjs()) && (
                         <LemonTag type="muted" size="small" title="Later occurrences of this series are hidden">
-                            Recurring · next
+                            Recurring
                         </LemonTag>
                     )}
                 </div>

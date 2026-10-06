@@ -79,7 +79,7 @@ describe('AccountMeetingsExpansion', () => {
         )
 
         expect(await screen.findByText(meeting.title)).toBeInTheDocument()
-        expect(screen.queryAllByText('Recurring · next')).toHaveLength(badgeCount)
+        expect(screen.queryAllByText('Recurring')).toHaveLength(badgeCount)
     })
 
     it('opens a matched meeting in Gong', async () => {
