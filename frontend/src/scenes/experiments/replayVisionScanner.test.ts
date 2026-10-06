@@ -2,35 +2,38 @@ import { type ExperimentExposureCriteria, NodeKind } from '~/queries/schema/sche
 import type { Experiment } from '~/types'
 
 import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
-import {
-    experimentScannerPrompt,
-    prefillScannerForExperiment,
-} from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
+import { prefillScannerForExperiment } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 import type { ReplayScanner } from 'products/replay_vision/frontend/replay_scanners/types'
 
 import { experimentScannerBody } from './replayVisionScanner'
 
 describe('replayVisionScanner', () => {
-    describe('experimentScannerPrompt', () => {
+    describe('saved scanner config', () => {
+        // The scanner API shows the config to anyone who can view the scanner, so the experiment's
+        // hypothesis must stay out of it. Each scan adds the hypothesis after an access check.
         it.each([
             {
-                name: 'uses the hypothesis as the changed-surface grounding',
-                description: 'New one-page checkout',
-                expected: 'What the experiment changes: New one-page checkout',
+                name: 'the scanner wizard prefill',
+                build: (experiment: Experiment): unknown =>
+                    prefillScannerForExperiment(
+                        { name: 'Frustration score' } as ReplayScanner,
+                        { experiment, variantKey: null },
+                        true
+                    ).scanner_config,
             },
             {
-                name: 'falls back to the experiment name when the hypothesis is blank',
-                description: '',
-                expected: 'Its name is "Checkout redesign"',
+                name: 'the experiment form checkbox',
+                build: (experiment: Experiment): unknown => experimentScannerBody(experiment, true).scanner_config,
             },
-            {
-                name: 'treats a whitespace-only hypothesis as blank',
-                description: '   ',
-                expected: 'Its name is "Checkout redesign"',
-            },
-        ])('$name', ({ description, expected }) => {
-            const experiment: Experiment = { ...NEW_EXPERIMENT, name: 'Checkout redesign', description }
-            expect(experimentScannerPrompt(experiment)).toContain(expected)
+        ])('$name keeps the experiment hypothesis out of it', ({ build }) => {
+            const experiment: Experiment = {
+                ...NEW_EXPERIMENT,
+                id: 123,
+                name: 'Checkout redesign',
+                description: 'Private hypothesis about one-page checkout',
+            }
+
+            expect(JSON.stringify(build(experiment))).not.toContain('Private hypothesis')
         })
     })
 

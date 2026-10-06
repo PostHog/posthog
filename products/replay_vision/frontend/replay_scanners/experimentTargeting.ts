@@ -119,27 +119,22 @@ export function experimentScannerName(baseName: string, experimentName: string):
 /**
  * The default focus for an experiment scanner's summaries. The variant keys are deliberately
  * absent: the scan reads each session's variant from exposure data, and a prompt that names them
- * invites the model to guess one instead.
+ * invites the model to guess one instead. The experiment's name and hypothesis are absent too: each
+ * scan adds them after an access check, and a saved prompt shows them to anyone who can view the
+ * scanner, including people who cannot view the experiment.
  */
-export function experimentScannerPrompt(experiment: Experiment): string {
-    const hypothesis = experiment.description?.trim()
-    return [
-        'Summarize what this participant did after the point where the experiment change would first be visible to them. Ignore anything earlier in the session.',
-        // The hypothesis is optional at creation, so the required name is the fallback grounding:
-        // without any hint at the changed surface, the summaries have nothing to focus on.
-        hypothesis
-            ? `What the experiment changes: ${hypothesis}`
-            : `The experiment has no written hypothesis. Its name is "${experiment.name.trim()}", so infer the changed surface from that name.`,
-        'If they never reached the part of the product the experiment changes, say so in one sentence.',
-        'Otherwise describe how they used it: where they moved on without trouble, where they paused or went back, what they seemed to misread, and any error or dead end they hit.',
-    ].join('\n\n')
-}
+export const EXPERIMENT_SCANNER_PROMPT = [
+    'Summarize what this participant did after the point where the experiment change would first be visible to them. Ignore anything earlier in the session.',
+    "Use the experiment's name and hypothesis, which every scan includes, to work out which part of the product it changes.",
+    'If they never reached the part of the product the experiment changes, say so in one sentence.',
+    'Otherwise describe how they used it: where they moved on without trouble, where they paused or went back, what they seemed to misread, and any error or dead end they hit.',
+].join('\n\n')
 
 /** The experiment type's config for an experiment, with every variant sampled evenly by default. */
 export function experimentScannerConfig(
     experiment: Experiment,
     variants: string[] | null,
-    prompt: string = experimentScannerPrompt(experiment)
+    prompt: string = EXPERIMENT_SCANNER_PROMPT
 ): ExperimentScannerConfig {
     return {
         prompt,
@@ -151,11 +146,6 @@ export function experimentScannerConfig(
 }
 
 /**
- * Turns a fresh (or freshly templated) scanner into an experiment scanner for the context: the
- * experiment type, a scoped name, and the experiment's test-account setting. A template's type and
- * prompt give way, because only the experiment type compares variants.
- */
-/**
  * Legacy experiment targeting on another scanner type, for teams without the experiment type yet. The
  * backend derives the person-scoped exposure filter from it at scan time.
  */
@@ -166,6 +156,11 @@ export function buildExperimentTargeting(context: ExperimentScannerContext): Sca
     }
 }
 
+/**
+ * Turns a fresh (or freshly templated) scanner into an experiment scanner for the context: the
+ * experiment type, a scoped name, and the experiment's test-account setting. A template's type and
+ * prompt give way, because only the experiment type compares variants.
+ */
 export function prefillScannerForExperiment(
     scanner: ReplayScanner,
     context: ExperimentScannerContext,
