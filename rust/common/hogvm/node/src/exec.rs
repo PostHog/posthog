@@ -551,6 +551,43 @@ mod tests {
     }
 
     #[test]
+    fn parse_user_agent_returns_an_object_for_a_string_and_null_otherwise() {
+        let results = run_batch(
+            &call_fn_program("parseUserAgent", "curl/8.4.0"),
+            &[json!({})],
+            false,
+            None,
+        );
+        assert_eq!(
+            results[0].result,
+            Some(json!({
+                "browser": "curl",
+                "browserVersion": "8.4.0",
+                "os": null,
+                "browserType": "bot-device",
+                "device": "",
+                "deviceType": "Desktop",
+            }))
+        );
+        let results = run_batch(
+            &[
+                json!("_H"),
+                json!(1),
+                json!(33),
+                json!(42),
+                json!(2),
+                json!("parseUserAgent"),
+                json!(1),
+                json!(38),
+            ],
+            &[json!({})],
+            false,
+            None,
+        );
+        assert_eq!(results[0].result, Some(Value::Null));
+    }
+
+    #[test]
     fn known_bot_ip_matches_exactly() {
         set_bot_lists_for_tests();
         let results = run_batch(
