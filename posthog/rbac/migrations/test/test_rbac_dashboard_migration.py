@@ -1,13 +1,17 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rbac.migrations.rbac_dashboard_migration import rbac_dashboard_access_control_migration
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.dashboards.backend.models.dashboard import Dashboard
 
 from ee.models.dashboard_privilege import DashboardPrivilege
@@ -272,6 +276,57 @@ class TestRBACDashboardMigration(BaseTest):
         self.assertEqual(default_access.access_level, "none")
         self.assertEqual(member_access.access_level, "viewer")
         self.assertFalse(DashboardPrivilege.objects.filter(dashboard=dashboard).exists())
+
+    @parameterized.expand([("viewer",), ("none",)])
+    def test_migration_preserves_role_based_dashboard_access(self, role_access_level: str) -> None:
+        self.organization.available_product_features = (self.organization.available_product_features or []) + [
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS}
+        ]
+        self.organization.save()
+        role = Role.objects.create(name="Dashboard viewers", organization=self.organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=self.user2,
+            organization_member=self.user2_membership,
+        )
+        dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="Dashboard with role access",
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+        AccessControl.objects.create(
+            team_id=self.team.id,
+            access_level=role_access_level,
+            resource="dashboard",
+            resource_id=str(dashboard.id),
+            role=role,
+        )
+        DashboardPrivilege.objects.create(
+            dashboard=dashboard,
+            user=self.user2,
+            level=Dashboard.PrivilegeLevel.CAN_EDIT,
+        )
+
+        rbac_dashboard_access_control_migration(self.organization.id)
+
+        dashboard.refresh_from_db()
+        self.assertEqual(dashboard.restriction_level, Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT)
+        self.assertFalse(
+            AccessControl.objects.filter(
+                team_id=self.team.id,
+                resource="dashboard",
+                resource_id=str(dashboard.id),
+                organization_member=self.user2_membership,
+                role=None,
+            ).exists()
+        )
+        self.assertFalse(DashboardPrivilege.objects.filter(dashboard=dashboard).exists())
+        user_access = UserAccessControl(user=self.user2, team=self.team)
+        self.assertFalse(user_access.check_access_level_for_object(dashboard, "editor"))
+        self.assertEqual(
+            user_access.check_access_level_for_object(dashboard, "viewer"),
+            role_access_level == "viewer",
+        )
 
     def test_migration_handles_multiple_teams_in_organization(self):
         """Test that migration works correctly with multiple teams in the organization"""

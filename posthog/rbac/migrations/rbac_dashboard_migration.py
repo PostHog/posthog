@@ -1,17 +1,45 @@
 from typing import Literal
 
 from django.db import transaction
+from django.db.models import Q
 
 import structlog
 
+from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.access_control.backend.facade.user_access_control import ordered_access_levels
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import RoleMembership
 from products.dashboards.backend.models.dashboard import Dashboard
 
 logger = structlog.get_logger(__name__)
+
+
+def _has_dashboard_role_access(
+    dashboard: Dashboard,
+    organization: Organization,
+    user_id: int,
+) -> bool:
+    if not organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+        return False
+
+    role_ids = (
+        RoleMembership.objects.filter(user_id=user_id, role__organization_id=organization.id)
+        .valid_for_authorization()
+        .values("role_id")
+    )
+    return (
+        AccessControl.objects.filter(
+            team_id=dashboard.team_id,
+            resource="dashboard",
+            organization_member__isnull=True,
+            role_id__in=role_ids,
+        )
+        .filter(Q(resource_id=str(dashboard.id)) | Q(resource_id__isnull=True))
+        .exists()
+    )
 
 
 def _ensure_dashboard_access_control(
@@ -102,11 +130,18 @@ def rbac_dashboard_access_control_migration(organization_id: int) -> None:
                                     )
                                     continue
 
-                                _ensure_dashboard_access_control(
-                                    dashboard,
-                                    organization_member=org_membership,
-                                    access_level="editor",
-                                )
+                                if _has_dashboard_role_access(dashboard, organization, privilege.user_id):
+                                    logger.info(
+                                        "Preserving role-based dashboard access for collaborator",
+                                        dashboard_id=dashboard.id,
+                                        user_id=privilege.user_id,
+                                    )
+                                else:
+                                    _ensure_dashboard_access_control(
+                                        dashboard,
+                                        organization_member=org_membership,
+                                        access_level="editor",
+                                    )
 
                                 privilege.delete()
                                 logger.info(
