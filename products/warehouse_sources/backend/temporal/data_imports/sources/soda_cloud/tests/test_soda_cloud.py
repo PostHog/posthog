@@ -1,6 +1,7 @@
 import json
 from base64 import b64encode
 from datetime import UTC, datetime
+from typing import Literal, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -65,7 +66,12 @@ def response(rows: list[dict[str, object]], total_pages: int = 1, status: int = 
 @pytest.mark.parametrize("region,host", [("eu", "cloud.soda.io"), ("us", "cloud.us.soda.io")])
 @pytest.mark.parametrize("endpoint", ["datasets", "checks", "incidents"])
 def test_paginated_requests_and_checkpoint(
-    config: SodaCloudSourceConfig, inputs: SourceInputs, manager: MagicMock, region: str, host: str, endpoint: str
+    config: SodaCloudSourceConfig,
+    inputs: SourceInputs,
+    manager: MagicMock,
+    region: Literal["eu", "us"],
+    host: str,
+    endpoint: str,
 ) -> None:
     config.region = region
     inputs.schema_name = endpoint
@@ -196,7 +202,7 @@ def test_connection_error_does_not_expose_credentials(config: SodaCloudSourceCon
 def test_invalid_region_never_sends_credentials(
     config: SodaCloudSourceConfig, inputs: SourceInputs, manager: MagicMock, region: str
 ) -> None:
-    config.region = region
+    config.region = cast(Literal["eu", "us"], region)
     with patch("requests.sessions.Session.send") as send:
         valid, message = SodaCloudSource().validate_credentials(config, team_id=1)
         assert not valid
