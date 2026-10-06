@@ -334,6 +334,11 @@
         "params": [],
         "scope": "project"
     },
+    "canvases": {
+        "template": "/canvases",
+        "params": [],
+        "scope": "project"
+    },
     "cliAuthorize": {
         "template": "/cli/authorize",
         "params": [],

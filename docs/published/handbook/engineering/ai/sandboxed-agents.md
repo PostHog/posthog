@@ -208,6 +208,9 @@ Available write scopes: `action:write`, `cohort:write`, `dashboard:write`,
 
 Internal scopes (`task:write`, `llm_gateway:read`) are always added automatically.
 
+An empty list (`posthog_mcp_scopes=[]`) omits the built-in PostHog MCP connection.
+Internal credentials for task lifecycle and model calls remain available, including the local `task_summary_update` tool.
+
 See `posthog/temporal/oauth.py` for the full list.
 
 > **Principle of least privilege**: default to `"read_only"` unless your agent genuinely needs to create or modify resources.
