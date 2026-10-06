@@ -4470,12 +4470,12 @@ Today (9): `buildings`, `categories`, `computer_groups`, `computers`, `departmen
 
 Diffed against: <https://developer.jamf.com/jamf-pro/reference/get_v1-buildings>
 
-- [ ] `GET /api/v1/users` — lookup resolving the user/owner assigned to the computers and mobile devices we sync (high)
+- [x] `GET /api/v1/users` — lookup resolving the user/owner assigned to the computers and mobile devices we sync (high)
 - [ ] `GET /api/v2/computer-groups/smart-group-membership/{id} and /static-group-membership/{id}` — membership junction for the computer_groups we already sync — group rows without members are unusable (high)
 - [ ] `GET /api/v2/mobile-device-groups (+ smart/static group membership)` — mobile equivalent of computer_groups plus its membership; we sync mobile_devices but no groups (high)
-- [ ] `GET /api/v3/patch-software-title-configurations and /{id}/patch-report, /{id}/patch-summary` — patch compliance per software title and per device — Jamf's headline reporting surface (high)
-- [ ] `GET /api/v2/mdm-commands` — MDM command history and status per device; the state-transition record for device management (high)
-- [ ] `GET /api/v1/managed-software-updates/update-statuses (+ /computers/{id}, /computer-groups/{id})` — OS update enforcement status per device — core compliance metric (high)
+- [x] `GET /api/v3/patch-software-title-configurations and /{id}/patch-report, /{id}/patch-summary` — patch compliance per software title and per device — Jamf's headline reporting surface (high)
+- [x] `GET /api/v2/mdm-commands` — MDM command history and status per device; the state-transition record for device management (high)
+- [x] `GET /api/v1/managed-software-updates/update-statuses (+ /computers/{id}, /computer-groups/{id})` — OS update enforcement status per device — core compliance metric (high)
 - [ ] `GET /api/v2/patch-policies and /api/v2/patch-policies/{id}/logs` — per-device patch deployment outcomes for the packages we sync (medium)
 - [ ] `GET /api/v1/computers-inventory/filevault (and /{id}/filevault)` — FileVault encryption compliance per computer (medium)
 - [ ] `GET /api/v1/computer-extension-attributes and /api/v1/mobile-device-extension-attributes` — lookup resolving the custom extension-attribute IDs embedded in inventory records (medium)
@@ -4630,14 +4630,14 @@ Note: Two separate specs: v1 at https://docs.jumpcloud.com/api/1.0/index.yaml (2
 
 ## JustCall — gaps
 
-Today (6): `calls`, `contacts`, `phone_numbers`, `sales_dialer_calls`, `texts`, `users`
+Today (9): `calls`, `calls_ai`, `contacts`, `phone_numbers`, `sales_dialer_calls`, `sales_dialer_campaigns`, `texts`, `user_groups`, `users`
 
 Diffed against: <https://developer.justcall.io/llms.txt>
 
-- [ ] `/v2.1/sales_dialer/campaigns (List all campaigns)` — lookup resolving the campaign a sales_dialer_call belongs to - already syncing the calls without it (high)
-- [ ] `/v2.1/calls/ai (List calls AI data)` — transcripts, sentiment and AI scores per call, JustCall's headline conversation-intelligence output (high)
-- [ ] `/v2.1/texts/threads (List all threads)` — conversation-level grouping for the already-synced texts; per-message rows alone can't measure response time (high)
-- [ ] `/v2.1/users/groups (List all user groups)` — team lookup for rolling agent-level call and text metrics up to teams (high)
+- [x] `/v2.1/sales_dialer/campaigns (List all campaigns)` — lookup resolving the campaign a sales_dialer_call belongs to - already syncing the calls without it (high)
+- [x] `/v2.1/calls_ai (List calls AI data)` — transcripts, sentiment and AI scores per call, JustCall's headline conversation-intelligence output (high)
+- [ ] `/v2.1/texts/threads (List all threads)` — conversation-level grouping for the already-synced texts; per-message rows alone can't measure response time (high) - needs a fan-out over phone numbers, since `phone_id` is a required filter
+- [x] `/v2.1/user_groups (List all user groups)` — team lookup for rolling agent-level call and text metrics up to teams (high)
 - [ ] `/v2.1/sales_dialer/campaigns/{id}/contacts (List campaign contacts)` — campaign membership edges needed for dial-through and contact-rate metrics (medium)
 - [ ] `/v2.1/calls/{id}/journey (Get call journey)` — per-call routing and leg history - who it rang, transfers, IVR path (medium)
 - [ ] `/v2.1/texts/tags (List all tags)` — tag lookup resolving the tags applied to text threads (medium)
