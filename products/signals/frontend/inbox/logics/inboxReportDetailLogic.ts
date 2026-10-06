@@ -18,6 +18,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -27,6 +28,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     signalsReportArtefactsDiff,
+    signalsReportChecksApproveCreate,
     signalsReportChecksDestroy,
     signalsReportChecksList,
     signalsReportPrChecks,
@@ -66,6 +68,7 @@ import {
     captureInboxReportFeedbackNote,
     InboxReportFeedbackSentiment,
 } from '../inboxAnalytics'
+import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import {
     EnrichedReviewer,
@@ -76,6 +79,7 @@ import {
 } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
+import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
@@ -281,6 +285,7 @@ export interface inboxReportDetailLogicValues {
     personalIntegrations: PersonalGitHubIntegration[] // personalIntegrationsLogic
     actionabilityExplanation: string | null
     addReviewerOptions: AvailableReviewerOption[]
+    approvingCheckIds: string[]
     availableReviewers: AvailableReviewerOption[] | null
     availableReviewersLoading: boolean
     cancellingCheckIds: string[]
@@ -326,6 +331,7 @@ export interface inboxReportDetailLogicValues {
     reportArtefactsLoading: boolean
     reportCharts: ReportChartApi[]
     reportChecks: SignalReportCheckApi[] | null
+    reportChecksError: string | null
     reportChecksLoading: boolean
     reportDiff: CommitDiffResponseApi | null
     reportDiffError: string | null
@@ -353,6 +359,12 @@ export interface inboxReportDetailLogicActions {
     discussReportSuccess: () => {
         value: true
     } // inboxTaskKickoffLogic
+    approveReportCheck: (checkId: string) => {
+        checkId: string
+    }
+    approveReportCheckDone: (checkId: string) => {
+        checkId: string
+    }
     cancelReportCheck: (checkId: string) => {
         checkId: string
     }
@@ -452,7 +464,7 @@ export interface inboxReportDetailLogicActions {
         reportArtefacts: SignalReportArtefact[]
         payload?: any
     }
-    loadReportChecks: () => any
+    loadReportChecks: (_: void) => void
     loadReportChecksFailure: (
         error: string,
         errorObject?: any
@@ -462,10 +474,10 @@ export interface inboxReportDetailLogicActions {
     }
     loadReportChecksSuccess: (
         reportChecks: SignalReportCheckApi[],
-        payload?: any
+        payload?: void
     ) => {
         reportChecks: SignalReportCheckApi[]
-        payload?: any
+        payload?: void
     }
     loadReportDiff: ({ artefactId }: { artefactId: string }) => {
         artefactId: string
@@ -651,8 +663,7 @@ export type inboxReportDetailLogicType = MakeLogicType<
 
 /**
  * Per-selected-report detail logic: artefacts, contributing signals, suggested reviewers, and linked tasks.
- * Keyed by `reportId` so each open report gets its own mounted instance. Does NOT import `inboxSceneLogic`
- * (the report id is passed in as a prop) to avoid a logic cycle.
+ * Keyed by `reportId` so each open report gets its own mounted instance.
  */
 export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     path(['scenes', 'inbox', 'logics', 'inboxReportDetailLogic']),
@@ -719,6 +730,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         cancelReportCheck: (checkId: string) => ({ checkId }),
         // Fired whether the cancel succeeded or failed, so the row's button always comes back.
         cancelReportCheckDone: (checkId: string) => ({ checkId }),
+        approveReportCheck: (checkId: string) => ({ checkId }),
+        approveReportCheckDone: (checkId: string) => ({ checkId }),
         // Driven by the submit listener only, so the re-entrancy guard and the Send button's
         // loading state read the same flag.
         setFeedbackNoteSubmitting: (submitting: boolean) => ({ submitting }),
@@ -751,12 +764,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         reportChecks: [
             null as SignalReportCheckApi[] | null,
             {
-                loadReportChecks: async () => {
+                loadReportChecks: async (_: void, breakpoint): Promise<SignalReportCheckApi[]> => {
                     const response = await signalsReportChecksList(
                         String(teamLogic.values.currentTeamId),
                         props.reportId
                     )
-                    return response.results
+                    await breakpoint()
+                    return response.results.map((check) => {
+                        const current = values.reportChecks?.find((row) => row.id === check.id)
+                        // A response requested before a mutation must not undo its newer result.
+                        return current && dayjs(current.updated_at).isAfter(dayjs(check.updated_at)) ? current : check
+                    })
                 },
             },
         ],
@@ -830,10 +848,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 },
             },
         ],
-        // The report's branch diff (its `commit` artefact's branch vs the repo default branch), rendered
-        // in the "Files changed" section. Loaded here rather than in the component so the fetch is keyed
-        // to the report and cascades off the artefact load — once artefacts resolve we know the latest
-        // commit artefact, and re-fetch only when a *new* commit lands (not on every 5s activity poll).
+        // The report's pull request or pre-PR branch diff, rendered in the "Files changed" section. Loaded
+        // here rather than in the component so the fetch is keyed to the report and cascades off the
+        // artefact load — once artefacts resolve we know the latest commit artefact, and re-fetch only when
+        // a *new* commit lands (not on every 5s activity poll).
         reportDiff: [
             null as CommitDiffResponseApi | null,
             {
@@ -908,6 +926,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 cancelReportCheck: (state: string[], { checkId }: { checkId: string }) =>
                     state.includes(checkId) ? state : [...state, checkId],
                 cancelReportCheckDone: (state: string[], { checkId }: { checkId: string }) =>
+                    state.filter((id) => id !== checkId),
+            },
+        ],
+        approvingCheckIds: [
+            [] as string[],
+            {
+                approveReportCheck: (state: string[], { checkId }: { checkId: string }) =>
+                    state.includes(checkId) ? state : [...state, checkId],
+                approveReportCheckDone: (state: string[], { checkId }: { checkId: string }) =>
                     state.filter((id) => id !== checkId),
             },
         ],
@@ -993,15 +1020,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setFeedbackNoteSubmitting: (_, { submitting }) => submitting,
             },
         ],
-        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
-        // compare usually means the branch was merged, deleted, or force-rewritten away.
+        // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag).
         reportDiffError: [
             null as string | null,
             {
                 loadReportDiff: () => null,
                 loadReportDiffSuccess: () => null,
-                loadReportDiffFailure: () =>
-                    "Couldn't load the diff. The branch may have been merged, deleted, or rewritten.",
+                loadReportDiffFailure: () => "Couldn't load the diff. Try again, or open the pull request on GitHub.",
             },
         ],
         // The commit artefact the current `reportDiff` was loaded for, so the artefact poll re-fetches
@@ -1037,6 +1062,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 loadPrComments: () => null,
                 loadPrCommentsSuccess: () => null,
                 loadPrCommentsFailure: () => "Couldn't load the PR comments from GitHub.",
+            },
+        ],
+        // Cleared only on success, so the error and its retry button stay visible while the retry runs.
+        reportChecksError: [
+            null as string | null,
+            {
+                loadReportChecksSuccess: () => null,
+                loadReportChecksFailure: () => "Couldn't load the measurements.",
             },
         ],
         // The one in-progress draft thread on a diff line. Reset when the report changes.
@@ -1354,7 +1387,24 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions, asyncActions, values, props }) => ({
+    listeners(({ actions, asyncActions, values, props, selectors }) => ({
+        approveReportCheck: async ({ checkId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.approveReportCheckDone(checkId)
+                return
+            }
+            try {
+                const approved = await signalsReportChecksApproveCreate(String(teamId), props.reportId, checkId)
+                actions.loadReportChecksSuccess(
+                    (values.reportChecks ?? []).map((check) => (check.id === checkId ? approved : check))
+                )
+            } catch {
+                lemonToast.error('Could not approve this check. Please try again.')
+            } finally {
+                actions.approveReportCheckDone(checkId)
+            }
+        },
         // The endpoint answers with the cancelled row, so the list is patched in place rather than
         // refetched: the section keeps its scroll position and the other rows never flicker.
         cancelReportCheck: async ({ checkId }) => {
@@ -1449,15 +1499,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Persist a reviewer add/remove. The optimistic list is already in place (set by the action's
         // reducer); on success reload the artefact so we converge on the server's enriched data, and on
         // failure clear the optimistic override so the UI snaps back. Mirrors desktop `useUpdateSuggestedReviewers`.
-        updateReviewers: async ({ content }) => {
+        updateReviewers: async ({ content, optimistic }) => {
+            let saved = false
             try {
                 await api.signalReports.setReviewers(props.reportId, content)
+                saved = true
                 await asyncActions.loadReportArtefacts()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')
             } finally {
                 // Clear the optimistic override; the freshly-loaded artefact is now the source of truth.
                 actions.setOptimisticReviewers(null)
+            }
+            // Broadcast last: the list can drop the row that hosts this logic (the context menu picker),
+            // which unmounts it, and kea throws on an action dispatched through an unmounted logic.
+            if (saved) {
+                const reviewerUuids = optimistic
+                    .map((reviewer) => reviewer.user?.uuid ?? reviewer.user_uuid)
+                    .filter((uuid): uuid is string => !!uuid)
+                inboxBulkActionsLogic.findMounted()?.actions.reportReviewersChanged(props.reportId, reviewerUuids)
             }
         },
         // Post an inline review comment as the user. The comment is inserted optimistically (marked
@@ -1681,6 +1741,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 actions.loadReportDiff({ artefactId: commit.id })
             }
         },
+        loadReportTasksSuccess: (_, __, ___, previousState) => {
+            const before = selectors.reportTasks(previousState) ?? []
+            const settled = (values.reportTasks ?? []).some((entry) => {
+                const run = entry.task.latest_run
+                const prior = before.find((row) => row.task.id === entry.task.id)?.task.latest_run
+                return (
+                    !!run &&
+                    TERMINAL_RUN_STATUSES.includes(run.status) &&
+                    (prior?.id !== run.id || prior?.status !== run.status)
+                )
+            })
+            if (settled) {
+                actions.loadReportChecks()
+                const scene = inboxSceneLogic.findMounted()
+                if (scene?.values.selectedReportId === props.reportId) {
+                    scene.actions.loadSelectedReport({ id: props.reportId })
+                }
+            }
+        },
         // A PR task started from this pane is not in the artefact log the gate was computed from, so
         // refresh it. This is also what starts the task poll for a ready report, whose status alone
         // never gets one going.
@@ -1731,8 +1810,6 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         actions.loadReportArtefacts()
         actions.loadReportSignals()
         actions.loadAvailableReviewers()
-        // Loaded once per mount, unlike the artefact log: a check's soak window is measured in days
-        // and the coordinator's tick is coarse, so there is nothing for a poll to catch.
         actions.loadReportChecks()
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)

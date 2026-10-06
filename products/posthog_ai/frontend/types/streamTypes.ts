@@ -118,6 +118,25 @@ export interface TurnCompleteEvent {
     streamKey: string
 }
 
+/** What a send hands its own echo: enough to draw the file before it has an artifact. */
+export interface StagedAttachment {
+    name: string
+    previewId?: string
+}
+
+/**
+ * A file a send carried. The ids are what let the thread build a download URL, and are absent until the
+ * upload lands — until then `previewId` finds the staged file to draw instead.
+ */
+export interface ThreadAttachment {
+    name: string
+    taskId?: string
+    runId?: string
+    artifactId?: string
+    /** Looks up the staged `File` in `attachmentPreviews`, so a send can show its image before it uploads. */
+    previewId?: string
+}
+
 export type ThreadItemType =
     | 'human_message'
     | 'assistant_message'
@@ -147,6 +166,8 @@ export interface ThreadItem {
     endedAt?: number
     /** For `human_message`, `assistant_message`, and `assistant_thought` items. */
     text?: string
+    /** For `human_message` items — the files the send carried. */
+    attachments?: ThreadAttachment[]
     /** Whether the assistant message buffer is finalized. */
     complete?: boolean
     /** For `tool_invocation` items — the keyed tool call id (look up in `toolInvocations`). */
@@ -262,3 +283,93 @@ export interface PermissionRequestRecord {
      */
     questions?: AgentQuestion[]
 }
+
+export const SCOUT_CADENCES = ['daily', 'weekly'] as const
+export type ScoutSuggestionCadence = (typeof SCOUT_CADENCES)[number]
+
+export const SCOUT_MODES = ['report', 'watch', 'investigate', 'digest'] as const
+export type ScoutSuggestionMode = (typeof SCOUT_MODES)[number]
+
+export const ALERT_DIRECTIONS = ['decrease', 'increase'] as const
+export type AlertSuggestionDirection = (typeof ALERT_DIRECTIONS)[number]
+
+export interface ScoutSuggestionDraft {
+    mode: ScoutSuggestionMode
+    displayName: string
+    description: string
+    body: string
+    cadence: ScoutSuggestionCadence
+}
+
+export interface IncidentOutline {
+    timeline: string
+    cause: string
+    fix: string
+}
+
+export interface NotebookSuggestionDraft {
+    title: string
+    summary: string
+    /** Present when the notebook is laid out as an incident write-up rather than the conversation as is. */
+    incident: IncidentOutline | null
+}
+
+export interface SuggestedInsightRef {
+    insightShortId: string
+    insightId: number | null
+    insightName: string
+}
+
+export interface AlertSuggestionDraft extends SuggestedInsightRef {
+    direction: AlertSuggestionDirection
+    changePercent: number
+}
+
+export interface SubscriptionSuggestionDraft extends SuggestedInsightRef {
+    cadence: ScoutSuggestionCadence
+}
+
+export interface ErrorAlertSuggestionDraft {
+    issueId: string
+    issueName: string
+}
+
+interface TurnSuggestionBase {
+    turnIndex: number
+    intent: string
+    confidence: number
+    title: string
+    description: string
+}
+
+export interface ScoutTurnSuggestion extends TurnSuggestionBase {
+    kind: 'scout'
+    scout: ScoutSuggestionDraft
+}
+
+export interface NotebookTurnSuggestion extends TurnSuggestionBase {
+    kind: 'notebook'
+    notebook: NotebookSuggestionDraft
+}
+
+export interface AlertTurnSuggestion extends TurnSuggestionBase {
+    kind: 'alert'
+    alert: AlertSuggestionDraft
+}
+
+export interface SubscriptionTurnSuggestion extends TurnSuggestionBase {
+    kind: 'subscription'
+    subscription: SubscriptionSuggestionDraft
+}
+
+export interface ErrorAlertTurnSuggestion extends TurnSuggestionBase {
+    kind: 'error_alert'
+    errorAlert: ErrorAlertSuggestionDraft
+}
+
+export type TurnSuggestion =
+    | ScoutTurnSuggestion
+    | NotebookTurnSuggestion
+    | AlertTurnSuggestion
+    | SubscriptionTurnSuggestion
+    | ErrorAlertTurnSuggestion

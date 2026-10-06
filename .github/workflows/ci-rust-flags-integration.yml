@@ -92,7 +92,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: '3.13.13'
+                  python-version: '3.14.7'
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
@@ -335,7 +335,7 @@ jobs:
                   python manage.py runserver 127.0.0.1:8000 --noreload &
                   DJANGO_PID=$!
                   echo "DJANGO_PID=$DJANGO_PID" >> $GITHUB_ENV
-                  for i in {1..15}; do
+                  for i in {1..30}; do
                       if ! kill -0 "$DJANGO_PID" 2>/dev/null; then
                           echo "ERROR: Django server exited unexpectedly"
                           exit 1
@@ -344,11 +344,11 @@ jobs:
                           echo "Django server is ready"
                           break
                       fi
-                      echo "Waiting for Django server... ($i/15)"
+                      echo "Waiting for Django server... ($i/30)"
                       sleep 2
                   done
                   if ! curl -s http://127.0.0.1:8000/_health > /dev/null 2>&1; then
-                      echo "ERROR: Django server failed to start after 15 attempts"
+                      echo "ERROR: Django server failed to start after 30 attempts"
                       exit 1
                   fi
               env:

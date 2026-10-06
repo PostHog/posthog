@@ -269,7 +269,12 @@ describe("ChannelSidebar", () => {
     await user.click(screen.getByRole("button", { name: "Filter" }));
     await user.click(await screen.findByRole("menuitem", { name: /Source/ }));
     fireEvent.click(
-      await screen.findByRole("menuitemradio", { name: "Slack" }),
+      await screen.findByRole("menuitemcheckbox", { name: "Slack" }),
+    );
+    expect(screen.getByText("Filed from Slack")).toBeInTheDocument();
+    expect(screen.getByText("Started here")).toBeInTheDocument();
+    fireEvent.click(
+      await screen.findByRole("menuitemcheckbox", { name: "Desktop" }),
     );
     expect(screen.queryByText("Started here")).not.toBeInTheDocument();
 
@@ -300,7 +305,10 @@ describe("ChannelSidebar", () => {
     await user.click(screen.getByRole("button", { name: "Filter" }));
     await user.click(await screen.findByRole("menuitem", { name: /Source/ }));
     fireEvent.click(
-      await screen.findByRole("menuitemradio", { name: "Slack" }),
+      await screen.findByRole("menuitemcheckbox", { name: "Slack" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitemcheckbox", { name: "Desktop" }),
     );
     expect(screen.queryByText("Started here")).not.toBeInTheDocument();
 

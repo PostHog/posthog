@@ -46,7 +46,7 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 
 logger = structlog.get_logger(__name__)
 
-QUERY_ROW_LIMIT = 5000  # Should be sufficient for all experiments (days * variants)
+QUERY_ROW_LIMIT = 5000  # The result has one row per (day, variant) pair
 SRM_MINIMUM_SAMPLE_SIZE = 100  # Minimum total exposures required for SRM calculation
 
 
@@ -56,7 +56,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def __init__(self, *args, error_event_context: str | None = "ui", **kwargs):
         super().__init__(*args, **kwargs)
-        # See ExperimentQueryRunner.__init__ — tags the terminal error event; None = silent.
+        # Same contract as ExperimentQueryRunner.__init__: tags the terminal error event, and None keeps it silent.
         self.error_event_context = error_event_context
 
         if not self.query.experiment_id:
@@ -72,16 +72,17 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         except Experiment.DoesNotExist:
             raise ValidationError(f"Experiment with id {self.query.experiment_id} not found")
         self.feature_flag_key: str = self.experiment.feature_flag.key_without_tombstone()
-        # From the DB flag, not the query dict — callers vary in the feature_flag shape they
-        # pass (full flag object vs bare filters), and a missed group index would bypass the
-        # group-aggregation precompute gate below. Mirrors feature_flag_key above.
+        # Read from the DB flag, not the query dict, because callers pass different feature_flag
+        # shapes (full flag object or bare filters). A missed group index would bypass the
+        # group-aggregation precompute gate below.
         self.group_type_index = (self.experiment.feature_flag.filters or {}).get("aggregation_group_type_index")
 
-        # The analysis window comes from the query, not live model state: this runner's result is
-        # cached under a key hashed from self.query (see get_cache_payload), so the window it computes
-        # must match the window the query declares — otherwise the key can describe a window the result
-        # wasn't computed for. A running experiment serializes end_date=None; expand that to now() here
-        # (lazily, so the moving instant stays out of the cache key and the 24h TTL governs refresh).
+        # The analysis window comes from the query, not live model state. The result is cached under
+        # a key hashed from self.query (see get_cache_payload), so the computed window must match the
+        # window the query declares. Otherwise the key can describe a window the result was not
+        # computed for. A running experiment serializes end_date=None, which expands to now() here.
+        # The expansion does not change self.query, so the moving instant stays out of the cache key
+        # and the cache TTL governs refresh.
         self.window_start = datetime.fromisoformat(self.query.start_date) if self.query.start_date else None
         self.window_end_date = datetime.fromisoformat(self.query.end_date) if self.query.end_date else None
         self.as_of = self.window_end_date or datetime.now(UTC)
@@ -96,11 +97,10 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             for variant in multivariate_data.get("variants", [])
             if variant.get("key") not in self.excluded_variants
         ]
-        # No variants means the exposure SQL (`variant IN {variants}`) matches nothing.
-        # For a running experiment that's a broken flag (variants stripped out from under
-        # it) — surface it rather than render an empty chart that reads as "no exposures".
-        # Stopped/draft experiments may legitimately keep a flag that was later simplified
-        # to boolean, so they fall through and degrade to an empty result instead.
+        # No variants means the exposure SQL (`variant IN {variants}`) matches nothing. For a
+        # running experiment that is a broken flag, so raise instead of rendering an empty chart
+        # that reads as "no exposures". A stopped or draft experiment can legitimately keep a flag
+        # that was later changed to boolean, so it falls through to an empty result.
         if not multivariate_data.get("variants") and self.experiment.is_running:
             raise ValidationError(
                 "This experiment's feature flag has no variants. Restore the flag's variants to see exposure data."
@@ -115,7 +115,6 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
 
     def _get_date_range(self) -> DateRange:
-        """The experiment's analysis DateRange, derived from the query (see analysis_window)."""
         return analysis_window(self.window_start, self.window_end_date, self.team, self.as_of)
 
     def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
@@ -146,13 +145,11 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             activation_config=exposure_params.activation_config,
         )
 
-        # TODO: Add query-level precomputation_mode override for ExperimentExposureQuery.
-        # Until then, the duration gate here is unconditional — the main runner
-        # lets PrecomputationMode.PRECOMPUTED bypass the gate, but this path has
-        # no equivalent escape hatch yet, so callers cannot force precomputation
-        # on a sub-12h experiment for the exposures view.
-        # group_type_index gate: mirrors the main runner — group builds always fail
-        # (the INSERT can't resolve the materialized $group_N column on sharded_events).
+        # TODO: Add a query-level precomputation_mode override for ExperimentExposureQuery. The main
+        # runner lets PrecomputationMode.PRECOMPUTED bypass the duration gate. This path has no such
+        # override, so callers cannot force precomputation for an experiment below the minimum duration.
+        # The group_type_index check mirrors the main runner: group builds always fail, because the
+        # INSERT cannot resolve the materialized $group_N column on sharded_events.
         if (
             self.group_type_index is None
             and team_precompute_skip_reason(
@@ -179,11 +176,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         return builder.get_exposure_timeseries_query()
 
     def _calculate_srm(self, total_exposures: dict[str, int]) -> SampleRatioMismatch | None:
-        """
-        Calculate Sample Ratio Mismatch using chi-squared goodness-of-fit test.
-        Compares observed variant distribution against expected (from rollout percentages).
-        Returns None if insufficient data.
-        """
+        """Chi-squared goodness-of-fit test of the observed variant counts against the rollout
+        percentages. Returns None when there is too little data."""
         multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
         variants_config = multivariate_data.get("variants", [])
 
@@ -198,7 +192,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 rollout_percentages[key] = pct
 
         # Holdout reduces the share available to the exposed variants. Rescale
-        # the variant rollouts to reflect what's expected AMONG EXPOSED users
+        # the variant rollouts to reflect what's expected among exposed users
         # (which is what total_exposures measures). The holdout itself is dropped:
         # it never appears in total_exposures (the exposure query excludes it from
         # the WHERE IN clause), so including it in the chi-square would compare
@@ -215,24 +209,21 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 scale = (100 - holdout_pct) / 100
                 rollout_percentages = {k: v * scale for k, v in rollout_percentages.items()}
 
-        # excluded_variants are not in the exposure chart, so they must not enter
-        # the chi-square. Drop them from rollout_percentages.
+        # excluded_variants are not in the exposure chart, so they must not enter the chi-square.
         rollout_percentages = {k: v for k, v in rollout_percentages.items() if k not in self.excluded_variants}
 
-        # Get all variant keys with non-zero rollout percentage
-        # We must iterate over these (not total_exposures) to ensure sum(observed) == sum(expected)
+        # Iterate over the variants with rollout, not total_exposures, so that a variant with 0
+        # exposures still enters the chi-square and sum(observed) == sum(expected).
         variants_with_rollout = {key for key, pct in rollout_percentages.items() if pct > 0}
 
-        # Calculate total observed for variants with non-zero rollout
-        # Use .get(key, 0) to handle variants that may be missing from total_exposures
         total_observed = sum(
             total_exposures.get(key, 0) for key in variants_with_rollout if key != MULTIPLE_VARIANT_KEY
         )
         if total_observed < SRM_MINIMUM_SAMPLE_SIZE:
             return None
 
-        # After dropping holdout/excluded variants the remaining percentages may not sum to 100.
-        # Normalise so chi-square expected counts sum to total_observed.
+        # After dropping holdout and excluded variants, the remaining percentages may not sum to 100.
+        # Normalize so that the chi-square expected counts sum to total_observed.
         total_rollout = sum(rollout_percentages[k] for k in variants_with_rollout if k != MULTIPLE_VARIANT_KEY)
         if total_rollout <= 0:
             return None
@@ -241,8 +232,6 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         expected: list[float] = []
         expected_counts: dict[str, float] = {}
 
-        # Iterate over all variants with non-zero rollout (not just those in total_exposures)
-        # This ensures variants with 0 exposures are still included in the chi-square calculation
         for variant_key in variants_with_rollout:
             if variant_key == MULTIPLE_VARIANT_KEY:
                 continue
@@ -267,9 +256,10 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def _evaluate_bias_risk(self, total_exposures: dict[str, int]) -> BiasRisk | None:
         # Shipping a variant rewrites the flag to 100/0, which would falsely trip the
-        # uneven-split check on data collected under the original split. The warning is
-        # also unactionable post-stop — both CTAs only help while running. Read end from the
-        # query (the cache key), so the running/stopped decision matches the cached window.
+        # uneven-split check on data collected under the original split. The warning also has
+        # no action after the experiment stops, because both of its CTAs only apply while it runs.
+        # Read the end from the query (the cache key), so that the running/stopped decision
+        # matches the cached window.
         if self.window_end_date is not None:
             return None
         multivariate_data = (self.query.feature_flag.get("filters") or {}).get("multivariate") or {}
@@ -285,8 +275,6 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
-        # Adding experiment specific tags to the tag collection
-        # This will be available as labels in Prometheus
         tag_queries(
             experiment_id=self.query.experiment_id,
             experiment_name=self.query.experiment_name,
@@ -316,7 +304,6 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         response.results = self._fill_date_gaps(response.results)
         variant_series: dict[str, ExperimentExposureTimeSeries] = {}
 
-        # Organize results by variant
         variant_data: dict[str, dict[str, int]] = {}
         for result in response.results:
             day, variant, count = result
@@ -324,7 +311,6 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 variant_data[variant] = {}
             variant_data[variant][day.isoformat()] = count
 
-        # Create cumulative series for each variant
         for variant, daily_counts in variant_data.items():
             sorted_days = sorted(daily_counts.keys())
             cumulative_counts = []
@@ -338,10 +324,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 variant=variant, days=sorted_days, exposure_counts=cumulative_counts
             )
 
-        # Sort timeseries by original variant order, with MULTIPLE_VARIANT_KEY last
+        # Keep the configured variant order, with MULTIPLE_VARIANT_KEY last
         ordered_timeseries = []
-
-        # Add variants in original order
         for variant in self.variants:
             if variant in variant_series:
                 ordered_timeseries.append(variant_series[variant])
@@ -349,7 +333,6 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if MULTIPLE_VARIANT_KEY in variant_series:
             ordered_timeseries.append(variant_series[MULTIPLE_VARIANT_KEY])
 
-        # Calculate total exposures, excluding MULTIPLE_VARIANT_KEY for FIRST_SEEN handling
         total_exposures = {}
         for variant, series in variant_series.items():
             total_exposures[variant] = int(series.exposure_counts[-1]) if series.exposure_counts else 0
@@ -370,15 +353,13 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def _fill_date_gaps(self, results):
         """
-        Ensures the exposure data includes all dates within the experiment's date range
-        and an entry for every configured variant — even variants that had zero
-        exposures across the whole window. This lets the response carry an empty
-        timeseries for those variants (days filled with the date range, counts all 0)
-        instead of omitting them entirely.
+        Fills in every date of the analysis range for every configured variant, including a
+        variant with zero exposures in the whole window. The response then carries an empty
+        timeseries (all counts 0) for that variant instead of omitting it.
         """
         date_range = self._get_date_range()
 
-        # for draft experiments, return an empty result
+        # A draft experiment has no start date, so it has no exposures.
         if not date_range.date_from:
             return []
 

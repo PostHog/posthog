@@ -67,7 +67,12 @@ _EXTRA_FIELDS = [
     "elements_chain_ids",
     "properties.$exception_types",
     "properties.$exception_values",
+    # Read once for the session's device class, then dropped before the rows reach the model.
+    "properties.$device_type",
 ]
+# HogQL returns `properties.$device_type` as a bare `$device_type` column.
+_DEVICE_TYPE_COLUMN = "$device_type"
+_TOUCH_DEVICE_TYPES = frozenset({"Mobile", "Tablet"})
 
 # Token names for URL and window-id simplification — referenced by `base.jinja`'s resolver instructions.
 _URL_PREFIX = "url"
@@ -94,7 +99,7 @@ async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> Non
     if await redis_client.exists(redis_key):
         return
 
-    payload = await sync_to_async(_fetch_payload)(inputs.team_id, inputs.session_id)
+    payload = await sync_to_async(fetch_session_payload)(inputs.team_id, inputs.session_id)
     if payload is None:
         raise IneligibleSessionError(
             "No events to analyze",
@@ -194,7 +199,7 @@ def _group_type_labels(team: Team) -> dict[int, str]:
         return {}
 
 
-def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
+def fetch_session_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     # select_related saves the extra round trip when fetch_product_context reads team.project.
     team = Team.objects.select_related("project").get(pk=team_id)
     events_obj = SessionReplayEvents()
@@ -300,6 +305,7 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
             mouse_activity_count=metadata.get("mouse_activity_count"),
             start_url=metadata.get("first_url"),
             console_error_count=metadata.get("console_error_count"),
+            touch=metadata.get("snapshot_source") == "mobile" or processed.device_type in _TOUCH_DEVICE_TYPES,
         ),
     )
 
@@ -315,6 +321,8 @@ class ProcessedEvents:
     event_timestamps: dict[str, int]  # event uuid -> ms since session start
     navigation: list[NavigationEntry]
     navigation_dropped: int
+    # First `$device_type` any event carried; None when no event had one.
+    device_type: str | None = None
 
 
 def _process_events(
@@ -324,6 +332,14 @@ def _process_events(
     lookup, and derive the per-window URL-change timeline the preamble renders."""
     uuid_index = raw_columns.index("uuid") if "uuid" in raw_columns else None
     timestamp_index = raw_columns.index("timestamp") if "timestamp" in raw_columns else None
+    device_index = raw_columns.index(_DEVICE_TYPE_COLUMN) if _DEVICE_TYPE_COLUMN in raw_columns else None
+    device_type: str | None = None
+    if device_index is not None:
+        device_type = next((str(row[device_index]) for row in raw_rows if row[device_index]), None)
+        raw_columns = [c for i, c in enumerate(raw_columns) if i != device_index]
+        raw_rows = [[v for i, v in enumerate(row) if i != device_index] for row in raw_rows]
+        uuid_index = raw_columns.index("uuid") if "uuid" in raw_columns else None
+        timestamp_index = raw_columns.index("timestamp") if "timestamp" in raw_columns else None
     # All other indexes are over the LLM-visible column set (uuid stripped); compute once.
     visible_columns = [c for i, c in enumerate(raw_columns) if i != uuid_index]
     url_index = visible_columns.index("$current_url") if "$current_url" in visible_columns else None
@@ -372,6 +388,7 @@ def _process_events(
         event_timestamps=event_timestamps,
         navigation=navigation,
         navigation_dropped=navigation_dropped,
+        device_type=device_type,
     )
 
 

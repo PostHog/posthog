@@ -1,21 +1,19 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
 
-import { LemonButton, LemonModal, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { LabeledRow } from '../../components/LabeledRow'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditCount } from '../../utils/credits'
+import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { SCANNER_TYPE_OPTIONS, modelName, modelNamingVariant, scannerTypeLabel } from '../types'
-import { ClippedPreview } from './ClippedPreview'
+import { SCANNER_TYPE_OPTIONS, modelName, scannerTypeLabel } from '../types'
+import { PromptPreview } from './PromptPreview'
 import { ScannerRecordingFilters } from './ScannerRecordingFilters'
 
 function EnabledText({ enabled }: { enabled: boolean }): JSX.Element {
@@ -24,14 +22,11 @@ function EnabledText({ enabled }: { enabled: boolean }): JSX.Element {
 
 export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { scanner, experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const [promptOpen, setPromptOpen] = useState(false)
     if (!scanner) {
         return null
     }
-    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
     const config = scanner.scanner_config
-    const targeting = scanner.experiment_targeting
+    const scope = scannerExperimentScope(scanner)
 
     return (
         <div
@@ -62,7 +57,7 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
                             {scannerTypeLabel(scanner.scanner_type)}
                         </span>
                     </Tooltip>{' '}
-                    · {modelName(scanner.model, namingVariant)}
+                    · {modelName(scanner.model)}
                 </span>
                 {scanner.credits_per_observation != null && (
                     <span className="text-xs text-muted">
@@ -73,21 +68,7 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
 
             <LabeledRow label="Prompt">
                 {config.prompt ? (
-                    <div className="bg-surface-secondary border rounded p-2">
-                        <ClippedPreview
-                            clip="short"
-                            buttonLabel="Show full prompt"
-                            dataAttr="vision-setup-show-prompt"
-                            onOpenFull={() => setPromptOpen(true)}
-                        >
-                            <div className="whitespace-pre-wrap text-sm">{config.prompt}</div>
-                        </ClippedPreview>
-                        <LemonModal isOpen={promptOpen} onClose={() => setPromptOpen(false)} title="Prompt" width={720}>
-                            <div className="whitespace-pre-wrap font-mono text-sm bg-surface-tertiary border rounded p-3">
-                                {config.prompt}
-                            </div>
-                        </LemonModal>
-                    </div>
+                    <PromptPreview prompt={config.prompt} dataAttr="vision-setup-show-prompt" />
                 ) : (
                     <span className="text-muted">—</span>
                 )}
@@ -130,26 +111,35 @@ export function ScannerSetupCard({ scannerId }: { scannerId: string }): JSX.Elem
                     {scanner.scanner_config.scale.label ? ` (${scanner.scanner_config.scale.label})` : ''}
                 </LabeledRow>
             )}
-            {scanner.scanner_type === 'summarizer' && scanner.scanner_config.length && (
-                <LabeledRow label="Summary length">
-                    <span className="capitalize">{scanner.scanner_config.length}</span>
+            {scanner.scanner_type === 'experiment' && (
+                <LabeledRow
+                    label="Sample variants evenly"
+                    tooltip="When enabled, each variant gets enough sessions even with an uneven split, so counts follow sampling, not traffic."
+                >
+                    <EnabledText enabled={scanner.scanner_config.balance_variants !== false} />
                 </LabeledRow>
             )}
+            {(scanner.scanner_type === 'summarizer' || scanner.scanner_type === 'experiment') &&
+                scanner.scanner_config.length && (
+                    <LabeledRow label="Summary length">
+                        <span className="capitalize">{scanner.scanner_config.length}</span>
+                    </LabeledRow>
+                )}
 
             <LabeledRow label="Recordings">
                 Scans {percentage(scanner.sampling_rate ?? 0, 1)} of matching recordings
             </LabeledRow>
-            {targeting && (
+            {scope && (
                 <LabeledRow label="Experiment">
                     {/* The name loads with the scanner; until then, or for an experiment the viewer can't open, the ID stands in. */}
-                    <Link to={urls.experiment(targeting.experiment_id)}>
-                        {experimentContext?.experiment.id === targeting.experiment_id
+                    <Link to={urls.experiment(scope.experimentId)}>
+                        {experimentContext?.experiment.id === scope.experimentId
                             ? experimentContext.experiment.name
-                            : `Experiment ${targeting.experiment_id}`}
+                            : `Experiment ${scope.experimentId}`}
                     </Link>
                     <span className="text-muted">
                         {' · '}
-                        {targeting.variant ? `${targeting.variant} variant` : 'every variant'}
+                        {scopeVariantsLabel(scope, 'every variant')}
                     </span>
                 </LabeledRow>
             )}

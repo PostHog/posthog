@@ -417,6 +417,14 @@ Otherwise the fallback is full on drafts too: `ci-nodejs.yml` has a bare `pull_r
 `turbo-discover.js` (`draft ? 'skip' : 'full'`) and `ci-frontend.yml`'s `fall_back` are the two reference implementations of the draft/ready split; `ci-nodejs.yml` and `ci-e2e-playwright.yml` are the reference for always-full.
 Foot-gun: if the job that selects tests is cancelled mid-flight, its `mode` output is empty — normalize empty-mode **on a draft** to `skip`, or the draft grabs the full matrix and serializes the ready run behind it.
 
+### Never push to a merge queue branch
+
+A step that commits to `github.event.pull_request.head.ref` also runs on the queue's PR, where that ref is Trunk's `trunk-merge/` branch.
+A push there moves the head off the commit Trunk tests, cancels every in-flight run, and ends the attempt.
+The commit stays on an ephemeral branch and never reaches the pull request, so the next attempt repeats it.
+On a queue branch such a step must fail and say what to fix on the pull request. It must not commit, and it must not pass with the fix unapplied.
+`Check and update OpenAPI types` in `ci-backend.yml` is the reference. The snapshot committers skip the queue through their bot-actor check.
+
 ### Forcing the full matrix on a draft
 
 The `run-ci-backend` and `run-ci-frontend` labels force the full matrix, but a label alone starts nothing.
@@ -510,6 +518,7 @@ Roll out a new blocking lint the same way: ship `continue-on-error`, clear the i
 - [ ] External fetches retry (`--retry-all-errors`), except where a repeat has a side effect.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
 - [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.
+- [ ] No step pushes to a `trunk-merge/` branch: a step that commits to the PR head fails there instead.
 - [ ] Caching through the shared composites; writes gated to master.
 - [ ] Any job running `manage.py migrate` restores the master schema dump first, with the migrate as top-up (see Caching).
 - [ ] Prod image push / deploy dispatch gated per `/gating-production-deploys`.

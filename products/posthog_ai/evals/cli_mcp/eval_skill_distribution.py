@@ -89,7 +89,7 @@ async def eval_skill_distribution(ctx: EvalContext) -> None:
             skill="diagnosing-experiment-results",
             # The support front door wraps the diagnostic skill and also answers this prompt.
             alternate_skills=["debugging-experiments"],
-            downstream_tools=["experiment-get", "experiment-stats", "execute-sql"],
+            downstream_tools=["experiment-get", "experiment-results-get", "execute-sql"],
             skill_delivery=ctx.skill_delivery,
         ),
         _case(
