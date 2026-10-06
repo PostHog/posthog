@@ -233,10 +233,13 @@ def _numbered[T](prefix: str, refs: Sequence[T]) -> dict[str, T]:
     return {f"{prefix}_{index}": ref for index, ref in enumerate(refs[:MAX_REF_OPTIONS], start=1)}
 
 
+def _named_in(ref: SavedInsightRef | ErrorIssueRef, answer: str) -> bool:
+    return bool(ref.name) and ref.name.casefold() in answer.casefold()
+
+
 def _named_in_answer_first[T: (SavedInsightRef, ErrorIssueRef)](refs: Sequence[T], answer: str) -> list[T]:
     """Puts the refs the answer names ahead of the rest, so the cap drops refs the answer never mentions."""
-    answer = answer.casefold()
-    return sorted(refs, key=lambda ref: not (ref.name and ref.name.casefold() in answer))
+    return sorted(refs, key=lambda ref: not _named_in(ref, answer))
 
 
 def _insight_options(transcript: TurnTranscript) -> dict[str, SavedInsightRef]:
@@ -247,12 +250,20 @@ def _issue_options(transcript: TurnTranscript) -> dict[str, ErrorIssueRef]:
     return _numbered("issue", _named_in_answer_first(transcript.error_issues, transcript.assistant_text))
 
 
-def _insight_label(ref: SavedInsightRef) -> str:
-    return f"{redact_values(ref.name) or 'Untitled insight'} ({ref.query_kind or 'unknown chart type'})"
+# Masking can give two refs the same label ("Revenue 2025" and "Revenue 2026" both read "Revenue <n>").
+_NAMED_IN_ANSWER_MARK = "named in the answer"
 
 
-def _issue_label(ref: ErrorIssueRef) -> str:
-    return redact_values(ref.name) or "Unnamed issue"
+def _insight_label(ref: SavedInsightRef, answer: str) -> str:
+    details = [ref.query_kind or "unknown chart type"]
+    if _named_in(ref, answer):
+        details.append(_NAMED_IN_ANSWER_MARK)
+    return f"{redact_values(ref.name) or 'Untitled insight'} ({', '.join(details)})"
+
+
+def _issue_label(ref: ErrorIssueRef, answer: str) -> str:
+    label = redact_values(ref.name) or "Unnamed issue"
+    return f"{label} ({_NAMED_IN_ANSWER_MARK})" if _named_in(ref, answer) else label
 
 
 def build_judge_state(transcript: TurnTranscript) -> dict[str, JsonValue]:
@@ -274,9 +285,13 @@ def build_judge_state(transcript: TurnTranscript) -> dict[str, JsonValue]:
             for turn in transcript.earlier_turns
         ]
     if transcript.saved_insights:
-        state["saved_insights"] = {key: _insight_label(ref) for key, ref in _insight_options(transcript).items()}
+        state["saved_insights"] = {
+            key: _insight_label(ref, transcript.assistant_text) for key, ref in _insight_options(transcript).items()
+        }
     if transcript.error_issues:
-        state["error_issues"] = {key: _issue_label(ref) for key, ref in _issue_options(transcript).items()}
+        state["error_issues"] = {
+            key: _issue_label(ref, transcript.assistant_text) for key, ref in _issue_options(transcript).items()
+        }
     return state
 
 

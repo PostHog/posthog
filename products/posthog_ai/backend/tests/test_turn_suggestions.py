@@ -19,7 +19,11 @@ from posthog.redis import get_client
 
 from products.posthog_ai.backend.tasks import generate_turn_suggestion_task
 from products.posthog_ai.backend.turn_suggestions.classifier import CardCopy, card_copy, classify_turn, pick_offer
-from products.posthog_ai.backend.turn_suggestions.dispatch import TURN_SETTLE_SECONDS, enqueue_turn_suggestion
+from products.posthog_ai.backend.turn_suggestions.dispatch import (
+    TURN_SETTLE_SECONDS,
+    TURN_SUGGESTION_EXPIRES_SECONDS,
+    enqueue_turn_suggestion,
+)
 from products.posthog_ai.backend.turn_suggestions.drafter import DRAFT_MODEL, draft_scout, render_turn_prompt
 from products.posthog_ai.backend.turn_suggestions.judgment import (
     JUDGE_MODEL,
@@ -111,6 +115,10 @@ def _agent_final(text: str, message_id: str | None = "m1") -> dict:
     return _notification("session/update", {"update": update})
 
 
+def _turn_complete() -> dict:
+    return _notification("_posthog/turn_complete", {"stopReason": "end_turn"})
+
+
 def _builtin_tool_call(tool_call_id: str, tool_name: str, raw_input: dict) -> dict:
     return _notification(
         "session/update",
@@ -164,7 +172,7 @@ def _metric_turn() -> list[dict]:
         ),
         _tool_call_update("t1", "completed"),
         _agent_text("You had 412 signups this week, up 8% on last week."),
-        _notification("_posthog/turn_complete", {"stopReason": "end_turn"}),
+        _turn_complete(),
     ]
 
 
@@ -182,6 +190,7 @@ def _saved_insight_turn(query_kind: str = "TrendsQuery", name: str = "Signups") 
             {"id": 42, "short_id": "abc123", "name": name, "query": {"kind": query_kind, "series": []}},
         ),
         _agent_text("Saved. You had 412 signups this week."),
+        _turn_complete(),
     ]
 
 
@@ -195,6 +204,7 @@ def _error_turn() -> list[dict]:
             {"results": [{"id": ERROR_ISSUE.issue_id, "name": "Checkout error"}], "hasMore": False},
         ),
         _agent_text("A checkout error started at 14:10."),
+        _turn_complete(),
     ]
 
 
@@ -563,12 +573,15 @@ class TestJudgeTurn(SimpleTestCase):
         )
 
         question = build_judge_questions(transcript, ALL_OFFERS)["error_issue"]
+        labels = build_judge_state(transcript)["error_issues"]
         with patch(
             f"{JUDGMENT}.build_system_one_client", return_value=MagicMock(decide=MagicMock(return_value=answers))
         ):
             judgment = judge_turn(transcript, available=ALL_OFFERS)
 
         assert isinstance(question, ChoiceQuestion) and len(question.criteria) == MAX_REF_OPTIONS + 1
+        assert isinstance(labels, dict)
+        assert [key for key, label in labels.items() if "named in the answer" in str(label)] == ["issue_1"]
         assert judgment is not None and judgment.error_issue == ErrorIssueRef(issue_id="issue-250", name="Error 250")
 
     def test_option_keys_map_back_to_the_refs_they_stand_for(self):
@@ -853,6 +866,7 @@ class TestEnqueueTurnSuggestion(BaseTest):
             assert apply_async.call_args.kwargs == {
                 "kwargs": {"run_id": str(task_run.id), "team_id": self.team.id},
                 "countdown": TURN_SETTLE_SECONDS,
+                "expires": TURN_SUGGESTION_EXPIRES_SECONDS,
             }
 
     def test_a_turn_reported_twice_is_queued_once(self):
@@ -1031,7 +1045,11 @@ class TestGenerateTurnSuggestion(BaseTest):
 
     def test_a_turn_with_nothing_to_offer_never_reaches_the_classifier(self):
         self.mocks["scouts"].return_value = False
-        self.mocks["history"].return_value = [_user_message("Why did signups drop?"), _agent_text("Hard to say.")]
+        self.mocks["history"].return_value = [
+            _user_message("Why did signups drop?"),
+            _agent_text("Hard to say."),
+            _turn_complete(),
+        ]
 
         outcome = self._generate()
 
@@ -1068,6 +1086,7 @@ class TestGenerateTurnSuggestion(BaseTest):
                 "t2", 'call query-trends {"breakdownFilter":{"breakdown":"$geoip_country_code"}}', "completed"
             ),
             _agent_text("Most signups came from the US."),
+            _turn_complete(),
         ]
 
         outcome = self._generate()
@@ -1095,7 +1114,7 @@ class TestGenerateTurnSuggestion(BaseTest):
             *(
                 entry
                 for question in ("By country?", "By plan?")
-                for entry in (_user_message(question), _agent_text("A."))
+                for entry in (_user_message(question), _agent_text("A."), _turn_complete())
             ),
         ]
         earlier = _offer(0, run_id=str(self.task_run.id))
@@ -1109,12 +1128,13 @@ class TestGenerateTurnSuggestion(BaseTest):
                     *self.mocks["history"].return_value,
                     _user_message("Thanks"),
                     _agent_text("You're welcome."),
+                    _turn_complete(),
                 ]
                 self.mocks["scouts"].return_value = False
                 assert self._generate() == TurnSuggestionOutcome(status="skipped", reason="no_offers_available")
             elif interruption == "follow_up_still_running":
                 self.mocks["history"].return_value = [*self.mocks["history"].return_value, _user_message("Thanks")]
-                assert self._generate() == TurnSuggestionOutcome(status="skipped", reason="empty_turn")
+                assert self._generate() == TurnSuggestionOutcome(status="skipped", reason="turn_in_progress")
             else:
                 resolution = TurnSuggestionResolution.DISMISSED
                 assert resolve_offer(self.task_run.task_id, self.team.id, turn_index=0, resolution=resolution)
@@ -1128,13 +1148,17 @@ class TestGenerateTurnSuggestion(BaseTest):
         self.mocks["publish"].assert_not_called()
         assert [offer.turn_index for offer in read_ledger(self.task_run.task_id, self.team.id).offers] == [0]
 
-    def test_a_follow_up_still_running_at_the_read_is_classified_when_it_completes(self):
-        follow_up = [*_metric_turn(), _user_message("Break that down by country")]
+    @parameterized.expand([("no_frames_yet", []), ("answer_streaming", [_agent_text("Most signups")])])
+    def test_a_follow_up_still_running_at_the_read_is_classified_when_it_completes(
+        self, _name: str, streamed: list[dict]
+    ):
+        follow_up = [*_metric_turn(), _user_message("Break that down by country"), *streamed]
         self.mocks["history"].return_value = follow_up
 
-        assert self._generate() == TurnSuggestionOutcome(status="skipped", reason="empty_turn")
+        assert self._generate() == TurnSuggestionOutcome(status="skipped", reason="turn_in_progress")
+        self.mocks["classify"].assert_not_called()
 
-        self.mocks["history"].return_value = [*follow_up, _agent_text("Most signups came from the US.")]
+        self.mocks["history"].return_value = [*follow_up, _agent_text(" came from the US."), _turn_complete()]
         outcome = self._generate()
 
         assert outcome == TurnSuggestionOutcome(status="emitted", reason="scout")
@@ -1171,7 +1195,12 @@ class TestGenerateTurnSuggestion(BaseTest):
     def test_the_offer_ledger_holds_back_a_card(self, _name: str, ledger: dict, reason: str):
         Task.objects.filter(id=self.task_run.task_id).update(state={STATE_KEY: ledger})
         updated_at = Task.objects.get(id=self.task_run.task_id).updated_at
-        self.mocks["history"].return_value = [*_metric_turn(), _user_message("And by country?"), _agent_text("US.")]
+        self.mocks["history"].return_value = [
+            *_metric_turn(),
+            _user_message("And by country?"),
+            _agent_text("US."),
+            _turn_complete(),
+        ]
 
         outcome = self._generate()
 

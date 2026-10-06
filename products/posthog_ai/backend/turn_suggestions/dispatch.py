@@ -20,6 +20,8 @@ TURN_SETTLE_SECONDS = 2
 # the conversation's latest turn when it runs. Past the wait, a report can be a later turn, so it
 # queues its own job.
 ENQUEUE_DEDUP_SECONDS = TURN_SETTLE_SECONDS
+# Every PostHog AI turn queues a job, so a stalled worker must not drain a backlog of late cards.
+TURN_SUGGESTION_EXPIRES_SECONDS = TURN_SETTLE_SECONDS + 30
 
 
 # A broker call can outlast the reservation, so a failed call releases only the reservation it made,
@@ -71,7 +73,9 @@ def enqueue_turn_suggestion(task_run: "TaskRun") -> bool:
 
         try:
             generate_turn_suggestion_task.apply_async(
-                kwargs={"run_id": run_id, "team_id": task_run.team_id}, countdown=TURN_SETTLE_SECONDS
+                kwargs={"run_id": run_id, "team_id": task_run.team_id},
+                countdown=TURN_SETTLE_SECONDS,
+                expires=TURN_SUGGESTION_EXPIRES_SECONDS,
             )
         except Exception:
             # Another report of the turn can still queue it.

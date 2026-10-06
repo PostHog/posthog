@@ -81,6 +81,7 @@ class ErrorIssueRef:
 @frozen
 class TurnTranscript:
     human_messages: tuple[str, ...]
+    latest_turn_complete: bool
     assistant_text: str
     tool_calls: tuple[TranscriptToolCall, ...]
     earlier_turns: tuple[EarlierTurn, ...]
@@ -236,6 +237,8 @@ def _notifications(entries: Iterable[dict[str, Any]]) -> Iterator[tuple[str | No
             yield frame.notification.method, params if isinstance(params, dict) else {}
 
 
+TURN_COMPLETE_METHOD = "_posthog/turn_complete"
+
 # The synthetic prompt a resumed run starts with. The thread never renders it, so it is not a turn.
 RESUME_CONTEXT_PREFIX = "You are resuming a previous conversation."
 
@@ -276,8 +279,10 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
     # carries the whole text and replaces them, matching how the thread fold finalizes a bubble.
     assistant_messages: dict[str, str] = {}
     tool_calls: dict[str, _ToolCallAccumulator] = {}
+    latest_turn_complete = False
 
     def start_turn(text: str) -> None:
+        nonlocal latest_turn_complete
         if human_messages:
             # The finished turn stays available as context for classifying the one that follows.
             earlier_turns.append(
@@ -292,6 +297,7 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
                 )
             )
         human_messages.append(text)
+        latest_turn_complete = False
         assistant_messages.clear()
         tool_calls.clear()
 
@@ -321,6 +327,9 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
                 remembered_texts[text] -= 1
                 continue
             start_turn(text)
+            continue
+        if method == TURN_COMPLETE_METHOD:
+            latest_turn_complete = bool(human_messages)
             continue
         if method != "session/update":
             continue
@@ -357,6 +366,7 @@ def build_turn_transcript(entries: Iterable[dict[str, Any]]) -> TurnTranscript:
     active = [accumulator for accumulator in tool_calls.values() if not accumulator.discovery]
     return TurnTranscript(
         human_messages=tuple(human_messages),
+        latest_turn_complete=latest_turn_complete,
         assistant_text=truncate_text(
             _join_messages(assistant_messages), ASSISTANT_TEXT_LIMIT, collapse_whitespace=False
         ),

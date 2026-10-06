@@ -180,6 +180,7 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     if not _turn_suggestions_enabled(task_run, user):
         return _skipped("flag_off")
     if not judge_configured():
+        logger.warning("posthog_ai_turn_suggestion_judge_not_configured", run_id=str(task_run.id))
         return _skipped("judge_not_configured")
     early_refusal = read_ledger(task.id, task_run.team_id).refusal()
     if early_refusal is not None:
@@ -193,10 +194,12 @@ def generate_turn_suggestion(run_id: str, team_id: int) -> TurnSuggestionOutcome
     if not transcript.human_messages:
         return _skipped("no_user_message")
     turn_index = len(transcript.human_messages) - 1
+    if not transcript.latest_turn_complete:
+        # A follow-up sent during the settle wait is still streaming here. Its own completion
+        # classifies it, and noting it keeps a card still drafting for the previous turn away.
+        note_turn(task.id, task_run.team_id, turn_index)
+        return _skipped("turn_in_progress")
     if not transcript.assistant_text and not transcript.tool_calls:
-        # A follow-up sent during the settle wait shows here as an empty latest turn. Its own
-        # completion classifies it, so it is only noted: a card still drafting for the previous
-        # turn must not land under it.
         note_turn(task.id, task_run.team_id, turn_index)
         return _skipped("empty_turn")
     # Claimed before the turn can bail out, so a card still drafting for the previous turn sees
