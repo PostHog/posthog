@@ -27,7 +27,7 @@ from posthog.clickhouse.client import (
 )
 from posthog.clickhouse.client.async_task_chain import execute_task_chain, task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
-from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_queries, tags_context
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import (
     build_direct_query_cancellation_token,
@@ -236,6 +236,15 @@ class TestExecuteProcessQuery(TestCase):
         args, kwargs = mock_redis.set.call_args
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
+
+    @patch("posthog.tasks.tasks.process_query_task.si")
+    def test_enqueue_stores_the_router_class_of_the_caller(self, task_signature):
+        with tags_context(kind="temporal", product=Product.MAX_AI):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, {"kind": "EventsQuery"}, _test_only_bypass_celery=True
+            )
+
+        self.assertEqual(task_signature.call_args.args[4]["query_router_class"], "async")
 
     @patch("posthog.clickhouse.client.execute_async.redis.get_client")
     @patch("posthog.api.services.query.process_query_dict")

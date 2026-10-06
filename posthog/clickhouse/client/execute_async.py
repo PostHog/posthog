@@ -18,6 +18,7 @@ from posthog import celery, redis
 from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.clickhouse.query_router.classify import classify_tags
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
@@ -435,6 +436,8 @@ def enqueue_process_query_task(
         labels=labels,
     )
     query_tags = get_query_tags().model_dump()
+    # The worker replaces kind and id with its own, so the class the caller's tags give travels with the task.
+    query_tags["query_router_class"] = classify_tags(get_query_tags()).name.lower()
     manager.store_query_status(query_status)
 
     if cache_key:

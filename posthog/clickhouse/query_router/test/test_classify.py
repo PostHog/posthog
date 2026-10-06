@@ -39,7 +39,19 @@ class TestClassify(SimpleTestCase):
                 QueryClass.API,
             ),
             (
-                "query_task_for_an_ai_feature_keeps_the_callers_class",
+                "query_task_enqueued_by_a_background_job",
+                QueryTags(kind="celery", id=PROCESS_QUERY_TASK_ID, query_router_class="background"),
+                ClickHouseUser.APP,
+                QueryClass.BACKGROUND,
+            ),
+            (
+                "query_task_enqueued_by_an_ai_worker",
+                QueryTags(kind="celery", id=PROCESS_QUERY_TASK_ID, product=Product.MAX_AI, query_router_class="async"),
+                ClickHouseUser.MAX_AI,
+                QueryClass.ASYNC,
+            ),
+            (
+                "query_task_enqueued_before_the_class_was_stored",
                 QueryTags(kind="celery", id=PROCESS_QUERY_TASK_ID, feature=Feature.POSTHOG_AI),
                 ClickHouseUser.APP,
                 QueryClass.INTERACTIVE,

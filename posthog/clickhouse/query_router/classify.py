@@ -39,15 +39,28 @@ def pool_for(*, workload: Workload, team_id: int | None, explicit_client: bool) 
     return _ROUTED_WORKLOADS.get(workload)
 
 
-def classify_query(tags: QueryTags, ch_user: ClickHouseUser) -> QueryClass | None:
-    if ch_user in _EXEMPT_USERS:
-        return None
-    # The app loads most insights through the query task, which runs a request's query for a caller
-    # that polls for the result. The task carries the tags of that request, so its query keeps the
-    # caller's class. This rule comes before the other async rules because a person who calls
-    # PostHog AI or MCP over HTTP waits for the answer.
-    if tags.kind == "request" or tags.id == _PROCESS_QUERY_TASK_ID:
+def classify_tags(tags: QueryTags) -> QueryClass:
+    """The class a query's own tags give it.
+
+    The code that enqueues the async query task calls this too, because the worker that runs the
+    task replaces the caller's kind and id with its own.
+    """
+    # A request comes before the async rules because a person who calls PostHog AI or MCP over HTTP
+    # waits for the answer.
+    if tags.kind == "request":
         return QueryClass.API if is_api_key_access_method(tags.access_method) else QueryClass.INTERACTIVE
     if tags.feature in _ASYNC_FEATURES or tags.product == Product.MAX_AI:
         return QueryClass.ASYNC
     return QueryClass.BACKGROUND
+
+
+def classify_query(tags: QueryTags, ch_user: ClickHouseUser) -> QueryClass | None:
+    if ch_user in _EXEMPT_USERS:
+        return None
+    if tags.id == _PROCESS_QUERY_TASK_ID:
+        # The task runs a query for whoever enqueued it: a request whose caller polls for the result,
+        # or a background job. A task enqueued before the class was stored keeps the request rule.
+        if tags.query_router_class:
+            return QueryClass[tags.query_router_class.upper()]
+        return QueryClass.API if is_api_key_access_method(tags.access_method) else QueryClass.INTERACTIVE
+    return classify_tags(tags)
