@@ -29,6 +29,7 @@ import {
     IntegrationType,
 } from '~/types'
 
+import { BatchExportModelEnumApi } from 'products/batch_exports/frontend/generated/api.schemas'
 import { SourceDestinationsBanner } from 'products/warehouse_sources/frontend/components/SourceDestinationsBanner'
 
 import { batchExportConfigFormLogic } from './batchExportConfigFormLogic'
@@ -37,6 +38,7 @@ import {
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
 import { BatchExportGeneralEditFields, BatchExportsEditFields } from './BatchExportEditForm'
+import { BatchExportHogQLQueryEditor } from './BatchExportHogQLQueryEditor'
 import { EVENT_FIELD_DESCRIPTIONS } from './destinations/common'
 import { BatchExportConfigurationForm } from './types'
 import { dayOptions, hourOptions } from './utils'
@@ -61,6 +63,10 @@ export function BatchExportConfiguration(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { timezone: teamTimezone, weekStartDay } = useValues(teamLogic)
     const highFrequencyBatchExports = featureFlags[FEATURE_FLAGS.HIGH_FREQUENCY_BATCH_EXPORTS]
+    const hogqlBatchExports = !!featureFlags[FEATURE_FLAGS.HOGQL_BATCH_EXPORTS]
+    const isHogQLModel = selectedModel === BatchExportModelEnumApi.Hogql
+    // The API does not allow changing the model to or from 'hogql' on a saved export
+    const savedModelIsHogQL = !isNew && batchExportConfig?.model === BatchExportModelEnumApi.Hogql
 
     const showTimezoneAndOffsetSelector = configuration.interval === 'day' || configuration.interval === 'week'
     const timezoneOptions =
@@ -77,8 +83,8 @@ export function BatchExportConfiguration(): JSX.Element {
         <Form logic={batchExportConfigFormLogic} formKey="configuration" className="flex flex-col gap-3">
             <SourceDestinationsBanner />
             <div className="flex flex-wrap gap-4 items-start">
-                <div className="flex flex-col flex-1 max-w-200 min-w-100 gap-y-3">
-                    <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">
+                <div className="flex flex-col flex-1 min-w-100 gap-y-3">
+                    <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2 *:max-w-160">
                         <div className="flex flex-col gap-y-1 mb-2">
                             <h3 className="mb-0">Schedule</h3>
                             <p className="text-secondary text-xs mb-0">Controls when this batch export runs</p>
@@ -222,7 +228,7 @@ export function BatchExportConfiguration(): JSX.Element {
                             </>
                         )}
                     </div>
-                    <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">
+                    <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2 *:max-w-160">
                         <div className="flex flex-col gap-y-1 mb-2">
                             <h3 className="mb-0">Data</h3>
                             <p className="text-secondary text-xs mb-0">Controls which data is exported</p>
@@ -235,10 +241,23 @@ export function BatchExportConfiguration(): JSX.Element {
                                 className="flex flex-1"
                             >
                                 <LemonSelect
-                                    options={tables.map((table) => ({
-                                        value: table.name,
-                                        label: table.id,
-                                    }))}
+                                    options={[
+                                        ...tables.map((table) => ({
+                                            value: table.name,
+                                            label: table.id,
+                                            hidden: savedModelIsHogQL,
+                                        })),
+                                        {
+                                            value: BatchExportModelEnumApi.Hogql,
+                                            label: 'Custom SQL query',
+                                            hidden: !hogqlBatchExports || (!isNew && !savedModelIsHogQL),
+                                        },
+                                    ]}
+                                    disabledReason={
+                                        savedModelIsHogQL
+                                            ? 'A saved export that uses a custom SQL query cannot change its model'
+                                            : undefined
+                                    }
                                     value={selectedModel}
                                     onSelect={(newValue) => {
                                         setSelectedModel(newValue)
@@ -248,45 +267,57 @@ export function BatchExportConfiguration(): JSX.Element {
                             </LemonField>
                         </div>
 
-                        <div className="flex gap-2">
-                            <LemonCollapse
-                                className="flex flex-1"
-                                panels={[
-                                    {
-                                        key: 'schema',
-                                        header: 'View model schema',
-                                        content: (
-                                            <div className="flex-1">
-                                                {/* TODO: display the data types that will be used in the destination */}
-                                                {isDatabaseDestination && (
-                                                    <LemonBanner type="info" className="mb-4">
-                                                        This schema is just for reference and does not reflect the
-                                                        actual data types that will be used in {service}.
-                                                        <br />
-                                                        <br />
-                                                        <b>
-                                                            It is recommended to allow the batch export to create the
-                                                            destination table automatically.
-                                                        </b>
-                                                    </LemonBanner>
-                                                )}
-                                                <DatabaseTable
-                                                    table={selectedModel ? selectedModel : 'events'}
-                                                    tables={tables}
-                                                    inEditSchemaMode={false}
-                                                    fieldDescriptions={
-                                                        !selectedModel || selectedModel === 'events'
-                                                            ? EVENT_FIELD_DESCRIPTIONS
-                                                            : undefined
-                                                    }
-                                                />
-                                            </div>
-                                        ),
-                                    },
-                                ]}
-                            />
-                        </div>
-                        {selectedModel === 'events' ? (
+                        {isHogQLModel ? (
+                            <p className="text-xs text-secondary mb-0">
+                                Each run exports the results of the query below.
+                            </p>
+                        ) : null}
+                        {!isHogQLModel ? (
+                            <div className="flex gap-2">
+                                <LemonCollapse
+                                    className="flex flex-1"
+                                    panels={[
+                                        {
+                                            key: 'schema',
+                                            header: 'View model schema',
+                                            content: (
+                                                <div className="flex-1">
+                                                    {/* TODO: display the data types that will be used in the destination */}
+                                                    {isDatabaseDestination && (
+                                                        <LemonBanner type="info" className="mb-4">
+                                                            This schema is just for reference and does not reflect the
+                                                            actual data types that will be used in {service}.
+                                                            <br />
+                                                            <br />
+                                                            <b>
+                                                                It is recommended to allow the batch export to create
+                                                                the destination table automatically.
+                                                            </b>
+                                                        </LemonBanner>
+                                                    )}
+                                                    <DatabaseTable
+                                                        table={
+                                                            selectedModel
+                                                                ? selectedModel
+                                                                : BatchExportModelEnumApi.Events
+                                                        }
+                                                        tables={tables}
+                                                        inEditSchemaMode={false}
+                                                        fieldDescriptions={
+                                                            !selectedModel ||
+                                                            selectedModel === BatchExportModelEnumApi.Events
+                                                                ? EVENT_FIELD_DESCRIPTIONS
+                                                                : undefined
+                                                        }
+                                                    />
+                                                </div>
+                                            ),
+                                        },
+                                    ]}
+                                />
+                            </div>
+                        ) : null}
+                        {selectedModel === BatchExportModelEnumApi.Events ? (
                             <>
                                 <div className="flex flex-col gap-2 min-h-16">
                                     <div className="flex gap-2 justify-between w-full">
@@ -353,7 +384,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                                     : []) as AnyPropertyFilter[]
                                             }
                                             taxonomicGroupTypes={
-                                                selectedModel === 'events'
+                                                selectedModel === BatchExportModelEnumApi.Events
                                                     ? [
                                                           TaxonomicFilterGroupType.EventProperties,
                                                           TaxonomicFilterGroupType.EventFeatureFlags,
@@ -375,10 +406,23 @@ export function BatchExportConfiguration(): JSX.Element {
                             </>
                         ) : null}
                     </div>
+                    {isHogQLModel ? (
+                        <div className="flex flex-col p-3 rounded border bg-surface-primary gap-y-2">
+                            <div className="flex flex-col gap-y-1 mb-2">
+                                <h3 className="mb-0">Query</h3>
+                                <p className="text-secondary text-xs mb-0">
+                                    Write the SQL query whose results each run exports. Run it here to preview the data.
+                                </p>
+                            </div>
+                            <LemonField name="hogql_query">
+                                <BatchExportHogQLQueryEditor />
+                            </LemonField>
+                        </div>
+                    ) : null}
                 </div>
 
                 <div className="flex flex-col gap-4 flex-1 min-w-100">
-                    <div className="p-3 rounded border bg-surface-primary">
+                    <div className="p-3 rounded border bg-surface-primary *:max-w-160">
                         <BatchExportConfigurationFields
                             isNew={isNew}
                             formValues={configuration as BatchExportConfigurationForm}

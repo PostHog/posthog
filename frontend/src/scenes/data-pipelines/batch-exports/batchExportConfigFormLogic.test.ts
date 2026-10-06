@@ -382,8 +382,15 @@ const REDSHIFT_COPY_INTEGRATIONS_BATCH_EXPORT = fixture(
 )
 
 // Single map keyed by id; used to register GET + PATCH mocks dynamically below.
+const HOGQL_BATCH_EXPORT: BatchExportConfiguration = {
+    ...fixture('test-hogql-id', 'HogQL Export', { type: 'AwsS3', integration: 31, config: AWS_S3_CONFIG }),
+    model: 'hogql',
+    hogql_query: 'SELECT event FROM events WHERE timestamp >= {data_interval_start}',
+}
+
 const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
     AWS_S3_BATCH_EXPORT,
+    HOGQL_BATCH_EXPORT,
     AWS_S3_GZIP_BATCH_EXPORT,
     AWS_S3_LEGACY_EXTENSION_BATCH_EXPORT,
     S3_COMPATIBLE_BATCH_EXPORT,
@@ -404,6 +411,8 @@ const ALL_BATCH_EXPORTS: BatchExportConfiguration[] = [
 
 const SAVE_FAILS_ID = 'test-save-fails-id'
 const SAVE_FAILS_DETAIL = 'Prefix is not valid'
+const HOGQL_SAVE_FAILS_ID = 'test-hogql-save-fails-id'
+const HOGQL_SAVE_FAILS_DETAIL = 'Invalid HogQL query: Unable to resolve field: not_a_column'
 
 jest.mock('@posthog/lemon-ui', () => ({
     ...jest.requireActual('@posthog/lemon-ui'),
@@ -449,6 +458,21 @@ describe('batchExportConfigFormLogic', () => {
         }
         patchMocks[`/api/environments/:team_id/batch_exports/${SAVE_FAILS_ID}/`] = async () =>
             [400, { detail: SAVE_FAILS_DETAIL }] as unknown as [number, BatchExportConfiguration]
+        // A HogQL export whose PATCH fails on the query, the way the API reports an invalid query.
+        getMocks[`/api/environments/:team_id/batch_exports/${HOGQL_SAVE_FAILS_ID}`] = {
+            ...HOGQL_BATCH_EXPORT,
+            id: HOGQL_SAVE_FAILS_ID,
+        }
+        patchMocks[`/api/environments/:team_id/batch_exports/${HOGQL_SAVE_FAILS_ID}/`] = async () =>
+            [
+                400,
+                {
+                    type: 'validation_error',
+                    code: 'invalid_input',
+                    detail: HOGQL_SAVE_FAILS_DETAIL,
+                    attr: 'hogql_query',
+                },
+            ] as unknown as [number, BatchExportConfiguration]
         useMocks({
             get: {
                 ...getMocks,
@@ -887,6 +911,28 @@ describe('batchExportConfigFormLogic', () => {
 
             expect(lemonToast.error).toHaveBeenCalledWith(SAVE_FAILS_DETAIL)
             expect(logic.values.configurationChanged).toBe(true)
+            expect(logic.values.configurationManualErrors).toEqual({})
+        })
+
+        // The toast can be far from the query editor, so the API's field error also shows under the field. kea-forms
+        // treats it as a form error, so an edit to the field must clear it, or the next save never reaches the API.
+        it('shows a field error from the API under its field until the field changes', async () => {
+            await initLogic({ service: null, id: HOGQL_SAVE_FAILS_ID })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            })
+                .toDispatchActions(['submitConfiguration', 'submitConfigurationFailure'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(HOGQL_SAVE_FAILS_DETAIL)
+            // configurationErrors is what the field renders, so it must hold the error, not only configurationAllErrors
+            expect(logic.values.configurationErrors.hogql_query).toEqual(HOGQL_SAVE_FAILS_DETAIL)
+
+            logic.actions.setConfigurationValue('hogql_query', 'SELECT event FROM events')
+
+            expect(logic.values.configurationErrors.hogql_query).toBeUndefined()
+            expect(logic.values.configurationHasErrors).toBe(false)
         })
     })
 
@@ -1301,6 +1347,7 @@ describe('batchExportConfigFormLogic', () => {
     describe('round-trip: load and save preserves destination config', () => {
         it.each([
             { name: 'AwsS3', fixture: AWS_S3_BATCH_EXPORT },
+            { name: 'AwsS3 (HogQL model)', fixture: HOGQL_BATCH_EXPORT },
             { name: 'S3Compatible', fixture: S3_COMPATIBLE_BATCH_EXPORT },
             { name: 'BigQuery', fixture: BIGQUERY_BATCH_EXPORT },
             { name: 'Postgres', fixture: POSTGRES_BATCH_EXPORT },
@@ -1325,6 +1372,27 @@ describe('batchExportConfigFormLogic', () => {
             const body = patchBodiesById[fixture.id]
             expect(body).not.toBeUndefined()
             expect(body.destination).toEqual(fixture.destination)
+            // The backend rejects this field for every model but 'hogql', so other models must not send it
+            expect(body.hogql_query).toEqual(fixture.hogql_query)
+        })
+    })
+
+    describe('HogQL query validation', () => {
+        it.each([
+            ['accepts a single statement', 'SELECT event FROM events', undefined],
+            ['accepts a trailing semicolon', 'SELECT event FROM events;', undefined],
+            [
+                'rejects more than one statement',
+                'SELECT event FROM events; SELECT 1',
+                'A batch export runs a single query. Remove the extra statements separated by semicolons.',
+            ],
+            ['requires a query', '', 'This field is required'],
+        ])('%s', async (_, hogqlQuery, expectedError) => {
+            await initLogic({ service: null, id: HOGQL_BATCH_EXPORT.id })
+
+            logic.actions.setConfigurationValue('hogql_query', hogqlQuery)
+
+            expect(logic.values.configurationValidationErrors.hogql_query).toEqual(expectedError)
         })
     })
 

@@ -8,6 +8,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { splitQueries } from 'lib/monaco/multiQueryUtils'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -20,6 +21,8 @@ import {
     BatchExportService,
     IntegrationType,
 } from '~/types'
+
+import { BatchExportModelEnumApi } from 'products/batch_exports/frontend/generated/api.schemas'
 
 import { batchExportDataLogic } from './batchExportDataLogic'
 import { DESTINATIONS } from './destinations'
@@ -44,6 +47,7 @@ const TOP_LEVEL_FORM_FIELDS = new Set([
     'start_at',
     'end_at',
     'model',
+    'hogql_query',
     'filters',
     'integration_id',
 ])
@@ -108,6 +112,7 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         offset_day: (batchExportConfig as any).offset_day ?? null,
         offset_hour: (batchExportConfig as any).offset_hour ?? null,
         model: batchExportConfig.model,
+        hogql_query: batchExportConfig.hogql_query ?? null,
         filters: batchExportConfig.filters,
         ...flatConfig,
     }
@@ -128,7 +133,7 @@ export function getDefaultConfiguration(service: string): Record<string, any> {
     return {
         name: humanizeBatchExportName(service as BatchExportService['type']),
         destination: service,
-        model: 'events',
+        model: BatchExportModelEnumApi.Events,
         paused: true,
         exclude_events: [...DEFAULT_EXCLUDE_EVENTS],
         ...(definition ? definition.defaults() : {}),
@@ -854,6 +859,9 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                         offset_day: interval === 'week' ? formValues.offset_day : null,
                         offset_hour: interval === 'day' || interval === 'week' ? formValues.offset_hour : null,
                         model: formValues.model,
+                        // The backend rejects `hogql_query` for every model but 'hogql'
+                        hogql_query:
+                            formValues.model === BatchExportModelEnumApi.Hogql ? formValues.hogql_query : undefined,
                         filters: formValues.filters,
                         destination: buildDestinationPayload(formValues),
                     } as any
@@ -889,7 +897,7 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             },
         ],
         selectedModel: [
-            'events',
+            BatchExportModelEnumApi.Events as string,
             {
                 setSelectedModel: (_, { model }) => model,
                 loadBatchExportConfigSuccess: (state, { batchExportConfig }) => {
@@ -1020,7 +1028,12 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 config: Record<string, any>,
                 selectedIntegration: IntegrationType | null
             ): string[] => {
-                const generalRequiredFields = ['interval', 'name', 'model']
+                const generalRequiredFields = [
+                    'interval',
+                    'name',
+                    'model',
+                    ...(config.model === BatchExportModelEnumApi.Hogql ? ['hogql_query'] : []),
+                ]
                 if (!service) {
                     return generalRequiredFields
                 }
@@ -1046,6 +1059,8 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 offset_day: interval === 'week' ? formdata.offset_day : null,
                 offset_hour: interval === 'day' || interval === 'week' ? formdata.offset_hour : null,
                 model: formdata.model,
+                // The backend rejects `hogql_query` for every model but 'hogql'
+                hogql_query: formdata.model === BatchExportModelEnumApi.Hogql ? formdata.hogql_query : undefined,
                 filters: formdata.filters,
                 destination: buildDestinationPayload(formdata) as any,
             } as any
@@ -1077,6 +1092,10 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 // Not rethrown, matching `deleteBatchExport` below: the unsaved values stay on the
                 // form either way, and a rejecting listener escapes kea as an unhandled rejection.
                 lemonToast.error(error.detail || error.message || 'Could not save the batch export. Try again.')
+                // The toast can be far from the field at fault, such as the query editor, so the error also shows under it
+                if (error.attr && error.detail && error.attr in values.configuration) {
+                    actions.setConfigurationManualErrors({ [error.attr]: error.detail })
+                }
             }
         },
         updateBatchExportConfigSuccess: ({ batchExportConfig }) => {
@@ -1143,6 +1162,12 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         },
         setConfigurationValue: ({ name, value }) => {
             const fieldName = Array.isArray(name) ? name[0] : name
+
+            // kea-forms keeps a manual error until the field is touched, and a manual error blocks submitting.
+            // A save error describes the old value, so it must not outlive an edit.
+            if (fieldName in values.configurationManualErrors) {
+                actions.touchConfigurationField(String(fieldName))
+            }
 
             if (fieldName === 'file_format') {
                 // Pick a compression that's valid for the newly-selected format, in priority order:
@@ -1227,6 +1252,13 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                         errors[field] = message
                     }
                 }
+                if (
+                    formdata.model === BatchExportModelEnumApi.Hogql &&
+                    splitQueries(formdata.hogql_query ?? '').length > 1
+                ) {
+                    errors.hogql_query =
+                        'A batch export runs a single query. Remove the extra statements separated by semicolons.'
+                }
                 return errors
             },
             submit: async (formdata) => {
@@ -1278,6 +1310,11 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 }
 
                 await asyncActions.updateBatchExportConfig(formdata)
+                // Submitting needs a form without errors, so a manual error now came from this save's API response.
+                // kea-forms hides form errors after a successful submit, so the submit has to fail to keep it visible.
+                if (Object.keys(values.configurationManualErrors).length > 0) {
+                    throw new Error('The batch export could not be saved')
+                }
             },
         },
     })),

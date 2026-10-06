@@ -1,4 +1,4 @@
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import type { LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
@@ -183,4 +183,58 @@ export function statusToProgressStrokeColor(status: BatchExportStatus): string {
         default:
             return 'var(--color-border-primary)'
     }
+}
+
+export interface BatchExportDataInterval {
+    start: Dayjs
+    end: Dayjs
+}
+
+export function lastCompleteDataInterval({
+    interval,
+    now,
+    timezone,
+    offsetDay,
+    offsetHour,
+}: {
+    interval: BatchExportInterval
+    now: Dayjs
+    timezone: string
+    offsetDay: number | null
+    offsetHour: number | null
+}): BatchExportDataInterval {
+    const zonedNow = now.tz(timezone)
+    let end: Dayjs
+    let size: 'minute' | 'hour' | 'day' | 'week'
+    let step = 1
+
+    switch (interval) {
+        case 'every 5 minutes':
+        case 'every 15 minutes':
+            step = interval === 'every 5 minutes' ? 5 : 15
+            size = 'minute'
+            end = zonedNow.startOf('minute').minute(Math.floor(zonedNow.minute() / step) * step)
+            break
+        case 'hour':
+            size = 'hour'
+            end = zonedNow.startOf('hour')
+            break
+        case 'day':
+            size = 'day'
+            end = zonedNow.startOf('day').add(offsetHour ?? 0, 'hour')
+            break
+        case 'week':
+            size = 'week'
+            end = zonedNow
+                .startOf('day')
+                .subtract(zonedNow.day(), 'day')
+                .add(offsetDay ?? 0, 'day')
+                .add(offsetHour ?? 0, 'hour')
+            break
+    }
+
+    if (end.isAfter(zonedNow)) {
+        end = end.subtract(step, size)
+    }
+    return { start: end.subtract(step, size), end }
 }
