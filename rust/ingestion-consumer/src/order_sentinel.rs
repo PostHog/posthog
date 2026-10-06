@@ -485,7 +485,7 @@ mod tests {
 
     fn msg_at(partition: i32, offset: i64) -> SerializedKafkaMessage {
         SerializedKafkaMessage {
-            topic: "test".to_string(),
+            topic: "test".into(),
             partition,
             offset,
             timestamp: 0,
