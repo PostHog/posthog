@@ -79,7 +79,7 @@ export interface todaySessionSelectionLogicActions {
         url: string
     } // router
     loadPinnedTasks: () => any // todaySpacesLogic
-    loadRecentTasks: () => any // todaySpacesLogic
+    loadRecentTasks: (_?: void | undefined) => void // todaySpacesLogic
     archiveSelected: () => {
         value: true
     }
