@@ -1,19 +1,26 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect, LemonSnack } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonSelectOptions, LemonSnack } from '@posthog/lemon-ui'
 
+import { PartnerBillingInvoicesListStatus } from '../generated/api.schemas'
 import { PARTNER_BILLING_INVOICES_ELEMENT_ID, partnerBillingInvoicesLogic } from './partnerBillingInvoicesLogic'
 import { PartnerBillingInvoiceTable } from './PartnerBillingInvoiceTable'
 import type { PartnerBillingLogicProps } from './partnerBillingLogic'
 import { partnerBillingTablePagination } from './partnerBillingPagination'
 
-const INVOICE_STATUS_OPTIONS: { value: string | null; label: string }[] = [
+const INVOICE_STATUS_LABELS: Record<PartnerBillingInvoicesListStatus, string> = {
+    [PartnerBillingInvoicesListStatus.Open]: 'Open',
+    [PartnerBillingInvoicesListStatus.Paid]: 'Paid',
+    [PartnerBillingInvoicesListStatus.Uncollectible]: 'Uncollectible',
+    [PartnerBillingInvoicesListStatus.Void]: 'Void',
+}
+
+const INVOICE_STATUS_OPTIONS: LemonSelectOptions<PartnerBillingInvoicesListStatus | null> = [
     { value: null, label: 'All statuses' },
-    { value: 'draft', label: 'Draft' },
-    { value: 'open', label: 'Open' },
-    { value: 'paid', label: 'Paid' },
-    { value: 'uncollectible', label: 'Uncollectible' },
-    { value: 'void', label: 'Void' },
+    ...Object.values(PartnerBillingInvoicesListStatus).map((status) => ({
+        value: status,
+        label: INVOICE_STATUS_LABELS[status],
+    })),
 ]
 
 export function PartnerBillingInvoices({ applicationId }: PartnerBillingLogicProps): JSX.Element {

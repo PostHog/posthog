@@ -8,6 +8,7 @@ import type {
     PartnerPayerInvoiceApi,
     PartnerPayerOrganizationApi,
     PartnerPayerSettlementApi,
+    PartnerPayerSettlementInvoiceApi,
     PartnerPayerStatusApi,
     PatchedPartnerPayerAdminUpdateApi,
     PatchedPartnerPayerOrganizationLimitsApi,
@@ -48,7 +49,7 @@ const ORGANIZATIONS: PartnerPayerOrganizationApi[] = [
         name: 'Example Bakery',
         linked_at: '2026-06-12T09:30:00Z',
         detached_at: null,
-        custom_limits_usd: { product_analytics: 500, session_replay: 250 },
+        custom_limits_usd: { product_analytics: 800, session_replay: null },
     },
     {
         organization_id: '0192d7c4-5b6e-7000-8000-00000000c002',
@@ -73,7 +74,7 @@ const INVOICES: PartnerPayerInvoiceApi[] = [
         period_start: '2026-09-01T00:00:00Z',
         period_end: '2026-10-01T00:00:00Z',
         amount_cents: 112050,
-        currency: 'usd',
+        currency: 'USD',
         status: 'open',
         settlement_id: 'stl_example_2026_09',
         pdf_url: 'https://files.example.com/invoices/in_example_0003.pdf',
@@ -84,7 +85,7 @@ const INVOICES: PartnerPayerInvoiceApi[] = [
         period_start: '2026-09-01T00:00:00Z',
         period_end: '2026-10-01T00:00:00Z',
         amount_cents: 41975,
-        currency: 'usd',
+        currency: 'USD',
         status: 'open',
         settlement_id: 'stl_example_2026_09',
         pdf_url: 'https://files.example.com/invoices/in_example_0002.pdf',
@@ -95,7 +96,7 @@ const INVOICES: PartnerPayerInvoiceApi[] = [
         period_start: '2026-08-01T00:00:00Z',
         period_end: '2026-09-01T00:00:00Z',
         amount_cents: 98000,
-        currency: 'usd',
+        currency: 'USD',
         status: 'paid',
         settlement_id: 'stl_example_2026_08',
         pdf_url: null,
@@ -107,7 +108,7 @@ const PAID_SETTLEMENT: PartnerPayerSettlementApi = {
     period_start: '2026-08-01T00:00:00Z',
     period_end: '2026-09-01T00:00:00Z',
     amount_cents: 98000,
-    currency: 'usd',
+    currency: 'USD',
     status: 'paid',
     attempt_count: 1,
     next_attempt_at: null,
@@ -119,7 +120,7 @@ const PROCESSING_SETTLEMENT: PartnerPayerSettlementApi = {
     period_start: '2026-09-01T00:00:00Z',
     period_end: '2026-10-01T00:00:00Z',
     amount_cents: 154025,
-    currency: 'usd',
+    currency: 'USD',
     status: 'processing',
     attempt_count: 1,
     next_attempt_at: null,
@@ -133,7 +134,13 @@ const FAILED_SETTLEMENT: PartnerPayerSettlementApi = {
     next_attempt_at: '2026-10-08T06:00:00Z',
 }
 
-function withLimitChanges(
+const SETTLEMENT_INVOICES: PartnerPayerSettlementInvoiceApi[] = [
+    { ...INVOICES[0], charged_cents: 112050 },
+    { ...INVOICES[1], amount_cents: null, charged_cents: 41975 },
+]
+
+// Billing drops a default set to null, but keeps an organization's own null as no limit.
+function withDefaultLimitChanges(
     limits: Record<string, number | null> | undefined,
     changes: Record<string, number | null> | undefined
 ): Record<string, number | null> {
@@ -167,7 +174,9 @@ function partnerBillingMocks(payer: PartnerPayerStatusApi, settlements: PartnerP
             '/api/organizations/:organization_id/partner_billing/:id/settlements/:settlement_id/': latestSettlement
                 ? {
                       ...latestSettlement,
-                      invoices: INVOICES.filter((invoice) => invoice.settlement_id === latestSettlement.settlement_id),
+                      invoices: SETTLEMENT_INVOICES.filter(
+                          (invoice) => invoice.settlement_id === latestSettlement.settlement_id
+                      ),
                   }
                 : [404, { detail: 'Billing has no record of this.' }],
         },
@@ -192,12 +201,15 @@ function partnerBillingMocks(payer: PartnerPayerStatusApi, settlements: PartnerP
                     {
                         ...payer,
                         webhook: { ...payer.webhook, url: changes.webhook_url ?? payer.webhook?.url },
-                        spend: {
+                        spend: payer.spend && {
                             ...payer.spend,
-                            alert_usd: 'spend_alert_usd' in changes ? changes.spend_alert_usd : payer.spend?.alert_usd,
-                            cap_usd: 'spend_cap_usd' in changes ? changes.spend_cap_usd : payer.spend?.cap_usd,
+                            alert_usd: 'spend_alert_usd' in changes ? changes.spend_alert_usd : payer.spend.alert_usd,
+                            cap_usd: 'spend_cap_usd' in changes ? changes.spend_cap_usd : payer.spend.cap_usd,
                         },
-                        default_limits_usd: withLimitChanges(payer.default_limits_usd, changes.default_limits_usd),
+                        default_limits_usd: withDefaultLimitChanges(
+                            payer.default_limits_usd,
+                            changes.default_limits_usd
+                        ),
                     },
                 ]
             },
@@ -212,10 +224,7 @@ function partnerBillingMocks(payer: PartnerPayerStatusApi, settlements: PartnerP
                         200,
                         {
                             ...organization,
-                            custom_limits_usd: withLimitChanges(
-                                organization.custom_limits_usd,
-                                changes.custom_limits_usd
-                            ),
+                            custom_limits_usd: { ...organization.custom_limits_usd, ...changes.custom_limits_usd },
                         },
                     ]
                 },
@@ -238,6 +247,12 @@ export const BillingNotOnYet: Story = {
 
 export const BillingOn: Story = {
     decorators: [mswDecorator(partnerBillingMocks(PAYER, [PROCESSING_SETTLEMENT, PAID_SETTLEMENT]))],
+}
+
+export const BillingOnBeforeSpendReporting: Story = {
+    decorators: [
+        mswDecorator(partnerBillingMocks({ ...PAYER, spend: undefined }, [PROCESSING_SETTLEMENT, PAID_SETTLEMENT])),
+    ],
 }
 
 export const FailedSettlement: Story = {

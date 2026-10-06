@@ -11,6 +11,7 @@
     "peerDependencies": {
         "@posthog/lemon-ui": "*",
         "@storybook/react": "catalog:",
+        "@testing-library/react": "*",
         "@types/react": "*",
         "react": "*"
     }

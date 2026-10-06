@@ -1,3 +1,4 @@
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { billingProductDisplayName } from 'scenes/billing/billingProductDisplayName'
 
 import type { BillingProductV2Type } from '~/types'
@@ -9,7 +10,7 @@ export interface PartnerBillingLimitProduct {
     name: string
 }
 
-/** Monthly limit in whole US dollars per product key. A missing or null value means no limit. */
+/** Monthly limits in whole US dollars per product key, as a form holds them. A missing or null value is an empty field. */
 export type PartnerBillingLimitValues = Record<string, number | null>
 
 export interface PartnerBillingWebhookFormValues {
@@ -41,8 +42,23 @@ export function limitProductsFor(
     return [...catalog, ...productsMissingFromCatalog]
 }
 
-export function limitFormValues(limits: Record<string, number | null> | undefined): PartnerBillingLimitValues {
-    return Object.fromEntries(Object.entries(limits ?? {}).filter(([, value]) => typeof value === 'number'))
+export function limitFormValues(limits: Record<string, number | null> | undefined): Record<string, number> {
+    return Object.fromEntries(
+        Object.entries(limits ?? {}).filter((entry): entry is [string, number] => typeof entry[1] === 'number')
+    )
+}
+
+// What applies to an organization's product while its field is empty. A product that has its own limit of null
+// has no limit, even when the partner has a default for it.
+export function emptyLimitPlaceholder(
+    productKey: string,
+    ownLimits: Record<string, number | null> | undefined,
+    defaultLimits: Record<string, number | null> | undefined
+): string {
+    const defaultLimit = limitFormValues(defaultLimits)[productKey]
+    return productKey in (ownLimits ?? {}) || defaultLimit === undefined
+        ? 'No limit'
+        : `Default ${humanFriendlyCurrency(defaultLimit, 0)}`
 }
 
 /** The limits to send: each product whose limit changed, with null where the limit was cleared. */

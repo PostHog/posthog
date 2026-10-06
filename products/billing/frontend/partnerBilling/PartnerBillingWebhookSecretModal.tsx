@@ -35,7 +35,9 @@ export function PartnerBillingWebhookSecretModal({ applicationId }: PartnerBilli
                     <p className="mb-0">
                         Use it to verify the signature on every billing event PostHog sends to your webhook URL.
                     </p>
-                    <CodeSnippet thing="signing secret">{webhookSecret.secret}</CodeSnippet>
+                    <CodeSnippet className="ph-no-capture" thing="signing secret">
+                        {webhookSecret.secret}
+                    </CodeSnippet>
                 </div>
             )}
         </LemonModal>

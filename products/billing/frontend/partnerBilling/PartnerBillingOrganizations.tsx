@@ -4,7 +4,7 @@ import { LemonBanner, LemonButton, LemonTable, LemonTag } from '@posthog/lemon-u
 
 import { dayjs } from 'lib/dayjs'
 
-import { formatLimits } from './partnerBillingFormat'
+import { formatAppliedLimits } from './partnerBillingFormat'
 import { partnerBillingInvoicesLogic } from './partnerBillingInvoicesLogic'
 import { PartnerBillingLogicProps, partnerBillingLogic } from './partnerBillingLogic'
 import { PartnerBillingOrganizationLimitsModal } from './PartnerBillingOrganizationLimitsModal'
@@ -15,7 +15,7 @@ export function PartnerBillingOrganizations({ applicationId }: PartnerBillingLog
     const logic = partnerBillingOrganizationsLogic({ applicationId })
     const { organizations, organizationsLoading, organizationsError, organizationsPage } = useValues(logic)
     const { setOrganizationsPage, openOrganizationLimits, loadPartnerBillingOrganizations } = useActions(logic)
-    const { limitProductNames } = useValues(partnerBillingLogic({ applicationId }))
+    const { limitProductNames, payer } = useValues(partnerBillingLogic({ applicationId }))
     const { showOrganizationInvoices } = useActions(partnerBillingInvoicesLogic({ applicationId }))
 
     return (
@@ -74,10 +74,25 @@ export function PartnerBillingOrganizations({ applicationId }: PartnerBillingLog
                         {
                             title: 'Monthly limits',
                             key: 'limits',
-                            render: (_, organization) =>
-                                formatLimits(organization.custom_limits_usd, limitProductNames) ?? (
-                                    <span className="text-secondary">None</span>
-                                ),
+                            render: (_, organization) => {
+                                if (organization.detached_at) {
+                                    return <span className="text-secondary">Set by the organization</span>
+                                }
+                                const limits = formatAppliedLimits(
+                                    organization.custom_limits_usd,
+                                    payer?.default_limits_usd,
+                                    limitProductNames
+                                )
+                                return limits.length > 0 ? (
+                                    <div className="flex flex-col">
+                                        {limits.map(({ productKey, label }) => (
+                                            <span key={productKey}>{label}</span>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <span className="text-secondary">No limits</span>
+                                )
+                            },
                         },
                         {
                             key: 'actions',

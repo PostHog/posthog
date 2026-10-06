@@ -8,12 +8,14 @@ interface PartnerBillingLimitFieldsProps {
     fieldName: string
     products: PartnerBillingLimitProduct[]
     productsLoading: boolean
+    placeholders?: Record<string, string>
 }
 
 export function PartnerBillingLimitFields({
     fieldName,
     products,
     productsLoading,
+    placeholders,
 }: PartnerBillingLimitFieldsProps): JSX.Element {
     if (products.length === 0) {
         return productsLoading ? (
@@ -35,7 +37,7 @@ export function PartnerBillingLimitFields({
                             min={0}
                             step={1}
                             prefix={<b>$</b>}
-                            placeholder="No limit"
+                            placeholder={placeholders?.[product.key] ?? 'No limit'}
                             status={error ? 'danger' : 'default'}
                             // LemonInput reports a cleared number field as NaN and shows NaN as empty,
                             // while the API takes null as no limit.

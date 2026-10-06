@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { partnerBillingApplicationsLogic } from './partnerBillingApplicationsLogic'
@@ -14,7 +15,12 @@ export function PartnerBilling(): JSX.Element {
         partnerBillingApplicationsLoading,
         selectedApplication,
     } = useValues(partnerBillingApplicationsLogic)
-    const { loadPartnerBillingApplications, selectApplication } = useActions(partnerBillingApplicationsLogic)
+    const { ensurePartnerBillingApplications, loadPartnerBillingApplications, selectApplication } = useActions(
+        partnerBillingApplicationsLogic
+    )
+    useOnMountEffect(() => {
+        ensurePartnerBillingApplications()
+    })
 
     if (!partnerBillingApplications) {
         return partnerBillingApplicationsError && !partnerBillingApplicationsLoading ? (

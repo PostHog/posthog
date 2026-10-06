@@ -12,6 +12,7 @@ export function PartnerBillingOrganizationLimitsModal({ applicationId }: Partner
     const {
         editingOrganization,
         editingLimitProducts,
+        editingLimitPlaceholders,
         isOrganizationLimitsFormSubmitting,
         organizationLimitsFormHasChanges,
     } = useValues(logic)
@@ -23,7 +24,7 @@ export function PartnerBillingOrganizationLimitsModal({ applicationId }: Partner
             isOpen={!!editingOrganization}
             onClose={closeOrganizationLimits}
             title={`Monthly limits for ${editingOrganization?.name ?? 'this organization'}`}
-            description="Spend limits per product in whole US dollars. Leave a product empty for no limit."
+            description="Spend limits per product in whole US dollars. An empty field shows the limit that applies to that product. Clearing a limit means no limit for that product, even if you set a default."
             footer={
                 <>
                     <LemonButton type="secondary" onClick={closeOrganizationLimits}>
@@ -51,6 +52,7 @@ export function PartnerBillingOrganizationLimitsModal({ applicationId }: Partner
                     fieldName="custom_limits_usd"
                     products={editingLimitProducts}
                     productsLoading={billingLoading}
+                    placeholders={editingLimitPlaceholders}
                 />
             </Form>
         </LemonModal>

@@ -5,7 +5,7 @@ const UNAVAILABLE_MESSAGE = 'Billing could not answer this request. Try again in
 // The API's other refusals already end with what to do next.
 const NEXT_STEP_BY_CODE: Record<string, string> = {
     not_found: 'Reload the page to see the latest billing details.',
-    forbidden: 'Switch to that organization to manage it.',
+    forbidden: 'Contact PostHog support to move it to this organization.',
     billing_rejected: 'Check your changes and try again.',
     permission_denied: 'Ask an organization admin to make this change.',
 }

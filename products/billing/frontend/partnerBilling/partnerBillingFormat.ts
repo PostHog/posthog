@@ -6,6 +6,7 @@ import { pluralize } from 'lib/utils/strings'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 
 import type { PartnerPayerAddressApi, PartnerPayerSettlementApi, PartnerPayerTaxIdApi } from '../generated/api.schemas'
+import { limitFormValues } from './partnerBillingForms'
 
 export function formatAmountCents(amountCents: number, currency: string | undefined): string {
     return formatCurrency(amountCents / 100, (currency ?? 'usd').toUpperCase() as CurrencyCode)
@@ -31,16 +32,34 @@ export function formatAddress(address: PartnerPayerAddressApi | null | undefined
     return parts.length > 0 ? parts.join(', ') : null
 }
 
-export function formatLimits(
-    limits: Record<string, number | null> | undefined,
+export interface PartnerBillingAppliedLimit {
+    productKey: string
+    label: string
+}
+
+// An organization's own limit replaces the partner's default for that product. An own limit of null means no
+// limit at all, so that product does not fall back to the default.
+export function formatAppliedLimits(
+    ownLimits: Record<string, number | null> | undefined,
+    defaultLimits: Record<string, number | null> | undefined,
     productNames: Record<string, string>
-): string | null {
-    const setLimits = Object.entries(limits ?? {}).filter(
-        (entry): entry is [string, number] => typeof entry[1] === 'number'
-    )
-    return setLimits.length > 0
-        ? setLimits.map(([key, limit]) => `${productNames[key] ?? key} ${humanFriendlyCurrency(limit, 0)}`).join(', ')
-        : null
+): PartnerBillingAppliedLimit[] {
+    const own = ownLimits ?? {}
+    const defaults = limitFormValues(defaultLimits)
+    const catalogOrder = Object.keys(productNames)
+    const position = (productKey: string): number =>
+        catalogOrder.includes(productKey) ? catalogOrder.indexOf(productKey) : catalogOrder.length
+    return [...new Set([...Object.keys(defaults), ...Object.keys(own)])]
+        .sort((a, b) => position(a) - position(b))
+        .map((productKey) => {
+            const ownLimit = own[productKey]
+            const limit = !(productKey in own)
+                ? `Default ${humanFriendlyCurrency(defaults[productKey], 0)}`
+                : typeof ownLimit === 'number'
+                  ? humanFriendlyCurrency(ownLimit, 0)
+                  : 'No limit'
+            return { productKey, label: `${productNames[productKey] ?? productKey}: ${limit}` }
+        })
 }
 
 export function formatTaxId(taxId: PartnerPayerTaxIdApi): string {

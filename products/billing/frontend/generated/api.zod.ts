@@ -464,7 +464,7 @@ export const PartnerBillingPartialUpdateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.number().min(partnerBillingPartialUpdateBodyDefaultLimitsUsdMinOne).nullable())
         .optional()
         .describe(
-            'Monthly spend limit in whole US dollars per product key, applied to each organization when it links to the partner. Null for a product removes its default.'
+            'Default monthly spend limit in whole US dollars per product key. A default applies to every organization the partner pays for that has no limit of its own for that product, including organizations that are already linked. Null for a product removes its default. Products left out keep their default.'
         ),
 })
 
@@ -481,7 +481,7 @@ export const PartnerBillingOrganizationLimitsPartialUpdateBody = /* @__PURE__ */
         )
         .optional()
         .describe(
-            "Monthly spend limit in whole US dollars per product key for this organization. Null for a product clears this organization's limit for it."
+            "Monthly spend limit in whole US dollars per product key for this organization. It replaces the partner's default for that product. Null for a product means no limit, even when the partner has a default for it. Products left out keep their limit."
         ),
 })
 
