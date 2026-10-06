@@ -9121,6 +9121,7 @@ dependencies = [
  "common-alloc",
  "common-database",
  "common-kafka",
+ "common-liveness",
  "common-metrics",
  "envconfig",
  "futures",
