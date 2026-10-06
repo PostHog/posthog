@@ -222,6 +222,16 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         suggestion.refresh_from_db()
         assert suggestion.status == WarehouseSuggestionStatus.PROPOSED
 
+    def test_pages_do_not_overlap_or_skip_rows_at_the_boundary(self) -> None:
+        suggestions = [self._suggest(self._make_view(f"view_{index}").id, score=1.0) for index in range(5)]
+
+        pages = [self.client.get(f"{self.url}/?limit=2&offset={offset}").json() for offset in (0, 2, 4)]
+
+        assert [page["count"] for page in pages] == [5, 5, 5]
+        assert [len(page["results"]) for page in pages] == [2, 2, 1]
+        listed = [row["id"] for page in pages for row in page["results"]]
+        assert listed == [str(row.id) for row in sorted(suggestions, key=lambda row: row.id)]
+
     def test_listing_runs_a_constant_number_of_queries(self) -> None:
         def count_list_queries() -> int:
             WarehouseSuggestion.objects.for_team(self.team.id).update(reviewed_by=self.user)
