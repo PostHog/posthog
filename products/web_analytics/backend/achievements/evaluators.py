@@ -246,8 +246,8 @@ def _conversion_bootstrap_state(checkpoint: dict[str, object]) -> ConversionBoot
         or end is None
         or created_until is None
         or next_start >= end
-        or phase not in ("initial", "catchup")
-        or (phase == "catchup" and created_since is None)
+        or phase not in ("initial", "catchup", "tail")
+        or (phase in ("catchup", "tail") and created_since is None)
         or not isinstance(chunk_hours, int)
         or not 1 <= chunk_hours <= CONVERSIONS_BOOTSTRAP_CHUNK_DAYS * 24
     ):
@@ -306,6 +306,19 @@ def _advance_conversion_bootstrap(
     window_start: datetime,
     until: datetime,
 ) -> ConversionBootstrap | None:
+    if bootstrap.phase == "tail":
+        try:
+            _add_conversion_counts(ctx, actions, daily, bootstrap.created_since, until, window_start)
+        except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
+            return ConversionBootstrap(
+                next_start=window_start,
+                end=bootstrap.end,
+                created_since=bootstrap.created_since,
+                created_until=until,
+                phase="catchup",
+            )
+        return None
+
     next_start = max(bootstrap.next_start, window_start)
     if next_start >= bootstrap.end:
         daily.clear()
@@ -351,16 +364,13 @@ def _advance_conversion_bootstrap(
         )
 
     if bootstrap.created_until < until:
-        try:
-            _add_conversion_counts(ctx, actions, daily, bootstrap.created_until, until, window_start)
-        except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
-            return ConversionBootstrap(
-                next_start=window_start,
-                end=bootstrap.end,
-                created_since=bootstrap.created_until,
-                created_until=until,
-                phase="catchup",
-            )
+        return ConversionBootstrap(
+            next_start=window_start,
+            end=bootstrap.end,
+            created_since=bootstrap.created_until,
+            created_until=bootstrap.created_until,
+            phase="tail",
+        )
     return None
 
 

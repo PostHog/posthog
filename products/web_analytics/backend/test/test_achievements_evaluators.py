@@ -201,6 +201,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
             self._pay_click(timestamp=old_timestamp, created_at=first_now)
             flush_persons_and_events()
             saw_catchup_checkpoint = False
+            saw_tail_checkpoint = False
             with patch(
                 "products.web_analytics.backend.achievements.evaluators.timezone.now",
                 return_value=first_now + timedelta(hours=2),
@@ -212,6 +213,13 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
                         self._ctx(),
                         PriorProgress(value=final.value, last_computed_at=None, checkpoint=final.checkpoint),
                     )
+                    if attempts == 3:
+                        self.assertFalse(final.complete)
+                        assert final.checkpoint is not None
+                        bootstrap = final.checkpoint["bootstrap"]
+                        assert isinstance(bootstrap, dict)
+                        self.assertEqual(bootstrap["phase"], "tail")
+                        saw_tail_checkpoint = True
                     if catchup_fails and attempts == 4:
                         self.assertFalse(final.complete)
                         assert final.checkpoint is not None
@@ -223,6 +231,7 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
                         break
 
         self.assertEqual(saw_catchup_checkpoint, catchup_fails)
+        self.assertTrue(saw_tail_checkpoint)
         self.assertEqual(final.value, 4)
         self.assertTrue(final.complete)
         assert final.checkpoint is not None
