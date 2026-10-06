@@ -12864,7 +12864,10 @@ class TestExternalDataSourceSetup(APIBaseTest):
                 },
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["message"] == "Your Stripe API key has expired. Please create a new key and reconnect."
+        assert (
+            response.json()["message"]
+            == "Your Stripe credentials have expired. If you connected with OAuth, reconnect your Stripe account. If you use an API key, create a new key and update the source."
+        )
         mock_capture_exception.assert_not_called()
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
