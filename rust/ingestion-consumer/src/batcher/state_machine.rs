@@ -32,18 +32,18 @@ pub struct RetryPolicy {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MachineConfig {
+pub struct StateMachineConfig {
     pub pack_targets: PackTargets,
     pub max_requests_per_worker: usize,
     pub retry: RetryPolicy,
     pub unplaced_retry_interval: Duration,
     /// Stuck work with nothing in flight and no accepted message for this
-    /// long fails the machine, so a wedged batcher restarts loudly instead of
+    /// long fails the state machine, so a wedged batcher restarts loudly instead of
     /// growing lag.
     pub stall_timeout: Duration,
 }
 
-impl MachineConfig {
+impl StateMachineConfig {
     /// A zero cap would never send, and a zero stall timeout or poll interval
     /// would fire on every action.
     pub fn validate(&self) -> Result<(), String> {
@@ -93,23 +93,23 @@ pub struct Step {
     /// One completion per partition, so each poll is credited per offset.
     pub completions: Vec<GroupCompletion>,
     pub key_acks: Vec<KeyAck>,
-    /// Keys that left the machine; their order-sentinel state can go.
+    /// Keys that left the state machine; their order-sentinel state can go.
     pub evicted_keys: Vec<String>,
     pub worker_outcomes: Vec<WorkerOutcome>,
     /// Workers with nothing left in flight. A draining worker in this list
     /// has finished its work.
     pub idle_workers: Vec<WorkerId>,
-    /// Set on the action that fails the machine. The caller fails the
+    /// Set on the action that fails the state machine. The caller fails the
     /// process.
     pub fatal: Option<String>,
-    /// When to call [`BatcherState::on_wakeup`]. `None` needs no timer.
+    /// When to call [`BatcherStateMachine::on_wakeup`]. `None` needs no timer.
     pub next_wakeup: Option<Instant>,
 }
 
 /// Every action consumes the state and returns the next state with one
-/// [`Step`], so a caller cannot act on a state the machine has left. An
-/// action does no I/O.
-pub enum BatcherState {
+/// [`Step`], so a caller cannot act on a state it has already left.
+/// An action does no I/O.
+pub enum BatcherStateMachine {
     Running(Work),
     /// Shutdown started: no new groups, every open batch seals at once, and
     /// retries continue until nothing is pending or in flight.
@@ -118,10 +118,10 @@ pub enum BatcherState {
     Failed,
 }
 
-impl BatcherState {
-    pub fn new(config: MachineConfig, router: Router, now: Instant) -> Result<Self, String> {
+impl BatcherStateMachine {
+    pub fn new(config: StateMachineConfig, router: Router, now: Instant) -> Result<Self, String> {
         config.validate()?;
-        Ok(BatcherState::Running(Work::new(config, router, now)))
+        Ok(BatcherStateMachine::Running(Work::new(config, router, now)))
     }
 
     /// One poll's key runs, in poll order, collected under `assignment_epoch`.
@@ -133,14 +133,14 @@ impl BatcherState {
         runs: Vec<KeyRun>,
     ) -> (Self, Step) {
         match self {
-            BatcherState::Running(mut work) => {
+            BatcherStateMachine::Running(mut work) => {
                 let result = work.on_groups(now, pool, assignment_epoch, runs);
                 Self::after(work, false, result)
             }
-            BatcherState::Draining(_) | BatcherState::Stopped => {
+            BatcherStateMachine::Draining(_) | BatcherStateMachine::Stopped => {
                 Self::failed("groups submitted after shutdown started".to_string())
             }
-            BatcherState::Failed => (BatcherState::Failed, Step::default()),
+            BatcherStateMachine::Failed => (BatcherStateMachine::Failed, Step::default()),
         }
     }
 
@@ -195,7 +195,9 @@ impl BatcherState {
 
     pub fn on_shutdown(self, now: Instant, pool: &WorkerPool) -> (Self, Step) {
         match self {
-            BatcherState::Running(work) => BatcherState::Draining(work).on_wakeup(now, pool),
+            BatcherStateMachine::Running(work) => {
+                BatcherStateMachine::Draining(work).on_wakeup(now, pool)
+            }
             other => (other, Step::default()),
         }
     }
@@ -216,18 +218,18 @@ impl BatcherState {
 
     fn work(&self) -> Option<&Work> {
         match self {
-            BatcherState::Running(work) | BatcherState::Draining(work) => Some(work),
-            BatcherState::Stopped | BatcherState::Failed => None,
+            BatcherStateMachine::Running(work) | BatcherStateMachine::Draining(work) => Some(work),
+            BatcherStateMachine::Stopped | BatcherStateMachine::Failed => None,
         }
     }
 
     fn act(self, action: impl FnOnce(&mut Work, bool) -> Result<Step, String>) -> (Self, Step) {
         match self {
-            BatcherState::Running(mut work) => {
+            BatcherStateMachine::Running(mut work) => {
                 let result = action(&mut work, false);
                 Self::after(work, false, result)
             }
-            BatcherState::Draining(mut work) => {
+            BatcherStateMachine::Draining(mut work) => {
                 let result = action(&mut work, true);
                 Self::after(work, true, result)
             }
@@ -239,20 +241,20 @@ impl BatcherState {
         match result {
             Err(reason) => Self::failed(reason),
             Ok(step) if draining && work.is_drained() => (
-                BatcherState::Stopped,
+                BatcherStateMachine::Stopped,
                 Step {
                     next_wakeup: None,
                     ..step
                 },
             ),
-            Ok(step) if draining => (BatcherState::Draining(work), step),
-            Ok(step) => (BatcherState::Running(work), step),
+            Ok(step) if draining => (BatcherStateMachine::Draining(work), step),
+            Ok(step) => (BatcherStateMachine::Running(work), step),
         }
     }
 
     fn failed(reason: String) -> (Self, Step) {
         (
-            BatcherState::Failed,
+            BatcherStateMachine::Failed,
             Step {
                 fatal: Some(reason),
                 ..Step::default()
@@ -262,7 +264,7 @@ impl BatcherState {
 }
 
 pub struct Work {
-    config: MachineConfig,
+    config: StateMachineConfig,
     keys: KeyQueues,
     packer: Packer,
     assigner: WorkerAssigner,
@@ -274,7 +276,7 @@ pub struct Work {
 }
 
 impl Work {
-    fn new(config: MachineConfig, router: Router, now: Instant) -> Self {
+    fn new(config: StateMachineConfig, router: Router, now: Instant) -> Self {
         Self {
             keys: KeyQueues::new(),
             packer: Packer::new(config.pack_targets),
@@ -598,23 +600,23 @@ impl Work {
     }
 
     fn record_gauges(&self) {
-        gauge!("ingestion_consumer_machine_keys").set(self.keys.key_count() as f64);
-        gauge!("ingestion_consumer_machine_queued_messages")
+        gauge!("ingestion_consumer_batcher_keys").set(self.keys.key_count() as f64);
+        gauge!("ingestion_consumer_batcher_queued_messages")
             .set(self.keys.queued_messages() as f64);
-        gauge!("ingestion_consumer_machine_queued_bytes").set(self.keys.queued_bytes() as f64);
-        gauge!("ingestion_consumer_machine_claimed_keys").set(self.keys.claimed_keys() as f64);
-        gauge!("ingestion_consumer_machine_waiting_keys").set(self.keys.waiting_keys() as f64);
-        gauge!("ingestion_consumer_machine_packer_held_messages")
+        gauge!("ingestion_consumer_batcher_queued_bytes").set(self.keys.queued_bytes() as f64);
+        gauge!("ingestion_consumer_batcher_claimed_keys").set(self.keys.claimed_keys() as f64);
+        gauge!("ingestion_consumer_batcher_waiting_keys").set(self.keys.waiting_keys() as f64);
+        gauge!("ingestion_consumer_batcher_packer_held_messages")
             .set(self.packer.held_messages() as f64);
-        gauge!("ingestion_consumer_machine_packer_held_keys").set(self.packer.held_keys() as f64);
-        gauge!("ingestion_consumer_machine_unplaced_requests").set(self.unplaced.len() as f64);
-        gauge!("ingestion_consumer_machine_unplaced_messages").set(
+        gauge!("ingestion_consumer_batcher_packer_held_keys").set(self.packer.held_keys() as f64);
+        gauge!("ingestion_consumer_batcher_unplaced_requests").set(self.unplaced.len() as f64);
+        gauge!("ingestion_consumer_batcher_unplaced_messages").set(
             self.unplaced
                 .iter()
                 .map(|request| request.message_count)
                 .sum::<usize>() as f64,
         );
-        gauge!("ingestion_consumer_machine_in_flight_requests").set(self.in_flight.len() as f64);
+        gauge!("ingestion_consumer_batcher_in_flight_requests").set(self.in_flight.len() as f64);
     }
 }
 
@@ -673,8 +675,12 @@ mod tests {
     const TIMEOUT_DELAY: Duration = Duration::from_millis(50);
     const STALL: Duration = Duration::from_secs(60);
 
-    fn config(events: usize, budget: Duration, max_requests_per_worker: usize) -> MachineConfig {
-        MachineConfig {
+    fn config(
+        events: usize,
+        budget: Duration,
+        max_requests_per_worker: usize,
+    ) -> StateMachineConfig {
+        StateMachineConfig {
             pack_targets: PackTargets {
                 events,
                 bytes: 0,
@@ -691,8 +697,9 @@ mod tests {
         }
     }
 
-    fn machine(config: MachineConfig, now: Instant) -> BatcherState {
-        BatcherState::new(config, Router::new(RoutingStrategy::BinPack), now).expect("valid config")
+    fn batcher(config: StateMachineConfig, now: Instant) -> BatcherStateMachine {
+        BatcherStateMachine::new(config, Router::new(RoutingStrategy::BinPack), now)
+            .expect("valid config")
     }
 
     fn pool(workers: &[&str]) -> WorkerPool {
@@ -724,18 +731,18 @@ mod tests {
     fn keys_pack_into_one_request_and_their_next_runs_wait_for_the_response() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let machine = machine(config(100, Duration::ZERO, 4), now);
+        let batcher = batcher(config(100, Duration::ZERO, 4), now);
 
-        let (machine, step) =
-            machine.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        let (batcher, step) =
+            batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
         assert_eq!(step.sends.len(), 1);
         assert_eq!(shape(&step.sends[0]), vec![("a", vec![1]), ("b", vec![2])]);
         let request = step.sends[0].request;
 
-        let (machine, step) = machine.on_groups(now, &workers, 0, vec![run("a", &[3])]);
+        let (batcher, step) = batcher.on_groups(now, &workers, 0, vec![run("a", &[3])]);
         assert!(step.sends.is_empty(), "a's first run is still in flight");
 
-        let (_, step) = machine.on_request_succeeded(now, &workers, request, 2, Vec::new());
+        let (_, step) = batcher.on_request_succeeded(now, &workers, request, 2, Vec::new());
         assert_eq!(shape(&step.sends[0]), vec![("a", vec![3])]);
         assert_eq!(step.completions.len(), 1);
         assert_eq!(step.completions[0].offsets, vec![Offset(1), Offset(2)]);
@@ -760,21 +767,21 @@ mod tests {
         let now = Instant::now();
         let budget = Duration::from_millis(30);
         let workers = pool(&["w"]);
-        let machine = machine(config(100, budget, 4), now);
+        let batcher = batcher(config(100, budget, 4), now);
 
-        let (machine, _) = machine.on_groups(now, &workers, 1, vec![run("k", &[1])]);
-        let (machine, step) = machine.on_groups(now, &workers, 2, vec![run("k", &[2])]);
+        let (batcher, _) = batcher.on_groups(now, &workers, 1, vec![run("k", &[1])]);
+        let (batcher, step) = batcher.on_groups(now, &workers, 2, vec![run("k", &[2])]);
         assert!(step.sends.is_empty());
 
-        let (machine, step) = machine.on_wakeup(now + budget, &workers);
+        let (batcher, step) = batcher.on_wakeup(now + budget, &workers);
         assert_eq!(step.sends.len(), 1, "the epoch-2 message waits for k's run");
         assert_eq!(step.sends[0].class.assignment_epoch, 1);
         assert_eq!(shape(&step.sends[0]), vec![("k", vec![1])]);
 
         let request = step.sends[0].request;
         let later = now + budget * 2;
-        let (machine, _) = machine.on_request_succeeded(later, &workers, request, 1, Vec::new());
-        let (_, step) = machine.on_wakeup(later + budget, &workers);
+        let (batcher, _) = batcher.on_request_succeeded(later, &workers, request, 1, Vec::new());
+        let (_, step) = batcher.on_wakeup(later + budget, &workers);
         assert_eq!(step.sends[0].class.assignment_epoch, 2);
         assert_eq!(shape(&step.sends[0]), vec![("k", vec![2])]);
     }
@@ -783,25 +790,25 @@ mod tests {
     fn a_partial_response_replays_the_returned_suffix_after_the_timeout_delay() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let machine = machine(config(100, Duration::ZERO, 4), now);
-        let (machine, step) = machine.on_groups(now, &workers, 0, vec![run("a", &[1, 2, 3])]);
+        let batcher = batcher(config(100, Duration::ZERO, 4), now);
+        let (batcher, step) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1, 2, 3])]);
         let request = step.sends[0].request;
-        let (machine, _) = machine.on_groups(now, &workers, 0, vec![run("a", &[4])]);
+        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("a", &[4])]);
 
         let returned = vec![message("a", 0, 2), message("a", 0, 3)];
-        let (machine, step) = machine.on_request_succeeded(now, &workers, request, 1, returned);
+        let (batcher, step) = batcher.on_request_succeeded(now, &workers, request, 1, returned);
         assert!(step.sends.is_empty());
         assert_eq!(step.completions[0].offsets, vec![Offset(1)]);
         assert_eq!(step.next_wakeup, Some(now + TIMEOUT_DELAY));
 
         let retry = now + TIMEOUT_DELAY;
-        let (machine, step) = machine.on_wakeup(retry, &workers);
+        let (batcher, step) = batcher.on_wakeup(retry, &workers);
         assert!(step.sends[0].class.replay);
         assert_eq!(shape(&step.sends[0]), vec![("a", vec![2, 3])]);
 
         // The fresh message behind the replay waits for it, so order holds.
         let replay = step.sends[0].request;
-        let (_, step) = machine.on_request_succeeded(retry, &workers, replay, 2, Vec::new());
+        let (_, step) = batcher.on_request_succeeded(retry, &workers, replay, 2, Vec::new());
         assert!(!step.sends[0].class.replay);
         assert_eq!(shape(&step.sends[0]), vec![("a", vec![4])]);
     }
@@ -811,14 +818,14 @@ mod tests {
         let now = Instant::now();
         let budget = Duration::from_millis(10);
         let workers = pool(&["w"]);
-        let machine = machine(config(2, budget, 4), now);
-        let (machine, step) =
-            machine.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        let batcher = batcher(config(2, budget, 4), now);
+        let (batcher, step) =
+            batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
         let request = step.sends[0].request;
 
         let messages = vec![message("a", 0, 1), message("b", 0, 2)];
-        let (machine, step) =
-            machine.on_request_failed(now, &workers, request, FailureCause::Fault, messages);
+        let (batcher, step) =
+            batcher.on_request_failed(now, &workers, request, FailureCause::Fault, messages);
         assert_eq!(
             step.worker_outcomes,
             vec![WorkerOutcome {
@@ -829,13 +836,13 @@ mod tests {
         assert!(step.completions.is_empty());
         assert_eq!(step.next_wakeup, Some(now + FAULT_DELAY));
 
-        let (machine, step) = machine.on_wakeup(now + budget, &workers);
+        let (batcher, step) = batcher.on_wakeup(now + budget, &workers);
         assert!(
             step.sends.is_empty(),
             "the pack budget does not pace retries"
         );
 
-        let (_, step) = machine.on_wakeup(now + FAULT_DELAY, &workers);
+        let (_, step) = batcher.on_wakeup(now + FAULT_DELAY, &workers);
         assert_eq!(step.sends.len(), 1, "the retries pack into one request");
         assert!(step.sends[0].class.replay);
     }
@@ -843,10 +850,10 @@ mod tests {
     #[test]
     fn a_replay_is_sent_past_a_fresh_request_that_no_candidate_can_take() {
         let now = Instant::now();
-        let machine = machine(config(100, Duration::ZERO, 4), now);
-        let (machine, step) = machine.on_groups(now, &pool(&["w"]), 0, vec![run("b", &[2])]);
+        let batcher = batcher(config(100, Duration::ZERO, 4), now);
+        let (batcher, step) = batcher.on_groups(now, &pool(&["w"]), 0, vec![run("b", &[2])]);
         let request = step.sends[0].request;
-        let (machine, _) = machine.on_request_failed(
+        let (batcher, _) = batcher.on_request_failed(
             now,
             &pool(&["w"]),
             request,
@@ -858,14 +865,14 @@ mod tests {
             healthy: pool(&["w"]).healthy,
             candidates: Vec::new(),
         };
-        let (machine, step) = machine.on_groups(now, &outside_the_slice, 0, vec![run("a", &[1])]);
+        let (batcher, step) = batcher.on_groups(now, &outside_the_slice, 0, vec![run("a", &[1])]);
         assert!(
             step.sends.is_empty(),
             "a fresh request routes only within the slice"
         );
 
         let retry = now + Duration::from_millis(20);
-        let (_, step) = machine.on_wakeup(retry, &outside_the_slice);
+        let (_, step) = batcher.on_wakeup(retry, &outside_the_slice);
         assert_eq!(step.sends.len(), 1);
         assert!(step.sends[0].class.replay);
         assert_eq!(shape(&step.sends[0]), vec![("b", vec![2])]);
@@ -875,9 +882,9 @@ mod tests {
     fn bin_packing_places_the_largest_request_first() {
         let now = Instant::now();
         let workers = pool(&["w1", "w2"]);
-        let machine = machine(config(1, Duration::ZERO, 4), now);
+        let batcher = batcher(config(1, Duration::ZERO, 4), now);
 
-        let (_, step) = machine.on_groups(
+        let (_, step) = batcher.on_groups(
             now,
             &workers,
             0,
@@ -896,28 +903,28 @@ mod tests {
         let now = Instant::now();
         let budget = Duration::from_millis(30);
         let workers = pool(&["w"]);
-        let machine = machine(config(100, budget, 4), now);
+        let batcher = batcher(config(100, budget, 4), now);
 
-        let (machine, step) = machine.on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let (batcher, step) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
         assert!(step.sends.is_empty());
         assert_eq!(step.next_wakeup, Some(now + budget));
 
-        let (_, step) = machine.on_wakeup(now + budget, &workers);
+        let (_, step) = batcher.on_wakeup(now + budget, &workers);
         assert_eq!(shape(&step.sends[0]), vec![("a", vec![1])]);
     }
 
     #[test]
     fn a_request_without_a_worker_waits_and_is_sent_when_one_appears() {
         let now = Instant::now();
-        let machine = machine(config(100, Duration::ZERO, 4), now);
+        let batcher = batcher(config(100, Duration::ZERO, 4), now);
 
-        let (machine, step) = machine.on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
+        let (batcher, step) = batcher.on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
         assert!(step.sends.is_empty());
-        assert_eq!(machine.pending_messages(), 1);
+        assert_eq!(batcher.pending_messages(), 1);
         assert!(step.next_wakeup.is_some());
 
         let later = now + Duration::from_millis(100);
-        let (_, step) = machine.on_wakeup(later, &pool(&["w"]));
+        let (_, step) = batcher.on_wakeup(later, &pool(&["w"]));
         assert_eq!(shape(&step.sends[0]), vec![("a", vec![1])]);
     }
 
@@ -925,14 +932,14 @@ mod tests {
     fn the_request_cap_holds_sends_until_a_slot_frees() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let machine = machine(config(1, Duration::ZERO, 1), now);
+        let batcher = batcher(config(1, Duration::ZERO, 1), now);
 
-        let (machine, step) =
-            machine.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        let (batcher, step) =
+            batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
         assert_eq!(step.sends.len(), 1);
         let request = step.sends[0].request;
 
-        let (_, step) = machine.on_request_succeeded(now, &workers, request, 1, Vec::new());
+        let (_, step) = batcher.on_request_succeeded(now, &workers, request, 1, Vec::new());
         assert_eq!(shape(&step.sends[0]), vec![("b", vec![2])]);
     }
 
@@ -948,20 +955,20 @@ mod tests {
         #[case] candidates: &[&str],
     ) {
         let now = Instant::now();
-        let machine = machine(config(100, budget, 4), now);
+        let batcher = batcher(config(100, budget, 4), now);
         let at_arrival = WorkerPool {
             healthy: pool(healthy).healthy,
             candidates: pool(candidates).candidates,
         };
-        let (machine, step) = machine.on_groups(now, &at_arrival, 0, vec![run("a", &[1])]);
+        let (batcher, step) = batcher.on_groups(now, &at_arrival, 0, vec![run("a", &[1])]);
         assert!(step.sends.is_empty());
 
-        let (machine, step) = machine.on_partitions_revoked(now, &[("events".to_string(), 0)]);
+        let (batcher, step) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);
         assert!(step.sends.is_empty());
         assert_eq!(step.evicted_keys, vec!["a".to_string()]);
-        assert_eq!(machine.pending_messages(), 0);
+        assert_eq!(batcher.pending_messages(), 0);
 
-        let (_, step) = machine.on_wakeup(now + budget + STALL / 2, &pool(&["w"]));
+        let (_, step) = batcher.on_wakeup(now + budget + STALL / 2, &pool(&["w"]));
         assert!(step.sends.is_empty());
     }
 
@@ -969,35 +976,37 @@ mod tests {
     fn shutdown_seals_held_batches_and_stops_once_drained() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let machine = machine(config(100, Duration::from_secs(10), 4), now);
-        let (machine, _) = machine.on_groups(now, &workers, 0, vec![run("a", &[1])]);
+        let batcher = batcher(config(100, Duration::from_secs(10), 4), now);
+        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
 
-        let (machine, step) = machine.on_shutdown(now, &workers);
-        assert!(matches!(machine, BatcherState::Draining(_)));
+        let (batcher, step) = batcher.on_shutdown(now, &workers);
+        assert!(matches!(batcher, BatcherStateMachine::Draining(_)));
         let request = step.sends[0].request;
 
-        let (machine, step) = machine.on_request_succeeded(now, &workers, request, 1, Vec::new());
-        assert!(matches!(machine, BatcherState::Stopped));
+        let (batcher, step) = batcher.on_request_succeeded(now, &workers, request, 1, Vec::new());
+        assert!(matches!(batcher, BatcherStateMachine::Stopped));
         assert_eq!(step.next_wakeup, None);
     }
 
     #[rstest]
-    #[case::no_send_slots(MachineConfig { max_requests_per_worker: 0, ..config(100, Duration::ZERO, 4) })]
-    #[case::zero_stall_timeout(MachineConfig { stall_timeout: Duration::ZERO, ..config(100, Duration::ZERO, 4) })]
-    #[case::zero_poll_interval(MachineConfig { unplaced_retry_interval: Duration::ZERO, ..config(100, Duration::ZERO, 4) })]
-    fn a_config_that_would_never_send_or_always_fire_is_rejected(#[case] config: MachineConfig) {
+    #[case::no_send_slots(StateMachineConfig { max_requests_per_worker: 0, ..config(100, Duration::ZERO, 4) })]
+    #[case::zero_stall_timeout(StateMachineConfig { stall_timeout: Duration::ZERO, ..config(100, Duration::ZERO, 4) })]
+    #[case::zero_poll_interval(StateMachineConfig { unplaced_retry_interval: Duration::ZERO, ..config(100, Duration::ZERO, 4) })]
+    fn a_config_that_would_never_send_or_always_fire_is_rejected(
+        #[case] config: StateMachineConfig,
+    ) {
         let router = Router::new(RoutingStrategy::BinPack);
-        assert!(BatcherState::new(config, router, Instant::now()).is_err());
+        assert!(BatcherStateMachine::new(config, router, Instant::now()).is_err());
     }
 
     #[test]
-    fn work_stuck_without_progress_fails_the_machine() {
+    fn work_stuck_without_progress_fails_the_state_machine() {
         let now = Instant::now();
-        let machine = machine(config(100, Duration::ZERO, 4), now);
-        let (machine, _) = machine.on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
+        let batcher = batcher(config(100, Duration::ZERO, 4), now);
+        let (batcher, _) = batcher.on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
 
-        let (machine, step) = machine.on_wakeup(now + STALL, &pool(&[]));
-        assert!(matches!(machine, BatcherState::Failed));
+        let (batcher, step) = batcher.on_wakeup(now + STALL, &pool(&[]));
+        assert!(matches!(batcher, BatcherStateMachine::Failed));
         assert!(step.fatal.is_some());
         assert_eq!(step.next_wakeup, None);
     }
@@ -1006,13 +1015,13 @@ mod tests {
     fn a_passed_stall_deadline_with_a_request_in_flight_never_asks_for_a_past_wakeup() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let machine = machine(config(1, Duration::ZERO, 1), now);
-        let (machine, _) =
-            machine.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        let batcher = batcher(config(1, Duration::ZERO, 1), now);
+        let (batcher, _) =
+            batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
 
         let late = now + STALL * 2;
-        let (machine, step) = machine.on_wakeup(late, &workers);
-        assert!(matches!(machine, BatcherState::Running(_)));
+        let (batcher, step) = batcher.on_wakeup(late, &workers);
+        assert!(matches!(batcher, BatcherStateMachine::Running(_)));
         assert!(step.next_wakeup.is_some_and(|at| at > late));
     }
 
@@ -1020,13 +1029,13 @@ mod tests {
     fn past_the_stall_deadline_no_new_request_starts_until_the_in_flight_one_settles() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let machine = machine(config(1, Duration::ZERO, 1), now);
-        let (machine, step) =
-            machine.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
+        let batcher = batcher(config(1, Duration::ZERO, 1), now);
+        let (batcher, step) =
+            batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
         let request = step.sends[0].request;
 
         let late = now + STALL;
-        let (machine, step) = machine.on_request_failed(
+        let (batcher, step) = batcher.on_request_failed(
             late,
             &workers,
             request,
@@ -1034,7 +1043,7 @@ mod tests {
             vec![message("a", 0, 1)],
         );
         assert!(step.sends.is_empty(), "b stays unsent past the deadline");
-        assert!(matches!(machine, BatcherState::Failed));
+        assert!(matches!(batcher, BatcherStateMachine::Failed));
     }
 
     #[test]
@@ -1042,29 +1051,29 @@ mod tests {
         let start = Instant::now();
         let budget = STALL * 2;
         let workers = pool(&["w"]);
-        let machine = machine(config(100, budget, 4), start);
+        let batcher = batcher(config(100, budget, 4), start);
 
         let arrival = start + STALL * 3;
-        let (machine, step) = machine.on_groups(arrival, &workers, 0, vec![run("a", &[1])]);
-        assert!(matches!(machine, BatcherState::Running(_)));
+        let (batcher, step) = batcher.on_groups(arrival, &workers, 0, vec![run("a", &[1])]);
+        assert!(matches!(batcher, BatcherStateMachine::Running(_)));
         assert_eq!(step.next_wakeup, Some(arrival + budget));
 
-        let (machine, step) = machine.on_wakeup(arrival + budget, &workers);
-        assert!(matches!(machine, BatcherState::Running(_)));
+        let (batcher, step) = batcher.on_wakeup(arrival + budget, &workers);
+        assert!(matches!(batcher, BatcherStateMachine::Running(_)));
         assert_eq!(shape(&step.sends[0]), vec![("a", vec![1])]);
     }
 
     #[test]
-    fn a_response_that_breaks_the_suffix_contract_fails_the_machine() {
+    fn a_response_that_breaks_the_suffix_contract_fails_the_state_machine() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let machine = machine(config(100, Duration::ZERO, 4), now);
-        let (machine, step) = machine.on_groups(now, &workers, 0, vec![run("a", &[1, 2])]);
+        let batcher = batcher(config(100, Duration::ZERO, 4), now);
+        let (batcher, step) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1, 2])]);
         let request = step.sends[0].request;
 
-        let (machine, step) =
-            machine.on_request_succeeded(now, &workers, request, 1, vec![message("a", 0, 1)]);
-        assert!(matches!(machine, BatcherState::Failed));
+        let (batcher, step) =
+            batcher.on_request_succeeded(now, &workers, request, 1, vec![message("a", 0, 1)]);
+        assert!(matches!(batcher, BatcherStateMachine::Failed));
         assert!(step.fatal.is_some());
     }
 }

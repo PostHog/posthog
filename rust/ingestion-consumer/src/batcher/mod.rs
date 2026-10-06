@@ -17,9 +17,9 @@
 mod driver;
 pub mod in_flight;
 pub mod key_queues;
-pub mod machine;
 pub mod packer;
 pub mod request_class;
+pub mod state_machine;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod worker_assigner;
@@ -36,8 +36,8 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
-use self::driver::MachineDriver;
-use self::machine::{BatcherState, MachineConfig};
+use self::driver::StateMachineDriver;
+use self::state_machine::{BatcherStateMachine, StateMachineConfig};
 use self::worker_pool::WorkerPoolSource;
 use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch, Submission};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
@@ -143,7 +143,7 @@ pub struct Batcher {
 
 enum Backend {
     Dispatcher(DispatcherBatcher),
-    Machine(MachineDriver),
+    StateMachine(StateMachineDriver),
 }
 
 impl Batcher {
@@ -165,15 +165,15 @@ impl Batcher {
     }
 
     /// Drive the batcher state machine, the `key_table` scheduler.
-    pub fn with_machine(
-        config: MachineConfig,
+    pub fn with_state_machine(
+        config: StateMachineConfig,
         pool_source: WorkerPoolSource,
         transport: Arc<GrpcTransport>,
     ) -> Result<(Self, BatcherOutputs), String> {
-        let (driver, outputs) = MachineDriver::new(config, pool_source, transport)?;
+        let (driver, outputs) = StateMachineDriver::new(config, pool_source, transport)?;
         Ok((
             Self {
-                backend: Backend::Machine(driver),
+                backend: Backend::StateMachine(driver),
             },
             outputs,
         ))
@@ -184,7 +184,7 @@ impl Batcher {
     pub fn key_order_sentinel(&self) -> Arc<KeyOrderSentinel> {
         match &self.backend {
             Backend::Dispatcher(inner) => inner.key_order_sentinel(),
-            Backend::Machine(driver) => driver.key_order_sentinel(),
+            Backend::StateMachine(driver) => driver.key_order_sentinel(),
         }
     }
 
@@ -192,7 +192,7 @@ impl Batcher {
     pub fn revoker(&self) -> Revoker {
         match &self.backend {
             Backend::Dispatcher(_) => Revoker(None),
-            Backend::Machine(driver) => Revoker(Some(driver.shared())),
+            Backend::StateMachine(driver) => Revoker(Some(driver.shared())),
         }
     }
 
@@ -201,7 +201,7 @@ impl Batcher {
     pub fn submit(&self, accumulator: Accumulator) -> u64 {
         match &self.backend {
             Backend::Dispatcher(inner) => inner.submit(accumulator),
-            Backend::Machine(driver) => driver.submit(accumulator),
+            Backend::StateMachine(driver) => driver.submit(accumulator),
         }
     }
 
@@ -212,15 +212,17 @@ impl Batcher {
             Backend::Dispatcher(inner) => BatcherObserver(ObserverTarget::Dispatcher(Arc::clone(
                 &inner.inner.dispatcher,
             ))),
-            Backend::Machine(driver) => BatcherObserver(ObserverTarget::Machine(driver.shared())),
+            Backend::StateMachine(driver) => {
+                BatcherObserver(ObserverTarget::StateMachine(driver.shared()))
+            }
         }
     }
 
-    /// The consumer stopped polling. The machine seals its held batches at
+    /// The consumer stopped polling. The state machine seals its held batches at
     /// once, so in-flight polls complete without waiting for the pack
     /// budget.
     pub fn begin_shutdown(&self) {
-        if let Backend::Machine(driver) = &self.backend {
+        if let Backend::StateMachine(driver) = &self.backend {
             driver.begin_shutdown();
         }
     }
@@ -233,7 +235,7 @@ pub struct BatcherObserver(ObserverTarget);
 #[derive(Clone)]
 enum ObserverTarget {
     Dispatcher(Arc<Dispatcher>),
-    Machine(Arc<driver::Shared>),
+    StateMachine(Arc<driver::Shared>),
 }
 
 impl BatcherObserver {
@@ -242,31 +244,37 @@ impl BatcherObserver {
     pub fn has_in_flight(&self, worker: &WorkerId) -> bool {
         match &self.0 {
             ObserverTarget::Dispatcher(dispatcher) => dispatcher.has_in_flight(worker),
-            ObserverTarget::Machine(shared) => shared.read(|state| state.has_in_flight(worker)),
+            ObserverTarget::StateMachine(shared) => {
+                shared.read(|state| state.has_in_flight(worker))
+            }
         }
     }
 
     /// Messages held for a later send: the pin-stash's stash, or the
-    /// machine's queued, packed and unplaced messages.
+    /// state machine's queued, packed and unplaced messages.
     pub fn held_messages(&self) -> usize {
         match &self.0 {
             ObserverTarget::Dispatcher(dispatcher) => dispatcher.stashed_messages(),
-            ObserverTarget::Machine(shared) => shared.read(BatcherState::pending_messages),
+            ObserverTarget::StateMachine(shared) => {
+                shared.read(BatcherStateMachine::pending_messages)
+            }
         }
     }
 
     pub fn total_in_flight(&self) -> usize {
         match &self.0 {
             ObserverTarget::Dispatcher(dispatcher) => dispatcher.total_in_flight(),
-            ObserverTarget::Machine(shared) => shared.read(BatcherState::in_flight_messages),
+            ObserverTarget::StateMachine(shared) => {
+                shared.read(BatcherStateMachine::in_flight_messages)
+            }
         }
     }
 
-    /// Live sticky pins; the machine keeps none.
+    /// Live sticky pins; the state machine keeps none.
     pub fn pin_count(&self) -> usize {
         match &self.0 {
             ObserverTarget::Dispatcher(dispatcher) => dispatcher.pin_count(),
-            ObserverTarget::Machine(_) => 0,
+            ObserverTarget::StateMachine(_) => 0,
         }
     }
 }

@@ -9,7 +9,7 @@ use tracing::error;
 
 use super::in_flight::RequestId;
 use super::key_queues::KeyRun;
-use super::machine::{BatcherState, FailureCause, MachineConfig, Send, Step};
+use super::state_machine::{BatcherStateMachine, FailureCause, Send, StateMachineConfig, Step};
 use super::worker_pool::{WorkerPool, WorkerPoolSource};
 use super::{make_batch_id, BatcherOutputs};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
@@ -20,14 +20,14 @@ use crate::types::Accumulator;
 
 /// Performs the steps of the batcher state machine: begins its sends,
 /// awaits their responses, and fires its wakeups.
-pub(super) struct MachineDriver {
+pub(super) struct StateMachineDriver {
     shared: Arc<Shared>,
     timer: JoinHandle<()>,
 }
 
 pub(super) struct Shared {
     /// `None` only while an action runs under the lock.
-    state: Mutex<Option<BatcherState>>,
+    state: Mutex<Option<BatcherStateMachine>>,
     pool_source: WorkerPoolSource,
     transport: Arc<GrpcTransport>,
     key_sentinel: Arc<KeyOrderSentinel>,
@@ -38,14 +38,14 @@ pub(super) struct Shared {
     wakeup_changed: Notify,
 }
 
-impl MachineDriver {
+impl StateMachineDriver {
     pub(super) fn new(
-        config: MachineConfig,
+        config: StateMachineConfig,
         pool_source: WorkerPoolSource,
         transport: Arc<GrpcTransport>,
     ) -> Result<(Self, BatcherOutputs), String> {
         let router = Router::new(pool_source.strategy());
-        let state = BatcherState::new(config, router, Instant::now())?;
+        let state = BatcherStateMachine::new(config, router, Instant::now())?;
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
         let (errors_tx, errors_rx) = mpsc::unbounded_channel();
         let shared = Arc::new(Shared {
@@ -103,7 +103,7 @@ impl MachineDriver {
     }
 }
 
-impl Drop for MachineDriver {
+impl Drop for StateMachineDriver {
     fn drop(&mut self) {
         self.timer.abort();
     }
@@ -112,7 +112,7 @@ impl Drop for MachineDriver {
 impl Shared {
     /// Reads the current state. The state is absent only inside an action,
     /// which holds the same lock.
-    pub(super) fn read<T>(&self, read: impl FnOnce(&BatcherState) -> T) -> T {
+    pub(super) fn read<T>(&self, read: impl FnOnce(&BatcherStateMachine) -> T) -> T {
         let guard = self.state.lock().unwrap();
         read(
             guard
@@ -129,7 +129,7 @@ impl Shared {
 
     fn apply(
         self: &Arc<Self>,
-        action: impl FnOnce(BatcherState, Instant, &WorkerPool) -> (BatcherState, Step),
+        action: impl FnOnce(BatcherStateMachine, Instant, &WorkerPool) -> (BatcherStateMachine, Step),
     ) {
         let pool = self.pool_source.pool();
         let mut guard = self.state.lock().unwrap();
@@ -147,7 +147,7 @@ impl Shared {
             next_wakeup,
         } = step;
         // Sentinel calls and sends begin under the lock, so they follow the
-        // machine's per-key order. An ACK advances before its key is evicted.
+        // state machine's per-key order. An ACK advances before its key is evicted.
         for ack in &key_acks {
             self.key_sentinel
                 .note_acked(&ack.routing_key, ack.max_offset);

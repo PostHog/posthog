@@ -5,8 +5,8 @@ use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
-use crate::batcher::machine::{MachineConfig, RetryPolicy};
 use crate::batcher::packer::PackTargets;
+use crate::batcher::state_machine::{RetryPolicy, StateMachineConfig};
 use crate::discovery::DiscoveryMode;
 use crate::routing::RoutingStrategy;
 use crate::scheduler::SchedulerKind;
@@ -431,9 +431,9 @@ impl Config {
     /// The key-table scheduler's settings. It reuses the stream's un-acked
     /// cap as its per-worker request cap, and the deferred-flush timeout as
     /// its stall timeout.
-    pub fn machine_config(&self) -> MachineConfig {
+    pub fn state_machine_config(&self) -> StateMachineConfig {
         let retry_delay = Duration::from_millis(self.parked_retry_interval_ms);
-        MachineConfig {
+        StateMachineConfig {
             pack_targets: PackTargets {
                 events: self.pack_target_events,
                 bytes: self.pack_target_bytes,

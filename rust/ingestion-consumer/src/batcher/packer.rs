@@ -195,7 +195,7 @@ impl Packer {
 
     fn seal(&mut self, index: usize, reason: SealReason) {
         let request = self.open.remove(index).request;
-        counter!("ingestion_consumer_machine_pack_seals_total", "reason" => reason.as_str())
+        counter!("ingestion_consumer_batcher_pack_seals_total", "reason" => reason.as_str())
             .increment(1);
         self.sealed.push_back(request);
     }

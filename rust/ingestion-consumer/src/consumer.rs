@@ -14,8 +14,8 @@ use rdkafka::TopicPartitionList;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::batcher::machine::{MachineConfig, RetryPolicy};
 use crate::batcher::packer::PackTargets;
+use crate::batcher::state_machine::{RetryPolicy, StateMachineConfig};
 use crate::batcher::{make_batch_id, Batcher, BatcherObserver, BatcherOutputs, Revoker};
 use crate::commit_monitor::spawn_commit_monitor;
 use crate::commit_pacer::ImmediateCommitPacer;
@@ -308,11 +308,11 @@ pub struct IngestionConsumerOptions {
     /// with zero progress. Production takes it from
     /// `CONSUMER_DEFERRED_FLUSH_TIMEOUT_MS` (default 60s).
     pub deferred_flush_timeout: Duration,
-    /// The key-table scheduler's parked-retry cadence, and the machine's
+    /// The key-table scheduler's parked-retry cadence, and the state machine's
     /// retry delay and worker poll interval. Production takes it from
     /// `INGESTION_PARKED_RETRY_INTERVAL_MS` (default 200ms).
     pub parked_retry_interval: Duration,
-    /// The machine's pack targets. Production takes them from the
+    /// The state machine's pack targets. Production takes them from the
     /// `INGESTION_PACK_*` settings.
     pub pack_targets: PackTargets,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
@@ -369,7 +369,7 @@ impl IngestionConsumer {
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
         let commit_sentinel = consumer.context().commit_sentinel();
         let (batcher, outputs) = if dispatcher.scheduler_kind() == SchedulerKind::KeyTable {
-            let config = MachineConfig {
+            let config = StateMachineConfig {
                 pack_targets: options.pack_targets,
                 max_requests_per_worker: transport.max_unacked(),
                 retry: RetryPolicy {
@@ -380,12 +380,12 @@ impl IngestionConsumer {
                 unplaced_retry_interval: options.parked_retry_interval,
                 stall_timeout: options.deferred_flush_timeout,
             };
-            Batcher::with_machine(
+            Batcher::with_state_machine(
                 config,
                 dispatcher.worker_pool_source(),
                 Arc::clone(&transport),
             )
-            .expect("valid machine config")
+            .expect("valid state machine config")
         } else {
             Batcher::new(
                 dispatcher,

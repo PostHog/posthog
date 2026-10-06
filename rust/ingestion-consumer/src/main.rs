@@ -500,8 +500,8 @@ async fn async_main(config: Config) -> Result<()> {
             consumer_handle.clone(),
             Duration::from_millis(config.consumer_deferred_flush_timeout_ms),
         ),
-        SchedulerKind::KeyTable => Batcher::with_machine(
-            config.machine_config(),
+        SchedulerKind::KeyTable => Batcher::with_state_machine(
+            config.state_machine_config(),
             dispatcher.worker_pool_source(),
             Arc::clone(&transport),
         )

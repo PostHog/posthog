@@ -12,8 +12,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_kafka_consumer::Partition;
-use ingestion_consumer::batcher::machine::{MachineConfig, RetryPolicy};
 use ingestion_consumer::batcher::packer::PackTargets;
+use ingestion_consumer::batcher::state_machine::{RetryPolicy, StateMachineConfig};
 use ingestion_consumer::batcher::{Batcher, BatcherOutputs};
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
@@ -1054,7 +1054,7 @@ fn key_table_batcher(
     stall_timeout: Duration,
     retry_delay: Duration,
 ) -> (Batcher, BatcherOutputs) {
-    let config = MachineConfig {
+    let config = StateMachineConfig {
         pack_targets: PackTargets {
             events: 1,
             ..PackTargets::default()
@@ -1068,6 +1068,6 @@ fn key_table_batcher(
         unplaced_retry_interval: retry_delay,
         stall_timeout,
     };
-    Batcher::with_machine(config, dispatcher.worker_pool_source(), transport)
-        .expect("valid machine config")
+    Batcher::with_state_machine(config, dispatcher.worker_pool_source(), transport)
+        .expect("valid state machine config")
 }
