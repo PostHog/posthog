@@ -59,9 +59,6 @@ tools:
             to find a channel_id when wiring up Slack delivery for an alert — pass the channel id into the
             cdp-functions-create inputs.channel.value field. Requires the Slack integration's id; use integrations-list
             (filter by kind=slack) to find it.
-    integrations-github-assignees-retrieve:
-        operation: integrations_github_assignees_retrieve
-        enabled: false
     integrations-github-repos-retrieve:
         operation: integrations_github_repos_retrieve
         enabled: true
@@ -83,12 +80,6 @@ tools:
         param_overrides:
             compact:
                 default: true
-    integrations-gitlab-members-retrieve:
-        operation: integrations_gitlab_members_retrieve
-        enabled: false
-    integrations-jira-assignable-users-retrieve:
-        operation: integrations_jira_assignable_users_retrieve
-        enabled: false
     integrations-jira-projects-retrieve:
         operation: integrations_jira_projects_retrieve
         enabled: true
@@ -103,9 +94,6 @@ tools:
             List Jira projects available through a connected Jira integration. Use integrations-list with kind=jira
             first to find the integration id, then pass a returned project key as `config.project_key` when creating an
             error tracking external reference.
-    integrations-linear-team-members-retrieve:
-        operation: integrations_linear_team_members_retrieve
-        enabled: false
     integrations-linear-teams-retrieve:
         operation: integrations_linear_teams_retrieve
         enabled: true
