@@ -222,7 +222,7 @@ describe('PlayerFrame', () => {
     it('loads a new frame and mounts the player when the viewer retries from the error state', () => {
         const onLine = jest.spyOn(navigator, 'onLine', 'get').mockReturnValue(false)
         try {
-            const { container, getByRole } = render(
+            const { container } = render(
                 <Provider>
                     <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
                         <PlayerFrame />
@@ -236,7 +236,7 @@ describe('PlayerFrame', () => {
             expect(logic.values.currentPlayerState).toBe(SessionPlayerState.ERROR)
             onLine.mockReturnValue(true)
 
-            fireEvent.click(getByRole('button', { name: 'Retry' }))
+            fireEvent.click(container.querySelector('[data-attr="replay-overlay-retry-player-frame"]')!)
 
             expect(logic.values.currentPlayerState).not.toBe(SessionPlayerState.ERROR)
             expect(currentFrame(container)).not.toBe(failedFrame)
