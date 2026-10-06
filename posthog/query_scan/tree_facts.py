@@ -9,6 +9,7 @@ saved view. The trigger ships the facts with each execution and the job folds th
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from posthog.hogql import ast
@@ -125,14 +126,24 @@ class _ReadFacts:
 
 
 def tree_facts(tree: ast.AST, reads: list[EventsRead] | None = None) -> TreeFacts | None:
-    """The facts for ``tree``, or None when it reads no events. ``reads`` narrows the facts to the
-    reads one plan holds; None takes every read in the tree."""
+    """Keep whole-tree structures even when this plan's events reads are all stubbed subqueries."""
+    structures = QueryStructures()
+    structures.visit(tree)
+    structural_facts = TreeFacts(
+        repeated_cte_expansions=structures.repeated_cte_expansions(),
+        cross_join_equalities=structures.cross_join_equalities,
+        date_arrays_before_breakdown_limit=structures.date_arrays_before_breakdown_limit,
+    )
     if reads is None:
         reads = find_events_reads(tree)
     if not reads:
-        return None
-    structures = QueryStructures()
-    structures.visit(tree)
+        return (
+            structural_facts
+            if structural_facts.repeated_cte_expansions
+            or structural_facts.cross_join_equalities
+            or structural_facts.date_arrays_before_breakdown_limit
+            else None
+        )
     parents = _ParentSelects()
     parents.visit(tree)
     facts = [_read_facts(read, collect_conditions(tree, read), parents) for read in reads]
@@ -140,10 +151,8 @@ def tree_facts(tree: ast.AST, reads: list[EventsRead] | None = None) -> TreeFact
     unbounded = [read for read in facts if not read.timestamp_bound]
     unfiltered = [read for read in facts if not read.event_condition]
     view_names = {read.view_name for read in facts}
-    return TreeFacts(
-        repeated_cte_expansions=structures.repeated_cte_expansions(),
-        cross_join_equalities=structures.cross_join_equalities,
-        date_arrays_before_breakdown_limit=structures.date_arrays_before_breakdown_limit,
+    return replace(
+        structural_facts,
         timestamp_bound=not unbounded,
         property_filter=bool(unfiltered) and all(read.property_condition for read in unfiltered),
         all_history=bool(unbounded) and all(read.all_history for read in unbounded),
