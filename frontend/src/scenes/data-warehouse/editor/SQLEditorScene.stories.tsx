@@ -1180,6 +1180,8 @@ export const BIDrilldown: Story = {
     ...BITableAnalysis,
     parameters: {
         ...BITableAnalysis.parameters,
+        // The dialog is portaled outside main, so a scene-only capture clips it.
+        testOptions: { ...BITableAnalysis.parameters?.testOptions, includeNavigationInSnapshot: true },
         msw: {
             mocks: {
                 ...BITableAnalysis.parameters?.msw.mocks,
