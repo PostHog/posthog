@@ -265,6 +265,8 @@ export function useSend({
     if (slash?.command === "local" || slash?.command === "cloud") {
       const mode = slash.command;
       places.setPlace(paneId, mode);
+      // An empty pane's prompt already names the new place, so only a pane with a chat open needs the notice.
+      if (!pane?.taskId && !pending.has(paneId)) return;
       flashNotice(
         mode === "local"
           ? `New chats run on this machine, in ${process.cwd()}`
