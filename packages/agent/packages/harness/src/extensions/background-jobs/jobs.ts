@@ -112,6 +112,17 @@ function buildMessage(
 }
 
 /**
+ * Sends a background result into the conversation: steered into a running turn, or waking an idle session.
+ * The one place that sets those options, so background jobs and shell monitors reach the agent the same way.
+ */
+export function deliverBackgroundMessage(
+  pi: Pick<ExtensionAPI, "sendMessage">,
+  message: SendMessageInput,
+): void {
+  pi.sendMessage(message, { deliverAs: "steer", triggerTurn: true });
+}
+
+/**
  * Kick off `work` without awaiting it, and return an immediate ack. The
  * caller's tool call should return `ack` right away instead of blocking.
  */
@@ -135,7 +146,8 @@ export function startBackgroundJob<T>(
   options.work(controller.signal).then(
     (result) => {
       jobs.delete(jobId);
-      options.pi.sendMessage(
+      deliverBackgroundMessage(
+        options.pi,
         buildMessage(
           "completed",
           options.label,
@@ -143,7 +155,6 @@ export function startBackgroundJob<T>(
           Date.now() - startedAt,
           options.onSuccess(result),
         ),
-        { deliverAs: "steer", triggerTurn: true },
       );
     },
     (error) => {
@@ -155,7 +166,8 @@ export function startBackgroundJob<T>(
         status === "cancelled"
           ? "Cancelled before completion."
           : (options.onFailure ?? describeError)(error);
-      options.pi.sendMessage(
+      deliverBackgroundMessage(
+        options.pi,
         buildMessage(
           status,
           options.label,
@@ -163,7 +175,6 @@ export function startBackgroundJob<T>(
           Date.now() - startedAt,
           body,
         ),
-        { deliverAs: "steer", triggerTurn: true },
       );
     },
   );
