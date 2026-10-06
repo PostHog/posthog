@@ -109,7 +109,7 @@ describe('SharingModal (dashboard)', () => {
         expect(screen.getByText('Access control')).toBeInTheDocument()
         expect(await screen.findByText('Shared dashboard appearance')).toBeInTheDocument()
 
-        expect(screen.getByText(/Show branding/i)).toBeInTheDocument()
+        expect(screen.getByText('Show PostHog branding')).toBeInTheDocument()
         expect(screen.getByText('Public sharing')).toBeInTheDocument()
         expect(screen.getByText('Choose how the shared dashboard appears to viewers.')).toBeInTheDocument()
         expect(document.querySelector('[data-attr="sharing-theme-system"]')).toBeInTheDocument()
