@@ -208,6 +208,21 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("counted_through", final.checkpoint)
         self.assertNotIn("bootstrap", final.checkpoint)
 
+        self._pay_click(
+            timestamp=first_now + timedelta(hours=2),
+            created_at=first_now + timedelta(hours=2, minutes=30),
+        )
+        flush_persons_and_events()
+        with patch(
+            "products.web_analytics.backend.achievements.evaluators.timezone.now",
+            return_value=first_now + timedelta(hours=4),
+        ):
+            incremental = evaluate_conversions(
+                self._ctx(), PriorProgress(value=final.value, last_computed_at=None, checkpoint=final.checkpoint)
+            )
+        self.assertEqual(incremental.value, 5)
+        self.assertTrue(incremental.complete)
+
     @parameterized.expand(
         [
             ("unchanged_actions_add_new_arrivals", "unchanged", 5),
