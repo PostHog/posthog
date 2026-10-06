@@ -1443,6 +1443,7 @@ export type ActivityLogListParams = {
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+     * * `WarehouseSuggestion` - WarehouseSuggestion
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1547,6 +1548,7 @@ export const ActivityLogListScope = {
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+    WarehouseSuggestion: 'WarehouseSuggestion',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
@@ -1638,6 +1640,7 @@ export const ActivityLogListScope = {
  * * `TableCertification` - TableCertification
  * * `DataQualityCheck` - DataQualityCheck
  * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+ * * `WarehouseSuggestion` - WarehouseSuggestion
  * * `Billing` - Billing
  * * `Loop` - Loop
  * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1730,6 +1733,7 @@ export const ActivityLogListScopesItem = {
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+    WarehouseSuggestion: 'WarehouseSuggestion',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
