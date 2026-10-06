@@ -9,7 +9,7 @@ use crate::worker_registry::WorkerId;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RequestId(u64);
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct SentMessage {
     pub topic: Arc<str>,
     pub partition: i32,
