@@ -17,9 +17,6 @@ const TodayChatHoverCard = lazyWithRetry(() =>
 const TodaySessionHoverCard = lazyWithRetry(() =>
     import('./TodaySessionHoverCard').then((m) => ({ default: m.TodaySessionHoverCard }))
 )
-const TodaySpaceHoverCard = lazyWithRetry(() =>
-    import('./TodaySpaceHoverCard').then((m) => ({ default: m.TodaySpaceHoverCard }))
-)
 
 /** Beside a row, centered on it, so the path to a tall card is short from any row. Under a link in the
  * briefing text instead, so the card does not cover the line. */
@@ -90,9 +87,7 @@ export function TodayPreviewCardProvider({
                                         className="w-72 gap-0 border border-border py-0 shadow-[var(--shadow-md)]"
                                     >
                                         <Suspense fallback={<Skeleton className="h-24 w-full" />}>
-                                            {payload.kind === 'space' ? (
-                                                <TodaySpaceHoverCard preview={payload} onAction={close} />
-                                            ) : payload.kind === 'chat' ? (
+                                            {payload.kind === 'chat' ? (
                                                 <TodayChatHoverCard preview={payload} onAction={close} />
                                             ) : payload.kind === 'report' ? (
                                                 <TodayReportHoverCard preview={payload} />
