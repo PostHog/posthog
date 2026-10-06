@@ -171,8 +171,8 @@ export interface userLogicActions {
         nextUrl?: string,
         reason?: string
     ) => {
-        preserveLocation: any
         nextUrl: string | undefined
+        preserveLocation: any
         reason: string | undefined
     }
     resetUserDetails: (values?: Record<string, any>) => {
