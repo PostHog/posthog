@@ -1245,9 +1245,7 @@ def _search_as_arrow_tables(
         next_page_token = page.next_page_token
         if not next_page_token:
             if next_campaign_id is not None:
-                resumable_source_manager.save_state(
-                    GoogleAdsResumeConfig(page_token="", campaign_id=next_campaign_id)
-                )
+                resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token="", campaign_id=next_campaign_id))
             break
 
         resumable_source_manager.save_state(GoogleAdsResumeConfig(page_token=next_page_token, campaign_id=campaign_id))
