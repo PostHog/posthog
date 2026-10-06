@@ -27,7 +27,6 @@ from posthog.dataclasses import frozen
 from products.signals.backend.ranking.features import (
     NO_EXTRAS,
     REPORT_EMBEDDINGS_FEATURE_SET,
-    TABULAR_FEATURE_SET,
     TITLE_EMBEDDINGS_FEATURE_SET,
     Extras,
     FeatureSet,
@@ -63,7 +62,6 @@ CHAMPION_ROLE = "champion"
 
 # The model family: which features and which learner, as against `model_version`, the partition day
 # it was fit on. Both are in the identity, so two families trained on one day stay apart.
-TABULAR_MODEL_NAME = "tabular_xgb"
 REPORT_EMBEDDINGS_MODEL_NAME = "report_embeddings"
 TITLE_EMBEDDINGS_MODEL_NAME = "title_embeddings"
 
@@ -146,7 +144,6 @@ class ModelFamily:
 # settings match by construction. Keep it that way: the pair is a measurement of the text choice,
 # and a recipe that differed between them would answer a question nobody asked.
 MODEL_FAMILIES: tuple[ModelFamily, ...] = (
-    ModelFamily(name=TABULAR_MODEL_NAME, feature_set=TABULAR_FEATURE_SET),
     ModelFamily(name=REPORT_EMBEDDINGS_MODEL_NAME, feature_set=REPORT_EMBEDDINGS_FEATURE_SET),
     ModelFamily(name=TITLE_EMBEDDINGS_MODEL_NAME, feature_set=TITLE_EMBEDDINGS_FEATURE_SET),
 )
@@ -325,15 +322,15 @@ def empty_scores_write_allowed(existing_row_count: int | None) -> bool:
 
 
 def with_model_names(scores: pd.DataFrame) -> pd.DataFrame:
-    """`scores` with a `model_name` column, filling the tabular family where it is absent.
+    """`scores` without the rows that name no model family.
 
-    The grader reads scores objects up to 14 days old, so it still meets objects written before the
-    column existed. Every one of those holds tabular XGBoost rows, and grading them under a null
-    name would split the AUC series on the day the column arrived.
+    A scores object written before the `model_name` column existed holds only rows of a retired
+    family. No family this build trains can grade them, and grading them under a null name would
+    put them in a series of their own, so they are dropped. The caller compares lengths to count them.
     """
     if "model_name" not in scores:
-        return scores.assign(model_name=TABULAR_MODEL_NAME)
-    return scores.assign(model_name=scores["model_name"].fillna(TABULAR_MODEL_NAME))
+        return scores.iloc[0:0].assign(model_name=pd.Series(dtype=object))
+    return scores[scores["model_name"].notna()]
 
 
 def families_lost_by_rewrite(existing: pd.DataFrame, scores: pd.DataFrame) -> list[str]:

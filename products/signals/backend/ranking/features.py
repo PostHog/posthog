@@ -6,66 +6,23 @@ matrix. A model records the set it was fit on in its `metadata.json`, so a run c
 sets at once: the examples Parquet, the training matrix and the scoring matrix are all built per
 set, and a model whose declared set this build cannot produce is left unscored.
 
-The tabular set is the first one. Training (`products/signals/dags/inbox_ranking/training/`) and
-serving (the scoring sweep in this package) must build features through the same code, so the
-booster's `feature_names` match the serving matrix by construction. The sweep reads the tabular
-contract directly as FEATURE_NAMES / `feature_vector` / FEATURE_SCHEMA_VERSION.
-
-The tabular set is: the report-state columns the dataset dag snapshots from Postgres plus the
-report's age at the scoring moment. No report embedding and no impression-derived columns
-(`source_products`), so the sweep needs nothing beyond the SignalReport row and its latest
-judgment artefacts. The two embedding sets are the report's combined-text vector and its title-only
-vector, one rendering each, and the sweep serves neither: they are offline candidates graded on the
-unseen read, and serving one needs its vector at scoring time (skill issue 14).
+The two sets are the report's combined-text embedding vector and its title-only vector, one
+rendering each. They are the served contract: training (`products/signals/dags/inbox_ranking/training/`)
+and serving (the scoring sweep in this package) build features through the same `build_matrix`, so
+the booster's `feature_names` match the serving matrix by construction. The sweep reads each
+vector at scoring time and needs nothing else from the report.
 """
 
 import abc
-import math
 import datetime
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import Any
 
 import numpy as np
 import pandas as pd
 
-FEATURE_SCHEMA_VERSION = 1
-
-PRIORITY_VALUES = ("P0", "P1", "P2", "P3", "P4")
-ACTIONABILITY_VALUES = ("immediately_actionable", "requires_human_input", "not_actionable")
-
-NUMERIC_FEATURES = (
-    "signal_count",
-    "total_weight",
-    "run_count",
-    "title_chars",
-    "summary_chars",
-    "age_hours",
-)
-
-FEATURE_NAMES: tuple[str, ...] = (
-    *NUMERIC_FEATURES,
-    "priority_known",
-    *(f"priority_{value}" for value in PRIORITY_VALUES),
-    "actionability_known",
-    *(f"actionability_{value}" for value in ACTIONABILITY_VALUES),
-)
-
-# The report-state columns `feature_frame` reads. `age_hours` is not one of them: it is the
-# report's age at the scoring moment, derived from the snapshot's own clock, and the caller adds
-# it to the rows of every set.
-TABULAR_STATE_COLUMNS: tuple[str, ...] = (
-    "signal_count",
-    "total_weight",
-    "run_count",
-    "title_chars",
-    "summary_chars",
-    "priority",
-    "actionability",
-)
-
 # Side inputs a set may read next to the report-state rows, keyed by name and indexed by
-# report_id. The tabular set needs none.
+# report_id.
 Extras = Mapping[str, pd.DataFrame]
 NO_EXTRAS: Extras = MappingProxyType({})
 
@@ -91,56 +48,6 @@ EMBEDDING_DIMENSIONS = 1536
 BIRTH_GRAIN = "birth"
 SCORING_MOMENT_GRAIN = "scoring_moment"
 REPORT_GRAIN = "report"
-
-
-def _number(value: Any) -> float:
-    if value is None:
-        return math.nan
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return math.nan
-    return number if math.isfinite(number) else math.nan
-
-
-def feature_vector(row: Mapping[str, Any]) -> list[float]:
-    """The feature vector for one scoring moment, in FEATURE_NAMES order.
-
-    `row` carries the report-state columns (`signal_count`, `total_weight`, `run_count`,
-    `title_chars`, `summary_chars`, `priority`, `actionability`) and `age_hours`, the report's age
-    at the moment being scored. Missing numerics become NaN (XGBoost learns a default direction);
-    missing categoricals set the `*_known` flag to 0 with every one-hot at 0.
-    """
-    values = [_number(row.get(name)) for name in NUMERIC_FEATURES]
-    priority = row.get("priority")
-    values.append(1.0 if priority in PRIORITY_VALUES else 0.0)
-    values.extend(1.0 if priority == value else 0.0 for value in PRIORITY_VALUES)
-    actionability = row.get("actionability")
-    values.append(1.0 if actionability in ACTIONABILITY_VALUES else 0.0)
-    values.extend(1.0 if actionability == value else 0.0 for value in ACTIONABILITY_VALUES)
-    return values
-
-
-def feature_frame(rows: pd.DataFrame) -> pd.DataFrame:
-    """Vectorized `feature_vector` over a frame of report-state rows, columns in FEATURE_NAMES order.
-
-    Must agree with `feature_vector` row for row (a test pins it): training builds matrices here,
-    the sweep scores one report at a time through `feature_vector`.
-    """
-    out = pd.DataFrame(index=rows.index)
-    for name in NUMERIC_FEATURES:
-        out[name] = pd.to_numeric(rows[name], errors="coerce").astype(float) if name in rows else math.nan
-    priority = rows["priority"] if "priority" in rows else pd.Series(None, index=rows.index, dtype=object)
-    out["priority_known"] = priority.isin(PRIORITY_VALUES).astype(float)
-    for value in PRIORITY_VALUES:
-        out[f"priority_{value}"] = (priority == value).astype(float)
-    actionability = (
-        rows["actionability"] if "actionability" in rows else pd.Series(None, index=rows.index, dtype=object)
-    )
-    out["actionability_known"] = actionability.isin(ACTIONABILITY_VALUES).astype(float)
-    for value in ACTIONABILITY_VALUES:
-        out[f"actionability_{value}"] = (actionability == value).astype(float)
-    return out[list(FEATURE_NAMES)]
 
 
 class FeatureSet(abc.ABC):
@@ -191,24 +98,6 @@ class FeatureSet(abc.ABC):
         return tuple(key for key in self.extras_keys if key not in extras)
 
 
-class TabularFeatureSet(FeatureSet):
-    """The v0 set: the report-state counters, the title and summary lengths, the report's age, and
-    the one-hot priority and actionability. This is the set `feature_vector` serves."""
-
-    name = "tabular"
-    schema_version = FEATURE_SCHEMA_VERSION
-    feature_names = FEATURE_NAMES
-    state_columns = TABULAR_STATE_COLUMNS
-
-    def build_matrix(
-        self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
-    ) -> pd.DataFrame:
-        return feature_frame(rows)
-
-
-TABULAR_FEATURE_SET = TabularFeatureSet()
-
-
 class ReportEmbeddingsFeatureSet(FeatureSet):
     """One text rendering's embedding vector, and nothing else, at one example per report.
 
@@ -229,7 +118,7 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
     times 1536 floats, is gigabytes of Parquet per partition and more than the training pod holds,
     which is what rules the moment grain out at this width. The default birth grain gives that.
     `max_examples_per_head` bounds what is left by dropping the oldest report-creation days; the
-    lookback stays the tabular set's, so positives accrue over the whole window until the budget binds.
+    lookback stays the training job's, so positives accrue over the whole window until the budget binds.
 
     Vectors arrive through `extras`, from the rendering's own dt=D snapshot, which holds the
     latest vector per report. A report is re-embedded whenever its text changes, and the
@@ -314,17 +203,12 @@ TITLE_EMBEDDINGS_FEATURE_SET = ReportEmbeddingsFeatureSet(name="title_embeddings
 # scored, the same way a model whose feature names have moved on cannot.
 FEATURE_SETS: Mapping[str, FeatureSet] = MappingProxyType(
     {
-        TABULAR_FEATURE_SET.name: TABULAR_FEATURE_SET,
         REPORT_EMBEDDINGS_FEATURE_SET.name: REPORT_EMBEDDINGS_FEATURE_SET,
         TITLE_EMBEDDINGS_FEATURE_SET.name: TITLE_EMBEDDINGS_FEATURE_SET,
     }
 )
 
-# What a model written before `feature_set` was recorded was fit on: every one of those is tabular.
-DEFAULT_FEATURE_SET = TABULAR_FEATURE_SET
-
 
 def feature_set_by_name(name: str | None) -> FeatureSet | None:
-    """The named set, the tabular default when the name is absent, or None when this build cannot
-    produce it."""
-    return DEFAULT_FEATURE_SET if name is None else FEATURE_SETS.get(name)
+    """The named set, or None when the name is absent or this build cannot produce it."""
+    return None if name is None else FEATURE_SETS.get(name)
