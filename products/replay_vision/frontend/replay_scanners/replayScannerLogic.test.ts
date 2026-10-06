@@ -1182,6 +1182,7 @@ describe('replayScannerLogic', () => {
             observationDateFrom: null as string | null,
             observationDateTo: null as string | null,
             observationBackfillFilter: null as string | null,
+            observationVariantFilter: null as string | null,
             observationsSort: null,
             scanner: null,
         }
@@ -1653,6 +1654,25 @@ describe('replayScannerLogic', () => {
                 expect(sidLogic.values.observationDateFrom).toBe('2026-05-04')
                 expect(sidLogic.values.observationDateTo).toBe('2026-05-04')
                 expect(sidLogic.values.observationVerdictFilter).toEqual(['yes'])
+            } finally {
+                sidLogic.unmount()
+            }
+        })
+
+        // The Variants tab links each variant, and the unattributed row, into the list this way.
+        it('restores a variant link and sends the variant to the list endpoint', async () => {
+            const listSpy = jest.fn(() => [200, { results: [] }])
+            useMocks({ get: { '/api/projects/:team/vision/scanners/:id/observations/': listSpy } })
+            const sidLogic = replayScannerLogic({ id: 'sid' })
+            sidLogic.mount()
+            try {
+                router.actions.push(urls.replayVision('sid'), { tab: 'observations', variant: '__unattributed__' })
+                await expectLogic(sidLogic).toFinishAllListeners()
+                expect(sidLogic.values.observationVariantFilter).toBe('__unattributed__')
+
+                await expectLogic(sidLogic, () => sidLogic.actions.loadObservations()).toFinishAllListeners()
+                const url = new URL((listSpy.mock.calls.at(-1) as any)[0].request.url)
+                expect(url.searchParams.get('variant')).toBe('__unattributed__')
             } finally {
                 sidLogic.unmount()
             }
