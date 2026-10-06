@@ -75,9 +75,6 @@ export function buildBIConnections(
         const lookup: TableLookup = Object.create(tables)
         Object.defineProperty(lookup, tableName, {
             value: { name: tableName, fields: Object.fromEntries(fields.map((field) => [field.name, field])) },
-            enumerable: true,
-            configurable: true,
-            writable: true,
         })
         return lookup
     }
