@@ -20,10 +20,15 @@ if TYPE_CHECKING:
     from products.signals.backend.temporal.types import SignalData
 
 
-def _issue_repository(signal: SignalData) -> str | None:
+def _issue_url(signal: SignalData) -> str | None:
     if signal.source_product != SignalSourceProduct.GITHUB or signal.source_type != SignalSourceType.ISSUE:
         return None
-    ref = GitHubIntegrationBase.parse_issue_url(str((signal.extra or {}).get("html_url") or ""))
+    url = str((signal.extra or {}).get("html_url") or "")
+    return url if GitHubIntegrationBase.parse_issue_url(url) is not None else None
+
+
+def _issue_repository(signal: SignalData) -> str | None:
+    ref = GitHubIntegrationBase.parse_issue_url(_issue_url(signal) or "")
     return ref.repository.lower() if ref is not None else None
 
 
@@ -31,3 +36,8 @@ def source_repository_from_signals(signals: list[SignalData]) -> str | None:
     """The one repository these signals come from, lowercased, or None when they name none or many."""
     repositories = {repository for signal in signals if (repository := _issue_repository(signal))}
     return next(iter(repositories)) if len(repositories) == 1 else None
+
+
+def source_issue_urls_from_signals(signals: list[SignalData]) -> list[str]:
+    """The GitHub issue URLs these signals were filed from, deduplicated in signal order."""
+    return list(dict.fromkeys(url for signal in signals if (url := _issue_url(signal))))

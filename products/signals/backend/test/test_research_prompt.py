@@ -625,6 +625,14 @@ class TestOwnPullRequestCarveOut:
         assert self._PR in prompt
         assert "never counts as `already_addressed`" in prompt
 
+    def test_actionability_prompt_exempts_the_report_source_issue(self):
+        # A team that self-assigns its self-driving issues makes the source issue look like work in
+        # flight, and the report blocks its own fix.
+        issue = "https://github.com/PostHog/posthog/issues/8"
+        prompt = build_actionability_prompt(2, source_issue_urls=[issue])
+        assert issue in prompt
+        assert "neither do its assignees" in prompt
+
     def test_actionability_prompt_says_nothing_without_a_pr(self):
         prompt = build_actionability_prompt(2)
         assert "already_addressed`" in prompt  # the general guidance survives

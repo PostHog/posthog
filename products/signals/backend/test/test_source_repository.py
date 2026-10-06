@@ -8,7 +8,10 @@ from asgiref.sync import async_to_sync
 
 from products.signals.backend.agent_runtime import DEFAULT_RUNTIME
 from products.signals.backend.report_generation import select_repo
-from products.signals.backend.report_generation.source_repository import source_repository_from_signals
+from products.signals.backend.report_generation.source_repository import (
+    source_issue_urls_from_signals,
+    source_repository_from_signals,
+)
 from products.signals.backend.temporal.types import SignalData
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 
@@ -50,6 +53,19 @@ def _signal(
 )
 def test_source_repository_from_signals(signals: list[SignalData], expected: str | None) -> None:
     assert source_repository_from_signals(signals) == expected
+
+
+@pytest.mark.parametrize(
+    "signals,expected",
+    [
+        ([_signal(), _signal()], [ISSUE_URL]),
+        # A ticket that quotes an issue link was not filed from it, so it must not exempt that issue.
+        ([_signal(source_product="zendesk", source_type="ticket")], []),
+        ([_signal(extra={"html_url": "https://github.com.evil.tld/posthog/posthog/issues/1"})], []),
+    ],
+)
+def test_source_issue_urls_from_signals(signals: list[SignalData], expected: list[str]) -> None:
+    assert source_issue_urls_from_signals(signals) == expected
 
 
 class TestSelectRepositoryPinsTheSourceRepository(BaseTest):
