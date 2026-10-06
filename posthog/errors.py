@@ -286,9 +286,15 @@ INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
 }
 
 
-def internal_ch_error_user_message(err: ServerException) -> str | None:
+def internal_ch_error_user_message(code_name: str | None) -> str | None:
     """Return user-safe copy for a known internal ClickHouse error, or None for an unknown error."""
-    return INTERNAL_CH_ERROR_USER_MESSAGES.get(look_up_clickhouse_error_code_meta(err).name)
+    if not code_name:
+        return None
+    if message := INTERNAL_CH_ERROR_USER_MESSAGES.get(code_name.upper()):
+        return message
+    if code_name.lower() in USER_ERROR_CODE_NAMES:
+        return f"ClickHouse rejected the query with error {code_name.upper()}."
+    return None
 
 
 # Specific error classes we need
@@ -1137,6 +1143,14 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     1003: ErrorCodeMeta("SSH_EXCEPTION"),
     1004: ErrorCodeMeta("STARTUP_SCRIPTS_ERROR"),
 }
+
+# The error name holds no stored data values, so it is safe to show for an error the query caused,
+# even when the full message is not. Server faults stay out, because callers cannot act on them.
+USER_ERROR_CODE_NAMES = frozenset(
+    meta.name.lower()
+    for meta in CLICKHOUSE_ERROR_CODE_LOOKUP.values()
+    if meta.get_category() == QueryErrorCategory.USER_ERROR
+)
 
 # Transient ClickHouse infrastructure errors that are safe to retry.
 # This can be used in things like celery `autoretry_for` to increase resiliency.

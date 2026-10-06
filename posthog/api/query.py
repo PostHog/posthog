@@ -421,9 +421,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            user_message = internal_ch_error_user_message(e)
+            error_code = look_up_clickhouse_error_code_meta(e).name
+            user_message = internal_ch_error_user_message(error_code)
             QUERY_INTERNAL_CH_ERROR_TOTAL.labels(
-                error_code=look_up_clickhouse_error_code_meta(e).name,
+                error_code=error_code,
                 explained=str(user_message is not None).lower(),
             ).inc()
             replacement = APIException(user_message or GENERIC_INTERNAL_CH_ERROR_MESSAGE)

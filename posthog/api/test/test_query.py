@@ -48,7 +48,7 @@ from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
-from posthog.errors import GENERIC_INTERNAL_CH_ERROR_MESSAGE, INTERNAL_CH_ERROR_USER_MESSAGES, InternalCHQueryError
+from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
 from posthog.llm.completions import OpenAICompletion
@@ -125,8 +125,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("known_code", 158, INTERNAL_CH_ERROR_USER_MESSAGES["TOO_MANY_ROWS"]),
-            ("unknown_code", 999_999, GENERIC_INTERNAL_CH_ERROR_MESSAGE),
+            (
+                "known_code",
+                158,
+                "This query reads or returns more data than the limit allows. Use a shorter date range, "
+                "add filters, or add a LIMIT clause. Then run the query again.",
+            ),
+            (
+                "unknown_identifier",
+                47,
+                "A column in this query doesn't exist in the data. Check the column names. "
+                "If the query uses a view, check that the view still matches its source table.",
+            ),
+            ("unsupported_method", 1, "ClickHouse rejected the query with error UNSUPPORTED_METHOD."),
+            ("syntax_error", 62, "ClickHouse rejected the query with error SYNTAX_ERROR."),
+            ("unknown_code", 999_999, "ClickHouse error while executing query."),
         ]
     )
     def test_internal_clickhouse_error_hides_raw_message(self, _name, code, expected_detail):
