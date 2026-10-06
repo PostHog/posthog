@@ -9559,17 +9559,17 @@ snapshots:
     scenes-app-data-warehouse-settings-api-version-deprecation-banner--without-sunset-date--light:
         hash: v1.k794b7964.5538a3b913cdaf075ffa11b124181028792db175d494b4ddfc464b7c136abad1.lRLOGn7WM05iOpm8oCLLc5FkYge6teK_L_hm0JgjlLE
     scenes-app-data-warehouse-settings-schemas--default--dark:
-        hash: v1.k794b7964.e7a413df9cb3388523740737801eb45647588b41aa26b1af2591f1027bd7b111.q8e8BaNl6LJbRusi5AFHOEjEux6ITpXReNUkJAdaNFY
+        hash: v1.k794b7964.2731d66d7ae4e5a789e0fc6f8a331b259cbcb3ec25416c79fe3a1ce3e583fdbc.Dgzs4lWk8hphWWfySWhK75GKpeq4fzL3Z9KAkrVVl80
     scenes-app-data-warehouse-settings-schemas--default--light:
-        hash: v1.k794b7964.62abbaebed2e50cc731d2816d8ff2ffd75665676c1d448039b77697b11cfda3d.yhKMeKZR4Sv4nIaEdQNjBtd1fGZhog5pIDHUUPJZlaU
+        hash: v1.k794b7964.390d2f9454f8d002c3f44d38ef927090d9c3bc752909dc6f76349c3bb3b190db.KxU9X8IE3QQR8qzF_aMobSb-iBA2m9SIS_yR3XinDFQ
     scenes-app-data-warehouse-settings-schemas--incremental-sync-blocked--dark:
-        hash: v1.k794b7964.4584fd922419e4058948d04a3923f994995ec8c9e74b35fe1d792528f1a9bb06.O4m_UffwNbHSkJq-ehb_EB5i5CSlBJE0A7RmqfMeZ5g
+        hash: v1.k794b7964.cf947ed5152e7cf799679d928f58cd5c3c09103ece90743ccc7bb65f17c5ce49.jNR73d-hlRP4s_EZW_4iHWm_9mUAPD69PW233Or012g
     scenes-app-data-warehouse-settings-schemas--incremental-sync-blocked--light:
-        hash: v1.k794b7964.71ce8156c0796dc4f42059b238368d4ca7b5aa09dc8c080b510b6b7d3934190c.3yt8hLuRj8-mIfff1tauP2XWvSiW-IiBteLyQnnMVkQ
+        hash: v1.k794b7964.58202bb38f2d9d4eac9ff3259274b5dd650e2bca9641f291a02ca99d435a32f1.CAF6KYQ16Zc94wvT6eEfuwE4_G6ZPLhyH_kW6-d2KKg
     scenes-app-data-warehouse-settings-schemas--multi-schema--dark:
-        hash: v1.k794b7964.22840c30d80b9e1a3bd41d5a31af2ab81a54d9f90fb82d540fb9494b44cda050.oC_UUgUXZVqKMZ6LuInaQADAzqeWAvw2dZ8T5eENhIQ
+        hash: v1.k794b7964.3bcec4692a9a62b116fc38aee9da58cd33c134602ec1a659a281a564c7d704fb.WOQMHP0MZlV4qdn8etO3YYlIcm5odlOGkPBU5f_kfA4
     scenes-app-data-warehouse-settings-schemas--multi-schema--light:
-        hash: v1.k794b7964.e5d678194a8e191fdf4f8a92cd7328f1e3cb162a81d3c4d05ef608f3c61537da.ZshlecoDn8CpsaVHaONi7UiXq8r-Xi4zJSWKeg7nAP0
+        hash: v1.k794b7964.2f4bd6098d8c54c0b25ed9ee0ef7770a59c4d343191d065b0814299a27a42a22.6jWN3F1ozzMy7KZRTYHY1XPxasFL_u2H8Ybw9WcDjfk
     scenes-app-data-warehouse-sql-editor--bi-calculated-measure-editor--dark:
         hash: v1.k794b7964.a367690805a7da1c693b589b73a8c2834446dc35e31b7b951bfc1bb308b3da7f.96-jw47y9XF2n27tdejWbZyKh7oCMNuXeG56vdP8IOI
     scenes-app-data-warehouse-sql-editor--bi-calculated-measure-editor--light:
