@@ -3,8 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconCalendar } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
+import { getBIComparisonDisabledReason } from '../biComparison'
 import { biEditorLogic } from '../biEditorLogic'
 import { BI_DATE_OPTIONS } from '../biEditorOptions'
 import { isDateTimeBIField } from '../biEditorTypes'
@@ -12,7 +14,7 @@ import { getBIDateField } from '../biQueryFilters'
 
 export function BIDateControls(): JSX.Element {
     const { config, dataPaneFields } = useValues(biEditorLogic)
-    const { setDateField, setDateRange } = useActions(biEditorLogic)
+    const { setDateField, setDateRange, setCompareFilter } = useActions(biEditorLogic)
     const dateField = getBIDateField(config)
     const dateFields = dataPaneFields.dimensions.filter(isDateTimeBIField)
     if (dateField && !dateFields.some((field) => field.expression === dateField.expression)) {
@@ -56,6 +58,11 @@ export function BIDateControls(): JSX.Element {
                         <span>{label}</span>
                     </>
                 )}
+            />
+            <CompareFilter
+                compareFilter={config.compareFilter}
+                updateCompareFilter={setCompareFilter}
+                disableReason={getBIComparisonDisabledReason(config)}
             />
         </div>
     )
