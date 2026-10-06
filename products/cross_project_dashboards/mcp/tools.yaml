@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Cross-project dashboards
 feature: cross_project_dashboards
-url_prefix: /
+url_prefix: /cross-project-dashboards
 ui_apps: {}
 tools:
     cross-project-dashboard-tiles-list:
@@ -40,6 +40,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         title: Get one cross-project dashboard
         description: >
             One dashboard with its tiles. Each tile names the project and the insight it points at, never the insight's
@@ -55,6 +56,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        enrich_url: '{id}'
         list: true
         title: List cross-project dashboards
         description: >
