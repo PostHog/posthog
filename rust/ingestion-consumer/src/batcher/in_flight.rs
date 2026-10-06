@@ -1,3 +1,8 @@
+//! What each in-flight request carried, since a response names its request
+//! only by id. `register` a request when it is sent and `take` it when its
+//! response arrives. Then call `accepted` on success, or `hand_back` with the
+//! messages the transport returns on failure: all of them, in send order.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -38,8 +43,6 @@ pub struct InFlightRequest {
     runs: Vec<SentRun>,
 }
 
-/// A response references its request by id only, so this keeps what each
-/// request carried.
 #[derive(Default)]
 pub struct InFlightRequests {
     next_id: u64,
@@ -93,14 +96,10 @@ impl InFlightRequests {
 }
 
 impl InFlightRequest {
-    /// Every key's run, in send order, after the worker accepted the whole
-    /// request.
     pub fn accepted(self) -> Vec<SentRun> {
         self.runs
     }
 
-    /// The transport hands back every message of a failed request, in send
-    /// order, so each key gets back exactly the run it sent.
     pub fn hand_back(self, messages: Vec<SerializedKafkaMessage>) -> Result<Vec<KeyRun>, String> {
         if messages.len() != self.message_count {
             return Err(format!(
