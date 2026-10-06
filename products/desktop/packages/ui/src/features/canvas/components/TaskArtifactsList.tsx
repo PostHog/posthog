@@ -42,6 +42,7 @@ import { useTaskRuns } from "@posthog/ui/features/canvas/hooks/useTaskRuns";
 import { canvasArtifactOpenHandler } from "@posthog/ui/features/canvas/utils/canvasArtifactNavigation";
 import { openPrInReview } from "@posthog/ui/features/code-review/openPrInReview";
 import { usePrArtifact } from "@posthog/ui/features/git-interaction/usePrArtifact";
+import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { usePrComments } from "@posthog/ui/features/pr-review/usePrComments";
 import { usePrReviewThreads } from "@posthog/ui/features/pr-review/usePrReviewThreads";
@@ -346,6 +347,7 @@ function PostHogObjectRow({
   runId,
   name,
   objectKind,
+  objectId,
   occurrenceCount,
   uploadedAt,
   commentCount,
@@ -355,11 +357,13 @@ function PostHogObjectRow({
   runId: string;
   name: string;
   objectKind: string;
+  objectId: string;
   occurrenceCount: number;
   uploadedAt: string | undefined;
   commentCount: number;
 }) {
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const openInboxReport = useOpenInboxReport();
   const object = getObjectKind(objectKind);
   const ObjectIcon = object.icon;
   const meta = [
@@ -375,9 +379,13 @@ function PostHogObjectRow({
       icon={<ObjectIcon size={16} color={POSTHOG_OBJECT_ICON_COLOR} />}
       title={name}
       meta={meta}
-      onOpen={() =>
-        openArtifactTab(taskId, { runId, artifactId, name, objectKind })
-      }
+      onOpen={() => {
+        if (objectKind === "report") {
+          void openInboxReport(objectId);
+          return;
+        }
+        openArtifactTab(taskId, { runId, artifactId, name, objectKind });
+      }}
       actions={<CommentCountBadge count={commentCount} />}
     />
   );
@@ -484,6 +492,7 @@ export function TaskArtifactsList({
             runId={row.runId}
             name={row.name}
             objectKind={row.metadata.object_kind}
+            objectId={row.metadata.object_id}
             occurrenceCount={row.metadata.occurrence_count}
             uploadedAt={row.uploadedAt}
             commentCount={openCountByItem.get(row.artifactId) ?? 0}

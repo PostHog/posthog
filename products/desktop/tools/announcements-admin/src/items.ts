@@ -24,7 +24,7 @@ export interface EditableItem {
 export function kindDefaultHedgehog(
   kind: EditableItem["kind"],
 ): EditableItem["heroHedgehog"] {
-  return kind === "required-update" ? "builder" : "happy";
+  return kind === "required-update" ? "level-up" : "megaphone";
 }
 
 export function blankItem(kind: EditableItem["kind"]): EditableItem {

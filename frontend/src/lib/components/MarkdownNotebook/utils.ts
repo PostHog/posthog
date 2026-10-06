@@ -118,6 +118,12 @@ export function getNodeFingerprint(node: NotebookBlockNode): string {
     return fingerprint
 }
 
+/** Adopt a known fingerprint for a node copy whose fingerprint inputs are shared with the
+ * original (same tagName and props), so the copy skips re-encoding them. */
+export function seedNodeFingerprint(node: NotebookBlockNode, fingerprint: string): void {
+    nodeFingerprintCache.set(node, fingerprint)
+}
+
 function getUncachedNodeFingerprint(node: NotebookBlockNode): string {
     if (node.type === 'paragraph' || node.type === 'heading' || node.type === 'blockquote') {
         return JSON.stringify({

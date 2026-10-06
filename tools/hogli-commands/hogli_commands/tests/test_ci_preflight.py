@@ -1,21 +1,66 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
 
 import pytest
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli.manifest import REPO_ROOT
+from hogli_commands.change_detection import matches_globs
 from hogli_commands.ci_preflight import (
-    COMPANION_CHECKS,
     DIFF_CHECKS,
+    DiffCheck,
     _pnpm_workspace_root,
     _run_workspace_scoped,
     _staleness_risks,
 )
+from hogli_commands.preflight_checks import Scope, Status
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def no_diff_reading_checks() -> Iterator[None]:
+    # The real ones shell out to node and semgrep on any changed path.
+    with patch("hogli_commands.ci_preflight.DIFF_CHECKS", [chk for chk in DIFF_CHECKS if chk.run is None]):
+        yield
+
+
+class TestDiffReadingChecks:
+    @pytest.mark.parametrize(
+        "status,warn_only,expected_exit",
+        [("fail", False, 1), ("advisory", False, 0), (None, False, 0), ("warning", True, 0)],
+    )
+    @patch("hogli_commands.ci_preflight._merge_base", return_value="abc123")
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["frontend/snapshots.yml"])
+    def test_only_a_failed_check_blocks_the_push_and_a_warn_only_check_is_skipped(
+        self,
+        mock_changed: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_emit: MagicMock,
+        mock_merge_base: MagicMock,
+        status: Status | None,
+        warn_only: bool,
+        expected_exit: int,
+    ) -> None:
+        def run(scope: Scope) -> tuple[Status, str]:
+            if status is None:
+                raise KeyError("unexpected tool output")
+            return status, "detail"
+
+        check = DiffCheck(key="probe", label="probe", triggers=["frontend/*"], verify=None, run=run, soft=warn_only)
+        with patch("hogli_commands.ci_preflight.DIFF_CHECKS", [check]):
+            result = runner.invoke(cli, ["ci:preflight", "--strict"])
+
+        assert result.exit_code == expected_exit
+        assert ("[probe]" in result.output) != warn_only
 
 
 class TestKillSwitch:
@@ -83,7 +128,26 @@ class TestStrictAndFixContracts:
     ) -> None:
         result = runner.invoke(cli, ["ci:preflight", "--fix"])
         assert result.exit_code == 0
-        assert "run `hogli build:openapi` and commit before pushing" in result.output
+        assert "if you have not run `hogli build:openapi` since changing them, run it and commit" in result.output
+        # Nothing regenerated here, so the advisory must not claim the types are stale.
+        # A branch keeps its source edits in the diff after a regen, so a staleness claim
+        # can never be cleared by running the fix.
+        assert "out of date" not in result.output
+
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
+    def test_guidance_only_check_is_not_counted_as_an_advisory(
+        self, mock_changed: MagicMock, mock_fetch: MagicMock, mock_stale: MagicMock, mock_emit: MagicMock
+    ) -> None:
+        result = runner.invoke(cli, ["ci:preflight", "--json"])
+        summary = json.loads(result.output)
+        assert "openapi" in summary["triggered"]
+        # A check that runs nothing has found nothing. Counting it puts an advisory on
+        # every push that touches an API file, which spends the weight the footer needs
+        # for the checks that did measure something.
+        assert summary["advisories"] == 0
 
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
@@ -105,6 +169,98 @@ class TestStrictAndFixContracts:
         # Giving the check a `verify` would tax every push with a repo-wide mypy run.
         ran = [arg for call in mock_run.call_args_list for arg in call.args[0]]
         assert "mypy" not in ran
+
+
+class TestProjectionsDriftCheck:
+    @pytest.mark.parametrize(
+        "changed",
+        [
+            "posthog/taxonomy/taxonomy.py",
+            "products/tasks/scripts/model_catalog_projection.py",
+            "tools/hogli-commands/hogli_commands/projections.py",
+            "frontend/src/taxonomy/core-filter-definitions-by-group.json",
+            "products/tasks/backend/model_catalog.py",
+            "posthog/scopes.py",
+            "services/mcp/src/lib/oauth-scopes.generated.ts",
+        ],
+    )
+    def test_every_side_of_the_drift_relation_triggers(self, changed: str) -> None:
+        check = next(chk for chk in DIFF_CHECKS if chk.key == "projections")
+        assert matches_globs(changed, check.triggers)
+
+    def test_concrete_triggers_still_point_at_real_files(self) -> None:
+        check = next(chk for chk in DIFF_CHECKS if chk.key == "projections")
+        # Renaming the generator or its output leaves these triggers matching nothing,
+        # and preflight stops catching a hand-edit with nothing else to notice.
+        concrete = [trigger for trigger in check.triggers if "*" not in trigger]
+        assert concrete, "the generator and its output are no longer triggers"
+        # Every check carrying a hardcoded path has that same failure mode. Glob
+        # triggers cannot be checked this way, because matches_globs uses fnmatch,
+        # where `*` spans `/`, while Path.glob does not.
+        missing = {
+            chk.key: gone
+            for chk in DIFF_CHECKS
+            if (gone := [t for t in chk.triggers if "*" not in t and not (REPO_ROOT / t).exists()])
+        }
+        assert not missing, f"triggers no longer on disk: {missing}"
+
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._capability_met", return_value=False)
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    @patch(
+        "hogli_commands.ci_preflight.changed_files",
+        return_value=["frontend/src/taxonomy/core-filter-definitions-by-group.json"],
+    )
+    def test_missing_project_env_skips_instead_of_failing(
+        self,
+        mock_changed: MagicMock,
+        mock_run: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_capability: MagicMock,
+        mock_emit: MagicMock,
+    ) -> None:
+        result = runner.invoke(cli, ["ci:preflight", "--strict"])
+
+        # The generator imports Django, so a bare checkout cannot run it. Without the
+        # capability gate the run would exit ModuleNotFoundError, and --strict would
+        # block the push on a failure the diff did not cause.
+        assert result.exit_code == 0
+        assert "needs python-env" in result.output
+        ran = [arg for call in mock_run.call_args_list for arg in call.args[0]]
+        assert "build:projections" not in ran
+
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.shutil.which", return_value="/usr/bin/hogli")
+    @patch("hogli_commands.ci_preflight.subprocess.run")
+    @patch("hogli_commands.ci_preflight._project_python_ready", return_value=True)
+    @patch(
+        "hogli_commands.ci_preflight.changed_files",
+        return_value=["frontend/src/taxonomy/core-filter-definitions-by-group.json"],
+    )
+    def test_present_project_env_verifies_without_writing(
+        self,
+        mock_changed: MagicMock,
+        mock_ready: MagicMock,
+        mock_run: MagicMock,
+        mock_which: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_emit: MagicMock,
+    ) -> None:
+        mock_run.return_value = MagicMock(returncode=1, stdout="taxonomy json is out of date", stderr="")
+
+        result = runner.invoke(cli, ["ci:preflight", "--strict"])
+
+        # If the verify command were the write path, it would rewrite the outputs and
+        # exit 0, so a drifted push would report pass instead of blocking.
+        assert result.exit_code == 1
+        dispatched = [call.args[0] for call in mock_run.call_args_list]
+        assert ["hogli", "build:projections", "--check"] in dispatched
 
 
 class TestStalenessRisks:
@@ -131,7 +287,7 @@ class TestStalenessRisks:
         conflicts: list[str] | None,
         expected_fragments: list[str],
     ) -> None:
-        risks = _staleness_risks(branch_files, master_files, conflicts)
+        risks = _staleness_risks(branch_files, master_files, conflicts, [])
         assert len(risks) == len(expected_fragments)
         for fragment, risk in zip(expected_fragments, risks):
             assert fragment in risk
@@ -150,8 +306,8 @@ class TestWorkspaceScopedLockfile:
             ("products/desktop/package.json", "products/desktop"),
             ("products/desktop/pnpm-lock.yaml", "products/desktop"),
             ("products/desktop/packages/core/package.json", "products/desktop"),
-            # agent has a publish-only pnpm-lock.yaml but is a desktop workspace member
-            ("products/desktop/packages/agent/package.json", "products/desktop"),
+            ("packages/agent/package.json", "packages/agent"),
+            ("packages/agent/packages/agent/package.json", "packages/agent"),
             ("tools/hedgebox-dummy/package.json", "tools/hedgebox-dummy"),
         ],
     )
@@ -216,43 +372,29 @@ class TestWorkspaceScopedLockfile:
         assert "products/desktop: needs node" in detail
 
 
-class TestShadowDriftCompanion:
+class TestShadowDriftCheck:
     @pytest.mark.parametrize(
         "changed,expected_exit,expected_fragment",
         [
-            ([".github/workflows/ci-backend.yml"], 1, "mirror the change into .depot/workflows/ci-backend.yml"),
-            ([".github/workflows/ci-backend.yml", ".depot/workflows/ci-backend.yml"], 0, "both files updated"),
-            # Depot-only is a notice in CI, never a failure. Blocking it would false-block depot tuning.
-            ([".depot/workflows/ci-backend.yml"], 0, ""),
-            (
-                [".github/actions/paths-filter/src/main.ts"],
-                1,
-                "mirror the change into .depot/actions/paths-filter/**",
-            ),
-            (
-                [
-                    ".github/actions/paths-filter/src/main.ts",
-                    ".depot/actions/paths-filter/src/main.ts",
-                ],
-                0,
-                "both files updated",
-            ),
-            ([".depot/actions/paths-filter/src/main.ts"], 0, "both files updated"),
+            ([".github/actions/setup-uv/action.yml"], 1, "setup-uv drifted"),
+            (["posthog/api/does_not_exist.py"], 0, None),
         ],
     )
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
     @patch("hogli_commands.ci_preflight._fetch_master")
     @patch("hogli_commands.ci_preflight.shutil.which", return_value=None)
-    def test_verdict_matches_ci(
+    @patch("hogli_commands.ci_preflight.mirror_violations", return_value=["setup-uv drifted"])
+    def test_blocks_the_push_only_when_depot_paths_change(
         self,
+        mock_violations: MagicMock,
         mock_which: MagicMock,
         mock_fetch: MagicMock,
         mock_stale: MagicMock,
         mock_emit: MagicMock,
         changed: list[str],
         expected_exit: int,
-        expected_fragment: str,
+        expected_fragment: str | None,
     ) -> None:
         with patch("hogli_commands.ci_preflight.changed_files", return_value=changed):
             result = runner.invoke(cli, ["ci:preflight", "--strict"])
@@ -262,14 +404,3 @@ class TestShadowDriftCompanion:
             assert expected_fragment in result.output
         else:
             assert "shadow-drift" not in result.output
-
-    def test_pair_matches_workflow(self) -> None:
-        import yaml
-        from hogli.manifest import REPO_ROOT
-
-        workflow = yaml.safe_load((REPO_ROOT / ".github" / "workflows" / "ci-backend-shadow-drift.yml").read_text())
-        # `on` parses as the boolean True in YAML 1.1.
-        watched = set(workflow[True]["pull_request"]["paths"])
-        companion_paths = {path for companion in COMPANION_CHECKS for path in (companion.source, companion.companion)}
-
-        assert watched == companion_paths

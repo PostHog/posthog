@@ -25,6 +25,7 @@ from products.skills.backend.api.community_publish_services import (
     render_skill_md,
 )
 from products.skills.backend.api.skill_services import MAX_SKILL_BODY_BYTES, MAX_SKILL_FILE_BYTES, MAX_SKILL_FILE_COUNT
+from products.skills.backend.api.skill_template_services import MAX_TEMPLATE_VARIABLE_BYTES, parse_template_variables
 from products.skills.backend.marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 
 # Mirror of the community-skills repo's frontmatter parser (scripts/build_registry.py) so these
@@ -51,8 +52,48 @@ class TestRenderSkillMd:
 
     def test_optional_fields_omitted_when_empty(self) -> None:
         frontmatter, _ = _parse(render_skill_md(name="X", description="Y", body="Z"))
-        for omitted in ("tags", "author_handle", "license", "compatibility", "allowed_tools"):
+        for omitted in ("tags", "author_handle", "license", "compatibility", "allowed_tools", "kind", "scout_config"):
             assert omitted not in frontmatter
+
+    def test_marks_a_scout_and_carries_its_settings(self) -> None:
+        # Without the marker the catalog can't tell a scout from a skill, and it lands inert.
+        frontmatter, _ = _parse(
+            render_skill_md(
+                name="Feed scout",
+                description="Watch a feed.",
+                body="b",
+                kind="scout",
+                scout_config={"run_interval_minutes": 720, "emit": False},
+            )
+        )
+        assert frontmatter["kind"] == "scout"
+        assert frontmatter["scout_config"] == {"run_interval_minutes": 720, "emit": False}
+
+    @pytest.mark.parametrize(
+        "kind,scout_config",
+        [
+            ("scout", {"network_access": "full"}),
+            ("scout", {"model": "claude"}),
+            ("scout", {"mcp_gateway_server_ids": ["abc"]}),
+            ("scout", {"run_interval_minutes": 5}),
+            ("skill", {"emit": False}),
+        ],
+    )
+    def test_rejects_scout_settings_ingest_would_drop(self, kind: str, scout_config: dict[str, Any]) -> None:
+        with pytest.raises(CommunitySkillPublishError):
+            render_skill_md(name="n", description="d", body="b", kind=kind, scout_config=scout_config)
+
+    def test_rejects_a_scout_with_bundled_files(self) -> None:
+        # Ingest refuses one, so publishing it opens a PR that merges and never reaches the catalog.
+        with pytest.raises(CommunitySkillPublishError):
+            render_community_skill_files(
+                slug="signals-scout-feed",
+                name="Feed scout",
+                description="Watch a feed.",
+                body="b",
+                kind="scout",
+                files=[{"path": "references/playbook.md", "content": "hints", "content_type": "text/markdown"}],
+            )
 
     def test_optional_fields_included_when_set(self) -> None:
         content = render_skill_md(
@@ -72,6 +113,32 @@ class TestRenderSkillMd:
         assert frontmatter["compatibility"] == "Requires gh"
         assert frontmatter["author_handle"] == "andymaguire"
 
+    def test_renders_normalized_template_variables(self) -> None:
+        metadata = {
+            "owner": "internal-only",
+            "variables": [
+                {"name": "service", "prompt": "Service name", "required": True},
+                {"name": "environment", "prompt": "Target environment", "default": "staging"},
+            ],
+        }
+        content = render_skill_md(
+            name="Deploy service",
+            description="Deploy a service to an environment.",
+            body="Deploy {{ service }} to {{ environment }}.",
+            metadata=metadata,
+        )
+
+        frontmatter, _ = _parse(content)
+
+        assert frontmatter["metadata"] == {
+            "variables": [
+                {"name": "service", "prompt": "Service name", "required": True},
+                {"name": "environment", "prompt": "Target environment", "required": False, "default": "staging"},
+            ]
+        }
+        # Install reads the schema back out of this frontmatter, so it must parse to the same variables.
+        assert parse_template_variables(frontmatter["metadata"]) == parse_template_variables(metadata)
+
     def test_preserves_leading_whitespace_in_the_body(self) -> None:
         # strip() would turn an opening indented code block into an ordinary paragraph, so the
         # published skill would instruct differently from the skill it was published from.
@@ -86,7 +153,7 @@ class TestRenderSkillMd:
             # install_community_skill refuses a blank body as having no instructions, so publishing
             # one merges a listing that nobody can ever install.
             ("blank body", "n", "d", "  \n  "),
-            # Longer than the Agent Skills spec allows, so validate_for_export refuses the skill once
+            # Longer than the Agent Skills spec allows, so compute_spec_problems refuses the skill once
             # someone installs it from the catalog.
             ("description over the spec cap", "n", "x" * (SPEC_DESCRIPTION_MAX_LENGTH + 1), "b"),
             # Longer than CommunitySkill.name: the PR would merge and ingest would then drop the entry.
@@ -152,10 +219,92 @@ class TestRenderCommunitySkillFiles:
             "skills/make-pr/scripts/run.sh",
         }
 
+    @parameterized.expand(
+        [
+            (
+                "undeclared placeholder in the body",
+                "Deploy {{ missing }}.",
+                "hints",
+                {},
+                "undeclared variable 'missing'",
+            ),
+            (
+                "undeclared placeholder in a bundled file",
+                "body",
+                "Use {{ missing }}.",
+                {},
+                "undeclared variable 'missing'",
+            ),
+            (
+                "default over the value cap",
+                "{{ repository }}",
+                "hints",
+                {"default": "x" * (MAX_TEMPLATE_VARIABLE_BYTES + 1)},
+                "exceeds the",
+            ),
+            (
+                "default that renders the body past its cap",
+                "{{ repository }}" * (MAX_SKILL_BODY_BYTES // 20),
+                "hints",
+                {"default": "0123456789" * 3},
+                "skill body exceeds the",
+            ),
+        ]
+    )
+    def test_rejects_a_template_that_could_not_install(
+        self, _label: str, body: str, file_content: str, variable: dict[str, Any], message: str
+    ) -> None:
+        # Sync does not validate templates, so a broken one otherwise merges and fails every install.
+        with pytest.raises(CommunitySkillPublishValidationError, match=message):
+            render_community_skill_files(
+                slug="make-pr",
+                name="Make PR",
+                description="Open a PR.",
+                body=body,
+                files=[{"path": "references/playbook.md", "content": file_content, "content_type": "text/markdown"}],
+                metadata={"variables": [{"name": "repository", "prompt": "Repository", **variable}]},
+            )
+
+    @parameterized.expand(
+        [
+            ("no metadata", None),
+            ("variables is not a list", {"variables": "repository"}),
+            ("variables has no valid declarations", {"variables": [{"prompt": "Repository"}]}),
+        ]
+    )
+    def test_a_plain_skill_keeps_double_braces_verbatim(self, _label: str, metadata: dict[str, Any] | None) -> None:
+        # Install leaves a plain skill's text alone, so publish must too: GitHub Actions, Liquid and Go
+        # template syntax cannot be declared as variables and must not block publishing.
+        rendered = render_community_skill_files(
+            slug="make-pr",
+            name="Make PR",
+            description="Open a PR.",
+            body="Run on ${{ github.ref }}.",
+            files=[{"path": "references/playbook.md", "content": "{{ .Title }}", "content_type": "text/markdown"}],
+            metadata=metadata,
+        )
+
+        frontmatter, body = _parse(rendered[0].content)
+
+        assert "metadata" not in frontmatter
+        assert body == "Run on ${{ github.ref }}."
+        assert rendered[1].content == "{{ .Title }}"
+
     def test_rejects_bad_slug(self) -> None:
         # "new" and the category-tab slugs are rejected by ingest, so publishing one merges a pull
         # request whose skill never appears in the catalog. A trailing newline needs `fullmatch`.
-        for bad in ["Make-PR", "make_pr", "-bad", "double--hyphen", "x" * 65, "new", "review-hog", "make-pr\n"]:
+        # A catalog entry installs under its slug, so a slug PostHog bundles is refused here too.
+        for bad in [
+            "Make-PR",
+            "make_pr",
+            "-bad",
+            "double--hyphen",
+            "x" * 65,
+            "new",
+            "review-hog",
+            "make-pr\n",
+            "signals-scout-logs",
+        ]:
             try:
                 render_community_skill_files(slug=bad, name="n", description="d", body="b")
             except CommunitySkillPublishError:

@@ -6,8 +6,12 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache as real_cache
 
 from parameterized import parameterized
+from rest_framework.parsers import JSONParser
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
-from posthog.api.oauth.cimd import _blocked_key, _cache_key, fetch_and_upsert_cimd_application
+from posthog.api.oauth.cimd import _cache_key, fetch_and_upsert_cimd_application
+from posthog.models.activity_logging.utils import ActivityCredential, activity_storage
 from posthog.models.oauth import OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
@@ -77,6 +81,34 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
 
         assert res.status_code == 200
         assert res.json()["type"] == "oauth"
+
+    @parameterized.expand([("proven by its secret", True), ("public client id only", False)])
+    def test_partner_is_recorded_by_id_only_when_it_proved_itself(self, _name, confidential):
+        if confidential:
+            partner = self.partner
+            data = self._client_credentials(partner)
+        else:
+            partner = OAuthApplication.objects.create(
+                client_id="activity-log-public-partner",
+                name="Public partner",
+                client_type=OAuthApplication.CLIENT_PUBLIC,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://partner.example.com/callback",
+                algorithm="RS256",
+                is_provisioning_partner=True,
+                _provisioning_config=provisioning_config(),
+            )
+            data = {"client_id": partner.client_id}
+        request = Request(APIRequestFactory().post("/", data, format="json"), parsers=[JSONParser()])
+
+        activity_storage.mark_request_scoped()
+        try:
+            assert ProvisioningAuthentication().authenticate(request) == (None, partner)
+            credential = activity_storage.get_credential()
+        finally:
+            activity_storage.clear_all()
+
+        assert credential == ActivityCredential(type="partner", id=str(partner.id) if confidential else None)
 
     @parameterized.expand(
         [
@@ -273,6 +305,15 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         res = self._wizard_account_request("req_inactive_pkce", "inactive-pkce@example.com", challenge)
         assert res.status_code == 401
 
+    def test_deactivated_user_bearer_token_rejected(self):
+        token = self._get_bearer_token()
+
+        self.user.is_active = False
+        self.user.save()
+
+        res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
+        assert res.status_code == 401
+
     # --- can_provision_resources enforcement ---
 
     def test_partner_without_can_provision_resources_rejected(self):
@@ -372,8 +413,6 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             ),
         )
         self.addCleanup(real_cache.delete, _cache_key(cimd_url))
-        # _identify_pkce_partner warms the blocklist cache with a 1-year TTL; clear it too.
-        self.addCleanup(real_cache.delete, _blocked_key(cimd_url))
 
         if cache_is_fresh:
             real_cache.set(_cache_key(cimd_url), True, timeout=300)
@@ -684,56 +723,3 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
         user = User.objects.get(email=email)
         org = user.organization_memberships.first().organization
         assert org.name == f"Partner App ({email})"
-
-    def test_blocked_cimd_url_returns_unauthorized(self, _url_mock):
-        from posthog.api.oauth.cimd import block_cimd_url
-
-        block_cimd_url(CIMD_PROV_URL)
-
-        _, challenge = self._pkce_pair()
-        res = self.client.post(
-            "/api/agentic/provisioning/account_requests",
-            data={
-                "id": "req_blocked",
-                "email": "blocked@example.com",
-                "client_id": CIMD_PROV_URL,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-            },
-            content_type="application/json",
-        )
-        assert res.status_code == 401
-
-    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
-    def test_blocked_cimd_url_with_existing_app_returns_unauthorized(self, mock_refresh, _url_mock):
-        from posthog.api.oauth.cimd import block_cimd_url
-
-        OAuthApplication.objects.create(
-            name="Blocked CIMD App",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://127.0.0.1:3000/callback",
-            algorithm="RS256",
-            client_id=CIMD_PROV_URL,
-            is_cimd_client=True,
-            is_provisioning_partner=True,
-            _provisioning_config=provisioning_config(
-                active=True, can_create_accounts=True, can_provision_resources=True
-            ),
-        )
-        block_cimd_url(CIMD_PROV_URL)
-
-        _, challenge = self._pkce_pair()
-        res = self.client.post(
-            "/api/agentic/provisioning/account_requests",
-            data={
-                "id": "req_blocked_existing",
-                "email": "blocked-existing@example.com",
-                "client_id": CIMD_PROV_URL,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-            },
-            content_type="application/json",
-        )
-        assert res.status_code == 401

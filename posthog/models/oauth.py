@@ -1,5 +1,6 @@
 import enum
 import uuid
+from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
@@ -27,7 +28,13 @@ from oauth2_provider.validators import AllowedURIValidator
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.user import User
-from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
+from posthog.models.utils import (
+    UUIDT,
+    generate_random_oauth_access_token,
+    generate_random_token,
+    hash_key_value,
+    mask_key_value,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Organization, User
@@ -647,6 +654,31 @@ class OAuthGrant(AbstractGrant):
     )
 
 
+def mint_oauth_access_token(
+    *,
+    application: OAuthApplication,
+    user: "User | None",
+    scope: str,
+    lifetime: timedelta,
+    scoped_teams: list[int],
+    sandbox_task_id: uuid.UUID | None = None,
+) -> OAuthAccessToken:
+    """Mint a fresh access token directly, outside the OAuth grant flow.
+
+    The caller owns the scope and lifetime decision. Callers that also issue a refresh token
+    or rotate an existing one create their rows by hand, inside their own transaction.
+    """
+    return OAuthAccessToken.objects.create(
+        application=application,
+        user=user,
+        token=generate_random_oauth_access_token(None),
+        expires=timezone.now() + lifetime,
+        scope=scope,
+        scoped_teams=scoped_teams,
+        sandbox_task_id=sandbox_task_id,
+    )
+
+
 def find_oauth_access_token(token: str) -> OAuthAccessToken | None:
     """Find an OAuth access token by its value using the token_checksum index."""
     from hashlib import sha256
@@ -1035,27 +1067,6 @@ def create_cimd_verification_token(
     return token, plaintext
 
 
-class CIMDBlocklistEntry(models.Model):
-    """Persistent blocklist for CIMD partner URLs.
-
-    Source of truth for is_cimd_url_blocked - the Redis check is a read-through
-    cache. Persisting in Postgres means the blocklist survives Redis flushes /
-    LRU eviction and a deleted CIMD app can stay blocked across restarts.
-    """
-
-    id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
-    cimd_url: models.URLField = models.URLField(max_length=2048, unique=True)
-    reason: models.CharField = models.CharField(max_length=200, blank=True, default="")
-    created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
-    created_by: "User | None" = models.ForeignKey(  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
-    )
-
-    class Meta:
-        verbose_name = "CIMD Blocklist Entry"
-        verbose_name_plural = "CIMD Blocklist Entries"
-
-
 logger = structlog.get_logger(__name__)
 
 
@@ -1100,18 +1111,3 @@ def _revoke_impersonation_oauth_tokens(sender, request, user, **kwargs):
             refresh_tokens_revoked=refresh_revoked,
             grants_deleted=grants_deleted,
         )
-
-
-@receiver(models.signals.post_delete, sender=OAuthApplication)
-def _block_cimd_url_on_application_delete(sender, instance: OAuthApplication, **kwargs):
-    # Auto-blocklist a CIMD URL when its app is deleted, so a metadata refresh
-    # can't immediately recreate the same partner. Admin can explicitly
-    # unblock via unblock_cimd_url if they want to allow re-registration.
-    if not instance.is_cimd_client:
-        return
-    from posthog.api.oauth.cimd import block_cimd_url
-
-    block_cimd_url(
-        instance.client_id,
-        reason=f"Auto-blocked on deletion of OAuthApplication {instance.pk}",
-    )

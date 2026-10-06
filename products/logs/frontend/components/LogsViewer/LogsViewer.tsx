@@ -44,9 +44,12 @@ export interface LogsViewerProps {
     // distinct-id log attributes — unlike a pinned distinct-ids filter, not capped by how
     // many ids the person page happened to load.
     personId?: string
+    sessionId?: string
     // Seed the facet/filter rail as collapsed on first mount for this id. Persisted per id,
     // so a user who expands it keeps that choice; the "Show filters" toggle still re-expands.
     defaultFacetRailCollapsed?: boolean
+    // Same, for the volume chart. Panels embedded in a short pane start without it.
+    defaultSparklineCollapsed?: boolean
 }
 
 export function LogsViewer({
@@ -56,11 +59,16 @@ export function LogsViewer({
     initialFilters,
     pinnedFilters,
     personId,
+    sessionId,
     defaultFacetRailCollapsed,
+    defaultSparklineCollapsed,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId }}>
-            <BindLogic logic={logsViewerConfigLogic} props={{ id, defaultFacetRailCollapsed }}>
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId, sessionId }}>
+            <BindLogic
+                logic={logsViewerConfigLogic}
+                props={{ id, defaultFacetRailCollapsed, defaultSparklineCollapsed }}
+            >
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>
                         <BindLogic logic={logsViewerLogic} props={{ id }}>
@@ -69,7 +77,7 @@ export function LogsViewer({
                                     <LogsViewerContent
                                         showFullScreenButton={showFullScreenButton}
                                         showSavedViewsButton={showSavedViewsButton}
-                                        scope={{ initialFilters, pinnedFilters, personId }}
+                                        scope={{ initialFilters, pinnedFilters, personId, sessionId }}
                                     />
                                 </BindLogic>
                             </BindLogic>

@@ -18,24 +18,22 @@
 //! cost in the scatter-gather batch path at two `Arc::clone` calls (producer
 //! + topics) rather than deep copies of limiter state.
 use crate::api::CaptureError;
-use crate::config::{EnvelopeCompression, KafkaConfig};
+use crate::config::EnvelopeCompression;
 use crate::ordering::OrderingGuarantee;
+use crate::outputs::PublishEvents;
 use crate::pipeline::{self, Address, Lane, Pipeline};
+use crate::producers::ProducerHandle;
 use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
-use crate::sinks::registry::{Output, OutputRegistry};
+use crate::sinks::registry::{Destination, TopicTable};
 use crate::sinks::sink::{fold_results, Outcome, PreparedPayload, Sink, SinkResult};
-use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
 use metrics::{counter, gauge, histogram};
-use rdkafka::producer::{FutureProducer, Producer};
-use rdkafka::util::Timeout;
-use rdkafka::ClientConfig;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use tokio::task::JoinSet;
-use tracing::log::{debug, error, info};
+use tracing::log::error;
 use tracing::{info_span, instrument, Instrument};
 
 use super::producer::RdKafkaProducer;
@@ -45,6 +43,12 @@ pub struct KafkaContext {
     /// whose health must not gate the pod — it still produces and emits
     /// metrics, it just doesn't drive a manager component.
     liveness: Option<lifecycle::Handle>,
+}
+
+impl KafkaContext {
+    pub(crate) fn new(liveness: Option<lifecycle::Handle>) -> Self {
+        Self { liveness }
+    }
 }
 
 /// Emit min/avg/max/stddev plus p50/p90/p95/p99 for an rdkafka window stat
@@ -184,7 +188,7 @@ impl rdkafka::ClientContext for KafkaContext {
 /// is cloned once per spawned prep task.
 pub struct KafkaSinkBase<P: KafkaProducer> {
     producer: Arc<P>,
-    topics: Arc<OutputRegistry>,
+    topics: Arc<TopicTable>,
     replay_envelope_compression: EnvelopeCompression,
 }
 
@@ -198,30 +202,27 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     }
 }
 
-/// Map a lane address to the sink's configured [`Output`]. The sink owns
-/// this mapping only until the outputs layer exists to own the address →
-/// output table. Every `(pipeline, lane)` pair is spelled out so that a new
-/// lane, or a change making an unbacked pair reachable, has to visit this
-/// match instead of being absorbed by a wildcard. `None` marks a pair
-/// [`pipeline::resolve`] never produces — no output backs it, and the caller
-/// dlqs the event (the typed-per-pipeline-lanes step makes these pairs
-/// unrepresentable).
-fn lane_output(pipeline: Pipeline, lane: Lane) -> Option<Output> {
+/// Map a lane address to the sink's configured [`Destination`]. Every
+/// `(pipeline, lane)` pair is spelled out so that a new lane, or a change
+/// making an unbacked pair reachable, has to visit this match instead of
+/// being absorbed by a wildcard. `None` marks a pair [`pipeline::resolve`]
+/// never produces — no output backs it, and the caller dlqs the event.
+fn lane_output(pipeline: Pipeline, lane: Lane) -> Option<Destination> {
     match (pipeline, lane) {
-        (Pipeline::Analytics, Lane::Main) => Some(Output::AnalyticsMain),
-        (Pipeline::Analytics, Lane::Overflow) => Some(Output::AnalyticsOverflow),
-        (Pipeline::Analytics, Lane::Historical) => Some(Output::AnalyticsHistorical),
-        (Pipeline::Ai, Lane::Main) => Some(Output::AiMain),
-        (Pipeline::Ai, Lane::Overflow) => Some(Output::AiOverflow),
+        (Pipeline::Analytics, Lane::Main) => Some(Destination::AnalyticsMain),
+        (Pipeline::Analytics, Lane::Overflow) => Some(Destination::AnalyticsOverflow),
+        (Pipeline::Analytics, Lane::Historical) => Some(Destination::AnalyticsHistorical),
+        (Pipeline::Ai, Lane::Main) => Some(Destination::AiMain),
+        (Pipeline::Ai, Lane::Overflow) => Some(Destination::AiOverflow),
         (Pipeline::Ai, Lane::Historical) => None,
-        (Pipeline::Warnings, Lane::Main) => Some(Output::ClientWarningsMain),
+        (Pipeline::Warnings, Lane::Main) => Some(Destination::ClientWarningsMain),
         (Pipeline::Warnings, Lane::Overflow | Lane::Historical) => None,
-        (Pipeline::Heatmaps, Lane::Main) => Some(Output::HeatmapsMain),
+        (Pipeline::Heatmaps, Lane::Main) => Some(Destination::HeatmapsMain),
         (Pipeline::Heatmaps, Lane::Overflow | Lane::Historical) => None,
-        (Pipeline::ErrorTracking, Lane::Main) => Some(Output::ErrorTrackingMain),
+        (Pipeline::ErrorTracking, Lane::Main) => Some(Destination::ErrorTrackingMain),
         (Pipeline::ErrorTracking, Lane::Overflow | Lane::Historical) => None,
-        (Pipeline::Replay, Lane::Main) => Some(Output::SessionReplayMain),
-        (Pipeline::Replay, Lane::Overflow) => Some(Output::SessionReplayOverflow),
+        (Pipeline::Replay, Lane::Main) => Some(Destination::SessionReplayMain),
+        (Pipeline::Replay, Lane::Overflow) => Some(Destination::SessionReplayOverflow),
         (Pipeline::Replay, Lane::Historical) => None,
     }
 }
@@ -241,146 +242,16 @@ fn dlq_reroute_effects(headers: &mut common_types::CapturedEventHeaders, reason:
 pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 
 impl KafkaSink {
-    pub async fn new(
-        config: KafkaConfig,
-        liveness: Option<lifecycle::Handle>,
-    ) -> anyhow::Result<KafkaSink> {
-        // Refuse to boot on incomplete output wiring: a blank topic fails
-        // here, at startup, instead of at first produce. Config-only, so it
-        // runs before the producer is built and the broker is pinged — the
-        // refusal is instant, not one connect attempt later.
-        let registry = OutputRegistry::from(&config);
-        if config.outputs_completeness_check_enabled {
-            registry.check_complete()?;
-        } else {
-            info!("outputs completeness check disabled; a blank output topic will fail at first produce instead of at boot");
+    pub fn new(
+        producer: ProducerHandle,
+        topics: TopicTable,
+        replay_envelope_compression: EnvelopeCompression,
+    ) -> KafkaSink {
+        KafkaSinkBase {
+            producer,
+            topics: Arc::new(topics),
+            replay_envelope_compression,
         }
-
-        info!("connecting to Kafka brokers at {}...", config.kafka_hosts);
-
-        let mut client_config = ClientConfig::new();
-        client_config
-            .set("bootstrap.servers", &config.kafka_hosts)
-            .set("statistics.interval.ms", "10000")
-            .set("partitioner", &config.kafka_producer_partitioner)
-            .set(
-                "metadata.max.age.ms",
-                config.kafka_metadata_max_age_ms.to_string(),
-            )
-            .set(
-                "topic.metadata.refresh.interval.ms",
-                config.kafka_topic_metadata_refresh_interval_ms.to_string(),
-            )
-            .set(
-                "message.send.max.retries",
-                config.kafka_producer_max_retries.to_string(),
-            )
-            .set("linger.ms", config.kafka_producer_linger_ms.to_string())
-            .set(
-                "message.max.bytes",
-                config.kafka_producer_message_max_bytes.to_string(),
-            )
-            .set(
-                "message.timeout.ms",
-                config.kafka_message_timeout_ms.to_string(),
-            )
-            .set(
-                "socket.timeout.ms",
-                config.kafka_socket_timeout_ms.to_string(),
-            )
-            .set("compression.codec", &config.kafka_compression_codec)
-            .set(
-                "queue.buffering.max.kbytes",
-                (config.kafka_producer_queue_mib * 1024).to_string(),
-            )
-            .set("acks", &config.kafka_producer_acks)
-            .set(
-                "batch.num.messages",
-                config.kafka_producer_batch_num_messages.to_string(),
-            )
-            .set("batch.size", config.kafka_producer_batch_size.to_string())
-            .set(
-                "max.in.flight.requests.per.connection",
-                config.kafka_producer_max_in_flight_requests.to_string(),
-            )
-            .set(
-                "sticky.partitioning.linger.ms",
-                config
-                    .kafka_producer_sticky_partitioning_linger_ms
-                    .to_string(),
-            )
-            .set(
-                "enable.idempotence",
-                config.kafka_producer_enable_idempotence.to_string(),
-            )
-            .set(
-                "log.connection.close",
-                config.kafka_log_connection_close.to_string(),
-            )
-            .set(
-                "queue.buffering.max.messages",
-                config
-                    .kafka_producer_queue_buffering_max_messages
-                    .to_string(),
-            )
-            .set(
-                "retry.backoff.max.ms",
-                config.kafka_retry_backoff_max_ms.to_string(),
-            )
-            .set(
-                "socket.send.buffer.bytes",
-                config.kafka_socket_send_buffer_bytes.to_string(),
-            )
-            .set(
-                "socket.receive.buffer.bytes",
-                config.kafka_socket_receive_buffer_bytes.to_string(),
-            );
-
-        if !config.kafka_broker_address_family.is_empty() {
-            client_config.set("broker.address.family", &config.kafka_broker_address_family);
-        }
-
-        if !&config.kafka_client_id.is_empty() {
-            client_config.set("client.id", &config.kafka_client_id);
-        }
-
-        if config.kafka_tls {
-            client_config
-                .set("security.protocol", "ssl")
-                .set("enable.ssl.certificate.verification", "false");
-        };
-
-        debug!("rdkafka configuration: {client_config:?}");
-
-        let producer: FutureProducer<KafkaContext> =
-            client_config.create_with_context(KafkaContext {
-                liveness: liveness.clone(),
-            })?;
-
-        // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
-        // Note: we don't error if we fail to connect as there may be other sinks that report healthy
-        if producer
-            .client()
-            .fetch_metadata(
-                Some("__consumer_offsets"),
-                Timeout::After(Duration::new(10, 0)),
-            )
-            .is_ok()
-        {
-            if let Some(liveness) = &liveness {
-                liveness.report_healthy();
-            }
-            info!("connected to Kafka brokers");
-        };
-
-        let topics = Arc::new(registry);
-        let rd_producer = RdKafkaProducer::new(producer);
-
-        Ok(KafkaSinkBase {
-            producer: Arc::new(rd_producer),
-            topics,
-            replay_envelope_compression: config.kafka_replay_envelope_compression,
-        })
     }
 }
 
@@ -388,7 +259,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Create a new KafkaSinkBase with a custom producer (useful for testing).
     /// No limiters — the sink is a mechanism layer; overflow stamping happens
     /// upstream in the pipeline. See the module header for details.
-    pub fn with_producer(producer: P, topics: OutputRegistry) -> Self {
+    pub fn with_producer(producer: P, topics: TopicTable) -> Self {
         Self {
             producer: Arc::new(producer),
             topics: Arc::new(topics),
@@ -399,7 +270,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// Same as `with_producer` but with envelope compression enabled. Used in tests.
     pub fn with_producer_and_compression(
         producer: P,
-        topics: OutputRegistry,
+        topics: TopicTable,
         replay_envelope_compression: EnvelopeCompression,
     ) -> Self {
         Self {
@@ -419,14 +290,6 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
     /// by the pipeline). This function does not consult any limiter — it is
     /// pure mechanism. DLQ and custom-topic redirects take priority over
     /// overflow routing.
-    ///
-    /// Prep lives in this file rather than the outputs layer because it
-    /// reads state the sink still owns (the topic registry, the replay
-    /// envelope setting). Keeping it off the `Sink` trait is what matters
-    /// for the layering: callers above can prep and publish as separate
-    /// phases. The prep hoist (step 12 of
-    /// `rust/capture/OUTPUTS_REFACTOR_PLAN.md`) moves the assembly and that
-    /// state up; drop this note when it lands.
     ///
     /// Not `async`: there are no await points, and keeping it
     /// synchronous lets `prepare_batch`'s serial fast path call it inline
@@ -480,7 +343,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         let target = match decision.address {
             Address::Dlq => {
                 dlq_reroute_effects(&mut headers, "event_restriction");
-                Output::Dlq
+                Destination::Dlq
             }
             Address::Custom(topic) => {
                 counter!(
@@ -488,7 +351,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                     &[("reason", "event_restriction")]
                 )
                 .increment(1);
-                Output::Custom(topic)
+                Destination::Custom(topic)
             }
             Address::Lane { pipeline, lane } => match lane_output(pipeline, lane) {
                 Some(output) => output,
@@ -501,7 +364,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
                     debug_assert!(false, "no output backs ({pipeline:?}, {lane:?})");
                     error!("no output backs ({pipeline:?}, {lane:?}), publishing to the dlq");
                     dlq_reroute_effects(&mut headers, "unbacked_lane");
-                    Output::Dlq
+                    Destination::Dlq
                 }
             },
         };
@@ -557,12 +420,25 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         })
     }
 
-    /// Prep + enqueue for the single-event path. Retained as a thin wrapper so
-    /// the `Event::send` impl stays unchanged; the batch path runs the same
-    /// pieces through `prepare_batch` and `Sink::publish`.
+    /// Prep + enqueue for the one-event fast path, returning the raw ack
+    /// future so a single send can await it inline.
+    ///
+    /// Records the same two phase histograms as the batch path, on the error
+    /// exits as well, so a publish of one event stays in the same population
+    /// as a publish of many. Without this, the cheapest publishes leave the
+    /// distribution and the in-process quantiles step up on their own.
     fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
-        let payload = self.prepare_record(event)?;
-        self.enqueue_record(payload)
+        let prep_start = Instant::now();
+        let payload = self.prepare_record(event);
+        histogram!("capture_kafka_batch_prep_duration_seconds")
+            .record(prep_start.elapsed().as_secs_f64());
+
+        let enqueue_start = Instant::now();
+        let ack_future = self.enqueue_record(payload?);
+        histogram!("capture_kafka_batch_enqueue_duration_seconds")
+            .record(enqueue_start.elapsed().as_secs_f64());
+
+        ack_future
     }
 }
 
@@ -733,26 +609,21 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
 }
 
 #[async_trait]
-impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
+impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
     #[instrument(skip_all)]
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let ack_future = self.kafka_send(event)?;
-        histogram!("capture_event_batch_size").record(1.0);
-        ack_future.instrument(info_span!("ack_wait_one")).await
-    }
-
-    /// The v0 bridge onto the mechanism seam: prep, publish, fold. The
-    /// per-event results collapse to the whole-request `CaptureError` the
-    /// `Event` callers expect.
-    #[instrument(skip_all)]
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        // Record the batch-size histogram up front so the distribution is a
-        // faithful view of batches submitted, not only those that succeeded.
-        // Matches the single-event `send` path which records before any await.
-        histogram!("capture_event_batch_size").record(events.len() as f64);
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        // Skip `prepare_batch`, a `JoinSet` of one, and a fold over one
+        // result on the endpoints that publish a single event per request.
+        if events.len() == 1 {
+            let event = events.into_iter().next().expect("length checked above");
+            return self
+                .kafka_send(event)?
+                .instrument(info_span!("ack_wait_one"))
+                .await;
+        }
 
         let payloads = self.prepare_batch(events).await?;
-        fold_results(self.publish(payloads).await)
+        fold_results(Sink::publish(self, payloads).await)
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
@@ -792,9 +663,10 @@ pub(crate) use crate::sinks::registry::test_topics;
 #[cfg(test)]
 mod tests {
     use crate::api::CaptureError;
-    use crate::config::{self, EnvelopeCompression};
-    use crate::sinks::kafka::KafkaSink;
-    use crate::sinks::Event;
+    use crate::config::EnvelopeCompression;
+    use crate::outputs::PublishEvents;
+    use crate::producers::{self, ProducerName, ProducerRegistry};
+    use crate::sinks::kafka::{test_topics, KafkaSink};
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
@@ -803,6 +675,7 @@ mod tests {
     use rdkafka::mocking::MockCluster;
     use rdkafka::producer::DefaultProducerContext;
     use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
+    use std::collections::HashMap;
     use tokio_util::sync::CancellationToken;
 
     async fn start_on_mocked_sink(
@@ -821,74 +694,27 @@ mod tests {
         );
         let _monitor = manager.monitor_background();
         let cluster = MockCluster::new(1).expect("failed to create mock brokers");
-        let config = config::KafkaConfig {
-            kafka_producer_linger_ms: 0,
-            kafka_producer_queue_mib: 50,
-            kafka_message_timeout_ms: 500,
-            kafka_topic_metadata_refresh_interval_ms: 20000,
-            kafka_producer_message_max_bytes: message_max_bytes.unwrap_or(1000000),
-            kafka_compression_codec: "none".to_string(),
-            kafka_hosts: cluster.bootstrap_servers(),
-            kafka_topic: "events_plugin_ingestion".to_string(),
-            kafka_overflow_topic: "events_plugin_ingestion_overflow".to_string(),
-            kafka_historical_topic: "events_plugin_ingestion_historical".to_string(),
-            kafka_client_ingestion_warning_topic: "events_plugin_ingestion".to_string(),
-            kafka_error_tracking_topic: "error_tracking_events".to_string(),
-            kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
-            kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
-            kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
-            outputs_completeness_check_enabled: true,
-            capture_analytics_ai_events_topic: "events_plugin_ingestion_ai".to_string(),
-            capture_analytics_ai_events_overflow_topic: None,
-            kafka_traces_topic: "traces_ingestion".to_string(),
-            kafka_metrics_topic: "metrics_ingestion".to_string(),
-            kafka_tls: false,
-            kafka_client_id: "".to_string(),
-            kafka_metadata_max_age_ms: 60000,
-            kafka_producer_max_retries: 2,
-            kafka_producer_acks: "all".to_string(),
-            kafka_socket_timeout_ms: 60000,
-            kafka_producer_batch_num_messages: 10000,
-            kafka_producer_batch_size: 1000000,
-            kafka_producer_max_in_flight_requests: 1000000,
-            kafka_producer_sticky_partitioning_linger_ms: 10,
-            kafka_producer_enable_idempotence: false,
-            kafka_producer_partitioner: "murmur2_random".to_string(),
-            kafka_broker_address_family: String::new(),
-            kafka_log_connection_close: true,
-            kafka_producer_queue_buffering_max_messages: 100000,
-            kafka_retry_backoff_max_ms: 1000,
-            kafka_socket_send_buffer_bytes: 0,
-            kafka_socket_receive_buffer_bytes: 0,
-            kafka_traces_hosts: None,
-            kafka_traces_tls: None,
-            kafka_traces_client_id: None,
-            kafka_traces_compression_codec: None,
-            kafka_traces_producer_acks: None,
-            kafka_traces_producer_linger_ms: None,
-            kafka_traces_producer_queue_mib: None,
-            kafka_traces_message_timeout_ms: None,
-            kafka_traces_producer_message_max_bytes: None,
-            kafka_traces_producer_max_retries: None,
-            kafka_traces_topic_metadata_refresh_interval_ms: None,
-            kafka_traces_metadata_max_age_ms: None,
-            kafka_metrics_hosts: None,
-            kafka_metrics_tls: None,
-            kafka_metrics_client_id: None,
-            kafka_metrics_compression_codec: None,
-            kafka_metrics_producer_acks: None,
-            kafka_metrics_producer_linger_ms: None,
-            kafka_metrics_producer_queue_mib: None,
-            kafka_metrics_message_timeout_ms: None,
-            kafka_metrics_producer_message_max_bytes: None,
-            kafka_metrics_producer_max_retries: None,
-            kafka_metrics_topic_metadata_refresh_interval_ms: None,
-            kafka_metrics_metadata_max_age_ms: None,
-            kafka_replay_envelope_compression: EnvelopeCompression::None,
-        };
-        let sink = KafkaSink::new(config, Some(handle))
-            .await
-            .expect("failed to create sink");
+        let message_max_bytes = message_max_bytes.unwrap_or(1000000).to_string();
+        let env: HashMap<String, String> = [
+            ("METADATA_BROKER_LIST", cluster.bootstrap_servers()),
+            ("LINGER_MS", "0".to_string()),
+            ("QUEUE_BUFFERING_MAX_KBYTES", (50 * 1024).to_string()),
+            ("MESSAGE_TIMEOUT_MS", "500".to_string()),
+            ("MESSAGE_MAX_BYTES", message_max_bytes),
+        ]
+        .into_iter()
+        .map(|(k, v)| (format!("KAFKA_INGESTION_PRODUCER_{k}"), v))
+        .collect();
+        let producers = ProducerRegistry::build(
+            &producers::load_all(&env).expect("invalid producer config"),
+            HashMap::from([(ProducerName::Ingestion, handle)]),
+        )
+        .expect("failed to create producer");
+        let sink = KafkaSink::new(
+            producers.get(ProducerName::Ingestion),
+            test_topics(),
+            EnvelopeCompression::None,
+        );
         (cluster, sink)
     }
 
@@ -936,16 +762,16 @@ mod tests {
 
         // Wait for producer to be healthy, to keep kafka_message_timeout_ms short and tests faster
         for _ in 0..20 {
-            if sink.send(event.clone()).await.is_ok() {
+            if sink.publish_events(vec![event.clone()]).await.is_ok() {
                 break;
             }
         }
 
         // Send events to confirm happy path
-        sink.send(event.clone())
+        sink.publish_events(vec![event.clone()])
             .await
             .expect("failed to send one initial event");
-        sink.send_batch(vec![event.clone(), event.clone()])
+        sink.publish_events(vec![event.clone(), event.clone()])
             .await
             .expect("failed to send initial event batch");
 
@@ -976,7 +802,7 @@ mod tests {
             metadata: metadata.clone(),
         };
 
-        sink.send(big_event)
+        sink.publish_events(vec![big_event])
             .await
             .expect("failed to send event larger than default max size");
 
@@ -1006,7 +832,7 @@ mod tests {
             metadata: metadata.clone(),
         };
 
-        match sink.send(big_event).await {
+        match sink.publish_events(vec![big_event]).await {
             Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1016,7 +842,7 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        match sink.send(event.clone()).await {
+        match sink.publish_events(vec![event.clone()]).await {
             Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1024,7 +850,10 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_INVALID_PARTITIONS; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        match sink.send_batch(vec![event.clone(), event.clone()]).await {
+        match sink
+            .publish_events(vec![event.clone(), event.clone()])
+            .await
+        {
             Err(CaptureError::RetryableSinkError) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1034,13 +863,13 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE; 2];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        sink.send(event.clone())
+        sink.publish_events(vec![event.clone()])
             .await
             .expect("failed to send one event after recovery");
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE; 2];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        sink.send_batch(vec![event.clone(), event.clone()])
+        sink.publish_events(vec![event.clone(), event.clone()])
             .await
             .expect("failed to send event batch after recovery");
 
@@ -1048,12 +877,15 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE; 50];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        match sink.send(event.clone()).await {
+        match sink.publish_events(vec![event.clone()]).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
-        match sink.send_batch(vec![event.clone(), event.clone()]).await {
+        match sink
+            .publish_events(vec![event.clone(), event.clone()])
+            .await
+        {
             Err(CaptureError::RetryableSinkError) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1316,7 +1148,7 @@ mod tests {
             );
 
             let event = create_test_event(&input);
-            sink.send(event).await.unwrap();
+            sink.publish_events(vec![event]).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "Expected exactly one record");
@@ -2403,7 +2235,7 @@ mod tests {
                 ..Default::default()
             });
             event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
-            sink.send(event).await.unwrap();
+            sink.publish_events(vec![event]).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1);
@@ -2498,8 +2330,8 @@ mod tests {
             let mut exception_event = base;
             exception_event.metadata.data_type = DataType::ExceptionErrorTracking;
 
-            sink.send(ai_event).await.unwrap();
-            sink.send(exception_event).await.unwrap();
+            sink.publish_events(vec![ai_event]).await.unwrap();
+            sink.publish_events(vec![exception_event]).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 2);
@@ -2844,14 +2676,14 @@ mod tests {
             .await;
         }
 
-        // ==================== send_batch ordering + error tests ====================
-        // These exercise the B2 three-phase send_batch: parallel prepare_record,
+        // ==================== publish_events ordering + error tests ====================
+        // These exercise the three-phase batch path: parallel prepare_record,
         // serial enqueue_record, concurrent ack drain. The ordering test runs on
         // a multi-thread runtime so phase 1 actually parallelizes across workers
         // and we can detect if phase 2 is accidentally reordering records.
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_preserves_order_same_key() {
+        async fn publish_events_preserves_order_same_key() {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
@@ -2875,7 +2707,9 @@ mod tests {
             let input_uuids: Vec<String> =
                 events.iter().map(|e| e.event.uuid.to_string()).collect();
 
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), 20, "expected 20 records");
@@ -2898,7 +2732,7 @@ mod tests {
 
             assert_eq!(
                 output_uuids, input_uuids,
-                "send_batch must preserve input order for same-key events"
+                "publish_events must preserve input order for same-key events"
             );
 
             // Sanity: all records share the same partition key.
@@ -2913,7 +2747,7 @@ mod tests {
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_prep_error_aborts_batch() {
+        async fn publish_events_prep_error_aborts_batch() {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
@@ -2951,11 +2785,11 @@ mod tests {
             bad.metadata.session_id = None;
             events[2] = bad;
 
-            let res = sink.send_batch(events).await;
+            let res = sink.publish_events(events).await;
             match res {
                 Err(CaptureError::MissingSessionId) => {}
                 Err(other) => panic!("expected MissingSessionId, got {other:?}"),
-                Ok(()) => panic!("expected send_batch to fail on prep error"),
+                Ok(()) => panic!("expected publish_events to fail on prep error"),
             }
 
             let records = producer.get_records();
@@ -2966,7 +2800,7 @@ mod tests {
             );
         }
 
-        // ==================== send_batch fast-path + mid-batch failure tests ====================
+        // ==================== publish_events fast-path + mid-batch failure tests ====================
 
         /// Builds N AnalyticsMain events with sequential distinct_ids so each
         /// record is individually identifiable in the mock producer's output.
@@ -2981,9 +2815,9 @@ mod tests {
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_mid_enqueue_failure_preserves_earlier_records() {
+        async fn publish_events_mid_enqueue_failure_preserves_earlier_records() {
             // Fail at phase-2 send #3 (0-indexed): events [0, 1, 2] should land
-            // in the mock, send_batch must return Err, and no event at index
+            // in the mock, publish_events must return Err, and no event at index
             // >= 3 should ever hit the producer. Batch size is well above the
             // scatter-gather threshold so phase 2 runs post-parallel-prep.
             const BATCH: usize = 10;
@@ -2995,11 +2829,11 @@ mod tests {
             let input_distinct_ids: Vec<String> =
                 events.iter().map(|e| e.event.distinct_id.clone()).collect();
 
-            let res = sink.send_batch(events).await;
+            let res = sink.publish_events(events).await;
             match res {
                 Err(CaptureError::RetryableSinkError) => {}
                 Err(other) => panic!("expected RetryableSinkError, got {other:?}"),
-                Ok(()) => panic!("expected send_batch to fail on enqueue #{FAIL_IDX}"),
+                Ok(()) => panic!("expected publish_events to fail on enqueue #{FAIL_IDX}"),
             }
 
             let records = producer.get_records();
@@ -3031,22 +2865,90 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn send_batch_single_event_via_batch_path() {
-            // batch_size=1 exercises the serial fast path (1 < SCATTER_GATHER_MIN_BATCH)
-            // and verifies the loop handles a single-element batch correctly.
+        async fn publish_events_single_event_skips_the_batch_path() {
+            // One event short-circuits to kafka_send: no prepare_batch, no
+            // JoinSet. This is the live path for the single-event endpoints.
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             let events = build_batch(1);
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "expected exactly one record");
             assert_eq!(records[0].topic, MAIN_TOPIC);
         }
 
+        #[tokio::test]
+        async fn publish_events_two_events_take_the_batch_path() {
+            // Two events is the smallest batch that still reaches
+            // prepare_batch. A one-event guard that grew an off-by-one would
+            // swallow the second event here and nowhere else.
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+            sink.publish_events(build_batch(2))
+                .await
+                .expect("publish_events failed");
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 2, "both events must reach the producer");
+        }
+
+        /// Runs `f` under a local metrics recorder and counts the samples that
+        /// landed on `name`. The recorder is thread-scoped, so `f` has to drive
+        /// its own futures on this thread.
+        fn histogram_sample_count(name: &str, f: impl FnOnce()) -> usize {
+            use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+            let recorder = DebuggingRecorder::new();
+            let snapshotter = recorder.snapshotter();
+            let _guard = metrics::set_default_local_recorder(&recorder);
+            f();
+
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .filter_map(|(key, _, _, value)| match value {
+                    DebugValue::Histogram(samples) if key.key().name() == name => {
+                        Some(samples.len())
+                    }
+                    _ => None,
+                })
+                .sum()
+        }
+
+        #[test]
+        fn publish_events_one_event_feeds_the_phase_histograms() {
+            // The one-event path skips prepare_batch and Sink::publish, which
+            // own these two histograms, so it has to record them itself.
+            // Otherwise every single-event endpoint drops out of the
+            // distribution and the in-process quantiles step up unprompted.
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+
+            for name in [
+                "capture_kafka_batch_prep_duration_seconds",
+                "capture_kafka_batch_enqueue_duration_seconds",
+            ] {
+                let samples = histogram_sample_count(name, || {
+                    let producer = MockKafkaProducer::new();
+                    let sink = KafkaSinkBase::with_producer(producer, test_topics());
+                    runtime
+                        .block_on(sink.publish_events(build_batch(1)))
+                        .expect("publish_events failed");
+                });
+                assert_eq!(samples, 1, "{name} must see the one-event publish");
+            }
+        }
+
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_just_below_threshold_uses_serial_path() {
+        async fn publish_events_just_below_threshold_uses_serial_path() {
             // batch_size = SCATTER_GATHER_MIN_BATCH - 1 takes the serial fast
             // path. We can't observe "which path ran" directly, so we assert
             // behavioral equivalence: N records, correct topic, input order.
@@ -3058,7 +2960,9 @@ mod tests {
             let input_distinct_ids: Vec<String> =
                 events.iter().map(|e| e.event.distinct_id.clone()).collect();
 
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), size);
@@ -3077,7 +2981,7 @@ mod tests {
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_at_threshold_uses_scatter_gather_path() {
+        async fn publish_events_at_threshold_uses_scatter_gather_path() {
             // batch_size = SCATTER_GATHER_MIN_BATCH takes the scatter-gather
             // path. Behavioral equivalence with the serial path must hold:
             // same N records, same order, same topics.
@@ -3089,7 +2993,9 @@ mod tests {
             let input_distinct_ids: Vec<String> =
                 events.iter().map(|e| e.event.distinct_id.clone()).collect();
 
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), size);
@@ -3110,7 +3016,7 @@ mod tests {
         // ==================== Sink mechanism seam ====================
         // The per-event result surface `Sink::publish` reports: uuid-aligned
         // with the input payloads, batch-uniform on failure. `fold_results`
-        // discards this shape, so the send_batch tests above cannot see it —
+        // discards this shape, so the publish_events tests above cannot see it —
         // and the outputs layer builds on it.
 
         #[tokio::test]
@@ -3230,7 +3136,9 @@ mod tests {
                 events.push(create_test_event(&EventInput::default()));
             }
 
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), pad_to.max(5));
@@ -3254,13 +3162,13 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn send_batch_mixed_datatypes_serial_path() {
+        async fn publish_events_mixed_datatypes_serial_path() {
             // 5 events < SCATTER_GATHER_MIN_BATCH => serial fast path.
             mixed_datatypes_routing_for_batch(5).await;
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_mixed_datatypes_scatter_gather_path() {
+        async fn publish_events_mixed_datatypes_scatter_gather_path() {
             // 10 events >= SCATTER_GATHER_MIN_BATCH => scatter-gather path.
             mixed_datatypes_routing_for_batch(10).await;
         }

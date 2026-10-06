@@ -7,13 +7,21 @@ from django.core import signing
 from django.http import Http404
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
+from parameterized import parameterized
+
 from products.canvas.backend.artifacts import (
     ARTIFACT_TOKEN_SALT,
+    SANDBOX_DOCUMENT_PATH,
+    _parse_sandbox_document,
+    _publish_sandbox_document,
     _read_token,
+    _sandbox_document,
     canvas_artifact,
     create_canvas_artifact_token,
     create_canvas_artifact_url,
+    create_canvas_sandbox_document_url,
 )
+from products.canvas.backend.checks import check_artifact_delivery_settings
 
 
 def _claims(**overrides):
@@ -28,6 +36,12 @@ def _claims(**overrides):
 
 
 class TestCanvasArtifactTokens(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.write = patch("products.canvas.backend.artifacts.object_storage.write").start()
+        self.addCleanup(patch.stopall)
+        _publish_sandbox_document.cache_clear()
+
     @override_settings(
         CANVAS_ARTIFACT_SIGNING_KEYS=["new-key-at-least-32-bytes-long", "old-key-at-least-32-bytes-long"]
     )
@@ -78,7 +92,7 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         self.assertEqual(response.content, content)
         self.assertEqual(response["Content-Disposition"], "inline")
         self.assertEqual(response["X-Content-Type-Options"], "nosniff")
-        self.assertEqual(response["Content-Security-Policy"].split(";")[0], "sandbox allow-scripts")
+        self.assertEqual(response["Content-Security-Policy"].split(";")[0], "sandbox allow-scripts allow-pointer-lock")
         self.assertIn("connect-src https://api.example.com", response["Content-Security-Policy"])
         self.assertIn("style-src 'self' 'unsafe-inline' https://api.example.com", response["Content-Security-Policy"])
         self.assertIn("img-src 'self' data: blob: https://api.example.com", response["Content-Security-Policy"])
@@ -113,9 +127,49 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         with self.assertRaises(Http404):
             canvas_artifact(RequestFactory().get("/"), token or "", "index.html")
 
-    @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=[])
-    def test_artifact_urls_fail_closed_without_signing_keys(self) -> None:
-        self.assertIsNone(create_canvas_artifact_token(MagicMock()))
+    @override_settings(
+        DEBUG=False,
+        TEST=False,
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example",
+        CANVAS_ARTIFACT_SIGNING_KEYS=[],
+        SECRET_KEY="new-django-signing-key-at-least-32-bytes-long",
+        SECRET_KEY_FALLBACKS=["old-django-signing-key-at-least-32-bytes-long"],
+    )
+    def test_artifact_urls_default_to_rotating_django_signing_keys(self) -> None:
+        build = MagicMock(
+            team_id=1,
+            canvas_id="00000000-0000-0000-0000-000000000001",
+            id="00000000-0000-0000-0000-000000000002",
+        )
+
+        token = create_canvas_artifact_token(build)
+
+        self.assertIsNotNone(token)
+        self.assertEqual(_read_token(token or "")["team_id"], 1)
+        previous_token = signing.Signer(
+            key="old-django-signing-key-at-least-32-bytes-long", salt=ARTIFACT_TOKEN_SALT
+        ).sign_object(_claims(bucket=int(time.time() // 3600)), compress=True)
+        self.assertEqual(_read_token(previous_token)["team_id"], 1)
+
+    @override_settings(
+        DEBUG=False,
+        TEST=False,
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example",
+        CANVAS_ARTIFACT_SIGNING_KEYS=[],
+        SECRET_KEY="django-signing-key-at-least-32-bytes-long",
+        SECRET_KEY_FALLBACKS=[],
+    )
+    def test_production_check_accepts_django_signing_key_fallback(self) -> None:
+        self.assertEqual(check_artifact_delivery_settings(None), [])
+
+    @override_settings(
+        DEBUG=False,
+        TEST=False,
+        CANVAS_ARTIFACT_ORIGIN="",
+        CANVAS_ARTIFACT_SIGNING_KEYS=["dedicated-signing-key-at-least-32-bytes-long"],
+    )
+    def test_production_check_rejects_a_signing_key_without_an_origin(self) -> None:
+        self.assertIn("canvas.E001", [error.id for error in check_artifact_delivery_settings(None)])
 
     @override_settings(
         DEBUG=False,
@@ -153,11 +207,19 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         # A too-short primary key is refused in production (fail closed).
         with override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["too-short"]):
             self.assertIsNone(create_canvas_artifact_token(MagicMock()))
+            self.assertIsNone(create_canvas_sandbox_document_url())
         # A misconfigured origin (non-https, or carrying a path/credentials) is refused.
         with override_settings(CANVAS_ARTIFACT_ORIGIN="http://usercontent.example"):
             self.assertIsNone(create_canvas_artifact_token(MagicMock()))
+            self.assertIsNone(create_canvas_sandbox_document_url())
         with override_settings(CANVAS_ARTIFACT_ORIGIN="https://usercontent.example/path"):
             self.assertIsNone(create_canvas_artifact_token(MagicMock()))
+            self.assertIsNone(create_canvas_sandbox_document_url())
+        self.assertEqual(
+            create_canvas_sandbox_document_url(),
+            f"https://usercontent.example/canvas-artifacts/sandbox/"
+            f"{hashlib.sha256(SANDBOX_DOCUMENT_PATH.read_bytes()).hexdigest()}/index.html",
+        )
 
     @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["a-signing-key-at-least-32-bytes-long"])
     def test_url_round_trips_through_read_token(self) -> None:
@@ -170,3 +232,86 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         claims = _read_token(token)
         self.assertEqual(claims["team_id"], 1)
         self.assertEqual(claims["canvas_id"], "00000000-0000-0000-0000-000000000001")
+
+
+@override_settings(
+    CANVAS_ARTIFACT_ORIGIN="https://usercontent.example",
+    SITE_URL="https://app.example",
+)
+class TestCanvasSandboxDocument(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.objects: dict[str, bytes] = {}
+        writer = patch("products.canvas.backend.artifacts.object_storage.write", side_effect=self.objects.__setitem__)
+        reader = patch(
+            "products.canvas.backend.artifacts.object_storage.read_bytes",
+            side_effect=lambda key, **kwargs: self.objects.get(key),
+        )
+        writer.start()
+        reader.start()
+        self.addCleanup(writer.stop)
+        self.addCleanup(reader.stop)
+        _publish_sandbox_document.cache_clear()
+        self.addCleanup(_publish_sandbox_document.cache_clear)
+
+    def test_serves_an_advertised_document_after_the_process_changes_version(self) -> None:
+        path = self._path()
+        original = _sandbox_document().content
+        replacement = _parse_sandbox_document(original + b"\n")
+        with patch("products.canvas.backend.artifacts._sandbox_document", return_value=replacement):
+            response = self.client.get(path, HTTP_HOST="usercontent.example")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, original)
+
+    def _path(self) -> str:
+        url = create_canvas_sandbox_document_url()
+        assert url is not None
+        return url.removeprefix("https://usercontent.example")
+
+    @parameterized.expand([("artifact_host", "usercontent.example", 200), ("app_host", "app.example", 404)])
+    def test_serves_only_on_the_artifact_host(self, _name: str, host: str, expected_status: int) -> None:
+        response = self.client.get(self._path(), HTTP_HOST=host)
+
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand([("generated", False), ("widened_meta_policy", True)])
+    def test_serves_the_document_under_its_own_sandboxing_policy(self, _name: str, widen_meta: bool) -> None:
+        content = SANDBOX_DOCUMENT_PATH.read_bytes()
+        if widen_meta:
+            content = content.replace(
+                b"default-src 'none';",
+                b"sandbox allow-scripts allow-same-origin allow-popups; frame-ancestors *; "
+                b"img-src https:; form-action *; base-uri *; default-src 'none';",
+            )
+        with patch(
+            "products.canvas.backend.artifacts._sandbox_document", return_value=_parse_sandbox_document(content)
+        ):
+            response = self.client.get(self._path(), HTTP_HOST="usercontent.example")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, content)
+        self.assertEqual(response["Content-Type"], "text/html; charset=utf-8")
+        self.assertEqual(response["Cache-Control"], "public, max-age=31536000, immutable")
+        self.assertEqual(response["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(response["Referrer-Policy"], "no-referrer")
+        self.assertNotIn("X-Frame-Options", response)
+        self.assertNotIn("Content-Security-Policy-Report-Only", response)
+        csp = [part.strip() for part in response["Content-Security-Policy"].split(";")]
+        self.assertIn("sandbox allow-scripts", csp)
+        self.assertIn("frame-ancestors https://app.example https://posthog.com https://preview.posthog.com", csp)
+        self.assertIn("default-src 'none'", csp)
+        self.assertTrue(any(part.startswith("script-src ") and "https://esm.sh" in part for part in csp))
+        for name, directive in {
+            "sandbox": "sandbox allow-scripts",
+            "frame-ancestors": "frame-ancestors https://app.example https://posthog.com https://preview.posthog.com",
+            "img-src": "img-src data: blob:",
+            "form-action": "form-action 'none'",
+            "base-uri": "base-uri 'none'",
+            "object-src": "object-src 'none'",
+        }.items():
+            self.assertEqual([part for part in csp if part.split()[0] == name], [directive])
+
+    def test_unknown_content_hash_404s(self) -> None:
+        response = self.client.get(f"/canvas-artifacts/sandbox/{'0' * 64}/index.html", HTTP_HOST="usercontent.example")
+
+        self.assertEqual(response.status_code, 404)

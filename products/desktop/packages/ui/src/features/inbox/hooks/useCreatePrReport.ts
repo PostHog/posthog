@@ -1,6 +1,7 @@
 import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
+import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
@@ -14,7 +15,9 @@ interface UseCreatePrReportOptions {
   reportId: string;
   reportTitle: string | null;
   cloudRepository: string | null;
-  /** Fires once the implementation task exists (the chat dock binds to it). */
+  surface?: InboxReportActionSurface;
+  triageId?: string;
+  /** Fires after the implementation task starts successfully. */
   onTaskCreated?: (task: Task) => void;
 }
 
@@ -47,6 +50,8 @@ export function useCreatePrReport({
   reportId,
   reportTitle,
   cloudRepository,
+  surface = "detail_pane",
+  triageId,
   onTaskCreated,
 }: UseCreatePrReportOptions): UseCreatePrReportReturn {
   const { data: teamConfig } = useSignalTeamConfig();
@@ -115,6 +120,11 @@ export function useCreatePrReport({
   const { run, isRunning } = useInboxCloudTaskRunner({
     reportId,
     reportTitle,
+    reportAction: {
+      action_type: "create_pr",
+      surface,
+      ...(triageId ? { triage_id: triageId } : {}),
+    },
     cloudRepository,
     loggerScope: "create-pr-report",
     copy: {
@@ -132,7 +142,7 @@ export function useCreatePrReport({
     buildInput,
     analyticsExtras,
     redirectOnSuccess: false,
-    onTaskCreated,
+    onTaskStarted: onTaskCreated,
   });
 
   const createPrReport = useCallback(

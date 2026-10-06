@@ -85,11 +85,19 @@ class DeletionTarget:
     # Anything that may live elsewhere must also be ``optional``, since that is what makes the
     # storage table's presence a question rather than an assumption.
     cluster_setting: str = "CLICKHOUSE_CLUSTER"
+    # The hostClusterRole owning this table's shards on the cluster named above. `data` on the main
+    # cluster, but a cluster can shard across another role: the events cluster carries
+    # sharded_events_json on nodes whose role is `events`, and a handle built for `data` there reads
+    # no shard numbers at all, so it has nothing to dispatch over and matches no probe. Only used
+    # when building that cluster's handle; the handle in hand is always probed on its own role.
+    node_role: NodeRole = NodeRole.DATA
     # Guarded on system.tables: the table sits behind a migration that may not have run everywhere.
     optional: bool = False
-    # The schema a HogQL predicate compiles against here, None where no HogQL table definition
-    # exists. A compiled fragment names physical columns (mat_*, the property-group maps, or JSON
-    # subcolumns), so it only runs against the schema it was compiled for.
+    # Which events-schema variant compile_hogql_predicate emits for this table, None where no
+    # variant is known to run against its physical columns. Every predicate resolves against the
+    # events HogQL table, and the only choice is legacy versus native-JSON. A fragment names
+    # physical columns (mat_*, the property-group maps, or JSON subcolumns), so it only runs
+    # against the schema it was compiled for.
     hogql_schema: HogQLSchema | None = None
     # properties/person_properties can be rewritten in place. True needs both halves: the property
     # columns are DEFAULT-kind (assignable by ALTER UPDATE, as materialize() mints them), and the
@@ -97,12 +105,36 @@ class DeletionTarget:
     # table, which today is hardcoded to the events tables. flag_evaluations satisfies only the
     # schema half, so flipping this without extending the sweep silently under-deletes.
     accepts_property_rewrite: bool = False
+    # Whether the property-removal gate may build a person_properties predicate here. False where
+    # the column has been dropped out of band on PostHog Cloud, which makes the predicate an
+    # unknown-identifier error rather than a count. The flag narrows the gate on every deployment
+    # regardless of whether the column is actually present there. The cost is a blind spot: rows
+    # this table stored before its producer stopped sending person_properties hold real values
+    # wherever the column survives, and this gate no longer sees them. Bounded by the table's TTL;
+    # see COVERAGE_DOC.
+    # accepts_property_rewrite=True implies this must stay True too, since the rewrite assumes the
+    # column holds real data; __post_init__ below enforces that pairing.
+    stores_person_properties: bool = True
+    # Whether the person-overrides squash rewrites person_id here. A merge moves a distinct_id to
+    # another person, and a later deletion names only the survivor, so a table the squash skips
+    # keeps its rows on the absorbed person and no sweep ever matches them (#93035).
+    # Opt-in rather than assumed, because the rewrite is an ALTER UPDATE and ClickHouse refuses one
+    # on a sort key column. Leaving it False is a decision that a merge may strand rows here until
+    # the TTL passes; test_deletion_coverage.py makes you record that decision.
+    accepts_person_id_rewrite: bool = False
     # Read uuids from this table when queueing a deferred deletion. False where the rows duplicate
     # another target's uuids, which would queue each one twice.
     queue_uuid_candidates: bool = True
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
+
+    def __post_init__(self) -> None:
+        if self.accepts_property_rewrite and not self.stores_person_properties:
+            raise ValueError(
+                f"{self.data_table}: accepts_property_rewrite needs stores_person_properties, "
+                f"because the rewrite writes the person_properties column back. See {COVERAGE_DOC}."
+            )
 
     @property
     def cluster_name(self) -> str:
@@ -146,6 +178,7 @@ EVENTS = DeletionTarget(
     read_table="events",
     hogql_schema=HogQLSchema.LEGACY,
     accepts_property_rewrite=True,
+    accepts_person_id_rewrite=True,
 )
 
 EVENTS_JSON = DeletionTarget(
@@ -153,26 +186,53 @@ EVENTS_JSON = DeletionTarget(
     read_table=DISTRIBUTED_EVENTS_JSON_TABLE,
     optional=True,
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
+    node_role=NodeRole.EVENTS,
     hogql_schema=HogQLSchema.NATIVE_JSON,
-    accepts_property_rewrite=True,
+    # Left out of the squash on purpose; PERSON_ID_REWRITE_EXEMPT carries the reason and the cost.
     # Dual-written from the same events, so its uuids are the legacy table's.
     queue_uuid_candidates=False,
 )
 
-# Flag-evaluation telemetry carries the same person and group payload as events, so person, team
-# and queued-uuid sweeps must reach it. It takes neither of the richer sweeps; both exclusions are
-# explained in docs/internal/clickhouse-deletion-coverage.md. Its producer populates person_id
-# exactly as the events pipeline does, so a person sweep matches on person_id like every other
-# events-shaped table.
+# Flag-evaluation telemetry carries the same person_id and group payload as events, so team and
+# queued-uuid sweeps must reach it, and a person sweep matches on person_id like every other
+# events-shaped table. Its producer stopped sending person_properties on 2026-09-05 (#95693); a row
+# the table stored before then is out of the property-removal gate's reach until its TTL passes. It
+# takes neither of the richer sweeps; both exclusions are explained in
+# docs/internal/clickhouse-deletion-coverage.md.
 FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,
     optional=True,
+    stores_person_properties=False,
+    accepts_person_id_rewrite=True,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
 )
 
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
 PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
+
+# sharded_events_json stays registered because deletion support will return when the events cluster
+# is reliably reachable. Keeping the default sweep targets separate makes every verifier follow the
+# same temporary exclusion as deletes_job.
+DEFAULT_DELETION_TARGETS: tuple[DeletionTarget, ...] = tuple(
+    target for target in PERSONAL_DATA_TARGETS if target is not EVENTS_JSON
+)
+
+# Every table squash_person_overrides rewrites person_id on. Derived from the capability rather than
+# listed by hand, so registering a target and forgetting the squash is not expressible.
+SQUASH_TARGETS: tuple[DeletionTarget, ...] = tuple(
+    target for target in PERSONAL_DATA_TARGETS if target.accepts_person_id_rewrite
+)
+
+# Targets that carry person_id and are deliberately left out of the squash. An entry is not free:
+# it accepts that a merge strands rows on the absorbed person until the TTL drops them, because the
+# squash deletes the overrides that recorded the mapping right after applying them.
+#
+# sharded_events_json is exempt while the squash is not ready to dispatch to the events cluster. A
+# run that resolves the table inconsistently is worse than one that never tries: it stages the
+# snapshot dictionary onto a cluster it may not mutate, and the overrides are dropped either way.
+# Setting accepts_person_id_rewrite on the target is what restores it; see COVERAGE_DOC.
+PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset({EVENTS_JSON_DATA_TABLE})
 
 # Storage tables that carry person properties and are reclaimed by their TTL alone. Each entry is a
 # decision that erasure may lag by the retention window, not an oversight.
@@ -236,13 +296,18 @@ def _assert_no_rows_behind_the_proxy(cluster: ClickhouseCluster, target: Deletio
     )
 
 
-def _any_data_node_has(cluster: ClickhouseCluster, table: str) -> bool:
-    """Whether any data node of ``cluster`` carries ``table``.
+def _any_node_has(cluster: ClickhouseCluster, table: str) -> bool:
+    """Whether any shard-bearing node of ``cluster`` carries ``table``.
+
+    Probed with the handle's own shard role rather than the target's. The handle in hand shards
+    over ``data`` even for a table that lives on ``events`` nodes elsewhere, which is the dev, CI
+    and self-hosted case where events_json sits on the main cluster; the sibling is built for the
+    target's role, so probing it picks that role up on its own.
 
     ``any`` rather than ``all``: on a partially-migrated cluster the mutation fails loudly on the
     hosts missing the table, which is preferable to silently skipping a deletion.
     """
-    results = cluster.map_hosts_by_role(partial(_table_exists, table=table), NodeRole.DATA).result()
+    results = cluster.map_hosts_by_role(partial(_table_exists, table=table), cluster.shard_role).result()
     return any(results.values())
 
 
@@ -251,14 +316,14 @@ def _sibling_holding(cluster: ClickhouseCluster, target: DeletionTarget) -> Clic
     if target.cluster_name == cluster.data_cluster_name:
         return None
     try:
-        sibling = cluster.sibling(target.cluster_name)
+        sibling = cluster.sibling(target.cluster_name, target.node_role)
     except ServerException as exc:
         if exc.code != _CLUSTER_DOESNT_EXIST:
             raise
         # No such cluster here, which is every deployment the split that moves this table has not
         # reached: local, CI, self-hosted. Leave the verdict to the proxy check.
         return None
-    return sibling if _any_data_node_has(sibling, target.data_table) else None
+    return sibling if _any_node_has(sibling, target.data_table) else None
 
 
 def placement_for(cluster: ClickhouseCluster, target: DeletionTarget) -> TargetPlacement | None:
@@ -268,7 +333,7 @@ def placement_for(cluster: ClickhouseCluster, target: DeletionTarget) -> TargetP
     cover the same nodes, which is what the dev stack and CI do. So the handle in hand is tried
     first, and a sibling is built only for a table it does not carry.
     """
-    if not target.optional or _any_data_node_has(cluster, target.data_table):
+    if not target.optional or _any_node_has(cluster, target.data_table):
         return TargetPlacement(target=target, cluster=cluster)
 
     sibling = _sibling_holding(cluster, target)
@@ -375,8 +440,7 @@ def count_surviving_rows(cluster: ClickhouseCluster, target: DeletionTarget, pre
 def assert_no_unsweepable_rows(
     cluster: ClickhouseCluster,
     targets: Sequence[DeletionTarget],
-    predicate: str,
-    params: dict,
+    predicate_for: Callable[[DeletionTarget], tuple[str, dict] | None],
     *,
     events: Sequence[str],
     reason: str,
@@ -385,8 +449,10 @@ def assert_no_unsweepable_rows(
 
     Pass targets already narrowed by ``resolve_targets``; this does not re-check presence.
 
-    ``predicate`` must be the portable part of the criteria — no HogQL fragment, no
-    materialized-column arms — so the count is a superset of what the deletion would have removed.
+    ``predicate_for`` returns the criteria to count on a target, or ``None`` to skip it.
+    The criteria carry no HogQL fragment and no materialized-column arms, so each count is a
+    superset of what the deletion would have removed. A caller may drop a criterion the target
+    cannot hold, and the count is then a superset of the remainder.
     ``events`` is the request's event filter, empty meaning every event.
 
     Deliberately gated on rows existing rather than on the request's shape: an unconditional
@@ -396,6 +462,11 @@ def assert_no_unsweepable_rows(
     for target in targets:
         if not target.may_hold_any_of(events):
             continue
+
+        criteria = predicate_for(target)
+        if criteria is None:
+            continue
+        predicate, params = criteria
 
         count = count_surviving_rows(cluster, target, predicate, params)
         if count:

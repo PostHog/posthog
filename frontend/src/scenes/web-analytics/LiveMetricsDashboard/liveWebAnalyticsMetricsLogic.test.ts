@@ -71,6 +71,17 @@ describe('liveWebAnalyticsMetricsLogic', () => {
         expect(logic.values.topPaths).toEqual([{ path: '/classes/:id', views: 2 }])
     })
 
+    it('prefers the livestream-cleaned pathname over the client-side mirror', () => {
+        const event = pageview('/classes/928q3hr9paw8hfe', 'user-1')
+        // Server-side RE2 cleaning can diverge from the JS mirror (e.g. re2-only
+        // syntax the mirror skips), so its value must win verbatim.
+        event.properties.$virt_cleaned_pathname = '/classes/:server_id'
+
+        logic.actions.addEvents([event], new Date(Date.now() - 60_000), logic.values.pathCleaningFilters)
+
+        expect(logic.values.topPaths).toEqual([{ path: '/classes/:server_id', views: 1 }])
+    })
+
     it('leaves streamed paths untouched once path cleaning is switched off', () => {
         webAnalyticsLogic.actions.setIsPathCleaningEnabled(false)
 

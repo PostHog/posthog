@@ -1,8 +1,11 @@
 import { render } from '@testing-library/react'
 
 import type { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import type { ServiceRow } from './logsServicesLogic'
 import { ServicesList } from './ServicesList'
@@ -31,8 +34,21 @@ describe('ServicesList', () => {
         initKeaTests()
     })
 
-    const renderList = (services: ServiceRow[] = SERVICES): HTMLElement =>
-        render(<ServicesList services={services} loading={false} searchTerm="" />).container
+    const renderList = (services: ServiceRow[] = SERVICES, dateFrom = '-1h'): HTMLElement =>
+        render(<ServicesList services={services} loading={false} searchTerm="" dateFrom={dateFrom} />).container
+
+    /** The metrics link is gated on the alpha flag and on metrics access, so a row only shows it for both. */
+    const enableMetricsLink = (): void => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.Metrics]: AccessControlLevel.Viewer,
+            },
+        } as AppContext
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.METRICS]: true })
+    }
 
     it('keeps the DOM bounded by the viewport, not by the number of services', () => {
         const rows = renderList().querySelectorAll('[data-attr="logs-services-row"]')
@@ -63,5 +79,16 @@ describe('ServicesList', () => {
 
     it('states how many services matched and how far they scroll', () => {
         expect(renderList().textContent).toContain('2,400 services, about 134 screens')
+    })
+
+    // Metrics defaults to the last hour. Without the window the user picked here, a service
+    // busy over seven days opens on an hour of chart and reads as though it has no traffic.
+    it('opens metrics on the window the services list is showing', () => {
+        enableMetricsLink()
+        const href = renderList([service('checkout')], '-7d')
+            .querySelector('[data-attr="logs-services-row-metrics"]')
+            ?.getAttribute('href')
+
+        expect(href).toContain('dateFrom=-7d')
     })
 })

@@ -1,11 +1,20 @@
 //! Per-partition Stage 1 worker.
 //!
-//! [`Stage1Worker::spawn`] drains one partition's channel on a dedicated tokio task. Per sub-batch
-//! it produces membership changes and straggler re-keys, awaits all acks, then marks the offset
-//! processed. A produce failure holds the offset; a store error is logged and the event is skipped.
+//! [`Stage1Worker::spawn`] drains one partition's two lanes on a dedicated tokio task. Per live
+//! sub-batch it produces membership changes and straggler re-keys, awaits all acks, then marks the
+//! offset processed. A produce failure holds the offset; a store error is logged and the event is
+//! skipped. Between live sub-batches it applies at most one seed run: a quantum of seeds leaves
+//! the lane only once the previous quantum has fully applied, and its runs go one per round, so
+//! live latency is at most one run and an admitted seed backlog never queues in front of live
+//! traffic.
+//!
+//! A `Sweep` message records an eviction request rather than running one. The pass then advances one
+//! bounded batch per round, alternating with live batches and running ahead of seeds
+//! ([`crate::workers::sweep_path`]), so a wave of deadlines coming due together costs live traffic
+//! one batch at a time instead of the whole wave at once.
 
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -16,6 +25,7 @@ use uuid::Uuid;
 
 use crate::cascade::{first_cascade, CascadeMessage};
 use crate::consumers::events::CohortStreamEvent;
+use crate::consumers::seeds::{ConsumedSeed, SeedWork};
 use crate::filters::manager::CatalogHandle;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
@@ -25,11 +35,10 @@ use crate::observability::metrics::{
     EVICTION_QUEUE_REBUILT_KEYS_TOTAL, MERGE_REDIRECT_HOP_CAPPED_TOTAL,
     MERGE_REKEY_PRODUCE_FAILURE_TOTAL, OUTPUT_MEMBERSHIP_CHANGES_EMITTED, OUTPUT_PRODUCE_ERRORS,
     STAGE1_EVENTS_PROCESSED, STAGE1_EVENTS_SKIPPED, STAGE1_EVENT_PROCESS_DURATION,
-    STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS, SWEEP_KEYS_DROPPED_TOTAL,
-    SWEEP_KEYS_EVICTED_TOTAL,
+    STAGE1_STATE_DECODE_ERROR, STAGE1_TRANSITIONS,
 };
-use crate::partitions::intake::MeteredReceiver;
 use crate::partitions::offset_tracker::{MarkOutcome, OffsetTracker};
+use crate::partitions::router::WorkerInbox;
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::{
     map_transition, CohortMembershipChange, LastUpdatedClock, MembershipSink, MembershipStatus,
@@ -38,8 +47,7 @@ use crate::producer::{
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::state::{StateVariant, StatefulRecord};
 use crate::stage1::transition::{LeafTransition, TransitionKind};
-use crate::stage2::{single_leaf_transition_register_writes, stage_register_writes};
-use crate::store::{Behavioral, BehavioralKey, ReadLane, StagedBatch, StoreHandle};
+use crate::store::{BehavioralKey, ReadLane, StoreHandle};
 use crate::sweep::EvictionQueue;
 use crate::workers::cascade_path::handle_cascade;
 use crate::workers::event_path::{
@@ -48,22 +56,13 @@ use crate::workers::event_path::{
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
 use crate::workers::reconcile::{handle_reconcile_drain, ReconcileQueue};
-use crate::workers::seed_path::handle_seed;
+use crate::workers::seed_apply::{apply_seed_group, ApplyDeps, BatchMarks};
+use crate::workers::seed_run::{group_seeds, row_weight, Admitted, SeedGroup};
 use crate::workers::stage2_gc::{handle_stage2_orphan_gc, Stage2GcCursor};
 use crate::workers::stage2_path::compose_stage2;
-use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReason};
-
-/// Max eviction keys a single sweep pass drains. Daily-bucket deadlines cluster on tz-midnight, so a
-/// large team's whole wave can come due on one tick; capping the pop loop bounds the per-pass RocksDB
-/// read + produce + write batch + Stage 2 pass so events do not queue behind one giant sweep. Leftover
-/// due keys stay scheduled and drain on the next sweep tick.
-const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
+use crate::workers::sweep_path::{run_sweep_turn, SweepSchedule};
 
 const REBUILD_SCAN_PAGE: usize = 10_000;
-
-/// Chunk size for a team's sweep-state prefetch, so each `multi_get_behavioral` spans a bounded number of
-/// keys and no single read op holds long before the sweep makes progress.
-const SWEEP_MULTI_GET_CHUNK: usize = 1024;
 
 /// Cooperative-yield cadence inside the worker fold. `handle_event` is synchronous, so a backlog of
 /// CPU-bound events would hold the runtime thread, starving the commit task and consume loop. A
@@ -80,7 +79,7 @@ impl Stage1Worker {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         partition_id: u16,
-        receiver: MeteredReceiver,
+        inbox: WorkerInbox,
         store: StoreHandle,
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
@@ -90,7 +89,7 @@ impl Stage1Worker {
     ) -> Self {
         Self::spawn_with_gating(
             partition_id,
-            receiver,
+            inbox,
             store,
             catalog,
             sink,
@@ -106,7 +105,7 @@ impl Stage1Worker {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn_with_gating(
         partition_id: u16,
-        receiver: MeteredReceiver,
+        inbox: WorkerInbox,
         store: StoreHandle,
         catalog: Arc<CatalogHandle>,
         sink: Arc<dyn MembershipSink>,
@@ -117,7 +116,7 @@ impl Stage1Worker {
     ) -> Self {
         let handle = tokio::spawn(run_worker(
             partition_id,
-            receiver,
+            inbox,
             store,
             catalog,
             sink,
@@ -141,10 +140,30 @@ impl Stage1Worker {
     }
 }
 
+/// What one [`run_worker`] select round yielded, so the loop body is a plain `match`.
+enum Turn {
+    /// A live sub-batch, or `None` for a closed live lane.
+    Live(Option<Vec<ShuffleMessage>>),
+    /// One bounded eviction batch of the pending sweep work.
+    Sweep,
+    /// The pending quantum has a run to apply.
+    Run,
+    /// Seeds taken from the lane this round; `0` means the lane closed.
+    Seeds(usize),
+}
+
+/// One quantum's runs, applied one per round so live batches interleave with them. The marks are
+/// published only after the last run (see [`BatchMarks`]); a hold publishes as it happens.
+#[derive(Default)]
+struct PendingRuns {
+    groups: VecDeque<SeedGroup>,
+    marks: BatchMarks,
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_worker(
     partition_id: u16,
-    mut receiver: MeteredReceiver,
+    inbox: WorkerInbox,
     handle: StoreHandle,
     catalog: Arc<CatalogHandle>,
     sink: Arc<dyn MembershipSink>,
@@ -156,6 +175,7 @@ async fn run_worker(
     info!(partition_id, "stage 1 worker started");
 
     let mut queue = EvictionQueue::<BehavioralKey>::new();
+    let mut sweep = SweepSchedule::new(partition_id);
     let mut reconcile_queue = ReconcileQueue::new(
         partition_id,
         merge.reconcile.backlog.clone(),
@@ -172,7 +192,119 @@ async fn run_worker(
     // Persists across batches so a stream of buffered batches still yields on the wall-clock interval.
     let mut last_yield = Instant::now();
     let mut last_updated_clock = LastUpdatedClock::default();
-    while let Some(batch) = receiver.recv().await {
+    // Two locals, not `inbox.live`/`inbox.seeds`: both branch futures live at once inside the
+    // macro, so they must borrow disjoint places.
+    let WorkerInbox {
+        mut live,
+        mut seeds,
+    } = inbox;
+    // The seed quantum, from the run ceiling: one turn takes at most one run's worth of seeds.
+    // The row budget, a kind change or a control seed can still cut a quantum into several runs,
+    // which then apply one per round. `NonZeroUsize` on purpose: `recv_many` with a limit of 0
+    // returns 0 at once, which reads here as a closed lane.
+    let quantum = merge.seed_budget.seeds.get();
+    // Grown by `recv_many` as seeds arrive, not sized up front: the run ceiling is a config knob,
+    // and an oversized one must not reserve that many seeds per worker at spawn.
+    let mut seed_buf: Vec<ConsumedSeed> = Vec::new();
+    let mut pending = PendingRuns::default();
+    let (mut live_open, mut seed_open) = (true, true);
+    loop {
+        // Live before seeds: a seed run is bounded work, a live backlog is not. A seed branch is
+        // reached only while the live lane is empty, so live latency is at most one seed run. The
+        // eviction sweep sits between the two: it is maintenance the queue already owes, not
+        // admitted backlog, so it runs ahead of seeds, and it alternates with live rather than
+        // queueing behind it.
+        //
+        // A partition whose live lane is never empty makes no seed progress, by design: live
+        // arrivals there already outpace the worker, a seed run would only deepen that backlog,
+        // and the seed consumer's live-lag gate stops admitting to it. Its lane then fills and
+        // `try_route_seeds` refuses, which is the alarm: `cohort_seed_paused_partitions` under
+        // cause `channel_full` and `cohort_seed_oldest_held_age_ms` rise while
+        // `cohort_seed_apply_run_size` goes flat.
+        //
+        // A draining sweep pass reads the same way for as long as it lasts, since it too sits ahead
+        // of both seed branches. Check `sweep_queue_lag_seconds` before concluding the live lane is
+        // the cause: a pass is bounded and clears, a live backlog does not.
+        let turn = tokio::select! {
+            biased;
+            // Ahead of live, but only for the one turn a live batch just earned it: eviction and live
+            // then alternate, so a lane that is never empty cannot hold a due wave indefinitely.
+            () = std::future::ready(()), if sweep.owes_turn() => Turn::Sweep,
+            batch = live.recv(), if live_open => Turn::Live(batch),
+            // Live is idle, so the pass keeps going rather than waiting for the next tick.
+            () = std::future::ready(()), if sweep.has_work() => Turn::Sweep,
+            // Ready at once: the quantum's remaining runs go one per round, behind any live batch.
+            () = std::future::ready(()), if !pending.groups.is_empty() => Turn::Run,
+            // The lane is polled again only once the previous quantum has fully applied.
+            taken = seeds.recv_many(&mut seed_buf, quantum),
+                if seed_open && pending.groups.is_empty() => Turn::Seeds(taken),
+            // Both lanes are closed and drained and no run is pending, so nothing more can arrive.
+            else => break,
+        };
+        let batch = match turn {
+            Turn::Live(Some(batch)) => batch,
+            Turn::Live(None) => {
+                live_open = false;
+                continue;
+            }
+            Turn::Seeds(0) => {
+                seed_open = false;
+                continue;
+            }
+            // `recv_many` appends, so drain it: otherwise turn n re-groups turns 1..n-1.
+            Turn::Seeds(_) => {
+                debug_assert!(
+                    pending.groups.is_empty(),
+                    "a quantum is taken only once the last one applied"
+                );
+                pending = group_seed_turn(
+                    partition_id,
+                    &catalog,
+                    &merge,
+                    seed_buf.drain(..).map(Admitted::from).collect(),
+                );
+                continue;
+            }
+            Turn::Sweep => {
+                run_sweep_turn(
+                    partition_id,
+                    &handle,
+                    &catalog,
+                    &sink,
+                    &merge,
+                    &mut queue,
+                    &mut last_updated_clock,
+                    &mut sweep,
+                )
+                .await;
+                continue;
+            }
+            Turn::Run => {
+                apply_next_run(
+                    partition_id,
+                    &handle,
+                    &catalog,
+                    &sink,
+                    &merge,
+                    &mut queue,
+                    &mut reconcile_queue,
+                    &mut last_updated_clock,
+                    &mut pending,
+                )
+                .await;
+                if pending.groups.is_empty() {
+                    // The whole quantum applied: its marks can publish, and the lane's meter stops
+                    // counting the seeds it took.
+                    std::mem::take(&mut pending.marks).publish(&merge.seed_tracker, partition_id);
+                    seeds.finish_turn();
+                }
+                continue;
+            }
+        };
+        // Claimed before the batch runs, not after: every exit path below (held offset, produce
+        // failure, clean mark) must still yield the next turn, or a partition that keeps failing to
+        // produce would starve eviction.
+        sweep.live_batch_done();
         let mut buffer = OutputBuffer::new();
         let mut re_keys: Vec<CohortStreamEvent> = Vec::new();
         let mut max_offset: Option<i64> = None;
@@ -210,6 +342,13 @@ async fn run_worker(
                     re_keys.extend(effects.re_keys);
                 }
                 ShuffleMessage::Sweep { due_before_ms } => {
+                    // The eviction runs on a later turn, but the buffer still flushes here, so this
+                    // batch's own `Entered` output precedes the request that may retract it. A
+                    // later live batch whose end-of-batch produce fails is not covered: its output
+                    // is dropped for replay while the sweep keeps its turn, so a `Left` can reach
+                    // the wire first. That converges, because the replayed `Entered` stamps newer
+                    // than the sweep's `Left`, and holding the sweep behind a failing lane instead
+                    // would starve eviction (see `live_batch_done`).
                     if flush_event_changes_before_inline(
                         &sink,
                         &mut buffer,
@@ -220,17 +359,7 @@ async fn run_worker(
                     {
                         break;
                     }
-                    handle_sweep(
-                        partition_id,
-                        &handle,
-                        &catalog,
-                        &sink,
-                        &merge,
-                        &mut queue,
-                        &last_updated,
-                        due_before_ms,
-                    )
-                    .await;
+                    sweep.request(due_before_ms, &queue);
                 }
                 ShuffleMessage::Merge { event, offset } => {
                     if flush_event_changes_before_inline(
@@ -299,42 +428,6 @@ async fn run_worker(
                         &merge,
                         &last_updated,
                         &message,
-                        offset,
-                    )
-                    .await;
-                }
-                ShuffleMessage::Seed {
-                    work,
-                    offset,
-                    broker_ts_ms: _,
-                } => {
-                    // Worker receipt is the first point that both proves this exact seed landed and
-                    // orders its ceiling before even a zero-work handler can mark it processed.
-                    // The dispatcher also records the delivered batch maximum, but that post-send
-                    // accounting can race a fast worker on a multithreaded runtime.
-                    merge
-                        .seed_tracker
-                        .mark_dispatched(partition_id as i32, offset + 1);
-                    if flush_event_changes_before_inline(
-                        &sink,
-                        &mut buffer,
-                        partition_id,
-                        &mut held,
-                    )
-                    .await
-                    {
-                        break;
-                    }
-                    handle_seed(
-                        partition_id,
-                        &handle,
-                        &catalog,
-                        &sink,
-                        &merge,
-                        &mut queue,
-                        &mut reconcile_queue,
-                        &last_updated,
-                        &work,
                         offset,
                     )
                     .await;
@@ -447,10 +540,10 @@ async fn run_worker(
             if errors > 0 {
                 counter!(MERGE_REKEY_PRODUCE_FAILURE_TOTAL).increment(errors as u64);
                 warn!(
-                    partition_id,
-                    errors,
-                    "straggler re-key produce to cohort_stream_events failed; holding offset for replay",
-                );
+                        partition_id,
+                        errors,
+                        "straggler re-key produce to cohort_stream_events failed; holding offset for replay",
+                    );
                 continue;
             }
             tombstone_redirect::record_re_keyed(produced);
@@ -462,10 +555,10 @@ async fn run_worker(
             {
                 counter!(COHORT_STREAM_OFFSET_AHEAD_OF_DISPATCH).increment(1);
                 warn!(
-                    partition_id,
-                    next_offset = max_offset + 1,
-                    "offset mark exceeded the dispatch ceiling and was capped (F1 invariant violation)",
-                );
+                        partition_id,
+                        next_offset = max_offset + 1,
+                        "offset mark exceeded the dispatch ceiling and was capped (F1 invariant violation)",
+                    );
             }
         }
         // Strictly post-mark: a consume-time watermark would reopen the double-count branch the
@@ -480,7 +573,7 @@ async fn run_worker(
     info!(partition_id, "stage 1 worker stopped");
 }
 
-/// Flush buffered event-path changes so they land before an inline (sweep/merge/transfer) produce,
+/// Flush buffered event-path changes so they land before an inline (merge/transfer) produce,
 /// preserving produce order == state-commit order. No-op when the buffer is empty.
 /// Returns the failed-ack count (`0` = fully acked / empty).
 async fn flush_membership_buffer(
@@ -493,9 +586,13 @@ async fn flush_membership_buffer(
     produce_membership(sink, buffer.take()).await
 }
 
-/// Flush buffered event-path changes ahead of an inline arm. Returns `true` when the flush failed:
-/// sets `held` so the caller `break`s and `mark_processed` is skipped, causing Kafka to replay.
-/// Returns `false` (empty or all acked) to run the arm normally.
+/// Flush buffered event-path changes ahead of an inline arm (merge, transfer, cascade, or reconcile
+/// drain). Returns `true` when the flush failed: sets `held` so the caller `break`s and
+/// `mark_processed` is skipped, causing Kafka to replay. Returns `false` (empty or all acked) to
+/// run the arm normally.
+///
+/// The `Sweep` arm produces nothing inline, but flushes here so the batch's own `Entered` output
+/// precedes the request that may retract it. Its call site says what that does not cover.
 async fn flush_event_changes_before_inline(
     sink: &Arc<dyn MembershipSink>,
     buffer: &mut OutputBuffer,
@@ -512,6 +609,69 @@ async fn flush_event_changes_before_inline(
         return true;
     }
     false
+}
+
+/// Split one quantum into the runs it will apply, one per worker round.
+///
+/// No live-buffer flush is needed first: the live `OutputBuffer` is produced (or its batch held) at
+/// the end of every live sub-batch, so it is always empty when a seed run starts.
+fn group_seed_turn(
+    partition_id: u16,
+    catalog: &CatalogHandle,
+    merge: &MergeWorkerDeps,
+    seeds: Vec<Admitted<SeedWork>>,
+) -> PendingRuns {
+    // Worker receipt is the first point that both proves these exact seeds landed and orders their
+    // ceiling before even a zero-work run can mark them processed. The dispatcher also records the
+    // delivered batch maximum, but that post-send accounting can race a fast worker on a
+    // multithreaded runtime.
+    if let Some(max) = seeds.iter().map(|seed| seed.offset.0).max() {
+        merge
+            .seed_tracker
+            .mark_dispatched(partition_id as i32, max + 1);
+    }
+    let snapshot = catalog.load();
+    let groups = group_seeds(seeds, merge.seed_budget, |work| row_weight(&snapshot, work));
+    PendingRuns {
+        groups: groups.into(),
+        marks: BatchMarks::default(),
+    }
+}
+
+/// Apply the pending quantum's next run. Each run folds under its own catalog snapshot, so a
+/// catalog refresh between two runs of one quantum is the same edit race a live batch runs under.
+#[allow(clippy::too_many_arguments)]
+async fn apply_next_run(
+    partition_id: u16,
+    handle: &StoreHandle,
+    catalog: &CatalogHandle,
+    sink: &Arc<dyn MembershipSink>,
+    merge: &MergeWorkerDeps,
+    queue: &mut EvictionQueue<BehavioralKey>,
+    reconcile_queue: &mut ReconcileQueue,
+    clock: &mut LastUpdatedClock,
+    pending: &mut PendingRuns,
+) {
+    let Some(group) = pending.groups.pop_front() else {
+        return;
+    };
+    let snapshot = catalog.load();
+    let deps = ApplyDeps {
+        partition_id,
+        handle,
+        catalog: &snapshot,
+        sink,
+        merge,
+    };
+    apply_seed_group(
+        deps,
+        queue,
+        reconcile_queue,
+        clock,
+        &mut pending.marks,
+        group,
+    )
+    .await;
 }
 
 pub(crate) fn count_by_status(changes: &[CohortMembershipChange]) -> (u64, u64) {
@@ -757,200 +917,6 @@ fn rewrite_to(event: &CohortStreamEvent, final_person: Uuid, origin: Uuid) -> Co
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn handle_sweep(
-    partition_id: u16,
-    handle: &StoreHandle,
-    catalog: &CatalogHandle,
-    sink: &Arc<dyn MembershipSink>,
-    merge: &MergeWorkerDeps,
-    queue: &mut EvictionQueue<BehavioralKey>,
-    last_updated: &str,
-    due_before_ms: i64,
-) {
-    let mut popped: Vec<(BehavioralKey, i64)> = Vec::new();
-    while popped.len() < MAX_SWEEP_KEYS_PER_PASS {
-        let Some(entry) = queue.pop_due(due_before_ms) else {
-            break;
-        };
-        popped.push(entry);
-    }
-    if popped.is_empty() {
-        return;
-    }
-
-    let mut by_team: BTreeMap<u64, Vec<BehavioralKey>> = BTreeMap::new();
-    for &(key, _) in &popped {
-        by_team.entry(key.team_id()).or_default().push(key);
-    }
-
-    let snapshot = catalog.load();
-    let mut changes = Vec::new();
-    let mut results = Vec::new();
-    let mut drops: Vec<SweepDropReason> = Vec::new();
-    for (team_id, keys) in &by_team {
-        let Some(filters) = snapshot.team(TeamId(*team_id as i32)) else {
-            drops.extend(std::iter::repeat_n(SweepDropReason::TeamDrift, keys.len()));
-            continue;
-        };
-        let filters: &TeamFilters = filters;
-        // Per-team retry: a read failure anywhere in the team reschedules all its keys and applies
-        // none of it, so gather every chunk before evicting.
-        let mut values: Vec<Option<Vec<u8>>> = Vec::with_capacity(keys.len());
-        let mut read_failed = false;
-        for chunk in keys.chunks(SWEEP_MULTI_GET_CHUNK) {
-            // The maintenance permit rotates between chunks, keeping each op fair against event reads.
-            match handle
-                .multi_get_behavioral(chunk.to_vec(), ReadLane::Maintenance)
-                .await
-            {
-                Ok(chunk_values) => values.extend(chunk_values),
-                Err(error) => {
-                    warn!(
-                        partition_id,
-                        team_id,
-                        error = %error,
-                        "sweep state read failed; rescheduling the team's keys for retry",
-                    );
-                    reschedule_team(queue, &popped, *team_id);
-                    read_failed = true;
-                    break;
-                }
-            }
-        }
-        if read_failed {
-            continue;
-        }
-
-        let evictions = sweep_evict(filters, keys, values, due_before_ms);
-        for result in &evictions.results {
-            if let Some(transition) = &result.transition {
-                if let Some(kind) = transition_metric_label(filters, transition) {
-                    counter!(STAGE1_TRANSITIONS, "kind" => kind).increment(1);
-                }
-                changes.extend(map_transition(filters, transition, last_updated));
-            }
-        }
-        results.extend(evictions.results);
-        drops.extend(evictions.drops);
-    }
-
-    if !changes.is_empty() {
-        let errors = produce_membership(sink, changes).await;
-        if errors > 0 {
-            warn!(
-                partition_id,
-                errors, "sweep produce to the membership topic failed; rescheduling for replay",
-            );
-            reschedule_all(queue, &popped);
-            return;
-        }
-    }
-
-    if !results.is_empty() {
-        let mut staged = StagedBatch::default();
-        for result in &results {
-            match &result.action {
-                EvictionAction::Write(bytes) => staged.put::<Behavioral>(&result.key, bytes),
-                EvictionAction::Delete => staged.delete::<Behavioral>(&result.key),
-            }
-            if let Some(transition) = &result.transition {
-                if let Some(filters) = snapshot.team(transition.team_id) {
-                    stage_register_writes(
-                        &mut staged,
-                        single_leaf_transition_register_writes(
-                            filters,
-                            partition_id,
-                            transition,
-                            due_before_ms,
-                        ),
-                    );
-                }
-            }
-        }
-        let written = handle.commit(staged).await;
-        if let Err(error) = written {
-            warn!(
-                partition_id,
-                error = %error,
-                "sweep state write failed; rescheduling popped keys to retry the eviction",
-            );
-            reschedule_all(queue, &popped);
-            return;
-        }
-
-        for result in &results {
-            if let Some(deadline) = result.reschedule {
-                queue.schedule(result.key, deadline);
-            }
-            counter!(SWEEP_KEYS_EVICTED_TOTAL, "variant" => result.variant.as_str()).increment(1);
-        }
-    }
-
-    for reason in &drops {
-        counter!(SWEEP_KEYS_DROPPED_TOTAL, "reason" => reason.as_str()).increment(1);
-    }
-
-    let mut by_team_transitions: BTreeMap<u64, Vec<LeafTransition>> = BTreeMap::new();
-    for result in &results {
-        if let Some(transition) = &result.transition {
-            by_team_transitions
-                .entry(result.key.team_id())
-                .or_default()
-                .push(transition.clone());
-        }
-    }
-    let mut stage2_changes = Vec::new();
-    for (team_id, transitions) in &by_team_transitions {
-        let Some(filters) = snapshot.team(TeamId(*team_id as i32)) else {
-            continue;
-        };
-        let filters: &TeamFilters = filters;
-        match compose_stage2(
-            partition_id,
-            handle,
-            filters,
-            &affected_leaves(transitions),
-            due_before_ms,
-            last_updated,
-            ReadLane::Event,
-        )
-        .await
-        {
-            Ok(changes) => stage2_changes.extend(changes),
-            Err(error) => warn!(
-                partition_id,
-                team_id,
-                error = %error,
-                "sweep stage 2 composition failed; skipping (self-heals on the person's next event)",
-            ),
-        }
-    }
-    if stage2_changes.is_empty() {
-        return;
-    }
-
-    // Only Stage 2 membership changes cascade; single-leaf evictions self-heal on the referrer's next event.
-    let cascades = first_cascades(merge, &stage2_changes, 0);
-    let errors = produce_membership(sink, stage2_changes).await;
-    if errors > 0 {
-        warn!(
-            partition_id,
-            errors,
-            "sweep stage 2 produce to the membership topic failed; dropping (cf_stage2 already committed, at-most-once)",
-        );
-        return;
-    }
-    let cascade_errors = produce_cascades(merge, cascades).await;
-    if cascade_errors > 0 {
-        warn!(
-            partition_id,
-            errors = cascade_errors,
-            "sweep cascade produce failed; dropping (at-most-once). Recovery depends on each referrer being re-evaluated on its next event; the sweep does not re-evaluate cohort-ref shapes with no behavioral leaf",
-        );
-    }
-}
-
 /// Re-seed the per-worker [`EvictionQueue`] from `cf_behavioral`, scheduling every behavioral key on
 /// its stored deadline. Skips `PersonProperty` variants (no time-based eviction) and `i64::MAX`
 /// deadlines (permanent). Corrupt records are counted and skipped — the event path re-derives them. A
@@ -1006,24 +972,6 @@ async fn rebuild_eviction_queue(
             partition_id,
             rebuilt, "durable restore: re-seeded eviction queue from cf_behavioral",
         );
-    }
-}
-
-fn reschedule_all(queue: &mut EvictionQueue<BehavioralKey>, popped: &[(BehavioralKey, i64)]) {
-    for &(key, deadline) in popped {
-        queue.schedule(key, deadline);
-    }
-}
-
-fn reschedule_team(
-    queue: &mut EvictionQueue<BehavioralKey>,
-    popped: &[(BehavioralKey, i64)],
-    team_id: u64,
-) {
-    for &(key, deadline) in popped {
-        if key.team_id() == team_id {
-            queue.schedule(key, deadline);
-        }
     }
 }
 
@@ -1213,7 +1161,17 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_budget: crate::workers::seed_run::RunBudget::default(),
         })
+    }
+
+    fn consumed_reconcile(tile: ReconcileTile, offset: i64) -> ConsumedSeed {
+        ConsumedSeed {
+            work: SeedWork::Reconcile(tile),
+            partition: 0,
+            offset,
+            broker_ts_ms: None,
+        }
     }
 
     fn reconcile_deps() -> (Arc<MergeWorkerDeps>, CaptureReconcileMarkerSink) {
@@ -1246,6 +1204,7 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_budget: crate::workers::seed_run::RunBudget::default(),
         })
     }
 
@@ -1273,6 +1232,7 @@ mod tombstone_redirect_tests {
             register_transfer_enabled: false,
             reconcile: crate::workers::ReconcileDeps::default(),
             person_seed: crate::workers::PersonSeedDeps::default(),
+            seed_budget: crate::workers::seed_run::RunBudget::default(),
         })
     }
 
@@ -1298,6 +1258,7 @@ mod tombstone_redirect_tests {
                 cse_offset: 0,
                 broker_ts_ms: None,
             }],
+            vec![],
         )
         .await;
         (partition_id, tracker)
@@ -1327,11 +1288,8 @@ mod tombstone_redirect_tests {
             &events_tracker,
             merge,
             0,
-            vec![ShuffleMessage::Seed {
-                work: Box::new(SeedWork::Reconcile(tile)),
-                offset: 5,
-                broker_ts_ms: None,
-            }],
+            vec![],
+            vec![consumed_reconcile(tile, 5)],
         )
         .await;
 
@@ -1355,24 +1313,39 @@ mod tombstone_redirect_tests {
             RunId(Uuid::from_u128(7)),
         );
 
-        run_batch(
+        // The drain tick must arrive after the tile is admitted, so the two lanes are driven by
+        // hand: a tick that beats the tile finds an empty queue and drains nothing. In production
+        // that is only latency — the next 2 s tick drains it.
+        let (live_tx, live_rx) = mpsc::channel(4);
+        let (seed_tx, seed_rx) = mpsc::channel(4);
+        let worker = Stage1Worker::spawn(
             0,
-            &store,
+            WorkerInbox::unmetered(live_rx, seed_rx),
+            test_handle(&store),
             reconcile_catalog(FILTERS_HASH),
-            &membership,
-            &events_tracker,
+            Arc::new(membership.clone()),
+            events_tracker.clone(),
             merge,
-            0,
-            vec![
-                ShuffleMessage::Seed {
-                    work: Box::new(SeedWork::Reconcile(tile)),
-                    offset: 5,
-                    broker_ts_ms: None,
-                },
-                ShuffleMessage::ReconcileDrain,
-            ],
-        )
-        .await;
+            false,
+        );
+        seed_tx.send(consumed_reconcile(tile, 5)).await.unwrap();
+        drop(seed_tx);
+        // Bounded by the clock, not by a poll count: the admission's store section runs on the
+        // blocking pool, so a busy CI box needs wall time, not yields.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while backlog.is_empty() {
+            assert!(
+                Instant::now() < deadline,
+                "the reconcile tile was never admitted"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        live_tx
+            .send(vec![ShuffleMessage::ReconcileDrain])
+            .await
+            .unwrap();
+        drop(live_tx);
+        worker.join().await.unwrap();
 
         assert!(membership.changes().is_empty());
         let markers = marker_sink.markers();
@@ -1413,6 +1386,7 @@ mod tombstone_redirect_tests {
                     broker_ts_ms: None,
                 },
             ],
+            vec![],
         )
         .await;
 
@@ -1504,6 +1478,8 @@ mod tombstone_redirect_tests {
         );
     }
 
+    /// Drive one worker over both lanes: `live` is sent as a single sub-batch, `seeds` one per
+    /// lane slot, then both senders drop so the worker drains and exits.
     #[allow(clippy::too_many_arguments)]
     async fn run_batch(
         partition_id: u16,
@@ -1513,13 +1489,14 @@ mod tombstone_redirect_tests {
         tracker: &Arc<OffsetTracker>,
         merge: Arc<MergeWorkerDeps>,
         dispatched: i64,
-        batch: Vec<ShuffleMessage>,
+        live: Vec<ShuffleMessage>,
+        seeds: Vec<ConsumedSeed>,
     ) {
-        let (tx, rx) = mpsc::channel(4);
-        let rx = MeteredReceiver::unmetered(rx);
+        let (live_tx, live_rx) = mpsc::channel(4);
+        let (seed_tx, seed_rx) = mpsc::channel(16);
         let worker = Stage1Worker::spawn(
             partition_id,
-            rx,
+            WorkerInbox::unmetered(live_rx, seed_rx),
             test_handle(store),
             catalog,
             Arc::new(membership.clone()),
@@ -1528,8 +1505,14 @@ mod tombstone_redirect_tests {
             false,
         );
         tracker.mark_dispatched(partition_id as i32, dispatched);
-        tx.send(batch).await.unwrap();
-        drop(tx);
+        for seed in seeds {
+            seed_tx.send(seed).await.unwrap();
+        }
+        drop(seed_tx);
+        if !live.is_empty() {
+            live_tx.send(live).await.unwrap();
+        }
+        drop(live_tx);
         worker.join().await.unwrap();
     }
 
@@ -1555,6 +1538,7 @@ mod tombstone_redirect_tests {
                 cse_offset: 0,
                 broker_ts_ms: None,
             }],
+            vec![],
         )
         .await;
     }
@@ -1806,6 +1790,7 @@ mod tombstone_redirect_tests {
             merge_deps_with(stream_sink.clone()),
             2,
             batch(),
+            vec![],
         )
         .await;
         assert!(
@@ -1831,6 +1816,7 @@ mod tombstone_redirect_tests {
             merge_deps_with(stream_sink.clone()),
             2,
             batch(),
+            vec![],
         )
         .await;
         assert!(
@@ -2027,6 +2013,7 @@ mod tombstone_redirect_tests {
                     marker_cutoff_ms: 0,
                     tombstone_cutoff_ms: 0,
                 }],
+                vec![],
             )
             .await;
 

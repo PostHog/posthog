@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest import mock
@@ -12,12 +12,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aha.aha im
     AhaResumeConfig,
     _build_initial_params,
     _format_updated_since,
+    _incremental_window,
     aha_source,
     normalize_subdomain,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aha.settings import AHA_ENDPOINTS, PER_PAGE
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
+
+FANOUT_REST_RESOURCES_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources"
+)
+BUILD_DEPENDENT_RESOURCE_PATCH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.aha.aha.build_dependent_resource"
+)
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -287,6 +295,66 @@ class TestAhaSource:
 
         assert len(rows) == PER_PAGE + 1
         assert session.send.call_count == 2
+
+
+class TestIncrementalWindow:
+    def test_binds_cursor_field_to_updated_since(self) -> None:
+        window = _incremental_window("updated_at")
+        assert window["cursor_path"] == "updated_at"
+        assert window["start_param"] == "updated_since"
+        convert = window["convert"]
+        assert convert is not None
+        # The convert hook must emit the trailing-Z UTC form Aha! accepts, not an isoformat offset.
+        assert convert(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)) == "2026-03-04T02:58:14Z"
+
+
+class _FakeDltResource:
+    """Stand-in for a DltResource returned by ``rest_api_resources``."""
+
+    def __init__(self, name: str, rows: list[dict[str, Any]]) -> None:
+        self.name = name
+        self._rows = rows
+
+    def add_map(self, mapper: Any) -> "_FakeDltResource":
+        self._rows = [mapper(dict(row)) for row in self._rows]
+        return self
+
+    def __iter__(self) -> Any:
+        return iter(self._rows)
+
+
+class TestAhaFanout:
+    @mock.patch(FANOUT_REST_RESOURCES_PATCH)
+    def test_releases_injects_product_id_from_parent(self, mock_rest_api_resources) -> None:
+        mock_rest_api_resources.return_value = [
+            _FakeDltResource("products", [{"id": "1000"}]),
+            _FakeDltResource("releases", [{"id": "R1", "_products_id": "1000"}]),
+        ]
+
+        resp = _source("releases", _make_manager())
+
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"id": "R1", "product_id": "1000"}]
+
+    @mock.patch(BUILD_DEPENDENT_RESOURCE_PATCH)
+    def test_requirements_fanout_selects_root_keys_and_incremental_param(self, mock_build) -> None:
+        mock_build.return_value = iter([])
+
+        _source(
+            "requirements",
+            _make_manager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+            incremental_field="updated_at",
+        )
+
+        _, kwargs = mock_build.call_args
+        # Aha! wraps list bodies in a root key; parent and child must select their own arrays.
+        assert kwargs["parent_endpoint_extra"] == {"data_selector": "features"}
+        assert kwargs["child_endpoint_extra"] == {"data_selector": "requirements"}
+        assert kwargs["page_size_param"] == "per_page"
+        assert kwargs["path_format_values"] == {}
+        assert kwargs["incremental_config_factory"] is _incremental_window
 
 
 class TestValidateCredentials:

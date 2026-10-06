@@ -35,6 +35,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
@@ -57,6 +58,7 @@ from ee.partners.stripe.api.provisioning.constants import (
 from ee.partners.stripe.api.provisioning.core import (
     ProjectIdCollisionError,
     StripeOAuthAppMissingError,
+    base_team_id_from_scope,
     compute_partner_scoped_teams,
     get_available_teams_for_user,
     get_oauth_app_for_code,
@@ -71,6 +73,7 @@ from ee.partners.stripe.api.provisioning.core import (
     remove_team_from_token_scopes,
     resolve_or_create_project_team,
     set_provisioning_service_id,
+    user_can_access_team,
 )
 from ee.partners.stripe.api.provisioning.exceptions import Envelope, PreRenderedError, SpecError, render_spec_error
 from ee.partners.stripe.api.provisioning.region_proxy import RegionProxyMixin
@@ -239,7 +242,7 @@ class AccountRequestsView(StripeProvisioningAPIView):
             except (ValueError, TypeError):
                 raise SpecError("invalid_request", "configuration.team_id must be an integer", request_id=request_id)
 
-        existing_user = User.objects.filter(email=email).first()
+        existing_user = EmailLookupHandler.get_user_by_email(email, is_active=None)
 
         if existing_user:
             return Response(
@@ -475,16 +478,22 @@ class OAuthTokenView(StripeProvisioningAPIView):
                 raise SpecError("invalid_grant", "Refresh token was not issued for the Stripe Projects app")
             user = old_refresh.user
             old_scoped_teams = old_refresh.scoped_teams or []
-            # base_team_id at refresh: the first team in the prior scope. The consent team
-            # (authorized at grant time) has the lowest id and sorts first at issuance;
-            # partner-provisioned teams are always created later, so they take higher ids
-            # and are only ever appended after it. [0] is therefore the consent team. This
-            # ordering is load-bearing: compute_partner_scoped_teams re-adds the consent
-            # team only when it is base_team_id (it has no TeamProvisioningConfig for this
-            # app), so a lower-id provisioned team becoming [0] would silently drop the
-            # consent team from the refreshed scope. If the prior token was somehow empty-
-            # scoped, fall back to zero so the helper short-circuits without claiming a team.
-            base_team_id = old_scoped_teams[0] if old_scoped_teams else 0
+            # base_team_id at refresh must be the consent team. compute_partner_scoped_teams
+            # keeps base_team_id unconditionally but keeps other teams only when they have a
+            # TeamProvisioningConfig for this app, so any other base silently drops an
+            # unattributed consent team from the refreshed scope. An empty prior scope yields
+            # zero, so the helper short-circuits without claiming a team.
+            base_team_id = base_team_id_from_scope(oauth_app, old_scoped_teams)
+
+            # Deactivation drops the user's login sessions but leaves their OAuth tokens
+            # intact, and the team check below answers only about membership and roles, so a
+            # deactivated user still passes it. Without this gate the partner rotates into a
+            # fresh token pair for as long as it keeps refreshing. Checked before any token
+            # row is mutated, like the other fail-closed gates here.
+            if not user.is_active:
+                capture_provisioning_event("token_exchange", "user_inactive", grant_type="refresh_token")
+                raise SpecError("invalid_grant", "User is not active; re-authorize.")
+
             scoped_teams = compute_partner_scoped_teams(oauth_app, user, base_team_id)
             # Same fail-closed rule as issuance: an empty scoped_teams is unrestricted under the
             # standard permission check, so a refresh whose base team vanished or whose access was
@@ -575,14 +584,28 @@ class StripeResourceAPIView(SignatureCheckedMixin, StripeProvisioningAPIView):
         except (ValueError, TypeError):
             raise SpecError("invalid_resource_id", "Invalid resource ID", resource_id=resource_id)
 
-        # TODO: latent bug - this checks only the token's issuance-time scoped_teams,
-        # not the user's current team-level access. If the user is later removed from
-        # the team/org, the (long-lived) bearer can still read/rotate/update/remove
-        # the resource until it is refreshed (refresh re-derives scope via
-        # compute_partner_scoped_teams). Revalidate live access here to close it.
         if team_id not in (access_token.scoped_teams or []):
             raise SpecError("forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403)
+
+        # A team that no longer exists has no access left to re-check; `get_team` decides what
+        # a missing team means for each endpoint.
+        team = Team.objects.select_related("organization").filter(id=team_id).first()
+        if team is not None:
+            self.assert_team_access(team, access_token, resource_id=resource_id)
         return team_id
+
+    def assert_team_access(self, team: Team, access_token: OAuthAccessToken, *, resource_id: str = "") -> None:
+        """Re-check that the token's user can still reach the team.
+
+        Every bearer endpoint that acts on a team calls this, whether it found the team through
+        the request's resource id or through the token's own scope. `scoped_teams` is a snapshot
+        taken when the token was minted, and tokens here last a year, so it outlives the access
+        it records by a long way. Re-running the check the scope was built from (see
+        `compute_partner_scoped_teams`) makes an org removal or an access-control change apply
+        to the next request instead of waiting for a refresh.
+        """
+        if access_token.user is None or not user_can_access_team(access_token.user, team):
+            raise SpecError("forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403)
 
     def get_team(self, team_id: int, resource_id: str) -> Team:
         try:
@@ -646,6 +669,9 @@ class ResourcesCreateView(StripeResourceAPIView):
                     "resource_created", "error", partner=app, error_code="team_not_found", team_id=team_id
                 )
                 raise SpecError("team_not_found", "Team not found", resource_id=str(team_id), status=404)
+            # The project_id branch above re-checks access inside resolve_or_create_project_team;
+            # this branch takes the team straight off the token's scope, so it checks here.
+            self.assert_team_access(team, access_token, resource_id=str(team_id))
 
         # TODO: latent bug - this runs on every call, so a repeated create for
         # an existing team overwrites its service_id (not idempotent), and the

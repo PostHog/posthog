@@ -12,6 +12,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from products.logs.backend.models import (
     DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
     DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS,
+    DEFAULT_LOGS_PATTERN_MESSAGE_KEYS,
     DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
     TeamLogsConfig,
 )
@@ -24,6 +25,7 @@ DEFAULT_CONFIG = {
     "logs_distinct_id_attribute_key": DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
     "logs_distinct_id_attribute_keys": DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS,
     "logs_session_id_attribute_keys": DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS,
+    "logs_pattern_message_keys": DEFAULT_LOGS_PATTERN_MESSAGE_KEYS,
 }
 
 
@@ -156,7 +158,7 @@ class TestTeamLogsConfig(APIBaseTest):
 
     def test_partial_patch_leaves_other_field_untouched(self):
         # A naive serializer change could make a PATCH on one field reset the other
-        # to its default — the two settings must update independently.
+        # to its default — the settings must update independently.
         self.client.patch(
             f"/api/projects/{self.team.id}/logs_config/",
             {"logs_session_id_attribute_keys": ["session.id"]},
@@ -167,6 +169,11 @@ class TestTeamLogsConfig(APIBaseTest):
             {"logs_distinct_id_attribute_keys": ["user.id"]},
             format="json",
         )
+        self.client.patch(
+            f"/api/projects/{self.team.id}/logs_config/",
+            {"logs_pattern_message_keys": ["text"]},
+            format="json",
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/logs_config/")
         self.assertEqual(
@@ -175,6 +182,7 @@ class TestTeamLogsConfig(APIBaseTest):
                 "logs_distinct_id_attribute_key": "user.id",
                 "logs_distinct_id_attribute_keys": ["user.id"],
                 "logs_session_id_attribute_keys": ["session.id"],
+                "logs_pattern_message_keys": ["text"],
             },
         )
 
@@ -182,6 +190,7 @@ class TestTeamLogsConfig(APIBaseTest):
         [
             ("distinct_id", "logs_distinct_id_attribute_keys"),
             ("session_id", "logs_session_id_attribute_keys"),
+            ("pattern_message", "logs_pattern_message_keys"),
         ]
     )
     def test_patch_rejects_invalid_keys(self, _name: str, field: str):
@@ -189,16 +198,36 @@ class TestTeamLogsConfig(APIBaseTest):
         # The full validation matrix lives in TestTeamLogsConfigSerializerValidation.
         response = self.client.patch(
             f"/api/projects/{self.team.id}/logs_config/",
-            {field: []},
+            {field: ["dup", "dup"]},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_patch_empty_pattern_message_keys_turns_extraction_off(self):
+        # Empty is the off switch for this field, unlike the two attribute-key lists, so a
+        # copied `allow_empty=False` would silently remove the only way to disable extraction.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/logs_config/",
+            {"logs_pattern_message_keys": []},
+            format="json",
+        )
 
-KEY_LIST_FIELDS = ["logs_distinct_id_attribute_keys", "logs_session_id_attribute_keys"]
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["logs_pattern_message_keys"], [])
+
+        config = get_or_create_team_extension(self.team, TeamLogsConfig)
+        self.assertEqual(config.logs_pattern_message_keys, [])
+
+
+KEY_LIST_FIELDS = [
+    "logs_distinct_id_attribute_keys",
+    "logs_session_id_attribute_keys",
+    "logs_pattern_message_keys",
+]
+
+NON_EMPTY_KEY_LIST_FIELDS = ["logs_distinct_id_attribute_keys", "logs_session_id_attribute_keys"]
 
 INVALID_KEY_LISTS = [
-    ("empty_list", []),
     ("blank_entry", ["posthogSessionId", ""]),
     ("whitespace_entry", ["posthogSessionId", "   "]),
     ("duplicate_keys", ["session.id", "session.id"]),
@@ -217,6 +246,19 @@ class TestTeamLogsConfigSerializerValidation(SimpleTestCase):
 
         self.assertFalse(serializer.is_valid())
         self.assertIn(field, serializer.errors)
+
+    @parameterized.expand([(field,) for field in NON_EMPTY_KEY_LIST_FIELDS])
+    def test_rejects_empty_list(self, field: str):
+        serializer = TeamLogsConfigSerializer(data={field: []}, partial=True)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn(field, serializer.errors)
+
+    def test_accepts_empty_pattern_message_keys(self):
+        serializer = TeamLogsConfigSerializer(data={"logs_pattern_message_keys": []}, partial=True)
+
+        self.assertTrue(serializer.is_valid())
+        self.assertEqual(serializer.validated_data["logs_pattern_message_keys"], [])
 
     @parameterized.expand([(field,) for field in KEY_LIST_FIELDS])
     def test_trims_whitespace_from_keys(self, field: str):

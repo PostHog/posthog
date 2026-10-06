@@ -174,6 +174,7 @@ export interface RoleLookupResponseApi {
  * * `google-pubsub` - Google Pubsub
  * * `google-search-console` - Google Search Console
  * * `google-sheets` - Google Sheets
+ * * `helpscout` - Helpscout
  * * `hubspot` - Hubspot
  * * `instagram` - Instagram
  * * `intercom` - Intercom
@@ -186,6 +187,7 @@ export interface RoleLookupResponseApi {
  * * `postgresql` - Postgresql
  * * `posthog` - Posthog
  * * `reddit-ads` - Reddit Ads
+ * * `twitter-ads` - Twitter Ads
  * * `resend` - Resend
  * * `s3-compatible` - S3 Compatible
  * * `salesforce` - Salesforce
@@ -225,6 +227,7 @@ export const IntegrationKindEnumApi = {
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
+    Helpscout: 'helpscout',
     Hubspot: 'hubspot',
     Instagram: 'instagram',
     Intercom: 'intercom',
@@ -237,6 +240,7 @@ export const IntegrationKindEnumApi = {
     Postgresql: 'postgresql',
     Posthog: 'posthog',
     RedditAds: 'reddit-ads',
+    TwitterAds: 'twitter-ads',
     Resend: 'resend',
     S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
@@ -273,6 +277,8 @@ export interface IntegrationConfigApi {
     readonly created_by: UserBasicApi
     readonly errors: string
     readonly display_name: string
+    /** Slack only: whether reconnecting can request the files:write scope. */
+    readonly files_write_requestable: boolean
     /**
      * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
      * @nullable
@@ -329,6 +335,8 @@ export interface PatchedIntegrationConfigApi {
     readonly created_by?: UserBasicApi
     readonly errors?: string
     readonly display_name?: string
+    /** Slack only: whether reconnecting can request the files:write scope. */
+    readonly files_write_requestable?: boolean
     /**
      * GitHub only, null otherwise. Whether another project's GitHub integration references the same App installation. When false, disconnecting this integration also uninstalls the GitHub App from the connected account or organization and removes personal GitHub connections that share it.
      * @nullable
@@ -375,6 +383,11 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
+    /**
+     * The offset to pass to get the next page, or null when this page is the last one.
+     * @nullable
+     */
+    next_offset: number | null
     /** Total number of repositories matching the search query, across all pages. */
     total: number
 }
@@ -431,6 +444,41 @@ export interface LinearTeamsResponseApi {
     teams: LinearTeamApi[]
 }
 
+export interface SlackUserApi {
+    /** Slack member ID (e.g. U0123ABC) — post to it to open a direct message. */
+    id: string
+    /** Slack username (handle) without the leading '@'. */
+    name: string
+    /** Name to show in pickers: the member's display name, falling back to their real name or handle. */
+    display_name: string
+}
+
+export interface SlackUsersResponseApi {
+    /** Human Slack workspace members the PostHog Slack app can DM. */
+    users: SlackUserApi[]
+    /**
+     * ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-member lookups).
+     * @nullable
+     */
+    lastRefreshedAt?: string | null
+    /** Whether more members match the current search beyond this page. */
+    has_more?: boolean
+}
+
+/**
+ * * `ok` - Ok
+ * * `not_connected` - Not Connected
+ * * `unavailable` - Unavailable
+ */
+export type GitHubPersonalDiscoveryStatusEnumApi =
+    (typeof GitHubPersonalDiscoveryStatusEnumApi)[keyof typeof GitHubPersonalDiscoveryStatusEnumApi]
+
+export const GitHubPersonalDiscoveryStatusEnumApi = {
+    Ok: 'ok',
+    NotConnected: 'not_connected',
+    Unavailable: 'unavailable',
+} as const
+
 export interface GitHubAvailableInstallationApi {
     /** GitHub installation ID to pass to github/link_existing when linking this installation. */
     installation_id: string
@@ -449,9 +497,29 @@ export interface GitHubAvailableInstallationApi {
      * @nullable
      */
     source_team_id: number | null
+    /**
+     * Name of the project in source_team_id, so the picker can say where the installation comes from. Null for an installation no project has linked yet.
+     * @nullable
+     */
+    source_team_name: string | null
 }
 
 export interface GitHubAvailableInstallationsResponseApi {
+    /** Correlation ID for this discovery response. */
+    discovery_id: string
+    /** Time this discovery completed. */
+    discovered_at: string
+    /**
+     * GitHub identity of the credential used for personal discovery.
+     * @nullable
+     */
+    personal_github_login: string | null
+    /** Whether personal discovery succeeded, has no connection, or is unavailable.
+     *
+     * * `ok` - Ok
+     * * `not_connected` - Not Connected
+     * * `unavailable` - Unavailable */
+    personal_discovery_status: GitHubPersonalDiscoveryStatusEnumApi
     /** GitHub installations available to link to this project: the organization's existing installations plus any the user's personal GitHub link can see but that aren't linked to any project yet. */
     installations: GitHubAvailableInstallationApi[]
     /** Whether the requesting user has a personal GitHub account linked (via Linked Accounts). Used to prompt for that link when it would surface more installations to adopt. */
@@ -460,12 +528,20 @@ export interface GitHubAvailableInstallationsResponseApi {
 
 export interface GitHubLinkExistingRequestApi {
     /**
+     * Discovery response ID for diagnostics only; grants no authority.
+     * @nullable
+     */
+    discovery_id?: string | null
+    /**
      * Sibling team in the same organization whose GitHub installation should be reused.
      * @nullable
      */
     source_team_id?: number | null
-    /** GitHub installation ID to link; resolved within the organization when source_team_id is omitted. */
-    installation_id?: string
+    /**
+     * GitHub installation ID to link; resolved within the organization when source_team_id is omitted.
+     * @nullable
+     */
+    installation_id?: string | null
 }
 
 /**
@@ -526,6 +602,7 @@ export interface IntegrationAccessRequestApi {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -538,6 +615,7 @@ export interface IntegrationAccessRequestApi {
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `twitter-ads` - Twitter Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -689,6 +767,7 @@ export type IntegrationsListParams = {
      * * `google-pubsub` - Google Pubsub
      * * `google-search-console` - Google Search Console
      * * `google-sheets` - Google Sheets
+     * * `helpscout` - Helpscout
      * * `hubspot` - Hubspot
      * * `instagram` - Instagram
      * * `intercom` - Intercom
@@ -701,6 +780,7 @@ export type IntegrationsListParams = {
      * * `postgresql` - Postgresql
      * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
+     * * `twitter-ads` - Twitter Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
@@ -751,6 +831,7 @@ export const IntegrationsListKind = {
     GooglePubsub: 'google-pubsub',
     GoogleSearchConsole: 'google-search-console',
     GoogleSheets: 'google-sheets',
+    Helpscout: 'helpscout',
     Hubspot: 'hubspot',
     Instagram: 'instagram',
     Intercom: 'intercom',
@@ -773,6 +854,7 @@ export const IntegrationsListKind = {
     Stripe: 'stripe',
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
+    TwitterAds: 'twitter-ads',
     Vercel: 'vercel',
     YoutubeAnalytics: 'youtube-analytics',
 } as const
@@ -820,6 +902,10 @@ export type IntegrationsGithubBranchesRetrieveParams = {
 
 export type IntegrationsGithubReposRetrieveParams = {
     /**
+     * When true, return only id, name, and full_name for each repository. Use it to list large rosters in fewer, smaller pages.
+     */
+    compact?: boolean
+    /**
      * Maximum number of repositories to return per request (max 500).
      * @minimum 1
      * @maximum 500
@@ -852,4 +938,30 @@ export type IntegrationsGithubTeamsRetrieveParams = {
      * Optional case-insensitive team name or slug search query.
      */
     search?: string
+}
+
+export type IntegrationsUsersRetrieveParams = {
+    /**
+     * Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.
+     */
+    force_refresh?: boolean
+    /**
+     * Maximum number of members to return per request (max 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Number of members to skip before returning results.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Optional case-insensitive member name or ID search query.
+     */
+    search?: string
+    /**
+     * Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.
+     */
+    user_id?: string
 }

@@ -37,7 +37,8 @@ export function resolveActiveNotificationTarget(
 }
 
 // Stable identity string for a target. A new kind is a compile error here (the
-// switch is exhaustive), so equality and key-based lookups stay in one place.
+// switch is exhaustive), so equality, log lines and key-based lookups stay in
+// one place.
 export function targetKey(target: NotificationTarget): string {
   switch (target.kind) {
     case "task":
@@ -45,6 +46,11 @@ export function targetKey(target: NotificationTarget): string {
     case "canvas":
       return `canvas:${target.channelId}:${target.dashboardId}`;
   }
+}
+
+// Log-safe rendering of an optional target.
+export function describeTarget(target: NotificationTarget | undefined): string {
+  return target ? targetKey(target) : "none";
 }
 
 // Whether two targets point at the same thing.

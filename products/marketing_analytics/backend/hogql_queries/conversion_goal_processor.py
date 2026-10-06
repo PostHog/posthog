@@ -23,13 +23,18 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.database.schema.exchange_rate import convert_currency_call
+from posthog.hogql.database.schema.persons import REVENUE_ANALYTICS_VIRTUAL_PROPERTIES
 from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.dataclasses import frozen
 from posthog.models import PropertyDefinition, Team, User
 
-from products.access_control.backend.property_access_control import get_restricted_property_names
+from products.access_control.backend.property_access_control import (
+    get_restricted_properties_for_team,
+    get_restricted_property_names,
+)
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
@@ -44,13 +49,15 @@ from .attribution_weights import (
 )
 from .conversion_goal_conditions import (
     action_match_expr,
+    action_property_keys,
     add_conversion_goal_property_filters,
     conversion_goal_match_expr,
 )
+from .errors import MarketingPrecomputeNotReady
 from .marketing_analytics_config import MarketingAnalyticsConfig
 from .marketing_lazy_precompute import marketing_ensure_precomputed
 from .metrics import CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER
-from .utils import build_source_normalization_expr
+from .utils import build_source_normalization_expr, test_account_conditions
 
 # Freshness windows for the precompute read path. The Dagster warmer
 # (products/marketing_analytics/dags/marketing_precompute.py) MUST drive ensure_precomputed with this
@@ -153,12 +160,19 @@ def build_pageview_touchpoint_condition(source_field: str) -> ast.Expr:
     return ast.Or(exprs=[not_empty(source_field), *[not_empty(p) for p in CLICK_ID_PROPERTIES]])
 
 
-def build_touchpoints_precompute_query() -> ast.SelectQuery:
-    """Config-agnostic touchpoint precompute: one row per UTM-tagged pageview, independent of any
+def build_touchpoints_precompute_query(
+    team: Optional[Team] = None, filter_test_accounts: bool = False
+) -> ast.SelectQuery:
+    """Goal-agnostic touchpoint precompute: one row per UTM-tagged pageview, independent of any
     goal, attribution mode or window. Every attribution query reuses the same materialized rows
     (identical query hash → one shared lazy-computation job per team); attribution happens at read
     time. Columns are aliased to the marketing_touchpoints_preaggregated schema — the lazy framework
     prepends team_id/job_id and appends expires_at, and resolves the time_window placeholders per job.
+
+    Test-account filtering is the one thing that splits that shared job in two. It has to be baked in
+    rather than applied on read, because the framework keys the job on this query's AST, and the rows
+    it materializes would otherwise already have the internal traffic in them. A team that never turns
+    the toggle on keeps exactly one job, since the arguments then add nothing to the query.
     """
 
     def _prop_to_string(event_property: str) -> ast.Expr:
@@ -202,6 +216,7 @@ def build_touchpoints_precompute_query() -> ast.SelectQuery:
                     right=ast.Placeholder(expr=ast.Field(chain=["time_window_max"])),
                 ),
                 build_pageview_touchpoint_condition("utm_source"),
+                *(test_account_conditions(team, filter_test_accounts) if team else []),
             ]
         ),
     )
@@ -219,9 +234,10 @@ class SharedTouchpointsPrecompute:
     the lock.
     """
 
-    def __init__(self, team: Team, config: MarketingAnalyticsConfig) -> None:
+    def __init__(self, team: Team, config: MarketingAnalyticsConfig, filter_test_accounts: bool = False) -> None:
         self._team = team
         self._config = config
+        self._filter_test_accounts = filter_test_accounts
         self._lock = threading.Lock()
         self._result: Optional[LazyComputationResult] = None
         self._range: Optional[tuple[datetime, datetime]] = None
@@ -233,7 +249,7 @@ class SharedTouchpointsPrecompute:
                 self._range = (date_from, date_to)
                 self._result = marketing_ensure_precomputed(
                     team=self._team,
-                    insert_query=build_touchpoints_precompute_query(),
+                    insert_query=build_touchpoints_precompute_query(self._team, self._filter_test_accounts),
                     time_range_start=date_from - window,
                     time_range_end=date_to,
                     ttl_seconds=PRECOMPUTE_TTL_SECONDS,
@@ -287,6 +303,12 @@ class ConversionGoalProcessor:
     # Set when this goal's precompute was served from expired-within-grace rows instead of rebuilt. Read
     # by the runner after the goal pool joins, to schedule one background revalidation for the read.
     precompute_stale: bool = False
+    # Passed down by the runner, since a processor has no query of its own to read it from.
+    filter_test_accounts: bool = False
+    # Oldest `computed_at` across this goal's served precomputes (touchpoints + conversions) — how old the
+    # goal's data can be. The runner takes the oldest across all goals for the response's "data as of X".
+    precompute_computed_at: datetime | None = None
+    include_session_ids: bool = False
 
     _UTM_LEVEL_FIELD_MAP: ClassVar[dict[MarketingAnalyticsDrillDownLevel, str]] = {
         MarketingAnalyticsDrillDownLevel.MEDIUM: "medium",
@@ -422,7 +444,7 @@ class ConversionGoalProcessor:
                 name="nullIf", args=[ast.Call(name="upper", args=[currency_from]), ast.Constant(value="")]
             )
             # A row can be missing the currency property or carry an empty string; treat those as already
-            # in the base currency rather than letting convertCurrency null the whole amount out.
+            # in the base currency rather than letting convertCurrency convert the whole amount to 0.
             return ast.Call(
                 name="if",
                 args=[
@@ -516,24 +538,34 @@ class ConversionGoalProcessor:
     ) -> ast.SelectQuery:
         """Generate multi-step funnel query with attribution window.
 
-        Reads the preagg table when eligible, falls back to events scan on any failure.
+        Serves precompute-only when the goal is precomputable: it reads the preagg tables, and reports
+        not-ready (rather than scanning events live) when the window has not been warmed. Only a
+        non-precomputable goal, or a rare precompute build error, reaches the live events scan.
         """
         if self._should_use_precompute(date_from, date_to):
             # `_should_use_precompute` returns False unless both dates are set; narrow for mypy.
             assert date_from is not None and date_to is not None
             try:
                 precomputed = self._build_attribution_from_precomputes(date_from, date_to, touchpoints)
-                if precomputed is not None:
-                    return precomputed
             except Exception:
+                # A genuine build error is a rare safety valve — fall through to the live scan below rather
+                # than fail the dashboard. A not-warmed window is NOT an error; it returns None (handled
+                # in the else) so it can surface as not-ready instead of a live scan.
                 CONVERSION_GOAL_PRECOMPUTE_FALLBACK_COUNTER.inc()
                 logger.exception(
                     "conversion_goal_precompute_failed",
                     goal_id=self.goal.conversion_goal_id,
                     team_id=self.team.pk,
                 )
+            else:
+                if precomputed is not None:
+                    return precomputed
+                # Precompute-only: a precomputable goal with no warm window must not fall back to the live
+                # events scan (the expensive query this path exists to avoid). Report not-ready; the warmer
+                # materializes the window and the UI shows a "computing" state until it does.
+                raise MarketingPrecomputeNotReady(goal_id=self.goal.conversion_goal_id)
 
-        # Live events scan. Reaching here means the precompute did not serve this goal.
+        # Live events scan — reached only for non-precomputable goals, or after a precompute build error.
         with self.timings.measure("ma_goal_events_fallback"):
             array_collection = self.build_array_collection_query(additional_conditions)
             return self.build_attribution_pipeline(array_collection)
@@ -558,12 +590,31 @@ class ConversionGoalProcessor:
         for prop in self.goal.properties or []:
             if prop.type in ("person", "cohort"):
                 return False
+        if self._uses_revenue_analytics_property():
+            return False
         # The shared touchpoints precompute is config-agnostic: build_touchpoints_precompute_query()
         # always materializes the default UTM property names. A goal that remaps any tracked field via
         # schema_map would read mismatched columns on the conversion side, so use the direct path.
         if any(self._resolve_field_name(field) != field.event_property for field in TRACKED_FIELDS):
             return False
         return True
+
+    def _uses_revenue_analytics_property(self) -> bool:
+        """The revenue virtual properties resolve only through the revenue analytics join, which the
+        precompute's plain events scan does not carry, so printing its INSERT fails with "Field not found".
+        Other `$virt_` properties map to columns on the events table and precompute fine.
+
+        A substring match, because a HogQL filter's key is a whole expression such as
+        `person.properties.$virt_mrr > 0`.
+        """
+        keys = [getattr(self.goal, "math_property", None)]
+        currency = getattr(self.goal, "math_property_revenue_currency", None)
+        if currency is not None:
+            keys.append(currency.property)
+        keys.extend(getattr(prop, "key", None) for prop in self.goal.properties or [])
+        if self.goal.kind == "ActionsNode":
+            keys.extend(action_property_keys(self.goal, self.team))
+        return any(name in key for key in keys if key for name in REVENUE_ANALYTICS_VIRTUAL_PROPERTIES)
 
     def _should_use_precompute(self, date_from: Optional[datetime], date_to: Optional[datetime]) -> bool:
         """Read-path eligibility: flag on, explicit date range, goal precomputable, no restricted props."""
@@ -577,7 +628,22 @@ class ConversionGoalProcessor:
         # per-user masking. When any is restricted for THIS user, fall back to the masked direct path.
         if self._precompute_properties_restricted_for_user():
             return False
+        if self._test_account_filters_restricted_for_user():
+            return False
         return True
+
+    def _test_account_filters_restricted_for_user(self) -> bool:
+        """True when dropping test accounts inside the precompute could leak a property this user can't read.
+
+        The precompute evaluates the rules with no user attached, so they compare against real values
+        rather than masked ones, and toggling the filter would report how many rows match.
+
+        Coarse on purpose: it asks whether the user has any restriction, not which properties the rules
+        name, since reading those means walking arbitrary filter trees where a miss fails open.
+        """
+        if not self.filter_test_accounts or not self.team.test_account_filters:
+            return False
+        return bool(get_restricted_properties_for_team(team_id=self.team.pk, user=self.user))
 
     def _precompute_materialized_event_properties(self) -> set[str]:
         """Event property names the precompute path resolves into scalar columns of the preagg table."""
@@ -636,7 +702,6 @@ class ConversionGoalProcessor:
             ast.Alias(alias="person_id", expr=ast.Field(chain=["events", "person_id"])),
             ast.Alias(alias="conversion_timestamp", expr=ast.Field(chain=["events", "timestamp"])),
             ast.Alias(alias="conversion_math_value", expr=self._get_conversion_value_expr()),
-            # Stored for a future "show conversion session recordings" feature; the attribution read ignores it.
             ast.Alias(alias="session_id", expr=_prop_to_string("$session_id")),
         ]
         # Conversion-side UTM value per tracked field, aliased to the {field}_name table columns.
@@ -659,6 +724,10 @@ class ConversionGoalProcessor:
             ),
         ]
         where_exprs = add_conversion_goal_property_filters(where_exprs, self.goal, self.team)
+        # Baked into the precompute rather than applied when it is read. The lazy framework hashes this
+        # query's AST for the job key, so a filtered read gets its own materialization instead of
+        # reusing the unfiltered team's rows.
+        where_exprs.extend(test_account_conditions(self.team, self.filter_test_accounts))
 
         return ast.SelectQuery(
             select=select_columns,
@@ -686,7 +755,9 @@ class ConversionGoalProcessor:
         # Touchpoints are config-agnostic, so a multi-goal read shares one materialization. Without a
         # shared handle each goal materializes the same window itself, which is what a standalone
         # caller gets.
-        shared_touchpoints = touchpoints or SharedTouchpointsPrecompute(self.team, self.config)
+        shared_touchpoints = touchpoints or SharedTouchpointsPrecompute(
+            self.team, self.config, self.filter_test_accounts
+        )
         with self.timings.measure("ma_ensure_touchpoints"):
             touchpoints_result = shared_touchpoints.get(date_from, date_to)
         if not touchpoints_result.ready:
@@ -708,6 +779,11 @@ class ConversionGoalProcessor:
         # runner collects this once the goal pool has joined and schedules the revalidation.
         if touchpoints_result.stale or conversions_result.stale:
             self.precompute_stale = True
+
+        # Oldest materialization across the two precomputes bounds how old this goal's data can be; the
+        # runner takes the oldest across all goals for the response's "data as of X".
+        stamps = [r.computed_at for r in (touchpoints_result, conversions_result) if r.computed_at is not None]
+        self.precompute_computed_at = min(stamps) if stamps else None
 
         with self.timings.measure("ma_attribution_pipeline_precomputed"):
             array_collection = self._build_array_collection_from_precomputes(
@@ -739,6 +815,8 @@ class ConversionGoalProcessor:
         select_columns: list[ast.Expr] = []
         for col in ("person_id", "conversion_timestamps", "conversion_math_values"):
             select_columns.append(ast.Alias(alias=col, expr=ast.Field(chain=["c", col])))
+        if self.include_session_ids:
+            select_columns.append(ast.Field(chain=["c", "conversion_session_ids"]))
         for field in TRACKED_FIELDS:
             select_columns.append(
                 ast.Alias(alias=field.conversion_array, expr=ast.Field(chain=["c", field.conversion_array]))
@@ -880,6 +958,13 @@ class ConversionGoalProcessor:
                 )
             )
 
+        if self.include_session_ids:
+            select_columns.append(
+                ast.Alias(
+                    alias="conversion_session_ids",
+                    expr=parse_expr("groupArrayIf(session_id, toUnixTimestamp(conversion_timestamp) > 0)"),
+                )
+            )
         deduped_rows = self._build_distinct_preagg_rows(
             table="marketing_conversions_preaggregated",
             job_ids=job_ids,
@@ -893,6 +978,12 @@ class ConversionGoalProcessor:
             date_to=date_to,
             timestamp_column="conversion_timestamp",
         )
+        if self.include_session_ids:
+            deduped_rows.distinct = False
+            deduped_rows.group_by = list(deduped_rows.select)
+            deduped_rows.select.append(
+                ast.Alias(alias="session_id", expr=parse_expr("argMax(session_id, (computed_at, session_id))"))
+            )
 
         return ast.SelectQuery(
             select=select_columns,
@@ -1025,6 +1116,8 @@ class ConversionGoalProcessor:
         ]
 
         # Add conversion arrays for each tracked field
+        if self.include_session_ids:
+            select_columns.append(self._build_conversion_session_ids_array(conversion_event))
         for field in TRACKED_FIELDS:
             select_columns.append(
                 self._build_conversion_utm_array(field.conversion_array, conversion_event, resolved[field.name])
@@ -1094,8 +1187,12 @@ class ConversionGoalProcessor:
             # For general queries, apply date conditions to all events
             event_filter = self._build_general_event_filter(date_conditions)
 
-        # Combine all conditions
-        all_conditions = [event_filter, *non_event_conditions]
+        # Test accounts sit outside `event_filter`, which is an OR over the conversion and pageview arms.
+        all_conditions = [
+            event_filter,
+            *non_event_conditions,
+            *test_account_conditions(self.team, self.filter_test_accounts),
+        ]
         return ast.And(exprs=all_conditions) if len(all_conditions) > 1 else all_conditions[0]
 
     def _build_action_event_filter(
@@ -1201,6 +1298,17 @@ class ConversionGoalProcessor:
         ]
 
         return ast.And(exprs=conditions) if conditions else ast.Constant(value=True)
+
+    def _build_conversion_session_ids_array(self, conversion_event: Optional[str]) -> ast.Alias:
+        # Keep empty IDs so session IDs stay aligned with the conversion timestamps.
+        return ast.Alias(
+            alias="conversion_session_ids",
+            expr=parse_expr(
+                "groupArrayIf(toString(ifNull(events.properties.$session_id, '')), "
+                "{conversion} AND toUnixTimestamp(events.timestamp) > 0)",
+                {"conversion": self._build_conversion_event_condition(conversion_event)},
+            ),
+        )
 
     def _build_conversion_timestamps_array(self, conversion_event: Optional[str]) -> ast.Alias:
         """Build conversion timestamps array.
@@ -1469,6 +1577,13 @@ class ConversionGoalProcessor:
         ]
 
         # Add conversion value and fallback for each tracked field
+        if self.include_session_ids:
+            select_columns.append(
+                ast.Alias(
+                    alias="session_id",
+                    expr=parse_expr("conversion_session_ids[i]"),
+                )
+            )
         for field in TRACKED_FIELDS:
             select_columns.append(
                 ast.Alias(
@@ -1647,6 +1762,13 @@ class ConversionGoalProcessor:
         ]
 
         # Add conversion value for each tracked field
+        if self.include_session_ids:
+            select_columns.append(
+                ast.Alias(
+                    alias="session_id",
+                    expr=parse_expr("conversion_session_ids[i]"),
+                )
+            )
         for field in TRACKED_FIELDS:
             select_columns.append(
                 ast.Alias(
@@ -1762,6 +1884,8 @@ class ConversionGoalProcessor:
             ast.Field(chain=["person_id"]),
             ast.Field(chain=["conversion_math_value"]),
         ]
+        if self.include_session_ids:
+            touchpoint_select.append(ast.Field(chain=["session_id"]))
 
         for field in TRACKED_FIELDS:
             touchpoint_select.append(ast.Field(chain=[field.conversion_value]))
@@ -1806,6 +1930,8 @@ class ConversionGoalProcessor:
         outer_select: list[ast.Expr] = [
             person_id_field,
         ]
+        if self.include_session_ids:
+            outer_select.append(ast.Field(chain=["session_id"]))
 
         for field in TRACKED_FIELDS:
             outer_select.append(
@@ -1846,6 +1972,8 @@ class ConversionGoalProcessor:
         select_columns: list[ast.Expr] = [
             person_id_field,
         ]
+        if self.include_session_ids:
+            select_columns.append(ast.Field(chain=["session_id"]))
 
         for field in TRACKED_FIELDS:
             select_columns.append(

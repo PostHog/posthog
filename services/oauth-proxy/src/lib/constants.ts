@@ -15,3 +15,12 @@ export function toRegion(value: string | undefined | null): Region {
 export function baseUrlForRegion(region: Region): string {
     return REGION_BASE_URLS[region]
 }
+
+export function regionForBaseUrl(baseUrl: string): Region | null {
+    const match = Object.entries(REGION_BASE_URLS).find(([, url]) => url === baseUrl)
+    return match ? (match[0] as Region) : null
+}
+
+export function proxyOrigin(request: Request): string {
+    return new URL(request.url).origin
+}

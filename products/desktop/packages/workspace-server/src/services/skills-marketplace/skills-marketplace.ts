@@ -48,7 +48,7 @@ function installedStatePath(): string {
  * Reads the versioned install-state file. Its only purpose is the
  * "Installed" badge in browse results — installs are copy-and-forget.
  */
-export async function readInstalledState(): Promise<InstalledSkillsFile> {
+async function readInstalledState(): Promise<InstalledSkillsFile> {
   try {
     const content = await fs.promises.readFile(installedStatePath(), "utf-8");
     const data = JSON.parse(content) as InstalledSkillsFile;

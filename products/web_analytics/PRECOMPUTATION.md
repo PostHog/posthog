@@ -1,10 +1,11 @@
 # Web analytics precomputation
 
-PostHog web analytics has two parallel precomputation systems. They target the same problem (avoid scanning raw events on every dashboard load) but use different mechanisms and apply to different query shapes.
+PostHog web analytics has two production precomputation systems, plus an experimental third (the dimensional tables).
+They target the same problem (avoid scanning raw events on every dashboard load) but use different mechanisms and apply to different query shapes.
 
 For how these tiers fit into the full serving ladder (fast paths, full join, dispatch order, query_type tags), see [docs/internal/web-analytics-query-serving.md](../../docs/internal/web-analytics-query-serving.md).
 
-## The two systems
+## The systems
 
 ### v2 pre-aggregated tables
 
@@ -16,6 +17,34 @@ DAG-warmed ClickHouse tables (`web_pre_aggregated_stats`, `web_pre_aggregated_bo
 - **Population**: scheduled Dagster jobs in `products/web_analytics/dags/`
 - **Coverage**: stats table queries, web overview (partial)
 - **Adoption** (as of 2026-05): effectively zero — only one team has the modifier on in prod
+
+### Dimensional pre-aggregated tables (experimental)
+
+**Status: experimental, write-only.**
+The precomputation-framework successor to the v2 tables: an experiment in whether v2's fixed-dimension read model can run on the lazy-computation framework (per-team jobs + TTLs) instead of v2's staging-table + partition-swap ETL.
+No read path is merged — the runner never reads these tables today (PR #62437, the read path, is closed).
+
+Two ClickHouse tables carry the same fixed dimension set as v2 (`host`, `device_type`, `pathname`, `browser`, `os`, `viewport`, `referring_domain`, `utm_*`, geoip, …):
+
+- `web_stats_dimensional_preaggregated` — stats (persons / sessions / pageviews states).
+- `web_bounces_dimensional_preaggregated` — bounces (adds bounce / duration / session-count states).
+
+Both are `ReplacingMergeTree` (version column `computed_at`), sharded by `sipHash64(job_id)` on the AUX cluster, partitioned by `toYYYYMMDD(expires_at)`.
+
+- **Owned by**: web analytics team, on the analytics_platform framework.
+- **Population**: the hourly `web_dimensional_precompute` Dagster job (`products/web_analytics/dags/web_dimensional_precompute.py`).
+  For each team on a region-scoped allowlist it drives `ensure_precomputed` over a rolling 90-day window, chunked to one UTC day per INSERT.
+  Every window is a `PreaggregationJob` (Postgres) with a `job_id` and a TTL by age (today 1h, ≤2 days 1 day, older 90 days); re-runs recompute only expired windows.
+  The allowlist defaults per Cloud region (`DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION`) and is overridable via `WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS`; an empty list disables the job.
+- **Coverage**: the same stats-breakdown and overview shapes v2 serves — about 45% of user-facing web-analytics reads by shape (stats breakdowns on the stored dimensions, plus overview).
+  Not goals, vitals, frustration metrics, external clicks, or the other engines (Trends / Retention / HogQL).
+  Its differentiator over lazy: arbitrary multi-dimension filters within the fixed set resolve from one table, with no per-filter-combination warming.
+- **Adoption**: none in prod — a write-only pilot for a v2 side-by-side.
+
+Read-cost finding (2026-08): for clean single-generation reads these tables match v2 on rows and bytes (within ±7%) and use far less query memory.
+Because `job_id` is in the `ORDER BY`, recompute generations never collapse, so a read spanning un-deduped generations inflates scan cost roughly linearly with the generation count — that, not the schema, is the historical "not as fast" result.
+Reviving the read path needs precise ready-job filtering plus a way to collapse superseded generations.
+Schema: `posthog/clickhouse/preaggregation/web_*_dimensional_preaggregated_sql.py`; INSERT templates: `products/web_analytics/backend/hogql_queries/web_dimensional_precompute.py`.
 
 ### Lazy computation
 
@@ -264,7 +293,7 @@ The runner re-partitions the resulting `(band, path, value)` tuples into the `go
 A cold or expired shape's first read serves the live path and only warms in the background — but for high-traffic teams the dashboard's main tiles are requested constantly, and there's no reason to let the first user of every cycle take that live-path miss. The eager job pre-warms the same lazy precompute cache (and the Django response cache) for a fixed query matrix, ahead of users.
 
 - **Location**: `products/web_analytics/dags/eager_web_analytics_precompute.py`
-- **Schedule**: `5 * * * *` (hourly, offset 5 min from the existing `cache_warming_schedule` at `0 * * * *`); skipped if a prior run is still in flight (`check_for_concurrent_runs`).
+- **Schedule**: `53 * * * *` (hourly, with its start outside the demand warmer's release window); skipped if a prior run is still in flight (`check_for_concurrent_runs`).
 - **Window**: trailing 28 days. The lazy precompute stores per-day buckets, so a 28-day warm naturally covers any sub-window the dashboard asks for.
 - **Matrix per team**: `WebOverviewQuery` + `WebGoalsQuery` + `WebVitalsPathBreakdownQuery` + one `WebStatsTableQuery` per `WebStatsBreakdown` rendered by the dashboard (~23 breakdowns including `FrustrationMetrics`).
 - **Per-query toggle**: every warmer query sets `useWebAnalyticsPrecompute=True` explicitly. Precompute now defaults on for enrolled teams (only an explicit `False` opts out), so this is redundant — kept to make the warmer's intent explicit.

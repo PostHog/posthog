@@ -8,13 +8,13 @@ description: >
   `query_log_archive` source (typed `lc_*` columns, multi-day retention), how to
   categorize and attribute slow queries, root-cause patterns (unmaterialized
   JSONExtract, high-cardinality breakdowns, heavy joins), and the report structure.
-  Runs queries via the `query-clickhouse-via-metabase` skill.
+  Runs queries via the `querying-production-databases-via-metabase` skill.
 ---
 
 # Generating ClickHouse query performance reports
 
 This skill is the _methodology_ for investigating slow ClickHouse queries and writing up a
-performance report. It pairs with [`query-clickhouse-via-metabase`](../query-clickhouse-via-metabase/SKILL.md),
+performance report. It pairs with [`querying-production-databases-via-metabase`](../querying-production-databases-via-metabase/SKILL.md),
 which is the _mechanism_ (SSO-gated auth and `hogli metabase:query`). Run every query in this skill
 through that one.
 

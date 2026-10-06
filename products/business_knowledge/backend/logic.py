@@ -6,11 +6,14 @@ All ORM access, chunking, quota enforcement, and search queries.
 
 import re
 import uuid
+import asyncio
 import datetime
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import reduce
+from itertools import batched
 from operator import or_
+from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -20,21 +23,25 @@ from django.db import (
     connection as db_connection,
     transaction,
 )
-from django.db.models import Count, Exists, F, Max, OuterRef, Q, QuerySet
-from django.db.models.functions import Substr
+from django.db.models import Count, Exists, F, IntegerField, Max, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast, Coalesce, Substr
 from django.utils import timezone
 
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from posthog.api.embedding_worker import generate_embedding
+from posthog.api.embedding_worker import async_generate_embedding, generate_embedding
+from posthog.dataclasses import frozen
 from posthog.helpers.full_text_search import process_query
 from posthog.models.organization import OrganizationMembership
-from posthog.models.scoping import with_team_scope
+from posthog.models.scoping import team_scope, with_team_scope
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 from posthog.security.url_validation import is_url_allowed
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.llm import MaxChatAnthropic
 
@@ -45,6 +52,7 @@ from .constants import (
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
     BK_EMBEDDING_PRODUCT,
+    BK_QUERY_EMBEDDING_TIMEOUT,
     BK_RERANK_MODEL,
     BK_RERANK_SNIPPET_CHARS,
     BK_RRF_K,
@@ -57,12 +65,14 @@ from .constants import (
     CLASSIFY_MAX_ATTEMPTS,
     CLASSIFY_MAX_TOTAL_CHARS,
     CRAWL_HARD_MAX_DEPTH,
+    CRAWL_WRITE_BATCH_SIZE,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
     EMBEDDING_STABLE_TS_MAX_AGE,
     EMBEDDING_TTL_REFRESH_WINDOW,
     MAX_ALWAYS_ON_CONTEXT_CHARS,
     MAX_CHUNKS_PER_TEAM,
+    MAX_LEARNED_SOURCES_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
     MAX_URLS_PER_SOURCE,
@@ -75,6 +85,7 @@ from .constants import (
 )
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
+    AddedBy,
     CrawlMode,
     GapStatus,
     KnowledgeChunk,
@@ -91,6 +102,19 @@ from .url_fetch import sha256_of
 
 logger = structlog.get_logger(__name__)
 
+GENERATED_KNOWLEDGE_ORIGIN = "support_ticket"
+GENERATED_SOURCE_DISABLED_MESSAGE = "Generated source is disabled."
+SUPERSEDED_SOURCE_MESSAGE = "This source was replaced by a newer answer from a later support ticket."
+EVIDENCE_REVISION_AT_KEY = "evidence_revision_at"
+GENERATED_SOURCE_MULTIPLE_DOCUMENTS_MESSAGE = (
+    "This learned source has more than one document, so it cannot be edited. "
+    "Delete it, then let PostHog learn from the ticket again."
+)
+MAX_ANALYSIS_VERSION_LENGTH = 128
+MAX_PROVIDER_LENGTH = 64
+MAX_GENERATED_DOCUMENT_TITLE_LENGTH = 512
+MAX_GENERATED_SOURCE_NAME_LENGTH = 255
+
 # Deterministic namespace for chunk uuid5. Rolling this breaks id stability
 # across data — so don't. Generated once via uuid.uuid4() and frozen.
 _CHUNK_NAMESPACE = UUID("4b7b0b50-5e2f-4a9f-8a8b-8b8d5f6f4a3e")
@@ -98,6 +122,10 @@ _CHUNK_NAMESPACE = UUID("4b7b0b50-5e2f-4a9f-8a8b-8b8d5f6f4a3e")
 
 class QuotaExceededError(Exception):
     """Raised when creating the source would exceed a per-team cap."""
+
+
+class LearnedSourceCapReached(QuotaExceededError):
+    """Raised when a team already has MAX_LEARNED_SOURCES_PER_TEAM generated sources."""
 
 
 class TextTooLargeError(Exception):
@@ -114,6 +142,81 @@ class UrlFetchFailedError(Exception):
 
 class SourceBusyError(Exception):
     """A refresh is already running for this source."""
+
+
+class GeneratedSourceReadOnlyError(Exception):
+    """A system-managed source cannot be changed through user mutation paths."""
+
+
+class InvalidGeneratedKnowledgeDocument(ValueError):
+    """The generated document violates the internal write contract."""
+
+
+class GeneratedSourceHasMultipleDocuments(Exception):
+    """A learned source with several documents cannot be edited in place."""
+
+
+@frozen
+class CreateGeneratedKnowledgeDocument:
+    team_id: int
+    # The product that supplied the evidence, e.g. "conversations". Part of the document identity.
+    provider: str
+    ticket_id: UUID
+    ticket_number: int
+    # The environment team the ticket lives in; the document row itself is stored on the canonical team.
+    source_team_id: int
+    resolution_comment_id: UUID
+    analysis_version: str
+    title: str
+    content: str
+    # When the reply this answer comes from was last edited. Recency compares two of these.
+    evidence_revision_at: datetime.datetime
+
+
+@frozen
+class GeneratedKnowledgeDocument:
+    id: UUID
+    source_id: UUID
+    created: bool
+
+
+@frozen
+class _ValidatedGeneratedDocumentInput:
+    provider: str
+    analysis_version: str
+    title: str
+    content: str
+
+
+@frozen
+class _LearnedSourceCreateStatus:
+    status: SourceStatus
+    error_message: str
+
+
+# After "already_superseded" or "source_has_other_documents" the caller must drop its replacement,
+# or search keeps two answers to the same question.
+SupersessionOutcome = Literal[
+    "applied",
+    "already_superseded",
+    "source_has_other_documents",
+    "source_not_generated",
+    # The caller writes its new answer for these two: "same_source" means the answer it publishes
+    # already lives in the conflicting source, and "nothing_to_supersede" means the older source is
+    # gone, so neither leaves a second answer in search.
+    "same_source",
+    "nothing_to_supersede",
+]
+
+
+@frozen
+class KnowledgeSourceSupersession:
+    outcome: SupersessionOutcome
+    previous_ticket_number: int | None = None
+
+    @property
+    def applied(self) -> bool:
+        return self.outcome == "applied"
 
 
 class EmptyContentError(Exception):
@@ -223,7 +326,43 @@ def _bulk_create_chunks(
 
 
 def _count_sources(team_id: int) -> int:
-    return KnowledgeSource.objects.filter(team_id=team_id).count()
+    return KnowledgeSource.objects.filter(team_id=team_id, is_generated=False).count()
+
+
+def _count_learned_sources(team_id: int) -> int:
+    return KnowledgeSource.objects.filter(team_id=team_id, is_generated=True).count()
+
+
+def _ensure_user_managed_source(source: KnowledgeSource) -> None:
+    if source.is_generated:
+        raise GeneratedSourceReadOnlyError("Generated sources are managed by PostHog.")
+
+
+def _ensure_editable_text_source(source: KnowledgeSource) -> None:
+    if source.is_generated and source.source_type != SourceType.TEXT:
+        raise GeneratedSourceReadOnlyError("Generated sources are managed by PostHog.")
+
+
+def _require_single_generated_document(*, team_id: int, source_id: UUID) -> KnowledgeDocument:
+    documents = list(KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")[:2])
+    if not documents:
+        raise InvalidGeneratedKnowledgeDocument("generated source is missing its document")
+    if len(documents) > 1:
+        # Saving into the first row would drop the other documents from search.
+        raise GeneratedSourceHasMultipleDocuments()
+    return documents[0]
+
+
+def _is_generated_source_disabled(source: KnowledgeSource) -> bool:
+    return source.is_generated and source.error_message == GENERATED_SOURCE_DISABLED_MESSAGE
+
+
+def _is_superseded_source(source: KnowledgeSource) -> bool:
+    return source.error_message == SUPERSEDED_SOURCE_MESSAGE
+
+
+def _is_source_kept_out_of_search(source: KnowledgeSource) -> bool:
+    return _is_generated_source_disabled(source) or _is_superseded_source(source)
 
 
 # Advisory-lock namespace so we don't collide with other lock users.
@@ -299,6 +438,34 @@ def check_text_source_quota(team_id: int, text: str) -> None:
 # --- Queries -----------------------------------------------------------------
 
 
+def _document_count_subquery() -> Coalesce:
+    count = (
+        KnowledgeDocument.objects.filter(
+            team_id=OuterRef("team_id"),
+            source_id=OuterRef("pk"),
+        )
+        .order_by()
+        .values("source_id")
+        .annotate(total=Count("id"))
+        .values("total")[:1]
+    )
+    return Coalesce(Subquery(count, output_field=IntegerField()), Value(0))
+
+
+def _chunk_count_subquery() -> Coalesce:
+    count = (
+        KnowledgeChunk.objects.filter(
+            team_id=OuterRef("team_id"),
+            source_id=OuterRef("pk"),
+        )
+        .order_by()
+        .values("source_id")
+        .annotate(total=Count("id"))
+        .values("total")[:1]
+    )
+    return Coalesce(Subquery(count, output_field=IntegerField()), Value(0))
+
+
 def _unsafe_documents_subquery() -> Exists:
     return Exists(
         KnowledgeDocument.objects.filter(
@@ -346,49 +513,387 @@ def has_pending_embeddings(source_id: UUID) -> bool:
     )
 
 
-@with_team_scope(canonical=True)
-def list_for_team(team_id: int) -> list[KnowledgeSource]:
-    # Annotate counts in one round-trip so the serializer doesn't N+1.
-    return list(
-        KnowledgeSource.objects.filter(team_id=team_id)
-        .annotate(
-            _document_count=Count("documents", distinct=True),
-            _chunk_count=Count("chunks", distinct=True),
-            _has_unsafe_documents=_unsafe_documents_subquery(),
-            _has_pending_embeddings=_pending_embedding_documents_subquery(),
-            _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
-        )
-        .order_by("-created_at")
+def _first_learned_document_qs() -> QuerySet[KnowledgeDocument]:
+    return KnowledgeDocument.objects.filter(
+        source_id=OuterRef("pk"),
+        team_id=OuterRef("team_id"),
+        metadata__origin=GENERATED_KNOWLEDGE_ORIGIN,
     )
+
+
+def _learned_ticket_number_subquery() -> Subquery:
+    return Subquery(
+        _first_learned_document_qs()
+        .annotate(_ticket_number=Cast(KeyTextTransform("ticket_number", "metadata"), IntegerField()))
+        .order_by("created_at")
+        .values("_ticket_number")[:1],
+        output_field=IntegerField(),
+    )
+
+
+def _learned_source_team_id_subquery() -> Subquery:
+    return Subquery(
+        _first_learned_document_qs()
+        .annotate(_source_team_id=Cast(KeyTextTransform("source_team_id", "metadata"), IntegerField()))
+        .order_by("created_at")
+        .values("_source_team_id")[:1],
+        output_field=IntegerField(),
+    )
+
+
+def _source_list_annotations() -> dict[str, object]:
+    return {
+        "_document_count": _document_count_subquery(),
+        "_chunk_count": _chunk_count_subquery(),
+        "_has_unsafe_documents": _unsafe_documents_subquery(),
+        "_has_pending_embeddings": _pending_embedding_documents_subquery(),
+        "_ai_processing_approved": F("team__organization__is_ai_data_processing_approved"),
+        "_learned_ticket_number": _learned_ticket_number_subquery(),
+        "_learned_source_team_id": _learned_source_team_id_subquery(),
+    }
+
+
+@with_team_scope(canonical=True)
+def list_for_team(
+    team_id: int,
+    *,
+    search: str | None = None,
+    source_type: str | None = None,
+    added_by: str | None = None,
+) -> list[KnowledgeSource]:
+    # Annotate counts in one round-trip so the serializer doesn't N+1.
+    queryset = KnowledgeSource.objects.filter(team_id=team_id)
+    if source_type:
+        queryset = queryset.filter(source_type=source_type)
+    if added_by == AddedBy.HUMAN:
+        queryset = queryset.filter(is_generated=False)
+    elif added_by == AddedBy.LEARNED:
+        queryset = queryset.filter(is_generated=True)
+    if search:
+        term = search.strip()
+        if term:
+            queryset = queryset.filter(Q(name__icontains=term) | Q(source_url__icontains=term))
+    # `id` breaks created_at ties so paging over the list can't skip or repeat a source.
+    return list(queryset.annotate(**_source_list_annotations()).order_by("-created_at", "id"))
 
 
 @with_team_scope(canonical=True)
 def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
     try:
-        return KnowledgeSource.objects.annotate(
-            _document_count=Count("documents", distinct=True),
-            _chunk_count=Count("chunks", distinct=True),
-            _has_unsafe_documents=_unsafe_documents_subquery(),
-            _has_pending_embeddings=_pending_embedding_documents_subquery(),
-            _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
-        ).get(id=source_id, team_id=team_id)
+        return KnowledgeSource.objects.annotate(**_source_list_annotations()).get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
 
 
 @with_team_scope(canonical=True)
-def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
-    """
-    Returns the raw text of a text-type source. Has exactly one
-    document per source, so this is a single row fetch. For future URL/file
-    sources with many documents, this concatenates in stable order — not a
-    real "view" affordance but good enough to round-trip into the edit modal.
-    """
-
+def list_live_documents_for_source(source_id: UUID, team_id: int) -> list[KnowledgeDocument] | None:
     if not KnowledgeSource.objects.filter(id=source_id, team_id=team_id).exists():
         return None
+    return list(
+        KnowledgeDocument.objects.filter(
+            team_id=team_id,
+            source_id=source_id,
+            tombstoned_at__isnull=True,
+        )
+        .only("id", "url", "title", "safety_verdict")
+        .order_by("url", "id")
+    )
+
+
+@with_team_scope(canonical=True)
+def get_source_text_for_team(source_id: UUID, team_id: int) -> str | None:
+    """Return concatenated document text for the source editor."""
+
+    try:
+        source = KnowledgeSource.objects.only("is_generated", "source_type").get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
+        return None
+    _ensure_editable_text_source(source)
+    if source.is_generated:
+        return _require_single_generated_document(team_id=team_id, source_id=source_id).content
     documents = KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")
     return "\n\n".join(d.content for d in documents)
+
+
+def _validate_generated_document_input(
+    document_input: CreateGeneratedKnowledgeDocument,
+) -> _ValidatedGeneratedDocumentInput:
+    provider = document_input.provider.strip()
+    analysis_version = document_input.analysis_version.strip()
+    title = document_input.title.strip()
+    content = document_input.content
+
+    if not provider or len(provider) > MAX_PROVIDER_LENGTH:
+        raise InvalidGeneratedKnowledgeDocument("provider is invalid")
+    if re.fullmatch(r"[a-z0-9_-]+", provider) is None:
+        raise InvalidGeneratedKnowledgeDocument("provider is invalid")
+    if document_input.ticket_number <= 0:
+        raise InvalidGeneratedKnowledgeDocument("ticket_number is invalid")
+    if document_input.source_team_id <= 0:
+        raise InvalidGeneratedKnowledgeDocument("source_team_id is invalid")
+    if not analysis_version or len(analysis_version) > MAX_ANALYSIS_VERSION_LENGTH:
+        raise InvalidGeneratedKnowledgeDocument("analysis_version is invalid")
+    if re.fullmatch(r"[A-Za-z0-9._-]+", analysis_version) is None:
+        raise InvalidGeneratedKnowledgeDocument("analysis_version is invalid")
+    if not title or len(title) > MAX_GENERATED_DOCUMENT_TITLE_LENGTH:
+        raise InvalidGeneratedKnowledgeDocument("title is invalid")
+    # Source.name is CharField(max_length=255). Keep the document title on the same
+    # bound so the row name, editor, and citations stay in sync after the first save.
+    title = title[:MAX_GENERATED_SOURCE_NAME_LENGTH]
+    if not content.strip():
+        raise InvalidGeneratedKnowledgeDocument("content is empty")
+    if len(content.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
+        raise InvalidGeneratedKnowledgeDocument("content is too large")
+
+    combined_content = f"{title}\n{content}".lower()
+    if any(
+        identifier in combined_content
+        for provenance_id in (document_input.ticket_id, document_input.resolution_comment_id)
+        for identifier in (str(provenance_id).lower(), provenance_id.hex.lower())
+    ):
+        raise InvalidGeneratedKnowledgeDocument("provenance identifiers cannot appear in generated content")
+
+    return _ValidatedGeneratedDocumentInput(
+        provider=provider,
+        analysis_version=analysis_version,
+        title=title,
+        content=content,
+    )
+
+
+def _learned_source_namespace(team_id: int) -> UUID:
+    return uuid.uuid5(uuid.NAMESPACE_DNS, f"team-{team_id}.learned-source.business-knowledge.posthog")
+
+
+def _learned_source_id(team_id: int, stable_id: str) -> UUID:
+    return uuid.uuid5(_learned_source_namespace(team_id), stable_id)
+
+
+def _generated_stable_id(
+    *,
+    provider: str,
+    ticket_id: UUID,
+    resolution_comment_id: UUID,
+    analysis_version: str,
+) -> str:
+    # stable_id is readable by anyone with business_knowledge:read (system table), so it must not
+    # carry the raw ticket or comment ids; those need ticket:read and live in metadata only.
+    identity = f"{GENERATED_KNOWLEDGE_ORIGIN}:{provider}:{ticket_id}:{resolution_comment_id}:{analysis_version}"
+    return f"{GENERATED_KNOWLEDGE_ORIGIN}:{sha256_of(identity)}"
+
+
+def learned_source_id_for(
+    *,
+    team_id: int,
+    provider: str,
+    ticket_id: UUID,
+    resolution_comment_id: UUID,
+    analysis_version: str,
+) -> UUID:
+    canonical_team_id = resolve_effective_team_id(team_id)
+    return _learned_source_id(
+        canonical_team_id,
+        _generated_stable_id(
+            provider=provider.strip(),
+            ticket_id=ticket_id,
+            resolution_comment_id=resolution_comment_id,
+            analysis_version=analysis_version.strip(),
+        ),
+    )
+
+
+def can_publish_learned_source(*, team_id: int, source_id: UUID) -> bool:
+    canonical_team_id = resolve_effective_team_id(team_id)
+    with team_scope(canonical_team_id, canonical=True):
+        if KnowledgeSource.objects.filter(id=source_id, team_id=canonical_team_id).exists():
+            return True
+        return _count_learned_sources(canonical_team_id) < MAX_LEARNED_SOURCES_PER_TEAM
+
+
+def _learned_source_status_for_create(team_id: int) -> _LearnedSourceCreateStatus:
+    if KnowledgeSource.objects.filter(
+        team_id=team_id,
+        is_generated=True,
+        error_message=GENERATED_SOURCE_DISABLED_MESSAGE,
+    ).exists():
+        return _LearnedSourceCreateStatus(status=SourceStatus.ERROR, error_message=GENERATED_SOURCE_DISABLED_MESSAGE)
+    return _LearnedSourceCreateStatus(status=SourceStatus.READY, error_message="")
+
+
+def set_generated_knowledge_source_ready(team_id: int, *, ready: bool) -> bool:
+    canonical_team_id = resolve_effective_team_id(team_id)
+    with team_scope(canonical_team_id, canonical=True):
+        sources = KnowledgeSource.objects.filter(team_id=canonical_team_id, is_generated=True)
+        if not sources.exists():
+            return False
+        now = timezone.now()
+        # A superseded source keeps its own message either way, so turning learning back on
+        # does not put a replaced answer into search.
+        sources = sources.exclude(error_message=SUPERSEDED_SOURCE_MESSAGE)
+        if ready:
+            sources.update(status=SourceStatus.READY, error_message="", updated_at=now)
+        else:
+            sources.update(
+                status=SourceStatus.ERROR,
+                error_message=GENERATED_SOURCE_DISABLED_MESSAGE,
+                updated_at=now,
+            )
+        return True
+
+
+@with_team_scope(canonical=True)
+def supersede_knowledge_source(
+    *,
+    team_id: int,
+    source_id: UUID,
+    document_id: UUID,
+    superseded_by_ticket_id: UUID,
+    superseded_by_ticket_number: int,
+    superseded_by_source_id: UUID | None = None,
+) -> KnowledgeSourceSupersession:
+    """Soft-disable one learned source so search stops returning it. Content stays so the change can be reversed."""
+    if superseded_by_source_id is not None and superseded_by_source_id == source_id:
+        # A retry of the same reply resolves to the source it would replace.
+        return KnowledgeSourceSupersession(outcome="same_source")
+
+    with transaction.atomic():
+        try:
+            # The row lock serializes two replies that reach the same source, so only one replaces it.
+            source = KnowledgeSource.objects.select_for_update().get(id=source_id, team_id=team_id)
+        except KnowledgeSource.DoesNotExist:
+            return KnowledgeSourceSupersession(outcome="nothing_to_supersede")
+
+        if not source.is_generated:
+            # Learning may retire what it wrote. Only a person may retire what a person wrote.
+            return KnowledgeSourceSupersession(outcome="source_not_generated")
+
+        documents = list(
+            KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).order_by("created_at")[:2]
+        )
+        if [existing.id for existing in documents] != [document_id]:
+            # Disabling the source would take every other document in it out of search too.
+            return KnowledgeSourceSupersession(outcome="source_has_other_documents")
+        document = documents[0]
+        raw_ticket_number = (document.metadata or {}).get("ticket_number")
+        previous_ticket_number = raw_ticket_number if isinstance(raw_ticket_number, int) else None
+        if _is_superseded_source(source):
+            return KnowledgeSourceSupersession(
+                outcome="already_superseded", previous_ticket_number=previous_ticket_number
+            )
+
+        provenance = {
+            **(document.metadata or {}),
+            "superseded_by_ticket_id": str(superseded_by_ticket_id),
+            "superseded_by_ticket_number": superseded_by_ticket_number,
+        }
+        if superseded_by_source_id is not None:
+            provenance["superseded_by_source_id"] = str(superseded_by_source_id)
+        document.metadata = provenance
+        document.save(update_fields=["metadata", "updated_at"])
+        source.status = SourceStatus.ERROR
+        source.error_message = SUPERSEDED_SOURCE_MESSAGE
+        source.save(update_fields=["status", "error_message", "updated_at"])
+    return KnowledgeSourceSupersession(outcome="applied", previous_ticket_number=previous_ticket_number)
+
+
+@with_team_scope(canonical=True)
+def get_knowledge_fact_recorded_at(*, team_id: int, document_id: UUID) -> datetime.datetime | None:
+    """When the answer in this document was written, so two facts can be compared by age."""
+    document = KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).only("metadata", "created_at").first()
+    if document is None:
+        return None
+    raw_recorded_at = (document.metadata or {}).get(EVIDENCE_REVISION_AT_KEY)
+    if isinstance(raw_recorded_at, str):
+        try:
+            return datetime.datetime.fromisoformat(raw_recorded_at)
+        except ValueError:
+            pass
+    return document.created_at
+
+
+@transaction.atomic
+def create_generated_knowledge_document(
+    document_input: CreateGeneratedKnowledgeDocument,
+) -> GeneratedKnowledgeDocument:
+    canonical_team_id = resolve_effective_team_id(document_input.team_id)
+    with team_scope(canonical_team_id, canonical=True):
+        document, created = _create_generated_knowledge_document(
+            document_input,
+            team_id=canonical_team_id,
+        )
+    return GeneratedKnowledgeDocument(
+        id=document.id,
+        source_id=document.source_id,
+        created=created,
+    )
+
+
+def _create_generated_knowledge_document(
+    document_input: CreateGeneratedKnowledgeDocument,
+    *,
+    team_id: int,
+) -> tuple[KnowledgeDocument, bool]:
+    validated_input = _validate_generated_document_input(document_input)
+    _acquire_source_quota_lock(team_id)
+
+    stable_id = _generated_stable_id(
+        provider=validated_input.provider,
+        ticket_id=document_input.ticket_id,
+        resolution_comment_id=document_input.resolution_comment_id,
+        analysis_version=validated_input.analysis_version,
+    )
+    source_id = _learned_source_id(team_id, stable_id)
+    source = KnowledgeSource.objects.filter(id=source_id, team_id=team_id).first()
+    if source is None:
+        if _count_learned_sources(team_id) >= MAX_LEARNED_SOURCES_PER_TEAM:
+            raise LearnedSourceCapReached(f"Team already has {MAX_LEARNED_SOURCES_PER_TEAM} learned sources.")
+        create_status = _learned_source_status_for_create(team_id)
+        source = KnowledgeSource.objects.create(
+            id=source_id,
+            team_id=team_id,
+            created_by_id=None,
+            name=validated_input.title,
+            source_type=SourceType.TEXT,
+            is_generated=True,
+            status=create_status.status,
+            error_message=create_status.error_message,
+        )
+    elif not source.is_generated or source.source_type != SourceType.TEXT:
+        raise InvalidGeneratedKnowledgeDocument("generated source identity is already in use")
+    else:
+        existing = KnowledgeDocument.objects.filter(team_id=team_id, source=source).order_by("created_at").first()
+        if existing is not None:
+            return existing, False
+
+    document_id = uuid.uuid5(source.id, stable_id)
+    document = KnowledgeDocument.objects.create(
+        id=document_id,
+        team_id=team_id,
+        source=source,
+        stable_id=stable_id,
+        title=validated_input.title,
+        content=validated_input.content,
+        metadata={
+            "source_type": SourceType.TEXT,
+            "origin": GENERATED_KNOWLEDGE_ORIGIN,
+            "provider": validated_input.provider,
+            "ticket_id": str(document_input.ticket_id),
+            "ticket_number": document_input.ticket_number,
+            "source_team_id": document_input.source_team_id,
+            "resolution_comment_id": str(document_input.resolution_comment_id),
+            "analysis_version": validated_input.analysis_version,
+            EVIDENCE_REVISION_AT_KEY: document_input.evidence_revision_at.isoformat(),
+        },
+        content_hash=sha256_of(validated_input.content),
+        safety_verdict=SafetyVerdict.UNKNOWN,
+    )
+
+    chunks = chunk_text(validated_input.content)
+    if _count_chunks(team_id) + len(chunks) > MAX_CHUNKS_PER_TEAM:
+        raise QuotaExceededError("Generated content exceeds the remaining team chunk budget.")
+
+    _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
+    return document, True
 
 
 # --- Mutations ---------------------------------------------------------------
@@ -474,10 +979,10 @@ def update_text_source(
     Edit path.
 
     - name-only edit: single UPDATE, no re-chunk.
-    - text edit: delete documents+chunks for this source and rebuild from the
-      new content. We keep the source row (and its id) so agents' in-flight
-      prompts don't go stale on re-lookup. Same byte/chunk quota rules apply
-      to the new text.
+    - text edit: rebuild chunks from the new content. User-managed sources
+      delete and recreate the document. Generated text sources update the
+      existing document in place so learning runs keep a valid document id.
+      Same byte/chunk quota rules apply to the new text.
 
     Returns the refreshed source (with annotated counts) or None if the
     source doesn't belong to this team.
@@ -488,8 +993,13 @@ def update_text_source(
     except KnowledgeSource.DoesNotExist:
         return None
 
+    _ensure_editable_text_source(source)
     if always_include is not None:
         source.always_include = always_include
+
+    generated_document = None
+    if source.is_generated and (text is not None or name is not None):
+        generated_document = _require_single_generated_document(team_id=team_id, source_id=source_id)
 
     if text is not None:
         if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
@@ -511,26 +1021,51 @@ def update_text_source(
         source.save(update_fields=update_fields)
 
         KnowledgeChunk.objects.filter(team_id=team_id, source_id=source_id).delete()
-        KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).delete()
-
-        document_id = uuid.uuid4()
-        document = KnowledgeDocument.objects.create(
-            id=document_id,
-            team_id=team_id,
-            source=source,
-            stable_id=str(document_id),
-            title=name if name is not None else source.name,
-            content=text,
-            metadata={"source_type": SourceType.TEXT},
-            content_hash=sha256_of(text),
-            # Edited text is re-classified before it can resurface — see the
-            # rationale in create_text_source. Delete+recreate gives a fresh id,
-            # so there's no stale-verdict race here; content_hash still scopes
-            # the eventual verdict write to exactly this content.
-            safety_verdict=SafetyVerdict.UNKNOWN,
-        )
+        if generated_document is not None:
+            # Keep the document row so KnowledgeLearningRun.knowledge_document_id still points at it.
+            document = generated_document
+            document.title = name if name is not None else source.name
+            document.content = text
+            document.content_hash = sha256_of(text)
+            document.safety_verdict = SafetyVerdict.UNKNOWN
+            document.safety_reason = ""
+            document.classification_attempts = 0
+            document.embeddings_emitted_at = None
+            document.metadata = {**(document.metadata or {}), "edited_by_user": True}
+            document.save(
+                update_fields=[
+                    "title",
+                    "content",
+                    "content_hash",
+                    "safety_verdict",
+                    "safety_reason",
+                    "classification_attempts",
+                    "embeddings_emitted_at",
+                    "metadata",
+                    "updated_at",
+                ]
+            )
+        else:
+            KnowledgeDocument.objects.filter(team_id=team_id, source_id=source_id).delete()
+            document_id = uuid.uuid4()
+            document = KnowledgeDocument.objects.create(
+                id=document_id,
+                team_id=team_id,
+                source=source,
+                stable_id=str(document_id),
+                title=name if name is not None else source.name,
+                content=text,
+                metadata={"source_type": SourceType.TEXT},
+                content_hash=sha256_of(text),
+                # Edited text is re-classified before it can resurface — see the
+                # rationale in create_text_source. Delete+recreate gives a fresh id,
+                # so there's no stale-verdict race here; content_hash still scopes
+                # the eventual verdict write to exactly this content.
+                safety_verdict=SafetyVerdict.UNKNOWN,
+            )
         _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
-        source.status = SourceStatus.READY
+        # Editing must not put a disabled or superseded source back into search.
+        source.status = SourceStatus.ERROR if _is_source_kept_out_of_search(source) else SourceStatus.READY
         source.save(update_fields=["status", "updated_at"])
     elif name is not None or always_include is not None:
         update_fields = ["updated_at"]
@@ -540,6 +1075,10 @@ def update_text_source(
         if always_include is not None:
             update_fields.append("always_include")
         source.save(update_fields=update_fields)
+        if name is not None and generated_document is not None:
+            generated_document.title = name
+            generated_document.metadata = {**(generated_document.metadata or {}), "edited_by_user": True}
+            generated_document.save(update_fields=["title", "metadata", "updated_at"])
 
     return get_for_team(source.id, team_id) or source
 
@@ -567,6 +1106,7 @@ def update_url_source(
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
+    _ensure_user_managed_source(source)
     if source.source_type != SourceType.URL:
         raise InvalidUrlError("Can only update URL sources with this endpoint.")
 
@@ -632,6 +1172,7 @@ def delete_source(source_id: UUID, team_id: int) -> bool:
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return False
+    _ensure_editable_text_source(source)
     source.delete()
     return True
 
@@ -1022,12 +1563,19 @@ def claim_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource:
     invariant. Raises `SourceBusyError` / `InvalidUrlError` synchronously so
     the API can return 409 / 400 before kicking off the workflow.
     """
+    try:
+        existing_source = KnowledgeSource.objects.only("is_generated").get(id=source_id, team_id=team_id)
+    except KnowledgeSource.DoesNotExist:
+        raise
+    _ensure_user_managed_source(existing_source)
+
     with transaction.atomic():
         _check_source_quota_locked(team_id, reject_if_processing=True)
         try:
             source = KnowledgeSource.objects.select_for_update().get(id=source_id, team_id=team_id)
         except KnowledgeSource.DoesNotExist:
             raise
+        _ensure_user_managed_source(source)
         if source.source_type != SourceType.URL or not source.source_url:
             raise InvalidUrlError("Only URL sources can be refreshed.")
         if source.status == SourceStatus.PROCESSING:
@@ -1050,6 +1598,7 @@ def execute_refresh_source(*, source_id: UUID, team_id: int) -> KnowledgeSource 
     except KnowledgeSource.DoesNotExist:
         return None
 
+    _ensure_user_managed_source(source)
     try:
         if source.crawl_mode and source.crawl_mode != CrawlMode.SINGLE:
             return _refresh_crawl_source(source=source, team_id=team_id)
@@ -1281,7 +1830,8 @@ def create_crawl_source(
          for the same team are serialized.
       3. Discover candidate URLs via sitemap / same-origin BFS.
       4. Fetch all candidates in parallel with a per-host semaphore.
-      5. In a transaction, bulk-insert documents + chunks and mark READY.
+      5. Insert documents + chunks in batches of `CRAWL_WRITE_BATCH_SIZE` pages,
+         one transaction per batch, then mark READY.
 
     Failures at any stage update the claim row to ERROR so the user can
     see the failure, adjust globs, or retry.
@@ -1335,6 +1885,13 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
             )
         return get_for_team(source.id, team_id) or source
 
+    # A late or duplicate run must not wipe a source that another run already finished.
+    if source.status != SourceStatus.PROCESSING:
+        return source
+    # Batches commit one at a time and chunk ids are deterministic, so a retried
+    # activity first drops what the attempt before it wrote, even if it then fails early.
+    _delete_crawl_documents(source=source, team_id=team_id)
+
     try:
         # Re-validate the entry URL (DNS may have rebound between claim and ingest).
         normalized = _validate_url(source.source_url)
@@ -1361,54 +1918,70 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
     if not safe_urls:
         return _mark_error("Crawl discovered no safe URLs to fetch.")
 
-    outcomes = crawl.fetch_many(safe_urls, prefetched=discovery.prefetched)
-    ok_outcomes = [o for o in outcomes if o.status == "ok"]
-
-    if not ok_outcomes:
-        first_error = next((o.error for o in outcomes if o.status == "error"), "All pages failed to fetch.")
-        return _mark_error(first_error)
-
-    estimated_total = sum(max(1, len(o.text) // CHUNK_TARGET_CHARS) for o in ok_outcomes)
-    if _count_chunks(team_id) + estimated_total > MAX_CHUNKS_PER_TEAM:
-        return _mark_error(f"Crawl would exceed the {MAX_CHUNKS_PER_TEAM} chunk cap.")
-
+    # Search reads only READY sources, so committed batches stay hidden until the last one lands.
+    first_error = ""
+    written_any = False
     try:
-        with transaction.atomic():
-            total_chunks_written = 0
-            for outcome in ok_outcomes:
-                written = _insert_document_and_chunks(
-                    source=source,
-                    team_id=team_id,
-                    title=outcome.title,
-                    text=outcome.text,
-                    url=outcome.url,
-                    etag=outcome.etag,
-                    content_hash=outcome.content_hash,
-                    existing_doc=None,
-                )
-                total_chunks_written += written
+        for batch in batched(
+            crawl.iter_fetch(safe_urls, prefetched=discovery.prefetched), CRAWL_WRITE_BATCH_SIZE, strict=False
+        ):
+            ok_outcomes = [o for o in batch if o.status == "ok"]
+            if not first_error:
+                first_error = next((o.error for o in batch if o.status == "error"), "")
+            if not ok_outcomes:
+                continue
 
-            if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
-                raise QuotaExceededError(f"Crawl exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+            estimated = sum(max(1, len(o.text) // CHUNK_TARGET_CHARS) for o in ok_outcomes)
+            if _count_chunks(team_id) + estimated > MAX_CHUNKS_PER_TEAM:
+                _delete_crawl_documents(source=source, team_id=team_id)
+                return _mark_error(f"Crawl would exceed the {MAX_CHUNKS_PER_TEAM} chunk cap.")
 
-            source.status = SourceStatus.READY
-            source.last_refresh_at = timezone.now()
-            source.last_refresh_status = RefreshStatus.SUCCESS
-            source.last_refresh_error = ""
-            source.save(
-                update_fields=[
-                    "status",
-                    "last_refresh_at",
-                    "last_refresh_status",
-                    "last_refresh_error",
-                    "updated_at",
-                ]
-            )
+            with transaction.atomic():
+                for outcome in ok_outcomes:
+                    _insert_document_and_chunks(
+                        source=source,
+                        team_id=team_id,
+                        title=outcome.title,
+                        text=outcome.text,
+                        url=outcome.url,
+                        etag=outcome.etag,
+                        content_hash=outcome.content_hash,
+                        existing_doc=None,
+                    )
+                if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
+                    raise QuotaExceededError(f"Crawl exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+            written_any = True
     except QuotaExceededError:
+        _delete_crawl_documents(source=source, team_id=team_id)
         _mark_error(f"Crawl exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
         raise
+    except Exception:
+        _delete_crawl_documents(source=source, team_id=team_id)
+        raise
 
+    if not written_any:
+        return _mark_error(first_error or "All pages failed to fetch.")
+
+    source.status = SourceStatus.READY
+    source.last_refresh_at = timezone.now()
+    source.last_refresh_status = RefreshStatus.SUCCESS
+    source.last_refresh_error = ""
+    source.save(
+        update_fields=[
+            "status",
+            "last_refresh_at",
+            "last_refresh_status",
+            "last_refresh_error",
+            "updated_at",
+        ]
+    )
     return get_for_team(source.id, team_id) or source
+
+
+def _delete_crawl_documents(*, source: KnowledgeSource, team_id: int) -> None:
+    with transaction.atomic():
+        KnowledgeChunk.objects.filter(team_id=team_id, source_id=source.id).delete()
+        KnowledgeDocument.objects.filter(team_id=team_id, source_id=source.id).delete()
 
 
 def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeSource | None:
@@ -1455,9 +2028,10 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
 
     # Load existing docs keyed by stable_id (== url). Pulling all of them up
     # front is cheap (we're capped at MAX_URLS_PER_SOURCE) and avoids a
-    # per-URL query inside the fetch loop.
+    # per-URL query inside the fetch loop. `content` stays deferred: loading
+    # it would hold the text of every page for the whole refresh.
     existing_by_url: dict[str, KnowledgeDocument] = {
-        d.stable_id: d for d in KnowledgeDocument.objects.filter(team_id=team_id, source_id=source.id)
+        d.stable_id: d for d in KnowledgeDocument.objects.filter(team_id=team_id, source_id=source.id).defer("content")
     }
 
     # Pre-SSRF the discovered list and preserve ETags per URL for conditional GETs.
@@ -1467,12 +2041,13 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             safe_urls.append(_validate_url(u))
         except InvalidUrlError:
             continue
+    # Each URL is written once. A second outcome for a new URL would insert the same chunk ids again.
+    safe_urls = list(dict.fromkeys(safe_urls))
 
     def _etag_for(u: str) -> str | None:
         existing = existing_by_url.get(u)
         return existing.etag if existing and existing.etag else None
 
-    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for, prefetched=discovery.prefetched)
     # `discovered_set` is built by normalizing the raw discovered URLs (lowercased
     # scheme+host, no fragment) so keys match `existing_by_url` (which uses the
     # normalized stable_id). We do NOT use `safe_urls` here — that would tombstone
@@ -1484,66 +2059,69 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
             discovered_set.add(url_fetch.normalize_url(u))
         except url_fetch.UrlFetchError:
             pass
+    vanished_ids = [d.id for url, d in existing_by_url.items() if url not in discovered_set]
 
-    with transaction.atomic():
-        fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
-
-        # Upsert per-outcome.
-        any_changes = False
-        for outcome in outcomes:
-            existing = existing_by_url.get(outcome.url)
-            if outcome.status == "not_modified":
-                # Still touch the etag so a rotation stays fresh.
-                if existing and outcome.etag and existing.etag != outcome.etag:
-                    existing.etag = outcome.etag
-                    existing.save(update_fields=["etag", "updated_at"])
-                continue
-            if outcome.status == "error":
-                # Keep the old doc intact — partial failures shouldn't
-                # knock out a previously-working page.
-                logger.info(
-                    "business_knowledge.crawl.refresh_page_error",
-                    source_id=str(source.id),
-                    url=outcome.url,
-                    error=outcome.error,
-                )
-                continue
-            assert outcome.status == "ok"
-            if existing is not None and existing.content_hash == outcome.content_hash:
-                # No re-chunk needed. Still bump etag if we got a new one.
-                if outcome.etag and existing.etag != outcome.etag:
-                    existing.etag = outcome.etag
-                    existing.save(update_fields=["etag", "updated_at"])
-                continue
-            _insert_document_and_chunks(
-                source=fresh,
-                team_id=team_id,
-                title=outcome.title,
-                text=outcome.text,
-                url=outcome.url,
-                etag=outcome.etag,
-                content_hash=outcome.content_hash,
-                existing_doc=existing,
-            )
-            any_changes = True
-
-        # Tombstone docs whose URL vanished from discovery. Chunks go away
-        # now; the sweep hard-deletes the doc row after a grace
-        # period (preserves the id in case the page comes back soon).
-        vanished = [d for url, d in existing_by_url.items() if url not in discovered_set]
-        if vanished:
+    any_changes = False
+    # Tombstone docs whose URL vanished from discovery before any batch, so the
+    # chunk cap check below does not count their chunks. Chunks go away now; the
+    # sweep hard-deletes the doc row after a grace period (preserves the id in
+    # case the page comes back soon).
+    if vanished_ids:
+        with transaction.atomic():
             now = timezone.now()
-            vanished_ids = [d.id for d in vanished]
             KnowledgeChunk.objects.filter(team_id=team_id, document_id__in=vanished_ids).delete()
             KnowledgeDocument.objects.filter(team_id=team_id, id__in=vanished_ids, tombstoned_at__isnull=True).update(
                 tombstoned_at=now, updated_at=now
             )
-            any_changes = True
+        any_changes = True
 
-        # Exact post-diff quota check.
-        if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
-            raise QuotaExceededError(f"Refresh exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+    # A refresh that fails part way keeps the batches it already committed. The cap is checked before every commit.
+    outcomes = crawl.iter_fetch(safe_urls, etag_for=_etag_for, prefetched=discovery.prefetched)
+    for batch in batched(outcomes, CRAWL_WRITE_BATCH_SIZE, strict=False):
+        with transaction.atomic():
+            fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
+            for outcome in batch:
+                existing = existing_by_url.pop(outcome.url, None)
+                if outcome.status == "not_modified":
+                    # Still touch the etag so a rotation stays fresh.
+                    if existing and outcome.etag and existing.etag != outcome.etag:
+                        existing.etag = outcome.etag
+                        existing.save(update_fields=["etag", "updated_at"])
+                    continue
+                if outcome.status == "error":
+                    # Keep the old doc intact — partial failures shouldn't
+                    # knock out a previously-working page.
+                    logger.info(
+                        "business_knowledge.crawl.refresh_page_error",
+                        source_id=str(source.id),
+                        url=outcome.url,
+                        error=outcome.error,
+                    )
+                    continue
+                assert outcome.status == "ok"
+                if existing is not None and existing.content_hash == outcome.content_hash:
+                    # No re-chunk needed. Still bump etag if we got a new one.
+                    if outcome.etag and existing.etag != outcome.etag:
+                        existing.etag = outcome.etag
+                        existing.save(update_fields=["etag", "updated_at"])
+                    continue
+                _insert_document_and_chunks(
+                    source=fresh,
+                    team_id=team_id,
+                    title=outcome.title,
+                    text=outcome.text,
+                    url=outcome.url,
+                    etag=outcome.etag,
+                    content_hash=outcome.content_hash,
+                    existing_doc=existing,
+                )
+                any_changes = True
 
+            if _count_chunks(team_id) > MAX_CHUNKS_PER_TEAM:
+                raise QuotaExceededError(f"Refresh exceeded the {MAX_CHUNKS_PER_TEAM} chunk cap.")
+
+    with transaction.atomic():
+        fresh = KnowledgeSource.objects.select_for_update().get(id=source.id, team_id=team_id)
         fresh.status = SourceStatus.READY
         fresh.last_refresh_at = timezone.now()
         fresh.last_refresh_status = RefreshStatus.SUCCESS if any_changes else RefreshStatus.NOT_MODIFIED
@@ -1570,8 +2148,8 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
 
 @with_team_scope(canonical=True)
 def has_ready_sources(team_id: int) -> bool:
-    """True when the team has at least one READY source (READY implies chunks exist)."""
-    return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).exists()
+    """True when the team has at least one searchable chunk."""
+    return _safe_chunks_qs(team_id).exists()
 
 
 @with_team_scope(canonical=True)
@@ -1650,7 +2228,9 @@ def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
             "content",
             "source__name",
             "source__source_type",
+            "source__is_generated",
             "document__title",
+            "document__url",
         )
         .order_by("source_id", "document_id", "ordinal")
     )
@@ -1664,19 +2244,7 @@ def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
         if total_chars + separator + len(c.content) > MAX_ALWAYS_ON_CONTEXT_CHARS:
             break
         total_chars += separator + len(c.content)
-        results.append(
-            KnowledgeSearchResult(
-                chunk_id=c.id,
-                source_id=c.source_id,
-                source_name=c.source.name,
-                source_type=c.source.source_type,
-                document_id=c.document_id,
-                document_title=c.document.title,
-                heading_path=c.heading_path,
-                ordinal=c.ordinal,
-                content=c.content,
-            )
-        )
+        results.append(_result_from_chunk(c))
     return results
 
 
@@ -1690,6 +2258,24 @@ def has_feature_flag(team: Team) -> bool:
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
+DOCS_SHADOW_FLAG = "business-knowledge-docs-shadow"
+
+
+def has_docs_shadow_feature_flag(team: Team) -> bool:
+    """Org-keyed, same as `has_feature_flag`. Off in DEBUG so local docs search does not shadow."""
+    if settings.DEBUG:
+        return False
+    # Local evaluation only. A remote lookup would run on every docs search.
+    return feature_enabled_or_false(
+        DOCS_SHADOW_FLAG,
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
 
@@ -1867,6 +2453,24 @@ class KnowledgeSearchResult:
     heading_path: str
     ordinal: int
     content: str
+    is_generated: bool = False
+    url: str = ""
+
+
+def _result_from_chunk(chunk: KnowledgeChunk) -> KnowledgeSearchResult:
+    return KnowledgeSearchResult(
+        chunk_id=chunk.id,
+        source_id=chunk.source_id,
+        source_name=chunk.source.name,
+        source_type=chunk.source.source_type,
+        document_id=chunk.document_id,
+        document_title=chunk.document.title,
+        heading_path=chunk.heading_path,
+        ordinal=chunk.ordinal,
+        content=chunk.content,
+        is_generated=bool(chunk.source.is_generated),
+        url=chunk.document.url,
+    )
 
 
 @with_team_scope(canonical=True)
@@ -1964,26 +2568,15 @@ def search_knowledge(
             "content",
             "source__name",
             "source__source_type",
+            "source__is_generated",
             "document__title",
+            "document__url",
         )
     )
 
     ordered = sorted(chunks, key=lambda c: (doc_rank.get(c.document_id, len(anchor_chunks)), c.ordinal))
 
-    return [
-        KnowledgeSearchResult(
-            chunk_id=c.id,
-            source_id=c.source_id,
-            source_name=c.source.name,
-            source_type=c.source.source_type,
-            document_id=c.document_id,
-            document_title=c.document.title,
-            heading_path=c.heading_path,
-            ordinal=c.ordinal,
-            content=c.content,
-        )
-        for c in ordered
-    ]
+    return [_result_from_chunk(c) for c in ordered]
 
 
 def search_knowledge_for_team(
@@ -1996,16 +2589,42 @@ def search_knowledge_for_team(
     Sync orchestration of hybrid BK search: embed the query, then call
     ``search_knowledge``. Falls back to FTS-only on any embedding failure.
 
-    Used by the DRF search endpoint (sync view). The async PHAI tool path
-    uses ``async_generate_embedding`` directly — they share ``search_knowledge``
-    as the common layer, not this wrapper.
+    Used by the DRF search endpoint (sync view). The async path is
+    ``async_search_knowledge_for_team``. Both share ``search_knowledge``.
     """
     embedding: list[float] | None = None
     try:
-        embedding = generate_embedding(team, query, model=BK_EMBEDDING_MODEL).embedding
+        embedding = generate_embedding(
+            team, query, model=BK_EMBEDDING_MODEL, timeout=BK_QUERY_EMBEDDING_TIMEOUT
+        ).embedding
     except Exception:
         logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
     return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)
+
+
+async def async_search_knowledge_for_team(
+    team: Team,
+    query: str,
+    *,
+    limit: int = 10,
+) -> list[KnowledgeSearchResult]:
+    """Async hybrid search. Embedding failure or timeout falls back to full-text search."""
+    embedding: list[float] | None = None
+    try:
+        response = await asyncio.wait_for(
+            async_generate_embedding(team, query, model=BK_EMBEDDING_MODEL),
+            timeout=BK_QUERY_EMBEDDING_TIMEOUT,
+        )
+        embedding = response.embedding
+    except Exception:
+        logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
+    return await database_sync_to_async(search_knowledge, thread_sensitive=False)(
+        team.id,
+        query,
+        limit=limit,
+        use_semantic=embedding is not None,
+        query_embedding=embedding,
+    )
 
 
 _RERANK_CHUNK_ID_PATTERN = re.compile(
@@ -2154,25 +2773,14 @@ def get_document_window(
             "content",
             "source__name",
             "source__source_type",
+            "source__is_generated",
             "document__title",
+            "document__url",
         )
         .order_by("ordinal")
     )
 
-    return [
-        KnowledgeSearchResult(
-            chunk_id=c.id,
-            source_id=c.source_id,
-            source_name=c.source.name,
-            source_type=c.source.source_type,
-            document_id=c.document_id,
-            document_title=c.document.title,
-            heading_path=c.heading_path,
-            ordinal=c.ordinal,
-            content=c.content,
-        )
-        for c in chunks
-    ]
+    return [_result_from_chunk(c) for c in chunks]
 
 
 @with_team_scope(canonical=True)
@@ -2203,25 +2811,13 @@ def get_chunks_by_ids(team_id: int, chunk_ids: list[UUID]) -> list[KnowledgeSear
             "content",
             "source__name",
             "source__source_type",
+            "source__is_generated",
             "document__title",
+            "document__url",
         )
     )
     by_id = {c.id: c for c in chunks}
-    return [
-        KnowledgeSearchResult(
-            chunk_id=c.id,
-            source_id=c.source_id,
-            source_name=c.source.name,
-            source_type=c.source.source_type,
-            document_id=c.document_id,
-            document_title=c.document.title,
-            heading_path=c.heading_path,
-            ordinal=c.ordinal,
-            content=c.content,
-        )
-        for chunk_id in chunk_ids
-        if (c := by_id.get(chunk_id)) is not None
-    ]
+    return [_result_from_chunk(c) for chunk_id in chunk_ids if (c := by_id.get(chunk_id)) is not None]
 
 
 # ---------------------------------------------------------------------------

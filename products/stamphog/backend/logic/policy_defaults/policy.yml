@@ -180,6 +180,8 @@ tiers:
 overrides:
     'size_gate.max_files':
         ceiling: 50
+    'size_gate.max_lines':
+        ceiling: 1000
 # Author-familiarity signal — judgment layer only, never a gate. Non-delegable (absent from
 # `overrides`). STRONG = blame overlap >= min_blame_overlap_pct; MODERATE = both of its keys satisfied;
 # else NONE. Thresholds are stamphog's backtested defaults.

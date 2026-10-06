@@ -8,35 +8,28 @@ from collections.abc import Iterator
 from typing import Any, Literal, TypeVar
 
 from django.core.cache import cache
-from django.db.models import F, Func, IntegerField, Max, Q, QuerySet, TextField
+from django.db.models import F, Func, IntegerField, Q, QuerySet, TextField
 from django.db.models.functions import Cast
 
 import structlog
-from rest_framework import serializers
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
-from ..api.skill_serializers import validate_skill_file_path
-from ..api.skill_services import normalize_skill_file_path, skill_name_is_well_formed, skill_names_owned_by
+from ..api.skill_services import compute_spec_problems, skill_names_owned_by, team_skills_version
 from ..models.skills import LLMSkill, LLMSkillFile
 from .git_smart_http import FileTree, SynthesizedRepo, synthesize_repo
 from .packaging import (
-    CODEX_METADATA_PATH,
     DEFAULT_BUNDLE_SKILLS,
     MAX_BUNDLE_SKILLS,
-    SPEC_DESCRIPTION_MAX_LENGTH,
     SkillExport,
-    SkillFileExport,
     SkillStub,
     archive_entry_bytes,
     build_marketplace_tree,
     build_skill_stub_tree,
     build_skill_tree,
     build_skills_bundle_zip,
-    compute_plugin_version,
     file_tree_bytes,
-    validate_for_export,
 )
 
 logger = structlog.get_logger(__name__)
@@ -51,12 +44,6 @@ _MARKETPLACE_COMMIT_MESSAGE = "PostHog skills marketplace"
 # The cache key already embeds the content-derived plugin version, so a hit is only ever
 # the current content. The TTL just bounds memory for superseded versions.
 _MARKETPLACE_REPO_CACHE_TTL_SECONDS = 300
-# The plugin version is Max(updated_at) over a team's skill rows — cheap, but it runs on every
-# info/refs, every upload-pack, and every auto-update poll. Briefly cache it so a clone + a burst of
-# polls collapse to one query per window instead of one per request. Auto-update detection lags by
-# at most this TTL (content is never stale — only the version label that triggers a re-pull).
-_MARKETPLACE_VERSION_CACHE_TTL_SECONDS = 15
-
 # Bound the in-memory/cached footprint of a team's marketplace so an outlier team with very many
 # (or very large) skills can't OOM the web worker on clone. Past this cumulative content size we
 # skip the remaining skills (logged) rather than synthesize an unbounded tree.
@@ -68,29 +55,30 @@ _MAX_CACHEABLE_PACKFILE_BYTES = 16_000_000
 # not by what the team owns. The count limit lives with the other bundle policy in packaging.
 MAX_BUNDLE_BYTES = 5_000_000
 
+# Gates every path that lists a user's store skills inside a sandbox: the bundle endpoint and the
+# run-state stamp the task worker writes for the sandbox agent.
+SANDBOX_SKILLS_FEATURE_FLAG = "skills-store-in-sandbox"
+
+
+def sandbox_skills_flag_distinct_id(user: User) -> str:
+    """The identity every consumer of ``SANDBOX_SKILLS_FEATURE_FLAG`` evaluates it with.
+
+    A person-targeted or percentage rollout hashes this value, so the bundle endpoint and the task
+    worker must agree on the fallback for a user with no ``distinct_id`` or they can disagree on
+    whether the store is on.
+    """
+    return user.distinct_id or str(user.uuid)
+
+
 # A heavy user can skip very many skills, so the walk keeps only a fixed-size sample of their names
 # plus a running count — never a list proportional to the skip total. The warning logs that sample
 # and count; the response header carries the count only.
 _SKIPPED_LOG_SAMPLE_SIZE = 20
 
 
-def skill_to_export(skill: LLMSkill, files: list[LLMSkillFile]) -> SkillExport:
-    return SkillExport(
-        name=skill.name,
-        description=skill.description,
-        body=skill.body,
-        version=skill.version,
-        license=skill.license or "",
-        compatibility=skill.compatibility or "",
-        allowed_tools=list(skill.allowed_tools or []),
-        metadata=dict(skill.metadata or {}),
-        files=[SkillFileExport(path=f.path, content=f.content, content_type=f.content_type) for f in files],
-    )
-
-
 def load_skill_export(skill: LLMSkill) -> SkillExport:
     files = list(LLMSkillFile.objects.filter(skill=skill).order_by("path"))
-    return skill_to_export(skill, files)
+    return skill.to_export(files)
 
 
 def synthesize_team_marketplace_repo(team: Team) -> SynthesizedRepo:
@@ -98,10 +86,10 @@ def synthesize_team_marketplace_repo(team: Team) -> SynthesizedRepo:
 
     A normal ``git clone`` hits ``info/refs`` then ``git-upload-pack``, and auto-update polls
     repeatedly — synthesizing the whole repo (loading every skill + file, hashing every blob)
-    each time would be wasteful. The cache key embeds ``_team_plugin_version`` (which changes
+    each time would be wasteful. The cache key embeds ``team_skills_version`` (which changes
     exactly when content changes), so a hit is always current and any change invalidates it.
     """
-    version = _team_plugin_version_cached(team)
+    version = team_skills_version(team)
     cache_key = f"skills_marketplace_repo:{team.id}:{version}"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -117,7 +105,7 @@ def synthesize_team_marketplace_repo(team: Team) -> SynthesizedRepo:
 def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileTree:
     """Synthesize the full plugin-marketplace file tree for a team's latest skills."""
     if version is None:
-        version = _team_plugin_version(team)
+        version = team_skills_version(team)
 
     # Lean query: the marketplace only needs the latest live skills, not the version-history
     # annotations / created_by join that get_latest_skills_queryset adds.
@@ -125,19 +113,20 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
 
     files_by_skill = _files_by_skill_id(skills)
 
-    # Drop any skill whose bundled-file paths would synthesize a corrupt/uncloneable git tree
-    # (e.g. legacy rows that predate the stricter path validation, or case-only collisions). One
-    # bad skill is skipped rather than 500-ing the whole team's marketplace clone. We also cap the
-    # cumulative content size: past the ceiling, remaining skills are skipped so a pathological team
-    # can't OOM the clone.
+    # Drop any skill that would synthesize a corrupt/uncloneable git tree (e.g. legacy rows that
+    # predate the stricter path validation, or case-only collisions). One bad skill is skipped
+    # rather than 500-ing the whole team's marketplace clone, and `spec_problems` on the skill tells
+    # its author why. We also cap the cumulative content size: past the ceiling, remaining skills are
+    # skipped so a pathological team can't OOM the clone.
     exports: list[SkillExport] = []
-    skipped_unsafe: list[str] = []
+    skipped_unsafe_count = 0
+    skipped_unsafe_sample: list[str] = []
     skipped_oversize: list[str] = []
     total_bytes = 0
     for skill in skills:
         files = files_by_skill.get(skill.id, [])
-        if not _skill_files_are_tree_safe(files):
-            skipped_unsafe.append(skill.name)
+        if compute_spec_problems(skill.name, skill.description, [f.path for f in files]):
+            skipped_unsafe_count = _record_skip(skipped_unsafe_count, skipped_unsafe_sample, skill.name)
             continue
         skill_bytes = len((skill.body or "").encode("utf-8")) + sum(
             len((f.content or "").encode("utf-8")) for f in files
@@ -148,9 +137,14 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
             skipped_oversize.append(skill.name)
             continue
         total_bytes += skill_bytes
-        exports.append(skill_to_export(skill, files))
-    if skipped_unsafe:
-        logger.warning("skills_marketplace_skipped_unsafe_skills", team_id=team.id, skills=skipped_unsafe)
+        exports.append(skill.to_export(files))
+    if skipped_unsafe_count:
+        logger.warning(
+            "skills_marketplace_skipped_unsafe_skills",
+            team_id=team.id,
+            skipped_count=skipped_unsafe_count,
+            skills_sample=skipped_unsafe_sample,
+        )
     if skipped_oversize:
         logger.warning(
             "skills_marketplace_skipped_oversize",
@@ -169,22 +163,6 @@ def build_team_marketplace_tree(team: Team, version: str | None = None) -> FileT
     )
 
 
-def _skill_files_are_tree_safe(files: list[LLMSkillFile]) -> bool:
-    """True if every file path is valid and no two collide case-insensitively — i.e. the set
-    synthesizes a tree real git can clone on any filesystem."""
-    seen_lower: set[str] = set()
-    for skill_file in files:
-        try:
-            validate_skill_file_path(skill_file.path)
-        except serializers.ValidationError:
-            return False
-        lowered = skill_file.path.lower()
-        if lowered in seen_lower:
-            return False
-        seen_lower.add(lowered)
-    return True
-
-
 def _files_by_skill_id(skills: list[LLMSkill]) -> dict[Any, list[LLMSkillFile]]:
     grouped: dict[Any, list[LLMSkillFile]] = {}  # keyed by skill UUID (matches skill.id lookups)
     if not skills:
@@ -192,27 +170,6 @@ def _files_by_skill_id(skills: list[LLMSkill]) -> dict[Any, list[LLMSkillFile]]:
     for skill_file in LLMSkillFile.objects.filter(skill__in=skills).order_by("path"):
         grouped.setdefault(skill_file.skill_id, []).append(skill_file)
     return grouped
-
-
-def _team_plugin_version_cached(team: Team) -> str:
-    """``_team_plugin_version`` behind a short TTL so the Max() query runs ~once per window per team
-    instead of on every clone / upload-pack / auto-update poll."""
-    cache_key = f"skills_marketplace_version:{team.id}"
-    version = cache.get(cache_key)
-    if version is None:
-        version = _team_plugin_version(team)
-        cache.set(cache_key, version, timeout=_MARKETPLACE_VERSION_CACHE_TTL_SECONDS)
-    return version
-
-
-def _team_plugin_version(team: Team) -> str:
-    # Max over ALL of the team's skill rows, including archived ones. Publishes add a row with a
-    # fresh updated_at and archive_skill bumps updated_at on the rows it soft-deletes, so this is
-    # monotonic and reflects archives. Deriving it from only live skills would regress the version
-    # when the most-recently-updated skill is archived. Milliseconds (not seconds) so two edits
-    # within the same second still produce distinct versions and clients don't miss an update.
-    latest = LLMSkill.objects.filter(team=team).aggregate(latest=Max("updated_at"))["latest"]
-    return compute_plugin_version(int(latest.timestamp() * 1000)) if latest is not None else "1.0.0"
 
 
 @frozen
@@ -227,8 +184,25 @@ BundleContent = Literal["stub", "full"]
 
 
 @frozen
+class SkillStubSelection:
+    """The discovery half of a user's store skills, newest first, plus what the walk left out."""
+
+    stubs: list[SkillStub]
+    dropped_count: int
+    skipped_count: int
+
+
+@frozen
 class _BundleWalk:
     trees: dict[str, FileTree]
+    dropped_count: int
+    skipped_count: int
+    skipped_sample: list[str]
+
+
+@frozen
+class _StubWalk:
+    stubs: list[SkillStub]
     dropped_count: int
     skipped_count: int
     skipped_sample: list[str]
@@ -295,8 +269,44 @@ def build_skill_bundle(
     """
     candidates = _bundle_candidates(team, user, readable_skills)
     limit = min(limit, MAX_BUNDLE_SKILLS)
-    walk = _walk_stubs(candidates, limit) if content == "stub" else _walk_full(candidates, limit)
+    if content == "stub":
+        stub_walk = _walk_stubs(candidates, limit)
+        walk = _BundleWalk(
+            trees={stub.name: build_skill_stub_tree(stub) for stub in stub_walk.stubs},
+            dropped_count=stub_walk.dropped_count,
+            skipped_count=stub_walk.skipped_count,
+            skipped_sample=stub_walk.skipped_sample,
+        )
+    else:
+        walk = _walk_full(candidates, limit)
+    _log_walk(team, user, walk)
 
+    return SkillBundle(
+        zip_bytes=build_skills_bundle_zip(walk.trees),
+        included=list(walk.trees),
+        dropped_count=walk.dropped_count,
+        skipped_count=walk.skipped_count,
+    )
+
+
+def select_skill_stubs(
+    team: Team,
+    user: User,
+    readable_skills: QuerySet[LLMSkill],
+    limit: int = DEFAULT_BUNDLE_SKILLS,
+) -> SkillStubSelection:
+    """The stubs a stub bundle would hold, without the zip, for a consumer that renders them itself.
+
+    Same selection, order, caps and checks as ``build_skill_bundle(content="stub")``, so a sandbox
+    that reads its stubs from run state lists exactly the skills a bundle download would install.
+    """
+    candidates = _bundle_candidates(team, user, readable_skills)
+    walk = _walk_stubs(candidates, min(limit, MAX_BUNDLE_SKILLS))
+    _log_walk(team, user, walk)
+    return SkillStubSelection(stubs=walk.stubs, dropped_count=walk.dropped_count, skipped_count=walk.skipped_count)
+
+
+def _log_walk(team: Team, user: User, walk: _BundleWalk | _StubWalk) -> None:
     if walk.skipped_count:
         logger.warning(
             "skills_bundle_skipped",
@@ -310,18 +320,11 @@ def build_skill_bundle(
             "skills_bundle_dropped_over_cap", team_id=team.id, user_id=user.id, dropped_count=walk.dropped_count
         )
 
-    return SkillBundle(
-        zip_bytes=build_skills_bundle_zip(walk.trees),
-        included=list(walk.trees),
-        dropped_count=walk.dropped_count,
-        skipped_count=walk.skipped_count,
-    )
 
-
-def _dropped_count(candidates: QuerySet[LLMSkill], trees: dict[str, FileTree], skipped_count: int) -> int:
+def _dropped_count(candidates: QuerySet[LLMSkill], included_count: int, skipped_count: int) -> int:
     # Every candidate the walk did not include or skip was dropped at the cap. One count query
     # instead of holding the tail of names in memory for a user with thousands of skills.
-    return candidates.count() - len(trees) - skipped_count
+    return candidates.count() - included_count - skipped_count
 
 
 def _record_skip(count: int, sample: list[str], name: str) -> int:
@@ -332,66 +335,25 @@ def _record_skip(count: int, sample: list[str], name: str) -> int:
     return count + 1
 
 
-def _walk_stubs(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
-    trees: dict[str, FileTree] = {}
+def _walk_stubs(candidates: QuerySet[LLMSkill], limit: int) -> _StubWalk:
+    stubs: list[SkillStub] = []
     skipped_count = 0
     skipped_sample: list[str] = []
     for row in _candidate_batches(candidates.values("name", "description", "version")):
-        if len(trees) >= limit:
-            return _BundleWalk(
-                trees=trees,
-                dropped_count=_dropped_count(candidates, trees, skipped_count),
+        if len(stubs) >= limit:
+            return _StubWalk(
+                stubs=stubs,
+                dropped_count=_dropped_count(candidates, len(stubs), skipped_count),
                 skipped_count=skipped_count,
                 skipped_sample=skipped_sample,
             )
         name = row["name"]
-        if not _name_and_description_are_valid(name, row["description"]):
+        # A stub bundle writes only the generated SKILL.md, so a bundled-file path cannot break it.
+        if compute_spec_problems(name, row["description"], []):
             skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue
-        trees[name] = build_skill_stub_tree(
-            SkillStub(name=name, description=row["description"], version=row["version"])
-        )
-    return _BundleWalk(trees=trees, dropped_count=0, skipped_count=skipped_count, skipped_sample=skipped_sample)
-
-
-def _name_and_description_are_valid(name: str, description: str) -> bool:
-    return (
-        skill_name_is_well_formed(name)
-        and bool(description.strip())
-        and len(description) <= SPEC_DESCRIPTION_MAX_LENGTH
-    )
-
-
-_GENERATED_ENTRIES = ("SKILL.md", CODEX_METADATA_PATH)
-
-
-def _bundle_paths_are_safe(paths: list[str]) -> bool:
-    """True when a skill's archive entries unpack cleanly into a home directory on any filesystem.
-
-    Every stored path must already be canonical (a legacy ``refs\\guide.md`` would be archived
-    verbatim and land as one flat file, or collide with ``refs/guide.md``), no two entries may
-    collide case-insensitively, and no entry may name a directory another entry needs
-    (``assets`` next to ``assets/logo.png``), counting the generated SKILL.md and Codex sidecar.
-    """
-    seen = {entry.lower() for entry in _GENERATED_ENTRIES}
-    for path in paths:
-        try:
-            canonical = normalize_skill_file_path(path)
-        except ValueError:
-            return False
-        if canonical != path:
-            return False
-        lowered = path.lower()
-        # Only the exact sidecar path replaces the generated one (see build_skill_tree); a case
-        # variant like `Agents/OpenAI.yaml` keys a second tree entry and would collide instead.
-        if lowered in seen and path != CODEX_METADATA_PATH:
-            return False
-        seen.add(lowered)
-    for lowered in seen:
-        parts = lowered.split("/")
-        if any("/".join(parts[:depth]) in seen for depth in range(1, len(parts))):
-            return False
-    return True
+        stubs.append(SkillStub(name=name, description=row["description"], version=row["version"]))
+    return _StubWalk(stubs=stubs, dropped_count=0, skipped_count=skipped_count, skipped_sample=skipped_sample)
 
 
 def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
@@ -416,9 +378,9 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
         if len(trees) >= limit:
             capped = True
             break
-        # Skips are decided before the cap so an invalid skill never caps the bundle. Validity is
-        # cheap: the name and description are in the row, and the paths are a small query.
-        if not _name_and_description_are_valid(name, candidate["description"]):
+        # Skips are decided before the cap so an invalid skill never caps the bundle. The row-level
+        # rules run first, off the columns already in hand, so a skill they reject costs no query.
+        if compute_spec_problems(name, candidate["description"], []):
             skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue
         sized_files = list(
@@ -426,7 +388,7 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
             .annotate(content_bytes=_octet_length(F("content")))
             .values_list("path", "content_bytes")
         )
-        if not _bundle_paths_are_safe([path for path, _ in sized_files]):
+        if compute_spec_problems(name, candidate["description"], [path for path, _ in sized_files]):
             skipped_count = _record_skip(skipped_count, skipped_sample, name)
             continue
         # The stored bytes are a floor for the rendered tree, so a skill that fails here would fail
@@ -443,18 +405,14 @@ def _walk_full(candidates: QuerySet[LLMSkill], limit: int) -> _BundleWalk:
             # it either, so it is neither included, skipped nor dropped.
             continue
         files = list(LLMSkillFile.objects.filter(skill=skill).order_by("path"))
-        export = skill_to_export(skill, files)
-        if validate_for_export(export):
-            skipped_count = _record_skip(skipped_count, skipped_sample, name)
-            continue
-        tree = build_skill_tree(export)
+        tree = build_skill_tree(skill.to_export(files))
         tree_bytes = file_tree_bytes(tree, prefix=f"{name}/")
         if total_bytes + tree_bytes > MAX_BUNDLE_BYTES:
             capped = True
             break
         total_bytes += tree_bytes
         trees[name] = tree
-    dropped_count = _dropped_count(candidates, trees, skipped_count) if capped else 0
+    dropped_count = _dropped_count(candidates, len(trees), skipped_count) if capped else 0
     return _BundleWalk(
         trees=trees, dropped_count=dropped_count, skipped_count=skipped_count, skipped_sample=skipped_sample
     )

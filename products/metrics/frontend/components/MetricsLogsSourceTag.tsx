@@ -17,7 +17,7 @@ export interface MetricsLogsSourceTagProps {
  * the logs the rule matches, and the rule itself in settings.
  */
 export function MetricsLogsSourceTag({ metricName }: MetricsLogsSourceTagProps): JSX.Element | null {
-    const metricRulesEnabled = useFeatureFlag('LOGS_METRIC_RULES')
+    const metricRulesEnabled = useFeatureFlag('METRICS')
     if (!metricRulesEnabled || !metricName.trim()) {
         return null
     }

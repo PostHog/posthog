@@ -1,9 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { ComponentProps, CSSProperties, useId } from 'react'
+import { ComponentProps, CSSProperties, useId, useState } from 'react'
 
 import { IconPencil, IconPlus } from '@posthog/icons'
-import { LemonInputSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonInputSelect, LemonTag, LemonTagType, Popover } from '@posthog/lemon-ui'
 
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
 import { colorForString } from 'lib/utils/colors'
@@ -24,12 +24,19 @@ interface ObjectTagsPropsBase {
     inputPlaceholder?: string
     /** Makes each displayed tag clickable, e.g. to filter by it. */
     onTagClick?: (tag: string) => void
+    /** Called before opening the tag editor. */
+    onEdit?: () => void
+    /** Maximum number of tags to show before showing the rest in a popover. */
+    maxVisibleTags?: number
+    /** Adds "more" to the overflow tag count. */
+    showOverflowLabel?: boolean
     /**
      * Let a long tag wrap and shrink rather than overflow its container. For narrow containers like a
      * sidebar column — off by default, since it lowers the min-content width and so shifts how much
      * room surrounding table columns get.
      */
     wrap?: boolean
+    editorFullWidth?: boolean
 }
 
 export type ObjectTagsProps =
@@ -59,6 +66,7 @@ const COLOR_OVERRIDES: Record<string, LemonTagType> = {
 export function ObjectTags({
     tags,
     onChange, // Required unless `staticOnly`
+    onEdit,
     onBlur,
     saving, // Required unless `staticOnly`
     tagsAvailable,
@@ -71,7 +79,10 @@ export function ObjectTags({
     editLabel = 'Edit tags',
     inputPlaceholder = 'try "official"',
     onTagClick,
+    maxVisibleTags,
+    showOverflowLabel = false,
     wrap = false,
+    editorFullWidth = false,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
     const logic = objectTagsLogic({ id: objectTagId, onChange })
@@ -84,13 +95,22 @@ export function ObjectTags({
         style.color = 'var(--color-text-secondary)'
     }
 
-    const hasTags = tags && tags.length > 0
+    const displayTags = tags.filter((tag) => !!tag)
+    const hasTags = displayTags.length > 0
+    const [showOverflowTags, setShowOverflowTags] = useState(false)
+    const visibleTags = maxVisibleTags === undefined ? displayTags : displayTags.slice(0, maxVisibleTags)
+    const overflowTags = maxVisibleTags === undefined ? [] : displayTags.slice(maxVisibleTags)
 
     return (
         <div
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
-            className={clsx(className, 'inline-flex flex-wrap gap-0.5 items-center', wrap && 'min-w-0 max-w-full')}
+            className={clsx(
+                className,
+                'inline-flex flex-wrap gap-0.5 items-center',
+                wrap && 'min-w-0 max-w-full',
+                editingTags && editorFullWidth && 'w-full min-w-0'
+            )}
             data-attr={dataAttr}
         >
             {editingTags ? (
@@ -108,32 +128,60 @@ export function ObjectTags({
                     data-attr="new-tag-input"
                     placeholder={inputPlaceholder}
                     autoFocus
+                    fullWidth={editorFullWidth}
                     popoverClassName="click-outside-block"
                 />
             ) : (
                 <>
                     {showPlaceholder
                         ? '—'
-                        : tags
-                              .filter((t) => !!t)
-                              .map((tag, index) => {
-                                  return (
-                                      <LemonTag
-                                          key={index}
-                                          type={COLOR_OVERRIDES[tag] || colorForString(tag)}
-                                          onClick={onTagClick ? () => onTagClick(tag) : undefined}
-                                          className={wrap ? 'max-w-full' : undefined}
-                                          wrap={wrap}
-                                      >
-                                          {tag}
-                                      </LemonTag>
-                                  )
-                              })}
+                        : visibleTags.map((tag, index) => {
+                              return (
+                                  <LemonTag
+                                      key={index}
+                                      type={COLOR_OVERRIDES[tag] || colorForString(tag)}
+                                      onClick={onTagClick ? () => onTagClick(tag) : undefined}
+                                      className={wrap ? 'max-w-full' : undefined}
+                                      wrap={wrap}
+                                  >
+                                      {tag}
+                                  </LemonTag>
+                              )
+                          })}
+                    {overflowTags.length > 0 && (
+                        <Popover
+                            visible={showOverflowTags}
+                            onClickOutside={() => setShowOverflowTags(false)}
+                            overlay={
+                                <ObjectTags
+                                    tags={overflowTags}
+                                    staticOnly
+                                    onTagClick={onTagClick}
+                                    wrap
+                                    className="max-w-md"
+                                />
+                            }
+                        >
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                onClick={() => setShowOverflowTags(!showOverflowTags)}
+                                data-attr={dataAttr ? `${dataAttr}-overflow` : undefined}
+                                aria-label={`Show ${overflowTags.length} more ${overflowTags.length === 1 ? 'tag' : 'tags'}`}
+                            >
+                                +{overflowTags.length}
+                                {showOverflowLabel ? ' more' : ''}
+                            </LemonButton>
+                        </Popover>
+                    )}
                     {!staticOnly && onChange && saving !== undefined && (
                         <span className="inline-flex font-normal">
                             <LemonTag
                                 type="none"
-                                onClick={() => setEditingTags(true)}
+                                onClick={() => {
+                                    onEdit?.()
+                                    setEditingTags(true)
+                                }}
                                 data-attr="button-add-tag"
                                 icon={hasTags ? <IconPencil /> : <IconPlus />}
                                 className="border border-dashed"

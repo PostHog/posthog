@@ -1,6 +1,8 @@
 from enum import StrEnum
 from typing import Any
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
@@ -31,13 +33,15 @@ class MetaAdsResource(StrEnum):
     AdStatsByRegion = "ad_stats_by_region"
     AdStatsByPlatform = "ad_stats_by_platform"
     AdStatsHourly = "ad_stats_hourly"
+    AdStatsByLinkUrl = "ad_stats_by_link_url"
 
 
 # Insights broken down by a dimension. Each one multiplies the daily row count by the
 # cardinality of its breakdown, and only some accounts care about any given dimension, so
-# they stay off in the schema picker until a user asks for them. The same breakdown dimensions
-# are offered at campaign, adset and ad grain — creative testing and ad-fatigue analysis only
-# make sense at ad level, which campaign-grain rows can't express.
+# they stay off in the schema picker until a user asks for them. The delivery dimensions are
+# offered at campaign, adset and ad grain — creative testing and ad-fatigue analysis only
+# make sense at ad level, which campaign-grain rows can't express. The creative-asset dimensions
+# describe one ad's creative, so Meta reports them at ad level only.
 BREAKDOWN_STATS_ENDPOINTS = (
     MetaAdsResource.CampaignStatsByAgeGender,
     MetaAdsResource.CampaignStatsByCountry,
@@ -54,6 +58,7 @@ BREAKDOWN_STATS_ENDPOINTS = (
     MetaAdsResource.AdStatsByRegion,
     MetaAdsResource.AdStatsByPlatform,
     MetaAdsResource.AdStatsHourly,
+    MetaAdsResource.AdStatsByLinkUrl,
 )
 
 ENDPOINTS = (
@@ -138,9 +143,11 @@ ADSET_BREAKDOWN_STATS_FIELDS = ["adset_id", "campaign_id", *_BREAKDOWN_METRIC_FI
 AD_BREAKDOWN_STATS_FIELDS = ["ad_id", "adset_id", "campaign_id", *_BREAKDOWN_METRIC_FIELDS]
 
 # Meta: "Hourly breakdowns do not support unique fields, which are any fields prepended with
-# `unique_*`, `reach` or `frequency`." `cpp` and `cost_per_unique_click` are derived from those,
-# so the hourly table asks for none of them rather than storing columns Meta zeroes out.
-_HOURLY_UNSUPPORTED_FIELDS = {
+# `unique_*`, `reach` or `frequency`." `cpp` and `cost_per_unique_click` are derived from those.
+# A person who saw an ad cannot be counted once across a split Meta does not deduplicate over, so
+# the same restriction applies to the creative-asset breakdowns. Both tables ask for none of these
+# fields rather than storing columns Meta zeroes out.
+_UNIQUE_METRIC_FIELDS = {
     "reach",
     "frequency",
     "cpp",
@@ -151,25 +158,57 @@ _HOURLY_UNSUPPORTED_FIELDS = {
 }
 
 
-def _hourly_fields(field_names: list[str]) -> list[str]:
-    return [f for f in field_names if f not in _HOURLY_UNSUPPORTED_FIELDS]
+def _without_unique_metrics(field_names: list[str]) -> list[str]:
+    return [f for f in field_names if f not in _UNIQUE_METRIC_FIELDS]
 
 
-HOURLY_BREAKDOWN_STATS_FIELDS = _hourly_fields(CAMPAIGN_BREAKDOWN_STATS_FIELDS)
+HOURLY_BREAKDOWN_STATS_FIELDS = _without_unique_metrics(CAMPAIGN_BREAKDOWN_STATS_FIELDS)
+AD_ASSET_BREAKDOWN_STATS_FIELDS = _without_unique_metrics(AD_BREAKDOWN_STATS_FIELDS)
+
+
+@frozen
+class HoistedColumn:
+    """A scalar column copied out of a nested Graph API object, next to the object itself.
+
+    The pipeline stores a nested object as a JSON string, which HogQL can read only by unpacking
+    it. A value a user needs as a join key or a group-by column is unusable in that form, so the
+    source lifts it into a column of its own. The nested field stays, because it carries more than
+    the hoisted key.
+    """
+
+    source_field: str
+    key: str
+    column: str
+
 
 # The Insights `level` and its grain column, which heads that level's primary key and field list.
 _LEVEL_GRAIN_COLUMN = {"campaign": "campaign_id", "adset": "adset_id", "ad": "ad_id"}
 
 
-def _breakdown_stats(level: str, breakdowns: list[str], field_names: list[str]) -> dict[str, Any]:
+def _breakdown_stats(
+    level: str,
+    breakdowns: list[str],
+    field_names: list[str],
+    *,
+    key_columns: list[str] | None = None,
+    hoisted_columns: tuple[HoistedColumn, ...] = (),
+) -> dict[str, Any]:
     """Insights split by `breakdowns` at `level` (campaign/adset/ad).
 
     Every breakdown dimension joins the primary key: a grain/day pair now yields one row per
     combination of dimension values, so keying on the grain id + `date_start` alone would collapse
-    them into duplicates that merge multi-matches on every sync.
+    them into duplicates that merge multi-matches on every sync. `key_columns` overrides which
+    columns stand for the dimensions in that key, for a dimension Meta returns as an object: the
+    JSON string the object is stored as would make the merge key depend on Meta's key ordering,
+    so the scalar id hoisted out of it is keyed on instead.
     """
     return {
-        "primary_keys": [_LEVEL_GRAIN_COLUMN[level], "account_id", "date_start", *breakdowns],
+        "primary_keys": [
+            _LEVEL_GRAIN_COLUMN[level],
+            "account_id",
+            "date_start",
+            *(key_columns if key_columns is not None else breakdowns),
+        ],
         "url": "https://graph.facebook.com/{API_VERSION}/{account_id}/insights",
         "extra_params": {
             "level": level,
@@ -181,6 +220,7 @@ def _breakdown_stats(level: str, breakdowns: list[str], field_names: list[str]) 
         "partition_format": "week",
         "partition_keys": ["date_start"],
         "is_stats": True,
+        "hoisted_columns": hoisted_columns,
     }
 
 
@@ -208,6 +248,9 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "partition_mode": "datetime",
         "partition_format": "week",
         "partition_keys": ["created_time"],
+        # The Ad node returns its creative as a nested object. Without a scalar id there is no join
+        # from an ad to `ad_creatives`, where the destination URL and the URL tags live.
+        "hoisted_columns": (HoistedColumn(source_field="creative", key="id", column="creative_id"),),
     },
     MetaAdsResource.AdStats: {
         "primary_keys": ["ad_id", "account_id", "date_start"],
@@ -555,7 +598,9 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "adset", ["publisher_platform", "platform_position", "impression_device"], ADSET_BREAKDOWN_STATS_FIELDS
     ),
     MetaAdsResource.AdsetStatsHourly: _breakdown_stats(
-        "adset", ["hourly_stats_aggregated_by_advertiser_time_zone"], _hourly_fields(ADSET_BREAKDOWN_STATS_FIELDS)
+        "adset",
+        ["hourly_stats_aggregated_by_advertiser_time_zone"],
+        _without_unique_metrics(ADSET_BREAKDOWN_STATS_FIELDS),
     ),
     MetaAdsResource.AdStatsByAgeGender: _breakdown_stats("ad", ["age", "gender"], AD_BREAKDOWN_STATS_FIELDS),
     MetaAdsResource.AdStatsByCountry: _breakdown_stats("ad", ["country"], AD_BREAKDOWN_STATS_FIELDS),
@@ -564,6 +609,23 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "ad", ["publisher_platform", "platform_position", "impression_device"], AD_BREAKDOWN_STATS_FIELDS
     ),
     MetaAdsResource.AdStatsHourly: _breakdown_stats(
-        "ad", ["hourly_stats_aggregated_by_advertiser_time_zone"], _hourly_fields(AD_BREAKDOWN_STATS_FIELDS)
+        "ad", ["hourly_stats_aggregated_by_advertiser_time_zone"], _without_unique_metrics(AD_BREAKDOWN_STATS_FIELDS)
+    ),
+    # Spend against the landing page an ad sent people to. Meta reports the destination URL only
+    # as a creative asset, and `ad_creatives.link_url` alone cannot carry spend, so this is the
+    # only table that pairs the two. Ad level only: the asset belongs to one ad's creative, and a
+    # campaign or ad set total per URL is a sum over these rows, which already carry `campaign_id`
+    # and `adset_id`.
+    MetaAdsResource.AdStatsByLinkUrl: _breakdown_stats(
+        "ad",
+        ["link_url_asset"],
+        AD_ASSET_BREAKDOWN_STATS_FIELDS,
+        key_columns=["link_url_asset_id"],
+        # `link_url_asset` arrives as `{"id": ..., "website_url": ...}`. The URL is what the table
+        # exists for, and the asset id is its stable identity, so both become columns.
+        hoisted_columns=(
+            HoistedColumn(source_field="link_url_asset", key="website_url", column="link_url"),
+            HoistedColumn(source_field="link_url_asset", key="id", column="link_url_asset_id"),
+        ),
     ),
 }

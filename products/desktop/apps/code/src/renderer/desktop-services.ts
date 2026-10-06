@@ -1,3 +1,10 @@
+import { codexCloudAccountModule } from "@posthog/core/integrations/codexCloudAccount.module";
+import {
+  CODEX_CLOUD_ACCOUNT_HOST,
+  type CodexCloudAccountHost,
+} from "@posthog/core/integrations/codexCloudAccountService";
+import { SETTINGS_BACKUP_FILES } from "@posthog/platform/settings-backup-files";
+import { CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS } from "@posthog/ui/features/settings/claudeSubscriptionTokenSettings";
 // Desktop host service bindings live here as features move into packages.
 // Importing the renderer container performs today's existing bindings.
 import "@renderer/di/container";
@@ -50,6 +57,7 @@ import {
 } from "@posthog/core/speech/identifiers";
 import { resolveService } from "@posthog/di/container";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
+import { DISK_CACHE_IMAGES } from "@posthog/platform/disk-cache";
 import {
   HOST_CAPABILITIES,
   type HostCapabilities,
@@ -100,7 +108,10 @@ import {
   AGENT_PROMPT_SENDER,
   type AgentPromptSender,
 } from "@posthog/ui/features/sessions/agentPromptSender";
-import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import {
+  notificationsPaused,
+  useSettingsStore,
+} from "@posthog/ui/features/settings/settingsStore";
 import {
   type ISpeechKeyStore,
   SPEECH_KEY_STORE,
@@ -123,6 +134,7 @@ import {
 import { ELEVENLABS_API_KEY_STORE_KEY } from "@posthog/workspace-server/services/speech/identifiers";
 import { container } from "@renderer/di/container";
 import { RendererAuthSideEffects } from "@renderer/platform-adapters/auth-side-effects";
+import { desktopDiskCacheImages } from "@renderer/platform-adapters/desktop-disk-cache-images";
 import { gitCacheKeyProvider } from "@renderer/platform-adapters/git-cache-keys";
 import { RendererHedgehogModeHost } from "@renderer/platform-adapters/hedgehog-mode-host";
 import { setupStore } from "@renderer/platform-adapters/setup";
@@ -137,6 +149,10 @@ container.bind(GIT_CACHE_KEY_PROVIDER).toConstantValue(gitCacheKeyProvider);
 // archive
 container.load(archiveModule);
 container.bind(ARCHIVE_CLIENT).toConstantValue({
+  archive: (input) => hostTrpcClient.archive.archive.mutate(input),
+  refreshArchiveState: async () => {
+    await queryClient.invalidateQueries({ queryKey: [["archive"]] });
+  },
   unarchive: (input) => hostTrpcClient.archive.unarchive.mutate(input),
   delete: (input) => hostTrpcClient.archive.delete.mutate(input),
   showArchivedTaskContextMenu: (input) =>
@@ -318,6 +334,7 @@ container
         completionVolume: s.completionVolume,
         scaleSoundWithTaskLength: s.scaleSoundWithTaskLength,
         customSounds: s.customSounds,
+        notificationsPausedUntil: s.notificationsPausedUntil,
       };
     },
   });
@@ -380,7 +397,9 @@ container
     get: () => {
       const s = useSettingsStore.getState();
       return {
-        enabled: s.spokenNotifications,
+        enabled:
+          s.spokenNotifications &&
+          !notificationsPaused(s.notificationsPausedUntil),
         voiceId: s.elevenLabsVoiceId || undefined,
       };
     },
@@ -403,6 +422,13 @@ container.bind<UserNameProvider>(SPEECH_USER_NAME_PROVIDER).toConstantValue({
     }
     return undefined;
   },
+});
+
+container.bind(CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS).toConstantValue({
+  has: () => hostTrpcClient.claudeSubscriptionToken.has.query(),
+  save: (token: string) =>
+    hostTrpcClient.claudeSubscriptionToken.save.mutate({ token }),
+  clear: () => hostTrpcClient.claudeSubscriptionToken.clear.mutate(),
 });
 
 container.bind<ISpeechKeyStore>(SPEECH_KEY_STORE).toConstantValue({
@@ -440,6 +466,35 @@ container
 
 container.bind(SETUP_STORE).toConstantValue(setupStore);
 
+container.bind(HOST_CAPABILITIES).toConstantValue({
+  localWorkspaces: true,
+  // Baked from the same rule the main-process store applies to its reads and
+  // writes, so the option never appears in a build that cannot serve it.
+  customCloud: import.meta.env.VITE_POSTHOG_CUSTOM_CLOUD_BUILD === "true",
+} satisfies HostCapabilities);
+
+container.bind(DISK_CACHE_IMAGES).toConstantValue(desktopDiskCacheImages);
+
+container.bind(SETTINGS_BACKUP_FILES).toConstantValue({
+  getAppVersion: () => hostTrpcClient.os.getAppVersion.query(),
+  open: () => hostTrpcClient.settingsBackup.open.mutate(),
+  save: (input) => hostTrpcClient.settingsBackup.save.mutate(input),
+});
+
+container.load(codexCloudAccountModule);
 container
-  .bind(HOST_CAPABILITIES)
-  .toConstantValue({ localWorkspaces: true } satisfies HostCapabilities);
+  .bind<CodexCloudAccountHost>(CODEX_CLOUD_ACCOUNT_HOST)
+  .toConstantValue({
+    prepare: (attemptId) =>
+      hostTrpcClient.agent.codexCloudAuthTerminal.mutate({ attemptId }),
+    read: (attemptId) =>
+      hostTrpcClient.agent.codexCloudAuthFileRead.query({ attemptId }),
+    remove: (attemptId) =>
+      hostTrpcClient.agent.codexCloudAuthFileRemove.mutate({ attemptId }),
+    finish: (attemptId) =>
+      hostTrpcClient.agent.codexCloudAuthFinish.mutate({ attemptId }),
+    cancel: async (attemptId) => {
+      await hostTrpcClient.shell.destroy.mutate({ sessionId: attemptId });
+      await hostTrpcClient.agent.codexCloudAuthFinish.mutate({ attemptId });
+    },
+  });

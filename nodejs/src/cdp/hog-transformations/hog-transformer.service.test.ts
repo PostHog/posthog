@@ -24,6 +24,7 @@ import { resetHogvmNodeModuleCacheForTests } from './rust-vm'
 jest.mock('@posthog/hogvm-node', () => ({
     init: jest.fn(),
     executeSync: jest.fn(),
+    executeBatch: jest.fn(),
 }))
 
 const mockHogvmNode = jest.mocked(jest.requireMock<typeof import('@posthog/hogvm-node')>('@posthog/hogvm-node'))
@@ -74,6 +75,7 @@ describe('HogTransformer', () => {
         const config: HogTransformerServiceConfig = {
             SITE_URL: hub.SITE_URL,
             CDP_HOG_RUST_VM_EXECUTION_ENABLED: false,
+            CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED: false,
             MMDB_FILE_LOCATION: hub.MMDB_FILE_LOCATION,
             // Deliberately not the default, so the assertion below proves the value is plumbed
             // through rather than hardcoded in the factory.
@@ -88,6 +90,28 @@ describe('HogTransformer', () => {
         expect(transformer['hogExecutor']['config'].executionTimeoutMs).toBe(123)
 
         await transformer.stop()
+    })
+
+    it('prefetchHogFunctionsForTeams leaves the transformation caches warm for the event path', async () => {
+        const fn = createHogFunction({
+            type: 'transformation',
+            name: defaultTemplate.name,
+            team_id: teamId,
+            enabled: true,
+            bytecode: await compileHog(defaultTemplate.code),
+        })
+        await insertHogFunction(hub.postgres, teamId, fn)
+
+        await hogTransformer.prefetchHogFunctionsForTeams([teamId])
+
+        const querySpy = jest.spyOn(hub.postgres, 'query')
+        const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
+
+        expect(result.invocationResults).toHaveLength(1)
+        const hogFunctionQueries = querySpy.mock.calls
+            .map((call) => call[3])
+            .filter((tag) => tag === 'fetchAllTeamHogFunctions' || tag === 'fetchHogFunctions')
+        expect(hogFunctionQueries).toEqual([])
     })
 
     describe('transformEvent', () => {
@@ -983,6 +1007,90 @@ describe('HogTransformer', () => {
             expect(result.event?.properties?.success).toBe(true)
             expect(result.event?.properties?.should_not_be_set).toBeUndefined()
         })
+
+        describe('capture-owned $ai_gateway properties', () => {
+            const insertTransformation = async (hog: string) => {
+                const fn = createHogFunction({
+                    type: 'transformation',
+                    name: 'gateway writer',
+                    team_id: teamId,
+                    enabled: true,
+                    bytecode: await compileHog(hog),
+                })
+                await insertHogFunction(hub.postgres, teamId, fn)
+                hogTransformer['hogFunctionManager']['onHogFunctionsReloaded'](teamId, [fn.id])
+            }
+
+            it('discards gateway markers a transformation adds', async () => {
+                await insertTransformation(`
+                    let returnEvent := event
+                    returnEvent.properties['$ai_gateway_verified'] := true
+                    returnEvent.properties['$ai_gateway_request_id'] := 'forged'
+                    returnEvent.properties['$ai_gateway_relay'] := false
+                    returnEvent.properties.touched := true
+                    return returnEvent
+                `)
+
+                const event = createPluginEvent(
+                    { event: '$ai_generation', properties: { $ai_model: 'claude' } },
+                    teamId
+                )
+                const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+                expect(result.event?.properties).toEqual({ $ai_model: 'claude', touched: true })
+            })
+
+            it('restores gateway markers a transformation changes or removes', async () => {
+                await insertTransformation(`
+                    let returnEvent := event
+                    returnEvent.properties['$ai_gateway_request_id'] := 'forged'
+                    returnEvent.properties['$ai_gateway_verified'] := null
+                    return returnEvent
+                `)
+
+                const event = createPluginEvent(
+                    {
+                        event: '$ai_generation',
+                        properties: {
+                            $ai_model: 'claude',
+                            $ai_gateway_verified: true,
+                            $ai_gateway_request_id: 'req-1',
+                        },
+                    },
+                    teamId
+                )
+                const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+                expect(result.event?.properties).toEqual({
+                    $ai_model: 'claude',
+                    $ai_gateway_verified: true,
+                    $ai_gateway_request_id: 'req-1',
+                })
+            })
+
+            it('leaves untouched gateway markers alone', async () => {
+                await insertTransformation(`
+                    let returnEvent := event
+                    returnEvent.properties.touched := true
+                    return returnEvent
+                `)
+
+                const event = createPluginEvent(
+                    {
+                        event: '$ai_generation',
+                        properties: { $ai_gateway_verified: true, $ai_gateway_request_id: 'req-1' },
+                    },
+                    teamId
+                )
+                const result = await hogTransformer.transformEventAndProduceMessages(event)
+
+                expect(result.event?.properties).toEqual({
+                    $ai_gateway_verified: true,
+                    $ai_gateway_request_id: 'req-1',
+                    touched: true,
+                })
+            })
+        })
     })
 
     describe('legacy plugins', () => {
@@ -1568,6 +1676,29 @@ describe('HogTransformer', () => {
             expect(result.event?.properties).toMatchObject({
                 $current_url: 'https://example.com',
             })
+        })
+
+        it('routes through executeBatch instead of executeSync when batch execution is enabled', async () => {
+            hub.CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED = true
+            hogTransformer = createHogTransformerService(hub, {
+                ...hub,
+                monitoringOutputs: createTestMonitoringOutputs(mockProducer),
+            })
+            mockHogvmNode.executeBatch.mockResolvedValue([
+                {
+                    result: { properties: { from_rust_batch: true } },
+                    durationUs: 100,
+                    logs: [],
+                    logsTruncated: false,
+                },
+            ])
+
+            const result = await hogTransformer.transformEventAndProduceMessages(createPluginEvent({}, teamId))
+
+            expect(mockHogvmNode.executeSync).not.toHaveBeenCalled()
+            expect(mockHogvmNode.executeBatch).toHaveBeenCalledTimes(1)
+            expect(mockHogvmNode.executeBatch.mock.calls[0][0]).toEqual(bytecode)
+            expect(result.event?.properties).toEqual({ from_rust_batch: true })
         })
     })
 })

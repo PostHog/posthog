@@ -12,6 +12,7 @@ import jwt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 
+from products.tasks.backend.feature_flags import run_stream_presence_gated, run_stream_thin_tail
 from products.tasks.backend.logic.services.sandbox_config import SANDBOX_TTL_SECONDS
 
 if TYPE_CHECKING:
@@ -22,6 +23,8 @@ SANDBOX_CONNECTION_AUDIENCE = "posthog:sandbox_connection"
 SANDBOX_EVENT_INGEST_AUDIENCE = "posthog:sandbox_event_ingest"
 SANDBOX_EVENT_INGEST_TOKEN_TTL_BUFFER = timedelta(hours=1)
 SANDBOX_EVENT_INGEST_TOKEN_TTL = timedelta(seconds=SANDBOX_TTL_SECONDS) + SANDBOX_EVENT_INGEST_TOKEN_TTL_BUFFER
+
+SANDBOX_CODEX_SUBSCRIPTION_AUDIENCE = "posthog:sandbox_codex_subscription"
 
 SANDBOX_JWT_STATE_KID_KEY = "sandbox_jwt_kid"
 
@@ -39,6 +42,9 @@ class SandboxEventIngestTokenPayload:
     task_id: str
     team_id: int
     sandbox_id: str | None
+    presence_gated: bool = False
+    thin_tail: bool = False
+    origin_product: str | None = None
 
 
 @dataclass(frozen=True)
@@ -49,10 +55,21 @@ class _SandboxJwtKey:
 
 
 @dataclass(frozen=True)
+class CodexSubscriptionRunTokenPayload:
+    run_id: str
+    task_id: str
+    team_id: int
+    sandbox_id: str
+
+
+@dataclass(frozen=True)
 class StreamReadTokenPayload:
     run_id: str
     task_id: str
     team_id: int
+    presence_gated: bool = False
+    is_terminal: bool = False
+    origin_product: str | None = None
 
 
 def _normalize_pem_key(key: str) -> str:
@@ -259,11 +276,18 @@ def create_sandbox_event_ingest_token(
     active_sandbox_id = sandbox_id or (task_run.state or {}).get("sandbox_id")
     if not isinstance(active_sandbox_id, str) or not active_sandbox_id:
         raise ValueError("Task run has no active sandbox identity")
+    presence_gated = run_stream_presence_gated(task_run.state)
+    thin_tail = run_stream_thin_tail(task_run.state)
     return _encode_run_scoped_token(
         task_run,
         SANDBOX_EVENT_INGEST_AUDIENCE,
         ttl,
-        {"sandbox_id": active_sandbox_id},
+        {
+            "sandbox_id": active_sandbox_id,
+            "presence_gated": presence_gated,
+            "thin_tail": thin_tail,
+            "origin_product": task_run.task.origin_product,
+        },
     )
 
 
@@ -274,10 +298,19 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
     task_id = payload.get("task_id")
     team_id = payload.get("team_id")
     sandbox_id = payload.get("sandbox_id")
+    presence_gated = payload.get("presence_gated", False)
+    thin_tail = payload.get("thin_tail", False)
+    origin_product = payload.get("origin_product")
 
     if not isinstance(run_id, str) or not isinstance(task_id, str) or type(team_id) is not int:
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
     if sandbox_id is not None and (not isinstance(sandbox_id, str) or not sandbox_id):
+        raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
+    if not isinstance(presence_gated, bool):
+        raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
+    if not isinstance(thin_tail, bool):
+        raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
+    if origin_product is not None and not isinstance(origin_product, str):
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
 
     return SandboxEventIngestTokenPayload(
@@ -285,7 +318,42 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
         task_id=task_id,
         team_id=team_id,
         sandbox_id=sandbox_id,
+        presence_gated=presence_gated,
+        thin_tail=thin_tail,
+        origin_product=origin_product,
     )
+
+
+def create_codex_subscription_run_token(
+    task_run: TaskRun,
+    *,
+    sandbox_id: str,
+    ttl: timedelta = SANDBOX_EVENT_INGEST_TOKEN_TTL,
+) -> str:
+    """Create the run-scoped JWT the agent-server presents to fetch the owner's ChatGPT access token.
+
+    The token is a second factor next to the sandbox OAuth token: it reaches the agent-server
+    over an inherited file descriptor and never enters the sandbox environment, so a process
+    the agent starts holds the OAuth token but not this one. Bound to the sandbox so a token
+    captured in a snapshot stops working after a resume.
+    """
+    return _encode_run_scoped_token(task_run, SANDBOX_CODEX_SUBSCRIPTION_AUDIENCE, ttl, {"sandbox_id": sandbox_id})
+
+
+def validate_codex_subscription_run_token(token: str) -> CodexSubscriptionRunTokenPayload:
+    payload = _decode_sandbox_token(token, SANDBOX_CODEX_SUBSCRIPTION_AUDIENCE)
+
+    run_id = payload.get("run_id")
+    task_id = payload.get("task_id")
+    team_id = payload.get("team_id")
+    sandbox_id = payload.get("sandbox_id")
+
+    if not isinstance(run_id, str) or not isinstance(task_id, str) or type(team_id) is not int:
+        raise jwt.InvalidTokenError("Codex subscription run token has invalid claims")
+    if not isinstance(sandbox_id, str) or not sandbox_id:
+        raise jwt.InvalidTokenError("Codex subscription run token has invalid claims")
+
+    return CodexSubscriptionRunTokenPayload(run_id=run_id, task_id=task_id, team_id=team_id, sandbox_id=sandbox_id)
 
 
 def create_stream_read_token(task_run: TaskRun, ttl: timedelta = STREAM_READ_TOKEN_TTL) -> str:
@@ -297,7 +365,17 @@ def create_stream_read_token(task_run: TaskRun, ttl: timedelta = STREAM_READ_TOK
     public key. Carries no user identity and grants one capability: reading this
     task run's stream.
     """
-    return _encode_run_scoped_token(task_run, STREAM_READ_AUDIENCE, ttl)
+    presence_gated = run_stream_presence_gated(task_run.state)
+    return _encode_run_scoped_token(
+        task_run,
+        STREAM_READ_AUDIENCE,
+        ttl,
+        {
+            "presence_gated": presence_gated,
+            "is_terminal": task_run.is_terminal,
+            "origin_product": task_run.task.origin_product,
+        },
+    )
 
 
 def validate_stream_read_token(token: str) -> StreamReadTokenPayload:
@@ -306,8 +384,24 @@ def validate_stream_read_token(token: str) -> StreamReadTokenPayload:
     run_id = payload.get("run_id")
     task_id = payload.get("task_id")
     team_id = payload.get("team_id")
+    presence_gated = payload.get("presence_gated", False)
+    is_terminal = payload.get("is_terminal", False)
+    origin_product = payload.get("origin_product")
 
     if not isinstance(run_id, str) or not isinstance(task_id, str) or type(team_id) is not int:
         raise jwt.InvalidTokenError("Stream read token has invalid claims")
+    if not isinstance(presence_gated, bool):
+        raise jwt.InvalidTokenError("Stream read token has invalid claims")
+    if not isinstance(is_terminal, bool):
+        raise jwt.InvalidTokenError("Stream read token has invalid claims")
+    if origin_product is not None and not isinstance(origin_product, str):
+        raise jwt.InvalidTokenError("Stream read token has invalid claims")
 
-    return StreamReadTokenPayload(run_id=run_id, task_id=task_id, team_id=team_id)
+    return StreamReadTokenPayload(
+        run_id=run_id,
+        task_id=task_id,
+        team_id=team_id,
+        presence_gated=presence_gated,
+        is_terminal=is_terminal,
+        origin_product=origin_product,
+    )

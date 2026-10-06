@@ -1,7 +1,6 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { resetContext } from 'kea'
-import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
@@ -36,10 +35,6 @@ const mockToast = require('lib/lemon-ui/LemonToast').lemonToast
 describe('workflowTemplateLogic', () => {
     beforeEach(() => {
         initKeaTests()
-
-        resetContext({
-            plugins: [testUtilsPlugin],
-        })
 
         jest.clearAllMocks()
     })
@@ -102,7 +97,7 @@ describe('workflowTemplateLogic', () => {
                 updated_at: '2024-01-02T00:00:00Z',
                 actions: [],
                 edges: [],
-                conversion: { window_minutes: 0, filters: [] },
+                conversion: { filters: [] },
                 exit_condition: 'exit_only_at_end',
             }
 
@@ -147,7 +142,7 @@ describe('workflowTemplateLogic', () => {
                 updated_at: '2024-01-02T00:00:00Z',
                 actions: [],
                 edges: [],
-                conversion: { window_minutes: 0, filters: [] },
+                conversion: { filters: [] },
                 exit_condition: 'exit_only_at_end',
             }
 
@@ -234,7 +229,7 @@ describe('workflowTemplateLogic', () => {
                     },
                 ],
                 edges: [{ from: 'trigger_node', to: 'function-action-1', type: 'continue' }],
-                conversion: { window_minutes: 0, filters: [] },
+                conversion: { filters: [] },
                 exit_condition: 'exit_only_at_end',
             }
         }
@@ -426,7 +421,7 @@ describe('workflowTemplateLogic', () => {
                 },
             ],
             edges: [],
-            conversion: { window_minutes: 0, filters: [] },
+            conversion: { filters: [] },
             exit_condition: 'exit_only_at_end',
         })
 

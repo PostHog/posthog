@@ -37,10 +37,10 @@ database "posthog" {
       type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
     }
     engine "kafka" {
-      broker_list = "msk_cluster"
-      topic_list  = "kafka_topic_list = 'clickhouse_ai_events_json'"
-      group_name  = "kafka_group_name = 'group1'"
-      format      = "kafka_format = 'JSONEachRow'"
+      collection = "msk_cluster"
+      topic_list = "clickhouse_ai_events_json"
+      group_name = "group1"
+      format     = "JSONEachRow"
     }
   }
   table "sharded_ai_events" {

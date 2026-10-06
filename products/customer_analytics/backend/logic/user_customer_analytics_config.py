@@ -1,0 +1,228 @@
+from collections.abc import Sequence
+from datetime import datetime, time
+from typing import Any, cast
+from uuid import UUID
+
+from django.db import transaction
+
+from posthog.models.scoping.manager import resolve_effective_team_id
+
+from products.customer_analytics.backend.facade import contracts
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind, TaskDigestCadence
+from products.customer_analytics.backend.logic.account_property_pins import validate_pinned_properties
+from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig, UserCustomerAnalyticsConfig
+
+PINNED_PROPERTIES_KEY = "pinned_properties"
+PINNED_PROPERTIES_OVERRIDE_KEY = "pinned_properties_override"
+TASK_DIGEST_KEY = "task_digest"
+DEFAULT_TASK_DIGEST = contracts.TaskDigestPreferences()
+
+ACCOUNT_DETAIL_TABS_KEY = "account_detail_tabs"
+ACCOUNT_DETAIL_SYSTEM_TAB_IDS = {
+    "system:notes",
+    "system:tasks",
+    "system:users",
+    "system:relationships",
+    "system:feature_requests",
+    "system:usage",
+    "system:spend",
+    "system:opportunities",
+    "system:conversations",
+    "system:meetings",
+}
+MAX_ACCOUNT_DETAIL_TAB_IDS = 100
+
+
+@transaction.atomic
+def get_or_create_config(*, team_id: int, user_id: int) -> UserCustomerAnalyticsConfig:
+    # Resolve an environment (child team) id to its root team once. `for_team` canonicalizes its
+    # filter but not the create kwargs, so a raw id makes the lookup never match, and the unique
+    # constraint then rejects every call after the first.
+    canonical_team_id = resolve_effective_team_id(team_id)
+    config, _ = UserCustomerAnalyticsConfig.objects.for_team(canonical_team_id, canonical=True).get_or_create(
+        team_id=canonical_team_id,
+        user_id=user_id,
+        defaults={"properties": {}},
+    )
+    config = (
+        UserCustomerAnalyticsConfig.objects.for_team(canonical_team_id, canonical=True)
+        .select_for_update()
+        .get(pk=config.pk)
+    )
+    if PINNED_PROPERTIES_KEY in config.properties:
+        return config
+
+    if not config.pinned_custom_property_definition_ids:
+        return config
+
+    legacy_references = [
+        {"kind": AccountPropertyPinKind.CUSTOM_PROPERTY.value, "id": str(definition_id)}
+        for definition_id in config.pinned_custom_property_definition_ids
+    ]
+    config.properties = {**config.properties, PINNED_PROPERTIES_KEY: legacy_references}
+    config.save(update_fields=["properties", "updated_at"])
+    return config
+
+
+@transaction.atomic
+def update_pinned_properties(
+    *, team_id: int, user_id: int, references: Sequence[tuple[AccountPropertyPinKind, UUID]]
+) -> UserCustomerAnalyticsConfig:
+    validate_pinned_properties(team_id=team_id, references=references)
+    config = get_or_create_config(team_id=team_id, user_id=user_id)
+    config.properties = {
+        **config.properties,
+        PINNED_PROPERTIES_KEY: [{"kind": kind.value, "id": str(definition_id)} for kind, definition_id in references],
+        PINNED_PROPERTIES_OVERRIDE_KEY: True,
+    }
+    config.pinned_custom_property_definition_ids = [
+        definition_id for kind, definition_id in references if kind == AccountPropertyPinKind.CUSTOM_PROPERTY
+    ]
+    config.save(update_fields=["properties", "pinned_custom_property_definition_ids", "updated_at"])
+    return config
+
+
+def read_pinned_properties(config: UserCustomerAnalyticsConfig) -> list[dict[str, str]]:
+    stored = config.properties.get(PINNED_PROPERTIES_KEY)
+    if isinstance(stored, list) and (
+        stored
+        or config.properties.get(PINNED_PROPERTIES_OVERRIDE_KEY) is True
+        or config.pinned_custom_property_definition_ids
+    ):
+        return cast(list[dict[str, str]], stored)
+    defaults = (
+        TeamCustomerAnalyticsConfig.objects.filter(team_id=config.team_id)
+        .values_list("default_pinned_properties", flat=True)
+        .first()
+    )
+    return cast(list[dict[str, str]], defaults) if isinstance(defaults, list) else []
+
+
+def read_task_digest(config: UserCustomerAnalyticsConfig) -> contracts.TaskDigestPreferences:
+    """Read the digest preferences, filling in a disabled default for anything the row does not
+    hold. A row written before this key existed, or holding only some of the three values, still
+    reads as a complete set."""
+    stored = config.properties.get(TASK_DIGEST_KEY)
+    if not isinstance(stored, dict):
+        stored = {}
+    cadence = stored.get("cadence")
+    return contracts.TaskDigestPreferences(
+        enabled=stored.get("enabled") is True,
+        send_time=_read_send_time(stored),
+        cadence=cadence if cadence in TaskDigestCadence.values else DEFAULT_TASK_DIGEST.cadence,
+    )
+
+
+@transaction.atomic
+def update_task_digest(
+    *,
+    team_id: int,
+    user_id: int,
+    enabled: bool | None = None,
+    send_time: time | None = None,
+    cadence: TaskDigestCadence | None = None,
+) -> UserCustomerAnalyticsConfig:
+    """Replace the values the caller passed and keep the rest of the digest preferences."""
+    config = get_or_create_config(team_id=team_id, user_id=user_id)
+    current = read_task_digest(config)
+    config.properties = {
+        **config.properties,
+        TASK_DIGEST_KEY: {
+            "enabled": current.enabled if enabled is None else enabled,
+            "send_time": current.send_time
+            if send_time is None
+            else send_time.strftime(contracts.TASK_DIGEST_SEND_TIME_FORMAT),
+            "cadence": current.cadence if cadence is None else cadence.value,
+        },
+    }
+    config.save(update_fields=["properties", "updated_at"])
+    return config
+
+
+def read_account_detail_tabs(config: UserCustomerAnalyticsConfig) -> contracts.AccountDetailTabsConfig:
+    stored = config.properties.get(ACCOUNT_DETAIL_TABS_KEY)
+    if not isinstance(stored, dict):
+        return contracts.AccountDetailTabsConfig()
+
+    ordered_tab_ids = _read_tab_ids(stored.get("ordered_tab_ids"))
+    hidden_tab_ids = _read_tab_ids(stored.get("hidden_tab_ids"))
+    default_tab_id = stored.get("default_tab_id")
+    return contracts.AccountDetailTabsConfig(
+        ordered_tab_ids=ordered_tab_ids,
+        hidden_tab_ids=hidden_tab_ids,
+        default_tab_id=default_tab_id if isinstance(default_tab_id, str) and _is_tab_id(default_tab_id) else None,
+    )
+
+
+@transaction.atomic
+def update_account_detail_tabs(
+    *,
+    team_id: int,
+    user_id: int,
+    ordered_tab_ids: list[str],
+    hidden_tab_ids: list[str],
+    default_tab_id: str | None,
+) -> UserCustomerAnalyticsConfig:
+    errors: list[str] = []
+    _validate_tab_ids("ordered_tab_ids", ordered_tab_ids, errors)
+    _validate_tab_ids("hidden_tab_ids", hidden_tab_ids, errors)
+    if default_tab_id is not None and not _is_tab_id(default_tab_id):
+        errors.append("default_tab_id must use a system: or view: identifier.")
+    if errors:
+        raise ValueError("; ".join(errors))
+
+    config = get_or_create_config(team_id=team_id, user_id=user_id)
+    config.properties = {
+        **config.properties,
+        ACCOUNT_DETAIL_TABS_KEY: {
+            "ordered_tab_ids": ordered_tab_ids,
+            "hidden_tab_ids": hidden_tab_ids,
+            "default_tab_id": default_tab_id,
+        },
+    }
+    config.save(update_fields=["properties", "updated_at"])
+    return config
+
+
+def _is_tab_id(tab_id: str) -> bool:
+    if tab_id in ACCOUNT_DETAIL_SYSTEM_TAB_IDS:
+        return True
+    if not tab_id.startswith("view:"):
+        return False
+    try:
+        UUID(tab_id.removeprefix("view:"))
+    except ValueError:
+        return False
+    return True
+
+
+def _read_tab_ids(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    tab_ids: list[str] = []
+    for tab_id in value:
+        if isinstance(tab_id, str) and _is_tab_id(tab_id) and tab_id not in tab_ids:
+            tab_ids.append(tab_id)
+        if len(tab_ids) == MAX_ACCOUNT_DETAIL_TAB_IDS:
+            break
+    return tab_ids
+
+
+def _validate_tab_ids(field: str, tab_ids: list[str], errors: list[str]) -> None:
+    if len(tab_ids) > MAX_ACCOUNT_DETAIL_TAB_IDS:
+        errors.append(f"{field} can contain at most {MAX_ACCOUNT_DETAIL_TAB_IDS} items.")
+    if len(set(tab_ids)) != len(tab_ids):
+        errors.append(f"{field} cannot contain duplicates.")
+    if any(not _is_tab_id(tab_id) for tab_id in tab_ids):
+        errors.append(f"{field} contains an invalid tab identifier.")
+
+
+def _read_send_time(stored: dict[str, Any]) -> str:
+    value = stored.get("send_time")
+    if isinstance(value, str):
+        try:
+            parsed = datetime.strptime(value, contracts.TASK_DIGEST_SEND_TIME_FORMAT)
+        except ValueError:
+            return DEFAULT_TASK_DIGEST.send_time
+        return parsed.strftime(contracts.TASK_DIGEST_SEND_TIME_FORMAT)
+    return DEFAULT_TASK_DIGEST.send_time

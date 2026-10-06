@@ -198,7 +198,63 @@ def lookup_table_by_name(
         if isinstance(cte.type, ast.CTETableType):
             return cte.type.select_query_type
 
+    # Some external engines resolve unquoted identifiers case-insensitively, so a qualifier may
+    # spell such a table differently than the FROM clause did. Accept a unique folded match.
+    if len(node.chain) > 1:
+        head = str(node.chain[0]).lower()
+        folded_matches = [
+            table
+            for table_alias, table in scope.tables.items()
+            if table_alias.lower() == head and _folds_identifier_case(table)
+        ]
+        if len(folded_matches) == 1:
+            return folded_matches[0]
+
     return None
+
+
+def lookup_table_by_nested_name(
+    scope: ast.SelectQueryType, node: ast.Field
+) -> Optional[tuple[ast.TableOrSelectType, int]]:
+    """Match a qualifier that spells a nested table's name, like `models.a` in `models.a.event`.
+
+    `FROM models.a` puts the table in scope as `models__a`, so the qualifier spans several chain
+    segments, or one backquoted segment holding dots. Returns the table and the number of chain
+    segments the qualifier used. The longest match wins, and at least one segment must remain.
+    """
+    if not scope.tables:
+        return None
+    # No qualifier can be deeper than the deepest nested name in scope, so a long chain stops early
+    # instead of rebuilding every prefix.
+    deepest_name = max(table_alias.count("__") + 1 for table_alias in scope.tables)
+    match: Optional[tuple[ast.TableOrSelectType, int]] = None
+    parts: list[str] = []
+    for consumed, segment in enumerate(node.chain[:-1], start=1):
+        parts.extend(str(segment).split("."))
+        if len(parts) > deepest_name:
+            break
+        if len(parts) < 2:
+            continue
+        table = scope.tables.get("__".join(parts))
+        if table is not None:
+            match = table, consumed
+    return match
+
+
+def _folds_identifier_case(table_type: ast.TableOrSelectType) -> bool:
+    if isinstance(table_type, ast.TableType):
+        return getattr(table_type.table, "case_insensitive_identifiers", False)
+    # A table referenced with different casing than discovery registers as an implicit alias.
+    # Fold only that re-spelling; an explicit alias keeps the user's exact name.
+    if isinstance(table_type, ast.TableAliasType):
+        inner = table_type.table_type
+        return (
+            isinstance(inner, ast.TableType)
+            and getattr(inner.table, "case_insensitive_identifiers", False)
+            and inner.table.name is not None
+            and inner.table.name.lower() == table_type.alias.lower()
+        )
+    return False
 
 
 def lookup_cte_by_name(global_scopes: list[ast.SelectQueryType], name: str) -> Optional[ast.CTE]:

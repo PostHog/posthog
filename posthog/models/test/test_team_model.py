@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.core_event import CoreEvent
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import get_team_in_cache, set_team_in_cache
 from posthog.models.user import User
@@ -287,6 +287,52 @@ class TestTeam(BaseTest):
 
         # Both users should have access
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, member_user.id])
+
+    def test_all_users_with_access_ignores_role_membership_from_another_organization(self):
+        self._enable_access_control(role_based=True)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        member_user = User.objects.create_and_join(
+            self.organization,
+            email="member-cross-org@posthog.com",
+            first_name="first_name",
+            password=None,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        other_organization = Organization.objects.create(name="Other organization")
+        OrganizationMembership.objects.create(
+            organization=other_organization,
+            user=member_user,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+        role = Role.objects.create(name="Other organization role", organization=other_organization)
+        RoleMembership.objects.create(
+            role=role,
+            user=member_user,
+            organization_member=OrganizationMembership.objects.get(
+                organization=self.organization,
+                user=member_user,
+            ),
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            role=role,
+            access_level="member",
+        )
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        all_user_with_access_ids = list(self.team.all_users_with_access().values_list("id", flat=True))
+
+        assert all_user_with_access_ids == [self.user.id]
 
     def test_all_users_with_access_returns_all_org_members_without_access_control_feature(self):
         """Without ACCESS_CONTROL there are no private teams — every org member has access,

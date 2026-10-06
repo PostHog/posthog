@@ -39,6 +39,7 @@ import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
     PersonClaimedByLifecycleOpError,
+    PersonDistinctIdMapping,
     PersonMessage,
     PersonPropertiesSizeViolationError,
     PersonRepository,
@@ -404,7 +405,9 @@ export class PostgresPersonRepository
                 AND posthog_persondistinctid.distinct_id = batch.distinct_id
             WHERE
                 posthog_persondistinctid.is_deleted = false
-                AND posthog_person.is_deleted = false`
+                AND posthog_person.is_deleted = false
+                -- Lets the planner prune person partitions; the join alone locks all of them.
+                AND posthog_person.team_id = ANY($1::integer[])`
 
         const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
             useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
@@ -513,7 +516,9 @@ export class PostgresPersonRepository
                 posthog_person.last_seen_at
             FROM posthog_person
             WHERE (posthog_person.team_id, posthog_person.uuid) IN (SELECT * FROM UNNEST($1::integer[], $2::uuid[]))
-                AND posthog_person.is_deleted = false`
+                AND posthog_person.is_deleted = false
+                -- Lets the planner prune person partitions; the IN list alone locks all of them.
+                AND posthog_person.team_id = ANY($1::integer[])`
 
         const { rows } = await this.postgres.query<RawPerson>(
             useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
@@ -1470,8 +1475,8 @@ export class PostgresPersonRepository
             )
             await this.postgres.query(
                 tx ?? PostgresUse.PERSONS_WRITE,
-                `INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, ordinal, status)
-                 SELECT $1, $2, u.person_id, u.person_uuid, u.role, u.ordinal, 'marked'
+                `INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, ordinal, status, mark_active)
+                 SELECT $1, $2, u.person_id, u.person_uuid, u.role, u.ordinal, 'marked', true
                  FROM unnest($3::bigint[], $4::uuid[], $5::text[], $6::int[]) AS u(person_id, person_uuid, role, ordinal)`,
                 [
                     opId,
@@ -1488,7 +1493,7 @@ export class PostgresPersonRepository
             // violation; a duplicate op_id means a concurrent delivery of the same event.
             if (
                 error.code === '23505' &&
-                ['lifecycle_op_person_mark', 'lifecycle_op_pkey'].includes(error.constraint)
+                ['lifecycle_op_person_mark_active', 'lifecycle_op_pkey'].includes(error.constraint)
             ) {
                 throw new PersonClaimedByLifecycleOpError(
                     'Person is claimed by a concurrent lifecycle operation',
@@ -1851,6 +1856,41 @@ export class PostgresPersonRepository
         return rows.map((row) => row.distinct_id)
     }
 
+    async fetchPersonDistinctIdMappings(teamId: number, distinctIds: string[]): Promise<PersonDistinctIdMapping[]> {
+        if (distinctIds.length === 0) {
+            return []
+        }
+
+        const { rows } = await this.postgres.query<{ distinct_id: string; version: string | null; uuid: string }>(
+            PostgresUse.PERSONS_WRITE,
+            `SELECT pd.distinct_id, pd.version, p.uuid
+                FROM posthog_persondistinctid pd
+                JOIN posthog_person p ON p.id = pd.person_id AND p.team_id = pd.team_id
+                WHERE pd.team_id = $1 AND pd.distinct_id = ANY($2) AND pd.is_deleted = false`,
+            [teamId, distinctIds],
+            'fetchPersonDistinctIdMappings'
+        )
+
+        return rows.map((row) => {
+            const version = Number(row.version || 0)
+            return {
+                distinctId: row.distinct_id,
+                message: {
+                    output: PERSON_DISTINCT_IDS_OUTPUT,
+                    value: Buffer.from(
+                        JSON.stringify({
+                            team_id: teamId,
+                            distinct_id: row.distinct_id,
+                            person_id: row.uuid,
+                            version,
+                            is_deleted: 0,
+                        })
+                    ),
+                },
+            }
+        })
+    }
+
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {
         const queryString = `
             SELECT COALESCE(pg_column_size(properties)::bigint, 0::bigint) AS total_props_bytes
@@ -2114,6 +2154,7 @@ export class PostgresPersonRepository
         try {
             // Use UNNEST to pass arrays, keeping query structure constant for prepared statement reuse
             // Note: batch column names are prefixed with 'new_' to avoid any potential confusion with table columns
+            // The team_id = ANY filter lets the planner prune partitions; the join alone locks all of them.
             const { rows } = await this.postgres.query<RawPerson>(
                 PostgresUse.PERSONS_WRITE,
                 `
@@ -2136,6 +2177,7 @@ export class PostgresPersonRepository
                     $8::text[]
                 ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at)
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id AND p.is_deleted = false
+                  AND p.team_id = ANY($2::integer[])
                 RETURNING ${PERSON_COLUMNS_PREFIXED}
                 `,
                 [

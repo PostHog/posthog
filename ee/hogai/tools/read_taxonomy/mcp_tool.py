@@ -2,8 +2,8 @@ from django.db import OperationalError
 
 from prometheus_client import Counter
 
+from posthog.api.statement_timeout import is_query_canceled
 from posthog.sync import database_sync_to_async
-from posthog.taxonomy.property_definition_api import is_query_canceled
 
 from ee.hogai.chat_agent.query_planner.toolkit import TaxonomyAgentToolkit
 from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
@@ -55,4 +55,6 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
             READ_TAXONOMY_TIMED_OUT_COUNTER.labels(query_kind=args.query.kind).inc()
             # MaxToolError appends its own retry hint and a period, so this ends bare. The hint for
             # a transient error offers one unchanged retry, so do not suggest narrowing the read.
-            raise MaxToolTransientError("Reading the taxonomy timed out. This can happen on large projects") from e
+            raise MaxToolTransientError(
+                "Reading the taxonomy timed out. This can happen on large projects", error_type="timeout"
+            ) from e

@@ -1,24 +1,13 @@
-import logging
-
+from django.core.validators import MinValueValidator
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
 
-logger = logging.getLogger(__name__)
-
-
-class EmailTrackingConsentMode(models.TextChoices):
-    # No consent enforcement: tracking follows the email step's own setting only.
-    OFF = "off"
-    # Track by default; suppress tracking for recipients who have opted out.
-    OPT_OUT = "opt_out"
-    # Do not track unless the recipient has explicitly opted in.
-    OPT_IN = "opt_in"
+from products.workflows.backend.facade.enums import EMAIL_TRACKING_CONSENT_MODE_CHOICES, EmailTrackingConsentMode
 
 
 class TeamWorkflowsConfig(models.Model):
-    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True)
+    team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, related_name="+")
 
     # Opt-in toggle for emitting workflows engagement activity (sends, opens, clicks, bounces, etc.)
     # as standard PostHog events alongside the existing workflow metrics.
@@ -27,7 +16,7 @@ class TeamWorkflowsConfig(models.Model):
     # Recipient-consent enforcement for open/click tracking on marketing emails (CNIL/ePrivacy).
     # Enforced at send time in the Node worker; transactional emails are exempt.
     email_tracking_consent_mode = models.CharField(
-        max_length=16, choices=EmailTrackingConsentMode.choices, default=EmailTrackingConsentMode.OFF
+        max_length=16, choices=EMAIL_TRACKING_CONSENT_MODE_CHOICES, default=EmailTrackingConsentMode.OFF.value
     )
 
     # Staff-controlled kill switch: while set, the CDP email worker blocks all workflow email
@@ -46,5 +35,24 @@ class TeamWorkflowsConfig(models.Model):
     ses_tenant_reputation_impact = models.CharField(max_length=32, blank=True, default="", db_default="")
     ses_tenant_state_synced_at = models.DateTimeField(null=True, blank=True)
 
+    # Trust tier for workflow email. The tier picks the team's hourly cap, daily cap and maximum
+    # batch audience from the tables in settings, so an unproven team cannot send fast enough to
+    # damage the shared SES account's reputation. Every team starts at 0 and a periodic task moves
+    # it one step at a time based on how much it sent and how clean the sending was.
+    # db_default so raw INSERTs from non-Django writers keep working.
+    email_sending_tier = models.IntegerField(default=0, db_default=0)
+    email_sending_tier_updated_at = models.DateTimeField(null=True, blank=True)
+    # When the team was last demoted for dirty rates, an auto-pause, or a HIGH tenant reputation
+    # impact. Separate from email_sending_tier_updated_at so promotions and staff writes do not arm
+    # the demotion cooldown, and a demotion does not have to share its anchor with the dwell clock.
+    email_sending_tier_demoted_at = models.DateTimeField(null=True, blank=True)
+    # Staff override. While set, automatic promotion and demotion both skip this team, so a team
+    # can be held at a tier that its sending history would not give it.
+    email_sending_tier_pinned = models.BooleanField(default=False, db_default=False)
 
-register_team_extension_signal(TeamWorkflowsConfig, logger=logger)
+    # Overrides for AI tasks created by workflows. Null keeps the product defaults;
+    # zero pauses new task creation at that scope.
+    workflow_task_rate_limit_per_day = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0)])
+    workflow_task_team_rate_limit_per_day = models.IntegerField(
+        null=True, blank=True, validators=[MinValueValidator(0)]
+    )

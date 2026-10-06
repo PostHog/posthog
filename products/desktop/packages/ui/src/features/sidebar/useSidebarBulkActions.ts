@@ -17,7 +17,7 @@ import { useChannelTaskMutations } from "@posthog/ui/features/canvas/hooks/useCh
 import { placeTasksInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
-import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
+import { useScopedTaskSelectionStore } from "@posthog/ui/features/sidebar/TaskSelectionScope";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useLiveTaskIds } from "@posthog/ui/features/tasks/useLiveTaskIds";
 import { toast } from "@posthog/ui/primitives/toast";
@@ -73,10 +73,12 @@ export function useSidebarBulkActions(
   taskIds: string[],
   tasks: BulkSessionInfo[],
 ): SidebarBulkActions {
+  const selectedCount = taskIds.length;
   const queryClient = useQueryClient();
   const archiveCacheKeys = useArchiveCacheKeys();
-  const clearSelection = useTaskSelectionStore((s) => s.clearSelection);
-  const setSelectedTaskIds = useTaskSelectionStore((s) => s.setSelectedTaskIds);
+  const selectionStore = useScopedTaskSelectionStore();
+  const clearSelection = selectionStore((s) => s.clearSelection);
+  const setSelectedTaskIds = selectionStore((s) => s.setSelectedTaskIds);
   const { pinnedTaskIds, setPinnedMany, isSettingPinnedMany } =
     usePinnedTasks();
 
@@ -93,12 +95,10 @@ export function useSidebarBulkActions(
   const channels = bluebirdEnabled ? fetchedChannels : EMPTY_CHANNELS;
   const { fileTask } = useChannelTaskMutations();
 
-  const liveTaskIds = useLiveTaskIds();
+  const liveTaskIds = useLiveTaskIds(selectedCount > 0);
 
   const [isArchiving, setIsArchiving] = useState(false);
   const [isFiling, setIsFiling] = useState(false);
-
-  const selectedCount = taskIds.length;
 
   const selectedTasks = useMemo(() => {
     const ids = new Set(taskIds);
@@ -138,7 +138,7 @@ export function useSidebarBulkActions(
     if (selectedCount === 0 || isArchiving) return;
     setIsArchiving(true);
     const store = useArchivingTasksStore.getState();
-    for (const id of taskIds) store.startArchiving(id);
+    for (const id of taskIds) store.startArchiving(id, "hidden");
     try {
       const { archived, failed } = await archiveTasksImperative(
         taskIds,

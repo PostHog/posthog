@@ -4,8 +4,11 @@ import { describe, expect, it } from "vitest";
 import {
   findReportInInboxListCache,
   inboxReportDetailQueryKey,
+  inboxReportKeys,
   resolveInboxReportDetailCache,
   resolveInboxReportForRender,
+  restoreInboxReportCaches,
+  updateInboxReportCaches,
 } from "./inboxQuery";
 
 function fakeReport(id: string): SignalReport {
@@ -93,5 +96,237 @@ describe("inboxQuery", () => {
       cachedReport,
     );
     expect(resolveInboxReportForRender(null, cachedReport)).toBeNull();
+  });
+
+  it("updates cached report states and restores them after a failed request", () => {
+    const queryClient = new QueryClient();
+    const report = fakeReport("changing");
+    const other = fakeReport("other");
+    const readyListKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      { status: "ready" },
+    ] as const;
+    const archiveListKey = [
+      "inbox",
+      "signal-reports",
+      "infinite-list",
+      { status: "ready,resolved" },
+    ] as const;
+    const readyCountKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      { status: "ready", count_only: true },
+    ] as const;
+    const resolvedCountKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      { status: "resolved", count_only: true },
+    ] as const;
+    const readyList = { results: [report, other], count: 2 };
+    const archiveList = {
+      pages: [
+        { results: [report], count: 2 },
+        { results: [other], count: 2 },
+      ],
+      pageParams: [0, 1],
+    };
+
+    queryClient.setQueryData(inboxReportDetailQueryKey(report.id), report);
+    queryClient.setQueryData(readyListKey, readyList);
+    queryClient.setQueryData(archiveListKey, archiveList);
+    queryClient.setQueryData(readyCountKey, { results: [], count: 2 });
+    queryClient.setQueryData(resolvedCountKey, { results: [], count: 4 });
+    queryClient.setQueryData(
+      ["inbox", "signal-reports", "scope-count", "for-you"],
+      42,
+    );
+
+    const resolved = { ...report, status: "resolved" as const };
+    const snapshot = updateInboxReportCaches(queryClient, [resolved]);
+
+    expect(
+      queryClient.getQueryData<SignalReport>(
+        inboxReportDetailQueryKey(report.id),
+      ),
+    ).toEqual(resolved);
+    expect(queryClient.getQueryData(readyListKey)).toEqual({
+      results: [other],
+      count: 1,
+    });
+    expect(queryClient.getQueryData(archiveListKey)).toEqual({
+      pages: [
+        { results: [resolved], count: 2 },
+        { results: [other], count: 2 },
+      ],
+      pageParams: [0, 1],
+    });
+    expect(queryClient.getQueryData(readyCountKey)).toEqual({
+      results: [],
+      count: 1,
+    });
+    expect(queryClient.getQueryData(resolvedCountKey)).toEqual({
+      results: [],
+      count: 5,
+    });
+    expect(
+      queryClient.getQueryData([
+        "inbox",
+        "signal-reports",
+        "scope-count",
+        "for-you",
+      ]),
+    ).toBe(42);
+
+    restoreInboxReportCaches(queryClient, snapshot);
+
+    expect(
+      queryClient.getQueryData(inboxReportDetailQueryKey(report.id)),
+    ).toEqual(report);
+    expect(queryClient.getQueryData(readyListKey)).toEqual(readyList);
+    expect(queryClient.getQueryData(archiveListKey)).toEqual(archiveList);
+    expect(queryClient.getQueryData(readyCountKey)).toEqual({
+      results: [],
+      count: 2,
+    });
+    expect(queryClient.getQueryData(resolvedCountKey)).toEqual({
+      results: [],
+      count: 4,
+    });
+  });
+
+  it("restores one failed report without overwriting another report update", () => {
+    const queryClient = new QueryClient();
+    const first = fakeReport("first");
+    const second = fakeReport("second");
+    const listKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      { status: "ready" },
+    ] as const;
+
+    queryClient.setQueryData(listKey, {
+      results: [first, second],
+      count: 2,
+    });
+    queryClient.setQueryData(inboxReportDetailQueryKey(first.id), first);
+    queryClient.setQueryData(inboxReportDetailQueryKey(second.id), second);
+
+    const firstResolved = { ...first, status: "resolved" as const };
+    const secondResolved = { ...second, status: "resolved" as const };
+    const firstSnapshot = updateInboxReportCaches(
+      queryClient,
+      [firstResolved],
+      [first],
+    );
+    updateInboxReportCaches(queryClient, [secondResolved], [second]);
+
+    restoreInboxReportCaches(queryClient, firstSnapshot);
+
+    expect(queryClient.getQueryData(listKey)).toEqual({
+      results: [first],
+      count: 1,
+    });
+    expect(
+      queryClient.getQueryData(inboxReportDetailQueryKey(first.id)),
+    ).toEqual(first);
+    expect(
+      queryClient.getQueryData(inboxReportDetailQueryKey(second.id)),
+    ).toEqual(secondResolved);
+  });
+
+  it("does not restore report data after its cache entries are replaced", () => {
+    const queryClient = new QueryClient();
+    const previousReport = fakeReport("previous-account");
+    const nextReport = fakeReport("next-account");
+    const listKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      { status: "ready" },
+    ] as const;
+
+    queryClient.setQueryData(listKey, {
+      results: [previousReport],
+      count: 1,
+    });
+    queryClient.setQueryData(
+      inboxReportDetailQueryKey(previousReport.id),
+      previousReport,
+    );
+    const snapshot = updateInboxReportCaches(
+      queryClient,
+      [{ ...previousReport, status: "resolved" }],
+      [previousReport],
+    );
+
+    queryClient.removeQueries({ queryKey: inboxReportKeys.all });
+    queryClient.setQueryData(listKey, { results: [nextReport], count: 1 });
+    restoreInboxReportCaches(queryClient, snapshot);
+
+    expect(
+      queryClient.getQueryData(inboxReportDetailQueryKey(previousReport.id)),
+    ).toBeUndefined();
+    expect(queryClient.getQueryData(listKey)).toEqual({
+      results: [nextReport],
+      count: 1,
+    });
+  });
+
+  it("updates counts only for reviewer scopes that contain the report", () => {
+    const queryClient = new QueryClient();
+    const report = fakeReport("reviewer-a-report");
+    const reviewerAListKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      { status: "ready", suggested_reviewers: "reviewer-a" },
+    ] as const;
+    const reviewerACountKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      {
+        status: "ready",
+        suggested_reviewers: "reviewer-a",
+        count_only: true,
+      },
+    ] as const;
+    const reviewerBCountKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      {
+        status: "ready",
+        suggested_reviewers: "reviewer-b",
+        count_only: true,
+      },
+    ] as const;
+
+    queryClient.setQueryData(reviewerAListKey, {
+      results: [report],
+      count: 1,
+    });
+    queryClient.setQueryData(reviewerACountKey, { results: [], count: 1 });
+    queryClient.setQueryData(reviewerBCountKey, { results: [], count: 1 });
+
+    updateInboxReportCaches(
+      queryClient,
+      [{ ...report, status: "resolved" }],
+      [report],
+    );
+
+    expect(queryClient.getQueryData(reviewerACountKey)).toEqual({
+      results: [],
+      count: 0,
+    });
+    expect(queryClient.getQueryData(reviewerBCountKey)).toEqual({
+      results: [],
+      count: 1,
+    });
   });
 });

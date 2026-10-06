@@ -15,6 +15,18 @@ export type SessionState = {
     uuid: string
 }
 
+// Per-MCP-session context, keyed on the protocol session id (not the token).
+// `activeOrgId`/`activeProjectId` record an in-session switch-organization /
+// switch-project; `appliedPin*` record the request pin the session last saw so
+// the resolver can tell a resent pin from a genuinely changed one. See
+// RequestStateResolver.applyPinnedContext.
+export type SessionScopedState = {
+    activeProjectId: string | undefined
+    activeOrgId: string | undefined
+    appliedPinProjectId: string | undefined
+    appliedPinOrgId: string | undefined
+}
+
 export type CachedUser = ApiUser
 export type CachedOrg = Schemas.OrganizationBasic
 export type CachedProject = Schemas.ProjectBackwardCompat
@@ -25,6 +37,7 @@ export type State = {
     distinctId: string | undefined
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
+    apiKeyFetchedAt: number | undefined
     clientName: string | undefined
     oauthClientId: string | undefined
     mcpClientName: string | undefined
@@ -90,6 +103,9 @@ export type Env = {
      * Falls back to the production US host if not set.
      */
     POSTHOG_ANALYTICS_HOST: string | undefined
+    /** Override the published product skills archive, primarily for local development. */
+    POSTHOG_MCP_SKILLS_URL?: string | undefined
+    POSTHOG_MCP_LOCAL_SKILLS_URL?: string | undefined
 }
 
 export type Context = {
@@ -112,6 +128,13 @@ export type Context = {
      * stateManager when not provided.
      */
     trackEvent: (event: AnalyticsEvent, properties?: Record<string, unknown>) => Promise<void>
+    /**
+     * Record an in-session context switch so a pinned connection's resent pin
+     * doesn't revert it (see RequestStateResolver.applyPinnedContext). Absent
+     * when the request carries no MCP session id — there is no cross-request
+     * session state to record for.
+     */
+    setSessionActiveContext?: (updates: { orgId?: string; projectId?: string }) => Promise<void>
     /**
      * Which PostHog connection this context runs through, when it runs through one at all. Set only
      * by the forwarded context (see lib/connection-forwarding.ts); absent on a local call.

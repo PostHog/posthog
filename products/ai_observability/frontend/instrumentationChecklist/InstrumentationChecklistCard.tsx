@@ -2,13 +2,19 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconClock, IconMinusSquare, IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { InstrumentationCheckApi, InstrumentationCheckStatusEnumApi } from '../generated/api.schemas'
-import { instrumentationChecklistLogic } from './instrumentationChecklistLogic'
+import { InstrumentationChecklistCardState, instrumentationChecklistLogic } from './instrumentationChecklistLogic'
 
 const PANEL_KEY = 'instrumentation-checklist'
 const BUSY_REASON = 'Wait for the current update to finish'
+
+const STATE_SUMMARIES: Record<Exclude<InstrumentationChecklistCardState, 'hidden' | 'warnings'>, string> = {
+    checking: 'Checking your events',
+    collecting: 'Still collecting data',
+    passing: 'No checks need attention',
+}
 
 const STATUS_ICONS: Record<InstrumentationCheckStatusEnumApi, JSX.Element> = {
     [InstrumentationCheckStatusEnumApi.Ok]: <IconCheckCircle className="text-success shrink-0 mt-0.5" />,
@@ -75,34 +81,30 @@ function InstrumentationCheckRow({ check }: { check: InstrumentationCheckApi }):
  * collapses to its header but stays expandable, because a checklist nobody can find is one nobody
  * can use to confirm a fix landed. Rendering nothing is reserved for having no verdict at all: the
  * flag is off, or the read failed and we would otherwise be guessing.
+ *
+ * The first read holds the header rather than a skeleton. It can take seconds on a project with a
+ * lot of events, and a card that keeps its place and its name for that long reads as working, where
+ * a shimmer of the same length reads as stuck.
  */
 export function InstrumentationChecklistCard(): JSX.Element | null {
-    const {
-        checklist,
-        checklistLoading,
-        checklistEnabled,
-        checks,
-        checklistCardState,
-        windowDays,
-        pendingCheckKey,
-        refreshFailed,
-    } = useValues(instrumentationChecklistLogic)
+    const { checklistLoading, checks, checklistCardState, windowDays, pendingCheckKey, refreshFailed } =
+        useValues(instrumentationChecklistLogic)
     const { loadInstrumentationChecklist } = useActions(instrumentationChecklistLogic)
-
-    // Only the first read, so a dismissal does not replace the card the user just clicked in.
-    if (checklistEnabled && checklist === null && checklistLoading) {
-        return <LemonSkeleton className="h-10 w-full mb-4" />
-    }
 
     if (checklistCardState === 'hidden') {
         return null
     }
 
+    const isChecking = checklistCardState === 'checking'
     const warningCount = checks.filter((check) => check.status === InstrumentationCheckStatusEnumApi.Warning).length
 
     return (
         <div className="mb-4" data-attr="ai-observability-instrumentation-checklist">
             <LemonCollapse
+                // LemonCollapse reads defaultActiveKey once, at mount. The card is already on screen
+                // while the first read runs, so the verdict has to remount it or warnings land in a
+                // panel that stays shut.
+                key={isChecking ? 'checking' : 'graded'}
                 defaultActiveKey={checklistCardState === 'warnings' ? PANEL_KEY : undefined}
                 panels={[
                     {
@@ -120,15 +122,14 @@ export function InstrumentationChecklistCard(): JSX.Element | null {
                                         </LemonTag>
                                     ) : (
                                         <span className="text-muted font-normal">
-                                            {checklistCardState === 'collecting'
-                                                ? 'Still collecting data'
-                                                : 'No checks need attention'}
+                                            {STATE_SUMMARIES[checklistCardState]}
                                         </span>
                                     )}
                                 </div>
                             ),
                         },
-                        content: (
+                        // Nothing to expand into until the first read answers.
+                        content: isChecking ? null : (
                             <div className="flex flex-col gap-3">
                                 {checks.map((check) => (
                                     <InstrumentationCheckRow key={check.key} check={check} />
@@ -147,7 +148,7 @@ export function InstrumentationChecklistCard(): JSX.Element | null {
                                         icon={<IconRefresh />}
                                         loading={checklistLoading}
                                         disabledReason={pendingCheckKey !== null ? BUSY_REASON : undefined}
-                                        onClick={() => loadInstrumentationChecklist()}
+                                        onClick={() => loadInstrumentationChecklist({ refresh: true })}
                                         data-attr="ai-observability-instrumentation-checklist-refresh"
                                     >
                                         {refreshFailed ? 'Try again' : 'Refresh'}

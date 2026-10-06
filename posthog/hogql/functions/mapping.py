@@ -77,6 +77,7 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "mapExtractKeyLike": HogQLFunctionMeta("mapExtractKeyLike", 2, 2),
     "mapApply": HogQLFunctionMeta("mapApply", 2, 2),
     "mapFilter": HogQLFunctionMeta("mapFilter", 2, 2),
+    "mapExists": HogQLFunctionMeta("mapExists", 2, 2),
     "mapUpdate": HogQLFunctionMeta("mapUpdate", 2, 2),
     # bit
     "bitAnd": HogQLFunctionMeta("bitAnd", 2, 2),
@@ -259,6 +260,10 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         ],
         signatures=[((StringType(),), StringType())],
     ),
+    # Reads an aggregate function state as a plain value. The underscore keeps it out of autocomplete and
+    # marks it private: Python-built queries over the raw sessions tables use it, and it can change or go
+    # away without notice.
+    "_finalizeAggregation": HogQLFunctionMeta("finalizeAggregation", 1, 1),
 }
 
 

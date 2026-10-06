@@ -6,7 +6,7 @@ import { CSS } from '@dnd-kit/utilities'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback } from 'react'
+import { useCallback, useEffect } from 'react'
 
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
@@ -28,12 +28,10 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEventNamesForAction } from 'lib/utils/events'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
-import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { DatabaseSerializedFieldType, NodeKind } from '~/queries/schema/schema-general'
@@ -47,6 +45,13 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
+import {
+    MathCategory,
+    mathTypeToApiValues,
+    mathsLogic,
+} from 'products/product_analytics/frontend/insights/trends/mathsLogic'
+
 import { ActionFilterRowMenu } from './ActionFilterRowMenu'
 import { getValue, taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
 import { HogQLMathEditorDropdown } from './HogQLMathEditor'
@@ -58,8 +63,6 @@ import type { ActionFilterRowProps } from './types'
 import { MathAvailability } from './types'
 
 // Re-export for backward compatibility — these are imported from this file by 28+ consumers
-export { MathAvailability } from './types'
-export type { ActionFilterRowProps, MathSelectorProps } from './types'
 export { taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
 export { MathSelector } from './MathSelector'
 
@@ -119,12 +122,14 @@ export function ActionFilterRow({
     filtersLeftPadding = false,
     addFilterDocLink,
     excludedProperties,
+    includeHiddenEvents,
     allowNonCapturedEvents,
     hogQLGlobals,
     inlineEventsDocLink,
     definitionPopoverRenderer,
     operatorAllowlist,
-}: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
+}: ActionFilterRowProps &
+    Pick<TaxonomicPopoverProps, 'excludedProperties' | 'includeHiddenEvents' | 'allowNonCapturedEvents'>): JSX.Element {
     const effectiveActionsTaxonomicGroupTypes = [
         TaxonomicFilterGroupType.SuggestedFilters,
         ...actionsTaxonomicGroupTypes,
@@ -143,9 +148,15 @@ export function ActionFilterRow({
         duplicateFilter,
         convertFilterToGroup,
     } = useActions(logic)
-    const { actions } = useValues(actionsModel)
+    const { actions } = useValues(actionsModel({ shouldLoad: filter.type === EntityTypes.ACTIONS }))
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { ensureAllTableFields } = useActions(databaseTableListLogic)
+    useEffect(() => {
+        if (filter.type === 'data_warehouse') {
+            ensureAllTableFields()
+        }
+    }, [filter.type, ensureAllTableFields])
     const { featureFlags } = useValues(featureFlagLogic)
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
@@ -397,6 +408,7 @@ export function ActionFilterRow({
             filter={filter}
             suggestedFiltersLabel={suggestedFiltersLabel}
             enableKeywordShortcuts
+            promoteSelectedItemToFirstPosition
             selectingKeyOnly
             onChange={(changedValue, taxonomicGroupType, item) =>
                 applyTaxonomicSelection(taxonomicGroupType, changedValue, item)
@@ -411,6 +423,7 @@ export function ActionFilterRow({
                 typeKey === 'plugin-filters' ? ([] as DataWarehousePopoverField[]) : dataWarehousePopoverFields
             }
             excludedProperties={excludedProperties}
+            includeHiddenEvents={includeHiddenEvents}
             allowNonCapturedEvents={allowNonCapturedEvents}
             definitionPopoverRenderer={definitionPopoverRenderer}
         />

@@ -186,13 +186,16 @@ describe('reviewHogSettingsLogic', () => {
         expect(requestBody).toMatchObject({ run_mode: 'resolve_only' })
     })
 
-    it('an already-reviewed PR informs without arming the watch', async () => {
+    it('a flash run sends its mode and arms the review watch like a review', async () => {
+        // Flash creates a report row like any review, so the watch must arm; dropping run_mode
+        // would silently run the full pipeline (and resolve comments) under the flash button.
+        let requestBody: Record<string, unknown> | null = null
         useMocks({
             post: {
-                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [
-                    200,
-                    { workflow_id: '', status: 'already_reviewed' },
-                ],
+                '/api/projects/:team_id/review_hog/reviews/trigger/': async ({ request }) => {
+                    requestBody = (await request.json()) as Record<string, unknown>
+                    return [202, { workflow_id: 'wf-flash-1', status: 'started' }]
+                },
             },
         })
         logic.mount()
@@ -203,7 +206,29 @@ describe('reviewHogSettingsLogic', () => {
         ])
         logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
 
-        // Arming the watch here would poll for two minutes waiting for a run that never starts.
+        await expectLogic(logic, () => logic.actions.submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash))
+            .toDispatchActions(['submitTriggerReview', 'startTriggeredReviewWatch', 'submitTriggerReviewFinished'])
+            .toMatchValues({ triggeringReview: false, triggerPrUrl: '' })
+        expect(requestBody).toMatchObject({ run_mode: 'flash' })
+    })
+
+    it.each([
+        ['already_reviewed', 200, ''],
+        ['joined_running_review', 202, 'wf-running'],
+    ])('a %s response informs without arming the watch', async (status, code, workflowId) => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/review_hog/reviews/trigger/': () => [code, { workflow_id: workflowId, status }],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions([
+            'loadRecentReviewsSuccess',
+            'applyDefaultReviewsScope',
+            'loadRecentReviewsSuccess',
+        ])
+        logic.actions.setTriggerPrUrl('https://github.com/PostHog/posthog.com/pull/1')
+
         await expectLogic(logic, () => logic.actions.submitTriggerReview())
             .toDispatchActions(['submitTriggerReview', 'loadRecentReviews', 'submitTriggerReviewFinished'])
             .toNotHaveDispatchedActions(['startTriggeredReviewWatch'])

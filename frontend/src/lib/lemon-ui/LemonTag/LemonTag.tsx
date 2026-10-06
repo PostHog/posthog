@@ -12,6 +12,7 @@ export type LemonTagType =
     | 'primary'
     | 'option'
     | 'highlight'
+    | 'info'
     | 'warning'
     | 'danger'
     | 'success'

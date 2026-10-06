@@ -10,6 +10,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.replay_vision.backend.temporal.constants import (
@@ -49,7 +50,7 @@ with workflow.unsafe.imports_passed_through():
         reap_backfill_schedules_activity,
         reap_childless_inline_scanners_activity,
         reap_orphaned_observations_activity,
-        reap_stuck_vision_action_runs_activity,
+        start_launched_scanners_activity,
         upsert_scanner_schedule_activity,
     )
 
@@ -87,11 +88,9 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         except Exception:
             workflow.logger.exception("replay_vision.reap_orphaned_observations_failed")
 
-        if workflow.patched("reap-stuck-vision-action-runs-2026-07"):
-            try:
-                await self._run_reaper(reap_stuck_vision_action_runs_activity)
-            except Exception:
-                workflow.logger.exception("replay_vision.reap_stuck_vision_action_runs_failed")
+        # Declared until no history carrying either marker can replay.
+        workflow.deprecate_patch("reap-stuck-vision-action-runs-2026-07")
+        workflow.deprecate_patch("drop-stuck-vision-action-run-reaper-2026-09")
 
         if workflow.patched("reap-childless-inline-scanners-2026-08"):
             try:
@@ -111,6 +110,12 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
                 )
             except Exception:
                 workflow.logger.exception("replay_vision.reap_backfill_schedules_failed")
+
+        if workflow.patched("start-launched-scanners-2026-10"):
+            try:
+                await self._run_reaper(start_launched_scanners_activity)
+            except Exception:
+                workflow.logger.exception("replay_vision.start_launched_scanners_failed")
 
     async def _sync_schedules(self) -> tuple[ReconcileScannerSchedulesResult, ApplicationError | None]:
         """Converge per-scanner schedules with the table. Returns the result plus a systemic failure to
@@ -218,5 +223,6 @@ async def create_replay_vision_reconciler_schedule(client: "Client") -> None:
         workflow_id=RECONCILER_WORKFLOW_ID,
         inputs=ReconcileScannerSchedulesInputs(),
         interval=RECONCILER_INTERVAL,
+        offset=deterministic_offset(RECONCILER_SCHEDULE_ID, RECONCILER_INTERVAL),
         execution_timeout=RECONCILER_EXECUTION_TIMEOUT,
     )

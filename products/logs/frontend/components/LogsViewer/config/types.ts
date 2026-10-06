@@ -27,4 +27,5 @@ export interface LogsViewerScope {
     initialFilters?: Partial<LogsViewerFilters>
     pinnedFilters?: UniversalFiltersGroup
     personId?: string
+    sessionId?: string
 }

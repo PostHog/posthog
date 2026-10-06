@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { PostHogApiError } from '@/lib/errors'
+import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
@@ -31,6 +32,29 @@ describe('StateManager', () => {
         cache = new MemoryCache('test-user')
         await cache.clear()
         stateManager = new StateManager(cache, {} as ApiClient)
+    })
+
+    it.each([true, false, undefined])('reports lookup errors with cached suppression=%s', async (suppressed) => {
+        const capture = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
+        const error = new Error('Synthetic project lookup failure')
+        const lookup = vi
+            .spyOn(stateManager, 'getApiKey')
+            .mockRejectedValue(new Error('Synthetic introspection failure'))
+        if (suppressed === undefined) {
+            vi.spyOn(cache, 'get').mockRejectedValue(new Error('Synthetic cache failure'))
+        } else {
+            await cache.set('apiKey', { ...mockApiKey, suppress_analytics: suppressed })
+        }
+
+        await (stateManager as any)._reportException(error, 'default_org_project_projects_list_failed')
+
+        expect(capture).toHaveBeenCalledWith(
+            error,
+            undefined,
+            expect.objectContaining({ suppress_analytics: suppressed === true })
+        )
+        expect(lookup).not.toHaveBeenCalled()
+        capture.mockRestore()
     })
 
     describe('getUser', () => {
@@ -82,20 +106,119 @@ describe('StateManager', () => {
     })
 
     describe('getApiKey', () => {
-        function oauthApi(clientName: string | null): ApiClient {
+        const cacheOnlyApi = { config: { apiToken: 'phx_test' } } as unknown as ApiClient
+        const cacheOnlyOauthApi = { config: { apiToken: 'pha_test' } } as unknown as ApiClient
+
+        function oauthApi(clientName: string | null, impersonated?: boolean, scope = 'insight:read'): ApiClient {
             return {
-                config: { apiToken: 'phx_test' },
+                config: { apiToken: 'pha_test' },
                 apiKeys: () => ({
                     current: async () => ({ success: false, error: { message: 'not a personal key' } }),
                 }),
                 oauth: () => ({
                     introspect: async () => ({
                         success: true,
-                        data: { active: true, scope: 'insight:read', client_name: clientName },
+                        data: {
+                            active: true,
+                            scope,
+                            client_name: clientName,
+                            is_impersonated: impersonated,
+                        },
                     }),
                 }),
             } as unknown as ApiClient
         }
+
+        it.each([
+            { impersonated: true, scope: 'insight:read', suppressed: false },
+            { impersonated: false, scope: 'insight:read', suppressed: false },
+            { impersonated: undefined, scope: 'insight:read', suppressed: false },
+            { impersonated: false, scope: 'insight:read scout_experiment_internal:read', suppressed: true },
+        ])(
+            'caches impersonation=$impersonated and capture suppression=$suppressed from token scope',
+            async ({ impersonated, scope, suppressed }) => {
+                stateManager = new StateManager(cache, oauthApi(null, impersonated, scope))
+
+                const result = await stateManager.getApiKey()
+
+                expect(result.is_impersonated).toBe(impersonated === true)
+                expect(result.suppress_analytics).toBe(suppressed)
+                expect(await new StateManager(cache, cacheOnlyOauthApi).getApiKey()).toEqual(result)
+
+                const otherTokenCache = new MemoryCache<State>('other-token')
+                await otherTokenCache.clear()
+                const otherToken = new StateManager(otherTokenCache, oauthApi(null, false))
+                expect((await otherToken.getApiKey()).is_impersonated).toBe(false)
+                expect((await otherToken.getApiKey()).suppress_analytics).toBe(false)
+                expect((await stateManager.getApiKey()).is_impersonated).toBe(impersonated === true)
+                expect((await stateManager.getApiKey()).suppress_analytics).toBe(suppressed)
+            }
+        )
+
+        it.each([{ scopes: [] }, { scopes: ['scout_experiment_internal:read'] }])(
+            'does not suppress personal-key telemetry for scopes $scopes',
+            async ({ scopes }) => {
+                const apiKey = { ...mockApiKey, scopes, suppress_analytics: true }
+                const api = {
+                    config: { apiToken: 'phx_test' },
+                    apiKeys: () => ({ current: async () => ({ success: true, data: apiKey }) }),
+                } as unknown as ApiClient
+
+                const result = await new StateManager(cache, api).getApiKey()
+
+                expect(result).toEqual({ ...apiKey, is_impersonated: false, suppress_analytics: false })
+                expect(await new StateManager(cache, cacheOnlyApi).getApiKey()).toEqual(result)
+            }
+        )
+
+        it.each([
+            { apiToken: 'phx_test', expectedScopes: ['user:read', 'cdp:read'] },
+            { apiToken: 'unrecognized-token', expectedScopes: ['user:read', 'cdp:read'] },
+            { apiToken: 'pha_test', expectedScopes: mockApiKey.scopes },
+        ])(
+            're-reads expired scopes only for a token that keeps its value ($apiToken)',
+            async ({ apiToken, expectedScopes }) => {
+                vi.useFakeTimers()
+                try {
+                    const current = vi
+                        .fn()
+                        .mockResolvedValueOnce({ success: true, data: mockApiKey })
+                        .mockResolvedValue({
+                            success: true,
+                            data: { ...mockApiKey, scopes: ['user:read', 'cdp:read'] },
+                        })
+                    const api = { config: { apiToken }, apiKeys: () => ({ current }) } as unknown as ApiClient
+
+                    expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+
+                    vi.advanceTimersByTime(60 * 1000)
+                    expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+
+                    vi.advanceTimersByTime(2 * 60 * 1000)
+                    expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(expectedScopes)
+                } finally {
+                    vi.useRealTimers()
+                }
+            }
+        )
+
+        it('keeps the cached scopes when a refresh fails', async () => {
+            vi.useFakeTimers()
+            try {
+                const current = vi
+                    .fn()
+                    .mockResolvedValueOnce({ success: true, data: mockApiKey })
+                    .mockRejectedValue(new Error('API unreachable'))
+                const api = { config: { apiToken: 'phx_test' }, apiKeys: () => ({ current }) } as unknown as ApiClient
+
+                await new StateManager(cache, api).getApiKey()
+                vi.advanceTimersByTime(3 * 60 * 1000)
+
+                expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+            } finally {
+                vi.useRealTimers()
+            }
+        })
 
         it.each([
             { label: 'an OAuth app name', clientName: 'Claude', expected: 'Claude' },
@@ -458,8 +581,7 @@ describe('StateManager', () => {
 
     describe('getCachedOrFetchOrg', () => {
         it('returns undefined when no org can be resolved (does not throw)', async () => {
-            // Preserves the best-effort contract used by getEnvironmentPrompt and
-            // consent checks: if no org is in scope, the call is a no-op.
+            // Consent checks rely on this best-effort contract.
             vi.spyOn(stateManager, 'getApiKey').mockResolvedValue({
                 scopes: ['organization:read'],
                 scoped_organizations: [],
@@ -874,7 +996,7 @@ describe('StateManager', () => {
         it('returns undefined without calling the API when the key lacks integration:read', async () => {
             await cache.set('apiKey', { scopes: ['project:read'], scoped_organizations: [], scoped_teams: [] })
             const request = vi.fn()
-            ;(stateManager as any)._api = { request }
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
             const result = await stateManager.getOrFetchIntegrationKinds(projectId)
 
@@ -887,7 +1009,7 @@ describe('StateManager', () => {
             const request = vi.fn().mockResolvedValue({
                 results: [{ kind: 'slack' }, { kind: 'github' }, { kind: 'github' }],
             })
-            ;(stateManager as any)._api = { request }
+            ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
             const result = await stateManager.getOrFetchIntegrationKinds(projectId)
 

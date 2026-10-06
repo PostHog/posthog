@@ -61,6 +61,11 @@ interface UseAppBridgeArgs {
 
 interface UseAppBridgeReturn {
   sendWhenReady: (fn: (bridge: AppBridge) => void) => void;
+  /**
+   * Delivers a tool result at most once per `toolCallId`; the sent flag is
+   * bridge-scoped, so a teardown lets the next bridge redeliver it.
+   */
+  sendResultOnce: (toolCallId: string, raw: unknown) => void;
 }
 
 const HOST_INFO = { name: "posthog-code", version: "1.0.0" };
@@ -131,6 +136,7 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
   const bridgeRef = useRef<AppBridge | null>(null);
   const initializedRef = useRef(false);
   const pendingRef = useRef<Array<(bridge: AppBridge) => void>>([]);
+  const sentResultForCallRef = useRef<string | null>(null);
 
   // Single mutable ref for latest props — handlers read from this
   const latestRef = useRef(args);
@@ -145,6 +151,24 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
     displayMode: McpUiDisplayMode;
     containerWidth: number;
   } | null>(null);
+
+  const sendWhenReady = useCallback((fn: (bridge: AppBridge) => void) => {
+    if (initializedRef.current && bridgeRef.current) {
+      fn(bridgeRef.current);
+    } else {
+      pendingRef.current.push(fn);
+    }
+  }, []);
+
+  const sendResultOnce = useCallback(
+    (toolCallId: string, raw: unknown) => {
+      if (sentResultForCallRef.current === toolCallId) return;
+      sentResultForCallRef.current = toolCallId;
+      const toolResult = toCallToolResult(raw);
+      sendWhenReady((bridge) => bridge.sendToolResult(toolResult));
+    },
+    [sendWhenReady],
+  );
 
   // Main lifecycle effect
   useEffect(() => {
@@ -283,19 +307,21 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
             });
           }
 
-          // If the tool already completed (e.g. component remounted after
-          // scrolling back into the virtualized list), send the result now
-          // since the subscription event was missed.
+          // Remount after scrolling back into the virtualized list: the
+          // subscription event already fired, so send the stored result.
+          // `sendResultOnce` routes through `sendWhenReady`, so the once-per-id
+          // flag stays in one place; it delivers straight to this bridge (it
+          // is initialized above), or the flush below picks it up on the rare
+          // ordering where the ref is not set yet.
           if (
             tc.rawOutput &&
             (tc.status === "completed" || tc.status === "failed")
           ) {
-            const toolResult = toCallToolResult(tc.rawOutput);
             log.debug("Sending existing tool result to app (remount)", {
               serverName: latestRef.current.serverName,
-              toolResult,
+              toolCallId: tc.toolCallId,
             });
-            bridge.sendToolResult(toolResult);
+            sendResultOnce(tc.toolCallId, tc.rawOutput);
           }
 
           // Flush pending
@@ -314,6 +340,13 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
           iframe.contentWindow as Window,
         );
         await bridge.connect(transport);
+        // The effect that started this bridge may have torn down while
+        // connect was pending. A stale bridge must not replace the next
+        // effect's bridge in the ref, or a result lands on the old iframe.
+        if (cleanedUp) {
+          bridge.close().catch(() => {});
+          return;
+        }
         bridgeRef.current = bridge;
 
         await bridge.sendSandboxResourceReady({
@@ -352,8 +385,14 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
       initializedRef.current = false;
       prevContextRef.current = null;
       pendingRef.current = [];
+      // Queued results die with this bridge; let the next bridge redeliver.
+      sentResultForCallRef.current = null;
     };
-  }, [iframeEl, uiResource, args.serverName]); // Only re-run when iframe element or resource identity changes
+    // Effect contract: re-runs only when the iframe or the resource changes.
+    // `sendResultOnce` is listed for the lint rule only: it is referentially
+    // stable (its sole dep, `sendWhenReady`, is stable), so it cannot fire this
+    // effect.
+  }, [iframeEl, uiResource, args.serverName, sendResultOnce]);
 
   // Host context change effect — sends deltas when theme/displayMode/containerWidth change
   useEffect(() => {
@@ -397,13 +436,5 @@ export function useAppBridge(args: UseAppBridgeArgs): UseAppBridgeReturn {
     }
   }, [args.isDarkMode, args.displayMode, args.containerWidth]);
 
-  const sendWhenReady = useCallback((fn: (bridge: AppBridge) => void) => {
-    if (initializedRef.current && bridgeRef.current) {
-      fn(bridgeRef.current);
-    } else {
-      pendingRef.current.push(fn);
-    }
-  }, []);
-
-  return { sendWhenReady };
+  return { sendWhenReady, sendResultOnce };
 }

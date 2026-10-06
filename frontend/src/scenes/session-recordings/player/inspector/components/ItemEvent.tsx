@@ -14,11 +14,9 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ceilMsToClosestSecond } from 'lib/utils/durations'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
@@ -191,6 +189,7 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
             items={[
                 {
                     label: 'View event in the activity feed',
+                    'data-attr': 'inspector-event-open-activity',
                     icon: <IconOpenInNew />,
                     to: urls.currentProject(urls.event(String(item.data.id), item.data.timestamp)),
                     targetBlank: true,
@@ -198,6 +197,7 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
                 item.data.event === '$exception' && '$exception_issue_id' in item.data.properties
                     ? {
                           label: 'View issue in Error Tracking',
+                          'data-attr': 'inspector-event-open-error-tracking',
                           icon: <IconOpenInNew />,
                           to: urls.errorTrackingIssue(item.data.properties.$exception_issue_id, {
                               fingerprint: item.data.properties.$exception_fingerprint,
@@ -209,6 +209,7 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
                 insightUrl
                     ? {
                           label: 'Try out in Insights',
+                          'data-attr': 'inspector-event-open-insights',
                           icon: <IconOpenInNew />,
                           to: insightUrl,
                           targetBlank: true,
@@ -217,6 +218,7 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
                 traceUrl
                     ? {
                           label: 'View LLM Trace',
+                          'data-attr': 'inspector-event-open-llm-trace',
                           icon: <IconOpenInNew />,
                           to: traceUrl,
                           targetBlank: true,
@@ -225,23 +227,25 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
             ]}
             buttonSize="xsmall"
         >
-            <LemonButton size="xsmall" icon={<IconShare />} className="recordings-event-share-actions" />
+            <LemonButton
+                data-attr="inspector-event-share"
+                size="xsmall"
+                icon={<IconShare />}
+                className="recordings-event-share-actions"
+            />
         </LemonMenu>
     )
 }
 
 function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const canPinPrimaryProperty = !!featureFlags[FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT]
     const eventName = item.data.event
 
-    const primaryPropertyActions =
-        canPinPrimaryProperty && isString(eventName)
-            ? (key: string, isRowHovered: boolean): JSX.Element | null =>
-                  key in item.data.properties ? (
-                      <PinPrimaryPropertyButton eventName={eventName} propertyKey={key} isRowHovered={isRowHovered} />
-                  ) : null
-            : undefined
+    const primaryPropertyActions = isString(eventName)
+        ? (key: string, isRowHovered: boolean): JSX.Element | null =>
+              key in item.data.properties ? (
+                  <PinPrimaryPropertyButton eventName={eventName} propertyKey={key} isRowHovered={isRowHovered} />
+              ) : null
+        : undefined
 
     return item.data.fullyLoaded ? (
         <EventPropertyTabs

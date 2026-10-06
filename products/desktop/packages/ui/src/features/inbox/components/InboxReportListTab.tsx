@@ -52,7 +52,7 @@ interface DismissibleCardProps {
   isDismissPending: boolean;
 }
 
-export interface InboxReportListTabEmptyState {
+interface InboxReportListTabEmptyState {
   Icon: ComponentType<IconProps>;
   /** Title shown when the scope is "For you". */
   forYouTitle: string;
@@ -158,7 +158,7 @@ export function InboxReportListTab({
       if (dismissTargetId == null) return;
       const isSnooze = isDismissalReasonSnooze(result.reason);
       const ok = isSnooze
-        ? await dismissBulkActions.snoozeSelected()
+        ? await dismissBulkActions.snoozeSelected(result)
         : await dismissBulkActions.suppressSelected(result);
       if (ok) {
         setDismissReport(null);

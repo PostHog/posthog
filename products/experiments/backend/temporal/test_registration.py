@@ -1,9 +1,18 @@
 from products.experiments.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.experiments.backend.temporal.canary_workflow import ExperimentPrecomputeCanaryWorkflow
+from products.experiments.backend.temporal.enrollment_census_activities import run_experiment_enrollment_census
 from products.experiments.backend.temporal.enrollment_census_workflow import (
     ExperimentPrecomputeEnrollmentCensusWorkflow,
 )
 from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
+from products.experiments.backend.temporal.scheduled_recalculation_activities import (
+    check_experiment_exposures,
+    discover_scheduled_recalculation_candidates,
+    start_scheduled_recalculation,
+)
+from products.experiments.backend.temporal.scheduled_recalculation_workflow import (
+    ScheduledExperimentRecalculationWorkflow,
+)
 
 
 def test_activities_registered():
@@ -16,6 +25,9 @@ def test_activities_registered():
         "run_experiment_metric_canary",
         "report_experiment_canary_results",
         "run_experiment_enrollment_census",
+        "discover_scheduled_recalculation_candidates",
+        "check_experiment_exposures",
+        "start_scheduled_recalculation",
     }
 
 
@@ -24,4 +36,32 @@ def test_workflow_registered():
         ExperimentMetricsRecalculationWorkflow,
         ExperimentPrecomputeCanaryWorkflow,
         ExperimentPrecomputeEnrollmentCensusWorkflow,
+        ScheduledExperimentRecalculationWorkflow,
     ]
+
+
+def test_scheduled_workflows_registered_on_general_purpose_queue():
+    # The canary and census schedules dispatch to the general-purpose queue; membership in
+    # the product WORKFLOWS list alone registers on the recalculation queue only. A workflow
+    # missing here leaves its scheduled runs retrying "not registered on this worker" forever.
+    # Matches the raw queue specs by content, not by queue name: in test settings all queue
+    # names alias to one value and the aggregated WORKFLOWS_DICT merges every spec together,
+    # which would make a name-based assertion pass even when the registration is missing.
+    from posthog.management.commands.start_temporal_worker import (  # noqa: PLC0415 — imports every product's temporal modules
+        _task_queue_specs,
+    )
+
+    general_purpose_specs = [
+        (workflows, activities)
+        for _queue, workflows, activities in _task_queue_specs
+        if any(workflow.__name__ == "DeletePersonsWorkflow" for workflow in workflows)
+    ]
+    assert general_purpose_specs, "general-purpose queue spec not found"
+    for workflows, activities in general_purpose_specs:
+        assert ExperimentPrecomputeCanaryWorkflow in workflows
+        assert ExperimentPrecomputeEnrollmentCensusWorkflow in workflows
+        assert run_experiment_enrollment_census in activities
+        assert ScheduledExperimentRecalculationWorkflow in workflows
+        assert discover_scheduled_recalculation_candidates in activities
+        assert check_experiment_exposures in activities
+        assert start_scheduled_recalculation in activities

@@ -1,4 +1,10 @@
-import { AI_EVENTS_USAGE_KEY, EVENTS_USAGE_KEY, resolveAiUsageKey, resolveAnalyticsUsageKey } from './billable-events'
+import {
+    AI_EVENTS_USAGE_KEY,
+    EVENTS_USAGE_KEY,
+    SURVEY_RESPONSES_USAGE_KEY,
+    resolveAiUsageKey,
+    resolveAnalyticsUsageKey,
+} from './billable-events'
 
 describe('usage key resolvers', () => {
     it.each([
@@ -6,13 +12,15 @@ describe('usage key resolvers', () => {
         ['custom event', EVENTS_USAGE_KEY],
         ['$ai_generation', AI_EVENTS_USAGE_KEY],
         ['$ai_trace', AI_EVENTS_USAGE_KEY],
-        // Not a known AI event name, so it bills as a standard event — matching the nightly report,
-        // which excludes the exact AIEventType values rather than everything prefixed `$ai_`.
-        ['$ai_not_a_real_event', EVENTS_USAGE_KEY],
+        // Any `$ai_*` name bills as an AI event, matching the nightly report's prefix split.
+        ['$ai_not_a_real_event', AI_EVENTS_USAGE_KEY],
+        ['ai_generation', EVENTS_USAGE_KEY],
+        ['$AI_generation', EVENTS_USAGE_KEY],
         ['$feature_flag_called', null],
         ['$experiment_exposure', null],
-        ['survey sent', null],
+        ['survey sent', SURVEY_RESPONSES_USAGE_KEY],
         ['$exception', null],
+        ['$llm_prompt_fetched', null],
         ['$conversations_message_sent', null],
     ])('resolveAnalyticsUsageKey bills %s under %s', (event, expected) => {
         expect(resolveAnalyticsUsageKey(event)).toBe(expected)

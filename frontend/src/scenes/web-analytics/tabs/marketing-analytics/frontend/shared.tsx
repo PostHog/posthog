@@ -15,6 +15,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { InfinityValue, MarketingAnalyticsItem, WebAnalyticsItemKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
+import { withEmptyUtmLabel } from './components/CampaignMapping/mappingUtils'
+
 // Simple mapping for the display mode options and their icons
 export const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<ChartDisplayType>[] = [
     { value: ChartDisplayType.ActionsLineGraph, icon: <IconLineGraph /> },
@@ -296,5 +298,5 @@ export const MarketingAnalyticsCell = ({
         return <span>-</span>
     }
 
-    return <MarketingAnalyticsCellInternal value={value as MarketingAnalyticsItem} style={style} />
+    return <MarketingAnalyticsCellInternal value={withEmptyUtmLabel(value as MarketingAnalyticsItem)} style={style} />
 }

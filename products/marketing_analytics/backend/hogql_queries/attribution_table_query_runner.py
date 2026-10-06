@@ -29,12 +29,13 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from .attribution_base import PERSON_ARRAYS_CTE, PERSON_CONVERSION_COUNT, AttributionQueryRunnerBase
+from .attribution_sessions_read import build_reach, session_ctes
 from .attribution_weights import (
     build_first_touch_weights,
     build_last_touch_weights,
@@ -103,6 +104,13 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
         visitors to the display window instead let a conversion be credited to a touch from before the
         range while its person was missing from the denominator, reporting rates above 100%.
         """
+        if self.config.live_session_resolution_enabled:
+            with self.timings.measure("attribution_live_session_resolution"):
+                resolved = build_reach(self, date_range)
+            if resolved is not None:
+                self._live_session_resolution_used = True
+                return resolved
+
         breakdown = self._breakdown_expr()
         return ast.SelectQuery(
             select=[
@@ -117,6 +125,7 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
                 exprs=[
                     self._touchpoint_condition(),
                     *self._lookback_date_conditions(date_range),
+                    *self._test_account_conditions(),
                 ]
             ),
             group_by=[ast.Field(chain=[_BREAKDOWN_VALUE])],
@@ -283,13 +292,13 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
     def to_query(self) -> ast.SelectQuery:
         date_range = self.query_date_range
 
-        ctes: dict[str, ast.CTE] = {}
+        ctes: dict[str, ast.CTE] = session_ctes(self, date_range)
         with self.timings.measure("attribution_reach_cte"):
             ctes[_REACH_CTE] = ast.CTE(name=_REACH_CTE, expr=self._build_reach_select(date_range), cte_type="subquery")
         with self.timings.measure("attribution_person_arrays_cte"):
             ctes[PERSON_ARRAYS_CTE] = ast.CTE(
                 name=PERSON_ARRAYS_CTE,
-                expr=self._build_person_arrays_select(date_range),
+                expr=self._person_arrays_select(date_range),
                 cte_type="subquery",
             )
         # Materialized because two CTEs read it, and ClickHouse otherwise re-evaluates a CTE at each
@@ -380,7 +389,19 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
             ),
             # Server ordering only decides which rows make the page; the table re-sorts client side.
             order_by=[
-                ast.OrderExpr(expr=ast.Field(chain=[_INFLUENCED_CONVERSIONS]), order="DESC"),
+                ast.OrderExpr(
+                    expr=ast.Call(
+                        name="arrayMax",
+                        args=[
+                            ast.Array(
+                                exprs=[ast.Field(chain=[f"{alias}_value"]) for alias in _ordered_weight_aliases()]
+                            )
+                        ],
+                    )
+                    if self.query.includeRevenue
+                    else ast.Field(chain=[_INFLUENCED_CONVERSIONS]),
+                    order="DESC",
+                ),
                 ast.OrderExpr(expr=ast.Field(chain=[_VISITORS]), order="DESC"),
             ],
             limit=ast.Constant(value=(self.query.limit or DEFAULT_LIMIT) + PAGINATION_EXTRA),
@@ -480,7 +501,7 @@ class MarketingAnalyticsAttributionQueryRunner(AttributionQueryRunnerBase[Market
             context=self._shared_hogql_context,
             # The per-person touchpoint arrays are unbounded, so let the GROUP BY spill to disk
             # rather than hit the memory limit. Same guard funnels, retention and paths use.
-            settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
+            settings=self.get_query_settings(),
         )
 
         # Mapped by column name, not tuple position, so adding a column can't shift every later one.

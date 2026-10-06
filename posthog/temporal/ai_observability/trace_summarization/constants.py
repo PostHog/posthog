@@ -15,7 +15,12 @@ DEFAULT_TRACE_BATCH_SIZE = 6  # Traces processed in small parallel batches
 DEFAULT_MODE = SummarizationMode.DETAILED
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
 DEFAULT_WINDOW_OFFSET_MINUTES = 30  # Offset window into the past so traces have time to fully complete
-DEFAULT_MODEL = OpenAIModel.GPT_4_1_NANO
+# Not env-configurable: the coordinator schedule bakes this value into its stored input in
+# whatever process re-creates it, so an env override would govern only part of the traffic.
+# Changing the model is a deploy, and the value must also be on the Python gateway's
+# llma_summarization allowlist (services/llm-gateway/src/llm_gateway/products/config.py),
+# or the fallback path 403s.
+DEFAULT_MODEL = OpenAIModel.GPT_5_NANO
 
 # Max estimated raw trace size (in characters) before formatting.
 # Traces exceeding this are skipped — formatting huge traces is CPU-intensive
@@ -39,9 +44,10 @@ MAX_TRACE_EVENTS_LIMIT = 50
 MAX_TRACE_PROPERTIES_SIZE = 2_000_000
 
 # AI event types used in trace queries (sampling and fetching).
-# Mirrors `AI_EVENT_NAMES` in posthog/hogql_queries/ai/ai_table_resolver.py
-# and the Node.js list in nodejs/src/ingestion/ai/process-ai-event.ts —
-# kept as a tuple here so HogQL placeholders can build a deterministic
+# Mirrors `AI_EVENT_NAMES` in posthog/hogql_queries/ai/ai_table_resolver.py.
+# Node.js ingestion admits any `$ai_*` name by the prefix in
+# nodejs/src/ingestion/common/ai-event-types.ts, so it has no list to sync.
+# Kept as a tuple here so HogQL placeholders can build a deterministic
 # `event IN (...)` clause from a single source.
 AI_EVENT_TYPES = (
     "$ai_span",
@@ -59,6 +65,17 @@ SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
 # Coordinator concurrency settings
 DEFAULT_MAX_CONCURRENT_TEAMS = 20  # Max teams to process in parallel
 
+# The patch id keeps coordinator executions that started with fixed batches deterministic on replay.
+SLIDING_WINDOW_PATCH_ID = "llma-summarization-sliding-window-2026-09"
+
+# Continue-as-new waits for the running children to finish, so each continuation leaves slots idle.
+# These defaults are above the Temporal suggestion, so a run continues as new less often.
+# A run starts to wait at a limit, and the children that still run add their own events.
+# So a run closes above its limit, and the limits leave room below the Temporal warning levels (10,240 events, 10 MiB).
+CONTINUE_AS_NEW_HISTORY_LENGTH = 10_000
+CONTINUE_AS_NEW_HISTORY_SIZE_BYTES = 8 * 1024 * 1024
+FEWER_CONTINUATIONS_PATCH_ID = "llma-summarization-fewer-continuations-2026-10"
+
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 900  # 15 minutes for sampling query (buffer above QUERY_ASYNC 600s ClickHouse timeout)
 
@@ -72,6 +89,12 @@ SAMPLE_HEARTBEAT_TIMEOUT = timedelta(seconds=120)  # 2 minutes - sampling has lo
 # backoff intervals, and queue time. Prevents runaway retries from blocking
 # the workflow indefinitely when something is fundamentally broken.
 SAMPLE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=1200)  # 20 min total for sampling (2 attempts * 900s + backoff)
+
+# The patch id keeps executions that started before the consent check shipped deterministic
+# on replay.
+CONSENT_CHECK_PATCH_ID = "llma-summarization-ai-consent-check-2026-09"
+CONSENT_CHECK_START_TO_CLOSE_TIMEOUT = timedelta(seconds=30)
+CONSENT_CHECK_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 
 # Activity 1: Fetch + format + store in Redis (fast, ClickHouse-bound)
 FETCH_AND_FORMAT_START_TO_CLOSE_TIMEOUT = timedelta(seconds=120)

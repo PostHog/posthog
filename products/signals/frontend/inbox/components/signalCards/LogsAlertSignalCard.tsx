@@ -1,5 +1,4 @@
-import { IconWarning } from '@posthog/icons'
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
@@ -51,31 +50,23 @@ function FiltersBlock({ filters }: { filters: Record<string, unknown> }): JSX.El
     }
 
     return (
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-0.5 text-xs">
             {serviceNames.length > 0 && (
-                <div className="flex items-center gap-1 flex-wrap">
-                    <span className="text-xs text-tertiary">Services</span>
-                    {serviceNames.map((name) => (
-                        <LemonTag key={name} size="small">
-                            {name}
-                        </LemonTag>
-                    ))}
+                <div>
+                    <span className="text-tertiary">Services </span>
+                    <span className="font-mono">{serviceNames.join(', ')}</span>
                 </div>
             )}
             {severityLevels.length > 0 && (
-                <div className="flex items-center gap-1 flex-wrap">
-                    <span className="text-xs text-tertiary">Severities</span>
-                    {severityLevels.map((level) => (
-                        <LemonTag key={level} size="small">
-                            {level}
-                        </LemonTag>
-                    ))}
+                <div>
+                    <span className="text-tertiary">Severities </span>
+                    <span className="font-mono">{severityLevels.join(', ')}</span>
                 </div>
             )}
             {filterGroupCount > 0 && (
-                <LemonTag size="small" type="muted">
+                <div className="text-tertiary">
                     + {filterGroupCount} filter {filterGroupCount === 1 ? 'condition' : 'conditions'}
-                </LemonTag>
+                </div>
             )}
         </div>
     )
@@ -128,19 +119,8 @@ export function LogsAlertSignalCard({ signal }: SignalCardProps): JSX.Element {
     const extra = signal.extra
     const alertUrl = urls.logsAlertDetail(extra.alert_id)
 
-    const stateBadge =
-        extra.action === 'firing' ? (
-            <LemonTag type="danger" size="small">
-                Firing
-            </LemonTag>
-        ) : (
-            <LemonTag type="warning" size="small" icon={<IconWarning />}>
-                Broken
-            </LemonTag>
-        )
-
     return (
-        <SignalCardShell signal={signal} label={extra.alert_name} rightSlot={stateBadge}>
+        <SignalCardShell signal={signal} label={extra.alert_name}>
             <div className="flex flex-col gap-3">
                 {extra.action === 'firing' ? <FiringBody extra={extra} /> : <BrokenBody extra={extra} />}
 

@@ -3,10 +3,12 @@ import { ArtifactRefChip } from "@posthog/ui/features/editor/components/Artifact
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
+import { useObjectTagRemarkPlugins } from "@posthog/ui/features/editor/usePostHogLinkContext";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { Divider } from "@posthog/ui/primitives/Divider";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { List, ListItem } from "@posthog/ui/primitives/List";
+import { MermaidDiagram } from "@posthog/ui/primitives/MermaidDiagram";
 import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
 import {
   chartBlockKey,
@@ -14,7 +16,10 @@ import {
   parseChartBlock,
 } from "@posthog/ui/utils/chartBlocks";
 import { parseEvidenceLink } from "@posthog/ui/utils/evidenceLinks";
-import { remarkObjectTags } from "@posthog/ui/utils/remarkObjectTags";
+import {
+  isMermaidCodeBlock,
+  MERMAID_LANGUAGE,
+} from "@posthog/ui/utils/mermaidBlocks";
 import { handleShareLinkClick } from "@posthog/ui/utils/shareLinks";
 import { Blockquote, Checkbox, Code, Kbd, Text } from "@radix-ui/themes";
 import { memo, useMemo } from "react";
@@ -139,14 +144,16 @@ export const baseComponents: Components = {
     if (!match) {
       return <Code variant="ghost">{children}</Code>;
     }
-    return (
-      <HighlightedCode
-        code={String(children).replace(/\n$/, "")}
-        language={match[1]}
-      />
-    );
+    const source = String(children).replace(/\n$/, "");
+    if (match[1] === MERMAID_LANGUAGE) {
+      return <MermaidDiagram code={source} />;
+    }
+    return <HighlightedCode code={source} language={match[1]} />;
   },
-  pre: ({ children }) => {
+  pre: ({ children, node }) => {
+    if (isMermaidCodeBlock(node?.children[0])) {
+      return children;
+    }
     return <CodeBlock size="1">{children}</CodeBlock>;
   },
   em: ({ children }) => <em>{children}</em>,
@@ -155,8 +162,8 @@ export const baseComponents: Components = {
   del: ({ children }) => (
     <del className="text-(--gray-9) line-through">{children}</del>
   ),
-  a: ({ href, children }) => {
-    const evidenceTarget = parseEvidenceLink(href);
+  a: ({ href, children, node }) => {
+    const evidenceTarget = parseEvidenceLink(href, node?.properties);
     if (evidenceTarget) {
       return (
         <EvidenceRefChip target={evidenceTarget}>{children}</EvidenceRefChip>
@@ -256,7 +263,6 @@ const objectTagComponents: Components = {
 };
 
 export const defaultRemarkPlugins = [remarkGfm];
-const objectTagRemarkPlugins = [...defaultRemarkPlugins, remarkObjectTags];
 
 export const MarkdownRenderer = memo(function MarkdownRenderer({
   content,
@@ -269,6 +275,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({
     () => preprocessMarkdown(content),
     [content],
   );
+  const objectTagRemarkPlugins = useObjectTagRemarkPlugins();
   const plugins =
     remarkPluginsOverride ??
     (renderObjectTags ? objectTagRemarkPlugins : defaultRemarkPlugins);

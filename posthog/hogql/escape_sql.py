@@ -48,6 +48,11 @@ def escape_hogql_identifier(identifier: str | int) -> str:
         return str(identifier)
     if "%" in identifier:
         raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
+    return quote_hogql_identifier(identifier)
+
+
+def quote_hogql_identifier(identifier: str) -> str:
+    """Quote an identifier without validating whether it is safe to interpolate into SQL."""
     # HogQL allows dollars in the identifier.
     if re.match(
         r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier
@@ -269,6 +274,13 @@ def escape_duckdb_identifier(v: str) -> str:
     """Escape an identifier for DuckDB. Same quoting rules as Postgres but no length limit,
     and with DuckDB's additional reserved keywords treated as requiring quotes."""
     return _quote_postgres_wire_identifier(v, extra_reserved_keywords=DUCKDB_EXTRA_RESERVED_KEYWORDS)
+
+
+def escape_trino_identifier(v: str) -> str:
+    for character, label in (("%", "%"), ("?", "?"), ("\0", "NUL")):
+        if character in v:
+            raise QueryError(f'The Trino identifier "{v}" is not permitted as it contains the "{label}" character')
+    return '"' + v.replace('"', '""') + '"'
 
 
 def escape_snowflake_identifier(v: str) -> str:

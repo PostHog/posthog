@@ -1,6 +1,6 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { StepDefinition } from '../steps'
+import { PROSE_LANGUAGE, StepDefinition } from '../steps'
 import { getOtelSessionIdStep } from './_snippets/otel-session-id'
 
 export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
@@ -33,6 +33,11 @@ export const getAWSBedrockSteps = (ctx: OnboardingComponentsContext): StepDefini
                                 code: dedent`
                                     npm install @aws-sdk/client-bedrock-runtime @opentelemetry/instrumentation-aws-sdk @opentelemetry/sdk-node @opentelemetry/resources @posthog/ai
                                 `,
+                            },
+                            {
+                                language: PROSE_LANGUAGE,
+                                file: 'Go',
+                                code: "There are no Go instrumentation libraries for the AWS SDK yet. Register PostHog's span processor and set the `gen_ai.*` attributes on a span around each Bedrock call, as shown in the Go tab of the [OpenTelemetry integration](https://posthog.com/docs/ai-observability/installation/opentelemetry).",
                             },
                         ]}
                     />

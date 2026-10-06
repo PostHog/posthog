@@ -54,7 +54,7 @@ class HttpError extends Error {
   }
 }
 
-export function getWebRedirectUri(): string {
+function getWebRedirectUri(): string {
   return `${window.location.origin}${OAUTH_CALLBACK_PATH}`;
 }
 

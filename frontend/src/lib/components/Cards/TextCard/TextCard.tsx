@@ -13,12 +13,12 @@ import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
-import { DashboardPlacement, DashboardTile, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardTile } from '~/types'
 
 import { TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS, textCardConverter } from './textCardMarkdown'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
-    textTile: DashboardTile<QueryBasedInsightModel>
+    textTile: DashboardTile
     placement: DashboardPlacement
     children?: JSX.Element
     /** Whether hovering near the card edge should hint that edit mode is available. */
@@ -95,7 +95,6 @@ function TextCardInternal(
     const shouldHideMoreButton = placement === DashboardPlacement.Public || showEditingControls === false
 
     const isTransparent = textTile.transparent_background
-
     return (
         <div
             className={clsx(
@@ -115,7 +114,10 @@ function TextCardInternal(
             )}
 
             <div
-                className={clsx('TextCard__body w-full', onDragHandleMouseDown && 'cursor-grab')}
+                className={clsx(
+                    'DashboardTileCard__body TextCard__body w-full',
+                    onDragHandleMouseDown && 'cursor-grab'
+                )}
                 onMouseDown={onDragHandleMouseDown}
             >
                 <TextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />

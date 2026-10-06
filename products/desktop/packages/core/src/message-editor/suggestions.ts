@@ -93,7 +93,7 @@ export function shapeCommandSuggestions<T extends CommandLike>(
   }));
 }
 
-export function parentDirLabel(dir: string, name: string): string {
+function parentDirLabel(dir: string, name: string): string {
   const parent = dir.split("/").filter(Boolean).pop();
   return parent ? `${parent}/${name}` : name;
 }

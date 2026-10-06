@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   runs: [] as TaskRun[],
   openArtifactTab: vi.fn(),
+  openInboxReport: vi.fn(),
   openExternalUrl: vi.fn(),
   getCloudAttachmentPreviewUrl: vi.fn(),
   commentsError: false,
@@ -53,6 +54,9 @@ vi.mock("@posthog/ui/features/sessions/sessionStore", () => ({
 }));
 vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
   usePanelLayoutStore: () => mocks.openArtifactTab,
+}));
+vi.mock("@posthog/ui/features/inbox/hooks/useOpenInboxReport", () => ({
+  useOpenInboxReport: () => mocks.openInboxReport,
 }));
 vi.mock("@posthog/ui/features/git-interaction/usePrArtifact", () => ({
   usePrArtifact: (url: string) => ({
@@ -141,6 +145,7 @@ describe("TaskArtifactsList", () => {
     mocks.taskRunsRefreshKeys = [];
     mocks.runs = [run("run-1", { prNumber: 1 }), run("run-2", { prNumber: 2 })];
     mocks.openArtifactTab.mockReset();
+    mocks.openInboxReport.mockReset();
     mocks.openExternalUrl.mockReset();
     mocks.getCloudAttachmentPreviewUrl.mockReset();
     useReviewNavigationStore.setState({
@@ -280,6 +285,35 @@ describe("TaskArtifactsList", () => {
     expect(
       screen.queryByRole("button", { name: "Download Checkout funnel" }),
     ).toBeNull();
+  });
+
+  it("opens an Inbox report reference in the native report view", () => {
+    mocks.runs = [
+      run("run-1", {
+        artifacts: [
+          {
+            id: "phref-report-1",
+            name: "Checkout errors increased",
+            type: "reference",
+            source: "posthog_object",
+            uploaded_at: "2026-08-19T00:00:00Z",
+            metadata: {
+              reference_type: "posthog_object",
+              object_kind: "report",
+              object_id: "report-1",
+              source_message_ids: ["turn-1"],
+              occurrence_count: 1,
+            },
+          },
+        ],
+      }),
+    ];
+
+    render(<TaskArtifactsList task={task} timeline={[]} />);
+
+    fireEvent.click(screen.getByText("Checkout errors increased"));
+    expect(mocks.openInboxReport).toHaveBeenCalledWith("report-1");
+    expect(mocks.openArtifactTab).not.toHaveBeenCalled();
   });
 
   it("keeps artifacts visible when comment counts fail", () => {

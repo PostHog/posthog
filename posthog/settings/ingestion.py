@@ -1,5 +1,8 @@
 import os
+from typing import Literal
+from uuid import UUID
 
+from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.utils import get_from_env, get_list, get_set
 from posthog.utils import str_to_bool
 
@@ -49,6 +52,10 @@ REPLAY_CAPTURE_ENDPOINT = os.getenv("REPLAY_CAPTURE_ENDPOINT", "/s/")
 
 CAPTURE_INTERNAL_URL = os.getenv("CAPTURE_INTERNAL_URL", "http://localhost:8010")
 CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://localhost:8010")
+# The AI lane is a different capture deployment (capture-ai), not just a different path:
+# `/i/v1/ai/events` is mounted only on CaptureMode::Ai, and capture-analytics refuses
+# AI-lane event names. In the clusters this is capture-ai.capture-ai.svc.cluster.local.
+CAPTURE_AI_INTERNAL_URL = os.getenv("CAPTURE_AI_INTERNAL_URL", "http://localhost:8010")
 
 # Internal OTLP/HTTP endpoint for first-party log emission into Logs (the `capture-logs` service,
 # path `/i/v1/logs`). The OTLP Bearer (a project token) routes records to a team's Logs. Defaults to
@@ -76,12 +83,25 @@ NEW_ANALYTICS_CAPTURE_ENDPOINT = os.getenv("NEW_CAPTURE_ENDPOINT", "/i/v0/e/")
 
 
 CAPTURE_V1_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_INTERNAL_ENDPOINT", "/i/v1/analytics/events")
+CAPTURE_V1_AI_INTERNAL_ENDPOINT = os.getenv("CAPTURE_V1_AI_INTERNAL_ENDPOINT", "/i/v1/ai/events")
 CAPTURE_V1_INTERNAL_MAX_ATTEMPTS = get_from_env("CAPTURE_V1_INTERNAL_MAX_ATTEMPTS", type_cast=int, default=4)
 CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS = get_from_env(
     "CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS", type_cast=float, default=5.0
 )
 # Chunk fan-out reuses CAPTURE_INTERNAL_MAX_WORKERS (above) for its thread pool.
 CAPTURE_INTERNAL_BATCH_CHUNK_SIZE = get_from_env("CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", type_cast=int, default=200)
+
+# Outbound: where browsers send CSP violation and crash reports for pages this instance serves.
+# CSPMiddleware puts it in the `report-uri` directive and the `Reporting-Endpoints` header, and
+# picks the destination itself when this is unset. An empty value turns reporting off without
+# changing the policy, so it is a kill switch that needs no deploy.
+#
+# Read straight from the environment because `get_from_env` cannot tell an empty value from an unset
+# one, and the two mean different things here.
+#
+# An operator can point this at their own install, which already serves the receiving `/report/`
+# endpoint: CSP_REPORT_ENDPOINT="https://posthog.example.com/report/?token=<project token>&v=2"
+CSP_REPORT_ENDPOINT: str | None = os.getenv("CSP_REPORT_ENDPOINT")
 
 # Inbound bounds for /report/. The endpoint is unauthenticated and expands each CSP violation in
 # the body into its own event (a reports+json bundle may also carry other Reporting API types,
@@ -122,3 +142,22 @@ NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS = get_set(os.getenv("NEW_ANALYTICS_CAPTU
 ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS = get_set(os.getenv("ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS", ""))
 
 DROP_EVENTS_BY_TOKEN_DISTINCT_ID = get_from_env("DROP_EVENTS_BY_TOKEN_DISTINCT_ID", None, type_cast=str, optional=True)
+
+# Organizations that see `posthog.billing_usage_records` in HogQL. The table carries usage for
+# every producer in a project, so this organization-level rollout lets the real-time usage page
+# query all of an organization's projects without exposing the table elsewhere.
+#
+# Local development enables the table for all organizations. Cloud and self-hosted deployments need explicit UUIDs.
+_BILLING_USAGE_RECORDS_DEFAULT_ORGANIZATION_IDS = "*" if DEBUG and not TEST else ""
+BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS: set[UUID | Literal["*"]] = {
+    "*" if organization_id == "*" else UUID(organization_id)
+    for organization_id in get_set(
+        os.getenv("BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS", _BILLING_USAGE_RECORDS_DEFAULT_ORGANIZATION_IDS)
+    )
+    if organization_id
+}
+
+AI_RESEARCH_REPLAY_KEY_TABLE = os.getenv("AI_RESEARCH_REPLAY_KEY_TABLE", "")
+AI_RESEARCH_REPLAY_AWS_REGION = os.getenv("AI_RESEARCH_REPLAY_AWS_REGION", "us-east-1")
+AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT = os.getenv("AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT", "")
+AI_RESEARCH_REPLAY_KMS_KEY_ARN = os.getenv("AI_RESEARCH_REPLAY_KMS_KEY_ARN", "")

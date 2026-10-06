@@ -1,12 +1,15 @@
 import clsx from 'clsx'
-import React, { useLayoutEffect, useState } from 'react'
+import React, { useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { MarkdownMessage } from '../messages/MarkdownMessage'
-
-export type ActivityStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
+import { ActivityDisclosure } from './ActivityDisclosure'
+import { ActivitySubsteps } from './ActivitySubsteps'
+import type { ActivityProps, ActivityStatus } from './activityTypes'
+import { QuillActivity } from './quill/QuillActivity'
+import { useQuillThread } from './quill/quillThreadContext'
+import { useActivityDisclosure } from './useActivityDisclosure'
 
 export function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Element {
     const isTextContent = typeof children === 'string'
@@ -37,19 +40,6 @@ export function ShimmeringContent({ children }: { children: React.ReactNode }): 
             {children}
         </span>
     )
-}
-
-function activitySubstepText(content: string, isInProgress: boolean): string {
-    if (content.at(0) === '[' && content.at(-1) === ')') {
-        // Skip ... for web search `updates`, where each is a Markdown-formatted link to a search result.
-        return content
-    }
-    if (!content.endsWith('...') && !content.endsWith('\u2026') && !content.endsWith('.') && isInProgress) {
-        return content + '...'
-    } else if ((content.endsWith('...') || content.endsWith('\u2026')) && !isInProgress) {
-        return content.replace(/\u2026/g, '').replace(/[.]/g, '')
-    }
-    return content
 }
 
 export function ActivityStatusIcon(_props: {
@@ -89,14 +79,13 @@ export function ActivityHeader({
 }): JSX.Element {
     const isPending = status === 'pending'
     const isInProgress = status === 'in_progress'
-    const isFailed = status === 'failed'
 
     const titleNode = (
         <div className="min-w-0 min-h-5 flex items-center">
             {isInProgress && animate ? (
                 <ShimmeringContent>{title}</ShimmeringContent>
             ) : (
-                <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{title}</span>
+                <span className={clsx('inline-flex min-w-0', isInProgress && 'text-muted')}>{title}</span>
             )}
         </div>
     )
@@ -115,12 +104,12 @@ export function ActivityHeader({
                 // Explicit transition properties, not transition-all: `all` also catches inherited
                 // scrollbar-color flips from the scrolling ancestor, starting hundreds of no-op
                 // transitions (and full-document style recalcs) whenever the thread is hovered.
-                'group/activity-header transition-colors duration-500 flex select-none min-w-0',
+                'group/activity-header transition-colors duration-500 flex items-center gap-2 px-2 min-h-8 select-none min-w-0',
                 isPending && 'text-muted',
-                isFailed && 'text-danger',
-                !isInProgress && !isPending && !isFailed && 'text-default',
+                // A failed row keeps its title readable; the icon and status word carry the red.
+                !isInProgress && !isPending && 'text-default',
                 hasDetails ? 'cursor-pointer' : 'cursor-default',
-                hasDetails && 'rounded px-1 -mx-1 hover:bg-fill-button-tertiary-hover',
+                hasDetails && 'rounded hover:bg-fill-button-tertiary-hover',
                 hasDetails && isDetailsExpanded && 'bg-fill-button-tertiary-active'
             )}
             onClick={hasDetails ? onToggleDetails : undefined}
@@ -153,7 +142,12 @@ export function ActivityHeader({
                     </span>
                     {hasDetails && (
                         <span className="absolute inline-flex translate-x-1 scale-90 text-tertiary opacity-0 transition-[color,transform,opacity] duration-200 ease-out group-hover/activity-header:translate-x-0 group-hover/activity-header:scale-100 group-hover/activity-header:text-primary group-hover/activity-header:opacity-100 group-focus-within/activity-header:translate-x-0 group-focus-within/activity-header:scale-100 group-focus-within/activity-header:text-primary group-focus-within/activity-header:opacity-100">
-                            <IconChevronDown className="size-5" />
+                            <IconChevronDown
+                                className={clsx(
+                                    'size-5 transition-transform duration-150 ease-out motion-reduce:transition-none',
+                                    !isDetailsExpanded && '-rotate-90'
+                                )}
+                            />
                         </span>
                     )}
                 </div>
@@ -176,43 +170,6 @@ export function ActivityHeader({
                 {!children && statusIcon}
             </div>
         </div>
-    )
-}
-
-export function ActivitySubsteps({
-    id,
-    substeps,
-    status,
-}: {
-    id: string
-    substeps: string[]
-    status: ActivityStatus
-}): JSX.Element {
-    const isCompleted = status === 'completed'
-    const isFailed = status === 'failed'
-
-    return (
-        <>
-            {substeps.map((substep, substepIndex) => {
-                const isCurrentSubstep = substepIndex === substeps.length - 1
-                const isCompletedSubstep = substepIndex < substeps.length - 1 || isCompleted
-
-                return (
-                    <div key={substepIndex} className="animate-fade-in">
-                        <MarkdownMessage
-                            id={id}
-                            className={clsx(
-                                'leading-relaxed',
-                                isFailed && 'text-danger',
-                                !isFailed && isCompletedSubstep && 'text-muted',
-                                !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
-                            )}
-                            content={activitySubstepText(substep ?? '', status === 'in_progress')}
-                        />
-                    </div>
-                )
-            })}
-        </>
     )
 }
 
@@ -263,7 +220,11 @@ export function ActivityToggleSection({
     )
 }
 
-export function Activity({
+export function Activity(props: ActivityProps): JSX.Element {
+    return useQuillThread() ? <QuillActivity {...props} /> : <LemonActivity {...props} />
+}
+
+function LemonActivity({
     id,
     title,
     subtitle,
@@ -276,30 +237,19 @@ export function Activity({
     substeps = [],
     details = null,
     children = null,
-}: {
-    id: string
-    title: React.ReactNode
-    subtitle?: React.ReactNode
-    status: ActivityStatus
-    icon?: React.ReactNode
-    animate?: boolean
-    showCompletionIcon?: boolean
-    showProgressIcon?: boolean
-    failedIcon?: React.ReactNode
-    substeps?: string[]
-    details?: React.ReactNode
-    children?: React.ReactNode
-}): JSX.Element {
+    autoExpand = true,
+    onToggleDetails,
+}: ActivityProps): JSX.Element {
     const hasDetails = substeps.length > 0 || !!details
-    const shouldExpandDetails = hasDetails && status !== 'completed' && status !== 'failed'
-    const [isDetailsExpanded, setIsDetailsExpanded] = useState(shouldExpandDetails)
-
-    useLayoutEffect(() => {
-        setIsDetailsExpanded(shouldExpandDetails)
-    }, [shouldExpandDetails])
+    const { open: isDetailsExpanded, setOpen: setIsDetailsExpanded } = useActivityDisclosure({
+        autoExpand,
+        hasDetails,
+        status,
+        onToggleDetails,
+    })
 
     return (
-        <div className="flex flex-col rounded w-full min-w-0 gap-1 text-xs">
+        <div className="flex flex-col rounded w-full min-w-0 text-[13px] leading-5 font-normal">
             <ActivityHeader
                 title={title}
                 status={status}
@@ -314,13 +264,15 @@ export function Activity({
             >
                 {subtitle}
             </ActivityHeader>
-            {isDetailsExpanded && hasDetails && (
-                <ActivityDetails hasIcon={!!icon}>
-                    {substeps.length > 0 && <ActivitySubsteps id={id} substeps={substeps} status={status} />}
-                    {details}
-                </ActivityDetails>
-            )}
-            {children}
+            <ActivityDisclosure open={isDetailsExpanded && hasDetails}>
+                <div className="pt-1">
+                    <ActivityDetails hasIcon={!!icon}>
+                        {substeps.length > 0 && <ActivitySubsteps id={id} substeps={substeps} status={status} />}
+                        {details}
+                    </ActivityDetails>
+                </div>
+            </ActivityDisclosure>
+            {children && <div className="pt-1">{children}</div>}
         </div>
     )
 }

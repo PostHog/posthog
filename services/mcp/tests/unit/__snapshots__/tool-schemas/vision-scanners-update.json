@@ -1,6 +1,19 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "creation_method": {
+            "anyOf": [
+                {
+                    "description": "* `ai` - AI draft\n* `template` - Template\n* `scratch` - From scratch",
+                    "enum": ["ai", "template", "scratch"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n* `ai` - AI draft\n* `template` - Template\n* `scratch` - From scratch"
+        },
         "credit_limit": {
             "anyOf": [
                 {
@@ -62,13 +75,25 @@
             ],
             "description": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed."
         },
+        "goal": {
+            "anyOf": [
+                {
+                    "maxLength": 2000,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update."
+        },
         "id": {
             "description": "A UUID string identifying this replay scanner.",
             "type": "string"
         },
         "model": {
-            "description": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.7-flash` - Gemini 3.7 Flash",
-            "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.7-flash"],
+            "description": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+            "enum": ["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.8-flash"],
             "type": "string"
         },
         "name": {
@@ -99,8 +124,8 @@
             "description": "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`."
         },
         "scanner_type": {
-            "description": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer",
-            "enum": ["monitor", "classifier", "scorer", "summarizer"],
+            "description": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "enum": ["monitor", "classifier", "scorer", "summarizer", "experiment"],
             "type": "string"
         },
         "tags": {

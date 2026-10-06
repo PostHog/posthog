@@ -62,6 +62,13 @@ export const getWebInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
                                                 pnpm add posthog-js
                                             `,
                                         },
+                                        {
+                                            language: 'bash',
+                                            file: 'bun',
+                                            code: dedent`
+                                                bun add posthog-js
+                                            `,
+                                        },
                                     ]}
                                 />
                                 {JSInitSnippet && <JSInitSnippet />}

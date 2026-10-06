@@ -1,20 +1,19 @@
 import {
   ArrowCounterClockwiseIcon,
-  CopyIcon,
   FileTextIcon,
+  LinkIcon,
   MagnifyingGlassIcon,
 } from "@phosphor-icons/react";
 import { Button } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDetailFrame";
+import { InboxReportCopyLinkMenu } from "@posthog/ui/features/inbox/components/InboxReportCopyLinkMenu";
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
-import {
-  type InboxBackTarget,
-  useInboxBackTarget,
-} from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
+import { useReportPage } from "@posthog/ui/features/inbox/components/ReportPageContext";
+import { ReportTrackerIssueLink } from "@posthog/ui/features/inbox/components/utils/ReportTrackerIssueLink";
+import { useInboxBackTarget } from "@posthog/ui/features/inbox/hooks/useInboxBackTarget";
 import { useInboxRestoreReport } from "@posthog/ui/features/inbox/hooks/useInboxRestoreReport";
-import { copyInboxReportLink } from "@posthog/ui/features/inbox/utils/copyInboxReportLink";
-import { Spinner } from "@radix-ui/themes";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useNavigate } from "@tanstack/react-router";
 
 interface DismissedReportDetailProps {
@@ -57,17 +56,15 @@ export function DismissedReportDetail({
       backLinkLabel={back.label}
       missingCopy="This report couldn't be found. It may have been deleted."
     >
-      {(report) => <DismissedReportDetailContent report={report} back={back} />}
+      {(report) => <DismissedReportDetailContent report={report} />}
     </InboxReportDetailGate>
   );
 }
 
-function DismissedReportDetailContent({
+export function DismissedReportDetailContent({
   report,
-  back,
 }: {
   report: SignalReport;
-  back: InboxBackTarget;
 }) {
   // Resolved reports are terminal (their PR already merged) — nothing to
   // restore, so only suppressed reports get a Restore action.
@@ -75,22 +72,26 @@ function DismissedReportDetailContent({
   return (
     <InboxDetailFrame
       report={report}
-      backTo={back.to}
-      backLabel={back.label}
       fallbackTitle="Untitled report"
       showDismiss={false}
+      metaSuffix={<ReportTrackerIssueLink report={report} />}
       primaryAction={
         <>
           {canRestore && <RestoreReportButton report={report} />}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => copyInboxReportLink(report)}
-            title="Copy a deep link to this report"
-          >
-            <CopyIcon size={12} />
-          </Button>
+          <InboxReportCopyLinkMenu
+            report={report}
+            trigger={
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                aria-label="Copy link"
+                title="Copy link"
+              >
+                <LinkIcon size={12} />
+              </Button>
+            }
+          />
         </>
       }
       summarySection={{ Icon: FileTextIcon, title: "Summary" }}
@@ -102,6 +103,7 @@ function DismissedReportDetailContent({
 function RestoreReportButton({ report }: { report: SignalReport }) {
   const restore = useInboxRestoreReport();
   const navigate = useNavigate();
+  const reportPage = useReportPage();
 
   return (
     <Button
@@ -113,12 +115,14 @@ function RestoreReportButton({ report }: { report: SignalReport }) {
       title="Restore this report to Self-driving"
       onClick={() =>
         restore.mutate(report.id, {
-          onSuccess: () => navigate({ to: "/inbox/dismissed" }),
+          onSuccess: () => {
+            if (!reportPage) void navigate({ to: "/inbox/dismissed" });
+          },
         })
       }
     >
       {restore.isPending ? (
-        <Spinner size="1" />
+        <Spinner size="sm" />
       ) : (
         <ArrowCounterClockwiseIcon size={12} />
       )}

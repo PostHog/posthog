@@ -2,12 +2,13 @@
 import './integrationSetups'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 
 import { IconExternal, IconTrash, IconX } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { useIntegrationManagementRestriction } from 'lib/integrations/integrationPermissions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
@@ -15,7 +16,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integrationLookup'
-import { getAllRegisteredIntegrationSetups, getIntegrationSetup } from './integrationSetupRegistry'
+import { getIntegrationSetup } from './integrationSetupRegistry'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -36,11 +37,22 @@ export function IntegrationChoice({
     beforeRedirect,
     allowClear = true,
 }: IntegrationConfigureProps): JSX.Element | null {
-    const { integrationsLoading, integrations, newIntegrationModalKind, slackAvailable } = useValues(integrationsLogic)
+    const { integrationsLoading, integrations, newIntegrationModalKind, newIntegrationModalId, slackAvailable } =
+        useValues(integrationsLogic)
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
         useActions(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
+    // A project member can create an integration, but only a project admin can overwrite one. An
+    // OAuth connect upserts on the provider account id, so a member who picks an account that is
+    // already connected goes through the provider's whole flow and then gets a 403 at the callback.
+    // Setup-modal kinds report the same error inside the modal, so they stay open to members.
+    const integrationManagementRestriction = useIntegrationManagementRestriction()
     const kind = integration
+
+    // Identifies this specific picker. Several IntegrationChoice pickers can share a kind (a
+    // Redshift export has separate aws-s3 fields for the bucket and the authorization), so the
+    // shared modal open-state is matched on this id to route completion back to the right picker.
+    const modalId = useId()
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = findIntegrationByFormValue(integrationsOfKind, value)
@@ -94,11 +106,12 @@ export function IntegrationChoice({
     }
 
     const setupDef = getIntegrationSetup(kind)
+    const SetupModalComponent = setupDef?.SetupModal
     // When the instance doesn't have OAuth credentials for this kind, /integrations/authorize
     // 400s with "Kind not configured". Send users to the settings page instead.
     const oauthUnavailable = kind === 'slack' && !slackAvailable
     const setupMenuItem = setupDef
-        ? setupDef.menuItem({ kind, openModal: openNewIntegrationModal, uploadKey })
+        ? setupDef.menuItem({ kind, openModal: (modalKind) => openNewIntegrationModal(modalKind, modalId), uploadKey })
         : oauthUnavailable
           ? {
                 to: urls.settings('project-integrations'),
@@ -116,6 +129,7 @@ export function IntegrationChoice({
                 label: integrationsOfKind?.length
                     ? `Connect to a different integration for ${kindName}`
                     : `Connect to ${kindName}`,
+                disabledReason: integrationManagementRestriction ?? undefined,
             }
 
     const button = (
@@ -193,22 +207,19 @@ export function IntegrationChoice({
                 button
             )}
 
-            {getAllRegisteredIntegrationSetups()
-                .filter((def) => def.SetupModal)
-                .map((def) => {
-                    const modalKind = Array.isArray(def.kind) ? def.kind[0] : def.kind
-                    const SetupModalComponent = def.SetupModal!
-                    return (
-                        <SetupModalComponent
-                            key={modalKind}
-                            isOpen={newIntegrationModalKind === modalKind}
-                            kind={modalKind}
-                            integration={integrationKind || undefined}
-                            onComplete={handleModalComplete}
-                            onClose={closeNewIntegrationModal}
-                        />
-                    )
-                })}
+            {/* Render only this picker's own-kind modal, and only while this picker is the opener.
+                Sibling pickers can share a kind, and the setup-modal logics are singletons —
+                mounting more than one lets a submit's onComplete resolve to the last-rendered
+                picker and write the new id into the wrong field. */}
+            {SetupModalComponent && newIntegrationModalKind === kind && newIntegrationModalId === modalId ? (
+                <SetupModalComponent
+                    isOpen
+                    kind={kind}
+                    integration={integrationKind || undefined}
+                    onComplete={handleModalComplete}
+                    onClose={closeNewIntegrationModal}
+                />
+            ) : null}
         </>
     )
 }

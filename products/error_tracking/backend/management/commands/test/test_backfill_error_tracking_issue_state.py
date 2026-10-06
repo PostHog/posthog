@@ -1,6 +1,9 @@
 from datetime import UTC
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Team
@@ -11,6 +14,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
 )
+from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
 
 
 class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
@@ -158,19 +162,54 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self.assertEqual(self._count_rows(team_mid.pk), 1)
         self.assertEqual(self._count_rows(team_high.pk), 0)
 
-    def test_backfill_version_is_fingerprint_created_at_epoch_ms(self):
-        from datetime import datetime
+    def test_backfill_replaces_newer_existing_state(self):
+        issue = ErrorTrackingIssue.objects.create(
+            team=self.team,
+            name="VersionError",
+            status="active",
+            severity=ErrorTrackingIssue.Severity.HIGH,
+        )
+        fingerprint = ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team, issue=issue, fingerprint="fp_version"
+        )
+        existing_version = int(fingerprint.created_at.timestamp() * 1000) + 1_000
+        replacement_version = existing_version + 1_000
+        sync_execute(
+            INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE,
+            {
+                "team_id": self.team.pk,
+                "fingerprint": fingerprint.fingerprint,
+                "issue_id": str(issue.id),
+                "issue_name": issue.name,
+                "issue_description": issue.description,
+                "issue_status": issue.status,
+                "issue_severity": None,
+                "assigned_user_id": None,
+                "assigned_role_id": None,
+                "first_seen": issue.created_at,
+                "is_deleted": 0,
+                "version": existing_version,
+            },
+        )
 
-        created_at = datetime(2024, 2, 10, 9, 15, 30, tzinfo=UTC)
-        issue = ErrorTrackingIssue.objects.create(team=self.team, name="VersionError", status="active")
-        fp = ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_version")
-        ErrorTrackingIssueFingerprintV2.objects.filter(pk=fp.pk).update(created_at=created_at)
+        with patch(
+            "products.error_tracking.backend.management.commands.backfill_error_tracking_issue_state.time.time",
+            return_value=replacement_version / 1_000,
+        ):
+            self._run_backfill(team_id=self.team.pk)
 
-        self._run_backfill(team_id=self.team.pk)
-
-        rows = self._get_rows(self.team.pk)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["version"], int(created_at.timestamp() * 1000))
+        [(severity, version)] = sync_execute(
+            """
+            SELECT
+                tupleElement(argMax(tuple(issue_severity), version), 1),
+                max(version)
+            FROM error_tracking_fingerprint_issue_state
+            WHERE team_id = %(team_id)s AND fingerprint = %(fingerprint)s
+            """,
+            {"team_id": self.team.pk, "fingerprint": fingerprint.fingerprint},
+        )
+        self.assertEqual(severity, ErrorTrackingIssue.Severity.HIGH)
+        self.assertEqual(version, replacement_version)
 
     def test_backfill_uses_fingerprint_first_seen(self):
         from datetime import datetime
@@ -212,3 +251,19 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["issue_status"], "active")
         self.assertEqual(rows[1]["issue_status"], "resolved")
+
+    @parameterized.expand(
+        [
+            (ErrorTrackingIssue.Status.ARCHIVED,),
+            (ErrorTrackingIssue.Status.PENDING_RELEASE,),
+        ]
+    )
+    def test_backfill_folds_deprecated_status_to_resolved(self, deprecated_status):
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="LegacyError", status=deprecated_status)
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_legacy")
+
+        self._run_backfill(team_id=self.team.pk)
+
+        rows = self._get_rows(self.team.pk)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["issue_status"], "resolved")

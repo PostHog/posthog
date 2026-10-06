@@ -24,17 +24,25 @@ export const manifest: ProductManifest = {
         inboxFindings: (): string => '/inbox/scouts/findings',
         // Project-wide list of scout and signal-pipeline runs, reached from the roster footer.
         inboxRuns: (): string => '/inbox/scouts/runs',
+        inboxScoutTrials: (): string => '/scout-trials',
     },
     scenes: {
+        ScoutTrials: {
+            name: 'Scout trials',
+            import: () => import('./frontend/inbox/ScoutTrialsScene'),
+            projectBased: true,
+        },
         Inbox: {
-            name: 'Inbox',
+            name: 'Self-driving inbox',
             import: () => import('./frontend/inbox/InboxScene'),
             projectBased: true,
             description: 'Actionable reports automatically generated from user session analysis and other signals.',
+            docsHref: 'https://posthog.com/docs/self-driving/inbox',
         },
     },
     routes: {
         '/inbox': ['Inbox', 'inbox'],
+        '/scout-trials': ['ScoutTrials', 'scoutTrials'],
         '/inbox/:tab': ['Inbox', 'inbox'],
         // Static panel routes, registered before `:skillName` / `:reportId` so they aren't read as ids.
         '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],

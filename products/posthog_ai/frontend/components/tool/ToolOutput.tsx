@@ -1,12 +1,62 @@
 import clsx from 'clsx'
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useRef } from 'react'
 
-/** Monospace, scrollable output block for a tool card's collapsible body (terminal/search/fetch). */
+import { IconCopy, IconExternal } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+/** Bounded text preview; full output opens as plain text without another scroll container in the chat. */
 export function ToolOutput({ children }: { children: ReactNode }): JSX.Element {
+    const urls = useRef<string[]>([])
+    useEffect(
+        () => () => {
+            urls.current.forEach((url) => URL.revokeObjectURL(url))
+        },
+        []
+    )
+    const text = typeof children === 'string' ? children : undefined
+    const preview = text?.slice(0, 4000).split('\n').slice(0, 12).join('\n')
+    const truncated = text !== undefined && preview !== text
     return (
-        <pre className="m-0 font-mono text-xs leading-relaxed text-secondary whitespace-pre-wrap break-all max-h-64 overflow-auto">
-            {children}
-        </pre>
+        // The actions sit in the block's top-right corner instead of on a row of their own, and the padding keeps text out from under them.
+        <div className="relative min-w-0">
+            <pre
+                className={clsx(
+                    'm-0 font-mono text-xs leading-relaxed text-secondary whitespace-pre-wrap [overflow-wrap:anywhere]',
+                    text !== undefined && (truncated ? 'pr-13' : 'pr-7')
+                )}
+            >
+                {preview ?? children}
+                {truncated ? '\n…' : ''}
+            </pre>
+            {text !== undefined && (
+                <div className="absolute top-0 right-0 flex">
+                    <LemonButton
+                        type="tertiary"
+                        size="xsmall"
+                        icon={<IconCopy />}
+                        tooltip="Copy"
+                        data-attr="tool-output-copy"
+                        onClick={() => void copyToClipboard(text, 'tool text')}
+                    />
+                    {truncated && (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            icon={<IconExternal />}
+                            tooltip="Open full text in a new tab"
+                            data-attr="tool-output-open"
+                            onClick={() => {
+                                const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
+                                urls.current.push(url)
+                                window.open(url, '_blank', 'noopener,noreferrer')
+                            }}
+                        />
+                    )}
+                </div>
+            )}
+        </div>
     )
 }
 

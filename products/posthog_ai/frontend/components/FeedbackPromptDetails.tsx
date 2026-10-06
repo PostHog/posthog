@@ -24,7 +24,7 @@ export const FeedbackPromptDetails = memo(function FeedbackPromptDetails({
 }: FeedbackPromptLogicProps & { sessionKind: FeedbackSessionKind }): JSX.Element {
     const logicProps = { sessionId, streamKey }
     const { submitDetailedFeedback, completeDetailedFeedback } = useActions(feedbackPromptLogic(logicProps))
-    const { traceId } = useValues(runStreamLogic)
+    const { latestTurnTraceId: traceId } = useValues(runStreamLogic)
     const [feedbackText, setFeedbackText] = useState('')
     const [status, setStatus] = useState<'feedback' | 'ticket_preview' | 'done'>('feedback')
     const [hasSubmittedTicket, setHasSubmittedTicket] = useState(false)

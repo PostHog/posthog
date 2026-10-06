@@ -179,9 +179,18 @@ fi
 log "asserting exec-daemon (hogpanion) env carries the container-style env"
 # shellcheck disable=SC2016 # $pid/$environ must expand on the box, not locally
 daemon_env_probe='set -eu
-pid=$(systemctl show hogpanion.service -p MainPID --value 2>/dev/null || echo 0)
+# Query via sudo. The box runs no system D-Bus daemon, only the systemd
+# root-only private socket, so a non-root systemctl fails with "Failed to
+# connect to bus" and reports a false MainPID=0. The ssh user hog has
+# passwordless sudo, same as the environ read below.
+pid=$(sudo systemctl show hogpanion.service -p MainPID --value 2>/dev/null || echo 0)
 if [ -z "$pid" ] || [ "$pid" = "0" ]; then
-    echo "hogpanion has no running MainPID" >&2; exit 1
+    echo "hogpanion has no running MainPID" >&2
+    echo "--- hogpanion.service status ---" >&2
+    sudo systemctl status hogpanion.service --no-pager >&2 2>&1 || true
+    echo "--- hogpanion journal (tail) ---" >&2
+    sudo journalctl -u hogpanion.service --no-pager 2>&1 | tail -40 >&2 || true
+    exit 1
 fi
 environ=$(sudo cat "/proc/$pid/environ" | tr "\0" "\n")
 printf "%s\n" "$environ" | grep -qx "IS_SANDBOX=1" || { echo "daemon env missing IS_SANDBOX=1" >&2; exit 1; }
@@ -195,7 +204,7 @@ printf "%s\n" "$environ" | grep -qx "HOME=/root" || { echo "daemon env missing H
 # the guard is actually there so the guarded path the daemon exposes is real.
 test -x /opt/posthog/bin/git || { echo "/opt/posthog/bin/git missing" >&2; exit 1; }
 grep -q POSTHOG_ALLOW_UNSIGNED_GIT /opt/posthog/bin/git || { echo "/opt/posthog/bin/git is not the git guard" >&2; exit 1; }
-systemctl show hogpanion.service -p Environment -p EnvironmentFiles --no-pager >&2'
+sudo systemctl show hogpanion.service -p Environment -p EnvironmentFiles --no-pager >&2'
 if ! ssh_assert "$daemon_env_probe"; then
     log "FAIL: hogpanion daemon env is not the container-style env (restart likely did not take before snapshot)"
     exit 1

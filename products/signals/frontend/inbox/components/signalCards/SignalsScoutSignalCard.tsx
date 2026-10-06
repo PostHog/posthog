@@ -2,10 +2,9 @@ import { combineUrl } from 'kea-router'
 import { useState } from 'react'
 
 import { IconExternal, IconList } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress/LemonProgress'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { identifierToHuman } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -16,7 +15,6 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import { signalEntityUrl } from '../../utils/signalLinks'
-import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { SignalCardShell } from './SignalCardShell'
 import type { SignalCardEntry, SignalCardProps } from './types'
@@ -30,7 +28,7 @@ export function isSignalsScoutExtra(value: unknown): value is Record<string, unk
         return false
     }
     const extra = value as Record<string, unknown>
-    return Array.isArray(extra.evidence) && typeof extra.skill_name === 'string' && typeof extra.confidence === 'number'
+    return Array.isArray(extra.evidence) && typeof extra.skill_name === 'string'
 }
 
 /** A single evidence row: source icon + eyebrow, the summary, and an optional deep link. */
@@ -77,19 +75,17 @@ function MonoId({ label, value, to }: { label: string; value: string; to?: strin
     )
 }
 
-/** Richest inbox card: a cross-source scout finding with confidence, hypothesis, evidence, and run metadata. */
+/** Richest inbox card: a cross-source scout finding with hypothesis, evidence, and run metadata. */
 export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element {
     const [showAllEvidence, setShowAllEvidence] = useState(false)
 
     const extra = signal.extra as Record<string, unknown> & SignalsScoutSignalExtraApi
 
-    const confidencePercent = Math.round(extra.confidence * 100)
     const hypothesis = extra.hypothesis?.trim() || signal.content
 
     const evidence = extra.evidence ?? []
     const visibleEvidence = showAllEvidence ? evidence : evidence.slice(0, EVIDENCE_PREVIEW_COUNT)
 
-    const tags = extra.tags ?? []
     const timeRange = extra.time_range
 
     // Deep link the run id straight to its Tasks run tab — only resolvable when the task id was
@@ -108,33 +104,12 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
                     v{extra.skill_version}
                 </Link>
             }
-            rightSlot={<SignalReportPriorityBadge priority={extra.severity} />}
         >
-            {/* Confidence meter. */}
-            <div className="mb-2">
-                <div className="flex items-center justify-between text-xs text-tertiary mb-0.5">
-                    <span>Confidence</span>
-                    <span className="tabular-nums">{confidencePercent}%</span>
-                </div>
-                <LemonProgress percent={confidencePercent} />
-            </div>
-
             {/* Hypothesis — the prominent narrative of the finding. */}
             {hypothesis && (
                 <LemonMarkdown className="text-sm text-primary mb-2" disableImages>
                     {hypothesis}
                 </LemonMarkdown>
-            )}
-
-            {/* Tags as raw kebab slugs. */}
-            {tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
-                    {tags.map((tag) => (
-                        <LemonTag key={tag} size="small" type="muted">
-                            {tag}
-                        </LemonTag>
-                    ))}
-                </div>
             )}
 
             {/* Time window the finding refers to. */}

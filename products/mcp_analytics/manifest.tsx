@@ -5,12 +5,10 @@
  */
 import { combineUrl } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor } from '../../frontend/src/types'
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -24,6 +22,7 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             description: 'Capture user intent and behaviour patterns to understand what AI users need from your tools.',
             iconType: 'mcp_analytics',
+            docsHref: 'https://posthog.com/docs/mcp-analytics',
         },
         MCPAnalyticsToolDetail: {
             import: () => import('./frontend/MCPAnalyticsToolDetail'),
@@ -41,6 +40,7 @@ export const manifest: ProductManifest = {
         '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
         '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
         '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
+        '/mcp-analytics/missing-capabilities': ['MCPAnalytics', 'mcpAnalyticsMissingCapabilities'],
         '/mcp-analytics/notifications': ['MCPAnalytics', 'mcpAnalyticsNotifications'],
     },
     redirects: {
@@ -58,13 +58,13 @@ export const manifest: ProductManifest = {
         mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
         mcpAnalyticsTool: (toolName: string): string => `/mcp-analytics/tool-quality/${encodeURIComponent(toolName)}`,
         mcpAnalyticsIntentClustering: (): string => '/mcp-analytics/intent-clustering',
+        mcpAnalyticsMissingCapabilities: (): string => '/mcp-analytics/missing-capabilities',
         mcpAnalyticsNotifications: (): string => '/mcp-analytics/notifications',
     },
     setupProbe: {
         productKey: ProductKey.MCP_ANALYTICS,
         hasDataEvents: ['$mcp_tool_call'],
         waitingEvents: ['$mcp_initialize'],
-        featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -76,12 +76,8 @@ export const manifest: ProductManifest = {
             visualOrder: 2,
             type: 'mcp_analytics',
             iconType: 'mcp_analytics' as FileSystemIconType,
-            iconColor: [
-                'var(--color-product-mcp-analytics-light)',
-                'var(--color-product-mcp-analytics-dark)',
-            ] as FileSystemIconColor,
+            iconColor: ['var(--color-product-mcp-analytics-light)', 'var(--color-product-mcp-analytics-dark)'],
             href: urls.mcpAnalytics(),
-            flag: FEATURE_FLAGS.MCP_ANALYTICS,
             tags: ['beta'],
             sceneKey: 'MCPAnalytics',
         },

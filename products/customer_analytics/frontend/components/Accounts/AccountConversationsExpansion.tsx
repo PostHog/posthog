@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
 import { IconChevronDown, IconLock, IconSupport } from '@posthog/icons'
 import {
     LemonBanner,
@@ -18,7 +19,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -42,6 +43,9 @@ import {
 import { accountEmailThreadsLogic, MESSAGE_PAGE_SIZE } from './accountEmailThreadsLogic'
 import { periodLabel } from './AccountSummariesExpansion'
 import { AccountSummaryCadencePicker } from './AccountSummaryCadencePicker'
+import type { AccountViewTileLogicProps } from './accountViewTileConfig'
+
+const HedgehogBusiness = pngHoggie(businessEvolutionPng)
 
 const SOURCE_OPTIONS: { key: ConversationSource; label: string }[] = [
     { key: 'email', label: 'Gmail' },
@@ -53,7 +57,7 @@ const VISIBLE_PARTICIPANT_COUNT = 3
 function EmptyState({ title, detail }: { title: string; detail: string }): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
-            <BigLeaguesHog className="w-24 h-24" />
+            <HedgehogBusiness className="w-24 h-24" />
             <h4 className="mb-0">{title}</h4>
             <p className="text-secondary max-w-sm mb-0">{detail}</p>
         </div>
@@ -243,6 +247,22 @@ function LatestActivity({ conversation }: { conversation: AccountConversation })
     )
 }
 
+// Synced emails and support messages are stored as Markdown, with links folded in as `[label](url)` or `<url>`.
+function ConversationMessageContent({ content }: { content: string }): JSX.Element {
+    return (
+        <LemonMarkdown
+            className="break-words text-sm"
+            lowKeyHeadings
+            disableImages="all"
+            disableDocsRedirect
+            disableMentions
+            wrapCode
+        >
+            {content}
+        </LemonMarkdown>
+    )
+}
+
 function EmailMessage({ message }: { message: AccountEmailThreadMessageApi }): JSX.Element {
     const outgoing = message.direction === 'outbound'
     return (
@@ -255,7 +275,7 @@ function EmailMessage({ message }: { message: AccountEmailThreadMessageApi }): J
                     <Person name={message.sender.name || message.sender.email} email={message.sender.email} />
                     <ActivityTimestamp time={message.sent_at} />
                 </div>
-                <div className="whitespace-pre-wrap break-words text-sm">{message.content}</div>
+                <ConversationMessageContent content={message.content} />
             </LemonCard>
         </div>
     )
@@ -286,7 +306,7 @@ function SupportMessage({ message }: { message: AccountSupportTicketMessageApi }
                     </span>
                     <ActivityTimestamp time={message.created_at} />
                 </div>
-                <div className="whitespace-pre-wrap break-words text-sm">{message.content}</div>
+                <ConversationMessageContent content={message.content} />
             </LemonCard>
         </div>
     )
@@ -294,20 +314,23 @@ function SupportMessage({ message }: { message: AccountSupportTicketMessageApi }
 
 function ConversationDetail({
     accountId,
+    tileProps,
     conversation,
 }: {
     accountId: string
+    tileProps: AccountViewTileLogicProps
     conversation: AccountConversation
 }): JSX.Element {
-    const emailLogic = accountEmailThreadsLogic({ accountId })
+    const emailLogic = accountEmailThreadsLogic({ accountId, instanceId: tileProps.instanceId })
+    const conversationLogic = accountConversationsLogic({ accountId, ...tileProps })
     const { threadDetails, threadDetailsLoading, threadDetailErrors, threadDetailPages } = useValues(emailLogic)
     const {
         expandedSummaryMessageIds,
         supportTicketMessages,
         supportTicketMessagesLoading,
         supportTicketMessageErrors,
-    } = useValues(accountConversationsLogic({ accountId }))
-    const { toggleSummaryMessages } = useActions(accountConversationsLogic({ accountId }))
+    } = useValues(conversationLogic)
+    const { toggleSummaryMessages } = useActions(conversationLogic)
     const { setThreadDetailPage } = useActions(emailLogic)
 
     if (conversation.source === 'slack') {
@@ -427,12 +450,16 @@ function conversationTitle(conversation: AccountConversation): string {
     return periodLabel(conversation.summary)
 }
 
+function markdownLinksToText(markdown: string): string {
+    return markdown.replace(/\[([^\]]*)\]\((?:[^()\s]|\([^()\s]*\))*\)/g, '$1').replace(/<(https?:\/\/[^>\s]+)>/g, '$1')
+}
+
 function conversationPreview(conversation: AccountConversation): string {
     if (conversation.source === 'email') {
-        return conversation.email.preview
+        return markdownLinksToText(conversation.email.preview)
     }
     if (conversation.source === 'support') {
-        return conversation.ticket.last_message_text ?? ''
+        return markdownLinksToText(conversation.ticket.last_message_text ?? '')
     }
     return conversation.summary.content
         .replace(/[#*_`>[\]]/g, '')
@@ -440,9 +467,18 @@ function conversationPreview(conversation: AccountConversation): string {
         .trim()
 }
 
-export function AccountConversationsExpansion({ accountId }: { accountId: string }): JSX.Element {
-    const logic = accountConversationsLogic({ accountId })
-    const emailLogic = accountEmailThreadsLogic({ accountId })
+interface AccountConversationsExpansionProps extends AccountViewTileLogicProps {
+    accountId: string
+    embedded?: boolean
+}
+
+export function AccountConversationsExpansion({
+    accountId,
+    embedded = true,
+    ...tileProps
+}: AccountConversationsExpansionProps): JSX.Element {
+    const logic = accountConversationsLogic({ accountId, ...tileProps })
+    const emailLogic = accountEmailThreadsLogic({ accountId, instanceId: tileProps.instanceId })
     const {
         conversationsResult,
         conversationsResultLoading,
@@ -463,7 +499,7 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
         return <LemonSkeleton className="h-64 w-full" />
     }
     const toolbar = (
-        <div className="hide-scrollbar flex items-center gap-4 overflow-x-auto pb-1">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-1">
             <LemonInput
                 type="search"
                 value={searchTerm}
@@ -622,7 +658,7 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
             <LemonTable<AccountConversation>
                 data-attr="account-conversations-table"
                 size="small"
-                embedded
+                embedded={embedded}
                 dataSource={filteredConversations}
                 columns={columns}
                 rowKey="id"
@@ -630,7 +666,7 @@ export function AccountConversationsExpansion({ accountId }: { accountId: string
                 pagination={{ pageSize: 10, useUrl: false }}
                 expandable={{
                     expandedRowRender: (conversation) => (
-                        <ConversationDetail accountId={accountId} conversation={conversation} />
+                        <ConversationDetail accountId={accountId} tileProps={tileProps} conversation={conversation} />
                     ),
                     isRowExpanded: (conversation) => conversation.id === expandedConversationId,
                     rowExpandable: () => true,

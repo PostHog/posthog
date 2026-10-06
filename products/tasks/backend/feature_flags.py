@@ -1,4 +1,5 @@
 import logging
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 
@@ -10,11 +11,17 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_RUN_OTEL_TELEMETRY_FEATURE_FLAG,
     DEV_STACK_IMAGE_BAKE_FEATURE_FLAG,
+    MCP_EXEC_SKILLS_FEATURE_FLAG,
+    PI_CLOUD_RUNTIME_FEATURE_FLAG,
     WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
     WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
     WORKFLOW_DISPATCH_SHADOW_FEATURE_FLAG,
     get_required_model_flag,
 )
+
+if TYPE_CHECKING:
+    from posthog.models.team.team import Team
+    from posthog.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +71,24 @@ def is_workflow_dispatch_async_enabled(organization_id: str, distinct_id: str) -
 
 def is_workflow_dispatch_restart_enabled(organization_id: str, distinct_id: str) -> bool:
     return _is_workflow_dispatch_org_flag_enabled(WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG, organization_id, distinct_id)
+
+
+def is_task_run_stream_presence_gated(origin_product: str) -> bool:
+    return origin_product in settings.TASK_RUN_STREAM_PRESENCE_GATED_ORIGINS
+
+
+def run_stream_presence_gated(state: dict | None) -> bool:
+    """Pinned onto TaskRun.state at creation so writers and readers agree for the run's life; absent means ungated."""
+    return bool((state or {}).get("stream_presence_gated", False))
+
+
+def is_task_run_stream_thin_tail(origin_product: str) -> bool:
+    return origin_product in settings.TASK_RUN_STREAM_THIN_TAIL_ORIGINS
+
+
+def run_stream_thin_tail(state: dict | None) -> bool:
+    """Pinned onto TaskRun.state at creation so writers and readers agree for the run's life; absent means full tail."""
+    return bool((state or {}).get("stream_thin_tail", False))
 
 
 def is_dev_stack_image_bake_enabled() -> bool:
@@ -131,10 +156,33 @@ def is_agent_otel_telemetry_enabled(*, distinct_id: str, organization_id: str) -
         return False
 
 
+def pi_cloud_runtime_enabled(team: "Team", user: "User") -> bool:
+    """Whether this user may run the Pi harness in the cloud; fail-closed when evaluation fails.
+
+    Lives here rather than in the facade so the run-defaults service can gate a stored Pi
+    preference without importing the facade, which imports this module's own callers.
+    """
+    organization_id = str(team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                PI_CLOUD_RUNTIME_FEATURE_FLAG,
+                user.distinct_id or f"user_{user.id}",
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("pi-harness flag check failed; treating as disabled")
+        return False
+
+
 def get_model_access_error(model: str | None, *, distinct_id: str | None) -> str | None:
     """Reject a gated model the caller isn't entitled to; `None` when the selection is allowed.
 
-    Fail-closed on purpose. Only a model in `MODEL_ACCESS_FLAGS` reaches an evaluation at all,
+    Fail-closed on purpose. Only a model the catalog gives an `access_flag` reaches an evaluation at all,
     so an evaluation outage withholds a preview model from everyone rather than opening it to
     everyone — the opposite trade to the telemetry flags above, because this one decides spend.
     """
@@ -173,3 +221,25 @@ def agent_otel_telemetry_enabled_for_state(state: dict | None) -> bool:
     if settings.DEBUG:
         return True
     return (state or {}).get(AGENT_OTEL_TELEMETRY_STATE_KEY) is True
+
+
+def is_mcp_exec_skills_enabled(organization_id: str, distinct_id: str) -> bool:
+    """Whether this run's user gets product skills through the MCP `learn` command.
+
+    Evaluated server-side so organization rules and person rules (an email domain, a cohort)
+    both resolve, the same way the MCP server evaluates the flag for the same user.
+    """
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                MCP_EXEC_SKILLS_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("mcp_exec_skills_flag_check_failed")
+        return False

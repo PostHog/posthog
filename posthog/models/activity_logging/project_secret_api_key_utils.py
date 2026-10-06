@@ -36,7 +36,14 @@ def _get_team(api_key: ProjectSecretAPIKey) -> Optional[Team]:
     if team_id is None:
         return None
 
-    return Team.objects.select_related("organization").filter(id=team_id).first()
+    # The log entry reads only the team name, the organization id and the organization name,
+    # so skip the rest of both wide rows.
+    return (
+        Team.objects.select_related("organization")
+        .only("id", "name", "organization_id", "organization__id", "organization__name")
+        .filter(id=team_id)
+        .first()
+    )
 
 
 def _get_access_location(api_key: ProjectSecretAPIKey) -> tuple[LogScope, Optional[Team]]:

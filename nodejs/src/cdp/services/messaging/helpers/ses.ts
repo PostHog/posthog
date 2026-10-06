@@ -166,6 +166,14 @@ const BOUNCE_TYPE_TO_METRIC_NAME: Record<'Permanent' | 'Transient' | 'Undetermin
         Undetermined: 'email_bounced_undetermined',
     }
 
+// The words senders use, rather than the provider's. This lands on a customer-facing event, where
+// "Permanent" reads as a severity rather than as the reason the address will never accept mail.
+const BOUNCE_TYPE_TO_EVENT_PROPERTY: Record<'Permanent' | 'Transient' | 'Undetermined', string> = {
+    Permanent: 'hard',
+    Transient: 'soft',
+    Undetermined: 'unknown',
+}
+
 const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], MinimalAppMetric['metric_name']>> = {
     Open: 'email_opened',
     Click: 'email_link_clicked',
@@ -542,6 +550,7 @@ export class SesWebhookHandler {
             actionId?: string
             parentRunId?: string
             distinctId?: string
+            teamId?: string
             metricName: MinimalAppMetric['metric_name']
             // Replaces the instance_id trackMetric would derive, for metrics keyed by something
             // other than the action or invocation (see buildLinkInstanceId).
@@ -651,6 +660,7 @@ export class SesWebhookHandler {
             actionId?: string
             parentRunId?: string
             distinctId?: string
+            teamId?: string
             metricName: MinimalAppMetric['metric_name']
             instanceIdOverride?: string
             properties?: Record<string, any>
@@ -740,6 +750,14 @@ export class SesWebhookHandler {
                     timestamp = rec.delivery.timestamp
                 } else if ('bounce' in rec && rec.bounce) {
                     timestamp = rec.bounce.timestamp
+                    // Whether the address will ever accept mail again. A hard bounce is also written
+                    // to the suppression list below; a soft one is not, so the two need telling apart
+                    // to read a bounce rate at all.
+                    properties.$bounce_type = BOUNCE_TYPE_TO_EVENT_PROPERTY[rec.bounce.bounceType]
+                    if (rec.bounce.bounceSubType) {
+                        // The provider's own reason (e.g. "MailboxFull", "NoEmail", "Suppressed").
+                        properties.$bounce_sub_type = rec.bounce.bounceSubType
+                    }
                 } else if ('complaint' in rec && rec.complaint) {
                     timestamp = rec.complaint.timestamp
                     if (rec.complaint.complaintFeedbackType) {
@@ -755,6 +773,7 @@ export class SesWebhookHandler {
                     actionId,
                     parentRunId,
                     distinctId,
+                    teamId,
                     metricName,
                     properties,
                     timestamp,
@@ -773,6 +792,7 @@ export class SesWebhookHandler {
                         actionId,
                         parentRunId,
                         distinctId,
+                        teamId,
                         metricName: 'email_link_clicked_by_link',
                         instanceIdOverride: buildLinkInstanceId(
                             actionId,
@@ -796,6 +816,7 @@ export class SesWebhookHandler {
                         actionId,
                         parentRunId,
                         distinctId,
+                        teamId,
                         metricName: BOUNCE_TYPE_TO_METRIC_NAME[rec.bounce.bounceType],
                         properties,
                         timestamp,

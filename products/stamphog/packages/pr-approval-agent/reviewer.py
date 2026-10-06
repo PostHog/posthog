@@ -17,8 +17,8 @@ from typing import Any
 from claude_agent_sdk import ClaudeAgentOptions, ResultMessage, query
 from claude_agent_sdk.types import AssistantMessage, ToolUseBlock
 from gates import manifest_basenames
-from gateway import analytics_extra_properties, gateway_env, resolve_gateway_config
-from github import PRData, new_diff_file, write_pr_diff
+from gateway import REVIEWER_MODEL, analytics_extra_properties, gateway_env, resolve_gateway_config
+from github import PRData, drop_abandoned_bot_eyes, new_diff_file, write_pr_diff
 from policy import _sanitize_untrusted, review_guidance_path, steering_path
 from version import STAMPHOG_VERSION
 
@@ -40,8 +40,6 @@ try:
         _POSTHOG_AI_AVAILABLE = False
 except ImportError:
     _POSTHOG_AI_AVAILABLE = False
-
-MODEL = "claude-sonnet-5"
 
 # Prompt byte budgets. Trace telemetry shows the reviewer uses a small fraction
 # of the model's context window, so these are generous — they exist to cap
@@ -150,9 +148,13 @@ VERDICT_SCHEMA = {
                 "type": "array",
                 "items": {"type": "string"},
             },
+            # The digest splits the per-team clauses back out of this text on the handles they
+            # open with (_TEAM_CLAUSE_RE in products/stamphog/backend/logic/digest.py). A clause
+            # that regex does not recognize takes its team's merge out of that team's digest, so
+            # the clause shape asked for below is a contract with that parser.
             "change_summary": {
                 "type": "string",
-                "maxLength": 200,
+                "maxLength": 600,
             },
         },
         "required": ["verdict", "reasoning", "risk", "issues", "change_summary"],
@@ -178,7 +180,7 @@ def _validate_verdict(result: dict) -> dict:
     # ANTHROPIC_API_KEY), and Read/Grep/Glob are NOT path-restricted, so the agent can
     # in principle read those env values. What actually prevents key exfiltration to the
     # PR / DB is the deterministic server-side output scrub in stamphog's activities.py
-    # (_scrub_credentials in run_review_in_sandbox and post_verdict), not this hook.
+    # (scrub_credentials in run_review_in_sandbox and post_verdict), not this hook.
     # TODO: re-enable once the SDK hook bug is fixed.
 
 
@@ -272,17 +274,36 @@ _REVIEWER_SCAFFOLD_TAIL = "\n" + textwrap.dedent(
     Do NOT suggest splitting PRs or restructuring to avoid gates.
 
     The "change_summary" field is the one place you DO describe what the code
-    does. One sentence, at most 200 characters, plain language, for a teammate
-    reading a daily digest who was never on the PR. Say what changed and what
-    it means for someone using or maintaining that area. No verdict, no risk
-    assessment, no gate mechanics — those belong in "reasoning". Write it in
-    your own words: the verbatim-reproduction rule in the security notice covers
-    this field too, so never quote the diff, title, or description back. Judge
-    from the diff rather than from what the description claims.
+    does. Plain language, for a teammate reading a daily digest who was never on
+    the PR. Say what changed and what it means for someone using or maintaining
+    that area. No verdict, no risk assessment, no gate mechanics — those belong
+    in "reasoning". Write it in your own words: the verbatim-reproduction rule in
+    the security notice covers this field too, so never quote the diff, title, or
+    description back. Judge from the diff rather than from what the description
+    claims. Keep the whole field under 600 characters.
+
+    The first sentence is about the whole change, and says what is true now.
+    When the Ownership block's "Files per team" names more than one team, add one
+    clause per team after that sentence. Open each clause with that team's handle
+    exactly as the Ownership block spells it, such as "@PostHog/team-replay:",
+    in plain text with the colon right after it (no bold, no backticks), and do
+    not write any other "@name/name:" token anywhere in this field. End the
+    sentence before each clause with a period, an exclamation mark, or a
+    question mark, and start the clause right after it. A handle that does not
+    open a sentence is not read as a clause, and the whole field is then thrown
+    away rather than shown to a team it was not written for.
+    Say what is true now in the files that team owns. Each team is shown its
+    own clause and no other, so a clause has to hold on its own. Leave a team out
+    when the diff does not tell you what its files now do: silence is better than
+    a guess. Leave a team out as well when every file it owns is one a build step
+    generated, because nobody on that team edited anything. With several teams,
+    keep each clause short so they all fit: a clause cut off at the limit costs
+    that team its line.
     Examples:
     - "Trend charts can now be given a fixed y-axis range instead of autoscaling."
     - "Alert check history records the actual delivery receipt, so a silent send failure is visible."
     - "The cohort query builder no longer 500s on an empty cohort; it returns an empty result."
+    - Two teams own files in one merge: "Uploads pause when a workspace spends its daily quota instead of failing. @PostHog/team-storage: the upload path asks a shared limiter before it writes, and answers with a retry-after. @PostHog/team-billing: the quota counters move into that limiter, so the invoice job reads them from one place."
 
     Your output is constrained to a JSON schema with verdict, reasoning,
     risk, issues, and change_summary fields. Fill them according to the rules
@@ -387,7 +408,7 @@ class Reviewer:
             mcp_servers={},
             strict_mcp_config=True,
             max_turns=5 if quick else 20,
-            model=MODEL,
+            model=REVIEWER_MODEL,
             permission_mode="dontAsk",
             output_format=VERDICT_SCHEMA,
             effort="low" if quick else "high",
@@ -522,7 +543,7 @@ class Reviewer:
 
     def _write_diff_file(self, pr: PRData) -> Path:
         """Write the PR diff to a temp file so the LLM can Read it on demand."""
-        return write_pr_diff(pr.base_sha, pr.head_sha, self.repo_root)
+        return write_pr_diff(pr.base_sha, pr.head_sha, self.repo_root, pr.merge_base_sha)
 
     def _build_review_prompt(self, pr: PRData, cl: dict, gate_context: dict, diff_path: Path) -> str:
         safe_title = _sanitize_untrusted(pr.title, max_len=200)
@@ -576,7 +597,7 @@ class Reviewer:
             lines.extend(self._discussion_line(c) for c in tail_items)
             discussion_text = "\n".join(lines)
 
-        pr_reactions = "\n".join(f"  - {_reaction_token(r)}" for r in pr.pr_reactions)
+        pr_reactions = "\n".join(f"  - {_reaction_token(r)}" for r in drop_abandoned_bot_eyes(pr.pr_reactions))
 
         ownership = self._format_ownership(cl)
         assurance_block = self._format_assurance(cl)
@@ -720,9 +741,10 @@ class Reviewer:
 
     def _format_reactions(self, reactions: list[dict] | None) -> str:
         """Render a compact reaction annotation like `  {👍 @greptile-apps}`."""
-        if not reactions:
+        shown = drop_abandoned_bot_eyes(reactions)
+        if not shown:
             return ""
-        return "  {" + ", ".join(_reaction_token(r) for r in reactions) + "}"
+        return "  {" + ", ".join(_reaction_token(r) for r in shown) + "}"
 
     def _format_familiarity(self, cl: dict) -> str:
         """Render the TRUSTED author-familiarity block, or "" when the signal is absent.
@@ -815,9 +837,15 @@ class Reviewer:
         summary = cl.get("ownership_summary", "")
         on_team = cl.get("author_on_owning_team", True)
         per_team = ownership.get("team_file_counts", {})
+        generated_per_team = ownership.get("team_generated_file_counts", {})
         lines = [f"Ownership: {summary}"]
         if per_team:
             lines.append(f"  Files per team: {json.dumps(per_team)}")
+        # A build step writes these, so a team whose whole stake is generated files was not touched
+        # by the change. The digest drops such a team from its audiences, and the change_summary
+        # rule below tells the reviewer to write it no clause, so the two agree on who is an owner.
+        if generated_per_team:
+            lines.append(f"  Of those, files a build step generated: {json.dumps(generated_per_team)}")
         # The team-membership note only makes sense when teams own the paths;
         # for individual-only ownership the summary already says who they are.
         if teams and not on_team:

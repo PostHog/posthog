@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -14,9 +15,15 @@ use tonic::{Code, Status};
 use tower::{Service, ServiceExt};
 
 use personhog_common::grpc::{current_client_name, SEMANTIC_REFUSAL_METADATA_KEY};
+
+/// Set by the leader on writes refused for a lifecycle hold. Mirrored so
+/// the router does not depend on the leader crate.
+const FENCED_METADATA_KEY: &str = "x-person-fenced";
+const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
 use personhog_common::partitioning::partition_for_person;
 
 use super::stash::{StashDecision, StashTable};
+use crate::config::Http2Windows;
 use crate::grpc_http::{grpc_error_response, grpc_status_code};
 
 pub type AddressResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -100,6 +107,11 @@ pub enum ForwardDecision {
         call_ms: f64,
     },
     Bounced(BounceReason),
+    /// Any non-semantic FAILED_PRECONDITION with its refusal metadata;
+    /// the holder's op id tells a caller whether the fence is its own.
+    BouncedFenced {
+        headers: HeaderMap,
+    },
 }
 
 /// Static configuration for `LeaderBackend`. Bundles the knobs that come
@@ -107,6 +119,20 @@ pub enum ForwardDecision {
 pub struct LeaderBackendConfig {
     pub num_partitions: u32,
     pub timeout: Duration,
+    pub num_channels: usize,
+    pub http2_windows: Http2Windows,
+}
+
+struct ChannelPool {
+    channels: Box<[Channel]>,
+    next: AtomicUsize,
+}
+
+impl ChannelPool {
+    fn next_channel(&self) -> Channel {
+        let idx = self.next.fetch_add(1, Ordering::Relaxed) % self.channels.len();
+        self.channels[idx].clone()
+    }
 }
 
 /// Backend that routes person writes and strong reads to leader pods
@@ -117,7 +143,7 @@ pub struct LeaderBackend {
     /// Cached gRPC channels keyed by pod gRPC address. All leader traffic —
     /// strong reads and writes — forwards raw request frames over these
     /// channels.
-    channels: DashMap<String, Channel>,
+    channels: DashMap<String, Arc<ChannelPool>>,
     /// Resolves pod_name → gRPC address.
     address_resolver: AddressResolver,
     config: LeaderBackendConfig,
@@ -202,22 +228,29 @@ impl LeaderBackend {
             Status::unavailable(format!("cannot resolve address for pod {pod_name}"))
         })?;
 
-        if let Some(channel) = self.channels.get(&address) {
-            return Ok(channel.clone());
-        }
-
-        // The connect deadline matters independently of the request
-        // timeout: dialing a pod whose IP has been unassigned black-holes
-        // at TCP connect (no RST ever arrives), and the request timeout
-        // only starts once a connection exists.
-        let channel = Channel::from_shared(address.clone())
-            .map_err(|e| Status::internal(format!("invalid leader address: {e}")))?
-            .timeout(self.config.timeout)
-            .connect_timeout(self.config.timeout)
-            .tcp_nodelay(true)
-            .connect_lazy();
-        self.channels.insert(address, channel.clone());
-        Ok(channel)
+        let pool = match self.channels.get(&address) {
+            Some(pool) => Arc::clone(&pool),
+            None => {
+                // The connect deadline matters independently of the request
+                // timeout: dialing a pod whose IP has been unassigned black-holes
+                // at TCP connect (no RST ever arrives), and the request timeout
+                // only starts once a connection exists.
+                let endpoint = Channel::from_shared(address.clone())
+                    .map_err(|e| Status::internal(format!("invalid leader address: {e}")))?
+                    .timeout(self.config.timeout)
+                    .connect_timeout(self.config.timeout)
+                    .tcp_nodelay(true);
+                let endpoint = self.config.http2_windows.apply_to_endpoint(endpoint);
+                let pool = Arc::new(ChannelPool {
+                    channels: (0..self.config.num_channels.max(1))
+                        .map(|_| endpoint.connect_lazy())
+                        .collect(),
+                    next: AtomicUsize::new(0),
+                });
+                Arc::clone(&self.channels.entry(address).or_insert(pool))
+            }
+        };
+        Ok(pool.next_channel())
     }
 
     /// Send a raw gRPC request frame over an already-resolved channel —
@@ -340,7 +373,9 @@ impl LeaderBackend {
                 {
                     ForwardDecision::Delivered { response, call_ms }
                 } else {
-                    ForwardDecision::Bounced(BounceReason::Fenced)
+                    ForwardDecision::BouncedFenced {
+                        headers: response.headers().clone(),
+                    }
                 }
             }
             Ok((response, call_ms)) => ForwardDecision::Delivered { response, call_ms },
@@ -391,6 +426,8 @@ impl LeaderBackend {
         frame: Bytes,
     ) -> (http::Response<BoxBody>, Option<f64>) {
         let mut consecutive_bounces = 0u32;
+        // Whether any attempt may have been applied, which the stash
+        // needs to treat a replay as at-least-once.
         let mut possibly_applied = false;
         loop {
             // The stash module emits its own enqueued/rejected counters
@@ -430,20 +467,51 @@ impl LeaderBackend {
                 ForwardDecision::Delivered { response, call_ms } => {
                     return (response, Some(call_ms));
                 }
-                ForwardDecision::Bounced(reason) => {
+                decision
+                @ (ForwardDecision::Bounced(_) | ForwardDecision::BouncedFenced { .. }) => {
+                    let reason = match &decision {
+                        ForwardDecision::Bounced(reason) => *reason,
+                        _ => BounceReason::Fenced,
+                    };
                     if counts_as_possibly_applied(reason) {
                         possibly_applied = true;
                     }
                     consecutive_bounces += 1;
                     if consecutive_bounces >= MAX_CONSECUTIVE_BOUNCES {
-                        counter!("personhog_router_forward_retries_exhausted_total").increment(1);
-                        return (
-                            grpc_error_response(
-                                Code::Unavailable,
-                                "leader unreachable or transitioning; retry",
-                            ),
-                            None,
+                        // The label separates a fence exhaustion (acked,
+                        // dropped) from a transport one (redelivered).
+                        counter!(
+                            "personhog_router_forward_retries_exhausted_total",
+                            "reason" => reason.label(),
+                        )
+                        .increment(1);
+                        // Fence metadata names a lifecycle holder; a bare
+                        // FAILED_PRECONDITION is ordinary handoff/ownership.
+                        let held_by_op = matches!(
+                            &decision,
+                            ForwardDecision::BouncedFenced { headers }
+                                if headers.contains_key(FENCED_METADATA_KEY)
                         );
+                        let mut response = grpc_error_response(
+                            Code::Unavailable,
+                            if held_by_op {
+                                "person is held by a lifecycle operation; retries exhausted"
+                            } else if matches!(reason, BounceReason::Fenced) {
+                                "leader refused the write precondition (handoff or ownership); retries exhausted"
+                            } else {
+                                "leader unreachable or transitioning; retry"
+                            },
+                        );
+                        // Keys travel only from the bounce that ended the
+                        // request, so a dead leader cannot report as held.
+                        if let ForwardDecision::BouncedFenced { headers: fence } = &decision {
+                            for key in [FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY] {
+                                if let Some(value) = fence.get(key) {
+                                    response.headers_mut().insert(key, value.clone());
+                                }
+                            }
+                        }
+                        return (response, None);
                     }
                     counter!(
                         "personhog_router_forward_retries_total",
@@ -480,7 +548,38 @@ mod tests {
         LeaderBackendConfig {
             num_partitions,
             timeout: Duration::from_secs(5),
+            num_channels: 4,
+            http2_windows: Http2Windows::default(),
         }
+    }
+
+    async fn assigned_backend(num_channels: usize) -> (LeaderBackend, u32) {
+        let routing_table = Arc::new(RwLock::new(HashMap::new()));
+        let resolver: AddressResolver =
+            Arc::new(|pod_name| Some(format!("http://{pod_name}:50053")));
+        let backend = LeaderBackend::new(
+            Arc::clone(&routing_table),
+            resolver,
+            LeaderBackendConfig {
+                num_channels,
+                ..test_config(8)
+            },
+            StashTable::with_bounds(usize::MAX, usize::MAX),
+        );
+        let partition = backend.partition_for_person(1, 42);
+        routing_table
+            .write()
+            .await
+            .insert(partition, "leader-0".to_string());
+        (backend, partition)
+    }
+
+    fn pool_state(backend: &LeaderBackend, pod_name: &str) -> (usize, usize) {
+        let pool = backend
+            .channels
+            .get(&format!("http://{pod_name}:50053"))
+            .unwrap();
+        (pool.channels.len(), pool.next.load(Ordering::Relaxed))
     }
 
     #[tokio::test]
@@ -579,27 +678,68 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_leader_caches_channel() {
-        let routing_table = Arc::new(RwLock::new(HashMap::new()));
-        let resolver: AddressResolver = Arc::new(|_| Some("http://localhost:50053".to_string()));
-        let backend = LeaderBackend::new(
-            Arc::clone(&routing_table),
-            resolver,
-            test_config(8),
-            StashTable::with_bounds(usize::MAX, usize::MAX),
-        );
+        let (backend, partition) = assigned_backend(4).await;
 
-        let partition = backend.partition_for_person(1, 42);
-        routing_table
-            .write()
-            .await
-            .insert(partition, "leader-0".to_string());
-
-        let partition = backend.partition_for_person(1, 42);
         let _channel1 = backend.resolve_leader_channel(partition).await.unwrap();
         assert_eq!(backend.channels.len(), 1);
 
         let _channel2 = backend.resolve_leader_channel(partition).await.unwrap();
         assert_eq!(backend.channels.len(), 1); // still 1, cached
+    }
+
+    #[tokio::test]
+    async fn resolve_leader_cycles_through_the_pods_whole_pool() {
+        for num_channels in [1usize, 4] {
+            let (backend, partition) = assigned_backend(num_channels).await;
+            for turn in 0..(2 * num_channels) {
+                backend.resolve_leader_channel(partition).await.unwrap();
+                assert_eq!(
+                    pool_state(&backend, "leader-0"),
+                    (num_channels, turn + 1),
+                    "{num_channels} channels, turn {turn}"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn each_pod_cycles_its_own_pool() {
+        let (backend, partition_a) = assigned_backend(4).await;
+        let partition_b = (partition_a + 1) % 8;
+        backend
+            .routing_table
+            .write()
+            .await
+            .insert(partition_b, "leader-1".to_string());
+
+        for _ in 0..2 {
+            backend.resolve_leader_channel(partition_a).await.unwrap();
+            backend.resolve_leader_channel(partition_b).await.unwrap();
+        }
+        assert_eq!(pool_state(&backend, "leader-0"), (4, 2));
+        assert_eq!(pool_state(&backend, "leader-1"), (4, 2));
+    }
+
+    #[tokio::test]
+    async fn a_zero_pool_size_still_opens_one_channel() {
+        let (backend, partition) = assigned_backend(0).await;
+        backend.resolve_leader_channel(partition).await.unwrap();
+        assert_eq!(pool_state(&backend, "leader-0"), (1, 1));
+    }
+
+    #[tokio::test]
+    async fn clear_client_cache_drops_the_whole_pool() {
+        let (backend, partition) = assigned_backend(4).await;
+        for _ in 0..3 {
+            backend.resolve_leader_channel(partition).await.unwrap();
+        }
+        assert_eq!(backend.channels.len(), 1);
+
+        backend.clear_client_cache("leader-0");
+        assert!(backend.channels.is_empty());
+
+        backend.resolve_leader_channel(partition).await.unwrap();
+        assert_eq!(pool_state(&backend, "leader-0"), (4, 1));
     }
 
     /// When the partition's stash is open and full, `forward_or_stash`

@@ -20,10 +20,16 @@ import pyarrow as pa
 from structlog import get_logger
 from temporalio import activity
 
+from posthog.hogql.escape_sql import backquote_clickhouse_identifier
+
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
+from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
 from posthog.security.outbound_proxy import internal_requests_session
+
+if typing.TYPE_CHECKING:
+    from posthog.clickhouse.client.execute import ClickHouseExternalTable
 
 LOGGER = get_logger(__name__)
 
@@ -91,6 +97,42 @@ def encode_clickhouse_data(data: typing.Any, quote_char="'") -> bytes:
             str_data = str(data)
             str_data = str_data.replace("\\", "\\\\").replace("'", "\\'")
             return f"{quote_char}{str_data}{quote_char}".encode()
+
+
+def _encode_external_value(value: typing.Any) -> typing.Any:
+    # Epoch strings parse into DateTime and DateTime64 columns in any timezone; a formatted
+    # datetime would be read in the column's timezone instead of the value's.
+    if isinstance(value, dt.datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=dt.UTC)
+        return f"{value.timestamp():.6f}"
+    if isinstance(value, dt.date):
+        return value.isoformat()
+    return str(value)
+
+
+def _external_tables_form(
+    query: str, external_tables: collections.abc.Sequence["ClickHouseExternalTable"]
+) -> aiohttp.FormData:
+    """Build the multipart body that carries query-scoped tables over the HTTP interface.
+
+    The query goes in the form rather than the URL, so its length is not bound by URL limits.
+    """
+    form = aiohttp.FormData()
+    form.add_field("query", query)
+    for table in external_tables:
+        name = table["name"]
+        form.add_field(
+            f"{name}_structure",
+            ", ".join(
+                f"{backquote_clickhouse_identifier(column)} {clickhouse_type}"
+                for column, clickhouse_type in table["structure"]
+            ),
+        )
+        form.add_field(f"{name}_format", "JSONEachRow")
+        rows = b"\n".join(json.dumps(row, default=_encode_external_value).encode() for row in table["data"])
+        form.add_field(name, rows, filename=name, content_type="application/octet-stream")
+    return form
 
 
 class ClickHouseQueryStatus(enum.StrEnum):
@@ -290,10 +332,11 @@ class ClickHouseClient:
         database: str = "default",
         timeout: None | aiohttp.ClientTimeout = None,
         ssl: ssl.SSLContext | bool = True,
+        password_file: str | None = None,
         **kwargs,
     ):
         self.url = url
-        self.headers = {}
+        self.headers: dict[str, str] = {}
         self.params = {}
         self.timeout = timeout
         self.ssl = ssl
@@ -301,16 +344,26 @@ class ClickHouseClient:
         self.session: None | aiohttp.ClientSession = None
         self.logger = LOGGER.bind(url=url, database=database, user=user)
 
-        if user:
-            self.headers["X-ClickHouse-User"] = user
-        if password:
-            self.headers["X-ClickHouse-Key"] = password
+        # Build auth per request from the credential, which may read a rotating token file. A long
+        # batch export holds one session for hours, longer than a short-lived token lives, so the
+        # auth header cannot be stamped once at construction.
+        self._credentials = ClickHouseCredentials(user=user, password=password, password_file=password_file)
+
         if database:
             self.params["database"] = database
 
-        self.params["max_query_size"] = "1048576"  # 1MB
+        self.params["max_query_size"] = str(MAX_QUERY_SIZE_BYTES)
 
         self.params.update(kwargs)
+
+    def _request_headers(self) -> dict[str, str]:
+        headers = dict(self.headers)
+        if self._credentials.user:
+            headers["X-ClickHouse-User"] = self._credentials.user
+        key = self._credentials.read_password()
+        if key:
+            headers["X-ClickHouse-Key"] = key
+        return headers
 
     @classmethod
     def from_posthog_settings(cls, settings, **kwargs):
@@ -319,6 +372,7 @@ class ClickHouseClient:
             url=settings.CLICKHOUSE_URL,
             user=settings.CLICKHOUSE_USER,
             password=settings.CLICKHOUSE_PASSWORD,
+            password_file=settings.CLICKHOUSE_PASSWORD_FILE,
             database=settings.CLICKHOUSE_DATABASE,
             **kwargs,
         )
@@ -337,7 +391,7 @@ class ClickHouseClient:
         try:
             await self.session.get(
                 url=ping_url,
-                headers=self.headers,
+                headers=self._request_headers(),
                 raise_for_status=True,
                 timeout=aiohttp.ClientTimeout(total=timeout),
             )
@@ -367,6 +421,9 @@ class ClickHouseClient:
             # as format placeholders
             escaped_parameters = {k: v.replace("{", "{{").replace("}", "}}") for k, v in format_parameters.items()}
             query = query % escaped_parameters
+            # HogQL prints the empty-object sentinel '{}' inline for every property read on the native-JSON
+            # events table, and the formatter would auto-number it to '{0}'. An empty pair is never a placeholder.
+            query = re.sub(r"(?<!\{)\{\}(?!\})", "{{}}", query)
             query = KeywordOnlyFormatter().format(query, **format_parameters)
         else:
             query = query % format_parameters
@@ -454,7 +511,7 @@ class ClickHouseClient:
 
         add_log_comment_param(params)
 
-        async with self.session.get(url=self.url, headers=self.headers, params=params) as response:
+        async with self.session.get(url=self.url, headers=self._request_headers(), params=params) as response:
             await self.acheck_response(response, query)
             yield response
 
@@ -467,6 +524,7 @@ class ClickHouseClient:
         query_id,
         timeout: float | None = None,
         settings: dict[str, str] | None = None,
+        external_tables: collections.abc.Sequence["ClickHouseExternalTable"] | None = None,
     ) -> collections.abc.AsyncIterator[aiohttp.ClientResponse]:
         """POST a query to the ClickHouse HTTP interface.
 
@@ -481,14 +539,20 @@ class ClickHouseClient:
             query_parameters: Parameters to be formatted in the query.
             query_id: A query ID to pass to ClickHouse.
             settings: Extra ClickHouse HTTP-interface settings to include as query-string parameters.
+            external_tables: Query-scoped tables the query reads, sent in the request body.
 
         Returns:
             The response received from the ClickHouse HTTP interface.
         """
         if self.session is None:
             raise ClickHouseClientNotConnected()
+        if external_tables and data:
+            raise ValueError("A query cannot send both external tables and request data.")
 
         params = {**self.params}
+        if external_tables:
+            # Named tuples, such as a jev choice, are encoded as JSON arrays.
+            params["input_format_json_named_tuples_as_objects"] = "0"
         if settings is not None:
             params.update(settings)
         if query_id is not None:
@@ -512,12 +576,15 @@ class ClickHouseClient:
                     params[f"param_{key}"] = str(value)
         add_log_comment_param(params)
 
-        request_data = self.prepare_request_data(data)
-
-        if request_data:
-            params["query"] = query
+        request_data: bytes | aiohttp.FormData | None
+        if external_tables:
+            request_data = _external_tables_form(query, external_tables)
         else:
-            request_data = query.encode("utf-8")
+            request_data = self.prepare_request_data(data)
+            if request_data:
+                params["query"] = query
+            else:
+                request_data = query.encode("utf-8")
 
         if timeout:
             client_timeout = aiohttp.ClientTimeout(total=timeout)
@@ -526,7 +593,7 @@ class ClickHouseClient:
 
         try:
             async with self.session.post(
-                url=self.url, params=params, headers=self.headers, data=request_data, timeout=client_timeout
+                url=self.url, params=params, headers=self._request_headers(), data=request_data, timeout=client_timeout
             ) as response:
                 await self.acheck_response(response, query)
                 yield response
@@ -588,7 +655,7 @@ class ClickHouseClient:
             response = s.post(
                 url=self.url,
                 params=params,
-                headers=self.headers,
+                headers=self._request_headers(),
                 data=request_data,
                 stream=True,
                 verify=False,
@@ -913,12 +980,15 @@ class ClickHouseClient:
         query_parameters=None,
         query_id: str | None = None,
         on_schema: collections.abc.Callable[[pa.Schema], None] | None = None,
+        external_tables: collections.abc.Sequence["ClickHouseExternalTable"] | None = None,
     ) -> typing.AsyncGenerator[pa.RecordBatch]:
         """Execute the given query in ClickHouse and stream back the response as Arrow record batches.
 
         This method makes sense when running with FORMAT ArrowStream, although we currently do not enforce this.
         """
-        async with self.apost_query(query, *data, query_parameters=query_parameters, query_id=query_id) as response:
+        async with self.apost_query(
+            query, *data, query_parameters=query_parameters, query_id=query_id, external_tables=external_tables
+        ) as response:
             reader = asyncpa.AsyncRecordBatchReader(ChunkBytesAsyncStreamIterator(response.content))
             if on_schema is not None:
                 on_schema(await reader.get_schema())
@@ -1043,6 +1113,7 @@ async def get_client(
         url=url,
         user=settings.CLICKHOUSE_USER,
         password=settings.CLICKHOUSE_PASSWORD,
+        password_file=settings.CLICKHOUSE_PASSWORD_FILE,
         database=settings.CLICKHOUSE_DATABASE,
         timeout=timeout,
         ssl=False,

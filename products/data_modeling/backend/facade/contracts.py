@@ -14,6 +14,8 @@ from datetime import datetime
 
 from pydantic.dataclasses import dataclass
 
+from posthog.dataclasses import frozen
+
 
 @dataclass(frozen=True)
 class DataModelingJob:
@@ -43,3 +45,32 @@ class SavedQuerySummary:
     team_id: int
     name: str
     last_run_at: datetime | None
+
+
+@dataclass(frozen=True)
+class Dependent:
+    """Something that reads a saved query, and what a caller's grants are resolved against."""
+
+    name: str
+    kind: str
+    saved_query_id: str | None = None
+    created_by_id: int | None = None
+    lineage_node_id: str | None = None
+
+
+@frozen
+class UpstreamTableRef:
+    name: str
+    warehouse_table_id: str | None = None
+
+
+class MaterializationRefusedError(Exception):
+    pass
+
+
+class MaterializationForbiddenError(Exception):
+    pass
+
+
+class MaterializationFailedError(Exception):
+    pass

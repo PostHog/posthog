@@ -2,19 +2,40 @@ import { describe, expect, it } from "vitest";
 import { buildWorktreeAdoptionInput, prepareTaskInput } from "./taskInput";
 
 describe("prepareTaskInput", () => {
-  // The isCloud guard on customInstructions is the only thing preventing
-  // double-injection: local tasks already receive personalization via the
-  // workspace-server system prompt, so the field must be dropped for them and
-  // only passed through for cloud.
+  // Local ACP reads personalization through its workspace-server prompt. Pi
+  // bypasses that path, so it needs the task input to carry the instructions.
   it.each([
-    { workspaceMode: "cloud" as const, expected: "Always use tabs." },
-    { workspaceMode: "local" as const, expected: undefined },
-    { workspaceMode: "worktree" as const, expected: undefined },
+    {
+      workspaceMode: "cloud" as const,
+      runtime: "acp" as const,
+      expected: "Always use tabs.",
+    },
+    {
+      workspaceMode: "local" as const,
+      runtime: "acp" as const,
+      expected: undefined,
+    },
+    {
+      workspaceMode: "worktree" as const,
+      runtime: "acp" as const,
+      expected: undefined,
+    },
+    {
+      workspaceMode: "local" as const,
+      runtime: "pi" as const,
+      expected: "Always use tabs.",
+    },
+    {
+      workspaceMode: "worktree" as const,
+      runtime: "pi" as const,
+      expected: "Always use tabs.",
+    },
   ])(
-    "passes customInstructions through only for cloud (%s)",
-    ({ workspaceMode, expected }) => {
+    "passes customInstructions through for cloud and Pi tasks",
+    ({ workspaceMode, runtime, expected }) => {
       const input = prepareTaskInput("do the thing", [], {
         workspaceMode,
+        runtime,
         customInstructions: "Always use tabs.",
       });
       expect(input.customInstructions).toBe(expected);
@@ -46,6 +67,16 @@ describe("prepareTaskInput", () => {
     });
 
     expect(input.codexModelAccess).toBe("own-subscription");
+  });
+
+  it("preserves the selected Claude model access", () => {
+    const input = prepareTaskInput("do the thing", [], {
+      workspaceMode: "local",
+      adapter: "claude",
+      claudeModelAccess: "own-subscription",
+    });
+
+    expect(input.claudeModelAccess).toBe("own-subscription");
   });
 
   it("drops customInstructions for cloud when none is set", () => {

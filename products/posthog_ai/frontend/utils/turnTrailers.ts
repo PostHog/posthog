@@ -9,6 +9,10 @@ export interface TurnTrailer {
     isLastTurn: boolean
     /** The turn's assistant text, concatenated across its message bubbles. */
     turnText: string
+    /** The turn's gateway trace id — `$ai_trace_id` on its generations and its feedback. */
+    traceId?: string
+    /** When the turn completed, in milliseconds. Absent for imported or untimed history. */
+    timestamp?: number
 }
 
 /**
@@ -33,7 +37,13 @@ export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, Turn
             if (textParts.length === 0) {
                 continue
             }
-            trailers.set(item.id, { turnIndex, isLastTurn: false, turnText: textParts.join('\n\n') })
+            trailers.set(item.id, {
+                turnIndex,
+                isLastTurn: false,
+                turnText: textParts.join('\n\n'),
+                traceId: item.traceId,
+                timestamp: item.startedAt,
+            })
             lastSeparatorId = item.id
             turnIndex += 1
             textParts = []
@@ -46,4 +56,28 @@ export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, Turn
         }
     }
     return trailers
+}
+
+/**
+ * Maps each row to the group whose hover reveals its footer. A human message is its own group. An answer row belongs
+ * to its turn's separator, so hovering any row of the turn reveals the turn's trailer. Rows of an unfinished turn
+ * have no separator yet, so they get no entry.
+ */
+export function mapRowsToRevealGroup(items: ReadonlyArray<{ id: string; type: string }>): Map<string, string> {
+    const membership = new Map<string, string>()
+    let pending: string[] = []
+    for (const item of items) {
+        if (item.type === 'human_message') {
+            membership.set(item.id, item.id)
+            pending = []
+        } else if (item.type === 'turn_separator') {
+            for (const id of pending) {
+                membership.set(id, item.id)
+            }
+            pending = []
+        } else {
+            pending.push(item.id)
+        }
+    }
+    return membership
 }

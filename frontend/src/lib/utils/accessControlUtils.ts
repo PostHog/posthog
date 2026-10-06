@@ -126,6 +126,9 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'tracing'
     } else if (resource === AccessControlResourceType.SharingConfiguration) {
         return 'sharing'
+    } else if (resource === AccessControlResourceType.Stamphog) {
+        // Product name, so it does not take a plural
+        return 'stamphog'
     } else if (resource === AccessControlResourceType.Toolbar) {
         return 'toolbar'
     } else if (resource === AccessControlResourceType.LlmPlayground) {
@@ -137,6 +140,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
     } else if (resource === AccessControlResourceType.ReplayScanner) {
         // Covers both scanners and their scheduled summary actions — "replay vision" is the product name.
         return 'replay vision'
+    } else if (resource === AccessControlResourceType.BusinessKnowledge) {
+        return 'business knowledge'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -195,6 +200,9 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'MCP analytic'
     } else if (resourceType === AccessControlResourceType.ReplayScanner) {
         return 'replay vision resource'
+    } else if (resourceType === AccessControlResourceType.Stamphog) {
+        // Proper noun, so it stays capitalized inside "...permissions for this Stamphog resource."
+        return 'Stamphog resource'
     }
 
     return resourceType.replace(/_/g, ' ')
@@ -312,7 +320,8 @@ export const getProductAccessDisabledReason = (item: {
         return undefined
     }
     const resourceType = sceneToAccessControlResourceType[item.sceneKey as Scene]
-    if (!resourceType || !productHasEffectiveNoneAccess(resourceType)) {
+    const resources = Array.isArray(resourceType) ? resourceType : resourceType ? [resourceType] : []
+    if (!resources.length || !resources.every(productHasEffectiveNoneAccess)) {
         return undefined
     }
     return `You don't have access to ${item.displayLabel || item.path || 'this product'}`

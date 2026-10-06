@@ -1,31 +1,80 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AnyResponseType, MetricsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { MetricsSeriesChart } from '../components/MetricsSeriesChart'
+import { MetricsQueryEditor } from '../components/MetricsQueryEditor'
+import { isBuilderCompatibleQuery } from '../components/metricsViewerLogic'
+import { MetricsPanel } from '../panels/MetricsPanel'
 import { seriesFromMetricsResponse } from './metricsResponseSeries'
 
 let uniqueNode = 0
+let uniqueEditor = 0
 
-/** Renders a `MetricsQuery` wherever the generic `Query` component is used —
- * saved insights, dashboard tiles, notebooks. */
-export function MetricsQueryNode(props: {
+interface MetricsQueryNodeProps {
     query: MetricsQuery
     cachedResults?: AnyResponseType
     context: QueryContext
     attachTo?: LogicWrapper | BuiltLogic
-}): JSX.Element | null {
+    /** With `setQuery`, shows the builder above the chart, as the insight editor does. */
+    editMode?: boolean
+    setQuery?: (query: MetricsQuery) => void
+}
+
+/** Renders a `MetricsQuery` wherever the generic `Query` component is used —
+ * saved insights, dashboard tiles, notebooks. */
+export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | null {
+    const builderEnabled = useFeatureFlag('METRICS_INSIGHT_BUILDER')
+    const [editorKey] = useState(() => `MetricsQueryEditor.${uniqueEditor++}`)
+
+    // A new insight starts with no clauses, which the backend rejects, so there is nothing to run yet.
+    const results = props.query.clauses.length ? (
+        <MetricsQueryResults {...props} />
+    ) : (
+        <div className="flex-1 flex items-center justify-center min-h-[200px] text-secondary text-sm">
+            Pick a metric to see its time series.
+        </div>
+    )
+
+    if (!builderEnabled || !props.editMode || !props.setQuery) {
+        return results
+    }
+
+    return (
+        <div className="flex flex-col gap-3 w-full">
+            {isBuilderCompatibleQuery(props.query) ? (
+                <MetricsQueryEditor editorKey={editorKey} query={props.query} setQuery={props.setQuery} />
+            ) : (
+                <LemonBanner type="info">
+                    This insight uses settings that the builder cannot show, so the builder is off for this insight.
+                </LemonBanner>
+            )}
+            <div className="relative flex h-[360px] border rounded p-3">{results}</div>
+        </div>
+    )
+}
+
+function MetricsQueryResults(props: MetricsQueryNodeProps): JSX.Element {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `MetricsQueryNode.${uniqueNode++}`)
+    // `dataNodeLogic` deep-compares its query to decide whether to refetch. Its
+    // `ignoreVisualizationOnlyChanges` option doesn't help here — that only reaches
+    // `cleanInsightQuery`, which bails unless both sides are insight query nodes, and a
+    // `MetricsQuery` isn't one. So chart settings have to be kept out of the query it sees,
+    // or changing the chart type would re-run the ClickHouse query.
+    const dataQuery = useMemo(() => {
+        const { display: _display, ...rest } = props.query
+        return rest
+    }, [props.query])
     const logic = dataNodeLogic({
-        query: props.query,
+        query: dataQuery,
         key,
         cachedResults: props.cachedResults,
         loadPriority,
@@ -38,12 +87,14 @@ export function MetricsQueryNode(props: {
     const { response, responseLoading } = useValues(logic)
     const series = seriesFromMetricsResponse(response)
     const hasPoints = series.some((s) => s.points.length > 0)
-    const fallbackName = props.query.clauses[0]?.metricName ?? 'metric'
+    // A formula query returns only the formula result (metricName is null on it),
+    // so the formula text itself is the honest name for an unlabelled series.
+    const fallbackName = props.query.formula ?? props.query.clauses[0]?.metricName ?? 'metric'
 
     return (
         <div className="relative flex flex-col w-full h-full min-h-[200px]">
             {hasPoints ? (
-                <MetricsSeriesChart series={series} fallbackName={fallbackName} />
+                <MetricsPanel series={series} fallbackName={fallbackName} display={props.query.display} />
             ) : !responseLoading ? (
                 <div className="flex-1 flex items-center justify-center text-secondary text-sm">
                     No data for this metric in the selected range.

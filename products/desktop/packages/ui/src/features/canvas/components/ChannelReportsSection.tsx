@@ -7,7 +7,6 @@ import {
   EmptyMedia,
   EmptyTitle,
   Skeleton,
-  Spinner,
 } from "@posthog/quill";
 import type { SignalReport } from "@posthog/shared/types";
 import { ReportRow } from "@posthog/ui/features/canvas/components/ReportRow";
@@ -17,6 +16,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useChannelReports";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { useEffect, useMemo } from "react";
 
 /**
@@ -28,6 +28,7 @@ import { useEffect, useMemo } from "react";
  * unread badge clears in the sidebar's cut-over effect when a report is
  * clicked into.
  */
+/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export function ChannelReportsSection({
   view,
   activeReportId,

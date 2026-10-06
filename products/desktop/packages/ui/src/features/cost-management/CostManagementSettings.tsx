@@ -1,13 +1,5 @@
-import { Gauge } from "@phosphor-icons/react";
 import { leanSkillById } from "@posthog/core/billing/leanSkills";
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@posthog/quill";
-import { formatModelId } from "@posthog/shared";
+import { ANALYTICS_EVENTS, formatModelId } from "@posthog/shared";
 import { CostManagementView } from "@posthog/ui/features/cost-management/CostManagementView";
 import { CustomImageBuildDialog } from "@posthog/ui/features/cost-management/CustomImageBuildDialog";
 import { LeanSkillDialog } from "@posthog/ui/features/cost-management/LeanSkillDialog";
@@ -20,13 +12,13 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { skillErrorDescription } from "@posthog/ui/features/skills/skillErrors";
 import { useInstallMarketplaceSkill } from "@posthog/ui/features/skills/useMarketplace";
 import { useDeleteSkill } from "@posthog/ui/features/skills/useSkillMutations";
-import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import { toast } from "@posthog/ui/primitives/toast";
+import { track } from "@posthog/ui/shell/analytics";
 import { useState } from "react";
 
 export function CostManagementSettings() {
-  const spendAnalysisEnabled = useSpendAnalysisEnabled();
   const setLastUsedModel = useSettingsStore((state) => state.setLastUsedModel);
+  const setSte100Enabled = useSettingsStore((state) => state.setSte100Enabled);
   const markDone = useSettingsStore((state) => state.markCostChecklistDone);
   const items = useCostChecklist();
   const cloudRepository = useSettingsStore(
@@ -51,24 +43,6 @@ export function CostManagementSettings() {
       return next;
     });
   const openSkill = openSkillId === null ? null : leanSkillById(openSkillId);
-
-  if (!spendAnalysisEnabled) {
-    return (
-      <Empty className="mx-auto max-w-md py-16">
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <Gauge size={24} />
-          </EmptyMedia>
-          <EmptyTitle>Cost management isn't available</EmptyTitle>
-          <EmptyDescription>
-            Spend reporting isn't enabled for your account yet, so there is
-            nothing to set limits against.
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    );
-  }
-
   const switchDefaultModel = (toModelId: string) => {
     const previous = useSettingsStore.getState().lastUsedModel;
     setLastUsedModel(toModelId);
@@ -81,6 +55,14 @@ export function CostManagementSettings() {
             onClick: () => setLastUsedModel(previous),
           }
         : undefined,
+    });
+  };
+
+  const toggleSte100 = (enabled: boolean) => {
+    setSte100Enabled(enabled);
+    track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+      setting_name: "simplified_technical_english",
+      new_value: enabled,
     });
   };
 
@@ -132,6 +114,7 @@ export function CostManagementSettings() {
         items={items}
         onSwitchModel={switchDefaultModel}
         onCreateImage={() => setBuildingImage(true)}
+        onSte100Toggle={toggleSte100}
         onInstallSkill={(skillId) => void installById(skillId)}
         onUninstallSkill={(skillId) => void uninstallById(skillId)}
         onOpenSkill={setOpenSkillId}

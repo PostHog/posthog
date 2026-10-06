@@ -9,6 +9,7 @@ import { subscriptionsList } from 'products/subscriptions/frontend/generated/api
 import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { isMCPRecurringReport, mcpRecurringReportsLogic } from './mcpRecurringReportsLogic'
+import { MCP_RECURRING_REPORTS } from './recurringReportDefinitions'
 
 jest.mock('lib/utils/deleteWithUndo', () => ({ deleteWithUndo: jest.fn() }))
 jest.mock('products/subscriptions/frontend/generated/api', () => ({
@@ -70,6 +71,20 @@ describe('mcpRecurringReportsLogic', () => {
         ['has no prompt at all', null, false],
     ])('%s -> %s', (_name, prompt, expected) => {
         expect(isMCPRecurringReport({ prompt })).toBe(expected)
+    })
+
+    it('groups saved reports by template title and keeps renamed or untitled ones under other', async () => {
+        listReturns([
+            makeReport(1, { title: MCP_RECURRING_REPORTS[0].title }),
+            makeReport(2, { title: 'Renamed report' }),
+            makeReport(3, { title: '' }),
+        ])
+
+        await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
+
+        expect(logic.values.reportsByTemplateTitle[MCP_RECURRING_REPORTS[0].title].map((r) => r.id)).toEqual([1])
+        expect(logic.values.reportsByTemplateTitle[MCP_RECURRING_REPORTS[1].title]).toEqual([])
+        expect(logic.values.otherReports.map((r) => r.id)).toEqual([2, 3])
     })
 
     it('lists only the MCP reports among the project AI reports', async () => {

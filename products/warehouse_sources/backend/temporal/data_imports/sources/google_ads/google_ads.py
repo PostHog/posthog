@@ -3,7 +3,6 @@ import typing
 import datetime as dt
 import collections.abc
 
-from django.conf import settings
 from django.db import OperationalError, close_old_connections
 
 import grpc
@@ -37,8 +36,10 @@ from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import tracked_interceptors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Column, Table
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
@@ -206,11 +207,14 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
         if config.is_mcc_account and config.is_mcc_account.enabled:
             login_customer_id = clean_customer_id(config.is_mcc_account.mcc_client_id)
 
+        resolved = integration_secrets.get_secrets(
+            ["GOOGLE_ADS_DEVELOPER_TOKEN", "GOOGLE_ADS_APP_CLIENT_ID", "GOOGLE_ADS_APP_CLIENT_SECRET"]
+        )
         config_dict: dict[str, object] = {
-            "developer_token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+            "developer_token": resolved["GOOGLE_ADS_DEVELOPER_TOKEN"],
             "refresh_token": integration.refresh_token,
-            "client_id": settings.GOOGLE_ADS_APP_CLIENT_ID,
-            "client_secret": settings.GOOGLE_ADS_APP_CLIENT_SECRET,
+            "client_id": resolved["GOOGLE_ADS_APP_CLIENT_ID"],
+            "client_secret": resolved["GOOGLE_ADS_APP_CLIENT_SECRET"],
             "use_proto_plus": False,
         }
         if login_customer_id is not None:
@@ -601,7 +605,7 @@ def google_ads_source(
     """
 
     name = NamingConvention.normalize_identifier(resource_name)
-    table = get_schemas(config, team_id, api_version)[resource_name]
+    table = schema_for_resource(get_schemas(config, team_id, api_version), resource_name)
 
     # Report tables always need a date filter, so a full-refresh schema is forced onto the
     # incremental query path here. Record whether the pipeline itself is incremental first: only an
@@ -783,6 +787,15 @@ _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE = "Received message larger than max"
 # ``UNKNOWN`` status, which covers far too broad a range of unrelated failures to retry blindly.
 _AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE = "Authentication backend unknown error"
 
+# gRPC's Python client surfaces a peer-initiated HTTP/2 stream reset (a load balancer recycling the
+# underlying connection, a momentary backend restart) as a bare ``UNKNOWN`` status with this detail
+# string rather than a code that already maps to a transient status — a long-documented, widely
+# reported gRPC behavior, not an application-level failure. The request itself was never processed,
+# so a retry on a fresh stream is safe and typically succeeds. Matched on this specific message for
+# the same reason as the auth-backend signature above: the bare ``UNKNOWN`` status alone is too broad
+# a signal to retry blindly.
+_STREAM_REMOVED_ERROR_SIGNATURE = "Stream removed"
+
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
     """Return True for a transient gRPC failure Google's guidance says to retry.
@@ -792,12 +805,15 @@ def _is_transient_grpc_error(exc: BaseException) -> bool:
     (whose ``code()`` returns the ``StatusCode``) can also propagate. The Google Ads SDK additionally
     re-wraps the transport error in a ``GoogleAdsException`` when it can pull an ads ``failure`` from
     the trailing metadata (e.g. a backend ``DEADLINE_EXCEEDED`` returned alongside the status); the
-    gRPC status then lives on the wrapped ``error``, so we unwrap and inspect it too.
+    gRPC status then lives on the wrapped ``error``, so we unwrap and inspect it too. A bare
+    ``UNKNOWN`` status is only treated as transient for the specific messages known to be benign
+    (see ``_AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE`` and ``_STREAM_REMOVED_ERROR_SIGNATURE``).
     """
     if isinstance(exc, google_api_exceptions.ServiceUnavailable | google_api_exceptions.InternalServerError):
         return True
     if isinstance(exc, google_api_exceptions.Unknown):
-        return _AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE in str(exc)
+        message = str(exc)
+        return _AUTH_BACKEND_UNKNOWN_ERROR_SIGNATURE in message or _STREAM_REMOVED_ERROR_SIGNATURE in message
     candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
     # ``ResourceExhausted`` exposes ``code`` as an HTTP int, not a callable ``StatusCode``, so the
     # gapic-wrapped form is matched by type rather than via the ``code()`` check below.

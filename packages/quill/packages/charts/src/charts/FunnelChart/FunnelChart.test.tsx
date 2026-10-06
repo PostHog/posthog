@@ -84,6 +84,35 @@ describe('FunnelChart', () => {
         expect(click.converted).toBe(converted)
     })
 
+    it('floors a near-zero bar for interaction: track above, converted tooltip and click near the baseline', async () => {
+        // Without the floor a 0.1% bar is sub-pixel and the whole column classifies as drop-off.
+        const onStepClick = jest.fn()
+        const { chart } = renderHogChart(
+            <FunnelChart
+                steps={STEPS}
+                series={[{ key: 'all', label: 'All', data: [100, 0.1] }]}
+                theme={THEME}
+                onStepClick={onStepClick}
+            />
+        )
+        const step = dimensions.plotWidth / STEPS.length
+        const clientX = dimensions.plotLeft + step * 1.5
+        const baselineY = dimensions.plotTop + dimensions.plotHeight
+
+        await waitFor(async () => {
+            fireEvent.mouseMove(chart.element, { clientX, clientY: dimensions.plotTop + 2 })
+            expect((await chart.waitForTooltip(100)).inTrackArea).toBe(true)
+        })
+        await waitFor(async () => {
+            fireEvent.mouseMove(chart.element, { clientX, clientY: baselineY - 2 })
+            expect((await chart.waitForTooltip(100)).inTrackArea).toBe(false)
+        })
+        fireEvent.click(chart.element)
+        const click: FunnelStepClickData = onStepClick.mock.calls[0][0]
+        expect(click.stepIndex).toBe(1)
+        expect(click.converted).toBe(true)
+    })
+
     it('renders one step-footer cell per step and hides the axis step labels', async () => {
         const { chart } = renderHogChart(
             <FunnelChart
@@ -99,6 +128,47 @@ describe('FunnelChart', () => {
             expect(cells).toHaveLength(STEPS.length)
         })
         expect(chart.xTicks()).toHaveLength(0)
+    })
+
+    it('never asks for a step footer past the current step count when a shorter funnel replaces a longer one', async () => {
+        const THREE_STEPS = ['Exposure', 'Add to cart', 'Purchase']
+        const requested: number[] = []
+        const { rerender } = renderHogChart(
+            <FunnelChart
+                steps={THREE_STEPS}
+                series={[{ key: 'all', label: 'All', data: [100, 60, 20] }]}
+                theme={THEME}
+                stepFooter={(stepIndex) => {
+                    requested.push(stepIndex)
+                    return <span>{stepIndex}</span>
+                }}
+            />
+        )
+        await waitFor(() => {
+            expect(document.querySelectorAll('[data-attr="hog-funnel-step-footer-cell"]')).toHaveLength(
+                THREE_STEPS.length
+            )
+        })
+
+        requested.length = 0
+        rerender(
+            <FunnelChart
+                steps={STEPS}
+                series={SERIES}
+                theme={THEME}
+                stepFooter={(stepIndex) => {
+                    requested.push(stepIndex)
+                    return <span>{stepIndex}</span>
+                }}
+            />
+        )
+        await waitFor(() => {
+            expect(document.querySelectorAll('[data-attr="hog-funnel-step-footer-cell"]')).toHaveLength(STEPS.length)
+        })
+
+        // The measured bands arrive a render late, so without clamping the first commit after this
+        // rerender asks for index 2 while the consumer only holds data for two steps.
+        expect(Math.max(...requested)).toBeLessThan(STEPS.length)
     })
 
     it('floors the chart region height with chartMinHeight so a tall footer cannot collapse the canvas', async () => {

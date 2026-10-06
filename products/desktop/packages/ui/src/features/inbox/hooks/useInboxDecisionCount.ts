@@ -32,9 +32,6 @@ export function useInboxDecisionCount(options?: {
   const priorityFilter = useInboxSignalsFilterStore((state) =>
     ignoreFilters ? EMPTY_FILTER_ARRAY : state.priorityFilter,
   );
-  const prFilter = useInboxSignalsFilterStore((state) =>
-    ignoreFilters ? "all" : state.prFilter,
-  );
   const isForYou = scope === INBOX_SCOPE_FOR_YOU;
   const teammateUuid = parseTeammateInboxScope(scope);
   const client = useOptionalAuthenticatedClient();
@@ -48,12 +45,6 @@ export function useInboxDecisionCount(options?: {
   const query = useInboxReports(
     {
       status: "ready",
-      has_implementation_pr:
-        prFilter === "with_pr"
-          ? true
-          : prFilter === "without_pr"
-            ? false
-            : undefined,
       source_product:
         sourceProductFilter.length > 0
           ? sourceProductFilter.join(",")
@@ -62,7 +53,7 @@ export function useInboxDecisionCount(options?: {
       suggested_reviewers: reviewerUuid
         ? buildSuggestedReviewerFilterParam([reviewerUuid])
         : undefined,
-      limit: 1,
+      count_only: true,
     },
     {
       enabled: enabled && scopeReady,

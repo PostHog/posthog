@@ -151,8 +151,57 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "is_currency": "Whether the unit is a fiat currency rather than a custom credit type.",
         },
     },
+    "plans": {
+        "description": "Plans are Metronome's original way to price a customer. This table lists the plans defined in your account, with each plan's name, description, and custom fields. Metronome has deprecated plans in favor of contracts. It holds plan definitions only, not which customer is on which plan, so it does not by itself link a plan to a customer or an invoice.",
+        "docs_url": "https://docs.metronome.com/api-reference/plans/list-plans",
+        "columns": {
+            "id": "The plan's id.",
+            "name": "The plan's display name.",
+            "description": "The plan's description.",
+            "custom_fields": "Arbitrary key/value pairs set on the plan by your account.",
+        },
+    },
+    "usage": {
+        "description": "Aggregated usage per customer and billable metric, across every customer in the account. Each row is one lifetime total for a customer and metric pair. To see how much a customer used inside a period, sync the usage_daily or usage_hourly table instead.",
+        "docs_url": "https://docs.metronome.com/api-reference/usage/get-batched-usage-data",
+        "columns": {
+            "customer_id": "The customer the usage belongs to.",
+            "billable_metric_id": "The billable metric the usage was measured against.",
+            "billable_metric_name": "The billable metric's display name.",
+            "start_timestamp": "Start of the aggregation window. The sync starts it at the epoch, so it covers all usage.",
+            "end_timestamp": "End of the aggregation window, set to the time the sync ran.",
+            "value": "The aggregated usage amount for the customer and metric. Null when no usage matched.",
+            "groups": "Usage broken down by group key. Empty, because the sync requests no group breakdown.",
+        },
+    },
+    "usage_daily": {
+        "description": "Usage per customer, billable metric and day, across every customer in the account. Use it to track what a customer consumed inside a billing period, or to chart usage over time. The first sync covers the last 365 days, and later syncs add each new day. The day in progress is included, and every sync updates it. Metronome accepts usage events backdated up to 34 days, so to keep earlier days up to date as well, set a lookback window in the table's sync settings.",
+        "docs_url": "https://docs.metronome.com/api-reference/usage/get-batched-usage-data",
+        "columns": {
+            "customer_id": "The customer the usage belongs to.",
+            "billable_metric_id": "The billable metric the usage was measured against.",
+            "billable_metric_name": "The billable metric's display name.",
+            "start_timestamp": "Start of the day this row covers, in UTC.",
+            "end_timestamp": "End of the day this row covers.",
+            "value": "The usage total for this customer, metric and day. Null when no usage matched.",
+            "groups": "Usage broken down by group key. Empty, because the sync requests no group breakdown.",
+        },
+    },
+    "usage_hourly": {
+        "description": "Usage per customer, billable metric and hour, across every customer in the account. It answers the same questions as the daily table at a finer grain, which helps when you need to see spikes inside a day. It holds 24 times as many rows, so the first sync covers the last 30 days rather than a year. The hour in progress is included, and every sync updates it. Metronome accepts usage events backdated up to 34 days, so to keep earlier hours up to date as well, set a lookback window in the table's sync settings.",
+        "docs_url": "https://docs.metronome.com/api-reference/usage/get-batched-usage-data",
+        "columns": {
+            "customer_id": "The customer the usage belongs to.",
+            "billable_metric_id": "The billable metric the usage was measured against.",
+            "billable_metric_name": "The billable metric's display name.",
+            "start_timestamp": "Start of the hour this row covers, in UTC.",
+            "end_timestamp": "End of the hour this row covers.",
+            "value": "The usage total for this customer, metric and hour. Null when no usage matched.",
+            "groups": "Usage broken down by group key. Empty, because the sync requests no group breakdown.",
+        },
+    },
     "audit_logs": {
-        "description": "One row per change made through the Metronome app or API: who did it, to what, and whether it succeeded. This is the only Metronome endpoint with a server-side time filter, so it is the only table that syncs incrementally.",
+        "description": "One row per change made through the Metronome app or API: who did it, to what, and whether it succeeded. It is the only Metronome list endpoint with a server-side time filter, so each sync reads only the entries recorded since the last one.",
         "docs_url": "https://docs.metronome.com/api-reference/security/get-audit-logs",
         "columns": {
             "id": "The audit log entry's id.",

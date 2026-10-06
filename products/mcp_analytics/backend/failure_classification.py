@@ -36,6 +36,7 @@ class FailureClass(StrEnum):
     INPUT_SCHEMA_MISMATCH = "input_schema_mismatch"
     OUTPUT_SCHEMA_VIOLATION = "output_schema_violation"
     UNKNOWN_TOOL = "unknown_tool"
+    GATED_TOOL = "gated_tool"
     TIMEOUT = "timeout"
     UPSTREAM_5XX = "upstream_5xx"
     TRANSPORT_FAILURE = "transport_failure"
@@ -90,6 +91,9 @@ classes:
 - output_schema_violation: the server's own response violates its declared output schema — \
 "Output validation error: invalid structured content"
 - unknown_tool: a tool that doesn't exist was called — "Unknown tool: <name>", JSON-RPC -32601
+- gated_tool: the tool exists but this connection cannot see it, so the message names a \
+successor or says the tool is not enabled — "is retired on this PostHog connection. Use <name> \
+instead", "exists, but it is not enabled on this PostHog connection"
 - timeout: the operation ran out of time — "timed out after 45s"
 - upstream_5xx: a dependency behind the server failed — "API request failed: 503"
 - transport_failure: network-level failure — "fetch failed", "connection reset"
@@ -123,12 +127,15 @@ business-conditional.
 7. Language is irrelevant: a translated message classifies the same as its English twin.
 8. A field's NAME never picks the class ("timeout seconds field must not be greater than 25" is \
 input_schema_mismatch, not timeout).
-9. If the message carries an upsell anywhere ("here are your options", plan limits), \
+9. gated_tool vs unknown_tool: the message says the tool exists but is not enabled, or names a \
+replacement = gated_tool. It says the name is unknown = unknown_tool.
+10. If the message carries an upsell anywhere ("here are your options", plan limits), \
 entitlement_gap wins. If genuinely no cause is recoverable, internal_error — never guess.
 
 Each input line is numbered. Return exactly one classification per input line, in the same order, \
 as JSON of exactly this shape:
-{{"classifications": [{{"line_number": 1, "failure_class": "<one of the 14 class names>"}}, ...]}}"""
+{{"classifications": [{{"line_number": 1, "failure_class": "<one of the {len(FAILURE_CLASSES)} class \
+names>"}}, ...]}}"""
 
 # The LLM reads the raw representative message, never the normalized fingerprint: normalization
 # strips numbers, so the status and JSON-RPC codes the boundary rules pivot on (429, 403, -32601)

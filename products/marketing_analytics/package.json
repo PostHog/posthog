@@ -2,5 +2,22 @@
     "name": "@posthog/products-marketing-analytics",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
+    "dependencies": {
+        "@posthog/quill-charts": "workspace:*",
+        "kea": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-subscriptions": "catalog:"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
+        "@testing-library/dom": "*",
+        "@types/react": "*",
+        "clsx": "*",
+        "react": "*"
     }
 }

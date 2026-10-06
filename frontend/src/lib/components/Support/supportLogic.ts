@@ -155,11 +155,14 @@ export function captureSupportWidgetLoadFailed({
 }
 
 // Returns true when the message exceeds the cap the widget endpoint enforces, so callers can bail
-// before the network. Callers report it: the customer pressed send and has no ticket.
+// before the network. Callers report it: the customer pressed send and has no ticket. The toast
+// offers the email fallback like the other send-failure paths, because a customer stuck at the cap
+// otherwise has no way to find the support address.
 export function warnIfMessageTooLong(message: string): boolean {
     if (message.length > CONVERSATIONS_MESSAGE_MAX_LENGTH) {
         lemonToast.error(
-            `Your message is too long (max ${CONVERSATIONS_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it or send it in multiple messages.`
+            `Your message is too long (max ${CONVERSATIONS_MESSAGE_MAX_LENGTH.toLocaleString()} characters). Please shorten it or send it in multiple messages.`,
+            { button: EMAIL_SUPPORT_BUTTON }
         )
         return true
     }
@@ -509,6 +512,9 @@ export const supportLogic = kea<supportLogicType>([
             exception_event,
             billing_issue,
             target,
+            ai_conversation_id,
+            ai_trace_id,
+            ai_feedback_rating,
         }: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => {
             kind = kind ?? 'support'
             actions.resetSendSupportRequest({
@@ -518,6 +524,10 @@ export const supportLogic = kea<supportLogicType>([
                 message: message ?? values.sendSupportRequest.message ?? '',
                 exception_event,
                 billing_issue: billing_issue ?? false,
+                // Carried through so a PostHog AI handover still attributes the ticket it files.
+                ai_conversation_id,
+                ai_trace_id,
+                ai_feedback_rating,
             })
 
             if (isEmailFormOpen === 'true' || isEmailFormOpen === true) {

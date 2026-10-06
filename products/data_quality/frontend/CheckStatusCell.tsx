@@ -9,7 +9,7 @@ import type { DataQualityCheckApi } from './generated/api.schemas'
 export function CheckStatusCell({
     check,
 }: {
-    check: Pick<DataQualityCheckApi, 'last_status' | 'last_succeeded_at'>
+    check: Pick<DataQualityCheckApi, 'last_status' | 'last_succeeded_at' | 'failing_since'>
 }): JSX.Element {
     const failingFor = failingForLabel(check)
     if (!check.last_status) {

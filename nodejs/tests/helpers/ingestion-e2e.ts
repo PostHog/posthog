@@ -47,10 +47,18 @@ import {
 
 import { IntegrationManagerService } from '../../src/cdp/services/managers/integration-manager.service'
 import { EncryptedFields } from '../../src/cdp/utils/encryption-utils'
-import { PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, RedisPool, Team } from '../../src/types'
+import {
+    FlagEvaluationsMode,
+    PipelineEvent,
+    PluginsServerConfig,
+    ProjectId,
+    RawClickHouseEvent,
+    RedisPool,
+    Team,
+} from '../../src/types'
 import { Clickhouse } from './clickhouse'
 import { waitForExpect } from './expectations'
-import { ensureKafkaTopics } from './kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from './kafka'
 import { createUserTeamAndOrganization, uniqueTestId } from './sql'
 
 export const DEFAULT_TEAM: Team = {
@@ -68,6 +76,7 @@ export const DEFAULT_TEAM: Team = {
     ingested_event: true,
     person_display_name_properties: null,
     minimal_flag_called_events: false,
+    flag_evaluations_mode: FlagEvaluationsMode.Events,
     test_account_filters: null,
     cookieless_server_hash_mode: null,
     timezone: 'UTC',
@@ -493,6 +502,29 @@ export async function createIngestionTestInfra(
  * test. The caller supplies the `buildIngester` function that constructs the
  * consumer under test — different pipelines have different deps.
  */
+let infraReady: Promise<void> | undefined
+
+/**
+ * Shared infra every e2e ingester needs: the output topics and a consuming ClickHouse Kafka
+ * engine. Memoized per worker process and awaited inside each test, because jest-circus starts
+ * `test.concurrent` bodies as soon as a nested `beforeAll` hits its first await, so a hook alone
+ * cannot guarantee the topics exist before the first consumer's startup check runs.
+ */
+export function ensureIngestionE2EInfraReady(): Promise<void> {
+    if (!infraReady) {
+        infraReady = (async () => {
+            await ensureKafkaTopics(TEST_KAFKA_TOPICS)
+            const clickhouse = Clickhouse.create()
+            try {
+                await waitForClickHouseKafkaConsumer(clickhouse)
+            } finally {
+                clickhouse.close()
+            }
+        })()
+    }
+    return infraReady
+}
+
 export function createTestWithTeamIngester<T extends IngesterLike>(
     baseConfig: Partial<IngestionTestConfig>,
     buildIngester: BuildIngester<T>
@@ -502,7 +534,8 @@ export function createTestWithTeamIngester<T extends IngesterLike>(
         config: TeamIngesterTestConfig = {},
         testFn: (ctx: TeamIngesterTestContext<T>) => Promise<void>
     ) => {
-        test(name, async () => {
+        test.concurrent(name, async () => {
+            await ensureIngestionE2EInfraReady()
             const infra = await createIngestionTestInfra({
                 ...baseConfig,
                 ...config.pluginServerConfig,

@@ -17,6 +17,9 @@ export enum Scene {
     AIGateway = 'AIGateway',
     Alerts = 'Alerts',
     Annotations = 'Annotations',
+    Autoresearch = 'Autoresearch',
+    AutoresearchNew = 'AutoresearchNew',
+    AutoresearchPipeline = 'AutoresearchPipeline',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
@@ -30,9 +33,9 @@ export enum Scene {
     Cohort = 'Cohort',
     CohortCalculationHistory = 'CohortCalculationHistory',
     Cohorts = 'Cohorts',
-    Comments = 'Comments',
     CustomCss = 'CustomCss',
     CustomerAnalytics = 'CustomerAnalytics',
+    CustomerAnalyticsAccount = 'CustomerAnalyticsAccount',
     CustomerAnalyticsConfiguration = 'CustomerAnalyticsConfiguration',
     CustomerJourneyBuilder = 'CustomerJourneyBuilder',
     Dashboard = 'Dashboard',
@@ -49,16 +52,18 @@ export enum Scene {
     DeadLetterQueue = 'DeadLetterQueue',
     Destinations = 'Destinations',
     DebugHog = 'DebugHog',
+    ProjectFiles = 'ProjectFiles',
     DebugQuery = 'DebugQuery',
+    Terminal = 'Terminal',
     EarlyAccessFeatures = 'EarlyAccessFeatures',
     Error404 = '404',
     ErrorAccessDenied = 'AccessDenied',
     ErrorNetwork = '4xx',
+    ErrorProjectAccessDenied = 'ProjectAccessDenied',
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingFingerprint = 'ErrorTrackingFingerprint',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
-    ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
     EventDefinitions = 'EventDefinitions',
     EventDefinitionEdit = 'EventDefinitionEdit',
@@ -69,7 +74,6 @@ export enum Scene {
     Subscription = 'Subscription',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
-    ExperimentsStaffTools = 'ExperimentsStaffTools',
     ExploreEvents = 'ExploreEvents',
     ExploreSessions = 'ExploreSessions',
     FeatureFlag = 'FeatureFlag',
@@ -90,14 +94,19 @@ export enum Scene {
     IntegrationsLanding = 'IntegrationsLanding',
     StripeConfirmInstall = 'StripeConfirmInstall',
     IngestionWarnings = 'IngestionWarnings',
+    IdentityProviderConfig = 'IdentityProviderConfig',
     InviteSignup = 'InviteSignup',
     BusinessKnowledge = 'BusinessKnowledge',
+    BusinessKnowledgePlayground = 'BusinessKnowledgePlayground',
+    BusinessKnowledgeSettings = 'BusinessKnowledgeSettings',
+    BusinessKnowledgeSource = 'BusinessKnowledgeSource',
     LegacyPlugin = 'LegacyPlugin',
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
-    Link = 'Link',
-    Links = 'Links',
-    LiveDebugger = 'LiveDebugger',
+    Library = 'Library',
+    Views = 'Views',
+    ViewsNew = 'ViewsNew',
+    Tools = 'Tools',
     Activity = 'Activity',
     LiveEvents = 'LiveEvents',
     Login = 'Login',
@@ -148,10 +157,8 @@ export enum Scene {
     ReplayVisionScanner = 'ReplayVisionScanner',
     ReplayVisionScannerEditor = 'ReplayVisionScannerEditor',
     ReplayVisionObservation = 'ReplayVisionObservation',
-    ReplayVisionAction = 'ReplayVisionAction',
-    ReplayVisionActionEditor = 'ReplayVisionActionEditor',
-    ReplayVisionActionRun = 'ReplayVisionActionRun',
     ResourceTransfer = 'ResourceTransfer',
+    RealTimeUsage = 'RealTimeUsage',
     SqlVariableEdit = 'SqlVariableEdit',
     SQLEditor = 'SQLEditor',
     SavedInsights = 'SavedInsights',
@@ -168,8 +175,12 @@ export enum Scene {
     Skill = 'Skill',
     Skills = 'Skills',
     Coupons = 'Coupons',
+    PipelineOverview = 'PipelineOverview',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
+    Stamphog = 'Stamphog',
+    StamphogRuns = 'StamphogRuns',
+    StamphogDigests = 'StamphogDigests',
     Survey = 'Survey',
     SurveyWizard = 'SurveyWizard',
     SurveyFormBuilder = 'SurveyFormBuilder',
@@ -178,6 +189,8 @@ export enum Scene {
     SystemStatus = 'SystemStatus',
     ToolbarLaunch = 'ToolbarLaunch',
     Tracing = 'Tracing',
+    TracingRetentionNew = 'TracingRetentionNew',
+    TracingRetentionDetail = 'TracingRetentionDetail',
     Metrics = 'Metrics',
     Transformations = 'Transformations',
     EventFiltering = 'EventFiltering',
@@ -185,12 +198,11 @@ export enum Scene {
     CodeCanvasLink = 'CodeCanvasLink',
     CodeChannelLink = 'CodeChannelLink',
     CodeTaskLink = 'CodeTaskLink',
-    UserInterview = 'UserInterview',
-    UserInterviewResponse = 'UserInterviewResponse',
-    UserInterviews = 'UserInterviews',
+    CodeLoopLink = 'CodeLoopLink',
     VercelConnect = 'VercelConnect',
     VercelLinkError = 'VercelLinkError',
     VerifyEmail = 'VerifyEmail',
+    WarehouseDestinations = 'WarehouseDestinations',
     WarehouseProperties = 'WarehouseProperties',
     WebAnalytics = 'WebAnalytics',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
@@ -202,7 +214,9 @@ export enum Scene {
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
     Workflow = 'Workflow',
+    Broadcasts = 'Broadcasts',
     Workflows = 'Workflows',
+    Broadcast = 'Broadcast',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
@@ -214,6 +228,11 @@ export enum Scene {
     AIObservabilityDatasets = 'AIObservabilityDatasets',
     AIObservabilityEvaluation = 'AIObservabilityEvaluation',
     AIObservabilityEvaluations = 'AIObservabilityEvaluations',
+    AIObservabilityScorers = 'AIObservabilityScorers',
+    AIObservabilityScorer = 'AIObservabilityScorer',
+    AIObservabilityOfflineExperiments = 'AIObservabilityOfflineExperiments',
+    AIObservabilityOfflineExperiment = 'AIObservabilityOfflineExperiment',
+    AIObservabilityOfflineScorerHistory = 'AIObservabilityOfflineScorerHistory',
     AIObservabilityEvaluationTemplates = 'AIObservabilityEvaluationTemplates',
     AIObservabilityPlayground = 'AIObservabilityPlayground',
     AIObservabilityTag = 'AIObservabilityTag',
@@ -237,6 +256,9 @@ export enum Scene {
     NewAction = 'NewAction',
     TaskTracker = 'TaskTracker',
     SlackTaskContext = 'SlackTaskContext',
+    TaskNewSession = 'TaskNewSession',
+    TaskSpace = 'TaskSpace',
+    TaskSpaces = 'TaskSpaces',
     OrganizationDeactivated = 'OrganizationDeactivated',
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
     ProjectPendingDeletion = 'ProjectPendingDeletion',
@@ -303,6 +325,8 @@ export interface SceneConfig {
     name?: string
     /** Optional static description of the scene or product. Used both in the UI and by Max AI as context on what the scene is for */
     description?: string
+    /** Link to this product's page on posthog.com/docs. Shown next to the product in sidebar settings */
+    docsHref?: string
     /** Route should only be accessed when logged out (N.B. should be added to posthog/urls.py too) */
     onlyUnauthenticated?: boolean
     /** Route **can** be accessed when logged out (i.e. can be accessed when logged in too; should be added to posthog/urls.py too) */
@@ -338,7 +362,9 @@ export interface SceneConfig {
 }
 
 // Map scenes to their access control resource types
-export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
+export const sceneToAccessControlResourceType: Partial<
+    Record<Scene, AccessControlResourceType | AccessControlResourceType[]>
+> = {
     // Actions
     [Scene.Action]: AccessControlResourceType.Action,
     [Scene.Actions]: AccessControlResourceType.Action,
@@ -375,9 +401,6 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ReplayVisionScanner]: AccessControlResourceType.ReplayScanner,
     [Scene.ReplayVisionScannerEditor]: AccessControlResourceType.ReplayScanner,
     [Scene.ReplayVisionObservation]: AccessControlResourceType.ReplayScanner,
-    [Scene.ReplayVisionAction]: AccessControlResourceType.ReplayScanner,
-    [Scene.ReplayVisionActionEditor]: AccessControlResourceType.ReplayScanner,
-    [Scene.ReplayVisionActionRun]: AccessControlResourceType.ReplayScanner,
 
     // Toolbar
     [Scene.ToolbarLaunch]: AccessControlResourceType.Toolbar,
@@ -399,7 +422,11 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.ErrorTracking]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingFingerprint]: AccessControlResourceType.ErrorTracking,
     [Scene.ErrorTrackingIssue]: AccessControlResourceType.ErrorTracking,
-    [Scene.ErrorTrackingIssueFingerprints]: AccessControlResourceType.ErrorTracking,
+
+    // Stamphog
+    [Scene.Stamphog]: AccessControlResourceType.Stamphog,
+    [Scene.StamphogRuns]: AccessControlResourceType.Stamphog,
+    [Scene.StamphogDigests]: AccessControlResourceType.Stamphog,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
@@ -409,12 +436,20 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.SupportTickets]: AccessControlResourceType.Ticket,
     [Scene.SupportTicketDetail]: AccessControlResourceType.Ticket,
 
+    // Business knowledge
+    [Scene.BusinessKnowledge]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgePlayground]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeSettings]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeSource]: AccessControlResourceType.BusinessKnowledge,
+
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
 
     // Workflows
     [Scene.Workflow]: AccessControlResourceType.Workflow,
+    [Scene.Broadcasts]: AccessControlResourceType.Workflow,
     [Scene.Workflows]: AccessControlResourceType.Workflow,
+    [Scene.Broadcast]: AccessControlResourceType.Workflow,
 
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,
@@ -442,7 +477,12 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.AIObservabilityDataset]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
     [Scene.AIObservabilityEvaluation]: AccessControlResourceType.Evaluation,
-    [Scene.AIObservabilityEvaluations]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityEvaluations]: [AccessControlResourceType.Evaluation, AccessControlResourceType.LlmAnalytics],
+    [Scene.AIObservabilityScorers]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityScorer]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityOfflineExperiments]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityOfflineExperiment]: AccessControlResourceType.Evaluation,
+    [Scene.AIObservabilityOfflineScorerHistory]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityEvaluationTemplates]: AccessControlResourceType.Evaluation,
     [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmPlayground,
     [Scene.AIObservabilityTag]: AccessControlResourceType.Tagger,

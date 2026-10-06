@@ -3,7 +3,7 @@ import datetime as dt
 from typing import Any, Optional, cast
 
 import pytest
-from freezegun import freeze_time
+import time_machine
 from unittest import mock
 
 import requests
@@ -305,7 +305,7 @@ class TestSendOperation:
         session = mock.MagicMock(spec=requests.Session)
         session.post.return_value = make_response(200, {"Budgets": []})
 
-        with freeze_time("2024-03-05T10:00:00Z"):
+        with time_machine.travel("2024-03-05T10:00:00Z", tick=False):
             send_operation(
                 session, aws_budgets.Credentials("AKIAEXAMPLE", "secret"), "DescribeBudgets", {"AccountId": ACCOUNT_ID}
             )
@@ -544,8 +544,12 @@ class TestGetBudgetRows:
             )
 
 
-@freeze_time("2024-06-01T12:00:00Z")
 class TestGetFanoutRows:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self):
+        with time_machine.travel("2024-06-01T12:00:00Z", tick=False):
+            yield
+
     LISTED = budgets_page(
         [
             {"BudgetName": "monthly-cost", "TimeUnit": "MONTHLY"},

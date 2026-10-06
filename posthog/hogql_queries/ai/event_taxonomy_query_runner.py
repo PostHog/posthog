@@ -14,7 +14,7 @@ from posthog.hogql.property import action_to_expr
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.event.new_events_schema import use_new_events_schema
 
@@ -36,7 +36,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
     def __init__(self, *args, settings: HogQLGlobalSettings | None = None, **kwargs):
         super().__init__(*args, **kwargs)
         self.settings = settings
-        self._use_new_events_schema = use_new_events_schema(self.team.pk)
+        self._use_new_events_schema = use_new_events_schema(self.team.pk, self.modifiers)
         self.paginator = HogQLHasMorePaginator(
             limit=self.query.limit or DEFAULT_LIMIT,
             offset=self.query.offset or 0,
@@ -110,6 +110,8 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
             r"\$ip",
             # feature flags and experiments
             r"\$feature\/",
+            r"^\$feature_flags$",
+            r"^\$active_feature_flags$",
             r"\$feature_enrollment\/",
             r"\$feature_interaction\/",
             # product tours

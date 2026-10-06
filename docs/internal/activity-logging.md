@@ -1,0 +1,287 @@
+# Activity logging
+
+Activity logging is the audit trail of PostHog.
+A row in `posthog_activitylog` records who changed what, when, and how.
+Users read it in the Activity side panel, on an item's history tab, and on the advanced activity logs page.
+Notification destinations and workflows react to it through the `$activity_log_entry_created` internal event.
+
+This doc says how a change becomes an activity row, where the code for a new model goes, and which writes the automatic path cannot see.
+The skill `.agents/skills/adding-activity-logging/SKILL.md` carries the step-by-step workflow.
+Read this doc before you add or change activity logging.
+
+## Reading activity rows
+
+Activity rows show the actor, optional client tag, and time above the action summary and its target.
+Long action summaries collapse to two lines.
+Description changes include a two-line preview of the new value in normal text.
+The expand control on the right reveals the complete action, preview, and agent intent, along with the existing detail tabs.
+Diff compares the recorded values, and Raw shows the activity payload.
+Product-specific detail tabs remain the initial view when supplied by a describer.
+The copy-link control beside expand appears on hover or keyboard focus.
+
+Every visible describer result supplies a `summary` with `actor`, `action`, and `target` fields alongside its existing `description`.
+Use `activityLogSummary` for the usual actor, or pass a specialized actor such as a workflow link or an anonymous user.
+The optional plain-text `preview` holds long values such as descriptions; keep them out of the action headline.
+Field mappings can supply separate summary clauses and a preview while preserving their notification wording.
+Summary clauses stay lowercase so combined changes read as one sentence, and they do not depend on notification mode.
+Use `summarizeDescriptionChange` for consistent added, updated, and cleared description clauses.
+Rename summaries retain both names, with the resource link in the target.
+Use `describeMappedChanges` for a field-to-handler mapping, or `describeChangeMappings` when a product needs its own change selection.
+Both helpers assemble the summary and notification sentence and retain extended descriptions and custom detail tabs.
+The row uses that structure without parsing a JSX sentence.
+The complete `description` remains available to notifications and other activity consumers.
+A describer can still return `description: null` to hide an event.
+Keep existing fallback rows when no fields have a description, and preserve collected changes if a later field cannot be described.
+The row retains sentence rendering for legacy items constructed without a summary.
+The sentence aligns with the avatar, with the client tag and time underneath.
+Agent intent and task links remain optional and retain their existing attribution rules.
+
+## How a change becomes an activity row
+
+```text
+model.save()
+  -> ModelActivityMixin.save()                      posthog/models/activity_logging/model_activity.py
+     -> reads the row as it was before the update
+     -> model_activity_signal.send(...)             posthog/models/signals.py
+        -> receiver in products/<name>/backend/activity_logging.py
+           -> changes_between(before, after)        posthog/models/activity_logging/activity_log.py
+           -> log_activity(...)
+              -> ActivityLog row (main database)
+                 -> post_save -> $activity_log_entry_created internal event
+```
+
+The actor is not passed down this chain.
+`ActivityLoggingMiddleware` (`posthog/middleware.py`) stores the request user and the impersonation flag in a thread-local (`activity_storage`), and the mixin reads them back.
+Outside a request the user is `None`, and the row is stored with `is_system=True`.
+
+The receiver is the only part a product writes.
+The mixin, the signal, and `log_activity` are core, and they work the same for every model.
+
+## Where the code goes
+
+One receiver module per product, connected at app start.
+Seventeen products follow this shape; `products/feature_flags/backend/activity_logging.py` is a complete example in one screen, and `products/stamphog/backend/activity_logging.py` is the separate-database example.
+
+| Piece           | Location                                                                                                                 | Note                                                                                                                                                  |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mixin           | the model class, first in the bases: `class Thing(ModelActivityMixin, TeamScopedRootMixin, ...)`                         | Set `activity_logging_on_delete = True` when a hard delete must show in the log. A soft delete is an update and needs nothing extra.                  |
+| Scope           | `ActivityScope` Literal in `posthog/models/activity_logging/activity_log.py`                                             | The scope is the model's class name. The API `scope` filter enum is generated from this Literal, so run `hogli build:openapi` after you add one.      |
+| Frontend scope  | `ActivityScope` enum in `frontend/src/types.ts`                                                                          | Same string as the class name.                                                                                                                        |
+| Receiver        | `products/<name>/backend/activity_logging.py`                                                                            | `@mutable_receiver(model_activity_signal, sender=Thing)`. Keep the module import-light: no DRF, no viewsets, no query runners.                        |
+| Wiring          | `products/<name>/backend/apps.py`, in `ready()`                                                                          | `from products.<name>.backend import activity_logging  # noqa: F401, PLC0415` with a one-line comment that says why it must connect in every process. |
+| Receiver budget | `posthog/test/repo_invariants/setup_receivers_baseline.txt`                                                              | The startup import budget lists every receiver connected at `django.setup()`. Add the new one.                                                        |
+| Exclusions      | the registries in `activity_log.py`                                                                                      | See "Tune the diff" below.                                                                                                                            |
+| Describer       | `products/<name>/frontend/activityDescriber.tsx`, registered in `frontend/src/lib/components/ActivityLog/describers.tsx` | Optional. Without one `defaultDescriber` renders "X created / updated / deleted <name>".                                                              |
+| Tests           | `products/<name>/backend/tests/`, or `posthog/test/activity_logging/` for a core model                                   | See "Tests" below.                                                                                                                                    |
+
+### Why the receiver is a separate module
+
+The receiver must connect in every process type: web, Celery, Temporal, management commands.
+A model is written from all of them.
+If the receiver lives in the viewset module, it connects only where the API loads, and a worker's writes are silently not logged.
+The batch exports receiver docstring records that failure.
+
+`ready()` runs at `django.setup()`, so the module it imports must stay light.
+A receiver that imports a viewset or a query runner drags that import graph into every process start.
+That is also why the model class, not the API module, carries the mixin.
+
+### What the receiver does
+
+```python
+@mutable_receiver(model_activity_signal, sender=Thing)
+def handle_thing_change(sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs):
+    instance = after_update or before_update
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=instance.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=instance.name,
+        ),
+    )
+```
+
+`activity` is `created`, `updated`, or `deleted`.
+A receiver may resolve it further, for example a change of `deleted` from false to true becomes `deleted`, and back becomes `restored` (feature flags do this).
+
+`Detail` carries the display name, the change list, an optional `Trigger` (a job that caused the change), and an optional `context` dataclass that extends `ActivityContextBase` with fields the describer needs (alerts pass the insight id and name).
+
+`log_activity` drops an `updated` row with an empty change list unless `force_save=True`.
+
+### Tune the diff
+
+`changes_between` compares every model field except the ones in `common_field_exclusions` (ids, timestamps, `team`, `created_by`, and similar).
+Four registries in `activity_log.py` tune it per scope:
+
+- `signal_exclusions` - skip logging when only these fields changed. Use it for bookkeeping fields a job touches on every run (`last_checked_at`, `next_check_at`).
+- `field_exclusions` - drop these fields from the diff but still log the row.
+- `field_with_masked_contents` - record that the field changed, never its values. Use it for secrets and encrypted inputs.
+- `field_name_overrides` - rename a field in the stored change so the describer shows the user-facing label.
+
+`changes_between` also reads named reverse relations.
+Exclude relations that hold execution results or storage bookkeeping, such as a notebook's widget snapshots.
+Reading their fail-closed managers can require team context that background writes do not have.
+
+## Writes the signal cannot see
+
+The mixin hooks `save()` and `delete()`.
+Everything that bypasses them bypasses the log:
+
+- `QuerySet.update()`
+- `bulk_create()` and `bulk_update()`
+- raw SQL
+- a save inside `mute_selected_signals()`
+
+Before you rely on the mixin, list every write path of the model: `grep` for `.update(`, `bulk_create(`, `bulk_update(`, and `.save(` on that model across the product, including tasks, Temporal activities, and webhook handlers.
+For each bulk write, log at the site with `log_activity` or `bulk_log_activity`, build the `Change` objects by hand, and pass a `Trigger` that names the job and its id.
+Fetch the values the update will change before you run it, and log a change only for rows whose value actually changes.
+
+`mute_selected_signals()` sets a process-wide flag, not a thread-local one.
+Use it only in an offline maintenance job.
+In a request path it mutes activity for every other request the process serves at that moment.
+
+## Actor and context outside requests
+
+A Celery task, a Temporal activity, or a webhook handler has no request user.
+The row is a system row.
+To attribute it to a job, pass a `Trigger(job_type=..., job_id=..., payload=...)` in `Detail`.
+A receiver can also read one from `get_current_trigger()` when the job wrapped its write in `ActivityTriggerContext(...)`; the receiver has to read and pass it, the context alone stores nothing.
+
+### Agent writes
+
+`record_agent_intent` stores the agent's stated reason from the `x-posthog-intent` header for any authenticated request.
+A session, a personal API key and an OAuth token all reach it: the middleware calls it for a session, and the authentication class calls it for a bearer credential.
+`OAuthAccessTokenAuthentication` also records the task id when the server has bound the token to a sandbox task.
+When a row would otherwise have no trigger, `log_activity` fills it with `Trigger(job_type="agent", job_id=<task id or empty string>, payload={"intent": ...})`.
+A product that passes its own trigger keeps it, so this only fills the gap.
+
+The intent is the caller's own claim and nothing verifies it.
+Both activity views display intent without a task link and identify it as self-reported in the tooltip.
+A task link appears only when the token has a server-set task binding, so intent never implies a verified run.
+The `X-PostHog-Task-Id` header cannot supply that binding, and the authenticated user remains the actor on the audit row.
+This applies to new activity rows; it does not recover intent that was discarded before the change.
+
+### Client IP
+
+`ActivityLoggingMiddleware` stores the request's client IP, and `log_activity` writes it to `ActivityLog.ip_address`.
+Only the activity log uses the rules below. Throttles, IP allowlists, and request logs read the IP from the request as before.
+
+- **Browser and API requests.** The IP comes from `get_ip_address`: the leftmost `X-Forwarded-For` entry, or `REMOTE_ADDR`.
+- **MCP requests.** The MCP server calls the API from inside the cluster, so `REMOTE_ADDR` is the MCP pod.
+  The MCP server signs the end user's IP and sends it in `X-PostHog-MCP-Client-IP`, `X-PostHog-MCP-Client-IP-Timestamp`, and `X-PostHog-MCP-Client-IP-Signature`.
+  The middleware removes these headers from every request.
+  When the signature verifies against `MCP_CLIENT_IP_SIGNING_KEYS`, the row records the signed IP.
+  Any other result keeps the `get_ip_address` value.
+  The signature format is the managed proxy format, `hex(HMAC-SHA256(key, f"{ip}:{unix_seconds}"))`, valid from 5 seconds ahead to 60 seconds old.
+  The `posthog_mcp_client_ip_verifications` counter records each outcome.
+- **Sandbox agents.** A row written with an OAuth token bound to a sandbox task keeps the request IP.
+  The token can leave the sandbox, so the IP is what tells a sandbox write apart from a write made elsewhere with the same token.
+  The audit log IP address column shows a dash for these rows, with the IP in its tooltip.
+  The User column tags a scout run "via scout <skill_name>" and any other sandbox task "via sandbox".
+
+A model with a fail-closed manager (`TeamScopedRootMixin`, `ProductTeamModel`) raises `TeamScopeError` on any query without team context.
+The mixin's before-update read is by primary key without a team filter (`unscoped()`), so a `save()` outside a request works.
+Your own reads in the same path still need `with team_scope(team_id):` or `Model.objects.for_team(team_id)`.
+See `posthog/models/scoping/README.md`.
+
+## Credential attribution
+
+A row written during a request also records the credential that authenticated the request, in `credential_type`, `credential_id` and `impersonated_by_id`.
+`ActivityLoggingMiddleware` records the session, resolved again for each row.
+Every other authentication class that succeeds replaces the session with its own credential through `record_activity_actor` from `ActivityCredentialMixin` in `posthog/models/activity_logging/utils.py`.
+The session also applies only while `request.user` is still the session's user: DRF writes the principal of the authentication class that succeeded back onto the request, so a class that authenticates someone else and records nothing leaves the row `unattributed`.
+The values come from the authenticated object, never from a request header, so a caller cannot choose them.
+Unlike `client`, they are evidence of which credential made a change.
+
+| `credential_type`        | user                     | `credential_id`                                                                                                          |
+| ------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `session`                | the session user         | the session's public id, from `session_public_id`                                                                        |
+| `personal_api_key`       | the key owner            | the key id                                                                                                               |
+| `oauth`                  | the token user           | the OAuth application UUID                                                                                               |
+| `project_secret_key`     | none                     | the key id                                                                                                               |
+| `team_secret_token`      | none                     | none                                                                                                                     |
+| `id_jag`                 | the token user           | the `client_id` claim                                                                                                    |
+| `internal_jwt`           | the token user           | none                                                                                                                     |
+| `service_jwt`            | none                     | the audience of the scoped service JWT                                                                                   |
+| `internal_api_secret`    | none                     | none                                                                                                                     |
+| `scim`                   | none                     | the SCIM identity provider config id                                                                                     |
+| `vercel`                 | none                     | the Vercel installation id                                                                                               |
+| `partner`                | none                     | the partner's OAuth application UUID when it proved itself with a secret or a signed assertion, none for a public client |
+| `sharing_access_token`   | none                     | the sharing configuration id                                                                                             |
+| `sharing_password`       | none                     | the share password id                                                                                                    |
+| `widget_token`           | none                     | none                                                                                                                     |
+| `billing_service`        | none                     | none                                                                                                                     |
+| `gateway_agent`          | none                     | the gateway agent's service account id                                                                                   |
+| `export_renderer`        | the export's creator     | the exported asset id                                                                                                    |
+| `webhook`                | none                     | none                                                                                                                     |
+| `cross_region_signature` | none                     | none                                                                                                                     |
+| `unattributed`           | the session user, if any | none                                                                                                                     |
+
+- A credential without a user clears any user the middleware took from a session cookie. The row has `user=None` and `is_system=True`, and it keeps the credential.
+- `impersonated_by_id` holds the staff user behind an impersonated session or an OAuth token minted during impersonation.
+- The fields are null outside a request. A row written inside a request that recorded no credential has `credential_type` `unattributed`: the request was anonymous, or its authentication class records nothing.
+- The fields are internal. The advanced activity log serializer and the notifications serializer list their fields explicitly and leave them out. The advanced serializer also builds `$activity_log_entry_created` for customer destinations.
+- Every authentication class inherits `ActivityCredentialMixin` and sets `activity_credential_type`. A class that defines its own `authenticate` sets it again, even when the parent's value is correct. `posthog/test/repo_invariants/test_authentication_credential_types.py` enforces both rules.
+- The class calls `self.record_activity_actor(user, credential_id)` after every check of the credential passed, and the type comes from the declaration. `SessionAuthentication` is the exception, because the middleware records the session. A class that declares a type but never calls the recorder writes `unattributed` rows.
+- A partner OAuth class declares `oauth` and passes the token's application id and `impersonated_by_id` to the recorder, as the main OAuth path does, so its rows read the same.
+
+To match a row to a session, compare `credential_id` with `session_public_id(session_key)` from `posthog/session/activity.py`.
+The login sessions API (`/api/users/@me/login_sessions/`) returns the same id and revokes a session by it.
+
+## Product models on a separate database
+
+`ActivityLog` lives on the main database.
+A product routed to its own database (`products/db_routing.yaml`) writes across two connections, and three things change:
+
+**No `.team` accessor.**
+`ProductTeamModel.team_id` is a plain integer, not a foreign key.
+The receiver reads `organization_id` from `Team` on the main database:
+`Team.objects.filter(id=instance.team_id).values_list("organization_id", flat=True).first()`.
+
+**The audit write must wait for the product database commit.**
+`log_activity` defers its insert with `transaction.on_commit` when the connection it watches is inside a transaction.
+By default it watches the default connection.
+A product write runs inside `transaction.atomic(using=router.db_for_write(Model))`, on another connection, while the default connection is in autocommit.
+Without `using`, the audit row is inserted at once and survives a rollback of the product row.
+Pass `using=router.db_for_write(Model)` to `log_activity` and `bulk_log_activity`.
+A callback registered inside a rolled-back transaction is discarded, so the audit row is dropped with the product row.
+
+**The before-update read is pinned to the writer.**
+The mixin reads the previous state by primary key through `router.db_for_write(Model)`, so a lagged reader replica cannot produce a stale diff.
+Explicit logging at a bulk-write site should read its before-values from the writer too.
+
+## Reading the log
+
+- `GET /api/projects/:id/activity_log/` - the list the side panel reads.
+- `GET /api/projects/:id/advanced_activity_logs/` - filters, field discovery, and export.
+- Access control: resource `activity_log`, default level `viewer`.
+- Entitlement: both list endpoints are gated by `AvailableFeature.AUDIT_LOGS` on Cloud and apply the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). Writes always happen.
+- `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).
+
+Scheduled scouts already carry `activity_log:read`. MCP hides `advanced-activity-logs-list` when the Cloud organization lacks the Audit Logs entitlement.
+MCP supplies bounded reader instructions only when its filtered catalog advertises `advanced-activity-logs-list`, and adds SQL instructions only when `execute-sql` is also advertised.
+Tools-mode clients receive these instructions inline. Exec clients receive them in the command reference; Claude web/desktop loads them from the analytics guide, with an inline fallback when guide loading is disabled.
+The universal scout skills carry only availability and stop guidance, so they do not send clients searching for readers they cannot access.
+The SQL table enforces the same entitlement, retention, and access controls; it is not a bypass.
+When a reader is unavailable, stop using that reader for the run and record the limitation. Other advertised, authorized readers remain usable: per-object endpoints such as feature-flag activity do not share the project-wide Audit Logs entitlement gate. Skip only checks that have no available reader.
+To audit scheduled scout writes, use the server-derived `scout:<skill_name>` client tag and the run window. The tag identifies a scout, not a run; inspect actors, items, and timestamps when runs overlap.
+Do not infer that no configuration change occurred from missing access.
+
+A scene that wants its own paginated history registers its URL in `activityLogLogic.tsx`.
+Most scenes do not need this; the side panel and deep links work without it.
+
+## Tests
+
+Test the behavior the receiver adds, through a public interface, at the cheapest level:
+
+- One test that a write through the API or the facade creates a row with the expected `activity` and `changes`.
+- One test per bulk-write site that its explicit logging produces the expected rows.
+- A `changes_between` test only when the scope adds exclusions or masks.
+- For a separate-database product, one test that a rolled-back product write leaves no row (`override_settings(ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True)` plus `captureOnCommitCallbacks(using=<writer alias>, execute=True)`).
+
+`ACTIVITY_LOG_TRANSACTION_MANAGEMENT` is off under test, so a plain test sees the row right after the write.

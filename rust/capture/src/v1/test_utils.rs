@@ -677,8 +677,8 @@ use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router::{self, HistoricalConfig};
-use crate::sinks;
 use crate::time::TimeSource;
+use crate::v0_request::AiLanePredicate;
 use crate::v1::sinks::kafka::mock::MockProducer;
 use crate::v1::sinks::kafka::sink::KafkaSink;
 use crate::v1::sinks::sink::Sink;
@@ -706,6 +706,8 @@ pub struct TestStateBuilder {
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
     capture_mode: CaptureMode,
+    ai_max_event_bytes: u64,
+    ai_lane_predicate: AiLanePredicate,
 }
 
 impl Default for TestStateBuilder {
@@ -730,6 +732,8 @@ impl TestStateBuilder {
             ai_gateway_signing_secret: None,
             ingestion_warning_emitter: None,
             capture_mode: CaptureMode::Events,
+            ai_max_event_bytes: 0,
+            ai_lane_predicate: AiLanePredicate::Allowlist,
         }
     }
 
@@ -824,6 +828,17 @@ impl TestStateBuilder {
         self
     }
 
+    /// Set the per-event AI ceiling (defaults to `0`, which disables it).
+    pub fn with_ai_max_event_bytes(mut self, bytes: u64) -> Self {
+        self.ai_max_event_bytes = bytes;
+        self
+    }
+
+    pub fn with_ai_lane_predicate(mut self, predicate: AiLanePredicate) -> Self {
+        self.ai_lane_predicate = predicate;
+        self
+    }
+
     pub fn build(self) -> TestState {
         let mut manager = lifecycle::Manager::builder("test_state")
             .with_trap_signals(false)
@@ -855,7 +870,6 @@ impl TestStateBuilder {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "events"),
-            ("KAFKA_HOSTS", "localhost:9092"),
             ("KAFKA_TOPIC", "events_plugin_ingestion"),
         ]
         .into_iter()
@@ -914,14 +928,15 @@ impl TestStateBuilder {
             [(SinkName::Msk, boxed_sink)].into_iter().collect();
         let v1_router = v1_sinks::Router::new(SinkName::Msk, sinks_map);
 
-        // Legacy sink — no-op since V1 tests go through v1_sink_router
-        let legacy_sink: Arc<dyn sinks::Event + Send + Sync> =
-            Arc::new(crate::sinks::noop::NoOpSink::new());
+        // Legacy produce surface — no-op since V1 tests go through v1_sink_router
+        let legacy_outputs = Arc::new(crate::outputs::OutputRegistry::single(
+            crate::sinks::noop::NoOpSink::new(),
+        ));
 
         let timesource: Arc<dyn TimeSource + Send + Sync> = Arc::new(crate::time::SystemTime {});
 
         let state = router::State {
-            sink: legacy_sink,
+            outputs: legacy_outputs,
             timesource,
             redis,
             global_rate_limiter_token_distinctid: self.global_rate_limiter,
@@ -933,7 +948,8 @@ impl TestStateBuilder {
             is_mirror_deploy: false,
             verbose_sample_percent: 0.0,
             ai_max_sum_of_parts_bytes: 100 * 1024 * 1024,
-            ai_max_event_bytes: 0,
+            ai_max_event_bytes: self.ai_max_event_bytes,
+            ai_lane_predicate: self.ai_lane_predicate,
             body_chunk_read_timeout: None,
             body_read_chunk_size_kb: 64,
             capture_v1_max_compressed_body_bytes: 2 * 1024 * 1024,

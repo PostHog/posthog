@@ -1,13 +1,6 @@
 import type { LoopSchemas } from "@posthog/api-client/loops";
-import {
-  GLM_MODEL_FLAG,
-  GLM53_FLASH_MODEL_FLAG,
-  GLM53_MODEL_FLAG,
-  KIMI_MODEL_FLAG,
-} from "@posthog/shared";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useModelRolloutFlags } from "@posthog/ui/features/sessions/useModelRolloutFlags";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
-import { Flex } from "@radix-ui/themes";
 import { useMemo } from "react";
 import { useLoopModelConfigOptions } from "../hooks/useLoopModelConfigOptions";
 import {
@@ -38,6 +31,8 @@ interface LoopModelFieldsProps {
     effort: LoopSchemas.LoopReasoningEffortEnum | null,
   ) => void;
   disabled?: boolean;
+  /** Hidden for a workflow-backed loop: the task step picks the adapter itself. */
+  adapterEditable?: boolean;
 }
 
 /**
@@ -58,41 +53,32 @@ export function LoopModelFields({
   onModelChange,
   onReasoningEffortChange,
   disabled,
+  adapterEditable = true,
 }: LoopModelFieldsProps) {
-  const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
-  const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
-  const glm53FlashEnabled = useFeatureFlag(GLM53_FLASH_MODEL_FLAG);
-  const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
+  const modelFlags = useModelRolloutFlags();
   const configOptions = useLoopModelConfigOptions(adapter);
 
   const modelOptions = useMemo(
     () => [
       { value: DEFAULT_MODEL_VALUE, label: "Default (recommended)" },
       ...loopModelOptions(adapter, configOptions, {
-        glmEnabled,
-        glm53Enabled,
-        glm53FlashEnabled,
-        kimiEnabled,
+        flags: modelFlags,
         pinnedModel: model,
       }),
     ],
-    [
-      adapter,
-      configOptions,
-      glmEnabled,
-      glm53Enabled,
-      glm53FlashEnabled,
-      kimiEnabled,
-      model,
-    ],
+    [adapter, configOptions, modelFlags, model],
   );
+
+  // A workflow only stores the effort next to a pinned model, so offering
+  // efforts for the default model would confirm a value that is never saved.
+  const effortNeedsModel = !adapterEditable && !model;
 
   const reasoningOptions = useMemo(
     () => [
       { value: AUTO_REASONING_VALUE, label: "Auto" },
-      ...loopReasoningEffortOptions(adapter, model),
+      ...(effortNeedsModel ? [] : loopReasoningEffortOptions(adapter, model)),
     ],
-    [adapter, model],
+    [adapter, model, effortNeedsModel],
   );
 
   const handleAdapterChange = (value: string) => {
@@ -107,16 +93,15 @@ export function LoopModelFields({
   const handleModelChange = (value: string) => {
     const nextModel = value === DEFAULT_MODEL_VALUE ? "" : value;
     onModelChange(nextModel);
-    const clamped = clampLoopReasoningEffort(
-      adapter,
-      nextModel,
-      reasoningEffort,
-    );
+    const clamped =
+      !adapterEditable && !nextModel
+        ? null
+        : clampLoopReasoningEffort(adapter, nextModel, reasoningEffort);
     if (clamped !== reasoningEffort) onReasoningEffortChange(clamped);
   };
 
   return (
-    <Flex direction="column" gap="4">
+    <div className="flex flex-col gap-4">
       <Field
         label="Model"
         hint="Default lets PostHog pick the model each run; choose one to pin it."
@@ -132,19 +117,29 @@ export function LoopModelFields({
         />
       </Field>
 
-      <Flex gap="4" wrap="wrap">
-        <Field label="Adapter" className="min-w-[180px] flex-1">
-          <SettingsOptionSelect
-            value={adapter}
-            options={ADAPTER_OPTIONS}
-            onValueChange={handleAdapterChange}
-            disabled={disabled}
-            size="lg"
-            ariaLabel="Adapter"
-          />
-        </Field>
+      <div className="flex flex-wrap gap-4">
+        {adapterEditable ? (
+          <Field label="Adapter" className="min-w-[180px] flex-1">
+            <SettingsOptionSelect
+              value={adapter}
+              options={ADAPTER_OPTIONS}
+              onValueChange={handleAdapterChange}
+              disabled={disabled}
+              size="lg"
+              ariaLabel="Adapter"
+            />
+          </Field>
+        ) : null}
 
-        <Field label="Reasoning effort" className="min-w-[180px] flex-1">
+        <Field
+          label="Reasoning effort"
+          className="min-w-[180px] flex-1"
+          hint={
+            effortNeedsModel
+              ? "Pick a model to set reasoning effort."
+              : undefined
+          }
+        >
           <SettingsOptionSelect
             value={reasoningEffort ?? AUTO_REASONING_VALUE}
             options={reasoningOptions}
@@ -155,12 +150,12 @@ export function LoopModelFields({
                   : (value as LoopSchemas.LoopReasoningEffortEnum),
               )
             }
-            disabled={disabled}
+            disabled={disabled || effortNeedsModel}
             size="lg"
             ariaLabel="Reasoning effort"
           />
         </Field>
-      </Flex>
-    </Flex>
+      </div>
+    </div>
   );
 }

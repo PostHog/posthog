@@ -5,6 +5,7 @@ export const POSTHOG_NOTIFICATIONS = {
   TURN_COMPLETE: "_posthog/turn_complete",
   BACKGROUND_TURN_COMPLETE: "_posthog/background_turn_complete",
   ERROR: "_posthog/error",
+  INITIALIZATION_FAILED: "_posthog/initialization_failed",
   CONSOLE: "_posthog/console",
   SDK_SESSION: "_posthog/sdk_session",
   MODE_CHANGE: "_posthog/mode_change",
@@ -21,6 +22,7 @@ export const POSTHOG_NOTIFICATIONS = {
   PERMISSION_RESPONSE: "_posthog/permission_response",
   PERMISSION_REQUEST: "_posthog/permission_request",
   PERMISSION_RESOLVED: "_posthog/permission_resolved",
+  PROCESS_KILLED: "_posthog/process_killed",
 } as const;
 
 // Qualified id of the agent's `speak` narration tool, as it appears on the

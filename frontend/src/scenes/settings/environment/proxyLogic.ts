@@ -47,12 +47,8 @@ export type DiagnosticRemediation = DiagnosticRemediationApi
 export type DiagnosticCheckResult = DiagnosticCheckResultApi
 export type DiagnosticReport = DiagnosticReportApi
 
-export function canConfigureRootRedirect(proxyRecord: ProxyRecord, featureEnabled: boolean): boolean {
-    return (
-        featureEnabled &&
-        proxyRecord.root_redirect_supported &&
-        (proxyRecord.status === 'valid' || proxyRecord.status === 'warning')
-    )
+export function canConfigureRootRedirect(proxyRecord: ProxyRecord): boolean {
+    return proxyRecord.root_redirect_supported && (proxyRecord.status === 'valid' || proxyRecord.status === 'warning')
 }
 
 export function domainFor(proxyRecord: ProxyRecord | undefined): string {
@@ -500,7 +496,7 @@ export const proxyLogic = kea<proxyLogicType>([
                 return [response, ...values.proxyRecords]
             },
             deleteRecord: async (id: ProxyRecord['id']) => {
-                void proxyRecordsDestroy(values.currentOrganizationId, id)
+                await proxyRecordsDestroy(values.currentOrganizationId, id)
                 const newRecords = [...values.proxyRecords].map((r) => ({
                     ...r,
                     status: r.id === id ? 'deleting' : r.status,

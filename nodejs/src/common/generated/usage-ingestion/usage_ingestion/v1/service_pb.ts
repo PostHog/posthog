@@ -96,10 +96,13 @@ export const IngestBillingUsageRequestSchema: GenMessage<IngestBillingUsageReque
  */
 export type IngestBillingUsageResponse = Message<'usage_ingestion.v1.IngestBillingUsageResponse'> & {
     /**
-     * The service validates a whole batch before producing, so validation failures accept no
-     * records. The RPC waits for Kafka delivery confirmation, so callers must use it off their
-     * request-critical path. A retry after an unavailable response is safe because record_id is
-     * the deduplication identity, including when Kafka delivered only part of the batch.
+     * A subset of the records sent: the service skips a record it can never accept, such as one
+     * whose team has no organization, so that one team cannot discard the whole batch. Compare
+     * this against what you sent to learn what was dropped, because a dropped record is reported
+     * here rather than as an error. The RPC waits for Kafka delivery confirmation, so callers must
+     * use it off their request-critical path. A retry after an unavailable response is safe
+     * because record_id is the deduplication identity, including when Kafka delivered only part
+     * of the batch.
      *
      * @generated from field: repeated string accepted_record_ids = 1;
      */

@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import F, Q
 
 from posthog.models.utils import UUIDTModel
 
@@ -39,7 +40,16 @@ class Role(UUIDTModel):
     )
 
 
+class RoleMembershipQuerySet(models.QuerySet["RoleMembership"]):
+    def valid_for_authorization(self) -> "RoleMembershipQuerySet":
+        return self.filter(
+            Q(organization_member__isnull=True) | Q(organization_member__organization_id=F("role__organization_id"))
+        )
+
+
 class RoleMembership(UUIDTModel):
+    objects = RoleMembershipQuerySet.as_manager()
+
     class Meta:
         app_label = "ee"
         constraints = [models.UniqueConstraint(fields=["role", "user"], name="unique_user_and_role")]

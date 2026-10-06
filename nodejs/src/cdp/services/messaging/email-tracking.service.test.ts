@@ -90,6 +90,29 @@ describe('EmailTrackingService', () => {
             expect(extractTarget(addTrackingToEmail(html, invocation, signer))).toBe(expected)
         })
 
+        // The pixel and redirect URLs are the only tracking carrier for a provider whose opens and
+        // clicks we record ourselves, so a version missing here means those engagement metrics never
+        // split by version however the send path is configured.
+        it('carries the sending version into the pixel and redirect codes', () => {
+            const flowInvocation = { ...invocation, hogFlow: { id: 'flow-1', version: 7 } } as any
+            const html = '<body><a href="https://example.com/">x</a></body>'
+
+            const out = addTrackingToEmail(html, flowInvocation, signer)
+            const codes = [...out.matchAll(/ph_id=([A-Za-z0-9_.-]+)/g)].map((match) => match[1])
+
+            expect(codes).toHaveLength(2) // one redirect, one pixel
+            for (const code of codes) {
+                expect(signer.parse(code)?.workflowVersion).toBe(7)
+            }
+        })
+
+        it('mints no version for a hog function send, which has no workflow', () => {
+            const out = addTrackingToEmail('<body><a href="https://example.com/">x</a></body>', invocation, signer)
+            const code = out.match(/ph_id=([A-Za-z0-9_.-]+)/)![1]
+
+            expect(signer.parse(code)?.workflowVersion).toBeUndefined()
+        })
+
         it('skips literal javascript: hrefs', () => {
             const html = '<body><a href="javascript:alert(1)">x</a></body>'
             const out = addTrackingToEmail(html, invocation, signer)

@@ -1,15 +1,23 @@
+from collections.abc import Awaitable, Callable
+from datetime import timedelta
+
 import pytest
 from unittest import mock
 
 from django.conf import settings
 from django.test import override_settings
 
-from temporalio.client import Schedule, ScheduleActionStartWorkflow
+from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow
+from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.temporal.ai_observability.evaluation_clustering.constants import SAMPLER_WINDOW_MINUTES
 from posthog.temporal.ai_observability.trace_clustering import constants as trace_clustering_constants
 from posthog.temporal.ai_observability.trace_summarization import constants as trace_summarization_constants
 from posthog.temporal.schedule import (
     cleanup_non_cloud_ai_observability_schedules,
+    create_batch_trace_summarization_schedule,
+    create_evaluation_sampler_schedule,
+    create_replay_count_metrics_schedule,
     create_wa_digest_notification_schedule,
     create_wa_weekly_digest_schedule,
 )
@@ -79,3 +87,30 @@ async def test_cleanup_non_cloud_ai_observability_schedules(cloud_deployment, de
         await cleanup_non_cloud_ai_observability_schedules(mock.MagicMock())
 
     assert deleted == expected_deleted
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "create_schedule,lookback",
+    [
+        (
+            create_batch_trace_summarization_schedule,
+            timedelta(minutes=trace_summarization_constants.DEFAULT_WINDOW_MINUTES),
+        ),
+        (create_evaluation_sampler_schedule, timedelta(minutes=SAMPLER_WINDOW_MINUTES)),
+        (create_replay_count_metrics_schedule, timedelta(hours=1)),
+    ],
+)
+async def test_fixed_window_schedules_preserve_coverage(
+    create_schedule: Callable[[Client], Awaitable[None]], lookback: timedelta
+) -> None:
+    client = mock.MagicMock(spec=Client)
+    client.get_schedule_handle.return_value.describe = mock.AsyncMock(
+        side_effect=RPCError("not found", RPCStatusCode.NOT_FOUND, b"")
+    )
+    await create_schedule(client)
+
+    schedule = client.create_schedule.call_args.kwargs["schedule"]
+    interval = schedule.spec.intervals[0]
+    assert interval.every + (schedule.spec.jitter or timedelta(0)) <= lookback
+    assert (interval.offset or timedelta(0)) == timedelta(0)

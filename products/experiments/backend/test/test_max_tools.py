@@ -1,6 +1,9 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
+from asgiref.sync import sync_to_async
+from parameterized import parameterized
+
 from posthog.schema import (
     MaxExperimentMetricResult,
     MaxExperimentVariantResultBayesian,
@@ -8,10 +11,12 @@ from posthog.schema import (
 )
 
 from posthog.event_usage import EventSource
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryData
 from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.hogai.tool_errors import MaxToolAccessDeniedError
@@ -178,6 +183,41 @@ class TestCreateExperimentTool(APIBaseTest):
         assert mock_report_user_action.call_args.kwargs["team"] == self.team
         assert mock_report_user_action.call_args.kwargs["request"] is None
 
+    @parameterized.expand(
+        [
+            ("known", "experiment_wizard_guide", "experiment_wizard_guide"),
+            ("unknown", "x" * 500, None),
+            ("not_a_string", ["experiment_wizard_guide"], None),
+        ]
+    )
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    async def test_create_experiment_records_only_known_ai_entry_points(
+        self,
+        case: str,
+        entry_point: object,
+        expected: str | None,
+        mock_report_user_action: MagicMock,
+        _mock_on_commit: MagicMock,
+    ) -> None:
+        flag_key = f"entry-point-{case.replace('_', '-')}"
+        await self._create_multivariate_flag(key=flag_key)
+        context_manager = MagicMock()
+        context_manager.get_contextual_tools.return_value = {"create_experiment": {"entry_point": entry_point}}
+        tool = CreateExperimentTool(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[]),
+            context_manager=context_manager,
+            config={},
+        )
+
+        await tool._arun_impl(name=f"Entry point {case}", feature_flag_key=flag_key)
+
+        metadata = mock_report_user_action.call_args.args[2]
+        assert metadata["source"] == EventSource.POSTHOG_AI
+        assert metadata.get("ai_entry_point") == expected
+
     async def test_create_experiment_flag_already_used(self):
         flag = await self._create_multivariate_flag(key="used-flag")
         await Experiment.objects.acreate(
@@ -218,9 +258,27 @@ class TestCreateExperimentTool(APIBaseTest):
             {"key": "test", "name": "Test", "rollout_percentage": 50},
         ]
         assert "minimum_detectable_effect" not in (experiment.parameters or {})
-        assert experiment.running_time_calculation == {"minimum_detectable_effect": 30}
+        assert experiment.running_time_calculation == {}
         assert experiment.metrics == []
         assert experiment.metrics_secondary == []
+
+    async def test_create_experiment_uses_team_default_minimum_detectable_effect(self):
+        config = await sync_to_async(get_or_create_team_extension)(self.team, TeamExperimentsConfig)
+        config.default_minimum_detectable_effect = 10
+        await config.asave()
+
+        await self._create_multivariate_flag(key="mde-test", name="MDE Test Flag")
+        tool = self._create_tool()
+
+        result, _artifact = await tool._arun_impl(
+            name="MDE Test",
+            feature_flag_key="mde-test",
+        )
+
+        assert "Successfully created" in result
+
+        experiment = await Experiment.objects.aget(name="MDE Test", team=self.team)
+        assert experiment.running_time_calculation == {"minimum_detectable_effect": 10}
 
     async def test_create_experiment_missing_flag(self):
         tool = self._create_tool()

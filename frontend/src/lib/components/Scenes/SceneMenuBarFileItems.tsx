@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconFolderMove, IconFolderOpen, IconStar, IconStarFilled } from '@posthog/icons'
 
@@ -10,6 +10,7 @@ import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { SceneMenuBarItem } from '~/layout/scenes/components/SceneMenuBar'
 
 import { moveToLogic } from '../FileSystem/MoveTo/moveToLogic'
+import { sceneFileLogic } from './sceneFileLogic'
 
 type SceneMenuBarFileItemsProps = {
     /** Used as a prefix on data-attr for testing */
@@ -21,6 +22,7 @@ type SceneMenuBarFileItemsProps = {
  * a <SceneMenuBarMenu label="File">. Returns null if no project tree entry is registered.
  */
 export function SceneMenuBarFileItems({ dataAttrKey }: SceneMenuBarFileItemsProps): JSX.Element | null {
+    useMountedLogic(sceneFileLogic)
     const { assureVisibility } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { showLayoutPanel, setActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { addShortcutItem, deleteShortcut } = useActions(projectTreeDataLogic)

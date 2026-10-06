@@ -56,6 +56,12 @@ const AI_BYTES_REDIS_KEY_PREFIX: &str = "@ph/grl/capture/ai_bytes";
 /// Named fields rather than positional arguments: several are same-typed (two
 /// `&str`, two `bool`) and a swap would silently misconfigure a limiter.
 struct LimiterSpec<'a> {
+    /// Sliding window this limiter counts over. Sets Redis epoch numbering, so
+    /// limiters that share a key prefix must agree on it.
+    window_secs: u64,
+    /// Env var that supplied `window_secs`, so a zero window names the knob the
+    /// operator has to fix rather than the limiter that noticed.
+    window_env_var: &'a str,
     /// Default budget per window for keys with no custom override.
     threshold: u64,
     /// Static `key=value` CSV seeding the custom-key map.
@@ -78,6 +84,21 @@ struct LimiterSpec<'a> {
     dry_run: bool,
 }
 
+/// The window the AI byte budget is enforced over, and the env var that
+/// supplied it. `AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS` wins when set; otherwise
+/// the shared limiter window applies. Every place that derives the AI byte
+/// budget from a window must call this, so the enforced budget and any
+/// diagnostic computed from it cannot disagree.
+pub fn ai_byte_limit_window(config: &Config) -> (u64, &'static str) {
+    match config.ai_byte_limit_window_interval_secs {
+        Some(secs) => (secs, "AI_BYTE_LIMIT_WINDOW_INTERVAL_SECS"),
+        None => (
+            config.global_rate_limit_window_interval_secs,
+            "GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS",
+        ),
+    }
+}
+
 pub struct GlobalRateLimiter {
     limiter: Box<dyn CommonGlobalRateLimiter>,
     dry_run: bool,
@@ -98,6 +119,8 @@ impl GlobalRateLimiter {
             config,
             redis_instances,
             LimiterSpec {
+                window_secs: config.global_rate_limit_window_interval_secs,
+                window_env_var: "GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS",
                 threshold: config.global_rate_limit_token_distinctid_threshold,
                 custom_keys_csv: config
                     .global_rate_limit_token_distinctid_overrides_csv
@@ -126,6 +149,8 @@ impl GlobalRateLimiter {
             config,
             redis_instances,
             LimiterSpec {
+                window_secs: config.global_rate_limit_window_interval_secs,
+                window_env_var: "GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS",
                 threshold: config.global_rate_limit_token_threshold,
                 custom_keys_csv: config.global_rate_limit_token_overrides_csv.as_ref(),
                 custom_key_scale: 1,
@@ -133,9 +158,8 @@ impl GlobalRateLimiter {
                 min_sync_floor: config.global_rate_limit_min_sync_floor,
                 redis_key_prefix: &prefix,
                 metrics_scope: &metrics_scope,
-                // The token-only limiter is not wired to the dynamic refresh
-                // source. (The hierarchical resolver is still set but is a no-op
-                // for bare token keys, which have no `:distinct_id` suffix.)
+                // No dynamic source for the token-only limiter; its resolver's token
+                // fallback never fires for bare token keys.
                 enable_dynamic_source: false,
                 dry_run: config.global_rate_limit_dry_run,
             },
@@ -149,21 +173,23 @@ impl GlobalRateLimiter {
     /// events/window elsewhere caps bytes/window here. Callers pass an event's
     /// serialized size as the count.
     ///
-    /// Budgets are configured in bytes/second and scaled to the window, so the
-    /// knob keeps the same meaning whatever `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS`
-    /// is set to.
+    /// Budgets are configured in bytes/second and scaled to the AI byte window
+    /// (see `ai_byte_limit_window`), so the knob keeps its meaning whatever that
+    /// window is set to.
     pub fn new_ai_bytes(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
     ) -> anyhow::Result<Self> {
-        // `build` refuses to boot on a zero window, so this scaling never
-        // divides a budget down to nothing.
-        let window_secs = config.global_rate_limit_window_interval_secs;
+        // `build` refuses to boot on a zero window, so this scaling never makes
+        // the budget zero.
+        let (window_secs, window_env_var) = ai_byte_limit_window(config);
         let metrics_scope = format!("{}_ai_bytes", config.capture_mode.as_tag());
         Self::build(
             config,
             redis_instances,
             LimiterSpec {
+                window_secs,
+                window_env_var,
                 threshold: config.ai_byte_limit_per_second.saturating_mul(window_secs),
                 custom_keys_csv: config.ai_byte_limit_overrides_csv.as_ref(),
                 custom_key_scale: window_secs,
@@ -208,14 +234,14 @@ impl GlobalRateLimiter {
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
         spec: LimiterSpec<'_>,
     ) -> anyhow::Result<Self> {
-        // `leak_rate_for` divides the threshold by the window, so a zero window
-        // gives every bucket an infinite leak rate and the limiter admits
-        // everything. That is the opposite of what an operator setting a limit
-        // asked for, and it fails silently, so refuse to boot on it.
-        if config.global_rate_limit_window_interval_secs == 0 {
+        // A zero window panics the background task on its first tick, so no read ever
+        // lands and pods limit on local counts alone. Refuse to boot instead.
+        if spec.window_secs == 0 {
             anyhow::bail!(
-                "invalid configuration: GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS must be greater than 0; \
-                 a zero window gives every key an infinite leak rate, so no limit is ever enforced"
+                "invalid configuration: {} must be greater than 0 (limiter {}); \
+                 a zero window gives every key an infinite leak rate, so no limit is ever enforced",
+                spec.window_env_var,
+                spec.metrics_scope
             );
         }
 
@@ -266,7 +292,7 @@ impl GlobalRateLimiter {
 
         let grl_config = GlobalRateLimiterConfig {
             global_threshold: spec.threshold,
-            window_interval: Duration::from_secs(config.global_rate_limit_window_interval_secs),
+            window_interval: Duration::from_secs(spec.window_secs),
             sync_interval: Duration::from_secs(config.global_rate_limit_sync_interval_secs),
             tick_interval: Duration::from_millis(config.global_rate_limit_tick_interval_ms),
             redis_key_prefix: spec.redis_key_prefix.to_string(),
@@ -283,6 +309,9 @@ impl GlobalRateLimiter {
             local_cache_max_entries: spec.local_cache_max_entries,
             metrics_scope: spec.metrics_scope.to_string(),
             min_sync_floor: spec.min_sync_floor,
+            max_read_outage: config
+                .global_rate_limit_max_read_outage_secs
+                .map(Duration::from_secs),
             max_sync_keys_per_tick: config.global_rate_limit_max_sync_keys_per_tick,
             max_keys_per_command: config.global_rate_limit_max_keys_per_command,
             max_concurrent_commands: config.global_rate_limit_max_concurrent_commands,
@@ -342,7 +371,7 @@ impl GlobalRateLimiter {
             // No custom override for this key: enforce the global threshold.
             EvalResult::NotApplicable => self.is_global_key_limited(key, count).await,
             EvalResult::Limited(response) => Some(response),
-            // Allowed / FailOpen on a key that HAS a custom override: not limited,
+            // Allowed on a key that HAS a custom override: not limited,
             // and we must not re-check it against the global threshold.
             _ => None,
         };
@@ -1032,15 +1061,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_static_csv_seed_resolves_hierarchically() {
-        // Gap fix vs master: a static-CSV token-level override (dynamic source
-        // OFF) now applies to that token's token:distinct_id keys too, because
-        // the hierarchical resolver is always set — not just on the dynamic path.
+        // A static-CSV token-level override (dynamic source off) applies to that
+        // token's token:distinct_id keys too, because capture always sets the
+        // hierarchical resolver.
         let limiter = GlobalRateLimiter::for_test_hierarchical_seeded(Some("phc_seed=7"));
 
         assert!(limiter.is_custom_key("phc_seed"), "exact token override");
         assert!(
             limiter.is_custom_key("phc_seed:any_user"),
-            "token override must apply to token:distinct_id (master only did exact match)"
+            "token override must apply to token:distinct_id"
         );
         assert!(
             !limiter.is_custom_key("other_tok:any_user"),

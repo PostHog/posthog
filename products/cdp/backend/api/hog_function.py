@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
+import requests
 import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
@@ -26,11 +27,11 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
-from posthog.cdp.internal_events import is_managed_alert_internal_event
+from posthog.cdp.filters import DATA_WAREHOUSE_SOURCES
+from posthog.cdp.internal_events import is_managed_alert_internal_event, is_reserved_internal_event
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
 from posthog.cdp.validation import (
-    DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
     InputsSerializer,
@@ -50,10 +51,12 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
 
+from products.batch_exports.backend.facade import api as batch_exports_api
+from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
 from products.cdp.backend.api.hog_function_template import HogFunctionTemplateSerializer
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -175,6 +178,23 @@ def _named_warehouse_tables(entries: Any) -> list[Any]:
     ]
 
 
+def _worker_error_messages(response: requests.Response) -> list[str]:
+    """The CDP worker's own description of a failed test invocation, as a list of messages."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        for key in ("errors", "error", "detail"):
+            value = body.get(key)
+            if isinstance(value, list):
+                return [str(item) for item in value]
+            if value:
+                return [str(value)]
+    text = (response.text or "").strip()
+    return [text] if text else [f"The worker returned {response.status_code}."]
+
+
 def _without(value: Any, keys: tuple[str, ...]) -> Any:
     return {k: v for k, v in value.items() if k not in keys} if isinstance(value, dict) else value
 
@@ -182,18 +202,20 @@ def _without(value: Any, keys: tuple[str, ...]) -> Any:
 def _inputs_without_derived(inputs: Any) -> Any:
     if not isinstance(inputs, dict):
         return inputs
-    return {key: _without(value, ("bytecode", "transpiled", "order")) for key, value in inputs.items()}
+    return {
+        key: _without(value, ("bytecode", "bytecode_contract", "transpiled", "order")) for key, value in inputs.items()
+    }
 
 
 def comparable_content(content: dict) -> dict:
     """A config snapshot with the values validation derives from it dropped: filter and input
-    bytecode, transpiled JS, input ordering.
+    bytecode, the runtime stamp beside it, transpiled JS, input ordering.
 
     A background re-save can change those on its own without the config changing at all — most often
     `refresh_affected_hog_functions` recompiling filter bytecode after an action or cohort edit — so
     comparing them would version a plain rename.
     """
-    filter_derived = ("bytecode", "bytecode_error", "transpiled")
+    filter_derived = ("bytecode", "bytecode_error", "bytecode_contract", "transpiled")
     mappings = content.get("mappings")
     return {
         **content,
@@ -576,18 +598,27 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
         return super().to_internal_value(data)
 
-    def validate_type(self, value):
-        if value == HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value:
-            raise serializers.ValidationError(
-                "Cannot create or modify warehouse source webhook functions via this API."
-            )
+    # A legacy destination is only ever written by the plugin config migration. One created here would
+    # supersede the plugin config it shares a template with, silently replacing it.
+    UNCREATABLE_TYPE_ERRORS = {
+        HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value: "Cannot create or modify warehouse source webhook functions via this API.",
+        HogFunctionType.LEGACY_DESTINATION.value: "Cannot create legacy destination functions via this API.",
+    }
+    # A migrated legacy destination stays editable, so a person can disable one that misbehaves
+    UNEDITABLE_TYPES = {HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value}
 
-        # Ensure it is only set when creating a new function
-        if self.context.get("view") and self.context["view"].action == "create":
+    def validate_type(self, value):
+        is_create = bool(self.context.get("view")) and self.context["view"].action == "create"
+        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        changing_type = instance is not None and instance.type != value
+
+        if value in self.UNCREATABLE_TYPE_ERRORS and (is_create or changing_type or value in self.UNEDITABLE_TYPES):
+            raise serializers.ValidationError(self.UNCREATABLE_TYPE_ERRORS[value])
+
+        if is_create:
             return value
 
-        instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
-        if instance and instance.type != value:
+        if changing_type:
             raise serializers.ValidationError("Cannot modify the type of an existing function")
         return value
 
@@ -616,6 +647,19 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 raise serializers.ValidationError(
                     {"filters": "Alert notification destinations are managed through the alert API."}
                 )
+
+        proposed_filters = attrs.get("filters", self.instance.filters if isinstance(self.instance, HogFunction) else {})
+        reserved = sorted(
+            {
+                event_filter["id"]
+                for event_filter in (proposed_filters or {}).get("events", [])
+                if isinstance(event_filter, dict) and is_reserved_internal_event(event_filter.get("id"))
+            }
+        )
+        if reserved:
+            raise serializers.ValidationError(
+                {"filters": f"{', '.join(reserved)} is reserved for the product that emits it."}
+            )
 
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
@@ -684,12 +728,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                 try:
                     # Validate transpilation using the model instance
+                    instance = self.instance if isinstance(self.instance, HogFunction) else None
                     attrs["transpiled"] = get_transpiled_function(
                         HogFunction(
                             team=team,
                             hog=attrs["hog"],
                             filters=attrs["filters"],
                             inputs=attrs["inputs"],
+                            inputs_schema=attrs.get("inputs_schema", instance.inputs_schema if instance else None),
                         )
                     )
                 except TranspilerError:
@@ -748,8 +794,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return {**draft, "inputs": inputs}
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
-        request = self.context["request"]
-        validated_data["created_by"] = request.user
+        # An in-process caller has no request to take the acting user from, so it passes
+        # `created_by` to `save()` instead.
+        validated_data["created_by"] = validated_data.get("created_by") or self.context["request"].user
 
         template_id = validated_data.get("template_id")
         if template_id:
@@ -1185,7 +1232,9 @@ class HogFunctionViewSet(
         )
 
         if res.status_code != 200:
-            return Response({"status": "error"}, status=res.status_code)
+            # The worker's own message is the only description of the failure. Dropping it leaves the
+            # caller with a bare status code and nothing to act on.
+            return Response({"status": "error", "errors": _worker_error_messages(res)}, status=res.status_code)
 
         return Response(res.json())
 
@@ -1751,8 +1800,6 @@ class HogFunctionViewSet(
 
     @action(detail=True, methods=["POST"])
     def enable_backfills(self, request: Request, *args, **kwargs):
-        from products.batch_exports.backend.api.batch_export import BatchExportSerializer
-
         hog_function = self.get_object()
 
         # Check if backfill is already enabled
@@ -1788,27 +1835,16 @@ class HogFunctionViewSet(
         ):
             raise PermissionDenied("Backfilling Workflows is not enabled for this team.")
 
-        # Prepare batch export data matching the frontend's structure
-        batch_export_data = {
-            "name": hog_function.name,
-            "paused": True,
-            "interval": "hour",
-            "model": "events",
-            "filters": hog_function.filters.get("events", []) if hog_function.filters else [],
-            "destination": {
-                "type": "Workflows",
-                "config": {"hog_function_id": str(hog_function.id)},
-            },
-        }
-
-        batch_export_serializer = BatchExportSerializer(
-            data=batch_export_data, context={"team_id": self.team_id, "request": request}
-        )
-
-        if not batch_export_serializer.is_valid():
-            return Response(batch_export_serializer.errors, status=400)
-
-        batch_export = batch_export_serializer.save()
+        try:
+            batch_export = batch_exports_api.create_workflows_backfill_export(
+                self.team_id,
+                hog_function_id=hog_function.id,
+                name=hog_function.name or "",
+                event_filters=hog_function.filters.get("events", []) if hog_function.filters else [],
+                last_modified_by_id=cast(User, request.user).id,
+            )
+        except InvalidBatchExportFilters as e:
+            return Response({"error": str(e)}, status=400)
 
         hog_function.batch_export_id = batch_export.id
         hog_function.save(update_fields=["batch_export_id"])

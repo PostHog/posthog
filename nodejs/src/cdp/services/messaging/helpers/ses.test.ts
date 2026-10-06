@@ -59,6 +59,7 @@ describe('SesWebhookHandler', () => {
                 invocationId: 'inv456',
                 actionId: 'act789',
                 distinctId: 'user-123',
+                teamId: '1',
                 metricName: 'email_opened',
                 properties: { $email_to: 'to@example.com' },
                 timestamp: '2025-10-03T12:01:00Z',
@@ -466,6 +467,7 @@ describe('SesWebhookHandler', () => {
                 invocationId: 'inv456',
                 actionId: 'act789',
                 distinctId: 'user-123',
+                teamId: '1',
                 metricName: 'email_delivered',
                 properties: { $email_to: 'to@example.com' },
                 timestamp: '2025-10-03T12:03:00Z',
@@ -493,6 +495,9 @@ describe('SesWebhookHandler', () => {
         // Hard bounces emit both the catch-all metric and the AWS-comparable hard-only one
         expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_bounced', 'email_bounced_hard'])
         expect(result.metrics?.[0].distinctId).toBe('user-123')
+        // Without this the engagement event says only "bounced", and a sender cannot tell a dead
+        // address from a full mailbox.
+        expect(result.metrics?.[0].properties).toMatchObject({ $bounce_type: 'hard' })
         expect(result.hardBounceRecipients).toEqual([
             { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad' },
         ])
@@ -519,6 +524,8 @@ describe('SesWebhookHandler', () => {
         // Transient bounces must NOT emit email_bounced_hard — AWS's account rate excludes them
         expect(result.metrics?.map((m) => m.metricName)).toEqual(['email_bounced', 'email_bounced_transient'])
         expect(result.metrics?.[0].distinctId).toBe('user-123')
+        // A transient bounce reported as hard would read as a dead address and understate recovery.
+        expect(result.metrics?.[0].properties).toMatchObject({ $bounce_type: 'soft' })
         expect(result.hardBounceRecipients).toEqual([])
         expect(result.transientBounceRecipients).toEqual([
             { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'temp' },
@@ -746,6 +753,7 @@ describe('SesWebhookHandler', () => {
                 invocationId: 'child-invocation-id',
                 actionId: 'email-action',
                 parentRunId: 'batch-run-id',
+                teamId: '1',
                 metricName: 'email_opened',
                 properties: { $email_to: 'to@example.com' },
                 timestamp: '2025-10-03T12:01:00Z',

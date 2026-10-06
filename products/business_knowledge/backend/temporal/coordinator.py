@@ -34,6 +34,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import emit_embedding_request
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -219,6 +220,9 @@ def _present_chunk_ids_in_clickhouse(team_id: int, chunk_ids: list[UUID]) -> set
     result = execute_hogql_query(
         query=query,
         team=team,
+        query_type="BusinessKnowledgeReconcileEmbeddings",
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.BUSINESS_KNOWLEDGE,
         placeholders={
             "product": ast.Constant(value=BK_EMBEDDING_PRODUCT),
             "document_type": ast.Constant(value=BK_EMBEDDING_DOCUMENT_TYPE),
@@ -303,6 +307,21 @@ def _host_serialized_batches(
     return batches
 
 
+# A 5000-page crawl at a few concurrent fetches does not finish in 10 minutes.
+_CRAWL_ACTIVITY_TIMEOUT = timedelta(minutes=60)
+_CRAWL_HEARTBEAT_TIMEOUT = timedelta(minutes=5)
+# In-flight runs already recorded a 10-minute schedule and no heartbeat.
+# Replaying them with a different schedule fails the workflow task, and the
+# coordinator's skip-overlap policy then blocks later hourly runs.
+_CRAWL_TIMEOUT_PATCH = "bk-crawl-activity-timeout-60m"
+
+
+def _crawl_activity_timeouts() -> tuple[timedelta, timedelta | None]:
+    if workflow.patched(_CRAWL_TIMEOUT_PATCH):
+        return _CRAWL_ACTIVITY_TIMEOUT, _CRAWL_HEARTBEAT_TIMEOUT
+    return timedelta(minutes=10), None
+
+
 @activity.defn
 async def refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict[str, Any]:
     """
@@ -313,16 +332,22 @@ async def refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict
     Temporal doesn't retry them. Unexpected exceptions propagate for retry.
     """
     log = logger.bind(team_id=inputs.team_id, source_id=inputs.source_id)
-    try:
-        await database_sync_to_async(logic.refresh_source, thread_sensitive=False)(
-            source_id=UUID(inputs.source_id), team_id=inputs.team_id
-        )
-    except logic.SourceBusyError:
-        return {"status": "skipped", "reason": "busy"}
-    except (logic.InvalidUrlError, logic.UrlFetchFailedError, logic.EmptyContentError, logic.QuotaExceededError) as exc:
-        log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
-        return {"status": "error", "reason": type(exc).__name__}
-    return {"status": "ok"}
+    async with Heartbeater():
+        try:
+            await database_sync_to_async(logic.refresh_source, thread_sensitive=False)(
+                source_id=UUID(inputs.source_id), team_id=inputs.team_id
+            )
+        except logic.SourceBusyError:
+            return {"status": "skipped", "reason": "busy"}
+        except (
+            logic.InvalidUrlError,
+            logic.UrlFetchFailedError,
+            logic.EmptyContentError,
+            logic.QuotaExceededError,
+        ) as exc:
+            log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
+            return {"status": "error", "reason": type(exc).__name__}
+        return {"status": "ok"}
 
 
 @activity.defn
@@ -332,14 +357,20 @@ async def execute_refresh_knowledge_source_activity(inputs: RefreshSourceInputs)
     PROCESSING. Used by the ad-hoc refresh workflow (user clicks "Re-fetch").
     """
     log = logger.bind(team_id=inputs.team_id, source_id=inputs.source_id)
-    try:
-        await database_sync_to_async(logic.execute_refresh_source, thread_sensitive=False)(
-            source_id=UUID(inputs.source_id), team_id=inputs.team_id
-        )
-    except (logic.InvalidUrlError, logic.UrlFetchFailedError, logic.EmptyContentError, logic.QuotaExceededError) as exc:
-        log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
-        return {"status": "error", "reason": type(exc).__name__}
-    return {"status": "ok"}
+    async with Heartbeater():
+        try:
+            await database_sync_to_async(logic.execute_refresh_source, thread_sensitive=False)(
+                source_id=UUID(inputs.source_id), team_id=inputs.team_id
+            )
+        except (
+            logic.InvalidUrlError,
+            logic.UrlFetchFailedError,
+            logic.EmptyContentError,
+            logic.QuotaExceededError,
+        ) as exc:
+            log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
+            return {"status": "error", "reason": type(exc).__name__}
+        return {"status": "ok"}
 
 
 @activity.defn
@@ -353,24 +384,32 @@ async def ingest_knowledge_source_activity(inputs: IngestSourceInputs) -> dict[s
     doesn't retry them. Unexpected exceptions propagate for retry.
     """
     log = logger.bind(team_id=inputs.team_id, source_id=inputs.source_id)
-    try:
-        await database_sync_to_async(logic.ingest_source, thread_sensitive=False)(
-            source_id=UUID(inputs.source_id), team_id=inputs.team_id
-        )
-    except (logic.InvalidUrlError, logic.UrlFetchFailedError, logic.EmptyContentError, logic.QuotaExceededError) as exc:
-        log.info("business_knowledge.ingest.recorded_failure", error_type=type(exc).__name__)
-        return {"status": "error", "reason": type(exc).__name__}
-    return {"status": "ok"}
+    async with Heartbeater():
+        try:
+            await database_sync_to_async(logic.ingest_source, thread_sensitive=False)(
+                source_id=UUID(inputs.source_id), team_id=inputs.team_id
+            )
+        except (
+            logic.InvalidUrlError,
+            logic.UrlFetchFailedError,
+            logic.EmptyContentError,
+            logic.QuotaExceededError,
+        ) as exc:
+            log.info("business_knowledge.ingest.recorded_failure", error_type=type(exc).__name__)
+            return {"status": "error", "reason": type(exc).__name__}
+        return {"status": "ok"}
 
 
 @workflow.defn(name="business-knowledge-ingest-source")
 class BusinessKnowledgeIngestSourceWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: IngestSourceInputs) -> dict[str, Any]:
+        start_to_close, heartbeat = _crawl_activity_timeouts()
         return await workflow.execute_activity(
             ingest_knowledge_source_activity,
             inputs,
-            start_to_close_timeout=timedelta(minutes=10),
+            start_to_close_timeout=start_to_close,
+            heartbeat_timeout=heartbeat,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
@@ -386,10 +425,12 @@ class BusinessKnowledgeRefreshSourceWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: RefreshSourceInputs) -> dict[str, Any]:
+        start_to_close, heartbeat = _crawl_activity_timeouts()
         return await workflow.execute_activity(
             execute_refresh_knowledge_source_activity,
             inputs,
-            start_to_close_timeout=timedelta(minutes=10),
+            start_to_close_timeout=start_to_close,
+            heartbeat_timeout=heartbeat,
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
@@ -419,13 +460,15 @@ class BusinessKnowledgeRefreshCoordinatorWorkflow(PostHogWorkflow):
         )
 
         refreshed = skipped = failed = 0
+        start_to_close, heartbeat = _crawl_activity_timeouts()
         for batch in _host_serialized_batches(due, MAX_CONCURRENT_REFRESHES):
             results = await asyncio.gather(
                 *(
                     workflow.execute_activity(
                         refresh_knowledge_source_activity,
                         inputs,
-                        start_to_close_timeout=timedelta(minutes=10),
+                        start_to_close_timeout=start_to_close,
+                        heartbeat_timeout=heartbeat,
                         retry_policy=RetryPolicy(maximum_attempts=2),
                     )
                     for inputs in batch

@@ -1,9 +1,11 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { formatRelativeDateValue } from 'lib/utils/dateFilters'
 import { isKeyOf } from 'lib/utils/guards'
 import {
     allOperatorsMapping,
     cohortOperatorMap,
     isOperatorCohort,
+    isOperatorDate,
     isOperatorFlag,
     isOperatorMulti,
 } from 'lib/utils/operators'
@@ -15,6 +17,7 @@ import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     AccountCustomPropertyFilter,
+    AccountRelationshipPropertyFilter,
     ActionType,
     AnyFilterLike,
     AnyPropertyFilter,
@@ -41,6 +44,7 @@ import {
     PersonPropertyFilter,
     PropertyDefinition,
     PropertyDefinitionType,
+    PropertyFilterRow,
     PropertyFilterType,
     PropertyFilterValue,
     PropertyGroupFilter,
@@ -122,6 +126,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.Account]: TaxonomicFilterGroupType.AccountFields,
+        [PropertyFilterType.AccountRelationship]: TaxonomicFilterGroupType.AccountRelationships,
         [PropertyFilterType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
         [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
         [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
@@ -172,11 +177,19 @@ export function formatPropertyLabel(
     const label = 'label' in item ? item.label : undefined
     const operator = 'operator' in item ? item.operator : undefined
     const cohortName = 'cohort_name' in item ? item.cohort_name : undefined
-    const resolvedType = type ?? PropertyFilterType.Event
+    const resolvedType = (type ?? PropertyFilterType.Event) as PropertyFilterType
     const resolvedOperator = operator ?? PropertyOperator.Exact
     const taxonomicFilterGroupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[resolvedType]
 
     const isSingleEmptyString = Array.isArray(value) && value.length === 1 && value[0] === ''
+    const relativeDateValue =
+        typeof value === 'string' ? value : Array.isArray(value) && value.length === 1 ? value[0] : undefined
+    const formattedValue =
+        (resolvedType === PropertyFilterType.Account || resolvedType === PropertyFilterType.AccountCustomProperty) &&
+        isOperatorDate(resolvedOperator) &&
+        typeof relativeDateValue === 'string'
+            ? formatRelativeDateValue(relativeDateValue)
+            : undefined
 
     if (resolvedType === PropertyFilterType.Cohort) {
         return (
@@ -194,13 +207,13 @@ export function formatPropertyLabel(
         (isOperatorFlag(resolvedOperator)
             ? ` ${allOperatorsMapping[resolvedOperator]}`
             : ` ${(allOperatorsMapping[resolvedOperator] || '?').split(' ')[0]} ${
-                  isSingleEmptyString ? '(empty string)' : valueFormatter(value) || ''
+                  formattedValue ?? (isSingleEmptyString ? '(empty string)' : valueFormatter(value) || '')
               } `)
     )
 }
 
 /** Make sure unverified user property filter input has at least a "type" */
-export function sanitizePropertyFilter(propertyFilter: AnyPropertyFilter): AnyPropertyFilter {
+export function sanitizePropertyFilter(propertyFilter: PropertyFilterRow): PropertyFilterRow {
     if (!propertyFilter.type) {
         return {
             ...(propertyFilter as any), // TS error with spreading a union
@@ -324,6 +337,12 @@ export function isRevenueAnalyticsPropertyFilter(
 ): filter is RevenueAnalyticsPropertyFilter {
     return filter?.type === PropertyFilterType.RevenueAnalytics
 }
+export function isAccountRelationshipPropertyFilter(
+    filter?: { type?: string } | null
+): filter is AccountRelationshipPropertyFilter {
+    return filter?.type === PropertyFilterType.AccountRelationship
+}
+
 export function isAccountCustomPropertyFilter(filter?: AnyFilterLike | null): filter is AccountCustomPropertyFilter {
     return filter?.type === PropertyFilterType.AccountCustomProperty
 }
@@ -331,6 +350,39 @@ export function isPropertyGroupFilterLike(
     filter?: AnyFilterLike | null
 ): filter is PropertyGroupFilter | PropertyGroupFilterValue {
     return filter?.type === FilterLogicalOperator.And || filter?.type === FilterLogicalOperator.Or
+}
+
+/** Inlines a nested group into flat rows only when its operator matches the parent's — a different
+ * operator must stay one row, since flattening it would change what the insight returns. */
+export function inlineEquivalentPropertyGroups(
+    values: PropertyFilterRow[],
+    operator: FilterLogicalOperator
+): PropertyFilterRow[] {
+    return values.flatMap((value) => {
+        if (!isPropertyGroupFilterLike(value)) {
+            return [value]
+        }
+        const inlined = inlineEquivalentPropertyGroups(value.values, value.type)
+        if (value.type === operator || inlined.length <= 1) {
+            return inlined
+        }
+        return [{ ...value, values: inlined }]
+    })
+}
+
+/** Plain-text description of a nested group, for a row the editor cannot edit. */
+export function propertyGroupSummary(
+    group: PropertyGroupFilterValue,
+    cohortsById: Partial<Record<CohortType['id'], CohortType>>
+): string {
+    return group.values
+        .map((value) =>
+            isPropertyGroupFilterLike(value)
+                ? `(${propertyGroupSummary(value, cohortsById)})`
+                : formatPropertyLabel(value, cohortsById).trim()
+        )
+        .filter((label) => !!label)
+        .join(group.type === FilterLogicalOperator.Or ? ' or ' : ' and ')
 }
 export function isEventPropertyFilter(filter?: AnyFilterLike | null): filter is EventPropertyFilter {
     return filter?.type === PropertyFilterType.Event
@@ -417,6 +469,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
         isPersonMetadataPropertyFilter(filter) ||
         isEventMetadataPropertyFilter(filter) ||
         isRevenueAnalyticsPropertyFilter(filter) ||
+        isAccountRelationshipPropertyFilter(filter) ||
         isAccountCustomPropertyFilter(filter) ||
         isElementPropertyFilter(filter) ||
         isSessionPropertyFilter(filter) ||
@@ -462,6 +515,7 @@ export function isPropertyFilterWithOperator(
             isPersonMetadataPropertyFilter(filter) ||
             isEventMetadataPropertyFilter(filter) ||
             isRevenueAnalyticsPropertyFilter(filter) ||
+            isAccountRelationshipPropertyFilter(filter) ||
             isAccountCustomPropertyFilter(filter) ||
             isElementPropertyFilter(filter) ||
             isSessionPropertyFilter(filter) ||
@@ -514,6 +568,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
     [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
     [PropertyFilterType.Account]: TaxonomicFilterGroupType.AccountFields,
+    [PropertyFilterType.AccountRelationship]: TaxonomicFilterGroupType.AccountRelationships,
     [PropertyFilterType.AccountCustomProperty]: TaxonomicFilterGroupType.AccountCustomProperties,
     [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
     [PropertyFilterType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
@@ -572,6 +627,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.SpanResourceAttribute]: PropertyDefinitionType.SpanResourceAttribute,
         [PropertyFilterType.RevenueAnalytics]: PropertyDefinitionType.RevenueAnalytics,
         [PropertyFilterType.Account]: PropertyDefinitionType.Account,
+        [PropertyFilterType.AccountRelationship]: PropertyDefinitionType.AccountRelationship,
         [PropertyFilterType.AccountCustomProperty]: PropertyDefinitionType.AccountCustomProperty,
         [PropertyFilterType.Flag]: PropertyDefinitionType.FlagValue,
         [PropertyFilterType.WorkflowVariable]: PropertyDefinitionType.WorkflowVariable,

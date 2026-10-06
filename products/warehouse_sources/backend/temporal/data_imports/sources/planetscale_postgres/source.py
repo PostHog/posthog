@@ -1,35 +1,19 @@
 import re
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
 )
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-_SourceField = (
-    SourceFieldInputConfig
-    | SourceFieldSwitchGroupConfig
-    | SourceFieldSelectConfig
-    | SourceFieldOauthConfig
-    | SourceFieldOauthAccountSelectConfig
-    | SourceFieldFileUploadConfig
-    | SourceFieldSSHTunnelConfig
-)
 
 # planetscale.com is the dashboard, never a database endpoint — Postgres hosts live on
 # psdb.cloud. Pasting the dashboard address otherwise fails as an opaque connection timeout.
@@ -101,7 +85,7 @@ class PlanetScalePostgresSource(PostgresSource):
         return ExternalDataSourceType.PLANETSCALEPOSTGRES
 
     @staticmethod
-    def _adjust_field(field: _SourceField) -> _SourceField:
+    def _adjust_field(field: FieldType) -> FieldType:
         if not isinstance(field, SourceFieldInputConfig):
             return field
         if field.name == "connection_string":
@@ -129,7 +113,7 @@ class PlanetScalePostgresSource(PostgresSource):
         ]
 
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PLANET_SCALE_POSTGRES,
+            name=ExternalDataSourceType.PLANETSCALEPOSTGRES,
             category=DataWarehouseSourceCategory.DATABASES,
             keywords=["sql", "postgresql", "postgres", "planetscale"],
             label="PlanetScale Postgres",
@@ -146,11 +130,14 @@ class PlanetScalePostgresSource(PostgresSource):
         team_id: int,
         schema_name: str | None = None,
         api_version: str | None = None,
+        require_ssl: bool = False,
     ) -> tuple[bool, str | None]:
         if _PLANETSCALE_WEB_HOST_RE.search(_bare_host(config.host or "")):
             return False, _HOST_IS_DASHBOARD_ERROR
 
-        return super().validate_credentials(config, team_id, schema_name=schema_name, api_version=api_version)
+        return super().validate_credentials(
+            config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
+        )
 
     def check_cdc_prerequisites(
         self,
@@ -160,6 +147,7 @@ class PlanetScalePostgresSource(PostgresSource):
         slot_name: str | None = None,
         publication_name: str | None = None,
         require_ssl: bool = True,
+        team_id: int | None = None,
     ) -> list[str]:
         # PSBouncer accepts normal connections, so the generic checks would pass — but logical
         # replication doesn't work through it. Fail fast without connecting.
@@ -172,4 +160,5 @@ class PlanetScalePostgresSource(PostgresSource):
             slot_name=slot_name,
             publication_name=publication_name,
             require_ssl=require_ssl,
+            team_id=team_id,
         )

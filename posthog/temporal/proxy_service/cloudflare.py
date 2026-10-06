@@ -11,6 +11,7 @@ import re
 import typing as t
 from dataclasses import dataclass, field
 from enum import Enum
+from urllib.parse import quote
 
 from django.conf import settings
 
@@ -184,16 +185,25 @@ class CustomHostname:
     hostname: str
     status: CustomHostnameStatus
     ssl: CustomHostnameSSL
-    custom_metadata: dict[str, str] = field(default_factory=dict)
 
 
 def _get_headers() -> dict[str, str]:
-    """Get headers for Cloudflare API requests."""
+    """Get headers for Cloudflare zone API requests."""
     if not settings.CLOUDFLARE_API_TOKEN or not settings.CLOUDFLARE_ZONE_ID:
         raise ValueError("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ZONE_ID must be configured when using Cloudflare proxy")
     return {
         "Authorization": f"Bearer {settings.CLOUDFLARE_API_TOKEN}",
         "Content-Type": "application/json",
+    }
+
+
+def _get_kv_headers() -> dict[str, str]:
+    """Get headers for Cloudflare Workers KV API requests."""
+    if not settings.CLOUDFLARE_API_TOKEN or not settings.CLOUDFLARE_ACCOUNT_ID:
+        raise ValueError("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must be configured for proxy redirects")
+    return {
+        "Authorization": f"Bearer {settings.CLOUDFLARE_API_TOKEN}",
+        "Content-Type": "application/octet-stream",
     }
 
 
@@ -212,7 +222,6 @@ def _parse_hostname(result: dict) -> "CustomHostname":
             certificate_authority=ssl_payload.get("certificate_authority"),
             validation_records=ssl_payload.get("validation_records", []),
         ),
-        custom_metadata=result.get("custom_metadata", {}),
     )
 
 
@@ -234,7 +243,7 @@ def _handle_response(response: requests.Response) -> dict:
     return data
 
 
-def create_custom_hostname(domain: str, root_redirect_url: str | None = None) -> CustomHostname:
+def create_custom_hostname(domain: str) -> CustomHostname:
     """
     Create a Custom Hostname in Cloudflare for SaaS.
 
@@ -264,8 +273,6 @@ def create_custom_hostname(domain: str, root_redirect_url: str | None = None) ->
             },
         },
     }
-    if root_redirect_url:
-        payload["custom_metadata"] = {"root_redirect_url": root_redirect_url}
 
     response = requests.post(url, headers=_get_headers(), json=payload, timeout=CLOUDFLARE_API_TIMEOUT_S)
     data = _handle_response(response)
@@ -322,17 +329,28 @@ def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostname]:
     return _parse_hostname(results[0])
 
 
-def update_custom_hostname_metadata(hostname: CustomHostname, custom_metadata: dict[str, str]) -> CustomHostname:
-    """Replace a Custom Hostname's metadata while preserving keys owned by other features."""
-    url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/custom_hostnames/{hostname.id}"
-    response = requests.patch(
-        url,
-        headers=_get_headers(),
-        json={"custom_metadata": {**hostname.custom_metadata, **custom_metadata}},
-        timeout=CLOUDFLARE_API_TIMEOUT_S,
+def update_cloudflare_proxy_root_redirect(domain: str, redirect_url: str | None) -> None:
+    """Store or remove the root redirect for a managed proxy domain in Workers KV."""
+    namespace_id = settings.CLOUDFLARE_PROXY_KV_NAMESPACE_ID
+    if not namespace_id:
+        raise ValueError("CLOUDFLARE_PROXY_KV_NAMESPACE_ID must be configured for proxy redirects")
+
+    key = quote(domain, safe="")
+    url = (
+        f"{CLOUDFLARE_API_BASE}/accounts/{settings.CLOUDFLARE_ACCOUNT_ID}"
+        f"/storage/kv/namespaces/{namespace_id}/values/{key}"
     )
-    data = _handle_response(response)
-    return _parse_hostname(data["result"])
+    if redirect_url:
+        response = requests.put(
+            url,
+            headers=_get_kv_headers(),
+            data=redirect_url.encode(),
+            timeout=CLOUDFLARE_API_TIMEOUT_S,
+        )
+    else:
+        response = requests.delete(url, headers=_get_kv_headers(), timeout=CLOUDFLARE_API_TIMEOUT_S)
+
+    _handle_response(response)
 
 
 def delete_custom_hostname(hostname_id: str) -> bool:

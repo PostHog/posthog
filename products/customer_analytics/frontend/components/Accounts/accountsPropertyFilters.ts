@@ -2,6 +2,7 @@ import type { PropValue } from '~/models/propertyDefinitionsModel'
 import { AccountsTableAccountField } from '~/queries/schema/schema-general'
 import {
     AccountCustomPropertyFilter,
+    AccountRelationshipPropertyFilter,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyOperator,
@@ -14,7 +15,9 @@ export type AccountPropertyFilter = Omit<AccountCustomPropertyFilter, 'type'> & 
     type: PropertyFilterType.Account
 }
 
-export type AccountFilter = AccountPropertyFilter | AccountCustomPropertyFilter
+export type AccountRelationshipFilter = AccountRelationshipPropertyFilter
+
+export type AccountFilter = AccountPropertyFilter | AccountRelationshipFilter | AccountCustomPropertyFilter
 
 export interface AccountFieldTaxonomicOption {
     id: AccountsTableAccountField
@@ -98,6 +101,12 @@ export const ACCOUNT_FIELD_PROPERTY_TYPES = Object.fromEntries(
 
 export function isAccountPropertyFilter(filter: AccountFilter): filter is AccountPropertyFilter {
     return filter.type === PropertyFilterType.Account
+}
+
+export function isAccountRelationshipFilter(filter: {
+    type?: PropertyFilterType
+}): filter is AccountRelationshipFilter {
+    return filter.type === PropertyFilterType.AccountRelationship
 }
 
 export function propertyTypeForDisplayType(displayType: CustomPropertyDisplayTypeEnumApi): PropertyType {

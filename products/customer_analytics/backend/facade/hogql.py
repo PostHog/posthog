@@ -48,6 +48,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.schema.tagged_items import TaggedItemsTable
 from posthog.hogql.errors import ResolutionError, TableAccessDeniedError
 from posthog.hogql.parser import parse_expr, parse_select
 
@@ -67,7 +68,9 @@ class _AccountScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
     predicates: list[Expr] = [parse_expr("account_id IN (SELECT id FROM system.accounts)")]
 
 
-account_tagged_items: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
+account_tagged_items: TaggedItemsTable = TaggedItemsTable(
+    tagged_model="account",
+    predicates=[parse_expr("account_id IN (SELECT id FROM system.accounts)")],
     name="_account_tagged_items",
     postgres_table_name="posthog_taggeditem",
     description="Internal federated junction table (PostgreSQL `posthog_taggeditem`) of tag-to-account links; not for direct querying — use `system.accounts.tags`.",
@@ -75,7 +78,14 @@ account_tagged_items: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
         "id": UUIDDatabaseField(name="id", description="Primary key of the tagged-item junction row."),
         "tag_id": UUIDDatabaseField(name="tag_id", description="Tag applied to the account; join to `system.tags.id`."),
         "account_id": UUIDDatabaseField(
-            name="account_id", nullable=True, description="Account the tag is applied to; join to `system.accounts.id`."
+            name="object_uuid",
+            nullable=True,
+            description="Account the tag is applied to; join to `system.accounts.id`.",
+        ),
+        "content_type_id": IntegerDatabaseField(
+            name="content_type_id",
+            hidden=True,
+            description="Kind of object the tag is applied to; the table only returns account rows.",
         ),
     },
 )
@@ -339,6 +349,7 @@ def _account_custom_properties_history_select(fields_accessed: dict[str, list[st
         FROM system._account_custom_property_values_history AS cpv
         WHERE isNotNull(cpv.value_num) AND (cpv.created_at >= now() - INTERVAL 180 DAY OR NOT cpv.is_deleted)
         GROUP BY cpv.account_id, cpv.definition_id
+        HAVING countIf(NOT cpv.is_deleted) > 0
         """
     )
     select: list[ast.Expr] = [parse_expr("account_id AS account_id")]
@@ -1329,7 +1340,7 @@ custom_property_definitions: PostgresTable = PostgresTable(
         ),
         "display_type": StringDatabaseField(
             name="display_type",
-            description="How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.",
+            description="How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select' (allowed options stored on the definition), or 'link'.",
         ),
         "_is_big_number": BooleanDatabaseField(name="is_big_number", hidden=True),
         "is_big_number": ExpressionField(

@@ -8,11 +8,13 @@ import api, { ApiError } from 'lib/api'
 import { getProductPushDisplay } from 'lib/components/NavPanelAdvertisement/navPanelProductPushDisplay'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { superpowersLogic } from 'lib/components/Superpowers/superpowersLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
@@ -33,6 +35,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, UserType } from '~/types'
 
 import { EventIngestionRestrictionDetails } from './EventIngestionRestrictionDetails'
+import { OrganizationMemberNoticeMessage } from './OrganizationMemberNoticeMessage'
 
 export type ProjectNoticeVariant =
     | 'billing_alert'
@@ -44,6 +47,7 @@ export type ProjectNoticeVariant =
     | 'internet_connection_issue'
     | 'event_ingestion_restriction'
     | 'missing_reverse_proxy'
+    | 'organization_member_notice'
 
 export interface ProjectNoticeBlueprint {
     message: JSX.Element | string
@@ -72,6 +76,9 @@ function ProvisionedProductStrip(): JSX.Element {
             {FLAGSHIP_PRODUCT_KEYS.map((productKey) => {
                 const { Hoggie } = getProductPushDisplay(productKey)
                 const meta = brandingForProduct(productKey)
+                if (!Hoggie) {
+                    return null
+                }
                 return (
                     <Link
                         key={productKey}
@@ -221,6 +228,7 @@ export interface projectNoticeLogicValues {
     user: UserType | null // userLogic
     effectiveBillingAlert: BillingAlertConfig | null
     noticeDismissedThisSession: boolean
+    postHogNoticeVariant: ProjectNoticeVariant | null
     projectNotice: ProjectNoticeBlueprint | null
     projectNoticeDismissKey: string | null
     projectNoticeVariant: ProjectNoticeVariant | null
@@ -236,7 +244,7 @@ export interface projectNoticeLogicActions {
     reportProjectNoticeShown: (variant: string) => {
         variant: string
     } // eventUsageLogic
-    requestVerificationLink: (uuid: string) => {
+    requestVerificationCode: (uuid: string) => {
         uuid: string
     } // verifyEmailLogic
     dismissProjectNotice: (dismissKey: string | null) => {
@@ -272,7 +280,7 @@ export interface projectNoticeLogicMeta {
             billingAlert: BillingAlertConfig | null,
             fakeBillingAlert: import('lib/components/Superpowers/superpowersLogic').FakeBillingAlert
         ) => BillingAlertConfig | null
-        projectNoticeVariant: (
+        postHogNoticeVariant: (
             currentOrganization: null | import('~/types').OrganizationType,
             currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
             preflight: null | import('~/types').PreflightStatus,
@@ -296,6 +304,11 @@ export interface projectNoticeLogicMeta {
             arg: number,
             hasReverseProxy: boolean | null,
             isProvisionedUser: boolean
+        ) => ProjectNoticeVariant | null
+        projectNoticeVariant: (
+            postHogNoticeVariant: ProjectNoticeVariant | null,
+            arg: boolean,
+            arg2: boolean
         ) => ProjectNoticeVariant | null
         projectNoticeDismissKey: (
             projectNoticeVariant: ProjectNoticeVariant | null,
@@ -350,10 +363,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
         actions: [
             eventUsageLogic,
             ['reportProjectNoticeDismissed', 'reportProjectNoticeShown'],
-            // Mount verifyEmailLogic so the "Send verification email" banner CTA's loader fires.
+            // Mount verifyEmailLogic so the "Verify email" banner CTA's loader fires.
             // The banner renders on every scene, but verifyEmailLogic is otherwise only mounted on the verify-email scene.
             verifyEmailLogic,
-            ['requestVerificationLink'],
+            ['requestVerificationCode'],
         ],
     })),
     actions({
@@ -366,6 +379,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             __default: null as null | ProxyRecord[],
             loadRecords: async () => {
                 try {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use proxyRecordsList() from 'products/platform_features/frontend/generated/api' instead.
                     const response = await api.get(`api/organizations/${values.currentOrganizationId}/proxy_records`)
                     return response.results
                 } catch (error) {
@@ -401,7 +415,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 return billingAlert
             },
         ],
-        projectNoticeVariant: [
+        postHogNoticeVariant: [
             (s) => [
                 organizationLogic.selectors.currentOrganization,
                 teamLogic.selectors.currentTeam,
@@ -506,6 +520,24 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 }
 
                 return null
+            },
+        ],
+        projectNoticeVariant: [
+            (s) => [
+                s.postHogNoticeVariant,
+                (state) => !!organizationLogic.selectors.currentOrganization(state)?.member_notice?.message,
+                (state) => !!featureFlagLogic.selectors.featureFlags(state)[FEATURE_FLAGS.UX_HIDE_PROJECT_NOTICE],
+            ],
+            (
+                postHogNoticeVariant: ProjectNoticeVariant | null,
+                hasMemberNotice: boolean,
+                hidePostHogNotices: boolean
+            ): ProjectNoticeVariant | null => {
+                // The member notice comes last. Members can't dismiss it, and the flag only hides PostHog's notices.
+                if (postHogNoticeVariant && !hidePostHogNotices) {
+                    return postHogNoticeVariant
+                }
+                return hasMemberNotice ? 'organization_member_notice' : null
             },
         ],
         projectNoticeDismissKey: [
@@ -662,8 +694,17 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             message: 'Please verify your email address.',
                             action: {
                                 'data-attr': 'unverified-email-cta',
-                                onClick: () => user && verifyEmailLogic.actions.requestVerificationLink(user.uuid),
-                                children: 'Send verification email',
+                                onClick: () => {
+                                    if (!user) {
+                                        return
+                                    }
+                                    verifyEmailLogic.actions.requestVerificationCode(user.uuid)
+                                    // The email carries a 6-digit code, and only the verify-email scene has the
+                                    // entry form. `next` returns the user to this page once the code is accepted.
+                                    const { pathname, search, hash } = router.values.location
+                                    router.actions.push(urls.verifyEmail(user.uuid), { next: pathname + search + hash })
+                                },
+                                children: 'Verify email',
                             },
                             type: 'warning',
                         }
@@ -702,6 +743,24 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             },
                             onClose: dismiss,
                         }
+                    case 'organization_member_notice': {
+                        const memberNotice = currentOrganization?.member_notice
+                        if (!memberNotice) {
+                            return null
+                        }
+                        return {
+                            message: <OrganizationMemberNoticeMessage html={memberNotice.message} />,
+                            type: 'info',
+                            action: memberNotice.action
+                                ? {
+                                      to: memberNotice.action.url,
+                                      targetBlank: true,
+                                      children: memberNotice.action.label,
+                                      'data-attr': 'organization-member-notice-action',
+                                  }
+                                : undefined,
+                        }
+                    }
                     default:
                         return null
                 }

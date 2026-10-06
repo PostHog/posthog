@@ -2,7 +2,7 @@ import { Properties } from '~/plugin-scaffold'
 import { OrganizationAvailableFeature, ProjectId, Team } from '~/types'
 
 import { PostgresRouter, PostgresUse } from './db/postgres'
-import { LazyLoader, LoaderRetryOptions } from './lazy-loader'
+import { LazyLoader, LoadOptions, LoaderRetryOptions } from './lazy-loader'
 import { logger } from './logger'
 import { captureTeamEvent } from './posthog'
 
@@ -50,8 +50,8 @@ export class TeamManager {
         return this.lazyLoader.getMany(teamIds.map(String))
     }
 
-    public async getTeamsByTokens(tokens: string[]): Promise<Record<string, Team | null>> {
-        return this.lazyLoader.getMany(tokens)
+    public async getTeamsByTokens(tokens: string[], options?: LoadOptions): Promise<Record<string, Team | null>> {
+        return this.lazyLoader.getMany(tokens, options)
     }
 
     public async hasAvailableFeature(teamId: number, feature: OrganizationAvailableFeature): Promise<boolean> {
@@ -152,10 +152,12 @@ export class TeamManager {
                 t.extra_settings,
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
                 COALESCE(cfg.minimal_flag_called_events, false) AS minimal_flag_called_events,
+                COALESCE(ocfg.flag_evaluations_mode, 0) AS flag_evaluations_mode,
                 o.available_product_features
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
             LEFT JOIN feature_flags_teamfeatureflagsconfig cfg ON cfg.team_id = t.id
+            LEFT JOIN feature_flags_organizationfeatureflagsconfig ocfg ON ocfg.organization_id = t.organization_id
             WHERE t.id = ANY($1) OR t.api_token = ANY($2)
             `,
             [teamIds, tokens],

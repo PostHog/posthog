@@ -1,8 +1,7 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
-
+from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hatchet import (
     HatchetSourceConfig,
 )
@@ -115,7 +114,17 @@ class TestHatchetSource:
 
         tables = {t["name"]: t for t in self.source.get_documented_tables()}
 
-        assert set(tables) == {"workflow_runs", "tasks", "events", "event_keys"}
+        assert set(tables) == {
+            "workflow_runs",
+            "tasks",
+            "events",
+            "event_keys",
+            "workflows",
+            "workers",
+            "scheduled_runs",
+            "task_events",
+            "task_timings",
+        }
         assert tables["workflow_runs"]["description"]
         assert "Incremental" in tables["workflow_runs"]["sync_methods"]
         assert tables["event_keys"]["sync_methods"] == ["Full refresh"]

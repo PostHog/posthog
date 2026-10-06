@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 76 enabled ops
+ * PostHog API - MCP 97 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -23,7 +23,7 @@ export const llmAnalyticsPersonalSpendListQueryProductMax = 64
 
 export const llmAnalyticsPersonalSpendListQueryRefreshDefault = false
 
-export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsPersonalSpendListQueryParams = () => zod.object({
     bucket_minutes: zod
         .union([zod.literal(5), zod.literal(15), zod.literal(30), zod.literal(60)])
         .optional()
@@ -64,10 +64,732 @@ export const LlmAnalyticsPersonalSpendListQueryParams = /* @__PURE__ */ zod.obje
         .describe('If true, bypass the result cache and re-run the underlying queries against ClickHouse.'),
 })
 
+export const AiObservabilityOfflineExperimentsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsListQueryApplicationVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsListQueryCursorMax = 2048
+
+export const aiObservabilityOfflineExperimentsListQueryDatasetIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsListQueryDatasetRevisionIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsListQueryDatasetSourceMax = 255
+
+export const aiObservabilityOfflineExperimentsListQueryLimitDefault = 50
+export const aiObservabilityOfflineExperimentsListQueryLimitMax = 100
+
+export const aiObservabilityOfflineExperimentsListQueryModelVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsListQueryPromptVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsListQueryRunSourceMax = 16
+
+export const aiObservabilityOfflineExperimentsListQueryScorerVersionIdsMax = 739
+
+export const aiObservabilityOfflineExperimentsListQuerySearchMax = 400
+
+export const aiObservabilityOfflineExperimentsListQueryStatusesMax = 32
+
+export const aiObservabilityOfflineExperimentsListQuerySuiteKeyMax = 255
+
+export const AiObservabilityOfflineExperimentsListQueryParams = () => zod.object({
+    application_version: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryApplicationVersionMax)
+        .optional()
+        .describe('Exact application revision.'),
+    cursor: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryCursorMax)
+        .optional()
+        .describe('Continuation cursor returned by the previous page.'),
+    dataset_identifier: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryDatasetIdentifierMax)
+        .optional()
+        .describe('Exact durable dataset identifier.'),
+    dataset_revision_identifier: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryDatasetRevisionIdentifierMax)
+        .optional()
+        .describe('Exact durable dataset revision identifier.'),
+    dataset_source: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryDatasetSourceMax)
+        .optional()
+        .describe('Exact dataset source.'),
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Inclusive execution start time, in ISO 8601 format.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Exclusive execution end time, in ISO 8601 format.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryLimitMax)
+        .default(aiObservabilityOfflineExperimentsListQueryLimitDefault)
+        .describe('Page size, from 1 to 100. Defaults to 50.'),
+    model_version: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryModelVersionMax)
+        .optional()
+        .describe('Exact model revision.'),
+    prompt_version: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryPromptVersionMax)
+        .optional()
+        .describe('Exact prompt revision.'),
+    run_source: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryRunSourceMax)
+        .optional()
+        .describe('Filter ci, local, scheduled, or not_specified for omitted run source.'),
+    scorer_definition_id: zod.string().optional().describe('Restrict results to this scorer definition.'),
+    scorer_version_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryScorerVersionIdsMax)
+        .optional()
+        .describe('Comma-separated list of at most 20 distinct scorer-version UUIDs.'),
+    search: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQuerySearchMax)
+        .optional()
+        .describe('Search experiment names.'),
+    statuses: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQueryStatusesMax)
+        .optional()
+        .describe(
+            'Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.'
+        ),
+    suite_key: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsListQuerySuiteKeyMax)
+        .optional()
+        .describe('Exact evaluation suite identifier.'),
+})
+
+export const AiObservabilityOfflineExperimentsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsCreateBodyNameMax = 400
+
+export const aiObservabilityOfflineExperimentsCreateBodyExpectedItemCountMin = 0
+export const aiObservabilityOfflineExperimentsCreateBodyExpectedItemCountMax = 2147483647
+
+export const aiObservabilityOfflineExperimentsCreateBodyExpectedResultCountMin = 0
+export const aiObservabilityOfflineExperimentsCreateBodyExpectedResultCountMax = 2147483647
+
+export const aiObservabilityOfflineExperimentsCreateBodySuiteKeyMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyDatasetSourceMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyDatasetIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyDatasetRevisionIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyApplicationVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyModelVersionMax = 255
+
+export const aiObservabilityOfflineExperimentsCreateBodyPromptVersionMax = 255
+
+export const AiObservabilityOfflineExperimentsCreateBody = () => zod.object({
+    id: zod.string().describe('Caller-generated experiment UUID. Reuse it for exact retries.'),
+    name: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyNameMax)
+        .describe('Display name for this experiment execution.'),
+    started_at: zod.iso
+        .datetime({ offset: true })
+        .describe('Execution start time in ISO 8601 format, supplied by the caller.'),
+    run_source: zod
+        .union([
+            zod
+                .enum(['ci', 'local', 'scheduled'])
+                .describe('\* `ci` - CI\n\* `local` - Local\n\* `scheduled` - Scheduled'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Where the execution started: ci, local, or scheduled. Omit or use null when unknown.\n\n\* `ci` - CI\n\* `local` - Local\n\* `scheduled` - Scheduled'
+        ),
+    expected_item_count: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsCreateBodyExpectedItemCountMin)
+        .max(aiObservabilityOfflineExperimentsCreateBodyExpectedItemCountMax)
+        .nullish()
+        .describe('Expected number of distinct items. Completion must match this count when supplied.'),
+    expected_result_count: zod
+        .number()
+        .min(aiObservabilityOfflineExperimentsCreateBodyExpectedResultCountMin)
+        .max(aiObservabilityOfflineExperimentsCreateBodyExpectedResultCountMax)
+        .nullish()
+        .describe('Expected number of distinct item\/scorer-version results, including non-success statuses.'),
+    suite_key: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodySuiteKeyMax)
+        .nullish()
+        .describe('Stable identifier for comparing executions of the same evaluation suite.'),
+    dataset_source: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyDatasetSourceMax)
+        .nullish()
+        .describe('Source of an external dataset. Hosted dataset provenance is derived from its revision.'),
+    dataset_identifier: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyDatasetIdentifierMax)
+        .nullish()
+        .describe('Stable identifier for the external dataset.'),
+    dataset_revision_identifier: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyDatasetRevisionIdentifierMax)
+        .nullish()
+        .describe('Pinned revision identifier of the external dataset.'),
+    dataset_revision_id: zod.string().nullish().describe('UUID of a hosted dataset revision in this project.'),
+    application_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyApplicationVersionMax)
+        .nullish()
+        .describe('Version of the application under evaluation.'),
+    model_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyModelVersionMax)
+        .nullish()
+        .describe('Version of the model under evaluation.'),
+    prompt_version: zod
+        .string()
+        .max(aiObservabilityOfflineExperimentsCreateBodyPromptVersionMax)
+        .nullish()
+        .describe('Version of the prompt under evaluation.'),
+})
+
+export const AiObservabilityOfflineExperimentsRetrieveParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AiObservabilityOfflineExperimentsCompleteCreateParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AiObservabilityOfflineExperimentsFailCreateParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AiObservabilityOfflineExperimentsItemsListParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsItemsListQueryCursorMax = 2048
+
+export const aiObservabilityOfflineExperimentsItemsListQueryLimitDefault = 50
+export const aiObservabilityOfflineExperimentsItemsListQueryLimitMax = 100
+
+export const aiObservabilityOfflineExperimentsItemsListQueryScorerVersionIdsMax = 739
+
+export const AiObservabilityOfflineExperimentsItemsListQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsItemsListQueryCursorMax)
+        .optional()
+        .describe('Continuation cursor returned by the previous page.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsItemsListQueryLimitMax)
+        .default(aiObservabilityOfflineExperimentsItemsListQueryLimitDefault)
+        .describe('Page size, from 1 to 100. Defaults to 50.'),
+    scorer_version_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsItemsListQueryScorerVersionIdsMax)
+        .optional()
+        .describe('Comma-separated list of at most 20 distinct scorer-version UUIDs.'),
+})
+
+export const AiObservabilityOfflineExperimentsItemsRetrieveParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    item_id: zod.string().describe('Item UUID within the experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AiObservabilityOfflineExperimentsItemsPayloadRetrieveParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    item_id: zod.string().describe('Item UUID within the experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AiObservabilityOfflineExperimentsItemsResultsListParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    item_id: zod.string().describe('Item UUID within the experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsItemsResultsListQueryCursorMax = 2048
+
+export const aiObservabilityOfflineExperimentsItemsResultsListQueryLimitDefault = 50
+export const aiObservabilityOfflineExperimentsItemsResultsListQueryLimitMax = 100
+
+export const aiObservabilityOfflineExperimentsItemsResultsListQueryScorerVersionIdsMax = 739
+
+export const AiObservabilityOfflineExperimentsItemsResultsListQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsItemsResultsListQueryCursorMax)
+        .optional()
+        .describe('Continuation cursor returned by the previous page.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsItemsResultsListQueryLimitMax)
+        .default(aiObservabilityOfflineExperimentsItemsResultsListQueryLimitDefault)
+        .describe('Page size, from 1 to 100. Defaults to 50.'),
+    scorer_definition_id: zod.string().optional().describe('Restrict results to this scorer definition.'),
+    scorer_version_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsItemsResultsListQueryScorerVersionIdsMax)
+        .optional()
+        .describe('Comma-separated list of at most 20 distinct scorer-version UUIDs.'),
+})
+
+export const AiObservabilityOfflineExperimentsResultCellsRetrieveParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsResultCellsRetrieveQueryItemIdsMax = 1849
+
+export const aiObservabilityOfflineExperimentsResultCellsRetrieveQueryScorerVersionIdsMax = 739
+
+export const AiObservabilityOfflineExperimentsResultCellsRetrieveQueryParams = () => zod.object({
+    item_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsResultCellsRetrieveQueryItemIdsMax)
+        .describe('Comma-separated list of 1 to 50 distinct item UUIDs belonging to this experiment.'),
+    scorer_version_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsResultCellsRetrieveQueryScorerVersionIdsMax)
+        .describe('Comma-separated list of 1 to 20 distinct authorized scorer-version UUIDs.'),
+})
+
+export const AiObservabilityOfflineExperimentsResultsPayloadRetrieveParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    result_id: zod.string().describe('Result UUID within the experiment.'),
+})
+
+export const AiObservabilityOfflineExperimentsScorerSummariesListParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsScorerSummariesListQueryCursorMax = 2048
+
+export const aiObservabilityOfflineExperimentsScorerSummariesListQueryLimitDefault = 50
+export const aiObservabilityOfflineExperimentsScorerSummariesListQueryLimitMax = 100
+
+export const aiObservabilityOfflineExperimentsScorerSummariesListQueryScorerVersionIdsMax = 739
+
+export const AiObservabilityOfflineExperimentsScorerSummariesListQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsScorerSummariesListQueryCursorMax)
+        .optional()
+        .describe('Continuation cursor returned by the previous page.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsScorerSummariesListQueryLimitMax)
+        .default(aiObservabilityOfflineExperimentsScorerSummariesListQueryLimitDefault)
+        .describe('Page size, from 1 to 100. Defaults to 50.'),
+    scorer_definition_id: zod.string().optional().describe('Restrict results to this scorer definition.'),
+    scorer_version_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsScorerSummariesListQueryScorerVersionIdsMax)
+        .optional()
+        .describe('Comma-separated list of at most 20 distinct scorer-version UUIDs.'),
+})
+
+export const AiObservabilityOfflineExperimentsUploadCreateParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemTrialMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemDatasetItemIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemDatasetItemVersionIdentifierMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemApplicationTraceIdMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax = 1000
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemValueThreeItemMax = 128
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemErrorCodeMax = 128
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemEvaluatorTraceIdMax = 255
+
+export const aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax = 1000
+
+export const AiObservabilityOfflineExperimentsUploadCreateBody = () => zod.object({
+    items: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .describe('Caller-generated UUID for one input\/output execution. Reuse for exact retries.'),
+                case_key: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemCaseKeyMax)
+                    .nullish()
+                    .describe('Stable case identifier for matching inputs across experiments.'),
+                trial: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemTrialMax)
+                    .nullish()
+                    .describe('Identifier for a repeated execution of the same case.'),
+                dataset_item_identifier: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemDatasetItemIdentifierMax)
+                    .nullish()
+                    .describe('Stable item identifier in an external dataset.'),
+                dataset_item_version_identifier: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemDatasetItemVersionIdentifierMax)
+                    .nullish()
+                    .describe('Pinned item-version identifier in an external dataset.'),
+                dataset_item_version_id: zod
+                    .string()
+                    .nullish()
+                    .describe("UUID of the hosted item version in the experiment's dataset revision."),
+                application_trace_id: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsItemApplicationTraceIdMax)
+                    .nullish()
+                    .describe('Trace identifier for the application execution that produced this output.'),
+                payload: zod
+                    .object({
+                        input: zod
+                            .union([
+                                zod.record(zod.string(), zod.unknown()),
+                                zod.array(zod.unknown()),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                        output: zod
+                            .union([
+                                zod.record(zod.string(), zod.unknown()),
+                                zod.array(zod.unknown()),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                        expected_output: zod
+                            .union([
+                                zod.record(zod.string(), zod.unknown()),
+                                zod.array(zod.unknown()),
+                                zod.string(),
+                                zod.number(),
+                                zod.boolean(),
+                                zod.null(),
+                            ])
+                            .optional(),
+                        metadata: zod.record(zod.string(), zod.unknown()).nullish(),
+                    })
+                    .optional()
+                    .describe(
+                        'Optional input\/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ.'
+                    ),
+            })
+        )
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyItemsMax)
+        .optional()
+        .describe(
+            'Complete immutable declarations for referenced items. Omit existing items to reuse them without a payload.'
+        ),
+    results: zod
+        .array(
+            zod.object({
+                item_id: zod
+                    .string()
+                    .describe('UUID of an item declared in this request or already accepted in this experiment.'),
+                scorer_version_id: zod.string().describe('Exact UUID of an existing scorer version in this project.'),
+                status: zod
+                    .enum(['ok', 'error', 'skipped', 'not_applicable'])
+                    .describe(
+                        '\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable'
+                    )
+                    .describe(
+                        'Outcome of this scorer execution.\n\n\* `ok` - OK\n\* `error` - Error\n\* `skipped` - Skipped\n\* `not_applicable` - Not applicable'
+                    ),
+                value: zod
+                    .union([
+                        zod.number(),
+                        zod.boolean(),
+                        zod
+                            .array(
+                                zod
+                                    .string()
+                                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemValueThreeItemMax)
+                            )
+                            .min(1),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Required for ok: finite number, boolean, or distinct category keys matching the scorer version.'
+                    ),
+                error_code: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemErrorCodeMax)
+                    .nullish()
+                    .describe('Optional stable error code, permitted only for error outcomes.'),
+                evaluator_trace_id: zod
+                    .string()
+                    .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsItemEvaluatorTraceIdMax)
+                    .nullish()
+                    .describe('Trace identifier of the evaluator that produced this result.'),
+                evaluated_at: zod.iso
+                    .datetime({ offset: true })
+                    .nullish()
+                    .describe('Caller-supplied evaluation time in ISO 8601 format.'),
+                payload: zod
+                    .object({
+                        reasoning: zod.string().nullish(),
+                        error_message: zod.string().nullish(),
+                        metadata: zod.record(zod.string(), zod.unknown()).nullish(),
+                    })
+                    .optional()
+                    .describe('Optional reasoning, error message, and metadata, up to 256 KiB and 32 JSON levels.'),
+            })
+        )
+        .min(1)
+        .max(aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax)
+        .describe('One to 1,000 unique item\/scorer-version results. The entire request commits atomically.'),
+})
+
+export const AiObservabilityOfflineScorersHistoryListParams = () => zod.object({
+    id: zod.string().describe('Scorer definition UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineScorersHistoryListQueryApplicationVersionMax = 255
+
+export const aiObservabilityOfflineScorersHistoryListQueryCursorMax = 2048
+
+export const aiObservabilityOfflineScorersHistoryListQueryDatasetIdentifierMax = 255
+
+export const aiObservabilityOfflineScorersHistoryListQueryDatasetRevisionIdentifierMax = 255
+
+export const aiObservabilityOfflineScorersHistoryListQueryDatasetSourceMax = 255
+
+export const aiObservabilityOfflineScorersHistoryListQueryLimitDefault = 50
+export const aiObservabilityOfflineScorersHistoryListQueryLimitMax = 100
+
+export const aiObservabilityOfflineScorersHistoryListQueryModelVersionMax = 255
+
+export const aiObservabilityOfflineScorersHistoryListQueryPromptVersionMax = 255
+
+export const aiObservabilityOfflineScorersHistoryListQueryRunSourceMax = 16
+
+export const aiObservabilityOfflineScorersHistoryListQueryScorerVersionIdsMax = 739
+
+export const aiObservabilityOfflineScorersHistoryListQuerySearchMax = 400
+
+export const aiObservabilityOfflineScorersHistoryListQueryStatusesMax = 32
+
+export const aiObservabilityOfflineScorersHistoryListQuerySuiteKeyMax = 255
+
+export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.object({
+    application_version: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryApplicationVersionMax)
+        .optional()
+        .describe('Exact application revision.'),
+    cursor: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryCursorMax)
+        .optional()
+        .describe('Continuation cursor returned by the previous page.'),
+    dataset_identifier: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryDatasetIdentifierMax)
+        .optional()
+        .describe('Exact durable dataset identifier.'),
+    dataset_revision_identifier: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryDatasetRevisionIdentifierMax)
+        .optional()
+        .describe('Exact durable dataset revision identifier.'),
+    dataset_source: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryDatasetSourceMax)
+        .optional()
+        .describe('Exact dataset source.'),
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Inclusive execution start time, in ISO 8601 format.'),
+    date_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Exclusive execution end time, in ISO 8601 format.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryLimitMax)
+        .default(aiObservabilityOfflineScorersHistoryListQueryLimitDefault)
+        .describe('Page size, from 1 to 100. Defaults to 50.'),
+    model_version: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryModelVersionMax)
+        .optional()
+        .describe('Exact model revision.'),
+    prompt_version: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryPromptVersionMax)
+        .optional()
+        .describe('Exact prompt revision.'),
+    run_source: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryRunSourceMax)
+        .optional()
+        .describe('Filter ci, local, scheduled, or not_specified for omitted run source.'),
+    scorer_version_ids: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryScorerVersionIdsMax)
+        .optional()
+        .describe('Comma-separated list of at most 20 distinct scorer-version UUIDs.'),
+    search: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQuerySearchMax)
+        .optional()
+        .describe('Search experiment names.'),
+    statuses: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQueryStatusesMax)
+        .optional()
+        .describe(
+            'Comma-separated uploading, completed, or failed states. History defaults to completed; lists include all.'
+        ),
+    suite_key: zod
+        .string()
+        .min(1)
+        .max(aiObservabilityOfflineScorersHistoryListQuerySuiteKeyMax)
+        .optional()
+        .describe('Exact evaluation suite identifier.'),
+})
+
 /**
  * List a dataset's current items or its exact contents at a prior revision.
  */
-export const DatasetItemsListParams = /* @__PURE__ */ zod.object({
+export const DatasetItemsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -77,7 +799,7 @@ export const DatasetItemsListParams = /* @__PURE__ */ zod.object({
 
 export const datasetItemsListQueryArchivedDefault = false
 
-export const DatasetItemsListQueryParams = /* @__PURE__ */ zod.object({
+export const DatasetItemsListQueryParams = () => zod.object({
     archived: zod
         .boolean()
         .default(datasetItemsListQueryArchivedDefault)
@@ -91,7 +813,7 @@ export const DatasetItemsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Create an item and its first immutable version. An identical client item ID retry returns the existing item. A different payload or an archived match returns a conflict.
  */
-export const DatasetItemsCreateParams = /* @__PURE__ */ zod.object({
+export const DatasetItemsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -105,7 +827,7 @@ export const datasetItemsCreateBodySourceTraceIdMax = 255
 
 export const datasetItemsCreateBodySourceEventIdMax = 255
 
-export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
+export const DatasetItemsCreateBody = () => zod.object({
     dataset: zod.string().describe('Dataset that will own the item.'),
     client_item_id: zod
         .string()
@@ -167,7 +889,7 @@ export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Retrieve the current item version or the version visible at an exact dataset revision.
  */
-export const DatasetItemsRetrieveParams = /* @__PURE__ */ zod.object({
+export const DatasetItemsRetrieveParams = () => zod.object({
     dataset_item_id: zod.string(),
     project_id: zod
         .string()
@@ -176,14 +898,14 @@ export const DatasetItemsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DatasetItemsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const DatasetItemsRetrieveQueryParams = () => zod.object({
     revision: zod.number().min(1).optional().describe('Return the item as it appeared at this exact dataset revision.'),
 })
 
 /**
  * Create a new immutable item version from editable fields.
  */
-export const DatasetItemsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const DatasetItemsPartialUpdateParams = () => zod.object({
     dataset_item_id: zod.string(),
     project_id: zod
         .string()
@@ -192,7 +914,7 @@ export const DatasetItemsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DatasetItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const DatasetItemsPartialUpdateBody = () => zod.object({
     base_version: zod.number().min(1).describe('Current item version observed by the caller.'),
     input: zod
         .union([
@@ -224,7 +946,7 @@ export const DatasetItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Archive an active item by creating a new immutable version.
  */
-export const DatasetItemsArchiveParams = /* @__PURE__ */ zod.object({
+export const DatasetItemsArchiveParams = () => zod.object({
     dataset_item_id: zod.string(),
     project_id: zod
         .string()
@@ -233,14 +955,14 @@ export const DatasetItemsArchiveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DatasetItemsArchiveBody = /* @__PURE__ */ zod.object({
+export const DatasetItemsArchiveBody = () => zod.object({
     base_version: zod.number().min(1).describe('Current item version observed by the caller.'),
 })
 
 /**
  * Restore an archived item by copying content into a new immutable version.
  */
-export const DatasetItemsRestoreParams = /* @__PURE__ */ zod.object({
+export const DatasetItemsRestoreParams = () => zod.object({
     dataset_item_id: zod.string(),
     project_id: zod
         .string()
@@ -249,7 +971,7 @@ export const DatasetItemsRestoreParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DatasetItemsRestoreBody = /* @__PURE__ */ zod.object({
+export const DatasetItemsRestoreBody = () => zod.object({
     base_version: zod.number().min(1).describe('Current item version observed by the caller.'),
     source_version: zod
         .number()
@@ -261,7 +983,7 @@ export const DatasetItemsRestoreBody = /* @__PURE__ */ zod.object({
 /**
  * List every immutable version of an item, newest first.
  */
-export const DatasetItemsVersionsListParams = /* @__PURE__ */ zod.object({
+export const DatasetItemsVersionsListParams = () => zod.object({
     dataset_item_id: zod.string(),
     project_id: zod
         .string()
@@ -270,7 +992,7 @@ export const DatasetItemsVersionsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DatasetItemsVersionsListQueryParams = /* @__PURE__ */ zod.object({
+export const DatasetItemsVersionsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -278,7 +1000,7 @@ export const DatasetItemsVersionsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * List active datasets by default, or archived datasets when requested.
  */
-export const DatasetsListParams = /* @__PURE__ */ zod.object({
+export const DatasetsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -291,7 +1013,7 @@ export const datasetsListQueryIdInMax = 100
 
 export const datasetsListQueryOrderByDefault = `-created_at`
 
-export const DatasetsListQueryParams = /* @__PURE__ */ zod.object({
+export const DatasetsListQueryParams = () => zod.object({
     archived: zod
         .boolean()
         .default(datasetsListQueryArchivedDefault)
@@ -317,7 +1039,7 @@ export const DatasetsListQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Create an empty dataset. Its first revision is created with its first item.
  */
-export const DatasetsCreateParams = /* @__PURE__ */ zod.object({
+export const DatasetsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -330,7 +1052,7 @@ export const datasetsCreateBodyNameMax = 400
 export const datasetsCreateBodyDescriptionDefault = ``
 export const datasetsCreateBodyDescriptionMax = 10000
 
-export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
+export const DatasetsCreateBody = () => zod.object({
     name: zod.string().max(datasetsCreateBodyNameMax).describe('Dataset name. Names are unique within a project.'),
     description: zod
         .string()
@@ -346,7 +1068,7 @@ export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Retrieve an active or archived dataset.
  */
-export const DatasetsRetrieveParams = /* @__PURE__ */ zod.object({
+export const DatasetsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this dataset.'),
     project_id: zod
         .string()
@@ -358,7 +1080,7 @@ export const DatasetsRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Update descriptive dataset fields without changing its revision.
  */
-export const DatasetsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const DatasetsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this dataset.'),
     project_id: zod
         .string()
@@ -371,7 +1093,7 @@ export const datasetsPartialUpdateBodyNameMax = 400
 
 export const datasetsPartialUpdateBodyDescriptionMax = 10000
 
-export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const DatasetsPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(datasetsPartialUpdateBodyNameMax)
@@ -391,7 +1113,7 @@ export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * Archive a dataset. Archived datasets remain readable and reject item mutations.
  */
-export const DatasetsArchiveParams = /* @__PURE__ */ zod.object({
+export const DatasetsArchiveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this dataset.'),
     project_id: zod
         .string()
@@ -403,7 +1125,7 @@ export const DatasetsArchiveParams = /* @__PURE__ */ zod.object({
 /**
  * Restore an archived dataset without changing its item states.
  */
-export const DatasetsRestoreParams = /* @__PURE__ */ zod.object({
+export const DatasetsRestoreParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this dataset.'),
     project_id: zod
         .string()
@@ -415,7 +1137,7 @@ export const DatasetsRestoreParams = /* @__PURE__ */ zod.object({
 /**
  * List immutable dataset revisions, newest first.
  */
-export const DatasetsRevisionsListParams = /* @__PURE__ */ zod.object({
+export const DatasetsRevisionsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this dataset.'),
     project_id: zod
         .string()
@@ -424,12 +1146,12 @@ export const DatasetsRevisionsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const DatasetsRevisionsListQueryParams = /* @__PURE__ */ zod.object({
+export const DatasetsRevisionsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const EvaluationDirectoriesListParams = /* @__PURE__ */ zod.object({
+export const EvaluationDirectoriesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -437,7 +1159,7 @@ export const EvaluationDirectoriesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EvaluationDirectoriesCreateParams = /* @__PURE__ */ zod.object({
+export const EvaluationDirectoriesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -447,14 +1169,14 @@ export const EvaluationDirectoriesCreateParams = /* @__PURE__ */ zod.object({
 
 export const evaluationDirectoriesCreateBodyNameMax = 400
 
-export const EvaluationDirectoriesCreateBody = /* @__PURE__ */ zod.object({
+export const EvaluationDirectoriesCreateBody = () => zod.object({
     name: zod
         .string()
         .max(evaluationDirectoriesCreateBodyNameMax)
         .describe('Directory name shown in the online evals list.'),
 })
 
-export const EvaluationDirectoriesRetrieveParams = /* @__PURE__ */ zod.object({
+export const EvaluationDirectoriesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation directory.'),
     project_id: zod
         .string()
@@ -463,7 +1185,7 @@ export const EvaluationDirectoriesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EvaluationDirectoriesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const EvaluationDirectoriesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation directory.'),
     project_id: zod
         .string()
@@ -474,7 +1196,7 @@ export const EvaluationDirectoriesPartialUpdateParams = /* @__PURE__ */ zod.obje
 
 export const evaluationDirectoriesPartialUpdateBodyNameMax = 400
 
-export const EvaluationDirectoriesPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const EvaluationDirectoriesPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(evaluationDirectoriesPartialUpdateBodyNameMax)
@@ -482,7 +1204,7 @@ export const EvaluationDirectoriesPartialUpdateBody = /* @__PURE__ */ zod.object
         .describe('Directory name shown in the online evals list.'),
 })
 
-export const EvaluationDirectoriesDestroyParams = /* @__PURE__ */ zod.object({
+export const EvaluationDirectoriesDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation directory.'),
     project_id: zod
         .string()
@@ -497,7 +1219,7 @@ export const EvaluationDirectoriesDestroyParams = /* @__PURE__ */ zod.object({
  * This endpoint validates the request and enqueues a Temporal workflow
  * to asynchronously execute the evaluation.
  */
-export const EvaluationRunsCreateParams = /* @__PURE__ */ zod.object({
+export const EvaluationRunsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -507,7 +1229,7 @@ export const EvaluationRunsCreateParams = /* @__PURE__ */ zod.object({
 
 export const evaluationRunsCreateBodyEventDefault = `$ai_generation`
 
-export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
+export const EvaluationRunsCreateBody = () => zod.object({
     evaluation_id: zod.string().describe('UUID of the evaluation to run.'),
     target_event_id: zod.string().describe('UUID of the $ai_generation event to evaluate.'),
     timestamp: zod.iso
@@ -520,7 +1242,7 @@ export const EvaluationRunsCreateBody = /* @__PURE__ */ zod.object({
     distinct_id: zod.string().nullish().describe('Distinct ID of the event (optional, improves lookup performance).'),
 })
 
-export const EvaluationsListParams = /* @__PURE__ */ zod.object({
+export const EvaluationsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -528,7 +1250,7 @@ export const EvaluationsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EvaluationsListQueryParams = /* @__PURE__ */ zod.object({
+export const EvaluationsListQueryParams = () => zod.object({
     directory_id: zod.string().optional().describe('Filter evaluations by directory UUID.'),
     directory_id__isnull: zod.boolean().optional().describe('Filter evaluations by whether they are at the top level.'),
     enabled: zod.boolean().optional().describe('Filter by enabled status'),
@@ -550,7 +1272,7 @@ export const EvaluationsListQueryParams = /* @__PURE__ */ zod.object({
     search: zod.string().optional().describe('Search in name or description'),
 })
 
-export const EvaluationsCreateParams = /* @__PURE__ */ zod.object({
+export const EvaluationsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -561,7 +1283,15 @@ export const EvaluationsCreateParams = /* @__PURE__ */ zod.object({
 export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
-export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsCreateBodyOutputConfigStepExclusiveMin = 0
+
+export const evaluationsCreateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsCreateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsCreateBodyOutputConfigOptionsItemLabelMax = 256
+
+export const evaluationsCreateBodyOutputConfigOptionsMax = 100
+
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -579,7 +1309,7 @@ export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax = 604800
 
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
-export const EvaluationsCreateBody = /* @__PURE__ */ zod
+export const EvaluationsCreateBody = () => zod
     .object({
         name: zod.string().max(evaluationsCreateBodyNameMax).describe('Name of the evaluation.'),
         description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
@@ -609,7 +1339,9 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                     source: zod
                         .string()
                         .min(1)
-                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                        .describe(
+                            'Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -625,20 +1357,98 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                 "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
-            .enum(['boolean', 'sentiment'])
-            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
+            .enum(['boolean', 'numeric', 'categorical', 'sentiment'])
             .describe(
-                "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
+                '\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment'
+            )
+            .describe(
+                "Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
             .object({
                 allows_na: zod
                     .boolean()
-                    .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
+                    .optional()
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_failure: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    ),
+                min: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                    ),
+                max: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                    ),
+                step: zod
+                    .number()
+                    .gt(evaluationsCreateBodyOutputConfigStepExclusiveMin)
+                    .nullish()
+                    .describe('Optional positive input increment. Does not round evaluation results.'),
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsCreateBodyOutputConfigOptionsItemKeyMax)
+                                .regex(evaluationsCreateBodyOutputConfigOptionsItemKeyRegExp)
+                                .describe('Stable category key.'),
+                            label: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsCreateBodyOutputConfigOptionsItemLabelMax)
+                                .describe('Category display label.'),
+                        })
+                    )
+                    .min(1)
+                    .max(evaluationsCreateBodyOutputConfigOptionsMax)
+                    .optional()
+                    .describe(
+                        'Categorical output options. Keys identify stored results; labels are displayed to users.'
+                    ),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .optional()
+                    .describe(
+                        'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.object({
+                            categories: zod
+                                .array(zod.string())
+                                .describe(
+                                    'Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
+                    ),
             })
             .optional()
-            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
+            ),
         conditions: zod
             .array(
                 zod
@@ -731,9 +1541,11 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                                 'together_ai',
                                 'minimax',
                                 'zeabur',
+                                'system_one',
+                                'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -755,7 +1567,166 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
     })
     .describe('An evaluation that scores LLM generations, traces, or sessions.')
 
-export const EvaluationsRetrieveParams = /* @__PURE__ */ zod.object({
+/**
+ * Historical runs of one evaluation over a closed time window (nested under an evaluation).
+ */
+export const EvaluationsBackfillsListParams = () => zod.object({
+    evaluation_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const EvaluationsBackfillsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Create a backfill: freeze the conditions, count the units, start the walk.
+ */
+export const EvaluationsBackfillsCreateParams = () => zod.object({
+    evaluation_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const evaluationsBackfillsCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMax = 100
+
+export const evaluationsBackfillsCreateBodyRerunExistingDefault = false
+
+export const EvaluationsBackfillsCreateBody = () => zod.object({
+    window_start: zod.iso.datetime({ offset: true }).describe('Inclusive start of the window, by unit timestamp.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe('Exclusive end of the window. Values in the future are clamped to now.'),
+    conditions: zod
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsBackfillsCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsBackfillsCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
+        .optional()
+        .describe("Condition sets to match. Defaults to the evaluation's own condition sets."),
+    rerun_existing: zod
+        .boolean()
+        .default(evaluationsBackfillsCreateBodyRerunExistingDefault)
+        .describe('Evaluate units again even when this evaluation already has a result for them.'),
+})
+
+/**
+ * Historical runs of one evaluation over a closed time window (nested under an evaluation).
+ */
+export const EvaluationsBackfillsRetrieveParams = () => zod.object({
+    evaluation_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this evaluation backfill.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Stop a running backfill. Evaluations already dispatched still finish.
+ */
+export const EvaluationsBackfillsCancelCreateParams = () => zod.object({
+    evaluation_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this evaluation backfill.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Count what a backfill over the given window would evaluate, without creating one.
+ */
+export const EvaluationsBackfillsEstimateCreateParams = () => zod.object({
+    evaluation_id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemIdMax = 100
+
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageDefault = 100
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMin = 0
+export const evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMax = 100
+
+export const evaluationsBackfillsEstimateCreateBodyRerunExistingDefault = false
+
+export const EvaluationsBackfillsEstimateCreateBody = () => zod.object({
+    window_start: zod.iso.datetime({ offset: true }).describe('Inclusive start of the window, by unit timestamp.'),
+    window_end: zod.iso
+        .datetime({ offset: true })
+        .describe('Exclusive end of the window. Values in the future are clamped to now.'),
+    conditions: zod
+        .array(
+            zod
+                .object({
+                    id: zod
+                        .string()
+                        .max(evaluationsBackfillsEstimateCreateBodyConditionsItemIdMax)
+                        .describe('Stable identifier for this condition set.'),
+                    rollout_percentage: zod
+                        .number()
+                        .min(evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMin)
+                        .max(evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageMax)
+                        .default(evaluationsBackfillsEstimateCreateBodyConditionsItemRolloutPercentageDefault)
+                        .describe(
+                            'Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.'
+                        ),
+                    properties: zod
+                        .array(zod.record(zod.string(), zod.unknown()))
+                        .optional()
+                        .describe(
+                            'Property filters (event or person) that scope which generations match this condition set.'
+                        ),
+                })
+                .describe('A trigger condition set controlling which generations an evaluation runs on.')
+        )
+        .optional()
+        .describe("Condition sets to match. Defaults to the evaluation's own condition sets."),
+    rerun_existing: zod
+        .boolean()
+        .default(evaluationsBackfillsEstimateCreateBodyRerunExistingDefault)
+        .describe('Evaluate units again even when this evaluation already has a result for them.'),
+})
+
+export const EvaluationsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation.'),
     project_id: zod
         .string()
@@ -764,7 +1735,7 @@ export const EvaluationsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EvaluationsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const EvaluationsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation.'),
     project_id: zod
         .string()
@@ -776,7 +1747,15 @@ export const EvaluationsPartialUpdateParams = /* @__PURE__ */ zod.object({
 export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
-export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin = 0
+
+export const evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsPartialUpdateBodyOutputConfigOptionsItemLabelMax = 256
+
+export const evaluationsPartialUpdateBodyOutputConfigOptionsMax = 100
+
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -794,7 +1773,7 @@ export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax = 60480
 
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
-export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
+export const EvaluationsPartialUpdateBody = () => zod
     .object({
         name: zod.string().max(evaluationsPartialUpdateBodyNameMax).optional().describe('Name of the evaluation.'),
         description: zod.string().optional().describe('Optional description of what this evaluation checks.'),
@@ -825,7 +1804,9 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                     source: zod
                         .string()
                         .min(1)
-                        .describe('Hog source code. Must return true (pass), false (fail), or null for N\/A.'),
+                        .describe(
+                            'Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
+                        ),
                 }),
                 zod.object({
                     source: zod
@@ -841,21 +1822,99 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                 "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
-            .enum(['boolean', 'sentiment'])
-            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment')
+            .enum(['boolean', 'numeric', 'categorical', 'sentiment'])
+            .describe(
+                '\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment'
+            )
             .optional()
             .describe(
-                "Output format. Use 'boolean' for pass\/fail evaluations and 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `sentiment` - Sentiment"
+                "Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
             .object({
                 allows_na: zod
                     .boolean()
-                    .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
+                    .optional()
                     .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+                true_is_failure: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    ),
+                min: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                    ),
+                max: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                    ),
+                step: zod
+                    .number()
+                    .gt(evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin)
+                    .nullish()
+                    .describe('Optional positive input increment. Does not round evaluation results.'),
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyMax)
+                                .regex(evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyRegExp)
+                                .describe('Stable category key.'),
+                            label: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsPartialUpdateBodyOutputConfigOptionsItemLabelMax)
+                                .describe('Category display label.'),
+                        })
+                    )
+                    .min(1)
+                    .max(evaluationsPartialUpdateBodyOutputConfigOptionsMax)
+                    .optional()
+                    .describe(
+                        'Categorical output options. Keys identify stored results; labels are displayed to users.'
+                    ),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .optional()
+                    .describe(
+                        'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.object({
+                            categories: zod
+                                .array(zod.string())
+                                .describe(
+                                    'Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
+                    ),
             })
             .optional()
-            .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
+            .describe(
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
+            ),
         conditions: zod
             .array(
                 zod
@@ -948,9 +2007,11 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                                 'together_ai',
                                 'minimax',
                                 'zeabur',
+                                'system_one',
+                                'openai_compatible',
                             ])
                             .describe(
-                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                                '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `system_one` - System One\n\* `openai_compatible` - OpenAI-compatible'
                             ),
                         model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                         provider_key_id: zod
@@ -975,7 +2036,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const EvaluationsDestroyParams = /* @__PURE__ */ zod.object({
+export const EvaluationsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation.'),
     project_id: zod
         .string()
@@ -987,13 +2048,23 @@ export const EvaluationsDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Test Hog evaluation code against sample events without saving.
  */
-export const EvaluationsTestHogCreateParams = /* @__PURE__ */ zod.object({
+export const EvaluationsTestHogCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const evaluationsTestHogCreateBodyOutputTypeDefault = `boolean`
+export const evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin = 0
+
+export const evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsTestHogCreateBodyOutputConfigOptionsItemLabelMax = 256
+
+export const evaluationsTestHogCreateBodyOutputConfigOptionsMax = 100
 
 export const evaluationsTestHogCreateBodySampleCountDefault = 5
 export const evaluationsTestHogCreateBodySampleCountMax = 10
@@ -1008,11 +2079,101 @@ export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsDefaul
 export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMin = 10
 export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMax = 86400
 
-export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
+export const EvaluationsTestHogCreateBody = () => zod.object({
+    output_type: zod
+        .enum(['boolean', 'numeric', 'categorical'])
+        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical')
+        .default(evaluationsTestHogCreateBodyOutputTypeDefault)
+        .describe(
+            'Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical'
+        ),
+    output_config: zod
+        .object({
+            allows_na: zod
+                .boolean()
+                .optional()
+                .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+            true_is_failure: zod
+                .boolean()
+                .optional()
+                .describe(
+                    'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                ),
+            min: zod
+                .number()
+                .nullish()
+                .describe(
+                    'Inclusive minimum numeric score. Omit for no lower bound. Required for System One numeric judges.'
+                ),
+            max: zod
+                .number()
+                .nullish()
+                .describe(
+                    'Inclusive maximum numeric score. Omit for no upper bound. Required for System One numeric judges and must exceed min.'
+                ),
+            step: zod
+                .number()
+                .gt(evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin)
+                .nullish()
+                .describe('Optional positive input increment. Does not round evaluation results.'),
+            options: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .min(1)
+                            .max(evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyMax)
+                            .regex(evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyRegExp)
+                            .describe('Stable category key.'),
+                        label: zod
+                            .string()
+                            .min(1)
+                            .max(evaluationsTestHogCreateBodyOutputConfigOptionsItemLabelMax)
+                            .describe('Category display label.'),
+                    })
+                )
+                .min(1)
+                .max(evaluationsTestHogCreateBodyOutputConfigOptionsMax)
+                .optional()
+                .describe('Categorical output options. Keys identify stored results; labels are displayed to users.'),
+            selection_mode: zod
+                .enum(['single', 'multiple'])
+                .optional()
+                .describe(
+                    'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                ),
+            passing_rule: zod
+                .union([
+                    zod.object({
+                        operator: zod
+                            .enum(['gte', 'lte'])
+                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                        threshold: zod
+                            .number()
+                            .describe('Finite passing threshold within any configured score bounds.'),
+                    }),
+                    zod.object({
+                        categories: zod
+                            .array(zod.string())
+                            .describe(
+                                'Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
+                ),
+        })
+        .optional()
+        .describe('Output settings used to validate the preview, including bounds, categories, and allows_na.'),
     source: zod
         .string()
         .min(1)
-        .describe('Hog source code to test. Must return a boolean (true = pass, false = fail) or null for N\/A.'),
+        .describe(
+            'Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
+        ),
     sample_count: zod
         .number()
         .min(1)
@@ -1058,7 +2219,7 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Team-level clustering configuration (event filters for automated pipelines).
  */
-export const LlmAnalyticsClusteringConfigListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringConfigListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1069,7 +2230,7 @@ export const LlmAnalyticsClusteringConfigListParams = /* @__PURE__ */ zod.object
 /**
  * Team-level clustering configuration (event filters for automated pipelines).
  */
-export const LlmAnalyticsClusteringConfigSetEventFiltersCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringConfigSetEventFiltersCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1077,7 +2238,7 @@ export const LlmAnalyticsClusteringConfigSetEventFiltersCreateParams = /* @__PUR
         ),
 })
 
-export const LlmAnalyticsClusteringConfigSetEventFiltersCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringConfigSetEventFiltersCreateBody = () => zod.object({
     event_filters: zod
         .array(zod.record(zod.string(), zod.unknown()))
         .describe(
@@ -1088,7 +2249,7 @@ export const LlmAnalyticsClusteringConfigSetEventFiltersCreateBody = /* @__PURE_
 /**
  * CRUD for clustering job configurations (max 10 per team).
  */
-export const LlmAnalyticsClusteringJobsListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringJobsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1096,7 +2257,7 @@ export const LlmAnalyticsClusteringJobsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LlmAnalyticsClusteringJobsListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringJobsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -1104,7 +2265,7 @@ export const LlmAnalyticsClusteringJobsListQueryParams = /* @__PURE__ */ zod.obj
 /**
  * CRUD for clustering job configurations (max 10 per team).
  */
-export const LlmAnalyticsClusteringJobsCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringJobsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1114,19 +2275,22 @@ export const LlmAnalyticsClusteringJobsCreateParams = /* @__PURE__ */ zod.object
 
 export const llmAnalyticsClusteringJobsCreateBodyNameMax = 100
 
-export const LlmAnalyticsClusteringJobsCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringJobsCreateBody = () => zod.object({
     name: zod.string().max(llmAnalyticsClusteringJobsCreateBodyNameMax),
     analysis_level: zod
         .enum(['trace', 'generation', 'evaluation'])
         .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
-    event_filters: zod.unknown().optional(),
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .optional()
+        .describe('PostHog property filters that scope this clustering job. Empty array means no filters.'),
     enabled: zod.boolean().optional(),
 })
 
 /**
  * CRUD for clustering job configurations (max 10 per team).
  */
-export const LlmAnalyticsClusteringJobsRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringJobsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this clustering job.'),
     project_id: zod
         .string()
@@ -1138,7 +2302,7 @@ export const LlmAnalyticsClusteringJobsRetrieveParams = /* @__PURE__ */ zod.obje
 /**
  * CRUD for clustering job configurations (max 10 per team).
  */
-export const LlmAnalyticsClusteringJobsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringJobsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this clustering job.'),
     project_id: zod
         .string()
@@ -1149,20 +2313,23 @@ export const LlmAnalyticsClusteringJobsPartialUpdateParams = /* @__PURE__ */ zod
 
 export const llmAnalyticsClusteringJobsPartialUpdateBodyNameMax = 100
 
-export const LlmAnalyticsClusteringJobsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringJobsPartialUpdateBody = () => zod.object({
     name: zod.string().max(llmAnalyticsClusteringJobsPartialUpdateBodyNameMax).optional(),
     analysis_level: zod
         .enum(['trace', 'generation', 'evaluation'])
         .optional()
         .describe('\* `trace` - trace\n\* `generation` - generation\n\* `evaluation` - evaluation'),
-    event_filters: zod.unknown().optional(),
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .optional()
+        .describe('PostHog property filters that scope this clustering job. Empty array means no filters.'),
     enabled: zod.boolean().optional(),
 })
 
 /**
  * CRUD for clustering job configurations (max 10 per team).
  */
-export const LlmAnalyticsClusteringJobsDestroyParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsClusteringJobsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this clustering job.'),
     project_id: zod
         .string()
@@ -1174,7 +2341,7 @@ export const LlmAnalyticsClusteringJobsDestroyParams = /* @__PURE__ */ zod.objec
 /**
  * Get the evaluation config for this team
  */
-export const LlmAnalyticsEvaluationConfigRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationConfigRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1185,7 +2352,7 @@ export const LlmAnalyticsEvaluationConfigRetrieveParams = /* @__PURE__ */ zod.ob
 /**
  * Set the active provider key for evaluations
  */
-export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1193,7 +2360,7 @@ export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateParams = /* @__PURE__
         ),
 })
 
-export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = () => zod.object({
     key_id: zod
         .string()
         .describe(
@@ -1204,7 +2371,7 @@ export const LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody = /* @__PURE__ *
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const LlmAnalyticsEvaluationReportsListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1212,7 +2379,7 @@ export const LlmAnalyticsEvaluationReportsListParams = /* @__PURE__ */ zod.objec
         ),
 })
 
-export const LlmAnalyticsEvaluationReportsListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsListQueryParams = () => zod.object({
     evaluation: zod.string().optional().describe('Only return report configs for this evaluation UUID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -1221,7 +2388,7 @@ export const LlmAnalyticsEvaluationReportsListQueryParams = /* @__PURE__ */ zod.
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const LlmAnalyticsEvaluationReportsCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1240,7 +2407,7 @@ export const llmAnalyticsEvaluationReportsCreateBodyCooldownMinutesMax = 1440
 
 export const llmAnalyticsEvaluationReportsCreateBodyDailyRunCapMax = 24
 
-export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsCreateBody = () => zod.object({
     evaluation: zod.string().describe('UUID of the evaluation this report config belongs to.'),
     frequency: zod
         .enum(['scheduled', 'every_n'])
@@ -1303,7 +2470,7 @@ export const LlmAnalyticsEvaluationReportsCreateBody = /* @__PURE__ */ zod.objec
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const LlmAnalyticsEvaluationReportsRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation report.'),
     project_id: zod
         .string()
@@ -1315,7 +2482,7 @@ export const LlmAnalyticsEvaluationReportsRetrieveParams = /* @__PURE__ */ zod.o
 /**
  * CRUD for evaluation report configurations + report run history.
  */
-export const LlmAnalyticsEvaluationReportsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation report.'),
     project_id: zod
         .string()
@@ -1335,7 +2502,7 @@ export const llmAnalyticsEvaluationReportsPartialUpdateBodyCooldownMinutesMax = 
 
 export const llmAnalyticsEvaluationReportsPartialUpdateBodyDailyRunCapMax = 24
 
-export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsPartialUpdateBody = () => zod.object({
     frequency: zod
         .enum(['scheduled', 'every_n'])
         .describe('\* `scheduled` - Scheduled\n\* `every_n` - Every N')
@@ -1397,7 +2564,7 @@ export const LlmAnalyticsEvaluationReportsPartialUpdateBody = /* @__PURE__ */ zo
 /**
  * Trigger immediate report generation.
  */
-export const LlmAnalyticsEvaluationReportsGenerateCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsGenerateCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation report.'),
     project_id: zod
         .string()
@@ -1409,7 +2576,7 @@ export const LlmAnalyticsEvaluationReportsGenerateCreateParams = /* @__PURE__ */
 /**
  * List report runs (history) for this report.
  */
-export const LlmAnalyticsEvaluationReportsRunsListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsRunsListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this evaluation report.'),
     project_id: zod
         .string()
@@ -1418,7 +2585,7 @@ export const LlmAnalyticsEvaluationReportsRunsListParams = /* @__PURE__ */ zod.o
         ),
 })
 
-export const LlmAnalyticsEvaluationReportsRunsListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsEvaluationReportsRunsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -1426,7 +2593,7 @@ export const LlmAnalyticsEvaluationReportsRunsListQueryParams = /* @__PURE__ */ 
 /**
  * List available models, for one provider or for every supported provider.
  */
-export const LlmAnalyticsModelsRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsModelsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1434,7 +2601,7 @@ export const LlmAnalyticsModelsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsModelsRetrieveQueryParams = () => zod.object({
     key_id: zod
         .string()
         .optional()
@@ -1449,7 +2616,9 @@ export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object(
             'gemini',
             'minimax',
             'openai',
+            'openai_compatible',
             'openrouter',
+            'system_one',
             'together_ai',
             'zeabur',
         ])
@@ -1459,7 +2628,7 @@ export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const LlmAnalyticsProviderKeysListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsProviderKeysListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1467,12 +2636,12 @@ export const LlmAnalyticsProviderKeysListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LlmAnalyticsProviderKeysListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsProviderKeysListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const LlmAnalyticsProviderKeysRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsProviderKeysRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this llm provider key.'),
     project_id: zod
         .string()
@@ -1481,7 +2650,7 @@ export const LlmAnalyticsProviderKeysRetrieveParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const LlmAnalyticsReviewQueueItemsListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1489,7 +2658,7 @@ export const LlmAnalyticsReviewQueueItemsListParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const LlmAnalyticsReviewQueueItemsListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod.string().optional().describe('Order by `created_at` or `updated_at`.'),
@@ -1499,7 +2668,7 @@ export const LlmAnalyticsReviewQueueItemsListQueryParams = /* @__PURE__ */ zod.o
     trace_id__in: zod.string().optional().describe('Filter by multiple trace IDs separated by commas.'),
 })
 
-export const LlmAnalyticsReviewQueueItemsCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1509,7 +2678,7 @@ export const LlmAnalyticsReviewQueueItemsCreateParams = /* @__PURE__ */ zod.obje
 
 export const llmAnalyticsReviewQueueItemsCreateBodyTraceIdMax = 255
 
-export const LlmAnalyticsReviewQueueItemsCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsCreateBody = () => zod.object({
     queue_id: zod.string().describe('Review queue ID that should own this pending trace.'),
     trace_id: zod
         .string()
@@ -1517,7 +2686,7 @@ export const LlmAnalyticsReviewQueueItemsCreateBody = /* @__PURE__ */ zod.object
         .describe('Trace ID to add to the selected review queue.'),
 })
 
-export const LlmAnalyticsReviewQueueItemsRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue item.'),
     project_id: zod
         .string()
@@ -1526,7 +2695,7 @@ export const LlmAnalyticsReviewQueueItemsRetrieveParams = /* @__PURE__ */ zod.ob
         ),
 })
 
-export const LlmAnalyticsReviewQueueItemsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue item.'),
     project_id: zod
         .string()
@@ -1535,11 +2704,11 @@ export const LlmAnalyticsReviewQueueItemsPartialUpdateParams = /* @__PURE__ */ z
         ),
 })
 
-export const LlmAnalyticsReviewQueueItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsPartialUpdateBody = () => zod.object({
     queue_id: zod.string().optional().describe('Review queue ID that should own this pending trace.'),
 })
 
-export const LlmAnalyticsReviewQueueItemsDestroyParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueueItemsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue item.'),
     project_id: zod
         .string()
@@ -1548,7 +2717,7 @@ export const LlmAnalyticsReviewQueueItemsDestroyParams = /* @__PURE__ */ zod.obj
         ),
 })
 
-export const LlmAnalyticsReviewQueuesListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1556,7 +2725,7 @@ export const LlmAnalyticsReviewQueuesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LlmAnalyticsReviewQueuesListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     name: zod.string().optional(),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -1564,7 +2733,7 @@ export const LlmAnalyticsReviewQueuesListQueryParams = /* @__PURE__ */ zod.objec
     search: zod.string().optional().describe('Search review queue names.'),
 })
 
-export const LlmAnalyticsReviewQueuesCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1574,11 +2743,11 @@ export const LlmAnalyticsReviewQueuesCreateParams = /* @__PURE__ */ zod.object({
 
 export const llmAnalyticsReviewQueuesCreateBodyNameMax = 255
 
-export const LlmAnalyticsReviewQueuesCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesCreateBody = () => zod.object({
     name: zod.string().max(llmAnalyticsReviewQueuesCreateBodyNameMax).describe('Human-readable queue name.'),
 })
 
-export const LlmAnalyticsReviewQueuesRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue.'),
     project_id: zod
         .string()
@@ -1587,7 +2756,7 @@ export const LlmAnalyticsReviewQueuesRetrieveParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const LlmAnalyticsReviewQueuesPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue.'),
     project_id: zod
         .string()
@@ -1598,7 +2767,7 @@ export const LlmAnalyticsReviewQueuesPartialUpdateParams = /* @__PURE__ */ zod.o
 
 export const llmAnalyticsReviewQueuesPartialUpdateBodyNameMax = 255
 
-export const LlmAnalyticsReviewQueuesPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(llmAnalyticsReviewQueuesPartialUpdateBodyNameMax)
@@ -1606,7 +2775,7 @@ export const LlmAnalyticsReviewQueuesPartialUpdateBody = /* @__PURE__ */ zod.obj
         .describe('Human-readable queue name.'),
 })
 
-export const LlmAnalyticsReviewQueuesDestroyParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsReviewQueuesDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this review queue.'),
     project_id: zod
         .string()
@@ -1615,7 +2784,7 @@ export const LlmAnalyticsReviewQueuesDestroyParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const LlmAnalyticsScoreDefinitionsListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1623,7 +2792,7 @@ export const LlmAnalyticsScoreDefinitionsListParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const LlmAnalyticsScoreDefinitionsListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsListQueryParams = () => zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state.'),
     kind: zod.string().optional().describe('Filter by scorer kind.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
@@ -1632,7 +2801,7 @@ export const LlmAnalyticsScoreDefinitionsListQueryParams = /* @__PURE__ */ zod.o
     search: zod.string().optional().describe('Search scorers by name or description.'),
 })
 
-export const LlmAnalyticsScoreDefinitionsCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1647,7 +2816,9 @@ export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemKeyMax
 
 export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
-export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object({
+export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
+export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
     description: zod.string().nullish().describe('Optional human-readable description.'),
     kind: zod
@@ -1700,6 +2871,27 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
                     .describe(
                         'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
                     ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
                 min: zod.number().nullish().describe('Optional inclusive minimum score.'),
@@ -1708,8 +2900,33 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
                     .number()
                     .nullish()
                     .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
                 true_label: zod.string().optional().describe('Optional label for a true value.'),
                 false_label: zod.string().optional().describe('Optional label for a false value.'),
             }),
@@ -1717,7 +2934,7 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
         .describe('Initial immutable scorer configuration.'),
 })
 
-export const LlmAnalyticsScoreDefinitionsRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this score definition.'),
     project_id: zod
         .string()
@@ -1726,7 +2943,7 @@ export const LlmAnalyticsScoreDefinitionsRetrieveParams = /* @__PURE__ */ zod.ob
         ),
 })
 
-export const LlmAnalyticsScoreDefinitionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this score definition.'),
     project_id: zod
         .string()
@@ -1737,7 +2954,7 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateParams = /* @__PURE__ */ z
 
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
 
-export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax)
@@ -1747,7 +2964,7 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     archived: zod.boolean().optional().describe('Whether the scorer is archived.'),
 })
 
-export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this score definition.'),
     project_id: zod
         .string()
@@ -1756,11 +2973,21 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateParams = /* @__PURE__ *
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax = 255
+
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemKeyMax = 128
 
 export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOneOptionsItemLabelMax = 256
 
-export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ zod.object({
+export const llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
+
+export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyNameMax)
+        .optional()
+        .describe('Updated scorer name, saved with this version.'),
+    description: zod.string().nullish().describe('Updated scorer description, saved with this version.'),
     config: zod
         .union([
             zod.object({
@@ -1801,6 +3028,27 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
                     .describe(
                         'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
                     ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            llmAnalyticsScoreDefinitionsNewVersionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
                 min: zod.number().nullish().describe('Optional inclusive minimum score.'),
@@ -1809,8 +3057,33 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
                     .number()
                     .nullish()
                     .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
             }),
             zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
                 true_label: zod.string().optional().describe('Optional label for a true value.'),
                 false_label: zod.string().optional().describe('Optional label for a false value.'),
             }),
@@ -1823,6 +3096,45 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
         .describe(
             "Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check."
         ),
+})
+
+export const LlmAnalyticsScoreDefinitionsVersionsListParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this score definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const llmAnalyticsScoreDefinitionsVersionsListQueryCursorMax = 2048
+
+export const llmAnalyticsScoreDefinitionsVersionsListQueryLimitDefault = 50
+export const llmAnalyticsScoreDefinitionsVersionsListQueryLimitMax = 100
+
+export const LlmAnalyticsScoreDefinitionsVersionsListQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(llmAnalyticsScoreDefinitionsVersionsListQueryCursorMax)
+        .optional()
+        .describe('Continuation cursor from the prior page.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(llmAnalyticsScoreDefinitionsVersionsListQueryLimitMax)
+        .default(llmAnalyticsScoreDefinitionsVersionsListQueryLimitDefault)
+        .describe('Maximum versions to return.'),
+})
+
+export const LlmAnalyticsScoreDefinitionsVersionsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this score definition.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    version_id: zod.string().describe('Immutable version UUID.'),
 })
 
 /**
@@ -1849,7 +3161,7 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
  * The response includes the structured summary, the text representation, and metadata.
  *
  */
-export const LlmAnalyticsSummarizationCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsSummarizationCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1859,8 +3171,9 @@ export const LlmAnalyticsSummarizationCreateParams = /* @__PURE__ */ zod.object(
 
 export const llmAnalyticsSummarizationCreateBodyModeDefault = `minimal`
 export const llmAnalyticsSummarizationCreateBodyForceRefreshDefault = false
+export const llmAnalyticsSummarizationCreateBodyCompactContextDefault = false
 
-export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsSummarizationCreateBody = () => zod.object({
     summarize_type: zod
         .enum(['trace', 'event'])
         .describe('\* `trace` - trace\n\* `event` - event')
@@ -1885,6 +3198,12 @@ export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(llmAnalyticsSummarizationCreateBodyForceRefreshDefault)
         .describe('Force regenerate summary, bypassing cache'),
+    compact_context: zod
+        .boolean()
+        .default(llmAnalyticsSummarizationCreateBodyCompactContextDefault)
+        .describe(
+            'Bound the input to a cost-conscious size instead of the full model context window. Use it when you summarize many traces at once and need only a short result such as the title.'
+        ),
     model: zod.string().nullish().describe('LLM model to use (defaults based on provider)'),
     trace_id: zod
         .string()
@@ -1905,7 +3224,7 @@ export const LlmAnalyticsSummarizationCreateBody = /* @__PURE__ */ zod.object({
     date_to: zod.string().nullish().describe('End of date range for ID-based lookup. Defaults to now.'),
 })
 
-export const LlmAnalyticsTraceReviewsListParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1913,7 +3232,7 @@ export const LlmAnalyticsTraceReviewsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LlmAnalyticsTraceReviewsListQueryParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsListQueryParams = () => zod.object({
     definition_id: zod.string().optional().describe('Filter by a stable scorer definition ID.'),
     definition_id__in: zod
         .string()
@@ -1927,7 +3246,7 @@ export const LlmAnalyticsTraceReviewsListQueryParams = /* @__PURE__ */ zod.objec
     trace_id__in: zod.string().optional().describe('Filter by multiple trace IDs separated by commas.'),
 })
 
-export const LlmAnalyticsTraceReviewsCreateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -1941,7 +3260,7 @@ export const llmAnalyticsTraceReviewsCreateBodyScoresItemCategoricalValuesItemMa
 
 export const llmAnalyticsTraceReviewsCreateBodyScoresItemNumericValueRegExp = new RegExp('^-?\\d{0,6}(?:\\.\\d{0,6})?$')
 
-export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsCreateBody = () => zod.object({
     trace_id: zod
         .string()
         .max(llmAnalyticsTraceReviewsCreateBodyTraceIdMax)
@@ -1977,7 +3296,7 @@ export const LlmAnalyticsTraceReviewsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const LlmAnalyticsTraceReviewsRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this trace review.'),
     project_id: zod
         .string()
@@ -1986,7 +3305,7 @@ export const LlmAnalyticsTraceReviewsRetrieveParams = /* @__PURE__ */ zod.object
         ),
 })
 
-export const LlmAnalyticsTraceReviewsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this trace review.'),
     project_id: zod
         .string()
@@ -2003,7 +3322,7 @@ export const llmAnalyticsTraceReviewsPartialUpdateBodyScoresItemNumericValueRegE
     '^-?\\d{0,6}(?:\\.\\d{0,6})?$'
 )
 
-export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsPartialUpdateBody = () => zod.object({
     trace_id: zod
         .string()
         .max(llmAnalyticsTraceReviewsPartialUpdateBodyTraceIdMax)
@@ -2042,7 +3361,7 @@ export const LlmAnalyticsTraceReviewsPartialUpdateBody = /* @__PURE__ */ zod.obj
         ),
 })
 
-export const LlmAnalyticsTraceReviewsDestroyParams = /* @__PURE__ */ zod.object({
+export const LlmAnalyticsTraceReviewsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this trace review.'),
     project_id: zod
         .string()
@@ -2051,7 +3370,7 @@ export const LlmAnalyticsTraceReviewsDestroyParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const LlmPromptsListParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2060,9 +3379,13 @@ export const LlmPromptsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const llmPromptsListQueryContentDefault = `full`
+export const llmPromptsListQueryLabelMax = 128
+
 export const llmPromptsListQueryOrderByDefault = `-created_at`
 
-export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
+export const llmPromptsListQueryResolveDefault = true
+
+export const LlmPromptsListQueryParams = () => zod.object({
     content: zod
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsListQueryContentDefault)
@@ -2070,6 +3393,14 @@ export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
             "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
         ),
     created_by_id: zod.number().optional().describe('Filter prompts by the ID of the user who created them.'),
+    label: zod
+        .string()
+        .min(1)
+        .max(llmPromptsListQueryLabelMax)
+        .optional()
+        .describe(
+            "Return each prompt at the version this label points to, e.g. 'production'. Prompts that do not carry the label are omitted. If omitted, the latest version of every prompt is returned."
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
@@ -2079,10 +3410,16 @@ export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Field to sort the prompt list by. Prefix with '-' for descending order.\n\n\* `name` - name\n\* `-name` - -name\n\* `created_at` - created_at\n\* `-created_at` - -created_at\n\* `updated_at` - updated_at\n\* `-updated_at` - -updated_at\n\* `version` - version\n\* `-version` - -version\n\* `latest_version` - latest_version\n\* `-latest_version` - -latest_version\n\* `version_count` - version_count\n\* `-version_count` - -version_count\n\* `first_version_created_at` - first_version_created_at\n\* `-first_version_created_at` - -first_version_created_at\n\* `prompt_size_bytes` - prompt_size_bytes\n\* `-prompt_size_bytes` - -prompt_size_bytes"
         ),
+    resolve: zod
+        .boolean()
+        .default(llmPromptsListQueryResolveDefault)
+        .describe(
+            "Replace @@@prompt:...@@@ references with the referenced prompts' content in labeled results with full content. Set to false to get the raw text with the reference tags."
+        ),
     search: zod.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
 })
 
-export const LlmPromptsCreateParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2094,7 +3431,7 @@ export const llmPromptsCreateBodyNameMax = 255
 
 export const llmPromptsCreateBodyVersionDescriptionMax = 400
 
-export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
+export const LlmPromptsCreateBody = () => zod.object({
     name: zod
         .string()
         .max(llmPromptsCreateBodyNameMax)
@@ -2115,7 +3452,7 @@ export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
 
 export const llmPromptsNameRetrievePathPromptNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmPromptsNameRetrieveParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsNameRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2127,7 +3464,9 @@ export const LlmPromptsNameRetrieveParams = /* @__PURE__ */ zod.object({
 export const llmPromptsNameRetrieveQueryContentDefault = `full`
 export const llmPromptsNameRetrieveQueryLabelMax = 128
 
-export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const llmPromptsNameRetrieveQueryResolveDefault = true
+
+export const LlmPromptsNameRetrieveQueryParams = () => zod.object({
     content: zod
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsNameRetrieveQueryContentDefault)
@@ -2142,6 +3481,12 @@ export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Fetch the version this label currently points to, e.g. 'production'. Lowercase letters, numbers, dots, hyphens and underscores. Mutually exclusive with version."
         ),
+    resolve: zod
+        .boolean()
+        .default(llmPromptsNameRetrieveQueryResolveDefault)
+        .describe(
+            "Replace @@@prompt:...@@@ references with the referenced prompts' content before returning. Set to false to get the raw text with the reference tags, e.g. for editing or export. Only applies when content is 'full'."
+        ),
     version: zod
         .number()
         .min(1)
@@ -2151,7 +3496,7 @@ export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
 
 export const llmPromptsNamePartialUpdatePathPromptNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmPromptsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsNamePartialUpdateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2162,7 +3507,7 @@ export const LlmPromptsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const llmPromptsNamePartialUpdateBodyVersionDescriptionMax = 400
 
-export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmPromptsNamePartialUpdateBody = () => zod.object({
     prompt: zod
         .unknown()
         .optional()
@@ -2198,7 +3543,7 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
 
 export const llmPromptsNameDuplicateCreatePathPromptNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmPromptsNameDuplicateCreateParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsNameDuplicateCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2209,7 +3554,7 @@ export const LlmPromptsNameDuplicateCreateParams = /* @__PURE__ */ zod.object({
 
 export const llmPromptsNameDuplicateCreateBodyNewNameMax = 255
 
-export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
+export const LlmPromptsNameDuplicateCreateBody = () => zod.object({
     new_name: zod
         .string()
         .max(llmPromptsNameDuplicateCreateBodyNewNameMax)
@@ -2221,7 +3566,7 @@ export const LlmPromptsNameDuplicateCreateBody = /* @__PURE__ */ zod.object({
 export const llmPromptsNameLabelsUpdatePathLabelNameRegExp = new RegExp('^[^\/]+$')
 export const llmPromptsNameLabelsUpdatePathPromptNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmPromptsNameLabelsUpdateParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsNameLabelsUpdateParams = () => zod.object({
     label_name: zod.string().regex(llmPromptsNameLabelsUpdatePathLabelNameRegExp),
     project_id: zod
         .string()
@@ -2231,7 +3576,7 @@ export const LlmPromptsNameLabelsUpdateParams = /* @__PURE__ */ zod.object({
     prompt_name: zod.string().regex(llmPromptsNameLabelsUpdatePathPromptNameRegExp),
 })
 
-export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
+export const LlmPromptsNameLabelsUpdateBody = () => zod.object({
     version: zod
         .number()
         .min(1)
@@ -2243,7 +3588,7 @@ export const LlmPromptsNameLabelsUpdateBody = /* @__PURE__ */ zod.object({
 export const llmPromptsNameLabelsDestroyPathLabelNameRegExp = new RegExp('^[^\/]+$')
 export const llmPromptsNameLabelsDestroyPathPromptNameRegExp = new RegExp('^[^\/]+$')
 
-export const LlmPromptsNameLabelsDestroyParams = /* @__PURE__ */ zod.object({
+export const LlmPromptsNameLabelsDestroyParams = () => zod.object({
     label_name: zod.string().regex(llmPromptsNameLabelsDestroyPathLabelNameRegExp),
     project_id: zod
         .string()
@@ -2253,7 +3598,7 @@ export const LlmPromptsNameLabelsDestroyParams = /* @__PURE__ */ zod.object({
     prompt_name: zod.string().regex(llmPromptsNameLabelsDestroyPathPromptNameRegExp),
 })
 
-export const TaggersListParams = /* @__PURE__ */ zod.object({
+export const TaggersListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2261,7 +3606,7 @@ export const TaggersListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const TaggersListQueryParams = /* @__PURE__ */ zod.object({
+export const TaggersListQueryParams = () => zod.object({
     enabled: zod.boolean().optional().describe('Filter by enabled status'),
     id__in: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
@@ -2275,7 +3620,7 @@ export const TaggersListQueryParams = /* @__PURE__ */ zod.object({
     search: zod.string().optional().describe('Search in name or description'),
 })
 
-export const TaggersCreateParams = /* @__PURE__ */ zod.object({
+export const TaggersCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2307,7 +3652,7 @@ export const taggersCreateBodyConditionsItemRolloutPercentageMax = 100
 
 export const taggersCreateBodyModelConfigurationOneModelMax = 100
 
-export const TaggersCreateBody = /* @__PURE__ */ zod.object({
+export const TaggersCreateBody = () => zod.object({
     name: zod.string().max(taggersCreateBodyNameMax),
     description: zod.string().optional(),
     enabled: zod.boolean().optional(),
@@ -2399,12 +3744,13 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
                         'together_ai',
                         'minimax',
                         'zeabur',
+                        'openai_compatible',
                     ])
                     .describe(
-                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        '\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub'
+                        'LLM provider to use for this tagger.\n\n\* `openai` - Openai\n\* `anthropic` - Anthropic\n\* `gemini` - Gemini\n\* `openrouter` - Openrouter\n\* `fireworks` - Fireworks\n\* `azure_openai` - Azure OpenAI\n\* `together_ai` - Together AI\n\* `minimax` - MiniMax\n\* `zeabur` - Zeabur AI Hub\n\* `openai_compatible` - OpenAI-compatible'
                     ),
                 model: zod
                     .string()
@@ -2425,7 +3771,7 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Test Hog tagger code against sample events without saving.
  */
-export const TaggersTestHogCreateParams = /* @__PURE__ */ zod.object({
+export const TaggersTestHogCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2441,7 +3787,7 @@ export const taggersTestHogCreateBodyTagsItemNameMax = 100
 export const taggersTestHogCreateBodyTagsItemDescriptionDefault = ``
 export const taggersTestHogCreateBodyTagsItemDescriptionMax = 500
 
-export const TaggersTestHogCreateBody = /* @__PURE__ */ zod.object({
+export const TaggersTestHogCreateBody = () => zod.object({
     source: zod
         .string()
         .min(1)

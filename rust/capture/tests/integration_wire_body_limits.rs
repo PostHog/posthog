@@ -6,10 +6,11 @@ use axum::http::StatusCode;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::outputs::{OutputRegistry, PublishEvents};
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::{router, BATCH_BODY_SIZE};
-use capture::sinks::Event;
 use capture::time::TimeSource;
+use capture::v0_request::AiLanePredicate;
 use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
@@ -48,13 +49,8 @@ impl CapturingSink {
 }
 
 #[async_trait]
-impl Event for CapturingSink {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.events.lock().await.push(event);
-        Ok(())
-    }
-
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+impl PublishEvents for CapturingSink {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         self.events.lock().await.extend(events);
         Ok(())
     }
@@ -79,7 +75,7 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         timesource,
         readiness,
         liveness,
-        Arc::new(sink.clone()),
+        Arc::new(OutputRegistry::single(sink.clone())),
         redis.clone(),
         None,
         CaptureQuotaLimiter::new(&cfg, redis, Duration::from_secs(60)),
@@ -97,6 +93,7 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         // Far above any body this file sends: the AI-lane event ceiling must not
         // be what produces a 413 here, or the wire cap would go untested.
         BATCH_BODY_SIZE as u64 * 5, // ai_max_event_bytes
+        AiLanePredicate::Allowlist,
         None,
         256,
         10 * 1024 * 1024,

@@ -22,16 +22,16 @@ from pydantic import BaseModel
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.kafka_client.client import ProduceResult
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.sync import database_sync_to_async
 
-from products.alerts.backend.destinations import (
-    ProduceResult,
+from products.alerts.backend.facade.destinations import (
     alert_internal_event_delivered,
     flush_alert_internal_events,
     produce_alert_internal_event,
 )
-from products.alerts.backend.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
-from products.replay_vision.backend.alert_destinations import escape_slack_mrkdwn
+from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.replay_vision.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertState,
@@ -58,19 +58,24 @@ from products.replay_vision.backend.models.vision_alert import (
     VisionAlertMatch,
     VisionAlertMetric,
 )
-from products.replay_vision.backend.observation_formatting import describe_output
+from products.replay_vision.backend.observation_formatting import describe_output, explanation_text, plain_snippet
+from products.replay_vision.backend.prompt_questions import scanner_question
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.vision_actions.synthesis import apply_observation_predicate
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.vision_alerts.constants import (
+    ACTIVITY_TIMEOUT,
     CLEANUP_BATCH_SIZE,
     MATCH_DESCRIPTOR_MAX_CHARS,
+    MATCH_EXPLANATION_MAX_CHARS,
     MATCH_SUMMARY_LINES,
+    MATCH_SUMMARY_MAX_CHARS,
     MAX_ALERTS_PER_BATCH,
     MAX_ALERTS_PER_TICK,
     MAX_DRAIN_ALERTS_PER_TICK,
     MAX_MATCHES_PER_BUNDLE,
     NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
 )
+from products.replay_vision.backend.temporal.vision_alerts.observation_predicate import apply_observation_predicate
 
 logger = structlog.get_logger(__name__)
 
@@ -160,14 +165,15 @@ def _discover_due(inputs: DiscoverDueAlertsInput) -> DiscoverDueAlertsOutput:
     now = datetime.now(UTC)
     # Oldest due first, capped so the workflow result stays far below Temporal's payload
     # limit; the overflow keeps its next_check_at and is picked up next tick.
-    due_ids = list(
-        VisionAlertConfiguration.all_teams.filter(
-            due_alerts_q(now, broken_state=AlertState.BROKEN.value, snoozed_state=AlertState.SNOOZED.value),
-            kind=VisionAlertKind.METRIC,
+    with bounded_queries(ACTIVITY_TIMEOUT):
+        due_ids = list(
+            VisionAlertConfiguration.all_teams.filter(
+                due_alerts_q(now, broken_state=AlertState.BROKEN.value, snoozed_state=AlertState.SNOOZED.value),
+                kind=VisionAlertKind.METRIC,
+            )
+            .order_by("next_check_at", "id")
+            .values_list("id", flat=True)[: MAX_ALERTS_PER_TICK + 1]
         )
-        .order_by("next_check_at", "id")
-        .values_list("id", flat=True)[: MAX_ALERTS_PER_TICK + 1]
-    )
     if len(due_ids) > MAX_ALERTS_PER_TICK:
         logger.warning("vision_alert.discovery_truncated", cap=MAX_ALERTS_PER_TICK)
         due_ids = due_ids[:MAX_ALERTS_PER_TICK]
@@ -232,17 +238,18 @@ def _evaluate_single_alert(alert: VisionAlertConfiguration, now: datetime) -> _A
     check_result: CheckResult
     try:
         queryset = _observation_window_qs(alert, window_start, now)
-        if alert.metric == VisionAlertMetric.AVG_SCORE:
-            # Cast the JSONB score to float and average it; observations without a
-            # score (non-scorers) become NULL and fall out of the average.
-            metric_value = queryset.annotate(
-                _score=Cast(
-                    KeyTextTransform("score", KeyTextTransform("model_output", "scanner_result")),
-                    output_field=FloatField(),
-                )
-            ).aggregate(avg=Avg("_score"))["avg"]
-        else:
-            metric_value = float(queryset.count())
+        with bounded_queries(ACTIVITY_TIMEOUT):
+            if alert.metric == VisionAlertMetric.AVG_SCORE:
+                # Cast the JSONB score to float and average it; observations without a
+                # score (non-scorers) become NULL and fall out of the average.
+                metric_value = queryset.annotate(
+                    _score=Cast(
+                        KeyTextTransform("score", KeyTextTransform("model_output", "scanner_result")),
+                        output_field=FloatField(),
+                    )
+                ).aggregate(avg=Avg("_score"))["avg"]
+            else:
+                metric_value = float(queryset.count())
 
         if metric_value is None:
             # An empty window has no average; neither direction can breach.
@@ -523,13 +530,17 @@ def _direction_label(alert: VisionAlertConfiguration) -> str:
 
 
 def _base_properties(alert: VisionAlertConfiguration, now: datetime) -> dict:
+    question = scanner_question(alert.scanner)
     return {
         "alert_id": str(alert.id),
         "alert_name": alert.name,
         "team_id": alert.team_id,
         "scanner_id": str(alert.scanner_id),
         "scanner_name": alert.scanner.name,
+        # Slack templates read the escaped copy, and webhooks keep the raw scanner name.
         "scanner_name_mrkdwn": escape_slack_mrkdwn(alert.scanner.name),
+        "scanner_question": question,
+        "scanner_question_mrkdwn": escape_slack_mrkdwn(question),
         "triggered_at": now.isoformat(),
     }
 
@@ -584,27 +595,30 @@ def _cleanup_history(inputs: CleanupAlertHistoryInput) -> int:
     now = datetime.now(UTC)
     deleted = 0
 
-    event_ids = list(
-        VisionAlertEvent.objects.filter(created_at__lt=now - timedelta(days=EVENT_RETENTION_DAYS)).values_list(
-            "id", flat=True
-        )[:CLEANUP_BATCH_SIZE]
-    )
-    if event_ids:
-        deleted += VisionAlertEvent.objects.filter(id__in=event_ids).delete()[0]
+    # Separate transactions, so one table that times out does not undo the other's progress.
+    with bounded_queries(ACTIVITY_TIMEOUT):
+        event_ids = list(
+            VisionAlertEvent.objects.filter(created_at__lt=now - timedelta(days=EVENT_RETENTION_DAYS)).values_list(
+                "id", flat=True
+            )[:CLEANUP_BATCH_SIZE]
+        )
+        if event_ids:
+            deleted += VisionAlertEvent.objects.filter(id__in=event_ids).delete()[0]
 
-    delivered_ids = list(
-        VisionAlertMatch.all_teams.filter(
-            delivered_at__lt=now - timedelta(days=DELIVERED_MATCH_RETENTION_DAYS)
-        ).values_list("id", flat=True)[:CLEANUP_BATCH_SIZE]
-    )
-    stale_ids = list(
-        VisionAlertMatch.all_teams.filter(
-            delivered_at__isnull=True, created_at__lt=now - timedelta(days=STALE_MATCH_RETENTION_DAYS)
-        ).values_list("id", flat=True)[:CLEANUP_BATCH_SIZE]
-    )
-    match_ids = delivered_ids + stale_ids
-    if match_ids:
-        deleted += VisionAlertMatch.all_teams.filter(id__in=match_ids).delete()[0]
+    with bounded_queries(ACTIVITY_TIMEOUT):
+        delivered_ids = list(
+            VisionAlertMatch.all_teams.filter(
+                delivered_at__lt=now - timedelta(days=DELIVERED_MATCH_RETENTION_DAYS)
+            ).values_list("id", flat=True)[:CLEANUP_BATCH_SIZE]
+        )
+        stale_ids = list(
+            VisionAlertMatch.all_teams.filter(
+                delivered_at__isnull=True, created_at__lt=now - timedelta(days=STALE_MATCH_RETENTION_DAYS)
+            ).values_list("id", flat=True)[:CLEANUP_BATCH_SIZE]
+        )
+        match_ids = delivered_ids + stale_ids
+        if match_ids:
+            deleted += VisionAlertMatch.all_teams.filter(id__in=match_ids).delete()[0]
 
     return deleted
 
@@ -645,14 +659,15 @@ def _drain_matches(inputs: DrainMatchesInput) -> DrainMatchesOutput:
     # each bundle separately, so one high-volume alert cannot fill a global slice and
     # starve the rest. Disabled and snoozed alerts are excluded in SQL so their held
     # rows cannot occupy the alert budget either.
-    due_alert_ids = list(
-        VisionAlertMatch.all_teams.filter(delivered_at__isnull=True, alert__enabled=True)
-        .exclude(alert__snooze_until__gt=now)
-        .values("alert_id")
-        .annotate(oldest=Min("created_at"))
-        .order_by("oldest")
-        .values_list("alert_id", flat=True)[:MAX_DRAIN_ALERTS_PER_TICK]
-    )
+    with bounded_queries(ACTIVITY_TIMEOUT):
+        due_alert_ids = list(
+            VisionAlertMatch.all_teams.filter(delivered_at__isnull=True, alert__enabled=True)
+            .exclude(alert__snooze_until__gt=now)
+            .values("alert_id")
+            .annotate(oldest=Min("created_at"))
+            .order_by("oldest")
+            .values_list("alert_id", flat=True)[:MAX_DRAIN_ALERTS_PER_TICK]
+        )
     if not due_alert_ids:
         return DrainMatchesOutput()
 
@@ -724,24 +739,42 @@ def _emit_match_event(
     ).values_list("id", "scanner_result", "completed_at")
     by_id = {str(row_id): (scanner_result, completed_at) for row_id, scanner_result, completed_at in summary_rows}
     lines: list[str] = []
+    budget = MATCH_SUMMARY_MAX_CHARS
     for observation_id in observation_ids[:MATCH_SUMMARY_LINES]:
         scanner_result, completed_at = by_id.get(observation_id, (None, None))
         model_output = (scanner_result or {}).get("model_output") or {}
-        descriptor = escape_slack_mrkdwn((describe_output(model_output) or "observation")[:MATCH_DESCRIPTOR_MAX_CHARS])
+        # Without the scanner's own prose the line carries only a verdict or a score. Both halves can hold
+        # model free text, such as a summarizer title in the descriptor and the reasoning in the prose.
+        # Each is folded to one citation-free line, so recording-derived text cannot forge a Slack list row.
+        descriptor = (
+            plain_snippet(describe_output(model_output) or "", limit=MATCH_DESCRIPTOR_MAX_CHARS) or "observation"
+        )
+        explanation = explanation_text(model_output)[:MATCH_EXPLANATION_MAX_CHARS]
         stamp = f"({completed_at:%Y-%m-%d %H:%M} UTC) " if completed_at else ""
-        lines.append(f"- {stamp}{descriptor}")
-    if len(observation_ids) > MATCH_SUMMARY_LINES:
-        lines.append(f"- and {len(observation_ids) - MATCH_SUMMARY_LINES} more")
+        body = f"{descriptor}: {explanation}" if explanation else descriptor
+        line = f"- {stamp}{body}"
+        # The Slack copy is what has to fit the block, so the budget measures the escaped length.
+        cost = len(escape_slack_mrkdwn(line)) + 1
+        if cost > budget:
+            break
+        lines.append(line)
+        budget -= cost
+    remaining = len(observation_ids) - len(lines)
+    if remaining > 0:
+        lines.append(f"- and {remaining} more")
 
     # Deterministic uuid over the drained row set: an identical-batch retry (crash
     # after ack, before the stamp, with no new rows) dedupes at ingestion.
     event_uuid = uuid5(NAMESPACE_URL, f"vision-alert-match:{alert.id}:{','.join(sorted(str(m) for m, _ in rows))}")
 
+    summary = "\n".join(lines)
     properties = {
         **_base_properties(alert, now),
         "matched_count": len(rows),
         "observation_ids": observation_ids,
-        "summary": "\n".join(lines),
+        "summary": escape_slack_mrkdwn(summary),
+        # Webhook consumers parse JSON, so they get the same text without the mrkdwn entities.
+        "summary_text": summary,
     }
     return produce_alert_internal_event(
         team_id=alert.team_id,

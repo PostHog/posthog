@@ -35,10 +35,10 @@
 //! resolve.
 
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use common_kafka_consumer::AssignmentEpoch;
 use dashmap::DashMap;
 use ingestion_worker_proto::ingestion::worker::v1::worker_ingest_client::WorkerIngestClient;
 use ingestion_worker_proto::ingestion::worker::v1::{
@@ -161,7 +161,7 @@ pub struct GrpcTransport {
     ack_timeout: Duration,
     /// Bumped on Kafka partition assignment; stamped on every sub-batch so
     /// the worker sentinel rebaselines across rebalances.
-    assignment_epoch: Arc<AtomicU64>,
+    assignment_epoch: AssignmentEpoch,
     /// Readiness probing stays HTTP: workers always serve `/_ready`.
     probe_client: reqwest::Client,
     /// Cap on one frame's estimated size. A sub-batch over it is sent as
@@ -180,7 +180,9 @@ impl GrpcTransport {
             max_unacked,
             ack_timeout,
             max_body_bytes: DEFAULT_MAX_BODY_BYTES,
-            assignment_epoch: Arc::new(AtomicU64::new(1)),
+            // A fresh epoch for standalone construction; production wiring
+            // injects the shared one via `set_assignment_epoch`.
+            assignment_epoch: AssignmentEpoch::new(),
             probe_client: reqwest::Client::builder()
                 .timeout(readiness::PROBE_TIMEOUT)
                 .build()
@@ -188,9 +190,16 @@ impl GrpcTransport {
         }
     }
 
-    /// Shared epoch counter; the consumer's rebalance context bumps it.
-    pub fn assignment_epoch(&self) -> Arc<AtomicU64> {
-        Arc::clone(&self.assignment_epoch)
+    /// Share the process-wide assignment epoch. Call before the transport is
+    /// shared, so every stamped sub-batch carries the same generation the
+    /// rebalance context bumps.
+    pub fn set_assignment_epoch(&mut self, epoch: AssignmentEpoch) {
+        self.assignment_epoch = epoch;
+    }
+
+    /// The assignment epoch this transport stamps on sub-batches.
+    pub fn assignment_epoch(&self) -> AssignmentEpoch {
+        self.assignment_epoch.clone()
     }
 
     /// Override the per-frame size cap. Call before the transport is shared.
@@ -268,7 +277,7 @@ impl GrpcTransport {
             consumer_id: self.consumer_id.clone(),
             max_unacked: self.max_unacked,
             ack_timeout: self.ack_timeout,
-            assignment_epoch: Arc::clone(&self.assignment_epoch),
+            assignment_epoch: self.assignment_epoch.clone(),
         };
         tokio::spawn(async move { runner.run(rx).await });
         WorkerStream { tx }
@@ -328,7 +337,7 @@ struct WorkerStreamRunner {
     consumer_id: String,
     max_unacked: usize,
     ack_timeout: Duration,
-    assignment_epoch: Arc<AtomicU64>,
+    assignment_epoch: AssignmentEpoch,
 }
 
 impl WorkerStreamRunner {
@@ -533,7 +542,7 @@ impl WorkerStreamRunner {
                     batch_id: item.batch_id.clone(),
                     messages: item.messages.iter().map(to_proto_message).collect(),
                     replay: item.replay,
-                    assignment_epoch: self.assignment_epoch.load(Ordering::Relaxed),
+                    assignment_epoch: self.assignment_epoch.current(),
                 })),
             };
             // tonic gzips the frame after this point, so only the raw size is observable here.

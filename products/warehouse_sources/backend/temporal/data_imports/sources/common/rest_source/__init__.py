@@ -7,6 +7,11 @@ from typing import Any, Optional, cast
 import structlog
 from dateutil import parser
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    FanoutParentSource,
+    log_fanout_parent_rows_consumed,
+)
+
 from .config_setup import (
     Incremental,
     IncrementalParam,
@@ -142,6 +147,7 @@ def _make_paginate_dependent_resource(
     data_selector_required: bool = False,
     data_selector_empty_ok: bool = False,
     on_parent_error: Optional[Callable[[str, Exception], None]] = None,
+    parent_source: FanoutParentSource = "api",
 ) -> Callable[..., Iterator[list[Any]]]:
     """Build the generator for a dependent (child) resource.
 
@@ -158,6 +164,7 @@ def _make_paginate_dependent_resource(
     completed: set[str] = set(seed.get("completed") or [])
     current_path: Optional[str] = seed.get("current")
     current_child_state: Optional[dict[str, Any]] = seed.get("child_state")
+    resumed = bool(completed or current_path)
 
     def checkpoint(current: Optional[str], child_state: Optional[dict[str, Any]]) -> None:
         # resume_hook is non-None here (only called from the resumable path).
@@ -249,10 +256,12 @@ def _make_paginate_dependent_resource(
         # Counted after the page so parents a resume skips don't inflate it. A running total,
         # since there's no end-of-parent signal: the last line of a run carries the fan-out's
         # size, for either parent kind, which the API path never surfaced anywhere.
-        logger.info(
-            "data_imports.fanout_parent_rows_consumed",
-            page_rows=page_rows,
+        log_fanout_parent_rows_consumed(
+            logger,
+            parent_source=parent_source,
             rows_total=parent_rows_consumed,
+            resumed=resumed,
+            page_rows=page_rows,
         )
 
     return paginate_dependent_resource
@@ -421,7 +430,13 @@ def create_resources(
             )
 
         else:
-            predecessor = resources[resolved_params[0].resolve_config["resource"]]
+            parent_name = resolved_params[0].resolve_config["resource"]
+            predecessor = resources[parent_name]
+
+            # Set by `build_dependent_resource` only once the warehouse table resolves, so an
+            # unresolvable table leaves this "api" and the telemetry names the parent the run
+            # actually read.
+            parent_source: FanoutParentSource = endpoint_resource_map[parent_name].get("parent_source") or "api"
 
             base_params = exclude_keys(request_params, {rp.param_name for rp in resolved_params})
 
@@ -439,6 +454,7 @@ def create_resources(
                 data_selector_required=bool(endpoint_config.get("data_selector_required")),
                 data_selector_empty_ok=bool(endpoint_config.get("data_selector_empty_ok")),
                 on_parent_error=on_parent_error,
+                parent_source=parent_source,
             )
 
             resources[resource_name] = Resource(

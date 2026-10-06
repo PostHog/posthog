@@ -31,6 +31,7 @@ import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
 import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
+import { billingProductDisplayName } from './billingProductDisplayName'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
@@ -60,7 +61,7 @@ export const getTierDescription = (
 
 export const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element | null => {
     const productRef = useRef<HTMLDivElement | null>(null)
-    const { billing, isUnlicensedDebug } = useValues(billingLogic)
+    const { billing, isUnlicensedDebug, isBillingManagedByPartner } = useValues(billingLogic)
     const {
         hasCustomLimitSet,
         showTierBreakdown,
@@ -90,11 +91,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
 
-    const productDisplayNameOverrides: Record<string, string> = {
-        realtime_destinations: 'Data pipelines',
-        workflows_emails: 'Workflows',
-    }
-    const displayProductName = productDisplayNameOverrides[product.type] || product.name
+    const displayProductName = billingProductDisplayName(product)
     const isPlatformProduct = product.type === 'platform_and_support'
     const addonSectionLabel = isPlatformProduct ? 'Packages' : 'Add-ons'
 
@@ -551,7 +548,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                         <div className="pb-8">
                             {/* Add-ons title */}
                             <h4 className="my-4">{addonSectionLabel}</h4>
-                            {billing?.subscription_level == 'free' && (
+                            {billing?.subscription_level == 'free' && !isBillingManagedByPartner && (
                                 <LemonBanner type="warning" className="text-sm mb-4" hideIcon>
                                     <div className="flex justify-between items-center">
                                         <div>

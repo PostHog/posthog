@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 from django.db import connection
 from django.db.models import Q
@@ -59,10 +60,24 @@ STALENESS_INTERVAL_MULTIPLE = 3
 # monthly cron reads as ~31 days, a weekday-only one as the weekend gap.
 CRON_GAP_SAMPLES = 4
 
-# Bounds the fan-out of the per-scout probe. Deliberately a limit on *scouts* rather than on rows:
-# capping rows after the per-scout ranking would drop the slowest scouts' history, which is the
-# exact crowd-out this query exists to remove. A scout that makes the cut gets its full history.
-MAX_SCOUTS_PER_RUNS_QUERY = MAX_ENABLED_SCOUTS_PER_TEAM
+# Runaway guard on the fan-out of the per-scout probe. Deliberately a limit on *scouts* rather than
+# on rows: capping rows after the per-scout ranking would drop the slowest scouts' history, which is
+# the exact crowd-out this query exists to remove. A scout that makes the cut gets its full history.
+#
+# Sized well past `MAX_ENABLED_SCOUTS_PER_TEAM` rather than equal to it, because the probe covers
+# paused configs too — the roster renders a paused scout's history like any other. An enabled-sized
+# bound dropped a large project's paused scouts in alphabetical order, so their cards read "No runs
+# yet" beside a cost line proving they had run. Rows stay bounded by the enabled cap in practice:
+# only an enabled scout produces new runs, and a paused scout's last ones age out of the staleness
+# guard.
+# A project may also raise its own enabled cap through the `signals-scout` flag, so this stays a
+# fixed guard rather than tracking that per-project value: the roster must not start truncating
+# because a flag edit moved a number, and a truncation is logged with the names it dropped.
+MAX_SCOUTS_PER_RUNS_QUERY = 10 * MAX_ENABLED_SCOUTS_PER_TEAM
+
+# How many scouts one probe statement covers. A large fleet costs more statements rather than one
+# statement whose VALUES list and LATERAL fan-out grow with the bound above.
+SCOUTS_PER_RUNS_PROBE = MAX_ENABLED_SCOUTS_PER_TEAM
 
 # The "Scout findings" callout summary tallies findings over a fixed lookback window. The default
 # window, the run cap, and the report cap mirror the cloud/desktop frontend
@@ -175,6 +190,7 @@ def search_recent_runs(
     skill_name: str | None = None,
     skill_version: int | None = None,
     limit: int = DEFAULT_RUN_SEARCH_LIMIT,
+    exclude_skill_name: str | None = None,
 ) -> list[RunSummary]:
     """Return the most recent runs for a team, newest first.
 
@@ -193,9 +209,16 @@ def search_recent_runs(
     are capped at `MAX_RUN_SEARCH_LIMIT`.
     """
     clamped_limit = _clamp_limit(limit)
-    qs = SignalScoutRun.objects.filter(team_id=team_id).select_related("task_run").order_by("-created_at")
+    qs = (
+        SignalScoutRun.objects.filter(team_id=team_id)
+        .exclude(metadata__has_key="scout_trial")
+        .select_related("task_run")
+        .order_by("-created_at")
+    )
     if date_from is not None:
         qs = qs.filter(created_at__gte=date_from)
+    if exclude_skill_name is not None:
+        qs = qs.exclude(skill_name=exclude_skill_name)
     if date_to is not None:
         qs = qs.filter(created_at__lt=date_to)
     if text:
@@ -253,11 +276,54 @@ def _staleness_cutoff(config: SignalScoutConfig, *, now: datetime, floor_days: i
     return now - timedelta(days=lookback_days)
 
 
+def _probe_run_ids(
+    configs: list[SignalScoutConfig],
+    *,
+    team_id: int,
+    per_scout_limit: int,
+    now: datetime,
+    floor_days: int,
+) -> list[Any]:
+    """Ids of each given scout's most recent runs, one indexed top-N per scout.
+
+    One probe per scout via LATERAL, each an indexed top-N over
+    `(team_id, skill_name, created_at DESC)` — all three keys constrained, so a probe reads
+    `per_scout_limit` index entries rather than walking the team's whole run history and
+    filtering. The ORM has no LATERAL, and the alternatives are worse: a window function over the
+    fleet can't bound its scan, and a query per scout is one round trip per scout on a 60s poll.
+    Team scoping is explicit in the predicate, standing in for the fail-closed manager raw SQL
+    bypasses; `skill_name` and the cutoffs are bound parameters, never interpolated.
+    """
+    probe_values = ", ".join(["(%s::text, %s::timestamptz)"] * len(configs))
+    params: list[Any] = []
+    for config in configs:
+        params.extend([config.skill_name, _staleness_cutoff(config, now=now, floor_days=floor_days)])
+    params.extend([team_id, per_scout_limit])
+    sql = f"""
+        SELECT probe.id
+        FROM (VALUES {probe_values}) AS scout(skill_name, cutoff)
+        CROSS JOIN LATERAL (
+            SELECT run.id
+            FROM {SignalScoutRun._meta.db_table} run
+            WHERE run.team_id = %s
+              AND run.skill_name = scout.skill_name
+              AND run.created_at >= scout.cutoff
+              AND NOT (COALESCE(run.metadata, '{{}}'::jsonb) ? 'scout_trial')
+            ORDER BY run.created_at DESC
+            LIMIT %s
+        ) probe
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(sql, params)
+        return [row[0] for row in cursor.fetchall()]
+
+
 def recent_runs_per_scout(
     *,
     team_id: int,
     per_scout_limit: int = DEFAULT_RUNS_PER_SCOUT,
     max_age_days: int = DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+    exclude_skill_name: str | None = None,
 ) -> list[RunSummary]:
     """Return each configured scout's most recent runs, newest first across the fleet.
 
@@ -285,6 +351,7 @@ def recent_runs_per_scout(
     # nobody is watching run. Ordered within each group for a deterministic cut.
     configs = list(
         SignalScoutConfig.objects.filter(team_id=team_id)
+        .exclude(skill_name=exclude_skill_name or "")
         .order_by("-enabled", "skill_name")
         .only("skill_name", "run_interval_minutes", "run_cron_schedule", "enabled")
     )
@@ -301,34 +368,17 @@ def recent_runs_per_scout(
     if not configs:
         return []
 
-    # One probe per scout via LATERAL, each an indexed top-N over
-    # `(team_id, skill_name, created_at DESC)` — all three keys constrained, so a probe reads
-    # `per_scout_limit` index entries rather than walking the team's whole run history and
-    # filtering. The ORM has no LATERAL, and the alternatives are worse: a window function over the
-    # fleet can't bound its scan, and a query per scout is one round trip per scout on a 60s poll.
-    # Team scoping is explicit in the predicate, standing in for the fail-closed manager raw SQL
-    # bypasses; `skill_name` and the cutoffs are bound parameters, never interpolated.
-    probe_values = ", ".join(["(%s::text, %s::timestamptz)"] * len(configs))
-    params: list[Any] = []
-    for config in configs:
-        params.extend([config.skill_name, _staleness_cutoff(config, now=now, floor_days=floor_days)])
-    params.extend([team_id, per_scout_limit])
-    sql = f"""
-        SELECT probe.id
-        FROM (VALUES {probe_values}) AS scout(skill_name, cutoff)
-        CROSS JOIN LATERAL (
-            SELECT run.id
-            FROM {SignalScoutRun._meta.db_table} run
-            WHERE run.team_id = %s
-              AND run.skill_name = scout.skill_name
-              AND run.created_at >= scout.cutoff
-            ORDER BY run.created_at DESC
-            LIMIT %s
-        ) probe
-    """
-    with connection.cursor() as cursor:
-        cursor.execute(sql, params)
-        run_ids = [row[0] for row in cursor.fetchall()]
+    run_ids: list[Any] = []
+    for start in range(0, len(configs), SCOUTS_PER_RUNS_PROBE):
+        run_ids.extend(
+            _probe_run_ids(
+                configs[start : start + SCOUTS_PER_RUNS_PROBE],
+                team_id=team_id,
+                per_scout_limit=per_scout_limit,
+                now=now,
+                floor_days=floor_days,
+            )
+        )
     if not run_ids:
         return []
 
@@ -382,7 +432,11 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     window_start = timezone.now() - timedelta(hours=window_hours)
     # Every run in the window, quiet ones included, so the roster's runs headline sits on the same
     # span as its report tallies instead of a per-scout depth that doesn't sum across a fleet.
-    run_count = SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start).count()
+    run_count = (
+        SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
+        .exclude(metadata__has_key="scout_trial")
+        .count()
+    )
     touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
         ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
     )
@@ -390,6 +444,7 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.
     rows = (
         SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
+        .exclude(metadata__has_key="scout_trial")
         .filter(Q(emitted_count__gt=0) | touched_a_report)
         .annotate(_emitted_at=Coalesce("task_run__completed_at", "created_at"))
         .order_by("-_emitted_at", "-id")
@@ -449,11 +504,37 @@ def get_run(*, team_id: int, run_id: str) -> RunDetail | None:
     return _to_detail(row, team_id=team_id)
 
 
+def run_id_for_sandbox_task(*, task_id: UUID | None, team_id: int) -> str | None:
+    """The run a scout sandbox is executing, resolved from the task its token is bound to.
+
+    Provenance, not a claim: the sandbox cannot choose which task its OAuth token carries, so this
+    names the authoring run even when the agent never supplies a `run_id` or supplies one it
+    mistyped out of its prompt. Mirrors `pipeline_writer_identity`, which resolves the report
+    pipeline's stages off the same binding.
+
+    None is the answer for every non-scout caller — a human, a personal API key, and the report
+    pipeline's own stages, whose tasks have no `SignalScoutRun` row. A task can hold several runs
+    (a retried dispatch), so the newest wins.
+    """
+    if task_id is None:
+        return None
+    row_id = (
+        SignalScoutRun.objects.filter(team_id=team_id, task_run__task_id=task_id)
+        .order_by("-created_at", "-id")
+        .values_list("id", flat=True)
+        .first()
+    )
+    return str(row_id) if row_id is not None else None
+
+
 def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
     task_run = row.task_run
     task_id = str(task_run.task_id) if task_run is not None else None
     task_run_id = str(task_run.id) if task_run is not None else None
     error, failure_reason = _derive_failure(task_run)
+    metadata = dict(row.metadata or {})
+    if metadata.pop("scout_trial", None) is not None:
+        metadata.pop("triggered_by", None)
     return RunSummary(
         run_id=str(row.id),
         skill_name=row.skill_name,
@@ -472,7 +553,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),
         error=error,
         failure_reason=failure_reason,
-        metadata=dict(row.metadata or {}),
+        metadata=metadata,
     )
 
 

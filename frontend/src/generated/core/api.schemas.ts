@@ -192,6 +192,37 @@ export interface PatchedOrganizationDomainApi {
     readonly scim_base_url?: string | null
 }
 
+export interface SCIMRequestLogApi {
+    readonly id: string
+    readonly request_method: string
+    readonly request_path: string
+    readonly request_headers: unknown
+    readonly request_body: unknown
+    readonly response_status: number
+    readonly response_body: unknown
+    readonly identity_provider: string
+    /** @nullable */
+    readonly duration_ms: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedSCIMRequestLogApi {
+    /** Total number of matching SCIM requests. */
+    count: number
+    /**
+     * URL for the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+    /** SCIM requests on this page. */
+    results: SCIMRequestLogApi[]
+}
+
 /**
  * * `all` - All
  * * `selected` - Selected
@@ -205,6 +236,7 @@ export const DomainScopeEnumApi = {
 
 /**
  * * `saml` - Saml
+ * * `oidc` - Oidc
  * * `scim` - Scim
  * * `xaa` - Xaa
  */
@@ -212,6 +244,7 @@ export type ConfigScopeEnumApi = (typeof ConfigScopeEnumApi)[keyof typeof Config
 
 export const ConfigScopeEnumApi = {
     Saml: 'saml',
+    Oidc: 'oidc',
     Scim: 'scim',
     Xaa: 'xaa',
 } as const
@@ -231,6 +264,7 @@ export interface IdentityProviderConfigApi {
     /** Feature configured by this identity provider configuration.
      *
      * * `saml` - Saml
+     * * `oidc` - Oidc
      * * `scim` - Scim
      * * `xaa` - Xaa */
     config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
@@ -240,6 +274,22 @@ export interface IdentityProviderConfigApi {
     readonly updated_at: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml: boolean
+    /** Whether OIDC has an issuer, client ID, and client secret. */
+    readonly has_oidc: boolean
+    /** Whether an encrypted OIDC client secret is saved. */
+    readonly has_oidc_client_secret: boolean
+    /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+    oidc_issuer_url?: string
+    /**
+     * Client ID of the organization's OIDC application.
+     * @maxLength 512
+     */
+    oidc_client_id?: string
+    /**
+     * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+     * @maxLength 4096
+     */
+    oidc_client_secret?: string
     /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
     readonly saml_relay_state: string
     /**
@@ -263,6 +313,8 @@ export interface IdentityProviderConfigApi {
     readonly has_scim: boolean
     /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
     scim_enabled?: boolean
+    /** SCIM base URL for this identity provider configuration. */
+    readonly scim_base_url: string
     /**
      * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
      * @nullable
@@ -313,6 +365,7 @@ export interface PatchedIdentityProviderConfigApi {
     /** Feature configured by this identity provider configuration.
      *
      * * `saml` - Saml
+     * * `oidc` - Oidc
      * * `scim` - Scim
      * * `xaa` - Xaa */
     config_scope?: ConfigScopeEnumApi | BlankEnumApi | null
@@ -322,6 +375,22 @@ export interface PatchedIdentityProviderConfigApi {
     readonly updated_at?: string
     /** Whether SAML is fully configured on this config. */
     readonly has_saml?: boolean
+    /** Whether OIDC has an issuer, client ID, and client secret. */
+    readonly has_oidc?: boolean
+    /** Whether an encrypted OIDC client secret is saved. */
+    readonly has_oidc_client_secret?: boolean
+    /** HTTPS issuer URL. Must exactly match the issuer in the OIDC discovery document. */
+    oidc_issuer_url?: string
+    /**
+     * Client ID of the organization's OIDC application.
+     * @maxLength 512
+     */
+    oidc_client_id?: string
+    /**
+     * OIDC client secret. Omit to keep the saved secret. Set to an empty string to remove it. Never returned in responses.
+     * @maxLength 4096
+     */
+    oidc_client_secret?: string
     /** Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration. */
     readonly saml_relay_state?: string
     /**
@@ -345,6 +414,8 @@ export interface PatchedIdentityProviderConfigApi {
     readonly has_scim?: boolean
     /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
     scim_enabled?: boolean
+    /** SCIM base URL for this identity provider configuration. */
+    readonly scim_base_url?: string
     /**
      * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
      * @nullable
@@ -438,6 +509,7 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
+ * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
  * * `discussions_mentioned` - discussions_mentioned
  * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
  * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -452,6 +524,7 @@ export interface OrganizationInviteDelegateApi {
 export type SettingEnumApi = (typeof SettingEnumApi)[keyof typeof SettingEnumApi]
 
 export const SettingEnumApi = {
+    DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
     DiscussionsMentioned: 'discussions_mentioned',
     ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
     ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
@@ -467,6 +540,7 @@ export const SettingEnumApi = {
 export interface OrganizationNotificationLockApi {
     /** Notification setting this rule enforces.
      *
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -508,6 +582,7 @@ export interface OrganizationNotificationLockChangeApi {
     user_id: number
     /** Notification setting to lock or unlock.
      *
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -581,6 +656,11 @@ export interface ProjectBackwardCompatBasicApi {
     readonly is_demo: boolean
     readonly timezone: string
     readonly access_control: boolean
+    /**
+     * Labels applied to this project.
+     * @items.maxLength 255
+     */
+    readonly tags: readonly string[]
 }
 
 export interface PaginatedProjectBackwardCompatBasicListApi {
@@ -604,16 +684,13 @@ export type ProjectBackwardCompatApiProductIntentsItem = {
     updated_at?: string
 }
 
+/**
+ * Settings for Conversations. Must be a JSON object or null.
+ * @nullable
+ */
+export type ProjectBackwardCompatApiConversationsSettings = { [key: string]: unknown } | null
+
 export type ProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
-
-export type EffectiveMembershipLevelEnumApi =
-    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
-
-export const EffectiveMembershipLevelEnumApi = {
-    Number1: 1,
-    Number8: 8,
-    Number15: 15,
-} as const
 
 /**
  * * `30d` - 30 Days
@@ -793,6 +870,14 @@ export const AvailableSetupTaskIdsEnumApi = {
     UsePosthogCode: 'use_posthog_code',
     UsePosthogMcp: 'use_posthog_mcp',
     UsePosthogInSlack: 'use_posthog_in_slack',
+} as const
+
+export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
+
+export const FlagEvaluationsModeEnumApi = {
+    Number0: 0,
+    Number1: 1,
+    Number2: 2,
 } as const
 
 /**
@@ -1725,12 +1810,36 @@ export interface TeamMarketingAnalyticsConfigApi {
      * * `time_decay` - Time Decay
      * * `position_based` - Position Based */
     attribution_mode?: AttributionModeEnumApi
+    /** Whether marketing analytics drops traffic matching the project's test-account filters. Off by default. */
+    filter_test_accounts?: boolean
     /** Manual campaign name aliases, keyed by integration type then by canonical campaign name, with the list of names that should be folded into it. Applied before automatic matching. */
     campaign_name_mappings?: MarketingAnalyticsCampaignNameMappingsApi
     /** Custom UTM source values to fold into an integration, keyed by integration type. A UTM source can only belong to one integration. */
     custom_source_mappings?: MarketingAnalyticsCustomSourceMappingsApi
     /** Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence. */
     campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferencesApi
+}
+
+/**
+ * * `custom_property` - Custom property
+ * * `relationship` - Relationship
+ */
+export type AccountPropertyPinKindEnumApi =
+    (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
+
+export const AccountPropertyPinKindEnumApi = {
+    CustomProperty: 'custom_property',
+    Relationship: 'relationship',
+} as const
+
+export interface TeamCustomerAnalyticsPinnedAccountPropertyApi {
+    /** Definition type for this default pinned account property.
+     *
+     * * `custom_property` - Custom property
+     * * `relationship` - Relationship */
+    kind: AccountPropertyPinKindEnumApi
+    /** Project-scoped custom property or relationship definition UUID. */
+    id: string
 }
 
 export interface TeamCustomerAnalyticsConfigApi {
@@ -1749,6 +1858,8 @@ export interface TeamCustomerAnalyticsConfigApi {
      * @nullable
      */
     account_group_type_index?: number | null
+    /** Ordered account properties shown until a user saves a personal pinned-property selection. Pass an empty list to show no properties by default. */
+    default_pinned_properties?: TeamCustomerAnalyticsPinnedAccountPropertyApi[]
 }
 
 /**
@@ -1774,6 +1885,23 @@ export interface TeamWorkflowsConfigApi {
      * * `opt_out` - Opt Out
      * * `opt_in` - Opt In */
     email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
+    /**
+     * How many AI tasks one workflow can create in a rolling 24 hours. Null uses the default of 100; zero pauses task creation for every workflow in the project. Support raises the limit above 500.
+     * @minimum 0
+     * @nullable
+     */
+    workflow_task_rate_limit_per_day?: number | null
+    /**
+     * How many AI tasks all workflows in the project can create together in a rolling 24 hours. Null uses the default of 500; zero pauses task creation for the project. Support raises the limit above 2500.
+     * @minimum 0
+     * @nullable
+     */
+    workflow_task_team_rate_limit_per_day?: number | null
+}
+
+export interface TeamFeatureFlagPolicyConfigApi {
+    /** When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag. */
+    require_tags?: boolean
 }
 
 /**
@@ -1791,7 +1919,10 @@ export const CookielessServerHashModeEnumApi = {
 } as const
 
 /**
- * Mixin for serializers to add user access control fields
+ * A project and its settings, including the settings that live on its passthrough Team.
+ *
+ * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+ * onto /api/projects/ never loses a field.
  */
 export interface ProjectBackwardCompatApi {
     readonly id: number
@@ -1808,8 +1939,13 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     product_description?: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly created_at: string
-    readonly effective_membership_level: EffectiveMembershipLevelEnumApi
+    readonly effective_membership_level: OrganizationMembershipLevelEnumApi
     readonly has_group_types: boolean
     readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
@@ -2555,6 +2691,11 @@ export interface ProjectBackwardCompatApi {
     readonly secret_api_token: string | null
     /** @nullable */
     readonly secret_api_token_backup: string | null
+    /**
+     * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+     * @nullable
+     */
+    readonly heatmaps_screenshot_secret: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
     /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -2568,7 +2709,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown
+    /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    conversations_settings?: ProjectBackwardCompatApiConversationsSettings
     logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
@@ -2578,6 +2723,11 @@ export interface ProjectBackwardCompatApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at: string | null
     /** ID of the project this environment belongs to. */
     readonly project_id: number
     /**
@@ -2586,10 +2736,13 @@ export interface ProjectBackwardCompatApi {
      */
     readonly user_access_level: string | null
     readonly managed_viewsets: ProjectBackwardCompatApiManagedViewsets
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+    readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -2622,10 +2775,6 @@ export interface ProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
-    readonly event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
-    readonly events_retention_enforced: boolean
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2640,10 +2789,19 @@ export type PatchedProjectBackwardCompatApiProductIntentsItem = {
     updated_at?: string
 }
 
+/**
+ * Settings for Conversations. Must be a JSON object or null.
+ * @nullable
+ */
+export type PatchedProjectBackwardCompatApiConversationsSettings = { [key: string]: unknown } | null
+
 export type PatchedProjectBackwardCompatApiManagedViewsets = { [key: string]: boolean }
 
 /**
- * Mixin for serializers to add user access control fields
+ * A project and its settings, including the settings that live on its passthrough Team.
+ *
+ * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
+ * onto /api/projects/ never loses a field.
  */
 export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
@@ -2660,8 +2818,13 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     product_description?: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly created_at?: string
-    readonly effective_membership_level?: EffectiveMembershipLevelEnumApi
+    readonly effective_membership_level?: OrganizationMembershipLevelEnumApi
     readonly has_group_types?: boolean
     readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
@@ -3407,6 +3570,11 @@ export interface PatchedProjectBackwardCompatApi {
     readonly secret_api_token?: string | null
     /** @nullable */
     readonly secret_api_token_backup?: string | null
+    /**
+     * Value this project's heatmap screenshots send as a cookie scoped to your domain, so bot protection can allow them. Only project admins can read it; null for everyone else and when none has been generated.
+     * @nullable
+     */
+    readonly heatmaps_screenshot_secret?: string | null
     /** @nullable */
     receive_org_level_activity_logs?: boolean | null
     /** Whether this project serves B2B or B2C customers. Used to optimize default UI layouts.
@@ -3420,7 +3588,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     conversations_enabled?: boolean | null
-    conversations_settings?: unknown
+    /**
+     * Settings for Conversations. Must be a JSON object or null.
+     * @nullable
+     */
+    conversations_settings?: PatchedProjectBackwardCompatApiConversationsSettings
     logs_settings?: unknown
     /** @nullable */
     proactive_tasks_enabled?: boolean | null
@@ -3430,6 +3602,11 @@ export interface PatchedProjectBackwardCompatApi {
      * @nullable
      */
     readonly is_pending_deletion?: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at?: string | null
     /** ID of the project this environment belongs to. */
     readonly project_id?: number
     /**
@@ -3438,10 +3615,13 @@ export interface PatchedProjectBackwardCompatApi {
      */
     readonly user_access_level?: string | null
     readonly managed_viewsets?: PatchedProjectBackwardCompatApiManagedViewsets
+    /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
+    readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
     marketing_analytics_config?: TeamMarketingAnalyticsConfigApi
     customer_analytics_config?: TeamCustomerAnalyticsConfigApi
     workflows_config?: TeamWorkflowsConfigApi
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     base_currency?: BaseCurrencyEnumApi
     /**
      * Enables capturing clicks that had no effect (rage-click detection).
@@ -3474,10 +3654,43 @@ export interface PatchedProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
-    readonly event_retention_months?: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
-    readonly events_retention_enforced?: boolean
+}
+
+/**
+ * The project as the app context serves it, which is where the frontend reads it on page load.
+ *
+ * projectLogic bootstraps `currentProject` from the app context and only calls the API when that
+ * is missing, so a field left out here is invisible to the app until something refetches.
+ */
+export interface ProjectApi {
+    readonly id: number
+    readonly organization_id: string
+    /**
+     * @minLength 1
+     * @maxLength 200
+     */
+    name?: string
+    /**
+     * @maxLength 1000
+     * @nullable
+     */
+    product_description?: string | null
+    readonly created_at: string
+    /**
+     * Set to True when project deletion has been initiated. Blocks UI access to this project until the async task completes.
+     * @nullable
+     */
+    readonly is_pending_deletion: boolean | null
+    /**
+     * When the scheduled project deletion will run.
+     * @nullable
+     */
+    readonly deletion_scheduled_at: string | null
+    /**
+     * Labels applied to this project. Names are trimmed and lowercased, and sending this field replaces the project's existing tags.
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 /**
@@ -3502,15 +3715,17 @@ export const RestrictionTypeEnumApi = {
  * * `session_recordings` - Session Recordings
  * * `errortracking` - Errortracking
  * * `clientwarnings` - Clientwarnings
+ * * `heatmaps` - Heatmaps
  * * `ai` - Ai
  */
-export type PipelinesEnumApi = (typeof PipelinesEnumApi)[keyof typeof PipelinesEnumApi]
+export type IngestionPipelineEnumApi = (typeof IngestionPipelineEnumApi)[keyof typeof IngestionPipelineEnumApi]
 
-export const PipelinesEnumApi = {
+export const IngestionPipelineEnumApi = {
     Analytics: 'analytics',
     SessionRecordings: 'session_recordings',
     Errortracking: 'errortracking',
     Clientwarnings: 'clientwarnings',
+    Heatmaps: 'heatmaps',
     Ai: 'ai',
 } as const
 
@@ -3532,7 +3747,7 @@ export interface EventIngestionRestrictionApi {
     /** Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID. */
     event_uuids: string[]
     /** Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR. */
-    pipelines: PipelinesEnumApi[]
+    pipelines: IngestionPipelineEnumApi[]
 }
 
 export interface SharePasswordApi {
@@ -3563,6 +3778,177 @@ export interface SharingConfigurationApi {
      * @nullable
      */
     readonly user_access_level: string | null
+}
+
+/**
+ * * `draft` - Draft
+ * * `pending` - Pending
+ * * `approved` - Approved
+ * * `in_progress` - In Progress
+ * * `queued` - Queued
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type RequestStatusEnumApi = (typeof RequestStatusEnumApi)[keyof typeof RequestStatusEnumApi]
+
+export const RequestStatusEnumApi = {
+    Draft: 'draft',
+    Pending: 'pending',
+    Approved: 'approved',
+    InProgress: 'in_progress',
+    Queued: 'queued',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * Submitted HogQL variable snapshot.
+ */
+export type DataDeletionRequestApiVariables = {
+    [key: string]: {
+        code_name: string
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
+export interface DataDeletionRequestApi {
+    /** Deletion request identifier. */
+    readonly id: string
+    /** Current deletion workflow status.
+     *
+     * * `draft` - Draft
+     * * `pending` - Pending
+     * * `approved` - Approved
+     * * `in_progress` - In Progress
+     * * `queued` - Queued
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: RequestStatusEnumApi
+    /** Submitted HogQL query snapshot. */
+    readonly query: string
+    /** Submitted HogQL variable snapshot. */
+    readonly variables: DataDeletionRequestApiVariables
+    /**
+     * Client-generated idempotency identifier.
+     * @nullable
+     */
+    readonly submission_id: string | null
+    /**
+     * Number of selected events, when calculated.
+     * @nullable
+     */
+    readonly count: number | null
+    /**
+     * Identifier of the user who submitted the request.
+     * @nullable
+     */
+    readonly created_by_id: number | null
+    /**
+     * Whether the submitter was a PostHog staff user.
+     * @nullable
+     */
+    readonly created_by_staff: boolean | null
+    /** Time when the request was submitted. */
+    readonly created_at: string
+    /** Time when the request last changed. */
+    readonly updated_at: string
+    /**
+     * Time when the request was approved, if approved.
+     * @nullable
+     */
+    readonly approved_at: string | null
+    /**
+     * Time when selection statistics were calculated, if available.
+     * @nullable
+     */
+    readonly stats_calculated_at: string | null
+}
+
+export interface PaginatedDataDeletionRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataDeletionRequestApi[]
+}
+
+/**
+ * Variables referenced by the HogQL query.
+ */
+export type DataDeletionRequestCreateApiVariables = {
+    [key: string]: {
+        code_name: string
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
+export interface DataDeletionRequestCreateApi {
+    /** HogQL query that selects one event UUID column. */
+    query: string
+    /** Variables referenced by the HogQL query. */
+    variables?: DataDeletionRequestCreateApiVariables
+    /** Client-generated identifier that makes request submission idempotent. */
+    submission_id: string
+}
+
+export interface DataDeletionConflictApi {
+    /** Reason the deletion request could not be created in the current state. */
+    readonly detail: string
+}
+
+/**
+ * Variables referenced by the HogQL query.
+ */
+export type DataDeletionRequestInputApiVariables = {
+    [key: string]: {
+        code_name: string
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
+export interface DataDeletionRequestInputApi {
+    /** HogQL query that selects one event UUID column. */
+    query: string
+    /** Variables referenced by the HogQL query. */
+    variables?: DataDeletionRequestInputApiVariables
+}
+
+export interface DataDeletionPreviewApi {
+    /** Number of event UUIDs selected when the preview ran. */
+    readonly count: number
+}
+
+export interface EmojiSuggestionApi {
+    /** The suggested emoji character. */
+    emoji: string
+    /** The emoji's English name. */
+    label: string
+}
+
+export interface EmojiSearchResponseApi {
+    /** Related emojis, or an empty list. */
+    suggestions: EmojiSuggestionApi[]
+}
+
+export interface EventPropertyValueApi {
+    /** A value of the property, always as a string. Booleans come back as 'true' or 'false', and objects and lists as JSON. */
+    name: string
+    /** How many times the value occurs, when the lookup counts values. */
+    count?: number
+}
+
+export interface EventPropertyValuesResponseApi {
+    /** Values of the property that match the request. */
+    results: EventPropertyValueApi[]
+    /** True when these results come from a stale cache and a refresh runs in the background. */
+    refreshing: boolean
 }
 
 /**
@@ -3614,6 +4000,7 @@ export interface ExportedAssetApi {
      * * `application/x-ndjson` - application/x-ndjson */
     readonly export_format: ExportedAssetExportFormatEnumApi
     readonly created_at: string
+    /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
     readonly has_content: boolean
     export_context?: unknown
     readonly filename: string
@@ -3683,6 +4070,7 @@ export interface ExportedAssetCreateApi {
      * * `application/json` - application/json */
     export_format: ExportedAssetCreateExportFormatEnumApi
     readonly created_at: string
+    /** Whether the export finished and its content is ready to download. Create can return before the export finishes; poll the asset until has_content is true or exception is set. */
     readonly has_content: boolean
     export_context?: unknown
     readonly filename: string
@@ -3762,6 +4150,19 @@ export interface PatchedFileSystemApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemHomeFolderApi {
+    /**
+     * The user's home folder ID, or null if deleted.
+     * @nullable
+     */
+    readonly id: string | null
+    /**
+     * The current path of the user's home folder.
+     * @nullable
+     */
+    readonly path: string | null
+}
+
 export interface FileSystemShortcutApi {
     readonly id: string
     /** Display path of the shortcut in the sidebar. */
@@ -3773,7 +4174,7 @@ export interface FileSystemShortcutApi {
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
+     * @maxLength 4000
      * @nullable
      */
     ref?: string | null
@@ -3816,7 +4217,7 @@ export interface PatchedFileSystemShortcutApi {
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
+     * @maxLength 4000
      * @nullable
      */
     ref?: string | null
@@ -3837,6 +4238,40 @@ export interface PatchedFileSystemShortcutApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface FileSystemShortcutBulkItemApi {
+    /** Display path of the shortcut in the sidebar. */
+    path: string
+    /**
+     * Type of the linked item (e.g. 'folder', 'insight'), or blank.
+     * @maxLength 100
+     */
+    type?: string
+    /**
+     * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
+     * @maxLength 4000
+     * @nullable
+     */
+    ref?: string | null
+    /**
+     * Destination URL the shortcut opens. Null when the shortcut points at an item by ref.
+     * @nullable
+     */
+    href?: string | null
+}
+
+export interface FileSystemShortcutBulkUpdateApi {
+    /**
+     * Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped.
+     * @maxItems 500
+     */
+    add?: FileSystemShortcutBulkItemApi[]
+    /**
+     * IDs of the current user's shortcuts to delete.
+     * @maxItems 500
+     */
+    remove_ids?: string[]
 }
 
 export interface FileSystemShortcutReorderApi {
@@ -3925,10 +4360,9 @@ export interface PatchedProjectSecretAPIKeyApi {
  * * `Boolean` - Boolean
  * * `Duration` - Duration
  */
-export type PropertyDefinitionTypeEnumApi =
-    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
+export type PropertyTypeEnumApi = (typeof PropertyTypeEnumApi)[keyof typeof PropertyTypeEnumApi]
 
-export const PropertyDefinitionTypeEnumApi = {
+export const PropertyTypeEnumApi = {
     DateTime: 'DateTime',
     String: 'String',
     Numeric: 'Numeric',
@@ -3950,7 +4384,7 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | null
+    property_type?: PropertyTypeEnumApi | BlankEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -3984,7 +4418,7 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | null
+    property_type?: PropertyTypeEnumApi | BlankEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null
@@ -4020,7 +4454,11 @@ export interface BulkUpdateTagsRequestApi {
      * * `remove` - remove
      * * `set` - set */
     action: BulkUpdateTagsActionEnumApi
-    /** Tag names to add, remove, or set. */
+    /**
+     * Tag names to add, remove, or set (up to 100 per request, 255 characters each).
+     * @maxItems 100
+     * @items.maxLength 255
+     */
     tags: string[]
 }
 
@@ -4037,6 +4475,149 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface SearchIntentRequestApi {
+    /**
+     * What the person typed into the filter picker search box.
+     * @maxLength 200
+     */
+    query: string
+    /**
+     * The picker tab that is open, as a taxonomic group type such as event_properties.
+     * @maxLength 100
+     */
+    active_group_type: string
+    /**
+     * The taxonomic group types the picker shows. The answer is always one of these, or null.
+     * @maxItems 64
+     * @items.maxLength 100
+     */
+    available_group_types: string[]
+    /**
+     * The id of the scene the picker is open in, such as Insight or Replay.
+     * @nullable
+     * @pattern ^[A-Za-z0-9_-]{1,64}$
+     */
+    scene?: string | null
+}
+
+/**
+ * * `rule` - Matched a value pattern
+ * * `model` - Asked the decision model
+ * * `skipped` - Not classified
+ */
+export type SearchIntentSourceEnumApi = (typeof SearchIntentSourceEnumApi)[keyof typeof SearchIntentSourceEnumApi]
+
+export const SearchIntentSourceEnumApi = {
+    Rule: 'rule',
+    Model: 'model',
+    Skipped: 'skipped',
+} as const
+
+export interface SearchIntentResponseApi {
+    /**
+     * The taxonomic group type the search most likely belongs to, or null if it was not classified.
+     * @nullable
+     */
+    group_type: string | null
+    /** How far the chosen group stands out from the rest, from 0 (a coin flip) to 1. */
+    confidence: number
+    /** Whether the confidence is high enough to act on, for example to suggest a different tab. */
+    is_confident: boolean
+    /** Whether the picker should suggest switching from the open tab to group_type. */
+    suggests_switch: boolean
+    /** How the answer was found: a value pattern, the decision model, or not at all.
+     *
+     * * `rule` - Matched a value pattern
+     * * `model` - Asked the decision model
+     * * `skipped` - Not classified */
+    method: SearchIntentSourceEnumApi
+    /**
+     * The version of the managed search intent prompt the model read. Null for a value pattern, a skipped search, or the bundled fallback prompt.
+     * @nullable
+     */
+    prompt_version: number | null
+    /**
+     * The search as the decision model read it, with emails, URLs, paths, ids and tokens replaced by placeholders such as <url>. Null when the model did not answer.
+     * @nullable
+     */
+    model_query: string | null
+}
+
+export interface EventMatchRequestApi {
+    /**
+     * What the person typed into the events list search box, which matched no event name.
+     * @maxLength 200
+     */
+    query: string
+}
+
+export interface EventMatchApi {
+    /** The event name to select, such as $autocapture. */
+    name: string
+    /** The event's display name, such as Autocapture. */
+    display_name: string
+    /** How likely the search means this event, from 0 to 1. */
+    probability: number
+}
+
+export interface EventMatchResponseApi {
+    /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
+    matches: EventMatchApi[]
+}
+
+export interface UploadedMediaApi {
+    readonly id: string
+    /** The file's original name. */
+    readonly name: string
+    /** @nullable */
+    readonly purpose: string | null
+    /** @nullable */
+    readonly content_type: string | null
+    /** @nullable */
+    readonly size_bytes: number | null
+    /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+    readonly url: string
+    readonly created_at: string
+}
+
+export interface PaginatedUploadedMediaListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UploadedMediaApi[]
+}
+
+export interface UploadedMediaStartUploadApi {
+    /**
+     * The file's display name, e.g. 'logo.png'.
+     * @maxLength 1000
+     */
+    name: string
+    /**
+     * Library to add this image to once uploaded, e.g. 'email'.
+     * @maxLength 100
+     */
+    purpose: string
+}
+
+/**
+ * Extra form fields to send alongside the file in the same POST.
+ */
+export type UploadedMediaUploadStartedApiFormFields = { [key: string]: string }
+
+export interface UploadedMediaUploadStartedApi {
+    /** Id of the pending upload — pass this to complete_upload. */
+    readonly id: string
+    /** POST the image file here as multipart/form-data. */
+    readonly upload_url: string
+    /** Extra form fields to send alongside the file in the same POST. */
+    readonly form_fields: UploadedMediaUploadStartedApiFormFields
+    /** Seconds before upload_url expires. */
+    readonly expires_in: number
 }
 
 export interface LeakedKeyReportApi {
@@ -4073,6 +4654,21 @@ export interface LeakedKeyReportResponseApi {
      * * `oauth_access_token` - oauth_access_token
      * * `oauth_refresh_token` - oauth_refresh_token */
     type: LeakedKeyReportResponseTypeEnumApi | null
+}
+
+/**
+ * Whether the current organization has each toolbar plan entitlement, keyed by feature name.
+ */
+export type ToolbarEntitlementsApiEntitlements = { [key: string]: boolean }
+
+export interface ToolbarEntitlementsApi {
+    /** Whether the current organization has each toolbar plan entitlement, keyed by feature name. */
+    entitlements: ToolbarEntitlementsApiEntitlements
+}
+
+export interface ToolbarEntitlementsErrorApi {
+    /** Why toolbar entitlements could not be retrieved. */
+    error: string
 }
 
 /**
@@ -4115,26 +4711,38 @@ export interface TeamBasicApi {
  * * `6` - install
  * * `9` - root
  */
-export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
+export type OrganizationPluginsAccessLevelEnumApi =
+    (typeof OrganizationPluginsAccessLevelEnumApi)[keyof typeof OrganizationPluginsAccessLevelEnumApi]
 
-export const PluginsAccessLevelEnumApi = {
+export const OrganizationPluginsAccessLevelEnumApi = {
     Number0: 0,
     Number3: 3,
     Number6: 6,
     Number9: 9,
 } as const
 
-/**
- * * `bayesian` - Bayesian
- * * `frequentist` - Frequentist
- */
-export type DefaultExperimentStatsMethodEnumApi =
-    (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
+export interface OrganizationMemberNoticeActionApi {
+    /**
+     * Text on the button shown next to the notice.
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * Link the button opens in a new tab. Must use http or https.
+     * @maxLength 2000
+     */
+    url: string
+}
 
-export const DefaultExperimentStatsMethodEnumApi = {
-    Bayesian: 'bayesian',
-    Frequentist: 'frequentist',
-} as const
+export interface OrganizationMemberNoticeApi {
+    /**
+     * HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.
+     * @maxLength 1000
+     */
+    message: string
+    /** Optional link button shown on the right of the banner. */
+    action?: OrganizationMemberNoticeActionApi | null
+}
 
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
 
@@ -4152,8 +4760,8 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: EffectiveMembershipLevelEnumApi
-    readonly plugins_access_level: PluginsAccessLevelEnumApi
+    readonly membership_level: OrganizationMembershipLevelEnumApi
+    readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
@@ -4186,6 +4794,8 @@ export interface OrganizationApi {
      * @nullable
      */
     read_only_mcp_access?: boolean | null
+    /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+    member_notice?: OrganizationMemberNoticeApi | null
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -4204,13 +4814,8 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_ai_training_cta_shown: boolean | null
-    /** @nullable */
-    readonly is_hipaa: boolean | null
-    /** Default statistical method for new experiments in this organization.
-     *
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
+    /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
+    readonly has_signed_baa: boolean
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -4233,6 +4838,11 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly is_pending_deletion: boolean | null
+    /**
+     * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
+     * @nullable
+     */
+    readonly uses_most_specific_access_resolution: boolean | null
 }
 
 /**
@@ -4250,7 +4860,7 @@ export interface OrganizationBasicApi {
     slug: string
     /** @nullable */
     readonly logo_media_id: string | null
-    readonly membership_level: EffectiveMembershipLevelEnumApi
+    readonly membership_level: OrganizationMembershipLevelEnumApi
     members_can_use_personal_api_keys?: boolean
     /**
      * Set this to 'No' to temporarily disable an organization.
@@ -4379,6 +4989,11 @@ export interface UserApi {
     readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at: string | null
     readonly team: TeamBasicApi
     readonly organization: OrganizationApi
     readonly organizations: readonly OrganizationBasicApi[]
@@ -4407,7 +5022,7 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at: string | null
@@ -4490,6 +5105,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at?: string | null
     readonly team?: TeamBasicApi
     readonly organization?: OrganizationApi
     readonly organizations?: readonly OrganizationBasicApi[]
@@ -4518,7 +5138,7 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
-    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true. */
     ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
@@ -4621,6 +5241,61 @@ export interface PaginatedUserGitHubIntegrationListResponseListApi {
     results: UserGitHubIntegrationListResponseApi[]
 }
 
+/**
+ * * `connected` - Connected
+ * * `reauth_required` - Reauth Required
+ * * `not_connected` - Not Connected
+ */
+export type CodexIntegrationStatusEnumApi =
+    (typeof CodexIntegrationStatusEnumApi)[keyof typeof CodexIntegrationStatusEnumApi]
+
+export const CodexIntegrationStatusEnumApi = {
+    Connected: 'connected',
+    ReauthRequired: 'reauth_required',
+    NotConnected: 'not_connected',
+} as const
+
+export interface UserCodexIntegrationApi {
+    /** `connected` when cloud runs can use the account; `reauth_required` when OpenAI rejected the refresh token and the user must log in and connect again; `not_connected` when no account is connected.
+     *
+     * * `connected` - Connected
+     * * `reauth_required` - Reauth Required
+     * * `not_connected` - Not Connected */
+    status: CodexIntegrationStatusEnumApi
+    /**
+     * The ChatGPT plan type OpenAI reports for the account.
+     * @nullable
+     */
+    plan_type?: string | null
+    /**
+     * The email of the connected ChatGPT account.
+     * @nullable
+     */
+    email?: string | null
+    /**
+     * When the account was connected.
+     * @nullable
+     */
+    connected_at?: string | null
+}
+
+export interface UserCodexAuthTokensApi {
+    /** The ChatGPT access token (a JWT) from the `tokens` object of the Codex `auth.json`. */
+    access_token: string
+    /** The single-use ChatGPT refresh token from the same `tokens` object. */
+    refresh_token: string
+    /**
+     * The OpenID id token from the same `tokens` object, when present. Used to read the account email.
+     * @nullable
+     */
+    id_token?: string | null
+}
+
+export interface UserCodexConnectRequestApi {
+    /** The `tokens` object of the `auth.json` that `codex login` wrote. PostHog refreshes the chain once, stores the rotated tokens, and refreshes them for cloud runs from then on. */
+    tokens: UserCodexAuthTokensApi
+}
+
 export interface GitHubBranchesResponseApi {
     /** List of branch names */
     branches: string[]
@@ -4658,6 +5333,11 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
     /** Whether more repositories are available beyond this page. */
     has_more: boolean
+    /**
+     * The offset to pass to get the next page, or null when this page is the last one.
+     * @nullable
+     */
+    next_offset: number | null
     /** Total number of repositories matching the search query, across all pages. */
     total: number
 }
@@ -4677,10 +5357,10 @@ export interface GitHubReposRefreshResponseApi {
  * * `approved` - Approved
  * * `unidentified` - Unidentified
  */
-export type GitHubInstallRequestItemStatusEnumApi =
-    (typeof GitHubInstallRequestItemStatusEnumApi)[keyof typeof GitHubInstallRequestItemStatusEnumApi]
+export type GitHubInstallRequestStatusEnumApi =
+    (typeof GitHubInstallRequestStatusEnumApi)[keyof typeof GitHubInstallRequestStatusEnumApi]
 
-export const GitHubInstallRequestItemStatusEnumApi = {
+export const GitHubInstallRequestStatusEnumApi = {
     Pending: 'pending',
     Approved: 'approved',
     Unidentified: 'unidentified',
@@ -4696,7 +5376,7 @@ export interface GitHubInstallRequestItemApi {
      * * `pending` - Pending
      * * `approved` - Approved
      * * `unidentified` - Unidentified */
-    status: GitHubInstallRequestItemStatusEnumApi
+    status: GitHubInstallRequestStatusEnumApi
     /**
      * GitHub App installation id, set once the request is approved.
      * @nullable
@@ -4861,13 +5541,27 @@ export interface OnboardingSkipRequestApi {
 }
 
 /**
+ * Request body for PATCH /api/users/@me/product_intro_seen.
+ */
+export interface PatchedProductIntroSeenApi {
+    /**
+     * Which key in `has_seen_product_intro_for` to set. Any string is accepted: besides the product keys, the map holds keys composed per team and keys for surfaces that are not products.
+     * @maxLength 128
+     */
+    product_key?: string
+    /** Whether the intro counts as seen. Send false to show it again. */
+    seen?: boolean
+}
+
+/**
  * * `ios` - iOS
  * * `android` - Android
  * * `web` - Web
  */
-export type PushTokenPlatformEnumApi = (typeof PushTokenPlatformEnumApi)[keyof typeof PushTokenPlatformEnumApi]
+export type UserPushTokenPlatformEnumApi =
+    (typeof UserPushTokenPlatformEnumApi)[keyof typeof UserPushTokenPlatformEnumApi]
 
-export const PushTokenPlatformEnumApi = {
+export const UserPushTokenPlatformEnumApi = {
     Ios: 'ios',
     Android: 'android',
     Web: 'web',
@@ -4884,7 +5578,7 @@ export interface UserPushTokenRegisterRequestApi {
      * * `ios` - iOS
      * * `android` - Android
      * * `web` - Web */
-    platform: PushTokenPlatformEnumApi
+    platform: UserPushTokenPlatformEnumApi
 }
 
 export interface UserPushTokenItemApi {
@@ -4895,7 +5589,7 @@ export interface UserPushTokenItemApi {
      * * `ios` - iOS
      * * `android` - Android
      * * `web` - Web */
-    platform: PushTokenPlatformEnumApi
+    platform: UserPushTokenPlatformEnumApi
     /** When this token was first registered. */
     created_at: string
     /** Last time the mobile app re-registered this token. */
@@ -4910,16 +5604,32 @@ export interface UserPushTokenUnregisterRequestApi {
     token: string
 }
 
+export interface TwoFactorStatusApi {
+    /** Whether the user has any 2FA method enabled. */
+    is_enabled: boolean
+    /** Number of unused backup codes. The codes themselves are only returned when they are generated. */
+    backup_codes_remaining: number
+    /**
+     * The primary 2FA method: "TOTP" or "passkey". Null when 2FA is off.
+     * @nullable
+     */
+    method: string | null
+    /** Whether the user has at least one verified passkey. */
+    has_passkeys: boolean
+    /** Whether the user has an authenticator app set up. */
+    has_totp: boolean
+    /** Whether passkeys count as a 2FA method. */
+    passkeys_enabled_for_2fa: boolean
+}
+
 /**
- * Request body for POST /api/users/verify_email/. Exactly one of token or code is required.
+ * Request body for POST /api/users/verify_email/.
  */
 export interface VerifyEmailRequestApi {
     /** UUID of the user whose email is being verified. */
     uuid: string
-    /** Verification token from the emailed link. Required unless a code is provided. */
-    token?: string
-    /** The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
-    code?: string
+    /** The 6-digit verification code from the email. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking. */
+    code: string
 }
 
 export type CimdVerificationTokensListParams = {
@@ -4944,6 +5654,41 @@ export type DomainsListParams = {
     offset?: number
 }
 
+export type DomainsScimLogsRetrieveParams = {
+    /**
+     * Include requests at or after this time.
+     */
+    after?: string
+    /**
+     * Include requests at or before this time.
+     */
+    before?: string
+    /**
+     * Page number to return.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Number of requests to return per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number
+    /**
+     * Search request paths and masked request bodies.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Maximum HTTP response status to include, such as 499.
+     */
+    status_max?: number
+    /**
+     * Minimum HTTP response status to include, such as 400.
+     */
+    status_min?: number
+}
+
 export type IdentityProviderConfigsListParams = {
     /**
      * Number of results to return per page.
@@ -4953,6 +5698,41 @@ export type IdentityProviderConfigsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type IdentityProviderConfigsScimLogsRetrieveParams = {
+    /**
+     * Include requests at or after this time.
+     */
+    after?: string
+    /**
+     * Include requests at or before this time.
+     */
+    before?: string
+    /**
+     * Page number to return.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Number of requests to return per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number
+    /**
+     * Search request paths and masked request bodies.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Maximum HTTP response status to include, such as 499.
+     */
+    status_max?: number
+    /**
+     * Minimum HTTP response status to include, such as 400.
+     */
+    status_min?: number
 }
 
 export type InvitesListParams = {
@@ -4990,7 +5770,23 @@ export type OrganizationsProjectsListParams = {
      * A search term.
      */
     search?: string
+    /**
+     * Comma-separated tag names to filter by, for example `production,eu-region`. Names are trimmed and lowercased before matching. At most 20 distinct tags per request.
+     */
+    tags?: string
+    /**
+     * How to combine the `tags` filter. `all` (the default) returns projects carrying every listed tag; `any` returns projects carrying at least one.
+     */
+    tags_match?: OrganizationsProjectsListTagsMatch
 }
+
+export type OrganizationsProjectsListTagsMatch =
+    (typeof OrganizationsProjectsListTagsMatch)[keyof typeof OrganizationsProjectsListTagsMatch]
+
+export const OrganizationsProjectsListTagsMatch = {
+    All: 'all',
+    Any: 'any',
+} as const
 
 export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
     /**
@@ -4998,6 +5794,53 @@ export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
      */
     search?: string
 }
+
+export type DataDeletionRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type EmojiSearchSuggestRetrieveParams = {
+    /**
+     * Search text that had no direct emoji match.
+     * @minLength 3
+     * @maxLength 64
+     */
+    query: string
+}
+
+export type EventsValuesRetrieveParams = {
+    /**
+     * Only read values from events with these names. Repeat to pass several. Required with a personal API key. Projects that read values from the precomputed property values table ignore this filter.
+     */
+    event_name?: string[]
+    format?: EventsValuesRetrieveFormat
+    /**
+     * Read 'key' as an events table column, not a property.
+     */
+    is_column?: boolean
+    /**
+     * The property to list values for.
+     */
+    key: string
+    /**
+     * Only return values that contain this text, ignoring case.
+     */
+    value?: string
+}
+
+export type EventsValuesRetrieveFormat = (typeof EventsValuesRetrieveFormat)[keyof typeof EventsValuesRetrieveFormat]
+
+export const EventsValuesRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
 
 export type ExportsListParams = {
     /**
@@ -5012,6 +5855,10 @@ export type ExportsListParams = {
 
 export type FileSystemListParams = {
     /**
+     * Include meta.content_type for notebooks and insights on this page, without their contents.
+     */
+    include_content_type?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -5023,6 +5870,13 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type FileSystemDestroyParams = {
+    /**
+     * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
+     */
+    recursive?: boolean
 }
 
 export type FileSystemShortcutListParams = {
@@ -5132,6 +5986,48 @@ export const PropertyDefinitionsListType = {
     Session: 'session',
 } as const
 
+export type UploadedMediaListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * The library to list.
+     */
+    purpose: UploadedMediaListPurpose
+}
+
+export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof typeof UploadedMediaListPurpose]
+
+export const UploadedMediaListPurpose = {
+    Canvas: 'canvas',
+    Email: 'email',
+} as const
+
+/**
+ * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+ */
+export type UploadedMediaCreateBodyPurpose =
+    (typeof UploadedMediaCreateBodyPurpose)[keyof typeof UploadedMediaCreateBodyPurpose]
+
+export const UploadedMediaCreateBodyPurpose = {
+    Email: 'email',
+    Canvas: 'canvas',
+} as const
+
+export type UploadedMediaCreateBody = {
+    /** Image file. Must be under 4MB and a real, decodable image. */
+    image: Blob
+    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+    purpose?: UploadedMediaCreateBodyPurpose
+}
+
+export type UploadedMediaCreate201 = { [key: string]: unknown }
+
 export type UsersListParams = {
     email?: string
     is_staff?: boolean
@@ -5192,6 +6088,10 @@ export type UsersIntegrationsGithubBranchesRetrieveParams = {
 
 export type UsersIntegrationsGithubReposRetrieveParams = {
     /**
+     * When true, return only id, name, and full_name for each repository. Use it to list large rosters in fewer, smaller pages.
+     */
+    compact?: boolean
+    /**
      * Maximum number of repositories to return per request (max 500).
      * @minimum 1
      * @maximum 500
@@ -5212,3 +6112,5 @@ export type UsersLoginSessionsListParams = {
     email?: string
     is_staff?: boolean
 }
+
+export type UsersProductIntroSeenPartialUpdate200 = { [key: string]: boolean }

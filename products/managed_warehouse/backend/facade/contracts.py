@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from posthog.dataclasses import frozen
@@ -33,6 +33,8 @@ __all__ = [
     "DucklingTables",
     "ManagedWarehouseBackfillState",
     "ManagedWarehousePostgresConnection",
+    "ManagedWarehouseTrinoConnection",
+    "ManagedWarehouseTrinoConnectionUnavailable",
     "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseSourceAuth",
     "ManagedWarehouseSourceJobRecord",
@@ -43,7 +45,10 @@ __all__ = [
     "ManagedWarehouseTeamMembership",
     "ServiceCredential",
     "ServiceCredentialConnect",
+    "ServiceCredentialTrinoConnect",
     "ServiceCredentialUnavailable",
+    "TrinoCompiledQuery",
+    "TrinoExpansionMode",
 ]
 
 
@@ -67,6 +72,15 @@ class ServiceCredentialConnect:
     port: int
     database: str
     sslmode: str
+
+
+@frozen
+class ServiceCredentialTrinoConnect:
+    host: str
+    port: int
+    catalog: str
+    username: str
+    http_scheme: Literal["https"]
 
 
 @dataclass(frozen=True)
@@ -94,6 +108,7 @@ class ServiceCredential:
     credential_secret: str = field(repr=False)
     expires_at: datetime
     connect: ServiceCredentialConnect
+    trino_connect: ServiceCredentialTrinoConnect | None = None
 
 
 class ServiceCredentialUnavailable(RuntimeError):
@@ -110,6 +125,23 @@ class ManagedWarehousePostgresConnection:
     username: str
     password: str = field(repr=False)
     sslmode: str
+
+
+@frozen
+class ManagedWarehouseTrinoConnection:
+    """A minted Trino connection snapshot; use the connection context manager for refresh."""
+
+    host: str
+    port: int
+    catalog: str
+    username: str
+    password: str = field(repr=False)
+    credential_id: str
+    expires_at: datetime
+
+
+class ManagedWarehouseTrinoConnectionUnavailable(RuntimeError):
+    pass
 
 
 @frozen
@@ -281,6 +313,20 @@ class DuckLakeCompiledQuery:
     values: dict[str, Any]
     hogql: str
     s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
+
+
+@frozen
+class TrinoCompiledQuery:
+    """A HogQL query compiled to Trino SQL with named parameter bindings."""
+
+    sql: str
+    values: dict[str, Any]
+    hogql: str | None = None
+
+
+class TrinoExpansionMode(StrEnum):
+    PURE = "pure"
+    DJANGO = "django"
 
 
 @dataclass

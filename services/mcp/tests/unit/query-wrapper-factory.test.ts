@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { buildToolResultPayload } from '@/lib/build-tool-result'
+import { MCP_TOOL_OUTPUT_CHAR_BUDGET } from '@/lib/constants'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import type { Context } from '@/tools/types'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
@@ -414,13 +416,13 @@ describe('createQueryWrapper filterTestAccounts project default', () => {
     })
 })
 
-describe('createQueryWrapper trace compaction', () => {
+describe('createQueryWrapper trace redaction and compaction', () => {
     const schema = z.object({ kind: z.string() })
 
-    function contextWithResults(results: unknown): Context {
+    function contextWithResults(results: unknown, warnings?: string[]): Context {
         return {
             api: {
-                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results }) }),
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue({ results, warnings }) }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
             stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
@@ -431,6 +433,8 @@ describe('createQueryWrapper trace compaction', () => {
         id: 'trace-1',
         events: [{ properties: { $ai_input: 'x'.repeat(20_000) } }],
     }
+
+    const fullDetailParams = { kind: 'TraceQuery', detail: 'full' } as { kind: string }
 
     it('compacts oversized string values for TraceQuery results', async () => {
         const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
@@ -446,6 +450,124 @@ describe('createQueryWrapper trace compaction', () => {
         const result = (await tool.handler(contextWithResults([oversizedTrace]), { kind: 'HogQLQuery' })) as any
 
         expect(result.results[0].events[0].properties.$ai_input).toBe('x'.repeat(20_000))
+    })
+
+    it.each(['optimized', 'json'] as const)(
+        'bounds the entire %s response without changing the executed query',
+        async (outputFormat) => {
+            const tool = createQueryWrapper({
+                name: 'query-llm-trace',
+                schema: schema.extend({ properties: z.array(z.record(z.string(), z.unknown())) }),
+                kind: 'TraceQuery',
+                urlPrefix: '/ai-observability/traces',
+                outputFormat,
+            })()
+            const params = {
+                kind: 'TraceQuery',
+                properties: [
+                    { key: '$ai_input', type: 'event', operator: 'not_icontains', value: 'filter'.repeat(15_000) },
+                ],
+            }
+            const context = contextWithResults([oversizedTrace], ['warning'.repeat(15_000)])
+
+            const result = await tool.handler(context, params)
+            const payload = buildToolResultPayload({
+                handlerResult: result,
+                toolMeta: tool._meta,
+                toolName: tool.name,
+                params,
+            })
+
+            expect(JSON.stringify(payload.content).length).toBeLessThanOrEqual(MCP_TOOL_OUTPUT_CHAR_BUDGET)
+            expect(result).toMatchObject({ _posthogUrl: 'http://localhost:8010/project/1/ai-observability/traces' })
+            expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({ query: params })
+        }
+    )
+
+    it.each(['TraceQuery', 'TracesQuery'])('%s preserves the AI payload unless summary is requested', async (kind) => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind })()
+        const trace = {
+            id: 'trace-1',
+            inputState: 'input'.repeat(1_000),
+            events: [{ properties: { $ai_input: 'x'.repeat(5_000), $ai_model: 'gpt-4' } }],
+        }
+
+        const byDefault = (await tool.handler(contextWithResults([trace]), tool.schema.parse({ kind }))) as any
+        const full = (await tool.handler(
+            contextWithResults([trace]),
+            tool.schema.parse({ kind, detail: 'full' })
+        )) as any
+        const summary = (await tool.handler(
+            contextWithResults([trace]),
+            tool.schema.parse({ kind, detail: 'summary' })
+        )) as any
+
+        expect(byDefault.results).toEqual([trace])
+        expect(full.results).toEqual(byDefault.results)
+        expect(summary.results[0]._detail.mode).toBe('summary')
+        expect(summary.results[0].inputState).toBeUndefined()
+        expect(summary.results[0].events[0].properties.$ai_model).toBe('gpt-4')
+        expect(summary.results[0].events[0].properties.$ai_input).toBeUndefined()
+    })
+
+    it.each([
+        ['TraceQuery', 'full'],
+        ['TraceQuery', 'summary'],
+        ['TracesQuery', 'full'],
+        ['TracesQuery', 'summary'],
+    ] as const)('%s at %s detail returns no property outside the allowlist', async (kind, detail) => {
+        const secret = 'sk-test-INVENTEDCREDENTIAL0000'
+        const trace = {
+            id: 'trace-1',
+            person: { uuid: 'p1', distinct_id: 'd1', properties: { email: 'invented@example.com' } },
+            events: [{ properties: { $ai_model: 'gpt-4', authorization_header: secret } }],
+        }
+        const context = contextWithResults([trace])
+        const tool = createQueryWrapper({ name: 'test', schema, kind, outputFormat: 'optimized' })()
+
+        const result = (await tool.handler(context, tool.schema.parse({ kind, detail }))) as any
+
+        const serialized = JSON.stringify(result)
+        expect(serialized).not.toContain(secret)
+        expect(serialized).not.toContain('invented@example.com')
+        expect(result.results[0].events[0]._redactedKeys).toEqual(['authorization_header'])
+    })
+
+    it('never surfaces the formatted string, which the backend renders before redaction', async () => {
+        const secret = 'sk-test-INVENTEDCREDENTIAL0000'
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({
+                    runQuery: vi.fn().mockResolvedValue({
+                        results: [{ id: 'trace-1', events: [] }],
+                        formatted_results: `api_key: ${secret}`,
+                    }),
+                }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery', outputFormat: 'optimized' })()
+
+        const result = (await tool.handler(context, fullDetailParams)) as any
+
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBeUndefined()
+    })
+
+    it('strips detail from the trace query body, which the backend rejects unknown fields on', async () => {
+        const runQuery = vi.fn().mockResolvedValue({ results: [] })
+        const context = {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'TraceQuery' })()
+        await tool.handler(context, fullDetailParams)
+
+        expect(runQuery).toHaveBeenCalledWith({ query: { kind: 'TraceQuery' } })
     })
 })
 

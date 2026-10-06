@@ -36,6 +36,13 @@ export const getAngularInstallSteps = (ctx: OnboardingComponentsContext): StepDe
                                     pnpm add posthog-js
                                 `,
                             },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-js
+                                `,
+                            },
                         ]}
                     />
                 </>

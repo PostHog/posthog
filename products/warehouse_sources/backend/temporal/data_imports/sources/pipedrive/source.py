@@ -1,15 +1,13 @@
 import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -87,10 +85,10 @@ class PipedriveSource(
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.PIPEDRIVE,
+            name=ExternalDataSourceType.PIPEDRIVE,
             category=DataWarehouseSourceCategory.CRM,
             label="Pipedrive",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Pipedrive API token to sync your Pipedrive CRM data into the PostHog Data warehouse.
 
 You can find your personal API token in Pipedrive under **Settings > Personal preferences > API**. The token inherits your user's permissions, so make sure your user can access the data you want to sync.""",
@@ -212,9 +210,22 @@ Deletions in Pipedrive are not applied to tables synced by webhook. Switch a tab
         # (schema_name is None) and only reject when validating a specific schema.
         if status == 403 and schema_name is None:
             return True, None
-        if status in (401, 403):
-            return False, "Invalid Pipedrive API token or insufficient permissions"
-        return False, "Could not validate Pipedrive credentials"
+        if status == 401:
+            return (
+                False,
+                "Your Pipedrive API token was rejected. Copy the token again from your Pipedrive "
+                "personal preferences, then reconnect.",
+            )
+        if status == 403:
+            return (
+                False,
+                "Your Pipedrive user doesn't have permission to read this data. Ask a Pipedrive "
+                "admin to grant access, then try again.",
+            )
+        return (
+            False,
+            "Couldn't validate your Pipedrive credentials. Check your company domain and API token, then try again.",
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PipedriveResumeConfig]:
         return ResumableSourceManager[PipedriveResumeConfig](inputs, PipedriveResumeConfig)

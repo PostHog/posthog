@@ -1,5 +1,6 @@
 """Jira integration."""
 
+import re
 import time
 from datetime import timedelta
 from typing import Any, NoReturn
@@ -13,6 +14,57 @@ from posthog.exceptions_capture import capture_exception
 from . import common, model, oauth
 
 logger = structlog.get_logger(__name__)
+
+OPENING_FENCE = re.compile(r"(?P<fence>`{3,})(?P<language>[^`]*)")
+CLOSING_FENCE = re.compile(r"(?P<fence>`{3,})[ \t]*")
+
+
+def description_to_adf(description: str) -> dict[str, Any]:
+    """Markdown code fences become ADF code blocks, because Jira shows the backticks literally otherwise.
+
+    The fences follow CommonMark, so Jira shows the same blocks that GitHub would: a closing fence is at least as
+    long as its opening fence, and a fence without a closing line runs to the end. Each line is read once, so a
+    description with many unclosed fences still converts in linear time.
+    """
+    content: list[dict[str, Any]] = []
+    text_lines: list[str] = []
+    code_lines: list[str] = []
+    fence = ""
+    language = ""
+
+    def add_paragraph() -> None:
+        text = "\n".join(text_lines).strip("\n")
+        text_lines.clear()
+        # Jira rejects an empty text node.
+        if text.strip():
+            content.append({"type": "paragraph", "content": [{"type": "text", "text": text}]})
+
+    def add_code_block(language: str) -> None:
+        code_block: dict[str, Any] = {"type": "codeBlock", "content": []}
+        if language:
+            code_block["attrs"] = {"language": language}
+        if code := "\n".join(code_lines):
+            code_block["content"] = [{"type": "text", "text": code}]
+        code_lines.clear()
+        content.append(code_block)
+
+    for line in description.split("\n"):
+        if not fence:
+            if opening := OPENING_FENCE.fullmatch(line):
+                add_paragraph()
+                fence, language = opening["fence"], opening["language"].strip()
+            else:
+                text_lines.append(line)
+        elif (closing := CLOSING_FENCE.fullmatch(line)) and len(closing["fence"]) >= len(fence):
+            add_code_block(language)
+            fence = ""
+        else:
+            code_lines.append(line)
+    if fence:
+        add_code_block(language)
+    add_paragraph()
+
+    return {"type": "doc", "version": 1, "content": content}
 
 
 class JiraIntegration:
@@ -117,21 +169,11 @@ class JiraIntegration:
         description = config.get("description")
         project_key = config.get("project_key")
 
-        # Jira uses Atlassian Document Format (ADF) for description
         payload = {
             "fields": {
                 "project": {"key": project_key},
                 "summary": title,
-                "description": {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": description}],
-                        }
-                    ],
-                },
+                "description": description_to_adf(description or ""),
                 "issuetype": {"name": "Task"},
             }
         }
@@ -159,6 +201,45 @@ class JiraIntegration:
             self._raise_create_issue_error(response, issue)
 
         return {"key": issue["key"], "id": issue.get("id", "")}
+
+    def close_issue(self, issue_key: str) -> None:
+        """Transition an issue into a done status. Raises on failure.
+
+        Jira has no generic "close" verb: an issue closes through a workflow transition, and both
+        the transition names and ids differ per project. So read the available transitions and take
+        the first one that lands in the "done" status category.
+        """
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise ValidationError("Jira integration missing cloud_id - the integration may not be properly configured")
+
+        self._ensure_token_valid()
+
+        headers = {
+            "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        url = f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue/{issue_key}/transitions"
+
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            raise ValidationError(f"Failed to read Jira transitions (status {response.status_code})")
+
+        transition_id = next(
+            (
+                transition["id"]
+                for transition in response.json().get("transitions", []) or []
+                if common.dot_get(transition, "to.statusCategory.key") == "done" and transition.get("id")
+            ),
+            None,
+        )
+        if transition_id is None:
+            raise ValidationError(f"No done transition available for Jira issue {issue_key}")
+
+        response = requests.post(url, headers=headers, json={"transition": {"id": transition_id}}, timeout=10)
+        if response.status_code != 204:
+            raise ValidationError(f"Failed to close Jira issue {issue_key} (status {response.status_code})")
 
     def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing Jira issues for the link-existing flow.

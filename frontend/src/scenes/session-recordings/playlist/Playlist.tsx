@@ -11,6 +11,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonCollapse,
+    LemonDivider,
     LemonSkeleton,
     Link,
     Spinner,
@@ -18,6 +19,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { range } from 'lib/utils/arrays'
@@ -64,6 +66,12 @@ export type PlaylistProps = {
     isSynthetic?: boolean
     description?: string
     selectInitialItem?: boolean
+    /**
+     * Replaces the shared replay troubleshooting panel when a filters list comes back empty. Set it
+     * on a surface that already knows why its list is empty, because the shared panel can only
+     * offer the generic replay hints. Collections keep their own empty state.
+     */
+    listEmptyState?: JSX.Element
 }
 
 export function Playlist({
@@ -73,9 +81,20 @@ export function Playlist({
     isSynthetic,
     description,
     selectInitialItem,
+    listEmptyState,
 }: PlaylistProps): JSX.Element {
+    const consolidatedControls = useFeatureFlag('REPLAY_CONSOLIDATED_CONTROLS')
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+    const collapseButton = (
+        <LemonButton
+            icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
+            onClick={() => setPlaylistCollapsed(true)}
+            tooltip="Collapse playlist"
+            size="xsmall"
+            data-attr="collapse-playlist"
+        />
+    )
 
     const playlistListRef = useRef<HTMLDivElement>(null)
     const { ref: playlistRef, size } = useResizeBreakpoints({
@@ -165,7 +184,12 @@ export function Playlist({
                                 <Spinner textColored /> Loading older recordings
                             </>
                         ) : hasNext ? (
-                            <LemonButton onClick={() => maybeLoadSessionRecordings('older')}>Load more</LemonButton>
+                            <LemonButton
+                                data-attr="list-load-older"
+                                onClick={() => maybeLoadSessionRecordings('older')}
+                            >
+                                Load more
+                            </LemonButton>
                         ) : (
                             'No more results'
                         )}
@@ -176,6 +200,7 @@ export function Playlist({
                             <div className="flex gap-2">
                                 {(filters.date_from === '-3d' || filters.date_from === '-7d') && (
                                     <LemonButton
+                                        data-attr="list-empty-widen-date-range"
                                         type="secondary"
                                         size="small"
                                         onClick={() =>
@@ -187,7 +212,12 @@ export function Playlist({
                                         Search last {filters.date_from === '-3d' ? '7' : '30'} days
                                     </LemonButton>
                                 )}
-                                <LemonButton type="secondary" size="small" onClick={() => setIsFiltersExpanded(true)}>
+                                <LemonButton
+                                    data-attr="list-empty-expand-filters"
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => setIsFiltersExpanded(true)}
+                                >
                                     Show filters
                                 </LemonButton>
                             </div>
@@ -224,11 +254,11 @@ export function Playlist({
 
     const activeItemId = activeSessionRecordingId === undefined ? controlledActiveItemId : activeSessionRecordingId
 
-    const listEmptyState =
+    const emptyState =
         type === 'collection' ? (
             <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
         ) : (
-            <ListEmptyState />
+            <ListEmptyState listEmptyState={listEmptyState} />
         )
 
     // Show collapsed view
@@ -240,6 +270,7 @@ export function Playlist({
                 data-attr="expand-playlist"
             >
                 <LemonButton
+                    data-attr="list-toggle-collapse"
                     icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
                     tooltip="Expand playlist"
                     size="xsmall"
@@ -270,6 +301,7 @@ export function Playlist({
                         Showing {pluralize(filters.session_ids.length, 'selected recording')}
                     </span>
                     <LemonButton
+                        data-attr="list-clear-session-ids"
                         className="shrink-0"
                         size="xsmall"
                         type="tertiary"
@@ -300,24 +332,25 @@ export function Playlist({
                             <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
                                 <div className="shrink-0 bg-bg-3000 flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                                     {title && <TitleWithCount title={title} count={itemsCount} />}
-                                    <div className="flex items-center gap-0.5">
-                                        <LemonButton
-                                            icon={
-                                                <IconSidebarClose
-                                                    className={clsx(!isPlaylistCollapsed && 'rotate-180')}
-                                                />
-                                            }
-                                            onClick={() => setPlaylistCollapsed(true)}
-                                            tooltip="Collapse playlist"
-                                            size="xsmall"
-                                            data-attr="collapse-playlist"
-                                        />
+                                    <div
+                                        className={clsx(
+                                            'flex items-center gap-0.5',
+                                            consolidatedControls && 'flex-1 min-w-0'
+                                        )}
+                                    >
+                                        {!consolidatedControls && collapseButton}
                                         <SessionRecordingsPlaylistTopSettings
                                             filters={filters}
                                             setFilters={setFilters}
                                             type={type}
                                             shortId={type === 'collection' ? logicKey : undefined}
                                         />
+                                        {consolidatedControls && (
+                                            <>
+                                                <LemonDivider vertical className="my-1 mx-0.5" />
+                                                {collapseButton}
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             </DraggableToNotebook>
@@ -343,7 +376,7 @@ export function Playlist({
                                                     loading={!!sessionRecordingsResponseLoading}
                                                     setActiveItemId={onChangeActiveItem}
                                                     activeItemId={activeItemId}
-                                                    emptyState={listEmptyState}
+                                                    emptyState={emptyState}
                                                     scrollEl={scrollEl}
                                                 />
                                             ),
@@ -361,13 +394,13 @@ export function Playlist({
                                     loading={!!sessionRecordingsResponseLoading}
                                     setActiveItemId={onChangeActiveItem}
                                     activeItemId={activeItemId}
-                                    emptyState={listEmptyState}
+                                    emptyState={emptyState}
                                     scrollEl={scrollEl}
                                 />
                             ) : sessionRecordingsResponseLoading ? (
                                 <LoadingState />
                             ) : (
-                                listEmptyState
+                                emptyState
                             )}
                         </div>
                     </div>
@@ -404,7 +437,7 @@ const TitleWithCount = ({ title, count }: { title?: string; count: number }): JS
     )
 }
 
-const ListEmptyState = (): JSX.Element => {
+const ListEmptyState = ({ listEmptyState }: Pick<PlaylistProps, 'listEmptyState'>): JSX.Element => {
     const { sessionRecordingsAPIErrored, unusableEventsInFilter } = useValues(sessionRecordingsPlaylistLogic)
 
     return (
@@ -415,7 +448,7 @@ const ListEmptyState = (): JSX.Element => {
                 <UnusableEventsWarning unusableEventsInFilter={unusableEventsInFilter} />
             ) : (
                 <div className="flex flex-col gap-2">
-                    <SessionRecordingsPlaylistTroubleshooting />
+                    {listEmptyState ?? <SessionRecordingsPlaylistTroubleshooting />}
                 </div>
             )}
         </div>
@@ -445,11 +478,7 @@ const CollectionEmptyState = ({
             ) : (
                 <div className="flex flex-col gap-2">
                     <h3 className="title text-secondary mb-0">No recordings in this collection</h3>
-                    <p>
-                        To add recordings to this collection, go to the{' '}
-                        <Link to={urls.replay(ReplayTabs.Home)}>Recordings</Link> tab, click on a recording, then click
-                        "+ Add to collection" and select this collection from the list.
-                    </p>
+                    <p>Use "Add recordings" above to browse recordings and add them to this collection.</p>
                 </div>
             )}
         </div>

@@ -6,6 +6,7 @@ from django.test import override_settings
 import requests
 
 from products.tasks.backend.logic.services.agent_command import (
+    CONTENT_BLOCK_USER_ERROR,
     REFRESH_SESSION_METHOD,
     REFRESH_TIMEOUT_SECONDS,
     CommandResult,
@@ -15,6 +16,7 @@ from products.tasks.backend.logic.services.agent_command import (
     send_cancel,
     send_refresh_session,
     send_user_message,
+    user_facing_agent_error,
     validate_sandbox_url,
 )
 
@@ -68,6 +70,28 @@ class TestValidateSandboxUrl:
         result = validate_sandbox_url(f"https://{hostname}/rpc")
         assert result is not None
         assert "blocked range" in result
+
+    @pytest.mark.parametrize(
+        "url,allowed",
+        [
+            ("https://hogland.example.com/v1/hogboxes/box-abc/proxy/8080", True),
+            ("https://hogland.example.com:8443/v1/hogboxes/box-abc/proxy/8080", False),
+            ("https://hogland.attacker.example.com/v1/hogboxes/box-abc/proxy/8080", False),
+        ],
+        ids=["configured_origin", "wrong_port", "wrong_host"],
+    )
+    @override_settings(HOGLAND_API_URL="https://hogland.example.com")
+    @patch("products.tasks.backend.logic.services.agent_command.socket.getaddrinfo")
+    def test_configured_hogland_origin_is_exempt_from_private_ip_block(self, mock_getaddrinfo, url, allowed):
+        mock_getaddrinfo.return_value = [
+            (2, 1, 6, "", ("10.0.0.5", 443)),
+        ]
+        result = validate_sandbox_url(url)
+        if allowed:
+            assert result is None
+        else:
+            assert result is not None
+            assert "blocked range" in result
 
     @patch("products.tasks.backend.logic.services.agent_command.socket.getaddrinfo")
     def test_ssrf_allows_public_ip(self, mock_getaddrinfo):
@@ -157,14 +181,15 @@ class TestSendAgentCommand:
 
     @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.logic.services.agent_command.requests.post")
-    def test_success(self, mock_post, mock_validate):
+    @pytest.mark.parametrize("method", ["user_message", "credential_response"])
+    def test_success(self, mock_post, mock_validate, method):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"jsonrpc": "2.0", "result": "ok"}
         mock_post.return_value = mock_resp
 
         task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc", connect_token="tok")
-        result = send_agent_command(task_run, "user_message", params={"message": "hi"})
+        result = send_agent_command(task_run, method, params={"message": "hi"})
 
         assert result.success
         assert result.status_code == 200
@@ -172,8 +197,12 @@ class TestSendAgentCommand:
 
         call_kwargs = mock_post.call_args
         assert call_kwargs.kwargs["headers"]["Authorization"] == "Bearer tok"
-        assert call_kwargs.kwargs["json"]["method"] == "user_message"
+        assert call_kwargs.kwargs["json"]["method"] == method
         assert call_kwargs.args[0] == "https://sandbox.modal.run/rpc/command"
+
+        if method == "credential_response":
+            assert call_kwargs.kwargs["timeout"] == 5
+            assert call_kwargs.kwargs["allow_redirects"] is False
 
     @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.logic.services.agent_command.requests.post")
@@ -323,13 +352,20 @@ class TestSendAgentCommand:
 
     @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.logic.services.agent_command.requests.post")
-    def test_content_block_stream_error_is_retryable(self, mock_post, mock_validate):
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Internal error: API Error: Content block not found",
+            "Internal error: API Error: Content block is not a thinking block",
+        ],
+    )
+    def test_content_block_error_is_retryable(self, mock_post, mock_validate, message):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {
             "jsonrpc": "2.0",
             "id": 1,
-            "error": {"code": -32603, "message": "Internal error: API Error: Content block not found"},
+            "error": {"code": -32603, "message": message},
         }
         mock_post.return_value = mock_resp
 
@@ -569,3 +605,17 @@ class TestBuildRequestArgsHoglandParam:
         headers, query_params = _build_request_args("hog-tok", None, token_param="token")
         assert "Authorization" not in headers
         assert query_params == {"token": "hog-tok"}
+
+
+class TestUserFacingAgentError:
+    @pytest.mark.parametrize(
+        "error,expected",
+        [
+            ("Internal error: API Error: Content block not found", CONTENT_BLOCK_USER_ERROR),
+            ("Internal error: API Error: Content block is not a thinking block", CONTENT_BLOCK_USER_ERROR),
+            ("Internal error: API Error: 402 admission rejected", "Internal error: API Error: 402 admission rejected"),
+            (None, "Failed to send message to sandbox"),
+        ],
+    )
+    def test_content_block_rejections_are_rewritten(self, error, expected):
+        assert user_facing_agent_error(error) == expected

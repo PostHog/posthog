@@ -16,6 +16,10 @@ const toastMock = vi.hoisted(() => ({
 }));
 vi.mock("@posthog/ui/primitives/toast", () => ({ toast: toastMock }));
 
+import {
+  clearCapturedLogs,
+  formatCapturedLogs,
+} from "@posthog/ui/shell/logCapture";
 import { playCompletionSound } from "@posthog/ui/utils/sounds";
 import type {
   IActiveView,
@@ -53,6 +57,7 @@ function makeBus(overrides?: {
     completionVolume: 80,
     scaleSoundWithTaskLength: false,
     customSounds: [],
+    notificationsPausedUntil: null,
     ...overrides?.settings,
   };
 
@@ -163,6 +168,35 @@ describe("notifyPromptComplete", () => {
       bus.notifyPromptComplete("My task", "end_turn", TASK_ID),
     ).not.toThrow();
     expect(notify).toHaveBeenCalledOnce();
+  });
+});
+
+describe("pause", () => {
+  it.each([
+    { label: "native tier", hasFocus: false, toast: false },
+    { label: "toast tier", hasFocus: true, toast: true },
+  ])("stays silent on the $label while paused", ({ hasFocus, toast }) => {
+    const { bus, notify, showUnreadIndicator, requestAttention, play } =
+      makeBus({
+        hasFocus,
+        settings: { notificationsPausedUntil: Date.now() + 60_000 },
+      });
+    bus.notifyPromptComplete("My task", "end_turn", TASK_ID);
+    expect(play).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    expect(showUnreadIndicator).not.toHaveBeenCalled();
+    expect(requestAttention).not.toHaveBeenCalled();
+    expect(toastMock.success).toHaveBeenCalledTimes(toast ? 1 : 0);
+  });
+
+  it("alerts again once the pause ends", () => {
+    const { bus, notify, play } = makeBus({
+      hasFocus: false,
+      settings: { notificationsPausedUntil: Date.now() - 1 },
+    });
+    bus.notifyPromptComplete("My task", "end_turn", TASK_ID);
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -280,6 +314,63 @@ describe("sound", () => {
       settings: { scaleSoundWithTaskLength },
     });
     bus.notifyPromptComplete("My task", "end_turn", TASK_ID, durationMs);
-    expect(play).toHaveBeenCalledWith("meep", 80, [], expectedRate);
+    expect(play).toHaveBeenCalledWith(
+      "meep",
+      80,
+      [],
+      expectedRate,
+      "task_completed",
+    );
+  });
+});
+
+describe("notification log", () => {
+  // The only record of why the app made a noise. A user reporting a sound they
+  // did not expect has nothing else to send us.
+  it.each([
+    {
+      label: "delivered notification names its reason, trigger and sound",
+      hasFocus: false,
+      activeTarget: undefined,
+      settings: undefined,
+      expected: [
+        '"reason":"task_needs_input"',
+        '"trigger":"local_permission_request"',
+        '"channel":"native"',
+        '"soundPlayed":true',
+        '"sound":"meep"',
+      ],
+      // The line reaches central logs, so the task title must not ride along.
+      absent: ["needs your input", "My task"],
+    },
+    {
+      label: "suppressed notification records that nothing played",
+      hasFocus: true,
+      activeTarget: taskTarget(TASK_ID),
+      settings: undefined,
+      expected: ['"channel":"suppress"', '"soundPlayed":false'],
+      absent: [],
+    },
+    {
+      // A sound of "none" leaves the OS chime audible, so a noise still came
+      // out and the line has to name it.
+      label: "native notification with no completion sound names the OS chime",
+      hasFocus: false,
+      activeTarget: undefined,
+      settings: { completionSound: "none" as const },
+      expected: ['"soundPlayed":false', '"osChimePlayed":true'],
+      absent: [],
+    },
+  ])("$label", ({ hasFocus, activeTarget, settings, expected, absent }) => {
+    clearCapturedLogs();
+    const { bus } = makeBus({ hasFocus, activeTarget, settings });
+
+    bus.notifyPermissionRequest("My task", TASK_ID, {
+      trigger: "local_permission_request",
+    });
+
+    const logs = formatCapturedLogs();
+    for (const fragment of expected) expect(logs).toContain(fragment);
+    for (const fragment of absent) expect(logs).not.toContain(fragment);
   });
 });

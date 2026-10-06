@@ -61,5 +61,3 @@ export function Tooltip({
     </TooltipPrimitive.Provider>
   );
 }
-
-export { TooltipPrimitive };

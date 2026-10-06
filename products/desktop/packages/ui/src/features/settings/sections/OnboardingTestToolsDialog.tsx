@@ -67,7 +67,7 @@ interface Draft {
 const DEFAULT_DRAFT: Draft = {
   joining: false,
   companyDomain: "posthog.com",
-  otherMembers: "Max, Lotte",
+  otherMembers: "Max, Lottie",
   situation: "nothing-connected",
   sourcesWatching: "errors, conversion drops",
 };
@@ -233,7 +233,7 @@ export function OnboardingTestToolsDialog({
               </QuestionnaireDescription>
               <TextAnswer
                 label="People already in the workspace"
-                placeholder="Max, Lotte"
+                placeholder="Max, Lottie"
                 value={draft.otherMembers}
                 onValueChange={(otherMembers) => patch({ otherMembers })}
               />

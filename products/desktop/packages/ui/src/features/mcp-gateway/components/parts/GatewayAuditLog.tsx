@@ -18,15 +18,8 @@ import {
 } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayAudit";
 import { useGatewayConfig } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayConfig";
 import { useServiceAccounts } from "@posthog/ui/features/mcp-gateway/hooks/useServiceAccounts";
-import {
-  Badge,
-  Button,
-  Flex,
-  Heading,
-  Select,
-  Spinner,
-  Text,
-} from "@radix-ui/themes";
+import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Badge, Button, Flex, Heading, Select, Text } from "@radix-ui/themes";
 import { useState } from "react";
 
 const FILTERS: { id: McpAuditQuickFilter; label: string }[] = [
@@ -184,9 +177,7 @@ export function GatewayAuditLog() {
           </Text>
         </div>
         {auditLoading && events.length === 0 ? (
-          <Flex align="center" justify="center" py="6">
-            <Spinner size="2" />
-          </Flex>
+          <LoadingState className="py-6" />
         ) : events.length === 0 ? (
           <Text
             color="gray"

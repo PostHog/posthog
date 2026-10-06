@@ -48,10 +48,10 @@ export function EnvironmentEditForm({
   onBuildNewImage,
   dirty,
 }: EnvironmentEditFormProps) {
-  const error =
-    stepError(plan, "environment") ??
-    stepError(plan, "access") ??
-    stepError(plan, "image");
+  const environmentError = stepError(plan, "environment");
+  const accessError = stepError(plan, "access");
+  const imageError = stepError(plan, "image");
+  const error = environmentError ?? accessError ?? imageError;
 
   return (
     <div className="flex flex-col gap-5">
@@ -81,6 +81,7 @@ export function EnvironmentEditForm({
             plan={plan}
             environments={[]}
             onChange={onChange}
+            error={environmentError}
           />
         </Section>
         <Section>
@@ -88,6 +89,7 @@ export function EnvironmentEditForm({
             plan={plan}
             onChange={onChange}
             savedVariableKeys={savedVariableKeys}
+            error={accessError}
           />
         </Section>
         {plan.customImages && (
@@ -100,6 +102,7 @@ export function EnvironmentEditForm({
               buildNewDisabledReason={
                 dirty ? "Save your changes first, then build one." : null
               }
+              error={imageError}
             />
           </Section>
         )}

@@ -11,10 +11,18 @@ const REACHABILITY_RETRY_MS = 1_000
 /**
  * Why a single attempt did not come back with bytes.
  *
- * `rejected` is kept apart from `transport` because only it means the sidecar took the image,
- * looked at it, and could not produce bytes. A refused or reset socket says nothing about content.
+ * `rejected` is kept apart from the socket reasons because only it means the sidecar took the image,
+ * looked at it, and could not produce bytes. A refused or dropped socket says nothing about content.
+ *
+ * The socket reasons are split by what they say about the sidecar. `refused` means nothing is
+ * listening on the sidecar port. `reset` is a connection that was accepted and then dropped before
+ * a reply, which the sidecar does to its idle keep-alive sockets on every shutdown, so it is expected
+ * on a rollout or a scale-down and does not mean the sidecar is down. `transport` is every other
+ * socket failure, including one that carries no error code, and is deliberately not folded into
+ * `reset`: an unrecognised failure has to land on a label the unreachable alert selects, not on the
+ * one the runbook tells the on-call to expect. The alert selects `refused` and `transport`.
  */
-export type ScrubWaitReason = 'busy' | 'timeout' | 'transport' | 'rejected'
+export type ScrubWaitReason = 'busy' | 'timeout' | 'refused' | 'reset' | 'transport' | 'rejected'
 
 /** Raised only when the caller hangs up, which is the one condition that stops the wait. */
 export class ScrubAborted extends Error {}
@@ -86,7 +94,7 @@ export const POISON_MIN_OTHER_SUCCESSES = 3
  * so a threshold above the lease can never be reached: the group fences the pod first, the partition
  * moves, and its new owner repeats the same work and is fenced in turn. The gate would be dead code
  * and the images would circle the fleet. Request time counts because a wedged worker consumes most
- * of the lease before each backoff starts. Busy, timeout, and transport intervals stay outside this
+ * of the lease before each backoff starts. Busy, timeout, and socket intervals stay outside this
  * budget because they do not blame the image.
  *
  * The trade is deliberate. A sidecar broken for this long parks images rather than holding them,
@@ -102,12 +110,14 @@ const BACKOFF_BASE_MS = 100
  * A 503 is the sidecar stating it is full, so backing off hard is the point: at the short cap eight
  * in-flight images per pod keep up a steady stream of re-posts against something already shedding,
  * which is load rather than backpressure and slows the recovery it is waiting for. A refused socket
- * is different, because the ordinary cause is the sidecar still starting up in the same pod, and
- * waiting half a minute to notice it came up is a needless stall.
+ * is different, because the ordinary cause is the sidecar container restarting in the same pod and
+ * reloading its models, and waiting half a minute to notice it came back is a needless stall.
  */
 const BACKOFF_MAX_MS: Record<ScrubWaitReason, number> = {
     busy: 30_000,
     timeout: 5_000,
+    refused: 5_000,
+    reset: 5_000,
     transport: 5_000,
     // The sidecar answered, so it is neither full nor unreachable, and re-asking quickly costs it a
     // whole scrub attempt each time. Backed off like a shed request rather than like a lost socket.
@@ -152,6 +162,17 @@ function backoffMs(attempt: number, reason: ScrubWaitReason, random: () => numbe
  */
 function isWaitable(status: number): boolean {
     return status >= 500 || status === 408 || status === 429
+}
+
+/** The codes Node reports when the peer closes a connection it had accepted. Nothing else may read as a benign reset. */
+const RESET_CODES = new Set(['ECONNRESET', 'EPIPE', 'ECONNABORTED'])
+
+export function socketWaitReason(error: unknown): ScrubWaitReason {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code
+    if (code === 'ECONNREFUSED') {
+        return 'refused'
+    }
+    return code !== undefined && RESET_CODES.has(code) ? 'reset' : 'transport'
 }
 
 export class ScrubClient {
@@ -245,10 +266,10 @@ export class ScrubClient {
                 if (error instanceof ScrubAborted || error instanceof ScrubContractError) {
                     throw error
                 }
-                // Refused, reset, or destroyed by the request timeout. None of them say anything
+                // Refused, dropped, or destroyed by the request timeout. None of them say anything
                 // about this image, and none of them are fixed by dropping it.
                 detail = (error as Error)?.message ?? String(error)
-                reason = detail === REQUEST_TIMED_OUT ? 'timeout' : 'transport'
+                reason = detail === REQUEST_TIMED_OUT ? 'timeout' : socketWaitReason(error)
             }
             if (signal?.aborted) {
                 throw new ScrubAborted('scrub batch aborted')

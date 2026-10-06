@@ -5,8 +5,8 @@ import pytest
 from django.conf import settings
 from django.test import override_settings
 
-from products.batch_exports.backend.api.destination_tests import get_destination_test
-from products.batch_exports.backend.api.destination_tests.s3 import (
+from products.batch_exports.backend.presentation.views.destination_tests import get_destination_test
+from products.batch_exports.backend.presentation.views.destination_tests.s3 import (
     AwsS3DestinationTest,
     S3AssumeRoleTestStep,
     S3CompatibleDestinationTest,
@@ -120,7 +120,6 @@ async def test_assume_role_step_skips_without_role():
 @pytest.mark.parametrize(
     "destination,expected_test,expected_steps",
     [
-        ("S3", S3CompatibleDestinationTest, [S3EnsureBucketTestStep]),
         ("S3Compatible", S3CompatibleDestinationTest, [S3EnsureBucketTestStep]),
         ("AwsS3", AwsS3DestinationTest, [S3AssumeRoleTestStep, S3EnsureBucketTestStep]),
     ],

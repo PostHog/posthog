@@ -17,6 +17,7 @@ from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
 
+from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.oauth import OAuthAccessToken, find_oauth_access_token
 from posthog.models.user import User
 
@@ -24,14 +25,16 @@ from ee.partners.stripe.api.provisioning.core import is_stripe_oauth_app
 from ee.partners.stripe.api.provisioning.exceptions import SpecError
 
 
-class StripeBearerAuthentication(BaseAuthentication):
+class StripeBearerAuthentication(ActivityCredentialMixin, BaseAuthentication):
     """Authenticate the Stripe orchestrator via an OAuth bearer token.
 
     Returns ``(user, access_token)`` so views read the token off ``request.auth``.
     Raises :class:`SpecError` (rendered in the view's envelope) on failure.
     """
 
-    def authenticate(self, request: Request) -> tuple[User | None, OAuthAccessToken]:
+    activity_credential_type = "oauth"
+
+    def authenticate(self, request: Request) -> tuple[User, OAuthAccessToken]:
         auth_header = request.headers.get("authorization", "")
         if not auth_header.startswith("Bearer "):
             raise SpecError("unauthorized", "Missing bearer token", status=401)
@@ -55,7 +58,18 @@ class StripeBearerAuthentication(BaseAuthentication):
         if app is None or not is_stripe_oauth_app(app):
             raise SpecError("unauthorized", "Authentication failed", status=401)
 
-        return access_token.user, access_token
+        # Deactivating a user drops their login sessions but leaves OAuth tokens intact, so the
+        # token has to fail closed here the way `posthog.auth._validate_token` does for the main
+        # API. A token with no user cannot identify a caller at all, and the views downstream
+        # read `request.user` as a User, so it fails closed too.
+        user = access_token.user
+        if user is None or not user.is_active:
+            raise SpecError("unauthorized", "Authentication failed", status=401)
+
+        self.record_activity_actor(
+            user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id
+        )
+        return user, access_token
 
     def authenticate_header(self, request: Request) -> str:
         return "Bearer"

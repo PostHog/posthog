@@ -28,12 +28,12 @@ UPDATED_DOC = {"type": "doc", "content": [{"type": "heading", "content": [{"type
 
 class TestNotebookCollabSaveAPI(APIBaseTest):
     def _create_notebook(self, content=None):
-        data = {}
-        if content:
-            data["content"] = content
-        response = self.client.post(f"/api/projects/{self.team.id}/notebooks/", data=data, format="json")
-        assert response.status_code == status.HTTP_201_CREATED
-        return response.json()
+        # Seeded through the ORM because the create endpoint stores every notebook as markdown, and these tests
+        # cover the rich-text save path that existing legacy notebooks still use.
+        notebook = Notebook.objects.create(
+            team=self.team, content=content, created_by=self.user, last_modified_by=self.user
+        )
+        return {"short_id": notebook.short_id, "version": notebook.version}
 
     def _collab_save(
         self, notebook, *, version, steps, content=None, text_content=None, title=None, client_id="test-client"

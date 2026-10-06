@@ -62,6 +62,7 @@ from products.managed_warehouse.backend.temporal.metrics import (
     record_ducklake_register_data_imports_stage_duration,
 )
 from products.managed_warehouse.backend.temporal.source_job_state import record_managed_warehouse_source_job_activity
+from products.warehouse_sources.backend.facade.ducklake import query_folder_publishing_job_id
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
@@ -76,7 +77,17 @@ _DUCKGRES_CANCEL_MARGIN = dt.timedelta(minutes=1)
 _DUCKGRES_CANCEL_MAX_ATTEMPTS = 10
 _DUCKGRES_CANCEL_RETRY_SECONDS = 0.5
 _DUCKGRES_CANCEL_TIMEOUT_SECONDS = 5.0
-_DUCKGRES_REGISTER_WORKER_OPTIONS = "-c duckgres.worker_cpu=4 -c duckgres.worker_memory=16Gi"
+# Registration materializes a whole import generation through
+# `CREATE TABLE ... AS SELECT * FROM read_parquet(<glob>)`, so peak memory
+# tracks the generation's parquet size, not the batch size. A duckgres worker
+# is also reused across the sequential sessions one registration run opens, and
+# DuckDB does not release buffer-pool pages back to the OS between them, so the
+# pod's RSS ratchets toward its DuckDB memory_limit plus the allocations that
+# limit does not govern (Arrow batches, libpq buffers, the Go runtime). At 16Gi
+# that left too little margin and the worker was OOM-killed mid-registration,
+# which surfaces to the client as a lost connection. Keep CPU low -- this is an
+# IO-bound scan -- but leave memory room to absorb a large generation.
+_DUCKGRES_REGISTER_WORKER_OPTIONS = "-c duckgres.worker_cpu=4 -c duckgres.worker_memory=32Gi"
 # Duckgres cancel fires one minute before this deadline. One attempt: a
 # StartToClose timeout has an unknown catalog outcome, so a retry could race
 # the original CALL.
@@ -103,7 +114,7 @@ def _register_source_job_update(
         team_id=inputs.team_id,
         schema_ids=[inputs.schema_id],
         source_job_id=inputs.job_id,
-        attempt_id=f"{inputs.job_id}:{_generation_token(inputs.prepared_queryable_folder)}",
+        attempt_id=f"{inputs.job_id}:{_generation_token(inputs.prepared_queryable_folder, inputs.job_id)}",
         workflow_type=ManagedWarehouseSourceJobWorkflow.REGISTER,
         status=status,
         started_at=started_at,
@@ -400,13 +411,18 @@ def _is_valid_queryable_folder(queryable_folder: str) -> bool:
 _GENERATION_SUFFIX_PATTERN = re.compile(r"__query_(\d+(?:_[0-9a-f]{8})?)$")
 
 
-def _generation_token(prepared_queryable_folder: str) -> str:
+def _timestamped_generation(prepared_queryable_folder: str) -> str | None:
     match = _GENERATION_SUFFIX_PATTERN.search(prepared_queryable_folder)
-    if match:
-        return match.group(1)
-    # Folders predating the timestamped naming carry no generation, so derive a stable
-    # token from the whole name to keep the workflow id unique per generation.
-    return hashlib.sha256(prepared_queryable_folder.encode()).hexdigest()[:12]
+    return match.group(1) if match else None
+
+
+def _generation_token(prepared_queryable_folder: str, job_id: str) -> str:
+    timestamped = _timestamped_generation(prepared_queryable_folder)
+    if timestamped is not None:
+        return timestamped
+    # A fixed folder name (a rotation slot, or the legacy `__query` folder) is reused by later syncs,
+    # so the name alone does not identify a generation; the job that published it does.
+    return hashlib.sha256(f"{prepared_queryable_folder}:{job_id}".encode()).hexdigest()[:12]
 
 
 def build_register_data_imports_workflow_id(*, team_id: int, schema_id: str) -> str:
@@ -457,7 +473,7 @@ def _generation_scoped_landing_uri(
 ) -> str:
     normalized_uri = landing_uri.rstrip("/")
     safe_job_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(job_id))
-    generation_token = _generation_token(prepared_queryable_folder)
+    generation_token = _generation_token(prepared_queryable_folder, job_id)
     generation_suffix = f"/{safe_job_id}/{generation_token}"
     if normalized_uri.endswith(generation_suffix):
         return normalized_uri
@@ -520,12 +536,27 @@ def _prepared_generation_is_current(inputs: DuckLakeRegisterDataImportsActivityI
     return _current_prepared_queryable_folder(inputs) == inputs.metadata.prepared_queryable_folder
 
 
+def _publishing_job_id(*, team_id: int, schema_uuid: uuid.UUID, prepared_queryable_folder: str) -> str | None:
+    return query_folder_publishing_job_id(
+        team_id=team_id, schema_id=schema_uuid, queryable_folder=prepared_queryable_folder
+    )
+
+
 def _register_completed_for_generation(*, team_id: int, schema_id: str, prepared_queryable_folder: str) -> bool:
     try:
         schema_uuid = uuid.UUID(schema_id)
     except ValueError:
         return False
-    token = _generation_token(prepared_queryable_folder)
+    token = _timestamped_generation(prepared_queryable_folder)
+    if token is None:
+        # A fixed folder name needs the job that published the current generation. Without that
+        # record nothing can prove the newer generation landed, so this one is published.
+        publishing_job_id = _publishing_job_id(
+            team_id=team_id, schema_uuid=schema_uuid, prepared_queryable_folder=prepared_queryable_folder
+        )
+        if publishing_job_id is None:
+            return False
+        token = _generation_token(prepared_queryable_folder, publishing_job_id)
     return (
         ManagedWarehouseSourceJob.objects.for_team(team_id)
         .filter(

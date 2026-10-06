@@ -23,7 +23,7 @@ export const ACTIVITY_EVENTS = [
   "task_handed_off",
 ] as const;
 
-export type ActivityEventKind = (typeof ACTIVITY_EVENTS)[number];
+type ActivityEventKind = (typeof ACTIVITY_EVENTS)[number];
 
 const ACTIVITY_EVENT_SET: ReadonlySet<string> = new Set(ACTIVITY_EVENTS);
 
@@ -162,7 +162,7 @@ function artifactPayload(payload: Record<string, unknown>): ArtifactPayload {
   };
 }
 
-export function isActivityEventKind(event: string): event is ActivityEventKind {
+function isActivityEventKind(event: string): event is ActivityEventKind {
   return ACTIVITY_EVENT_SET.has(event);
 }
 

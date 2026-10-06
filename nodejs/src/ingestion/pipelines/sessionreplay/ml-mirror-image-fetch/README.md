@@ -104,6 +104,8 @@ Path patterns:
 
 **1.5** The producer collects only the `src` attribute on `img`, `image`, and `picture` elements. Other source attributes are out of scope until this specification adds them.
 
+**1.6** The lane does not collect or fetch an advertising or analytics beacon. A beacon is a URL whose host and decoded path match an entry in the shared list [`tracking_beacons.txt`](../../../../../../rust/replay-anonymizer/src/tracking_beacons.txt). An entry is a host pattern followed by a path prefix. The host pattern is an exact host, `*.` followed by a domain to match every host below it, or `*` to match every host. The path prefix is compared case-insensitively with the start of the decoded path, after runs of `/` collapse to one. A prefix that does not end with `/` must end at a segment boundary, which is the end of the path, a `/`, or a `;`. A prefix of `/` alone matches every path on the host, and a whole-host entry therefore refuses every image on that host, including a visible ad creative, because nothing on an ad-serving host is a customer's content. The list refuses `*/` as an entry. The producer applies the list when it collects a URL. The fetcher applies the same list, through the shared URL policy, to every job it reads from the frontier and to every redirect target. A frontier job that matches is dropped without a request, a crawl-history write, or a dead-letter record, and `ml_image_fetch_consumer_skipped_total` counts it by decline reason, so a beacon queued before its entry existed leaves the backlog at parse speed. A redirect target that matches ends the URL as a terminal `bad_redirect` result in crawl history, after the request that returned the redirect. Nobody sees the one-pixel image a beacon serves, so it has no value as training data, and a fetch of it reports a conversion or a visit to the network behind it. A credential refusal under requirement 1.2 takes precedence over this list. A list change ships only with an image build of both the mirror and the fetcher.
+
 ### 2. Opt-out signals
 
 **2.1** Sites can refuse fetching by signaling this via these files:
@@ -171,9 +173,9 @@ XMP is an opt-out for that image when it has one of these values:
 
 **3.12** TDMRep does not specify a maximum size for tdmrep.json. The lane refuses a tdmrep.json file larger than 500KiB. It treats this result as unreachable.
 
-**3.13** The lane parses and applies tdmrep.json according to the [TDMRep Community Group Final Report](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/). A matching reservation of `1` refuses the URL.
+**3.13** The lane parses and applies tdmrep.json according to the [TDMRep Community Group Final Report](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/). The first rule whose `location` matches the URL path applies. A reservation of `1`, `"1"`, or `true` in that rule refuses the URL. [TDMRep section 5.1](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/#sec-tdm-reservation) reads `"1"` and `true` as protocol errors, which mean no reservation. The lane reads them as a reservation, because a site that writes them intends to reserve. Any other value is no reservation.
 
-**3.14** A 404 or a 410 while fetching robots.txt or tdmrep.json means the origin does not have that file
+**3.14** A 404 or a 410 while fetching robots.txt or tdmrep.json means the origin does not have that file. A 200 for tdmrep.json also means the origin does not have that file when the body cannot start a JSON array. This is the case when the first byte after an optional UTF-8 byte order mark and JSON whitespace is not `[`. Examples are an HTML page, an empty body, and a JSON object. [TDMRep section 6.1](https://www.w3.org/community/reports/tdmrep/CG-FINAL-tdmrep-20240510/#sec-tdm-file) says that a server that does not return a machine-readable representation does not implement the protocol. The lane makes this check before requirements 3.12 and 3.23, so an oversized or non-UTF-8 HTML page also means that the file is absent. If the 500KiB prefix contains only a byte order mark and whitespace, requirement 3.12 applies, because the `[` can come after the prefix. If the cache holds an available tdmrep.json for the origin, the lane keeps that file as requirement 3.19 describes, and does not record an absence. A server can return an HTML error page with a 200 for a short time, and this rule keeps a cached reservation during that time. A body that starts with `[` but is not a valid JSON array makes tdmrep.json unreachable, because it can be a damaged reservation.
 
 **3.15** No robots.txt or tdmrep.json means that no restrictions on fetching are applied by that file (there might be signals from other sources)
 
@@ -299,6 +301,8 @@ Removing an eligible entry cannot permit an earlier request.
 
 **5.20** Each worker creates one Kafka group member for each configured target partition. Group assignments do not overlap, so ready group members supply batches from different partitions. The worker joins their batches into one fetch pass. The target must be from one to four and defaults to two. The worker starts the fetch pass when all target batches arrive or the join window ends. If fewer batches arrive, the worker processes the available batches. A later group can run concurrently instead of waiting behind a full pass. Shared request limits still bound total network concurrency. The worker divides the existing Kafka prefetch memory budget across its group members.
 
+**5.21** When `SESSION_RECORDING_ML_IMAGE_FETCH_CONTINUOUS_POOL` is true, the worker does not join batches. Each group member batch adds its jobs to one candidate pool for the worker and finishes when its own jobs finish. The pool applies the registrable-domain and origin limits across the worker, not per batch. It selects the eligible registrable domain whose first waiting job entered the pool earliest. The order uses the time the worker received the job, not the age of the record, because the pass deadline and the batch timeout count from that time. Inside one batch, jobs enter the pool in capture order, earliest first. A pass-deadline deferral returns to the end of its partition, behind URLs captured later, and this order keeps it from losing to those URLs on every pass. An origin in its crawl delay is not eligible until the delay passes. At the pass deadline, the batch's waiting jobs leave the pool as pass-deadline deferrals. A group member reads its next batch only when fewer than `SESSION_RECORDING_ML_IMAGE_FETCH_POOL_REFILL_RUNNABLE_URLS` of its waiting jobs can run, and fewer than `SESSION_RECORDING_ML_IMAGE_FETCH_POOL_MAX_QUEUED_URLS_PER_MEMBER` of its jobs wait. A registrable domain counts as runnable only up to its concurrency limit. A member also reads its next batch when a fetch worker finds no eligible job and the member is under the queued-job limit. The member waits at most 30 seconds for room. After that it reads its next batch anyway, so its queued jobs can pass the limit by about one batch until pass deadlines remove them.
+
 ### 6. Smokescreen
 
 **6.1** Smokescreen is the authoritative network boundary for outbound requests in production. It must refuse a connection to an IP address that is not globally routable.
@@ -416,6 +420,8 @@ A terminal refusal has no destination Kafka record, so it starts at step 2. A de
 
 `v` is the integer `2`. The parser also accepts the two version `1` shapes that preceded this schema, so records already in a topic drain across an upgrade. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, `origin_map_full`, or `registrable_domain_map_full`. The parser accepts and removes the legacy optional `lowOriginDiversityDeferred` field.
 
+Each frontier or delay record also carries a `capture-timestamp-ms` header. Its value is the smallest `firstSeenAtMs` of the record's jobs. The lane reads the header to report its capture watermark (requirement 11.13) without parsing the record.
+
 The parser ignores unknown fields so that a producer can add optional data without breaking an older consumer. It rejects a missing field, an invalid field type or value, an unsupported version, or a record whose jobs do not all match the Kafka key. It derives the current origin and registrable domain from `currentUrl` with the shared URL-policy implementation. It uses `originalRef` as the crawl-history key so that a redirect result completes the URL that the recording referenced.
 
 **10.5** The fetcher drops an unparseable input message. The fetcher has no dead-letter topic.
@@ -455,7 +461,7 @@ A fetch batch can publish more frontier records than it consumed. This can occur
 
 **11.6** Every metric label defined by this lane uses a fixed set of values or the bounded integer partition set of the frontier topic. HTTP responses use `2xx`, `3xx`, `4xx`, `5xx`, or `other`. Republish destination classes use `frontier` or `delay`. Republish topic classes use `frontier`, `retry_1m`, `retry_10m`, or `retry_1h`. Image scrub sources use `inline` or `url`. Unexpected scrub source formats use `other`. No label defined by this lane contains a configured Kafka topic name, registrable domain, provider domain, origin, host, URL, image ref, team, project, exception message, or other external value.
 
-**11.7** The lane counts republished URLs by reason and bounded destination class. For each used topic class in a fetch batch, it observes the number of Kafka record delivery attempts, the number of attempted registrable-domain keys, and the wall time from topic-class scheduling until all started delivery attempts settle. It also observes total republish flush wall time and counts batches that reached the republish finalization deadline.
+**11.7** The lane counts frontier jobs it skips as unwanted, by decline reason, separately from invalid frontier input. The lane counts republished URLs by reason and bounded destination class. For each used topic class in a fetch batch, it observes the number of Kafka record delivery attempts, the number of attempted registrable-domain keys, and the wall time from topic-class scheduling until all started delivery attempts settle. It also observes total republish flush wall time and counts batches that reached the republish finalization deadline.
 
 It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `server_error`. It also counts republish failures, crawl-history keys affected by failed operations, and retry records by outcome.
 
@@ -466,6 +472,20 @@ It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `serv
 **11.10** Alerts use frontier-topic lag, pass-budget saturation, active batch age, delivery failures, and invalid frontier or retry input. Durable log alerts cover one-shot failures that can stop a pod before Prometheus scrapes its counters. Requirement 16.6 still prohibits alerts on delay-topic lag.
 
 **11.11** The mirror counts collected image ref occurrences by `css` or `html` source, canonical property name, and `inline` or `url` lane. It counts before per-message ref deduplication. Every property label comes from the fixed HTML attribute set in requirement 13.11 or the fixed CSS property allowlist in the anonymizer.
+
+**11.12** The fetch deployment writes three high-cardinality metrics to TopHog. It does not export registrable domains as Prometheus labels.
+
+`ml_image_fetch_attempts_by_registrable_domain` counts durable URL attempts by partition, registrable domain, completed or republished disposition, and outcome.
+
+`ml_image_fetch_block_events_by_registrable_domain` counts blocking observations by partition, registrable domain, and exact reason. Reasons distinguish concurrency, scheduler waits, configuration failures, response backoff, and deadlines.
+
+`ml_image_fetch_blocked_ms_by_registrable_domain` sums positive wait milliseconds spent or imposed for the same keys. Domain concurrency contributes events because it has no measured wait duration.
+
+The frontier retains an exact block reason across delay topics. Records created before this field existed use `unknown_backoff` when they return early.
+
+Each metric returns the top 20 domain-factor keys per flush and tracks at most 2,000 keys in pod memory.
+
+**11.13** The lane reports `ml_replay_capture_watermark_timestamp_seconds{data="image_urls"}` for each frontier partition. The value is the earliest `capture-timestamp-ms` among the records that the lane holds on the partition, or that it finished in the last 10 minutes. A record stays held until the consumer stores an offset past it. The mirror, the scrub lane, the Parquet sink, and the retry lane report the same gauge. The minimum over the lanes on a data path is how far back that data is complete in the training bucket. A record that waits in Kafka behind the consumer position does not count until the lane reads it. A URL in a delay topic that no retry consumer reads never counts again.
 
 ### 12. Conditional requests
 
@@ -495,7 +515,7 @@ It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `serv
 
 **13.3** The key uses the shared Rust URL-policy implementation to canonicalize the URL. The canonical form uses the parser's serialized HTTPS URL, lowercases and IDNA-encodes the host, removes a trailing DNS root dot, removes the fragment, omits the explicit default port `443`, and uses `/` for an empty path. It does not sort path segments or query fields. The shared parser's serialization is authoritative for percent-encoding and dot-segment normalization.
 
-The fetch URL keeps the original query verbatim. The global ref uses a canonical query that removes every occurrence of a volatile query field after percent-decoding its name and comparing it case-insensitively. The implementation filters raw query fields and never rebuilds a query. Every retained field stays byte-for-byte unchanged. The global volatile field names are `cb`, `nocache`, and `rnd`. If the URL contains `_nc_ohc`, the scoped volatile field names are `_nc_ohc`, `_nc_ht`, `ccb`, `oe`, `oh`, and `stp`. These lists are part of the shared URL policy. A new volatile field requires a specification change and shared test vectors. A credential field is refused under requirement 1.2 before canonicalization and is never removed to make a URL acceptable. If several fetch URLs in one collection batch map to one global ref, the first collected fetch URL becomes the fetch candidate.
+Recognised image resizes on `cdn.shopify.com` and single-label `*.myshopify.com` storefronts use a consistent size only in the dedup URL before the global identity is calculated. Custom domains retain their resize values because the route alone does not establish Shopify semantics. The fetch URL retains the observed resize suffix and query bytes. The rules and exceptions are defined in [image canonicalisation](/docs/internal/session-replay-image-canonicalisation.md). Crops, query URLs with both dimensions, asset versions, and unrecognised resize controls remain distinct. Shopify size normalisation never creates a new fetch target. The global ref uses a canonical query that removes every occurrence of a volatile query field after percent-decoding its name and comparing it case-insensitively. The implementation filters raw query fields and never rebuilds a query. Every retained field stays byte-for-byte unchanged. The global volatile field names are `cb`, `nocache`, and `rnd`. If the URL contains `_nc_ohc`, the scoped volatile field names are `_nc_ohc`, `_nc_ht`, `ccb`, `oe`, `oh`, and `stp`. These lists are part of the shared URL policy. A new volatile field requires a specification change and shared test vectors. A credential field is refused under requirement 1.2 before canonicalization and is never removed to make a URL acceptable. If several fetch URLs in one collection batch map to one global ref, the first collected fetch URL becomes the fetch candidate.
 
 **13.4** A URL ref does not contain a team identifier, a team pseudonym, or a key derived from one team. The same canonical URL produces the same ref for every team.
 
@@ -513,9 +533,11 @@ The fetch URL keeps the original query verbatim. The global ref uses a canonical
 
 **13.11** The mirror collects remote images from `img[src]`, `img[rr_src]`, `img[srcset]`, SVG `image[href]`, SVG `image[xlink:href]`, `video[poster]`, and `source[srcset]` below a `picture` element. It does not infer a `source` parent from a tagless attribute mutation.
 
-**13.12** For `srcset` and CSS `image-set()`, the mirror selects the candidate with the largest width or pixel density. It declines a malformed or mixed `srcset`. The first candidate wins a tie.
+**13.12** For `srcset`, the mirror selects the largest candidate at or below 1024w or 2x, according to the descriptor type. If all candidates exceed that limit, it selects the smallest. These descriptor limits do not establish total pixels or download bytes. CSS `image-set()` retains its largest-density selection. It declines a malformed or mixed `srcset`. The first candidate wins a tie. An `img` with a usable `srcset` candidate does not also collect or scrub its `src` or `rr_src`; those attributes become placeholders without refs. A refused or malformed `srcset` retains those fallbacks. This choice applies within one attribute map, not across separate elements or mutations.
 
 **13.13** The mirror processes inline base64 images and remote URLs in image-bearing CSS properties. It keeps same-document fragment URLs unchanged and does not collect font or import URLs.
+
+**13.14** The mirror does not collect the `src`, `rr_src`, or `srcset` of an `img` element that nobody can see. An element cannot be seen when it has the `hidden` attribute, when its inline style sets `display` to `none`, or when its width and height are both at most one pixel. The mirror reads each dimension from the inline style first and from the `width` or `height` attribute second. A dimension that is not a pixel length, for example `100%`, is unknown and does not count as one pixel. The element keeps the media placeholder, and the mirror counts the decline as `hidden_pixel`. The fetcher cannot apply this rule, because the frontier carries only the URL.
 
 ### 14. HTTP request/response
 
@@ -526,7 +548,7 @@ The fetch URL keeps the original query verbatim. The global ref uses a canonical
 **14.3** The lane never sends a credential. That covers an `Authorization` header, a proxy credential,
 the userinfo of a URL, cookies, and known credential query parameters
 
-**14.4** The lane never sends a `Referer`
+**14.4** Every request sends `Referer: https://us.posthog.com/`, including requests for `robots.txt` and the other policy files. The lane never sends the URL of the page that showed the image
 
 **14.5** The lane refuses a response where `Content-Length` is over the byte limit
 
@@ -546,7 +568,6 @@ the userinfo of a URL, cookies, and known credential query parameters
 | `image/jpeg`   | JPEG   |
 | `image/gif`    | GIF    |
 | `image/webp`   | WebP   |
-| `image/avif`   | AVIF   |
 
 **14.11** This lane does not check that the downloaded bytes match the expected media type. It is expected that the image scrubber will do this.
 

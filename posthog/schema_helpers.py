@@ -14,7 +14,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql_queries.insights.utils.utils import series_should_be_set_to_dau
+from posthog.hogql_queries.utils.utils import series_should_be_set_to_dau
 from posthog.types import InsightQueryNode
 
 
@@ -112,12 +112,14 @@ def to_dict(query: BaseModel) -> dict:
                         "showConfidenceIntervals",
                         "confidenceLevel",
                         "showTrendLines",
+                        "showMeanLine",
                         "showMovingAverage",
                         "movingAverageIntervals",
                         "stacked",
                         "detailedResultsAggregationType",
                         "excludeBoxPlotOutliers",
                         "showAnnotations",
+                        "annotationsScope",
                         "showFullUrls",
                         "selectedInterval",
                         "funnelStepReference",

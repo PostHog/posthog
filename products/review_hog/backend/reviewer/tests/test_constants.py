@@ -1,7 +1,10 @@
+from dataclasses import replace
+
 import pytest
 
 from posthog.temporal.oauth import has_write_scopes, resolve_scopes
 
+import products.review_hog.backend.temporal.types as trigger_types
 from products.review_hog.backend.reviewer.constants import (
     CHUNKING_MODEL,
     CHUNKING_REASONING_EFFORT,
@@ -10,8 +13,16 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_REASONING_EFFORT,
     DEDUP_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
-    REVIEW_EXPERIMENT_ARMS,
+    DEFAULT_VALIDATION_ARM,
+    FLASH_ARM,
+    HUMAN_TRIGGER_SOURCES,
+    RESOLUTION_MODEL,
+    RESOLUTION_REASONING_EFFORT,
+    RESOLUTION_RUNTIME_ADAPTER,
+    REVIEW_ARMS_BY_TIER,
     REVIEW_MCP_SCOPES,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
     REVIEW_RUNTIME_ADAPTER,
@@ -19,9 +30,15 @@ from products.review_hog.backend.reviewer.constants import (
     VALIDATION_REASONING_EFFORT,
     VALIDATION_RUNTIME_ADAPTER,
     ReviewArm,
-    draw_review_arm,
+    ReviewTier,
+    is_below_human_tier,
     resolve_review_arm,
+    review_arm_for_mode,
+    select_review_tier,
+    validation_arm_for_mode,
 )
+from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_INBOX
+from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import (
     LLMProvider,
     ReasoningEffort,
@@ -40,14 +57,23 @@ def test_review_runtime_is_a_registry_supported_combo() -> None:
     assert get_provider_for_runtime_adapter(REVIEW_RUNTIME_ADAPTER) == LLMProvider.OPENAI
 
 
-def test_validation_runtime_is_a_registry_supported_combo_when_pinned() -> None:
-    # Same lock as the review combo, for the validation-session pins. An unsupported combo here
-    # hard-errors the agent server only AFTER the whole review stage has been paid for. All-None
-    # (agent default) is a valid configuration and asserts nothing.
-    if VALIDATION_MODEL is None:
-        assert VALIDATION_REASONING_EFFORT is None
+@pytest.mark.parametrize(
+    "adapter,model,effort",
+    [
+        pytest.param(VALIDATION_RUNTIME_ADAPTER, VALIDATION_MODEL, VALIDATION_REASONING_EFFORT, id="validation"),
+        pytest.param(RESOLUTION_RUNTIME_ADAPTER, RESOLUTION_MODEL, RESOLUTION_REASONING_EFFORT, id="resolution"),
+    ],
+)
+def test_warm_session_runtime_is_a_registry_supported_combo_when_pinned(
+    adapter: RuntimeAdapter | None, model: str | None, effort: ReasoningEffort | None
+) -> None:
+    # Same lock as the review combo, for the validation and resolution session pins. An unsupported
+    # combo here hard-errors the agent server only AFTER the whole review stage has been paid for.
+    # All-None (agent default) is a valid configuration and asserts nothing.
+    if model is None:
+        assert effort is None
         return
-    assert get_reasoning_effort_error(VALIDATION_RUNTIME_ADAPTER, VALIDATION_MODEL, VALIDATION_REASONING_EFFORT) is None
+    assert get_reasoning_effort_error(adapter, model, effort) is None
 
 
 @pytest.mark.parametrize(
@@ -66,25 +92,82 @@ def test_sandbox_fallback_runtime_is_a_registry_supported_combo(
     assert get_provider_for_runtime_adapter(adapter) == LLMProvider.ANTHROPIC
 
 
-@pytest.mark.parametrize("arm", [pytest.param(arm, id=arm.model) for _, arm in REVIEW_EXPERIMENT_ARMS])
-def test_experiment_arm_is_a_registry_supported_combo(arm: ReviewArm) -> None:
-    # Same lock as the pinned combos, per experiment arm: a bad combo is drawn onto half the fleet's
-    # reports and fails only mid-review in prod. A Codex arm without "full-access" stalls every
+@pytest.mark.parametrize(
+    "arm",
+    [pytest.param(arm, id=tier.value) for tier, arm in REVIEW_ARMS_BY_TIER.items()]
+    + [pytest.param(FLASH_ARM, id="flash")],
+)
+def test_tier_arm_is_a_registry_supported_combo(arm: ReviewArm) -> None:
+    # Same lock as the pinned combos, per tier: a bad combo is persisted onto every report in the
+    # tier and fails only mid-review in prod. A Codex arm without "full-access" stalls every
     # headless unit on MCP approval — the exact failure the bundle exists to prevent. Membership is
-    # asserted because resolve_review_arm enforces it: an off-list arm would be drawn, persisted,
-    # and then silently resolved back to the default pins on every unit.
+    # asserted because resolve_review_arm enforces it: an off-list arm would be persisted and then
+    # silently resolved back to the default pins (xhigh) on every unit, so a typo'd cheap tier
+    # costs money instead of failing.
     assert arm.model in get_models_for_runtime_adapter(arm.runtime_adapter)
     assert get_reasoning_effort_error(arm.runtime_adapter, arm.model, arm.reasoning_effort) is None
     if arm.runtime_adapter == RuntimeAdapter.CODEX:
         assert arm.initial_permission_mode == "full-access"
 
 
-def test_draw_review_arm_draws_from_the_arm_list() -> None:
-    # random.choices accepts a zero weight without complaint, so a typo'd weight would silently
-    # starve one arm for weeks while the experiment collects nothing on it. The membership check
-    # also locks the (weight, arm) tuple orientation the draw's unpacking depends on.
-    assert all(weight > 0 for weight, _ in REVIEW_EXPERIMENT_ARMS)
-    assert draw_review_arm() in {arm for _, arm in REVIEW_EXPERIMENT_ARMS}
+def test_every_tier_has_an_arm() -> None:
+    # A tier the table forgets raises KeyError at report creation, after the PR was fetched.
+    assert set(REVIEW_ARMS_BY_TIER) == set(ReviewTier)
+
+
+@pytest.mark.parametrize(
+    "agent_pr,priority,expected_tier,expected_effort",
+    [
+        pytest.param(False, None, ReviewTier.HUMAN, ReasoningEffort.XHIGH, id="human"),
+        # A person's PR reviews at full strength whatever a linked report might say.
+        pytest.param(False, ReportPriority.P4, ReviewTier.HUMAN, ReasoningEffort.XHIGH, id="human-ignores-priority"),
+        pytest.param(True, ReportPriority.P0, ReviewTier.AGENT_P0_P1, ReasoningEffort.XHIGH, id="agent-p0"),
+        pytest.param(True, ReportPriority.P1, ReviewTier.AGENT_P0_P1, ReasoningEffort.XHIGH, id="agent-p1"),
+        pytest.param(True, ReportPriority.P2, ReviewTier.AGENT_P2, ReasoningEffort.MEDIUM, id="agent-p2"),
+        pytest.param(True, ReportPriority.P3, ReviewTier.AGENT_P3_P4, ReasoningEffort.LOW, id="agent-p3"),
+        pytest.param(True, ReportPriority.P4, ReviewTier.AGENT_P3_P4, ReasoningEffort.LOW, id="agent-p4"),
+        # No readable judgment fails expensive, under its own label so it stays visible.
+        pytest.param(True, None, ReviewTier.AGENT_UNPRIORITIZED, ReasoningEffort.XHIGH, id="agent-unprioritized"),
+    ],
+)
+def test_select_review_tier_follows_the_tier_table(
+    agent_pr: bool, priority: ReportPriority | None, expected_tier: ReviewTier, expected_effort: ReasoningEffort
+) -> None:
+    # The table IS the product decision (which PRs get the cheaper reviewer); a swapped bucket
+    # silently changes review quality and spend for a whole class of PRs.
+    tier = select_review_tier(agent_pr=agent_pr, signal_priority=priority)
+    assert tier is expected_tier
+    assert REVIEW_ARMS_BY_TIER[tier].reasoning_effort is expected_effort
+    assert REVIEW_ARMS_BY_TIER[tier].model == REVIEW_MODEL
+
+
+def test_every_report_priority_maps_to_a_tier() -> None:
+    # A priority the table forgets raises KeyError at report creation, after the PR was fetched.
+    for priority in ReportPriority:
+        select_review_tier(agent_pr=True, signal_priority=priority)
+
+
+@pytest.mark.parametrize(
+    "tier,expected",
+    [
+        pytest.param(ReviewTier.AGENT_P3_P4, True, id="low-lifts"),
+        pytest.param(ReviewTier.AGENT_P2, True, id="medium-lifts"),
+        # Already on the human arm: the lift buys a person a stronger review, not a relabel.
+        pytest.param(ReviewTier.AGENT_P0_P1, False, id="xhigh-keeps-its-label"),
+        pytest.param(ReviewTier.AGENT_UNPRIORITIZED, False, id="unprioritized-keeps-its-label"),
+        pytest.param(ReviewTier.HUMAN, False, id="human-is-the-ceiling"),
+    ],
+)
+def test_only_tiers_cheaper_than_human_lift_on_a_human_trigger(tier: ReviewTier, expected: bool) -> None:
+    assert is_below_human_tier(tier) is expected
+
+
+def test_human_triggers_exclude_automatic_triggers() -> None:
+    # The set is spelled out in constants.py (persistence cannot import the temporal package). A
+    # trigger added to types.py but not here would leave a person's ask on a cheap tier, so the
+    # expected set is derived from the module rather than spelled out a second time.
+    every_trigger = {value for name, value in vars(trigger_types).items() if name.startswith("TRIGGER_")}
+    assert HUMAN_TRIGGER_SOURCES == every_trigger - {TRIGGER_INBOX, TRIGGER_AUTOMATIC}
 
 
 # A registry-valid arm that differs from the default pins on every field, so honored-verbatim
@@ -97,6 +180,14 @@ _SONNET_ARM = ReviewArm(
     initial_permission_mode=None,
 )
 
+# The reviewer pin a report persisted before the model bump, sticky for that report's life.
+_LEGACY_CODEX_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CODEX,
+    model="gpt-5.6-sol",
+    reasoning_effort=ReasoningEffort.XHIGH,
+    initial_permission_mode="full-access",
+)
+
 
 @pytest.mark.parametrize(
     "persisted,expected",
@@ -105,6 +196,18 @@ _SONNET_ARM = ReviewArm(
         pytest.param((None, None, None, None), DEFAULT_REVIEW_ARM, id="null-bundle"),
         # A persisted assignment that differs from the default pins is honored verbatim.
         pytest.param(("claude", "claude-sonnet-5", "xhigh", None), _SONNET_ARM, id="persisted-claude-arm"),
+        # An in-flight report keeps the previous reviewer pin. Deregistering the legacy model would
+        # move every such report onto the bumped default mid-review instead.
+        pytest.param(
+            ("codex", "gpt-5.6-sol", "xhigh", "full-access"), _LEGACY_CODEX_ARM, id="persisted-legacy-codex-arm"
+        ),
+        # The cheap tier's effort too: narrowing the legacy model's effort list would lift an
+        # in-flight cheap report to the full-strength default and cost money.
+        pytest.param(
+            ("codex", "gpt-5.6-sol", "low", "full-access"),
+            replace(_LEGACY_CODEX_ARM, reasoning_effort=ReasoningEffort.LOW),
+            id="persisted-legacy-codex-cheap-tier",
+        ),
         # A model that outlived its registration must degrade to the default reviewer, not send an
         # unroutable pin into a paid sandbox turn. Pinned at "high" deliberately: the Codex effort
         # registry accepts any unknown model at <=high, so only the membership check catches this.
@@ -129,3 +232,30 @@ def test_review_mcp_scopes_open_a_session_and_stay_read_only() -> None:
     assert "user:read" in resolved
     assert "llm_skill:read" in resolved
     assert not has_write_scopes(REVIEW_MCP_SCOPES)
+
+
+@pytest.mark.parametrize(
+    "review_mode,effort,expected_review,expected_validation",
+    [
+        # A flash turn swaps both seats; a full turn keeps the report's own arm and the validator pins.
+        # A helper that read the pins for flash would run the expensive review under a cheap label
+        # and the analytics events, which share these helpers, would misprice every flash turn.
+        pytest.param(REVIEW_MODE_FLASH, "medium", FLASH_ARM, FLASH_ARM, id="flash-medium"),
+        pytest.param(
+            REVIEW_MODE_FLASH,
+            "xhigh",
+            replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH),
+            replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH),
+            id="flash-xhigh",
+        ),
+        pytest.param(
+            REVIEW_MODE_FULL, "xhigh", REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2], DEFAULT_VALIDATION_ARM, id="full"
+        ),
+    ],
+)
+def test_mode_helpers_pick_both_seats(
+    review_mode: str, effort: str, expected_review: ReviewArm, expected_validation: ReviewArm
+) -> None:
+    persisted = REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2]
+    assert review_arm_for_mode(review_mode, persisted, flash_reasoning_effort=effort) == expected_review
+    assert validation_arm_for_mode(review_mode, flash_reasoning_effort=effort) == expected_validation

@@ -10,11 +10,12 @@ import { clampAutoCompactPercent } from "@posthog/core/sessions/autoCompact";
 import type {
   Adapter,
   AgentRuntime,
-  CodexModelAccess,
   ExecutionMode,
+  ModelAccess,
   WorkspaceMode,
 } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION } from "@posthog/shared/product-engineer-prompt";
 import {
   TIP_SHOWINGS,
   type TipKey,
@@ -23,9 +24,11 @@ import { electronStorage } from "@posthog/ui/shell/rendererStorage";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+const MAX_EFFECTIVE_CUSTOM_INSTRUCTIONS_LENGTH = 20_000;
+
 // ---------- Types ----------
 
-export type DefaultRunMode = "local" | "cloud" | "last_used";
+type DefaultRunMode = "local" | "cloud" | "last_used";
 export type LocalWorkspaceMode = "worktree" | "local";
 
 export const DEFAULT_WORKSPACE_MODE: WorkspaceMode = "cloud";
@@ -37,6 +40,8 @@ export type DefaultReasoningEffort = EffortLevel | "last_used";
 export type SendMessagesWith = "enter" | "cmd+enter";
 export type AutoConvertLongText = "off" | "1000" | "2500" | "5000" | "10000";
 export type DiffOpenMode = "auto" | "split" | "same-pane" | "last-active-pane";
+export type NavRailSize = "small" | "medium" | "large";
+export const DEFAULT_NAV_RAIL_SIZE: NavRailSize = "large";
 
 // When spoken notifications are allowed to talk, relative to what's on screen:
 //   - always: speak regardless of what the user is looking at
@@ -103,12 +108,13 @@ export const DEFAULT_HINT_MAX = 3;
  * Whether a lesson has stopped offering itself: someone answered it, or it ran
  * out of showings. Reset is what brings either back.
  */
-function isHintRetired(key: string, hint: HintState | undefined): boolean {
+export function isHintRetired(
+  key: string,
+  hint: HintState | undefined,
+): boolean {
   if (!hint) return false;
   if (hint.learned) return true;
-  const showings = TIP_SHOWINGS[key as TipKey];
-  if (showings?.kind === "answered-only") return false;
-  return hint.count >= (showings?.max ?? DEFAULT_HINT_MAX);
+  return hint.count >= (TIP_SHOWINGS[key as TipKey]?.max ?? DEFAULT_HINT_MAX);
 }
 
 /** How many of a person's saved lessons have stopped offering themselves. */
@@ -122,6 +128,13 @@ export function countRetiredHints(hints: Record<string, HintState>): number {
  * from. Runtime-only: the sync contribution re-reads the file on boot and
  * whenever the toggle flips on.
  */
+export interface TaskDefaultsSyncState {
+  // The "always create pull requests" value Desktop and the server last agreed on.
+  autoPublishCloudRuns: boolean;
+  // The local "Start in" choice was offered to the server once.
+  planModeOffered: boolean;
+}
+
 export interface SyncedCustomInstructions {
   path: string;
   /** Home-relative form of `path` (e.g. `~/.claude/CLAUDE.md`), for display. */
@@ -132,7 +145,7 @@ export interface SyncedCustomInstructions {
 
 // ---------- Store shape ----------
 
-interface SettingsStore {
+export interface SettingsStore {
   // Run mode + last-used flow defaults
   defaultRunMode: DefaultRunMode;
   lastUsedRunMode: "local" | "cloud";
@@ -146,6 +159,7 @@ interface SettingsStore {
   lastUsedContextWindow: "200k" | "1m" | null;
   lastUsedFastMode: boolean | null;
   lastUsedCloudRepository: string | null;
+  favoriteCloudTargetKey: string | null;
   cachedCloudRepositoryMap: Record<string, UserRepositoryIntegrationRef>;
   // Last-known default ("trunk") branch per cloud repo, keyed by lowercased
   // "owner/repo". Persisted so a cold start can pre-select trunk in the branch
@@ -167,12 +181,13 @@ interface SettingsStore {
   setLastUsedWorkspaceMode: (mode: WorkspaceMode) => void;
   setLastUsedAgentRuntime: (runtime: AgentRuntime) => void;
   setLastUsedAdapter: (adapter: AgentAdapter) => void;
-  setLastUsedModel: (model: string) => void;
-  setLastUsedPiModel: (model: string) => void;
-  setLastUsedReasoningEffort: (effort: string) => void;
+  setLastUsedModel: (model: string | null) => void;
+  setLastUsedPiModel: (model: string | null) => void;
+  setLastUsedReasoningEffort: (effort: string | null) => void;
   setLastUsedContextWindow: (value: "200k" | "1m") => void;
   setLastUsedFastMode: (enabled: boolean) => void;
   setLastUsedCloudRepository: (repo: string | null) => void;
+  setFavoriteCloudTargetKey: (key: string | null) => void;
   setCachedCloudRepositoryMap: (
     map: Record<string, UserRepositoryIntegrationRef>,
   ) => void;
@@ -196,6 +211,8 @@ interface SettingsStore {
   completionVolume: number;
   scaleSoundWithTaskLength: boolean;
   customSounds: CustomSound[];
+  // Epoch ms. Until then, alerts make no sound, voice or system notification.
+  notificationsPausedUntil: number | null;
   setDesktopNotifications: (enabled: boolean) => void;
   setDockBadgeNotifications: (enabled: boolean) => void;
   setDockBounceNotifications: (enabled: boolean) => void;
@@ -206,6 +223,7 @@ interface SettingsStore {
   addCustomSound: (sound: CustomSound) => void;
   removeCustomSound: (id: string) => void;
   renameCustomSound: (id: string, name: string) => void;
+  setNotificationsPausedUntil: (until: number | null) => void;
 
   // Spoken notifications
   spokenNotifications: boolean;
@@ -229,21 +247,37 @@ interface SettingsStore {
   autoConvertLongText: AutoConvertLongText;
   sendMessagesWith: SendMessagesWith;
   customInstructions: string;
+  ste100Enabled: boolean;
   // When on, personalization mirrors the user-level AGENTS.md (or CLAUDE.md)
   // instead of the hand-typed customInstructions above.
   syncCustomInstructionsFromFile: boolean;
   syncedCustomInstructions: SyncedCustomInstructions | null;
+  // Per project, the custom instructions text last uploaded to "My
+  // instructions" on the server. Keyed by project id.
+  customInstructionsOnServer: Record<string, string>;
+  // Per project, what Desktop last synced with the task defaults on the
+  // server. Keyed by project id.
+  taskDefaultsOnServer: Record<string, TaskDefaultsSyncState>;
   setAutoConvertLongText: (value: AutoConvertLongText) => void;
   setSendMessagesWith: (mode: SendMessagesWith) => void;
   setCustomInstructions: (instructions: string) => void;
+  setSte100Enabled: (enabled: boolean) => void;
   setSyncCustomInstructionsFromFile: (enabled: boolean) => void;
   setSyncedCustomInstructions: (
     synced: SyncedCustomInstructions | null,
+  ) => void;
+  setCustomInstructionsOnServer: (projectId: number, content: string) => void;
+  setTaskDefaultsOnServer: (
+    projectId: number,
+    synced: TaskDefaultsSyncState,
   ) => void;
 
   // Diff viewer
   diffOpenMode: DiffOpenMode;
   setDiffOpenMode: (mode: DiffOpenMode) => void;
+
+  navRailSize: NavRailSize;
+  setNavRailSize: (size: NavRailSize) => void;
 
   // Spend limits. A warn line only notifies; a stop line pauses new agent
   // messages in this app, and the monthly stop also syncs to the gateway
@@ -280,14 +314,20 @@ interface SettingsStore {
   // sessions, cloud covers cloud runs.
   rtkEnabledLocal: boolean;
   rtkEnabledCloud: boolean;
-  codexModelAccess: CodexModelAccess;
+  codexModelAccess: ModelAccess;
+  claudeModelAccess: ModelAccess;
+  claudeCloudSubscriptionOn: boolean;
+  codexCloudSubscriptionOn: boolean;
   setAllowBypassPermissions: (enabled: boolean) => void;
   setPreventSleepWhileRunning: (enabled: boolean) => void;
   setDebugLogsCloudRuns: (enabled: boolean) => void;
   setAutoPublishCloudRuns: (enabled: boolean) => void;
   setRtkEnabledLocal: (enabled: boolean) => void;
   setRtkEnabledCloud: (enabled: boolean) => void;
-  setCodexModelAccess: (mode: CodexModelAccess) => void;
+  setCodexModelAccess: (mode: ModelAccess) => void;
+  setClaudeModelAccess: (mode: ModelAccess) => void;
+  setClaudeCloudSubscriptionOn: (enabled: boolean) => void;
+  setCodexCloudSubscriptionOn: (enabled: boolean) => void;
 
   // Terminal
   terminalFont: TerminalFont;
@@ -356,6 +396,16 @@ export const NOTIFICATION_DEFAULTS = {
   elevenLabsKeyConfigured: false,
 };
 
+export const NOTIFICATION_PAUSE_MS = 60 * 60 * 1000;
+
+// No timer clears the pause: it ends when the clock passes the stored time.
+export function notificationsPaused(
+  pausedUntil: number | null,
+  now = Date.now(),
+): boolean {
+  return pausedUntil !== null && now < pausedUntil;
+}
+
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set, get) => ({
@@ -372,6 +422,7 @@ export const useSettingsStore = create<SettingsStore>()(
       lastUsedContextWindow: null,
       lastUsedFastMode: null,
       lastUsedCloudRepository: null,
+      favoriteCloudTargetKey: null,
       cachedCloudRepositoryMap: {},
       cachedCloudDefaultBranchMap: {},
       lastUsedEnvironments: {},
@@ -398,6 +449,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setLastUsedFastMode: (enabled) => set({ lastUsedFastMode: enabled }),
       setLastUsedCloudRepository: (repo) =>
         set({ lastUsedCloudRepository: repo }),
+      setFavoriteCloudTargetKey: (key) => set({ favoriteCloudTargetKey: key }),
       setCachedCloudRepositoryMap: (map) =>
         set({ cachedCloudRepositoryMap: map }),
       setCachedCloudDefaultBranch: (repo, branch) =>
@@ -438,6 +490,7 @@ export const useSettingsStore = create<SettingsStore>()(
       // Kept out of NOTIFICATION_DEFAULTS so "Reset to defaults" never discards
       // sounds the user installed.
       customSounds: [],
+      notificationsPausedUntil: null,
       setDesktopNotifications: (enabled) =>
         set({ desktopNotifications: enabled }),
       setDockBadgeNotifications: (enabled) =>
@@ -483,25 +536,48 @@ export const useSettingsStore = create<SettingsStore>()(
             s.id === id ? { ...s, name } : s,
           ),
         })),
+      setNotificationsPausedUntil: (until) =>
+        set({ notificationsPausedUntil: until }),
 
       // Composer / chat
       autoConvertLongText: "2500",
       sendMessagesWith: "enter",
       customInstructions: "",
+      ste100Enabled: true,
       syncCustomInstructionsFromFile: false,
       syncedCustomInstructions: null,
+      customInstructionsOnServer: {},
+      taskDefaultsOnServer: {},
       setAutoConvertLongText: (value) => set({ autoConvertLongText: value }),
       setSendMessagesWith: (mode) => set({ sendMessagesWith: mode }),
       setCustomInstructions: (instructions) =>
         set({ customInstructions: instructions }),
+      setSte100Enabled: (enabled) => set({ ste100Enabled: enabled }),
       setSyncCustomInstructionsFromFile: (enabled) =>
         set({ syncCustomInstructionsFromFile: enabled }),
       setSyncedCustomInstructions: (synced) =>
         set({ syncedCustomInstructions: synced }),
+      setCustomInstructionsOnServer: (projectId, content) =>
+        set((state) => ({
+          customInstructionsOnServer: {
+            ...state.customInstructionsOnServer,
+            [String(projectId)]: content,
+          },
+        })),
+      setTaskDefaultsOnServer: (projectId, synced) =>
+        set((state) => ({
+          taskDefaultsOnServer: {
+            ...state.taskDefaultsOnServer,
+            [String(projectId)]: synced,
+          },
+        })),
 
       // Diff viewer
       diffOpenMode: "auto",
       setDiffOpenMode: (mode) => set({ diffOpenMode: mode }),
+
+      navRailSize: DEFAULT_NAV_RAIL_SIZE,
+      setNavRailSize: (size) => set({ navRailSize: size }),
 
       // Spend limits
       spendLimits: EMPTY_SPEND_LIMITS,
@@ -545,6 +621,9 @@ export const useSettingsStore = create<SettingsStore>()(
       rtkEnabledLocal: true,
       rtkEnabledCloud: true,
       codexModelAccess: "posthog-gateway",
+      claudeModelAccess: "posthog-gateway",
+      claudeCloudSubscriptionOn: false,
+      codexCloudSubscriptionOn: false,
       setAllowBypassPermissions: (enabled) =>
         set({ allowBypassPermissions: enabled }),
       setPreventSleepWhileRunning: (enabled) =>
@@ -555,6 +634,11 @@ export const useSettingsStore = create<SettingsStore>()(
       setRtkEnabledLocal: (enabled) => set({ rtkEnabledLocal: enabled }),
       setRtkEnabledCloud: (enabled) => set({ rtkEnabledCloud: enabled }),
       setCodexModelAccess: (mode) => set({ codexModelAccess: mode }),
+      setClaudeModelAccess: (mode) => set({ claudeModelAccess: mode }),
+      setClaudeCloudSubscriptionOn: (enabled) =>
+        set({ claudeCloudSubscriptionOn: enabled }),
+      setCodexCloudSubscriptionOn: (enabled) =>
+        set({ codexCloudSubscriptionOn: enabled }),
 
       // Terminal
       terminalFont: "berkeley-mono",
@@ -673,6 +757,7 @@ export const useSettingsStore = create<SettingsStore>()(
         completionVolume: state.completionVolume,
         scaleSoundWithTaskLength: state.scaleSoundWithTaskLength,
         customSounds: state.customSounds,
+        notificationsPausedUntil: state.notificationsPausedUntil,
         spokenNotifications: state.spokenNotifications,
         spokenNotifyNeedsInput: state.spokenNotifyNeedsInput,
         spokenNotifyCompletion: state.spokenNotifyCompletion,
@@ -685,10 +770,14 @@ export const useSettingsStore = create<SettingsStore>()(
         autoConvertLongText: state.autoConvertLongText,
         sendMessagesWith: state.sendMessagesWith,
         customInstructions: state.customInstructions,
+        ste100Enabled: state.ste100Enabled,
         syncCustomInstructionsFromFile: state.syncCustomInstructionsFromFile,
+        customInstructionsOnServer: state.customInstructionsOnServer,
+        taskDefaultsOnServer: state.taskDefaultsOnServer,
 
         // Diff viewer
         diffOpenMode: state.diffOpenMode,
+        navRailSize: state.navRailSize,
 
         // Spend limits
         spendLimits: state.spendLimits,
@@ -705,6 +794,9 @@ export const useSettingsStore = create<SettingsStore>()(
         rtkEnabledLocal: state.rtkEnabledLocal,
         rtkEnabledCloud: state.rtkEnabledCloud,
         codexModelAccess: state.codexModelAccess,
+        claudeModelAccess: state.claudeModelAccess,
+        claudeCloudSubscriptionOn: state.claudeCloudSubscriptionOn,
+        codexCloudSubscriptionOn: state.codexCloudSubscriptionOn,
 
         // Terminal
         terminalFont: state.terminalFont,
@@ -816,15 +908,27 @@ export function getEffectiveCustomInstructions(
   state: Pick<
     SettingsStore,
     | "customInstructions"
+    | "ste100Enabled"
     | "syncCustomInstructionsFromFile"
     | "syncedCustomInstructions"
   >,
 ): string {
-  if (state.syncCustomInstructionsFromFile) {
-    const content = state.syncedCustomInstructions?.content ?? "";
-    return content.trim() ? content : "";
+  const content = state.syncCustomInstructionsFromFile
+    ? (state.syncedCustomInstructions?.content ?? "")
+    : state.customInstructions;
+  if (!state.ste100Enabled) {
+    return state.syncCustomInstructionsFromFile
+      ? content.trim()
+        ? content
+        : ""
+      : content;
   }
-  return state.customInstructions;
+  const instruction = SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION;
+  const availableContentLength =
+    MAX_EFFECTIVE_CUSTOM_INSTRUCTIONS_LENGTH - instruction.length - 2;
+  return [content.trim().slice(0, availableContentLength), instruction]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /**

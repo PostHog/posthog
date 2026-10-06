@@ -13,8 +13,6 @@ import {
   type ImperativeQueryClient,
 } from "@posthog/ui/shell/queryClient";
 
-export type { TaskTimestamps };
-
 // Outer array partial-matches tRPC's `[["workspace", "getAllTaskTimestamps"], { type }]`.
 const TASK_TIMESTAMPS_QUERY_KEY = [["workspace", "getAllTaskTimestamps"]];
 

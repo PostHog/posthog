@@ -1,7 +1,6 @@
 from unittest import mock
 
-from posthog.schema import ReleaseStatus
-
+from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shipmail import (
     ShipmailSourceConfig,
 )
@@ -20,6 +19,7 @@ class TestShipmailSource:
         assert self.source.source_type == ExternalDataSourceType.SHIPMAIL
         assert self.source.lists_tables_without_credentials is True
         assert self.source.get_source_config.releaseStatus == ReleaseStatus.ALPHA
+        assert self.source.get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/shipmail"
 
     def test_static_schemas_include_keys_and_incremental_support(self) -> None:
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, team_id=1)}

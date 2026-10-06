@@ -1,6 +1,6 @@
 import { FilterLogicalOperator, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { LogsAlertThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsAlertConfigurationThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { LogsAlertFormType } from '../logsAlertFormLogic'
 import { buildLogsAlertFilterConfig, groupLogsAlertDestinations, runPreEnableChecks } from '../logsAlertUtils'
@@ -10,7 +10,7 @@ const baseForm = (overrides: Partial<LogsAlertFormType> = {}): LogsAlertFormType
     severityLevels: ['error'],
     serviceNames: [],
     filterGroup: { type: FilterLogicalOperator.And, values: [] },
-    thresholdOperator: LogsAlertThresholdOperatorEnumApi.Above,
+    thresholdOperator: LogsAlertConfigurationThresholdOperatorEnumApi.Above,
     thresholdCount: 1,
     windowMinutes: 5,
     evaluationPeriods: 1,

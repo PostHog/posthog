@@ -35,6 +35,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Person, PropertyDefinition, User
@@ -52,6 +53,8 @@ from posthog.rate_limit import (
 )
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.utils import convert_property_value, flatten, refresh_requested_by_client, relative_date_parse
+
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 tracer = trace.get_tracer(__name__)
 
@@ -127,6 +130,23 @@ class ElementSerializer(serializers.ModelSerializer):
             "attributes",
             "order",
         ]
+
+
+class EventPropertyValueSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        help_text="A value of the property, always as a string. Booleans come back as 'true' or 'false', "
+        "and objects and lists as JSON."
+    )
+    count = serializers.IntegerField(
+        required=False, help_text="How many times the value occurs, when the lookup counts values."
+    )
+
+
+class EventPropertyValuesResponseSerializer(serializers.Serializer):
+    results = EventPropertyValueSerializer(many=True, help_text="Values of the property that match the request.")
+    refreshing = serializers.BooleanField(
+        help_text="True when these results come from a stale cache and a refresh runs in the background."
+    )
 
 
 class UncountedLimitOffsetPagination(LimitOffsetPagination):
@@ -379,6 +399,31 @@ class EventViewSet(
         res = ClickhouseEventSerializer(query_result[0], many=False, context=query_context).data
         return response.Response(res)
 
+    @extend_schema(
+        description="List values of an event property from recent events.",
+        parameters=[
+            OpenApiParameter("key", OpenApiTypes.STR, required=True, description="The property to list values for."),
+            OpenApiParameter(
+                "event_name",
+                OpenApiTypes.STR,
+                many=True,
+                # The generated client emits repeated keys only for params the spec marks explode,
+                # and getlist below needs repeated keys, because a comma-joined value matches no event.
+                explode=True,
+                description="Only read values from events with these names. Repeat to pass several. "
+                "Required with a personal API key. Projects that read values from the precomputed "
+                "property values table ignore this filter.",
+            ),
+            OpenApiParameter(
+                "value", OpenApiTypes.STR, description="Only return values that contain this text, ignoring case."
+            ),
+            OpenApiParameter(
+                "is_column", OpenApiTypes.BOOL, description="Read 'key' as an events table column, not a property."
+            ),
+        ],
+        responses=EventPropertyValuesResponseSerializer,
+        extensions={"x-product": "core"},
+    )
     @action(methods=["GET"], detail=False, required_scopes=["query:read"])
     def values(self, request: request.Request, **kwargs) -> response.Response:
         # `/events/values` is hit from every taxonomic property-value picker across the app, so
@@ -476,7 +521,12 @@ class EventViewSet(
             execution_mode = execution_mode_from_refresh(refresh)
             if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE and not refresh:
                 execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
-            result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(self.request))
+            # Convert here rather than in the runner, so QueryRunner.run() sees the original
+            # ClickHouse error and can classify it and record it in the failure cache. Matches persons/values.
+            try:
+                result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(self.request))
+            except ExposedCHQueryError as e:
+                raise serializers.ValidationError(str(e), e.code_name)
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
                 isinstance(result, CachedPropertyValuesQueryResponse)
@@ -668,12 +718,16 @@ class EventViewSet(
         try:
             from ee.models.property_definition import EnterprisePropertyDefinition
 
-            property_is_hidden = EnterprisePropertyDefinition.objects.filter(
-                team=team,
-                name=key,
-                type=PropertyDefinition.Type.EVENT.value,
-                hidden=True,
-            ).exists()
+            property_is_hidden = (
+                EnterprisePropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+                .filter(
+                    effective_project_id=team.project_id,
+                    name=key,
+                    type=PropertyDefinition.Type.EVENT.value,
+                    hidden=True,
+                )
+                .exists()
+            )
         except ImportError:
             # Enterprise features not available, continue normally
             pass

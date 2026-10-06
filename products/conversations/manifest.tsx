@@ -15,6 +15,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/scenes/tickets/SupportTicketsScene'),
             projectBased: true,
             layout: 'app-container',
+            docsHref: 'https://posthog.com/docs/support',
         },
         SupportTicketDetail: {
             name: 'Ticket detail',
@@ -60,8 +61,9 @@ export const manifest: ProductManifest = {
         {
             path: 'Support',
             intents: [ProductKey.CONVERSATIONS],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.MONITORING,
             href: urls.supportTickets(),
+            searchKeywords: ['tickets'],
             type: 'conversations',
             iconType: 'conversations',
             iconColor: [

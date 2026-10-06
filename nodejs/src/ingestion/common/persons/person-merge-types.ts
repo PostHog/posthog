@@ -1,8 +1,5 @@
 import { InternalPerson } from '~/types'
 
-/**
- * Base class for all person merge errors
- */
 export abstract class PersonMergeError extends Error {
     abstract readonly type: string
 
@@ -12,9 +9,6 @@ export abstract class PersonMergeError extends Error {
     }
 }
 
-/**
- * Error when merge limit is exceeded
- */
 export class PersonMergeLimitExceededError extends PersonMergeError {
     readonly type = 'LIMIT_EXCEEDED' as const
 
@@ -24,8 +18,44 @@ export class PersonMergeLimitExceededError extends PersonMergeError {
 }
 
 /**
- * Error when race condition is detected during merge
+ * A merge response that carried no verdict for the source it was asked
+ * about. Distinct from a settled failure: nothing is recorded against the
+ * op id, so a retry can still reach a real answer, and the batch must fail
+ * rather than ack a merge that never happened.
  */
+export class PersonMergeResponseMismatchError extends PersonMergeError {
+    readonly type = 'RESPONSE_MISMATCH' as const
+
+    constructor(message: string) {
+        super(message)
+    }
+}
+
+/**
+ * A merge call that failed with no verdict at all. Retried in-process
+ * under the same op id; exhaustion gives up the way the Postgres path
+ * does. Personhog-only; the Postgres merge never throws it.
+ */
+export class PersonMergeCallFailedError extends PersonMergeError {
+    readonly type = 'CALL_FAILED' as const
+
+    constructor(
+        message: string,
+        public readonly failure: unknown
+    ) {
+        super(message)
+    }
+}
+
+/**
+ * The merge backend answered an unsettled verdict: a retry under the same
+ * op id may change the answer. Retried in-process; exhaustion drops the
+ * merge with the race warning, as Postgres drops a persistent conflict.
+ */
+export class PersonMergeUnsettledError extends PersonMergeError {
+    readonly type = 'UNSETTLED' as const
+}
+
 export class PersonMergeRaceConditionError extends PersonMergeError {
     readonly type = 'RACE_CONDITION' as const
 
@@ -34,9 +64,6 @@ export class PersonMergeRaceConditionError extends PersonMergeError {
     }
 }
 
-/**
- * Error when person is not found during merge
- */
 export class PersonMergePersonNotFoundError extends PersonMergeError {
     readonly type = 'PERSON_NOT_FOUND' as const
 
@@ -48,18 +75,12 @@ export class PersonMergePersonNotFoundError extends PersonMergeError {
     }
 }
 
-/**
- * Error when source person is not found during merge transaction
- */
 export class SourcePersonNotFoundError extends PersonMergePersonNotFoundError {
     constructor(message: string) {
         super(message, 'source')
     }
 }
 
-/**
- * Error when target person is not found during merge transaction
- */
 export class TargetPersonNotFoundError extends PersonMergePersonNotFoundError {
     constructor(message: string) {
         super(message, 'target')
@@ -78,9 +99,6 @@ export class SourcePersonHasDistinctIdsError extends PersonMergePersonNotFoundEr
     }
 }
 
-/**
- * Result of a person merge operation
- */
 export type PersonMergeResult =
     | {
           success: true
@@ -93,9 +111,6 @@ export type PersonMergeResult =
           error: PersonMergeError
       }
 
-/**
- * Merge modes for different processing strategies
- */
 export type MergeMode =
     | {
           type: 'SYNC'
@@ -110,9 +125,6 @@ export type MergeMode =
           limit: number
       }
 
-/**
- * Helper function to create a successful merge result
- */
 export function mergeSuccess(
     person: InternalPerson | undefined,
     kafkaAck: Promise<void>,
@@ -126,9 +138,6 @@ export function mergeSuccess(
     }
 }
 
-/**
- * Helper function to create a merge error result
- */
 export function mergeError(error: PersonMergeError): PersonMergeResult {
     return {
         success: false,
@@ -146,14 +155,18 @@ export function createDefaultSyncMergeMode(): MergeMode {
     }
 }
 
-/**
- * Helper function to determine merge mode based on hub configuration
- */
 export function determineMergeMode(
     personMergeMoveDistinctIdLimit: number,
     personMergeAsyncEnabled: boolean,
     personMergeSyncBatchSize: number
 ): MergeMode {
+    // The limit becomes the saga's move_limit: a non-integer throws a
+    // RangeError at request time and would fail every merge in the
+    // deployment, so a bad value fails startup here instead.
+    if (personMergeMoveDistinctIdLimit > 0 && !Number.isInteger(personMergeMoveDistinctIdLimit)) {
+        throw new Error(`PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT must be an integer, got ${personMergeMoveDistinctIdLimit}`)
+    }
+
     // If async merge is enabled, use async mode for over-limit merges
     if (personMergeAsyncEnabled && personMergeMoveDistinctIdLimit > 0) {
         return {

@@ -26,6 +26,10 @@ describe("fetchEvidencePreview", () => {
       headline: { value: "1.5M", delta: { direction: "down" } },
       spark: { points: [5096547, 1506301], render: "line" },
     });
+    expect(preview?.chartData).toMatchObject({
+      type: "series",
+      labels: ["2026-08-13", "2026-08-14"],
+    });
   });
 
   it("summarizes a hogql table result by counts, never echoing column titles", async () => {
@@ -50,6 +54,10 @@ describe("fetchEvidencePreview", () => {
     expect(preview?.detail).toBeUndefined();
     expect(preview?.facts?.join(" ")).not.toContain("arrayJoin");
     expect(preview?.facts?.join(" ")).not.toContain("ifNull");
+    expect(preview?.chartData).toMatchObject({
+      type: "table",
+      columns: ["arrayJoin(events.event)", "ifNull(count(), 0)"],
+    });
   });
 
   it("keeps raw SQL column titles out of a HogQL-backed insight preview", async () => {
@@ -127,6 +135,8 @@ describe("fetchEvidencePreview", () => {
       title: "Checkout funnel",
       spark: { points: [5096547, 1506301] },
     });
+    expect(preview?.chartData).toMatchObject({ type: "series" });
+    expect(preview?.title).toBe("Checkout funnel");
   });
 
   it("uses the saved insight result without running a second query", async () => {
@@ -169,6 +179,13 @@ describe("fetchEvidencePreview", () => {
     ).resolves.toMatchObject({
       title: "Unique users per variant",
     });
+    expect(runQuery).not.toHaveBeenCalled();
+
+    const preview = await fetchEvidencePreview(client, {
+      kind: "insight",
+      id: "sdyR2Pn8",
+    });
+    expect(preview?.chartData).toMatchObject({ type: "table" });
     expect(runQuery).not.toHaveBeenCalled();
   });
 

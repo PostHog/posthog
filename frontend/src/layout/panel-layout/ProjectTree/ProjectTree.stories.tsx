@@ -4,7 +4,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProjectTree, ProjectTreeProps } from './ProjectTree'
 
-interface StoryProps extends ProjectTreeProps {
+type StoryProps = ProjectTreeProps & {
     enableCustomProductsFlag?: boolean
 }
 
@@ -18,11 +18,8 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
         featureFlags: [
             FEATURE_FLAGS.CUSTOMER_ANALYTICS,
             FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
-            FEATURE_FLAGS.LINKS,
-            FEATURE_FLAGS.LIVE_DEBUGGER,
             FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
             FEATURE_FLAGS.PRODUCT_TOURS,
-            FEATURE_FLAGS.USER_INTERVIEWS,
         ],
     },
     render: (props: StoryProps) => {

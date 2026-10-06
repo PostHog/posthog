@@ -23,6 +23,9 @@ export interface ColumnMeta {
     title?: JSX.Element | string
     width?: string | number
     align?: 'left' | 'right' | 'center'
+    resizable?: boolean
+    onResize?: (width: number) => void
+    onResizeEnd?: () => void
 }
 
 export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode>(
@@ -151,6 +154,13 @@ export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode
     return {
         title,
         ...(typeof width !== 'undefined' ? { width } : {}),
+        ...(queryContextColumn?.resizable && queryContextColumn.onResize
+            ? {
+                  resizable: true,
+                  onResize: queryContextColumn.onResize,
+                  onResizeEnd: queryContextColumn.onResizeEnd,
+              }
+            : {}),
         ...(align ? { align } : {}),
     }
 }

@@ -118,4 +118,4 @@ async def run_cursed_identifier_research(
         findings=findings,
         actionability=actionability,
         priority=priority,
-    )
+    )  # ty: ignore[pydantic-discarded-extra-argument]

@@ -1,6 +1,10 @@
+import { SettingsDialogFrame } from "@posthog/ui/features/settings/components/SettingsDialogFrame";
 import { SettingsPanel } from "@posthog/ui/features/settings/components/SettingsPanel";
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
-import type { SettingsCategory } from "@posthog/ui/features/settings/types";
+import {
+  type SettingsCategory,
+  settingsPageRevealsApp,
+} from "@posthog/ui/features/settings/types";
 import { useEffect, useState } from "react";
 
 /**
@@ -32,12 +36,12 @@ export function openSettingsDialog(
   publish({ isOpen: true, category });
 }
 
-export function closeSettingsDialog(): void {
+function closeSettingsDialog(): void {
   useSettingsPageStore.getState().reset();
   publish({ isOpen: false, category: currentDialogState.category });
 }
 
-export function useSettingsDialogState(): DialogState {
+function useSettingsDialogState(): DialogState {
   const [state, setState] = useState(currentDialogState);
   useEffect(() => {
     dialogStateListeners.push(setState);
@@ -51,30 +55,18 @@ export function useSettingsDialogState(): DialogState {
 export function SettingsDialog() {
   const { isOpen, category } = useSettingsDialogState();
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        closeSettingsDialog();
-      }
-    };
-    window.addEventListener("keydown", handleEscape);
-    return () => window.removeEventListener("keydown", handleEscape);
-  }, [isOpen]);
-
   if (!isOpen) return null;
 
   return (
-    <div
-      className="absolute inset-0 z-[100] flex bg-(--color-background)"
-      data-overlay="settings"
+    <SettingsDialogFrame
+      onDismiss={closeSettingsDialog}
+      seeThrough={settingsPageRevealsApp(category)}
     >
       <SettingsPanel
         activeCategory={category}
         onClose={closeSettingsDialog}
         onCategoryChange={(cat) => publish({ isOpen: true, category: cat })}
       />
-    </div>
+    </SettingsDialogFrame>
   );
 }

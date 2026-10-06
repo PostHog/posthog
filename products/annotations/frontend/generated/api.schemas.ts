@@ -11,9 +11,10 @@
  * * `USR` - user
  * * `GIT` - GitHub
  */
-export type CreationTypeEnumApi = (typeof CreationTypeEnumApi)[keyof typeof CreationTypeEnumApi]
+export type AnnotationCreationTypeEnumApi =
+    (typeof AnnotationCreationTypeEnumApi)[keyof typeof AnnotationCreationTypeEnumApi]
 
-export const CreationTypeEnumApi = {
+export const AnnotationCreationTypeEnumApi = {
     Usr: 'USR',
     Git: 'GIT',
 } as const
@@ -109,7 +110,7 @@ export interface AnnotationApi {
      *
      * * `USR` - user
      * * `GIT` - GitHub */
-    creation_type?: CreationTypeEnumApi
+    creation_type?: AnnotationCreationTypeEnumApi
     /**
      * Optional insight ID to attach this annotation to. Must belong to the current project.
      * @nullable
@@ -181,7 +182,7 @@ export interface PatchedAnnotationApi {
      *
      * * `USR` - user
      * * `GIT` - GitHub */
-    creation_type?: CreationTypeEnumApi
+    creation_type?: AnnotationCreationTypeEnumApi
     /**
      * Optional insight ID to attach this annotation to. Must belong to the current project.
      * @nullable

@@ -1,3 +1,4 @@
+import hashlib
 import datetime as dt
 from typing import TYPE_CHECKING
 
@@ -6,6 +7,8 @@ from django.db import models, transaction
 from django.utils import timezone
 from django.utils.functional import Promise
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDModel
 
 # This model loads at django.setup() in every process; posthog.schema (the pydantic
@@ -38,10 +41,19 @@ def apply_experiment_targeting(query: "RecordingsQuery", targeting: dict | None)
         exposure = RecordingsQueryExperimentExposureFilter(
             experiment_id=targeting["experiment_id"],
             variant=targeting.get("variant") or None,
+            variants=targeting.get("variants") or None,
         )
     # Shallow copy replacing only the one field: the caller's query is left untouched, and the
     # unrelated nested filters are shared by reference rather than deep-copied since nothing mutates them.
     return query.model_copy(update={"experiment_exposure": exposure})
+
+
+def config_experiment_scope(scanner_config: "dict | None") -> dict | None:
+    """The experiment scope carried inside an experiment scanner's `scanner_config`, or None."""
+    config = scanner_config if isinstance(scanner_config, dict) else {}
+    if config.get("experiment_id") is None:
+        return None
+    return {"experiment_id": config["experiment_id"], "variants": config.get("variants")}
 
 
 class ScannerType(models.TextChoices):
@@ -49,6 +61,7 @@ class ScannerType(models.TextChoices):
     CLASSIFIER = "classifier", "Classifier"
     SCORER = "scorer", "Scorer"
     SUMMARIZER = "summarizer", "Summarizer"
+    EXPERIMENT = "experiment", "Experiment"
 
 
 class SamplingMode(models.TextChoices):
@@ -67,7 +80,7 @@ class ScannerModel(models.TextChoices):
 
     GEMINI_3_5_FLASH_LITE = "gemini-3.5-flash-lite", "Gemini 3.5 Flash Lite"
     GEMINI_3_FLASH_PREVIEW = "gemini-3-flash-preview", "Gemini 3 Flash"
-    GEMINI_3_7_FLASH = "gemini-3.7-flash", "Gemini 3.7 Flash"
+    GEMINI_3_8_FLASH = "gemini-3.8-flash", "Gemini 3.8 Flash"
 
 
 def scanner_model_choices() -> list[tuple[str, str | Promise]]:
@@ -83,6 +96,11 @@ class ScannerOrigin(models.TextChoices):
     # Minted from a config passed inline to a one-off scan (see `inline_scan.py`). Never swept,
     # never listed, not editable, and reaped once it has nothing to show.
     INLINE = "inline", "Inline"
+
+
+def prompt_fingerprint(prompt: str) -> str:
+    """Identifies a prompt's text, so a condensed question can be matched to the prompt it came from."""
+    return hashlib.sha256(prompt.encode()).hexdigest()
 
 
 def initial_watermark() -> "datetime":
@@ -104,8 +122,11 @@ class ReplayScannerManager(models.Manager["ReplayScanner"]):
         return super().get_queryset().filter(origin=ScannerOrigin.CONFIGURED)
 
 
-class ReplayScanner(UUIDModel):
+class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     """A configured probe that gets applied to completed session recordings (see README)."""
+
+    # A scanner sends recordings to an LLM, so its removal stays visible after the row is gone.
+    activity_logging_on_delete = True
 
     objects = ReplayScannerManager()
     all_origins = models.Manager()
@@ -120,6 +141,11 @@ class ReplayScanner(UUIDModel):
         blank=True,
         default="",
         help_text="Free-form description for the scanner management UI. Not used by the model.",
+    )
+    goal = models.TextField(
+        null=True,
+        blank=True,
+        help_text="The goal the creator typed or picked when an AI draft built this scanner, kept as written. Null for scanners built any other way.",
     )
 
     scanner_type = models.CharField(max_length=32, choices=ScannerType.choices)
@@ -223,20 +249,14 @@ class ReplayScanner(UUIDModel):
     )
 
     # Shape: ScannerExperimentTargetingSerializer. Stored because the compiled `query` speaks flag
-    # keys, so the experiment association isn't recoverable from it. Not version-tracked; scanning
-    # never reads it.
+    # keys, so the experiment association isn't recoverable from it. Version-tracked, and every scan
+    # and estimate derives its exposure filter from it through `targeted_recordings_query`. Legacy:
+    # the experiment scanner type keeps its targeting in `scanner_config` instead (see
+    # `experiment_scope`).
     experiment_targeting = models.JSONField(
         null=True,
         blank=True,
         help_text="The experiment this scanner's targeting watches, if any.",
-    )
-
-    # Shape: feedback_themes.build_feedback_themes. Not version-tracked: themes describe the
-    # ratings, not the scanner's behavior.
-    feedback_themes = models.JSONField(
-        null=True,
-        blank=True,
-        help_text="AI summary of the team's written thumbs-down feedback into recurring failure modes.",
     )
 
     estimated_monthly_observations = models.PositiveIntegerField(
@@ -248,6 +268,44 @@ class ReplayScanner(UUIDModel):
         null=True,
         blank=True,
         help_text="When the estimate was last computed. Refreshed on config saves and by the sweep when stale.",
+    )
+    estimate_attempted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When an estimate was last attempted, success or failure. Backs off the refresher on scanners whose estimate query keeps failing.",
+    )
+
+    search_suggestions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Example searches drawn from recent observations, shown on the Search tab's empty state.",
+    )
+    search_suggestions_watermark = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="created_at of the newest observation the suggestions were drawn from.",
+    )
+    search_suggestions_generated_at = models.DateTimeField(null=True, blank=True)
+    search_last_viewed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
+    )
+
+    # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a
+    # template's question. Not version-tracked: it restates the prompt and changes nothing about how the scanner scans.
+    prompt_question = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="The prompt condensed by AI into one question, shown above an observation's answer.",
+    )
+    prompt_question_source = models.CharField(
+        max_length=64,
+        blank=True,
+        default="",
+        db_default="",
+        help_text="`prompt_fingerprint` of the prompt `prompt_question` was condensed from. A mismatch means it is stale.",
     )
 
     # Not "monthly": this resets with the org's billing period, which is only a calendar month
@@ -270,7 +328,7 @@ class ReplayScanner(UUIDModel):
     admission_budget_used = models.IntegerField(
         null=True,
         blank=True,
-        help_text="Credits counted against credit_limit at the last admission-budget refresh: settled receipts, in-flight reservations, and running evaluations.",
+        help_text="Credits counted against credit_limit at the last admission-budget refresh: settled receipts and in-flight reservations.",
     )
     admission_budget_refreshed_at = models.DateTimeField(
         null=True,
@@ -355,6 +413,7 @@ class ReplayScanner(UUIDModel):
 
     # Written by sweeps and the read meter through queryset updates; a stale full save must not clobber them.
     _MACHINE_OWNED_FIELDS = (
+        "estimate_attempted_at",
         "last_swept_at",
         "last_seen_session_id",
         "deep_swept_through",
@@ -368,6 +427,10 @@ class ReplayScanner(UUIDModel):
         "admission_budget_refreshed_at",
         "admission_budget_period_start",
         "admission_credits_since_refresh",
+        "search_suggestions",
+        "search_suggestions_watermark",
+        "search_suggestions_generated_at",
+        "search_last_viewed_at",
     )
 
     def save(self, *args, **kwargs) -> None:
@@ -399,9 +462,21 @@ class ReplayScanner(UUIDModel):
                     if changed:
                         self.scanner_version = old.scanner_version + 1
                         extra_fields.append("scanner_version")
-                    if changed & self._ESTIMATE_FIELDS:
+                    estimate_stale = bool(changed & self._ESTIMATE_FIELDS)
+                    if (
+                        not estimate_stale
+                        and "scanner_config" in changed
+                        and self.scanner_type == ScannerType.EXPERIMENT
+                    ):
+                        # The experiment type keeps its targeting in scanner_config, so a scope
+                        # change there moves the estimate the way an experiment_targeting change
+                        # does; a prompt-only config edit does not.
+                        estimate_stale = old.experiment_scope() != self.experiment_scope()
+                    if estimate_stale:
+                        # A config edit must not wait out a backoff the old config earned.
                         self.estimated_at = None
-                        extra_fields.append("estimated_at")
+                        self.estimate_attempted_at = None
+                        extra_fields.extend(["estimated_at", "estimate_attempted_at"])
                     if track_enabled and not old.enabled and self.enabled:
                         # Re-enabling restarts the sweep from now — don't backfill (and bill) the disabled gap.
                         self.last_swept_at = initial_watermark()
@@ -425,15 +500,26 @@ class ReplayScanner(UUIDModel):
 
         return RecordingsQuery.model_validate(self.query or {"kind": "RecordingsQuery"})
 
+    def experiment_scope(self) -> dict | None:
+        """The experiment this scanner watches, wherever it is stored.
+
+        The experiment scanner type keeps `experiment_id` and `variants` in `scanner_config`; the
+        other types use the legacy `experiment_targeting` column. Both stores are access-checked on
+        write and redacted on read, so this is the one place code may read a scanner's experiment.
+        """
+        if self.scanner_type == ScannerType.EXPERIMENT:
+            return config_experiment_scope(self.scanner_config)
+        return self.experiment_targeting
+
     def targeted_recordings_query(self) -> "RecordingsQuery":
         """The query every scan and estimate must run: the persisted filter plus the exposure
-        filter derived from `experiment_targeting`.
+        filter derived from `experiment_scope()`.
 
         Derived here rather than persisted into `query` so the experiment can only ever enter
-        through `experiment_targeting`, the field the API access-checks on write and redacts on
-        read. The serializer rejects `experiment_exposure` inside `query` for the same reason.
+        through the access-checked scope stores (see `experiment_scope`). The serializer rejects
+        `experiment_exposure` inside `query` for the same reason.
         """
-        return apply_experiment_targeting(self.recordings_query(), self.experiment_targeting)
+        return apply_experiment_targeting(self.recordings_query(), self.experiment_scope())
 
     def __str__(self) -> str:
         return f"{self.name} ({self.scanner_type})"

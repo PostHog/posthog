@@ -3,10 +3,27 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const apiClient = vi.hoisted(() => ({ setTaskArchived: vi.fn() }));
+const apiClient = vi.hoisted(() => ({
+  getTasksPage: vi.fn(),
+  setTaskArchived: vi.fn(),
+}));
+const archiveLocally = vi.hoisted(() => vi.fn());
+const refreshArchiveState = vi.hoisted(() => vi.fn());
+const serverArchiveScope = '["us","user-a",42]';
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => apiClient,
+}));
+
+vi.mock("./useServerArchiveScope", () => ({
+  useServerArchiveScope: () => serverArchiveScope,
+}));
+
+vi.mock("@posthog/di/react", () => ({
+  useService: () => ({
+    archive: archiveLocally,
+    refreshArchiveState,
+  }),
 }));
 
 const archivedIds = vi.hoisted(() => ({ current: new Set<string>() }));
@@ -28,10 +45,17 @@ function wrapper({ children }: { children: ReactNode }) {
 describe("useServerArchiveSync", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    apiClient.getTasksPage.mockResolvedValue({
+      tasks: [],
+      count: 0,
+    });
+    archiveLocally.mockResolvedValue(undefined);
+    refreshArchiveState.mockResolvedValue(undefined);
     archivedIds.current = new Set();
     useServerArchiveSyncStore.setState({
       syncedTaskIds: [],
       pendingUnarchiveTaskIds: [],
+      archiveImportOffsets: {},
     });
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -111,5 +135,99 @@ describe("useServerArchiveSync", () => {
     const state = useServerArchiveSyncStore.getState();
     expect(state.pendingUnarchiveTaskIds).not.toContain("t1");
     expect(state.syncedTaskIds).not.toContain("t1");
+  });
+
+  it("imports a task archived on the server into the local archive", async () => {
+    apiClient.getTasksPage.mockResolvedValue({
+      tasks: [
+        {
+          id: "t1",
+          title: "Archived elsewhere",
+          created_at: "2026-08-20T10:00:00Z",
+          repository: "posthog/example",
+        },
+      ],
+      count: 1,
+    });
+
+    renderHook(() => useServerArchiveSync(), { wrapper });
+
+    await waitFor(() =>
+      expect(archiveLocally).toHaveBeenCalledWith({
+        taskId: "t1",
+        title: "Archived elsewhere",
+        taskCreatedAt: "2026-08-20T10:00:00Z",
+        repository: "posthog/example",
+        serverArchiveScope,
+      }),
+    );
+    expect(useServerArchiveSyncStore.getState().syncedTaskIds).toContain("t1");
+    expect(apiClient.getTasksPage).toHaveBeenCalledWith({
+      archived: true,
+      limit: 100,
+      offset: 0,
+    });
+    expect(refreshArchiveState).toHaveBeenCalledOnce();
+  });
+
+  it("continues a large server archive from its durable offset", async () => {
+    useServerArchiveSyncStore.setState({
+      archiveImportOffsets: { [serverArchiveScope]: 100 },
+    });
+    apiClient.getTasksPage.mockResolvedValue({
+      tasks: [
+        {
+          id: "t101",
+          title: "Older archived task",
+          created_at: "2026-08-01T10:00:00Z",
+          repository: null,
+        },
+      ],
+      count: 500,
+    });
+
+    const { rerender } = renderHook(() => useServerArchiveSync(), { wrapper });
+
+    await waitFor(() => expect(archiveLocally).toHaveBeenCalledOnce());
+    archivedIds.current = new Set(["t101"]);
+    await act(async () => rerender());
+    expect(apiClient.getTasksPage).toHaveBeenCalledOnce();
+    expect(apiClient.getTasksPage).toHaveBeenCalledWith({
+      archived: true,
+      limit: 100,
+      offset: 100,
+    });
+    expect(
+      useServerArchiveSyncStore.getState().archiveImportOffsets[
+        serverArchiveScope
+      ],
+    ).toBe(101);
+  });
+
+  it("does not rearchive a local restore while its server update is pending", async () => {
+    apiClient.setTaskArchived.mockRejectedValue(new Error("offline"));
+    apiClient.getTasksPage.mockResolvedValue({
+      tasks: [
+        {
+          id: "t1",
+          title: "Restored here",
+          created_at: "2026-08-20T10:00:00Z",
+          repository: null,
+        },
+      ],
+      count: 1,
+    });
+    useServerArchiveSyncStore.setState({
+      syncedTaskIds: [],
+      pendingUnarchiveTaskIds: ["t1"],
+    });
+
+    renderHook(() => useServerArchiveSync(), { wrapper });
+
+    await waitFor(() => expect(apiClient.getTasksPage).toHaveBeenCalled());
+    expect(archiveLocally).not.toHaveBeenCalled();
+    expect(
+      useServerArchiveSyncStore.getState().pendingUnarchiveTaskIds,
+    ).toContain("t1");
   });
 });

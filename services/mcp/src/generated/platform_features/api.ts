@@ -8,22 +8,28 @@
  */
 import * as zod from 'zod'
 
-export const ListQueryParams = /* @__PURE__ */ zod.object({
+export const ListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const RetrieveParams = /* @__PURE__ */ zod.object({
+export const RetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this organization.'),
 })
 
-export const PartialUpdateParams = /* @__PURE__ */ zod.object({
+export const PartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this organization.'),
 })
 
 export const partialUpdateBodyNameMax = 64
 
-export const PartialUpdateBody = /* @__PURE__ */ zod.object({
+export const partialUpdateBodyMemberNoticeOneMessageMax = 1000
+
+export const partialUpdateBodyMemberNoticeOneActionOneLabelMax = 40
+
+export const partialUpdateBodyMemberNoticeOneActionOneUrlMax = 2000
+
+export const PartialUpdateBody = () => zod.object({
     name: zod.string().max(partialUpdateBodyNameMax).optional(),
     logo_media_id: zod.string().nullish(),
     enforce_2fa: zod.boolean().nullish(),
@@ -54,21 +60,41 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "When True, requests through the PostHog MCP server can read but not change this organization's data."
         ),
+    member_notice: zod
+        .union([
+            zod.object({
+                message: zod
+                    .string()
+                    .max(partialUpdateBodyMemberNoticeOneMessageMax)
+                    .describe(
+                        'HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.'
+                    ),
+                action: zod
+                    .union([
+                        zod.object({
+                            label: zod
+                                .string()
+                                .max(partialUpdateBodyMemberNoticeOneActionOneLabelMax)
+                                .describe('Text on the button shown next to the notice.'),
+                            url: zod
+                                .url()
+                                .max(partialUpdateBodyMemberNoticeOneActionOneUrlMax)
+                                .describe('Link the button opens in a new tab. Must use http or https.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe('Optional link button shown on the right of the banner.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Notice shown in a banner to every member of the organization. Set to null to remove it.'),
     is_ai_data_processing_approved: zod.boolean().nullish(),
     is_ai_training_opted_in: zod
         .boolean()
         .nullish()
         .describe('When True, this organization allows its data to be used to train PostHog AI models.'),
-    default_experiment_stats_method: zod
-        .union([
-            zod.enum(['bayesian', 'frequentist']).describe('\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            'Default statistical method for new experiments in this organization.\n\n\* `bayesian` - Bayesian\n\* `frequentist` - Frequentist'
-        ),
     default_anonymize_ips: zod
         .boolean()
         .optional()
@@ -79,7 +105,7 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('ID of the role to automatically assign to new members joining the organization'),
 })
 
-export const MembersListParams = /* @__PURE__ */ zod.object({
+export const MembersListParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(
@@ -87,7 +113,7 @@ export const MembersListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const MembersListQueryParams = /* @__PURE__ */ zod.object({
+export const MembersListQueryParams = () => zod.object({
     email_domain: zod
         .string()
         .optional()
@@ -113,7 +139,7 @@ export const MembersListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const MembersGithubLoginRetrieveParams = /* @__PURE__ */ zod.object({
+export const MembersGithubLoginRetrieveParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(
@@ -126,7 +152,7 @@ export const MembersGithubLoginRetrieveParams = /* @__PURE__ */ zod.object({
  * Role endpoints disclose member records, so they scope them the same way the members list
  * does when the org restricts member list visibility.
  */
-export const RolesListParams = /* @__PURE__ */ zod.object({
+export const RolesListParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(
@@ -134,7 +160,7 @@ export const RolesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const RolesListQueryParams = /* @__PURE__ */ zod.object({
+export const RolesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -143,7 +169,7 @@ export const RolesListQueryParams = /* @__PURE__ */ zod.object({
  * Role endpoints disclose member records, so they scope them the same way the members list
  * does when the org restricts member list visibility.
  */
-export const RolesRetrieveParams = /* @__PURE__ */ zod.object({
+export const RolesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this role.'),
     organization_id: zod
         .string()
@@ -156,7 +182,7 @@ export const RolesRetrieveParams = /* @__PURE__ */ zod.object({
  * Role endpoints disclose member records, so they scope them the same way the members list
  * does when the org restricts member list visibility.
  */
-export const RolesRoleMembershipsListParams = /* @__PURE__ */ zod.object({
+export const RolesRoleMembershipsListParams = () => zod.object({
     organization_id: zod
         .string()
         .describe(
@@ -165,12 +191,12 @@ export const RolesRoleMembershipsListParams = /* @__PURE__ */ zod.object({
     role_id: zod.string(),
 })
 
-export const RolesRoleMembershipsListQueryParams = /* @__PURE__ */ zod.object({
+export const RolesRoleMembershipsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const AdvancedActivityLogsListParams = /* @__PURE__ */ zod.object({
+export const AdvancedActivityLogsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -193,7 +219,7 @@ export const advancedActivityLogsListQueryScopesDefault = []
 export const advancedActivityLogsListQueryTeamIdsDefault = []
 export const advancedActivityLogsListQueryUsersDefault = []
 
-export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
+export const AdvancedActivityLogsListQueryParams = () => zod.object({
     activities: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryActivitiesDefault)
@@ -201,7 +227,9 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
     clients: zod
         .array(zod.string())
         .default(advancedActivityLogsListQueryClientsDefault)
-        .describe('Filter by API clients that generated the activity (from x-posthog-client header).'),
+        .describe(
+            "Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run)."
+        ),
     detail_filters: zod
         .string()
         .optional()
@@ -287,7 +315,7 @@ export const AdvancedActivityLogsListQueryParams = /* @__PURE__ */ zod.object({
         .describe('When set, filters rows where the actor was impersonating another user.'),
 })
 
-export const AdvancedActivityLogsAvailableFiltersRetrieveParams = /* @__PURE__ */ zod.object({
+export const AdvancedActivityLogsAvailableFiltersRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -295,7 +323,7 @@ export const AdvancedActivityLogsAvailableFiltersRetrieveParams = /* @__PURE__ *
         ),
 })
 
-export const ApprovalPoliciesListParams = /* @__PURE__ */ zod.object({
+export const ApprovalPoliciesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -303,12 +331,12 @@ export const ApprovalPoliciesListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ApprovalPoliciesListQueryParams = /* @__PURE__ */ zod.object({
+export const ApprovalPoliciesListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const ApprovalPoliciesRetrieveParams = /* @__PURE__ */ zod.object({
+export const ApprovalPoliciesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this approval policy.'),
     project_id: zod
         .string()
@@ -317,7 +345,7 @@ export const ApprovalPoliciesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ChangeRequestsListParams = /* @__PURE__ */ zod.object({
+export const ChangeRequestsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -325,7 +353,7 @@ export const ChangeRequestsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ChangeRequestsListQueryParams = /* @__PURE__ */ zod.object({
+export const ChangeRequestsListQueryParams = () => zod.object({
     action_key: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -335,7 +363,7 @@ export const ChangeRequestsListQueryParams = /* @__PURE__ */ zod.object({
     state: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
 })
 
-export const ChangeRequestsRetrieveParams = /* @__PURE__ */ zod.object({
+export const ChangeRequestsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this change request.'),
     project_id: zod
         .string()
@@ -348,7 +376,7 @@ export const ChangeRequestsRetrieveParams = /* @__PURE__ */ zod.object({
  * Approve a change request.
  * If quorum is reached, automatically applies the change immediately.
  */
-export const ChangeRequestsApproveCreateParams = /* @__PURE__ */ zod.object({
+export const ChangeRequestsApproveCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this change request.'),
     project_id: zod
         .string()
@@ -357,14 +385,14 @@ export const ChangeRequestsApproveCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.object({
+export const ChangeRequestsApproveCreateBody = () => zod.object({
     reason: zod.string().optional().describe('Optional note recorded with the approval vote explaining the decision.'),
 })
 
 /**
  * Reject a change request.
  */
-export const ChangeRequestsRejectCreateParams = /* @__PURE__ */ zod.object({
+export const ChangeRequestsRejectCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this change request.'),
     project_id: zod
         .string()
@@ -373,7 +401,7 @@ export const ChangeRequestsRejectCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
+export const ChangeRequestsRejectCreateBody = () => zod.object({
     reason: zod
         .string()
         .describe(
@@ -381,7 +409,7 @@ export const ChangeRequestsRejectCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CommentsListParams = /* @__PURE__ */ zod.object({
+export const CommentsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -389,13 +417,14 @@ export const CommentsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
+export const CommentsListQueryParams = () => zod.object({
     completed: zod
         .enum(['any', 'open', 'completed'])
         .optional()
         .describe(
             "When kind=task, restrict to open (incomplete) or completed tasks. Ignored when kind is not 'task'. Defaults to 'any' (no filter).\n\n\* `any` - any\n\* `open` - open\n\* `completed` - completed"
         ),
+    created_by: zod.number().optional().describe('Filter by the numeric ID of the user who wrote the comment.'),
     cursor: zod.string().optional().describe('The pagination cursor value.'),
     item_id: zod.string().min(1).optional().describe('Filter by the ID of the resource being commented on.'),
     kind: zod
@@ -416,7 +445,7 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
     task_id: zod
         .string()
         .optional()
-        .describe('Owning task for task, task_artifact, and desktop_canvas comment scopes.'),
+        .describe('Owning task for task, task_artifact, task_preview, task_browser, and canvas comment scopes.'),
 })
 
 /**
@@ -426,7 +455,7 @@ export const CommentsListQueryParams = /* @__PURE__ */ zod.object({
  * ticket within a short window returns the original comment with a 200 instead of creating a
  * second one, and a 409 while a concurrent request is still creating it.
  */
-export const CommentsCreateParams = /* @__PURE__ */ zod.object({
+export const CommentsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -439,7 +468,7 @@ export const commentsCreateBodyScopeMax = 79
 export const commentsCreateBodyIsTaskDefault = false
 export const commentsCreateBodyItemIdMax = 72
 
-export const CommentsCreateBody = /* @__PURE__ */ zod.object({
+export const CommentsCreateBody = () => zod.object({
     scope: zod.string().max(commentsCreateBodyScopeMax).optional(),
     item_context: zod
         .unknown()
@@ -460,7 +489,7 @@ export const CommentsCreateBody = /* @__PURE__ */ zod.object({
     source_comment: zod.string().nullish(),
 })
 
-export const CommentsRetrieveParams = /* @__PURE__ */ zod.object({
+export const CommentsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this comment.'),
     project_id: zod
         .string()
@@ -469,7 +498,7 @@ export const CommentsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CommentsThreadRetrieveParams = /* @__PURE__ */ zod.object({
+export const CommentsThreadRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this comment.'),
     project_id: zod
         .string()
@@ -478,7 +507,7 @@ export const CommentsThreadRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const CommentsCountRetrieveParams = /* @__PURE__ */ zod.object({
+export const CommentsCountRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -489,18 +518,18 @@ export const CommentsCountRetrieveParams = /* @__PURE__ */ zod.object({
 /**
  * Get the authenticated user's pinned sidebar tabs and configured homepage for the current team. Pass `@me` as the UUID.
  */
-export const UserHomeSettingsRetrieveParams = /* @__PURE__ */ zod.object({
+export const UserHomeSettingsRetrieveParams = () => zod.object({
     uuid: zod.string(),
 })
 
 /**
  * Update the authenticated user's pinned sidebar tabs and/or homepage for the current team. Pass `@me` as the UUID. Send `tabs` to replace the pinned tab list, `homepage` to set the home destination (any PostHog URL — dashboard, insight, search results, scene). Either field may be omitted to leave it unchanged; sending `homepage: null` or `{}` clears the homepage.
  */
-export const UserHomeSettingsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const UserHomeSettingsPartialUpdateParams = () => zod.object({
     uuid: zod.string(),
 })
 
-export const UserHomeSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const UserHomeSettingsPartialUpdateBody = () => zod.object({
     tabs: zod
         .array(
             zod.object({

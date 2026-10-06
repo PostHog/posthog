@@ -139,3 +139,18 @@ class TestChargifySource:
         assert response.partition_mode == "datetime"
         assert response.partition_format == "month"
         assert response.partition_keys == ["created_at"]
+
+    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.chargify.source.chargify_source")
+    def test_source_for_pipeline_leaves_an_endpoint_without_a_timestamp_unpartitioned(
+        self, mock_source: mock.MagicMock
+    ) -> None:
+        # Credit notes expose no stable creation timestamp, so partitioning must stay off rather
+        # than point at a column the rows do not carry.
+        response = self.source.source_for_pipeline(
+            self.config, mock.MagicMock(spec=ResumableSourceManager), _make_inputs(schema_name="CreditNotes")
+        )
+
+        assert response.partition_mode is None
+        assert response.partition_format is None
+        assert response.partition_keys is None
+        assert response.primary_keys == ["uid"]

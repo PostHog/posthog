@@ -17,8 +17,6 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
-import type { IndexedTrendResult } from 'scenes/trends/types'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -28,9 +26,13 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, type IntervalType } from '~/types'
 
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
+import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
+
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { getSeriesIdentification } from '../../shared/seriesIdentification'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
@@ -110,11 +112,17 @@ export function TrendsLineChart({
         showValuesOnSeries,
         showConfidenceIntervals,
         confidenceLevel,
+        isSingleSeriesDefinition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const seriesIdentification = useMemo(
+        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
+        [indexedResults]
+    )
 
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
@@ -122,8 +130,16 @@ export function TrendsLineChart({
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
+                isSingleSeriesDefinition,
+                seriesIdentification,
             }),
-        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [
+            breakdownFilter,
+            allCohorts?.results,
+            formatPropertyValueForDisplay,
+            isSingleSeriesDefinition,
+            seriesIdentification,
+        ]
     )
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
@@ -155,20 +171,6 @@ export function TrendsLineChart({
             return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
         },
         [trendsFilter, isPercentStackView, baseCurrency]
-    )
-
-    const indexByResult = useMemo(() => {
-        const m = new Map<IndexedTrendResult, number>()
-        ;(indexedResults ?? []).forEach((r, i) => m.set(r, i))
-        return m
-    }, [indexedResults])
-
-    const getYAxisId = useCallback(
-        (r: IndexedTrendResult) => {
-            const idx = indexByResult.get(r) ?? 0
-            return showMultipleYAxes && idx > 0 ? `y${idx}` : DEFAULT_Y_AXIS_ID
-        },
-        [indexByResult, showMultipleYAxes]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
@@ -301,6 +303,13 @@ export function TrendsLineChart({
         ]
     )
 
+    // Anomaly markers must read the same axis their series is scaled against.
+    const getYAxisId = useCallback(
+        (r: IndexedTrendResult) => series.find((s) => s.key === String(r.id))?.yAxisId ?? DEFAULT_Y_AXIS_ID,
+        [series]
+    )
+
+    const hideAxes = context?.hideAxes
     const config = useChartConfig(
         () =>
             buildTrendsLineTimeSeriesConfig<IndexedTrendResult>({
@@ -313,6 +322,7 @@ export function TrendsLineChart({
                 interval,
                 timezone,
                 allDays,
+                hideAxes,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 yAxisStartAtZero: trendsFilter?.yAxisStartAtZero,
@@ -344,6 +354,7 @@ export function TrendsLineChart({
             interval,
             timezone,
             allDays,
+            hideAxes,
             goalLines,
             incompletenessOffsetFromEnd,
             getTrendsHidden,

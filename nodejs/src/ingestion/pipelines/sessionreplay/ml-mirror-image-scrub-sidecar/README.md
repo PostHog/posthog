@@ -19,10 +19,13 @@ There is no batch time limit and no drop path: every message a poll batch takes 
 The waiting _is_ the backpressure. A batch that spends longer on a jammed sidecar calls `consume()` that much later, so the consumer paces itself to whatever the sidecar can execute without needing to pause partitions explicitly.
 Lag grows while that happens, which is correct and is what the drain-time panels on the dashboard are for.
 
-Because the batch has no time limit, its duration is set by how many images it holds, so this lane runs a small `CONSUMER_BATCH_SIZE` (50, against a default of 500).
+Because the batch has no time limit, its duration is set by how many images it holds, so this lane runs a small `CONSUMER_BATCH_SIZE` (150, against a default of 500).
+It is not smaller than that because every batch ends with a window drain, where the last few images finish unevenly while the other scrub slots idle, and a larger batch spreads that fixed cost over more images.
+The consumer caps the poll below the configured size so that every image can time out once at the sidecar and the batch still returns inside `max.poll.interval.ms`, with a fifth of the interval kept for the key read, the window drain and any wait on the write lane: with a 45s scrub timeout that is five waves of `SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY` images, 70 at the production concurrency of 14.
 A batch that outlives `max.poll.interval.ms` (300s) gets the pod evicted mid-batch, and that is not a clean retry: the evicted pod loses the offsets for work it already did, and the partition lands on a pod whose sidecar is equally busy and redoes the same images, so offered load rises while throughput falls.
 Keeping batches far inside the interval is what stops ordinary saturation reaching that point.
-If a revoke does land mid-batch, the batch stops as soon as a flush finds it no longer owns the partitions, rather than scrubbing on and writing a second shard for a span the new owner is already writing.
+If a revoke does land mid-batch, the batch stops as soon as a write finds it no longer owns the partitions, rather than scrubbing on and writing a second shard for a span the new owner is already writing.
+The S3 writes run behind the scrub of the next batches, so the batch duration the consumer reports covers the scrub plus any time the batch waited for the write lane to have room (`ml_mirror_image_scrub_consumer_write_wait_seconds`); `ml_mirror_image_scrub_consumer_write_duration_seconds` covers the writes themselves.
 
 A wedged sidecar still blocks its partitions rather than draining them, and no batch size prevents that.
 
@@ -55,7 +58,7 @@ Requiring more than that makes the gate unreachable for an image late in a batch
 
 When no peer is available to vouch at all, the time spent on considered rejections and their backoffs opens the gate on its own.
 Request time counts because a wedged worker consumes most of the Kafka lease before each backoff starts.
-Busy, timeout, and transport intervals do not consume this budget because they do not identify a bad image.
+Busy, timeout, refused, and reset intervals do not consume this budget because they do not identify a bad image.
 That threshold has to fire comfortably inside `max.poll.interval.ms` (300s), which is the binding constraint rather than a preference: a batch cannot return while one of its images is in flight, so anything above the lease can never be reached — the group fences the pod first, the partition moves, and its new owner repeats the same work and is fenced in turn, circling the fleet forever.
 
 It is published through this lane's own producer slot on the replay cluster, which is where the source topic lives and which carries a `message.max.bytes` sized for these payloads; the generic slot points elsewhere with librdkafka's 1 MB default, where parking a normal image would fail on every attempt.
@@ -67,11 +70,15 @@ A publish that keeps failing is retried rather than raised, because the Kafka lo
 With no dead-letter destination configured the client keeps waiting instead, because the only other option would be discarding.
 `ml_mirror_image_scrub_consumer_dead_lettered_total` should sit at zero; anything above a trickle is a sidecar bug reproducing across many images, and the fix belongs in the sidecar.
 
-Waiting only applies to answers a later attempt could change: 5xx, 408, 429, and transport failures (a refused socket is the ordinary case while the sidecar is still starting in the same pod).
+Waiting only applies to answers a later attempt could change: 5xx, 408, 429, and socket failures (a refused socket is the ordinary case while the image-scrub container is restarting in the same pod).
 Any other status, and a 200 carrying no bytes, is the sidecar answering a question we did not think we were asking, so it fails the batch loudly instead.
 Waiting on a 404 from a misdirected `SIDECAR_URL` would otherwise turn a deploy mistake into a pod that consumes nothing, passes every probe, and surfaces only as lag.
 
-`ml_mirror_image_scrub_consumer_scrub_waits_total` (by `reason`: `busy`, `timeout`, `transport`) counts attempts that came back without bytes and will be retried, so it is a saturation signal and never a loss signal.
+`ml_mirror_image_scrub_consumer_scrub_waits_total` (by `reason`: `busy`, `timeout`, `refused`, `reset`, `transport`, `rejected`) counts attempts that came back without bytes and will be retried, so it is a saturation signal and never a loss signal.
+`refused` means nothing is listening on the sidecar port, which after boot means the image-scrub container has exited.
+A `reset` is a connection the sidecar accepted and then dropped, which its shutdown does to idle keep-alive sockets, so resets are expected on every rollout and scale-down.
+`transport` is any other socket failure, so a sustained rate outside a rollout is a fault to look at rather than noise.
+The unreachable alert selects `refused` and `transport`, never `reset`.
 `ml_mirror_image_scrub_consumer_stuck_images_total` re-increments while any one image is still being retried past the point a healthy sidecar would have finished it, so it reads as a level rather than a one-off edge.
 
 **A stalled pod on this lane looks healthy to Kubernetes.** The lane runs the legacy heartbeat health check (`CONSUMER_LOOP_BASED_HEALTH_CHECK` is unset), and the consumer refreshes that heartbeat every 10s for the whole batch, so a pod blocked on one image stays Ready and Live indefinitely.
@@ -91,12 +98,13 @@ Given an image, `advancedScrub` (`src/scrub.ts`):
 1. **Apply the image policy**: reject an image when its XMP `plus:DataMining` value prohibits AI training.
 2. **Plan the sizes**: `planScales` (`src/scale-plan.ts`) decides every resize from the source dimensions alone, before a pixel is read — the decoded frame, what each detector sees, and what gets stored.
    An area budget rather than a long-side cap, so tall pages keep legible native resolution instead of being squashed.
-   Faces are detected on a letterboxed (never squashed) 640×640 input; frames beyond 3:1 aspect are tiled along their long axis (overlapping windows) so a face on a tall page stays above the detector's minimum size instead of shrinking past it.
+   Faces are detected at up to 640 px on the long side, never enlarged or squashed; frames beyond 3:1 aspect are tiled along their long axis (overlapping windows) so a face on a tall page stays above the detector's minimum size instead of shrinking past it.
 3. **NSFW/gore gate**: if the image is explicit or gory (NSFL + NSFW probability over `NSFW_THRESHOLD`), it collapses to a 1x1 blank.
 4. **Face redaction**: every detected face (YuNet) is filled with its **mean colour**.
 5. **Text redaction**: every detected text region (DBNet) gets the same fill, with a margin scaled to the box height (= font size).
    We detect _where_ text is and never read it.
-6. **Code redaction**: every decodable QR/barcode (zxing) gets the same fill — a TOTP provisioning QR or ticket barcode is machine-readable PII that the face/text detectors can't see.
+6. **Code redaction**: every QR/barcode that zxing decodes gets the same fill — a TOTP provisioning QR or ticket barcode is machine-readable PII that the face/text detectors can't see.
+   zxing reads the frame at the plan's code scale, which finds every code still decodable from the stored image.
 
 The goal is to protect data labellers and reduce PII exposure.
 It does not need to be perfect; the self-verifying test (below) keeps it honest.
@@ -110,16 +118,17 @@ The fill's edges are feathered by blurring the fill's _colour_ only, never the m
 All model inference and image processing run in optimized native libraries.
 The TypeScript is orchestration plus lightweight output decoding (over small downscaled maps, not full images):
 
-| Stage                              | Library            | Native engine        |
-| ---------------------------------- | ------------------ | -------------------- |
-| NSFW/gore classify (SwiftFormer)   | `onnxruntime-node` | ONNX Runtime (C++)   |
-| Face detection (YuNet)             | `onnxruntime-node` | ONNX Runtime (C++)   |
-| Text detection (DBNet / PP-OCRv3)  | `onnxruntime-node` | ONNX Runtime (C++)   |
-| QR/barcode detection               | `zxing-wasm`       | zxing-cpp (C++/wasm) |
-| resize / blur / composite / encode | `sharp`            | libvips (C++)        |
+| Stage                                  | Library                 | Native engine        |
+| -------------------------------------- | ----------------------- | -------------------- |
+| NSFW/gore classify (SwiftFormer)       | `onnxruntime-node`      | ONNX Runtime (C++)   |
+| Face detection (YuNet)                 | `onnxruntime-node`      | ONNX Runtime (C++)   |
+| Text detection (DBNet / PP-OCRv6 tiny) | `onnxruntime-node`      | ONNX Runtime (C++)   |
+| QR/barcode detection                   | `zxing-wasm`            | zxing-cpp (C++/wasm) |
+| resize / blur / composite / encode     | `sharp`                 | libvips (C++)        |
+| model input and zxing pixel layout     | replay-anonymizer addon | Rust (neon)          |
 
 We do not train anything and run no neural nets in JS.
-The only hand-written JS is model-output decoding (DBNet threshold + dilation + connected components, YuNet anchor decode + NMS, tensor packing, mask fill), which runs over the small detection maps and is not the bottleneck.
+The only hand-written JS is model-output decoding (DBNet threshold + dilation + connected components, YuNet anchor decode + NMS, mask fill), which runs over the small detection maps and is not the bottleneck.
 Everything model-shaped runs on ONE runtime (onnxruntime-node) on purpose: a second ML runtime would mean a second native-binary compatibility surface and a second set of failure modes (Node-version coupling, slow fallback backends).
 
 ## Layout
@@ -141,12 +150,13 @@ src/  (production — ships)
   yunet.ts        YuNet face detector (ONNX)
   dbnet.ts        DBNet text-region detector (ONNX)
   qr.ts           QR/barcode detector (zxing-wasm, loaded from node_modules — no egress)
+  pixel-convert.ts  pixel layout conversions for the model inputs and zxing (Rust addon in native/)
   scale-plan.ts   every resize decided in one pure function, before a pixel is read
   floors.ts       what each detector finds vs what a person can read, and where both were measured
   src-image.ts    decode the source once to raw RGB, to the size the plan asked for
   geometry.ts     shared Box type + grid rounding
   safety.ts       NSFW/gore gate (SwiftFormer image-safety classifier, ONNX)
-  smoke.ts        image-build-time smoke test: models load + one scrub, with networking disabled
+  smoke.ts        image-build-time smoke test: models load + text and face fixtures scrubbed, with networking disabled
   env.ts          validated numeric env knobs — invalid values refuse to start (never fail open)
   metrics.ts      Prometheus registry: HTTP outcomes + scrub outcome signals
   image-input.ts  accepted image decoders, pixel limits, and embedded metadata policy
@@ -158,9 +168,16 @@ dev/  (non-production)
   bench.ts scale.ts worker-proc.ts   latency + throughput benchmarks
   make-corpus.ts  synthetic screenshot corpus
   setup.ts        download ONNX models + sample test images (npm run setup)
+  text-det-bench.ts   text detector comparison: cost and per-word redaction recall, per model and canvas size
+  text-det-setup.ts text-det-corpus.ts text-det-quantize.py text-det-dynamic-hw.py   its models, labelled images and int8 builds
+  face-bench.ts   face detector comparison: YuNet variants and input sizes, cost and per-face redaction recall
+  code-bench.ts   code detector cost against zxing's input scale, and which codes stay decodable from the stored image
+  build-native.ts build the replay-anonymizer Rust addon into native/ (npm run build:native)
+  pixel-convert-bench.ts pixel-convert-reference.ts   the addon's conversions timed against the TypeScript loops they replaced
 
 fixtures/  committed eval fixtures (e.g. a retina Wikipedia page: dense text + a face)
 models/  test-data/  corpus/  out/   downloaded/generated by setup (gitignored)
+native/  the replay-anonymizer addon, built by npm run build:native (gitignored)
 ```
 
 ## Run
@@ -168,10 +185,11 @@ models/  test-data/  corpus/  out/   downloaded/generated by setup (gitignored)
 ```bash
 pnpm install --ignore-workspace   # standalone package: own lockfile, outside the root workspace
 npm run setup        # download ONNX models + sample test images, generate the corpus
-npm run test:unit    # fast unit tests (no models/network)
+npm run build:native # build the Rust addon into native/ (needs cargo); again after any rust/replay-anonymizer* change
+npm run test:unit    # fast unit tests (no models/network, but the addon)
 npm run eval         # scrub-quality suite (text + face) over real images
 npm run bench        # latency + per-stage breakdown
-npm run smoke        # models load + one scrub end to end (what the image build runs)
+npm run smoke        # models load + text and face fixtures scrubbed end to end (what the image build runs)
 npm run start        # the sidecar server (needs `npm run setup` for the models)
 ```
 
@@ -189,7 +207,7 @@ The suite **gates** on session replay's representative domain (crisp rendered-UI
 
 ```text
 UI TEXT (gated):        31/31 clean, 0.0% leak   [PASS]   # rendered screenshots
-DOCUMENT TEXT (report): 19/20 clean, 2.7% worst  [report] # faint fax/scan print, out of domain
+DOCUMENT TEXT (report): 20/20 clean, 0.0% worst  [report] # faint fax/scan print, out of domain
 FACE:                   89/89 faces redacted (100%)
 ```
 
@@ -210,7 +228,9 @@ One rule sets every size: **each detector must see a subject at least `ratio` ti
 Anything still readable in the artifact was therefore large enough to have been found and filled.
 
 `ratio` is derived rather than chosen, from measured floors in `src/floors.ts` — what each detector reliably finds, against what a person can still read out of the stored image.
-Faces bind at 64/21 ≈ 3.05; text is 7/3 ≈ 2.33; codes constrain nothing, since a code degraded past decoding carries nothing.
+Faces bind at 64/21 ≈ 3.05; codes need 3, and text 4.3/3 ≈ 1.43.
+zxing reads the frame at exactly `ratio` times the stored scale, because its cost grows with the pixels it reads and no model fixes its input size.
+DBNet reads exactly `ratio` times the stored size too, cut down from its canvas budget whenever that makes its padded canvas smaller.
 `SCRUB_SAFETY_FACTOR` (default 1.3) is margin on top, because both floors came from one font at near-black on white and low-contrast text moves the detection floor the wrong way.
 
 **`SCRUB_OUT_MAX_PIXELS` (default 50,000) is the only knob most people should touch.**
@@ -220,18 +240,29 @@ Setting the frame budget independently is what let two individually-reasonable s
 Storing small is deliberate and is most of the guarantee. The downstream consumer identifies what kind of site a session is on, so it needs scene structure and not legibility — text being unreadable in the artifact is the point, not a cost.
 At the defaults a 1080p capture is stored at about 161x90.
 
-Re-derive the floors with `tsx dev/glyph-floor.ts` (text) and `tsx dev/floors.ts` (faces and codes); both read their geometry from `limitsFromEnv()` so they cannot drift from what ships.
+Re-derive the floors with `tsx dev/glyph-floor.ts` (text), `tsx dev/floors.ts` (faces) and `tsx dev/code-bench.ts` (codes); all three read their geometry from `limitsFromEnv()` so they cannot drift from what ships.
 
 ## Models are baked into the image
 
 The three ONNX models (safety gate, YuNet, DBNet) are `ADD`ed in `Dockerfile.ml-mirror-image-scrub` (repo root) from commit-pinned upstream URLs with BuildKit `--checksum` verification (same pins + sha256 checks as `dev/setup.ts` — keep them in sync).
 zxing's wasm loads from `node_modules`.
-A build-time smoke test (`src/smoke.ts`) then loads the models and runs one scrub with networking disabled, so a broken model, a native-binary mismatch, or an accidental runtime network dependency fails the image build instead of crash-looping the deploy.
+A build-time smoke test (`src/smoke.ts`) then loads the models and scrubs a text fixture and a face fixture with networking disabled. It checks that text is found and that the face is filled, so a broken model, a native-binary mismatch, or an accidental runtime network dependency fails the image build instead of crash-looping the deploy.
 The sidecar makes no network fetches at startup.
+
+## The native addon
+
+The pixel layout conversions that build each model input and zxing's RGBA frame (`src/pixel-convert.ts`) run in the replay-anonymizer Rust addon (`rust/replay-anonymizer-node/src/pixels.rs`).
+The worker allocates each destination typed array, and the addon borrows the source and the destination in place, so no pixel data crosses the boundary as a copy.
+The output is the same, bit for bit, as the TypeScript loops that it replaced.
+`src/pixel-convert.test.ts` checks that against those loops (`dev/pixel-convert-reference.ts`), and `dev/pixel-convert-bench.ts` times the two.
+
+The image compiles the addon from `rust/` in a Rust stage of `Dockerfile.ml-mirror-image-scrub` and copies it to `native/`.
+Every worker loads it at startup, so a missing or stale addon fails the smoke test and with it the image build.
+On a dev machine, `npm run build:native` builds it into `native/`.
 
 ## Observability
 
-Beyond the HTTP outcome counters (scrubbed/failed/undecodable/rejected/too-large/aborted, duration, output bytes), `/metrics` carries the outcome signals a privacy control needs:
+Beyond the HTTP outcome counters (scrubbed/failed/undecodable/rejected/too-large/aborted, duration, output bytes), `/metrics` carries the outcome signals an anonymization control needs:
 
 - `..._blanked_total` — NSFW-gate blanks are destructive and irreversible; alert on rate spikes.
 - `..._faces_redacted_total`, `..._text_boxes_redacted_total`, `..._codes_redacted_total` — a sustained zero rate under traffic means a detector outage (un-redacted output), not a clean stream.

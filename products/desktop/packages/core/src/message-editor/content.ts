@@ -15,6 +15,7 @@ export const POSTHOG_OBJECT_KINDS = [
   "experiment",
   "survey",
   "ticket",
+  "report",
   "trace",
   "eval",
   "event",
@@ -44,7 +45,8 @@ export interface MentionChip {
     | "feature_flag"
     | "posthog_object"
     | "github_issue"
-    | "github_pr";
+    | "github_pr"
+    | "comment_context";
   id: string;
   label: string;
   objectKind?: PostHogObjectKind;
@@ -53,6 +55,7 @@ export interface MentionChip {
   skillPath?: string;
   skillSource?: UploadableSkillSource;
   skillName?: string;
+  imagePath?: string;
 }
 
 export interface FileAttachment {
@@ -76,6 +79,7 @@ export function contentToPlainText(content: EditorContent): string {
         return `@${chip.label}`;
       if (chip.type === "command") return `/${chip.label}`;
       if (chip.type === "posthog_object") return chip.label;
+      if (chip.type === "comment_context") return chip.label;
       return `@${chip.label}`;
     })
     .join("");
@@ -133,6 +137,8 @@ export function contentToXml(content: EditorContent): string {
         const title = labelMatch?.[2] ?? "";
         return `<${chip.type} number="${escapeXmlAttr(number)}" title="${escapeXmlAttr(title)}" url="${escapedId}" />`;
       }
+      case "comment_context":
+        return commentContextXml(chip.label, chip.id, chip.imagePath);
       default:
         return `@${chip.label}`;
     }
@@ -150,11 +156,25 @@ export function contentToXml(content: EditorContent): string {
   return parts.join("");
 }
 
-// Self-closing chip tags, plus the paired `<hogql>...</hogql>` form whose SQL
-// rides in the tag body. contentToXml XML-escapes that body, so the body is
-// captured here and decoded on the way into a chip.
+export const COMMENT_CONTEXT_TAG = "comment_context";
+
+export function commentContextXml(
+  label: string,
+  body: string,
+  imagePath?: string,
+): string {
+  const safeBody = escapeXmlText(body);
+  if (!imagePath) {
+    return `<${COMMENT_CONTEXT_TAG} label="${escapeXmlAttr(label)}">\n${safeBody}\n</${COMMENT_CONTEXT_TAG}>`;
+  }
+  const path = escapeXmlAttr(imagePath);
+  return `<${COMMENT_CONTEXT_TAG} label="${escapeXmlAttr(label)}" screenshot="${path}">\n<file path="${path}" />\n${safeBody}\n</${COMMENT_CONTEXT_TAG}>`;
+}
+
+// Self-closing chip tags, paired report references, and the paired
+// `<hogql>...</hogql>` form whose SQL rides in the tag body.
 const CHIP_TAG_REGEX =
-  /<(file|folder|skill|error|experiment|insight|feature_flag|dashboard|replay|flag|survey|ticket|trace|eval|event|cohort|action|person|github_issue|github_pr)\b([^>]*?)\s*\/>|<hogql\b[^>]*>([\s\S]*?)<\/hogql>/g;
+  /<(file|folder|skill|error|experiment|insight|feature_flag|dashboard|replay|flag|survey|ticket|report|trace|eval|event|cohort|action|person|github_issue|github_pr)\b([^>]*?)\s*\/>|<report\b([^>]*?)>([\s\S]*?)<\/report>|<hogql\b[^>]*>([\s\S]*?)<\/hogql>|<comment_context\b([^>]*)>([\s\S]*?)<\/comment_context>/g;
 
 export function deriveFileLabel(filePath: string): string {
   const segments = filePath.split("/").filter(Boolean);
@@ -163,7 +183,11 @@ export function deriveFileLabel(filePath: string): string {
   return parentDir ? `${parentDir}/${fileName}` : fileName;
 }
 
-function chipFromTag(tag: string, rawAttrs: string): MentionChip | null {
+function chipFromTag(
+  tag: string,
+  rawAttrs: string,
+  bodyLabel?: string,
+): MentionChip | null {
   const attrs = parseXmlAttrs(rawAttrs);
   switch (tag) {
     case "file": {
@@ -205,6 +229,7 @@ function chipFromTag(tag: string, rawAttrs: string): MentionChip | null {
     case "flag":
     case "survey":
     case "ticket":
+    case "report":
     case "trace":
     case "eval":
     case "event":
@@ -217,7 +242,7 @@ function chipFromTag(tag: string, rawAttrs: string): MentionChip | null {
         type: "posthog_object",
         objectKind: tag,
         id,
-        label: id,
+        label: bodyLabel?.trim() || id,
       };
     }
     case "github_issue":
@@ -249,6 +274,22 @@ function hogqlChipFromBody(body: string): MentionChip | null {
   };
 }
 
+function commentContextChip(rawAttrs: string, body: string): MentionChip {
+  const attrs = parseXmlAttrs(rawAttrs);
+  const imagePath = attrs.screenshot || undefined;
+  const leadingFile = body.match(/^\s*<file\s+(path="[^"]*")\s*\/>\n?/);
+  const text =
+    imagePath && leadingFile && parseXmlAttrs(leadingFile[1]).path === imagePath
+      ? body.slice(leadingFile[0].length)
+      : body;
+  return {
+    type: "comment_context",
+    id: unescapeXmlAttr(text.trim()),
+    label: attrs.label || "Comment",
+    ...(imagePath ? { imagePath } : {}),
+  };
+}
+
 export function xmlToContent(xml: string): EditorContent {
   const segments: EditorContent["segments"] = [];
   let lastIndex = 0;
@@ -257,7 +298,11 @@ export function xmlToContent(xml: string): EditorContent {
     const matchIndex = match.index ?? 0;
     const chip = match[1]
       ? chipFromTag(match[1], match[2] ?? "")
-      : hogqlChipFromBody(match[3] ?? "");
+      : match[3] !== undefined
+        ? chipFromTag("report", match[3], unescapeXmlAttr(match[4] ?? ""))
+        : match[6] !== undefined
+          ? commentContextChip(match[6], match[7] ?? "")
+          : hogqlChipFromBody(match[5] ?? "");
     if (!chip) continue;
 
     if (matchIndex > lastIndex) {

@@ -60,14 +60,7 @@ const IS_STATUS_SUGAR: Record<string, TaskRunStatus> = {
 
 const IS_FLAG_VALUES: ReadonlySet<string> = new Set(["archived", "pinned"]);
 
-export const PR_VALUES = [
-  "any",
-  "none",
-  "open",
-  "draft",
-  "merged",
-  "closed",
-] as const;
+const PR_VALUES = ["any", "none", "open", "draft", "merged", "closed"] as const;
 export type PrValue = (typeof PR_VALUES)[number];
 
 const PR_STATE_VALUES: ReadonlySet<string> = new Set([
@@ -88,6 +81,7 @@ export const CI_VALUES = [
 
 export const TYPE_VALUES = [
   "task",
+  "canvas",
   "space",
   "command",
   "saved",
@@ -101,7 +95,7 @@ const CI_ALIASES: Record<string, string> = {
 };
 
 // Keep unknown origins unchanged so new server-side enum values remain searchable.
-export const ORIGIN_ALIASES: Record<string, string> = {
+const ORIGIN_ALIASES: Record<string, string> = {
   desktop: "user_created",
   user: "user_created",
   scout: "signals_scout",
@@ -368,7 +362,7 @@ export interface FeedQueryPlan {
   matchesReport?: (report: FeedQueryReport) => boolean;
 }
 
-function normalize(value: string): string {
+export function normalize(value: string): string {
   return value.trim().toLowerCase();
 }
 
@@ -499,12 +493,12 @@ function memberMatches(member: FeedQueryMember, value: string): boolean {
   );
 }
 
-interface Group {
+export interface Group {
   positives: FeedQueryToken[];
   negatives: FeedQueryToken[];
 }
 
-function groupOf(map: Map<string, Group>, key: string): Group {
+export function groupOf(map: Map<string, Group>, key: string): Group {
   let group = map.get(key);
   if (!group) {
     group = { positives: [], negatives: [] };
@@ -513,8 +507,47 @@ function groupOf(map: Map<string, Group>, key: string): Group {
   return group;
 }
 
-const MATCH_ALL = () => true;
+export const MATCH_ALL = () => true;
 const MATCH_NONE = () => false;
+
+export function memberResolver(
+  context: FeedQueryPlanContext,
+  issues: FeedQueryIssue[],
+): (token: FeedQueryToken) => FeedQueryMember[] {
+  return (token) => {
+    const value = normalize(token.value);
+    if (value === "@me" || value === "me") {
+      return context.me ? [context.me] : [];
+    }
+    const matched = context.members.filter((m) => memberMatches(m, value));
+    if (matched.length === 0) {
+      issues.push({
+        raw: token.raw,
+        kind: "unknown-value",
+        message: `No teammate matches "${token.value}"`,
+      });
+    }
+    return matched;
+  };
+}
+
+export function spaceResolver(
+  context: FeedQueryPlanContext,
+  issues: FeedQueryIssue[],
+): (token: FeedQueryToken) => FeedQuerySpace | undefined {
+  return (token) => {
+    const value = normalize(token.value).replace(/^#/, "");
+    const matched = context.spaces.find((s) => normalize(s.name) === value);
+    if (!matched) {
+      issues.push({
+        raw: token.raw,
+        kind: "unknown-value",
+        message: `No space named "${token.value}"`,
+      });
+    }
+    return matched;
+  };
+}
 
 /** Limit fan-out requests so one query cannot overload the task-list API. */
 const MAX_PLAN_REQUESTS = 8;
@@ -542,21 +575,7 @@ export function planFeedQuery(
   if (parsed.text) server.search = parsed.text;
 
   // Resolve people before building the task-list requests.
-  const resolveMembers = (token: FeedQueryToken): FeedQueryMember[] => {
-    const value = normalize(token.value);
-    if (value === "@me" || value === "me") {
-      return context.me ? [context.me] : [];
-    }
-    const matched = context.members.filter((m) => memberMatches(m, value));
-    if (matched.length === 0) {
-      issues.push({
-        raw: token.raw,
-        kind: "unknown-value",
-        message: `No teammate matches "${token.value}"`,
-      });
-    }
-    return matched;
-  };
+  const resolveMembers = memberResolver(context, issues);
   // Equivalent names for one person must not create duplicate requests.
   const uniqueMembers = (tokens: FeedQueryToken[]): FeedQueryMember[] => [
     ...new Map(
@@ -748,18 +767,7 @@ export function planFeedQuery(
 
   const space = groups.get("space");
   if (space) {
-    const resolve = (token: FeedQueryToken): FeedQuerySpace | undefined => {
-      const value = normalize(token.value).replace(/^#/, "");
-      const matched = context.spaces.find((s) => normalize(s.name) === value);
-      if (!matched) {
-        issues.push({
-          raw: token.raw,
-          kind: "unknown-value",
-          message: `No space named "${token.value}"`,
-        });
-      }
-      return matched;
-    };
+    const resolve = spaceResolver(context, issues);
     const wanted = new Set(
       space.positives.map(resolve).flatMap((s) => (s ? [s.id] : [])),
     );
@@ -1068,18 +1076,8 @@ function planReportFeedQuery(
       }
       const first = group.positives[0];
       if (first) {
-        const value = normalize(first.value).replace(/^#/, "");
-        const matched = context.spaces.find((s) => normalize(s.name) === value);
-        if (matched) {
-          reportChannelId = matched.id;
-        } else {
-          unresolvedSpace = true;
-          issues.push({
-            raw: first.raw,
-            kind: "unknown-value",
-            message: `No space named "${first.value}"`,
-          });
-        }
+        reportChannelId = spaceResolver(context, issues)(first)?.id;
+        unresolvedSpace = reportChannelId === undefined;
       }
       continue;
     }

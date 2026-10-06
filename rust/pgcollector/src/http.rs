@@ -46,10 +46,22 @@ impl Metrics {
             &["server"],
         )
         .unwrap();
+        // Constant 1 with the crate version as a label, so dashboards can show which
+        // build each pod runs without reading pod specs.
+        let build_info = IntGaugeVec::new(
+            prometheus::opts!("pgcollector_build_info", "build metadata"),
+            &["version"],
+        )
+        .unwrap();
+        build_info
+            .with_label_values(&[env!("CARGO_PKG_VERSION")])
+            .set(1);
         registry.register(Box::new(tick_seconds.clone())).unwrap();
         registry.register(Box::new(rows.clone())).unwrap();
         registry.register(Box::new(errors.clone())).unwrap();
         registry.register(Box::new(targets.clone())).unwrap();
+        // The registry owns the gauge; nothing updates it after this point.
+        registry.register(Box::new(build_info)).unwrap();
         Self {
             registry,
             tick_seconds,

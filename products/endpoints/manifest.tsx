@@ -17,6 +17,7 @@ export const manifest: ProductManifest = {
             layout: 'app-container',
             iconType: 'endpoints',
             description: 'Define queries your application will use via the API and monitor their cost and usage.',
+            docsHref: 'https://posthog.com/docs/endpoints',
         },
         EndpointScene: {
             import: () => import('./frontend/EndpointScene'),
@@ -84,7 +85,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Endpoints',
             intents: [ProductKey.ENDPOINTS],
-            category: ProductItemCategory.TOOLS,
+            category: ProductItemCategory.DATA,
             href: urls.endpoints(),
             type: 'endpoints',
             iconType: 'endpoints',
@@ -98,7 +99,7 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: 'Endpoints',
-            category: 'Tools',
+            category: 'Data',
             iconType: 'endpoints' as FileSystemIconType,
             iconColor: [
                 'var(--color-product-endpoints-light)',

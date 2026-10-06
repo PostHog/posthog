@@ -56,6 +56,14 @@ Ground the metric (do this before forming any hypothesis):
   page where users look at that domain. That counts people *visiting a page*,
   not people *hitting the problem*. Reading it the other way turns an ordinary
   engagement change into a fabricated incident.
+- The name also says nothing about *how* the event is produced. A name like
+  "summaries generated" or "jobs processed" reads as the output of a backend
+  pipeline, and just as often marks a person's action recorded from a request
+  handler. Never assert a producing mechanism — a pipeline, a queue, a worker
+  pool, a cron, a model call — that you have no evidence for. The event
+  provenance block, when present, measures the emitter: many distinct actors
+  means many separate actors each emit the event, which no single background job
+  produces. Without that evidence, say the mechanism is unknown.
 - Every hypothesis has to work against the metric as defined. If a hypothesis
   only makes sense when the metric means something the definition does not
   support, drop it — do not soften it into a maybe.
@@ -119,6 +127,11 @@ Guidelines:
   or repeated near-threshold firings on the same metric), flag that
   explicitly as a recommendation — e.g. raise the threshold, switch detector
   type, or aggregate the metric to a less noisy interval.
+- Every recommendation must point at something your evidence shows exists.
+  Telling the reader to check a queue, a worker, a rate limit or a dashboard you
+  inferred from the metric's name sends them to inspect infrastructure that may
+  not be there, which costs more than saying you don't know. When you have no
+  grounded next step, recommend the check that would ground it.
 - Keep summaries concrete and short. No filler. No apologies. No hedging
   beyond what the data supports. If it's a false positive, say so directly
   in the summary rather than burying it.
@@ -135,14 +148,22 @@ def build_anomaly_context(
     calculated_value: float | None,
     interval: str | None,
     metric_definition: str,
+    event_provenance: str = "",
 ) -> str:
     """First user message — packs the alert context the agent needs to act."""
-    md = triggered_metadata or {}
+    md = dict(triggered_metadata or {})
+    # The AI detector already judged this series once. Give its reason its own line rather
+    # than leaving it as a metadata key, so the agent starts from that read instead of zero.
+    # The prompt frames it as a prior to check rather than as a conclusion.
+    rationale = str(md.pop("rationale", "") or "").strip()
+    rationale_line = f"The detector's own read of this fire: {rationale}\n" if rationale else ""
     metadata_line = ""
     if md:
         parts = [f"{k}={v}" for k, v in md.items() if v is not None]
         if parts:
             metadata_line = "Trigger metadata: " + ", ".join(parts) + "."
+
+    provenance_block = f"{event_provenance}\n\n" if event_provenance else ""
 
     return (
         f"Alert: {alert_name}\n"
@@ -151,8 +172,10 @@ def build_anomaly_context(
         f"Interval: {interval or 'unknown'}\n"
         f"Calculated value at fire: {calculated_value}\n"
         f"Triggered dates: {', '.join(triggered_dates) if triggered_dates else 'n/a'}\n"
+        f"{rationale_line}"
         f"{metadata_line}\n\n"
         f"{metric_definition}\n\n"
+        f"{provenance_block}"
         "Use your tools to validate the anomaly and investigate the likely cause. "
         "Read the metric definition above before forming a hypothesis, and state what the "
         "metric measures in `metric_meaning`. "

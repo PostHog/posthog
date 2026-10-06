@@ -8,7 +8,7 @@ import structlog
 from redis.asyncio import Redis
 
 from llm_gateway.config import DEFAULT_USER_COST_LIMIT, get_settings
-from llm_gateway.products.config import resolve_cost_key
+from llm_gateway.products.config import POSTHOG_CODE_PRODUCT, resolve_cost_key
 
 if TYPE_CHECKING:
     from llm_gateway.config import UserCostLimit
@@ -20,7 +20,6 @@ from llm_gateway.rate_limiting.throttles import (
     get_rate_limit_multiplier,
     is_usage_unlimited,
 )
-from llm_gateway.services.plan_resolver import POSTHOG_CODE_PRODUCT
 
 logger = structlog.get_logger(__name__)
 
@@ -254,15 +253,12 @@ class _UserCostThrottleBase(CostThrottle):
         return config
 
     def _is_exempt(self, context: ThrottleContext) -> bool:
-        """Whether this request meters against the posthog_code budget, which billable credits
-        cover instead of a per-user cost limit.
-
-        Keyed on the resolved cost key rather than the declared product, for the same reason
-        `_cost_key` is: a Signals run holding an Array-app token declares `posthog_code`, and
-        reading the declaration here would hand it this exemption and leave the interactive
-        budget its spend is keyed to unenforced.
-        """
-        return self._cost_key(context) == POSTHOG_CODE_PRODUCT
+        """Use the resolved budget so Signals runs declaring Code cannot claim the Code exemption."""
+        settings = get_settings()
+        return self._cost_key(context) == POSTHOG_CODE_PRODUCT and (
+            not settings.posthog_code_user_cost_limits_enabled
+            or context.user.user_id not in settings.posthog_code_capped_user_ids
+        )
 
     async def allow_request(self, context: ThrottleContext) -> ThrottleResult:
         if not context.end_user_id or self._is_exempt(context):
@@ -292,7 +288,7 @@ class _UserCostThrottleBase(CostThrottle):
         return await super().get_status(context)
 
     async def record_cost(self, context: ThrottleContext, cost: float) -> None:
-        if not context.end_user_id or self._is_exempt(context):
+        if not context.end_user_id:
             return
         await super().record_cost(context, cost)
 

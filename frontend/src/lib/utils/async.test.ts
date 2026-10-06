@@ -1,6 +1,15 @@
-import { PromiseTimeoutError, retryWithBackoff, withTimeout } from 'lib/utils/async'
+import { delay, PromiseTimeoutError, retryWithBackoff, withTimeout } from 'lib/utils/async'
 
 describe('async utils', () => {
+    describe('delay()', () => {
+        it('rejects immediately when the signal is already aborted', async () => {
+            const controller = new AbortController()
+            controller.abort()
+
+            await expect(delay(10000, controller.signal)).rejects.toThrow('Aborted')
+        })
+    })
+
     describe('withTimeout()', () => {
         beforeEach(() => {
             jest.useFakeTimers()

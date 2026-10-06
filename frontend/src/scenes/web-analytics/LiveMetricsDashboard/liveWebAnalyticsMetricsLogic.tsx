@@ -1,5 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import type { DisposablesManager } from 'kea-disposables'
 import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -21,7 +22,6 @@ import { ProductTab, WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from 'scenes/web-analyti
 import { isLiveStreamFilter, webAnalyticsFilterLogic } from 'scenes/web-analytics/webAnalyticsFilterLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
-import type { DisposablesManager } from '~/kea-disposables'
 import { performQuery } from '~/queries/query'
 import {
     HogQLQuery,
@@ -74,6 +74,7 @@ const LIVE_QUERY_CONCURRENCY = 4
 const LIVE_QUERY_MAX_ATTEMPTS = 3
 const LIVE_QUERY_RETRY_DELAY_MS = 250
 const RELOAD_DEBOUNCE_MS = 300
+const HOGQL_RELOAD_INTERVAL_MS = 30000
 const PAUSE_GRACE_MS = 2000
 const TRANSIENT_QUERY_STATUSES = new Set([502, 503, 504])
 
@@ -237,6 +238,9 @@ export interface liveWebAnalyticsMetricsLogicActions {
     setIsRefreshing: (refreshing: boolean) => {
         refreshing: boolean
     }
+    setRecentEvents: (events: LiveEvent[]) => {
+        events: LiveEvent[]
+    }
     tickCurrentMinute: () => {
         value: true
     }
@@ -341,6 +345,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         pauseStream: true,
         resumeStream: true,
         clearRecentEvents: true,
+        setRecentEvents: (events: LiveEvent[]) => ({ events }),
         clearFilteredLiveUsers: true,
     })),
     reducers({
@@ -368,13 +373,17 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         const newerThanTs = newerThan.getTime() / 1000
 
                         if (eventTs > newerThanTs) {
-                            // Streamed events arrive raw, so the same cleaning the backfill query
-                            // does server-side has to happen here for both to land on one key.
+                            // Prefer the livestream service's RE2-cleaned pathname — it matches the
+                            // backfill query exactly. The client-side mirror stays as a fallback for
+                            // livestream deploys that don't send it yet.
                             const rawPathname = event.properties?.$pathname
+                            const serverCleanedPathname = event.properties?.$virt_cleaned_pathname
                             const pathname =
-                                typeof rawPathname === 'string'
-                                    ? applyPathCleaning(rawPathname, pathCleaningFilters)
-                                    : rawPathname
+                                typeof serverCleanedPathname === 'string'
+                                    ? serverCleanedPathname
+                                    : typeof rawPathname === 'string'
+                                      ? applyPathCleaning(rawPathname, pathCleaningFilters)
+                                      : rawPathname
                             const deviceType = event.properties?.$device_type
                             const deviceId = event.properties?.$device_id
                             const browser = event.properties?.$browser
@@ -502,6 +511,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             {
                 addEvents: (state, { events }) => deduplicateEvents(state, events, 50),
                 clearRecentEvents: () => [],
+                setRecentEvents: (_, { events }) => events,
             },
         ],
     }),
@@ -690,6 +700,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         cache.loadAbortController?.abort()
                         cache.eventsConnection?.abort()
                         cache.geoConnection?.abort()
+                        cache.disposables.dispose('hogqlReload')
                         cache.batch = []
                         cache.geoBatch = []
                         stopFlushInterval(cache as FlushCache)
@@ -738,12 +749,14 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 actions.updateConnection()
                 actions.updateGeoConnection()
 
+                const includeRecentEvents = !!values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]
                 const data = await loadQueryData({
                     dateFrom,
                     dateTo: handoff,
                     filters: values.liveFilters,
                     filterTestAccounts: values.shouldFilterTestAccounts,
                     includeCity: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN],
+                    includeRecentEvents,
                     filtersEnabled: true,
                     doPathCleaning: values.pathCleaningFilters.length > 0,
                     abortController,
@@ -773,6 +786,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     data.recentUsers ? getRecentUsersByLastSeenEntries(data.recentUsers) : []
                 )
                 cache.hasLoadedData = true
+                if (includeRecentEvents) {
+                    // A failed query clears the feed, so the card never shows old events next to fresh metrics.
+                    actions.setRecentEvents(
+                        data.recentEvents ? toRecentLiveEvents(data.recentEvents, values.currentTeam?.id ?? 0) : []
+                    )
+                }
 
                 if (values.shouldLoadBots) {
                     actions.setBotQueryStatus('loading')
@@ -832,6 +851,13 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     cache.reloadQueuedDuringInit = false
                     resetStreamStateAndReload(cache as FlushCache, actions)
                 }
+                // Counted from load completion, so a load slower than the interval is never aborted by the next one.
+                if (!signal.aborted && values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
+                    cache.disposables.add(() => {
+                        const timeoutId = setTimeout(() => actions.loadInitialData(true), HOGQL_RELOAD_INTERVAL_MS)
+                        return () => clearTimeout(timeoutId)
+                    }, 'hogqlReload')
+                }
             }
         },
         scheduleReload: async (_, breakpoint) => {
@@ -843,6 +869,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         },
         updateConnection: () => {
             cache.eventsConnection?.abort()
+
+            if (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
+                // A new load is starting, so a reload scheduled by the previous one must not abort it.
+                cache.disposables.dispose('hogqlReload')
+                return
+            }
 
             const token = values.currentTeam?.live_events_token
             if (!token) {
@@ -863,6 +895,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const recordingColumn = values.currentTeam?.session_recording_opt_in ? ',$session_id' : ''
             url.searchParams.append('columns', `${baseColumns}${cityColumns}${recordingColumn}`)
             appendFilterParams(url, values.streamFilters)
+            if (values.pathCleaningFilters.length > 0) {
+                // The livestream service cleans server-side with RE2 (the engine the backfill
+                // query uses) and returns $virt_cleaned_pathname alongside the raw value.
+                url.searchParams.append('pathCleaning', JSON.stringify(values.pathCleaningFilters))
+            }
 
             cache.batch = cache.batch ?? ([] as LiveEvent[])
 
@@ -894,6 +931,10 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         },
         updateGeoConnection: () => {
             cache.geoConnection?.abort()
+
+            if (values.featureFlags[FEATURE_FLAGS.LIVESTREAM_HOGQL]) {
+                return
+            }
 
             const token = values.currentTeam?.live_events_token
             if (!token) {
@@ -1076,6 +1117,7 @@ interface LiveQueryData {
     geo: HogQLQueryResponse | null
     recentUsers: HogQLQueryResponse | null
     city: HogQLQueryResponse | null
+    recentEvents: HogQLQueryResponse | null
     allFailed: boolean
     failedQueries: string[]
 }
@@ -1091,6 +1133,7 @@ const LIVE_QUERY_LABELS: Record<LiveQueryKey, string> = {
     geo: 'locations',
     recentUsers: 'recent visitors',
     city: 'cities',
+    recentEvents: 'live events',
 }
 
 interface LiveQueryContextParams {
@@ -1134,6 +1177,7 @@ const loadQueryData = async ({
     filters,
     filterTestAccounts,
     includeCity,
+    includeRecentEvents,
     filtersEnabled,
     doPathCleaning,
     abortController,
@@ -1143,6 +1187,7 @@ const loadQueryData = async ({
     filters: WebAnalyticsPropertyFilter[]
     filterTestAccounts: boolean
     includeCity: boolean
+    includeRecentEvents: boolean
     filtersEnabled: boolean
     doPathCleaning: boolean
     abortController: AbortController
@@ -1352,6 +1397,22 @@ const loadQueryData = async ({
     if (cityQuery) {
         jobs.push({ key: 'city', query: cityQuery })
     }
+    if (includeRecentEvents) {
+        jobs.push({
+            key: 'recentEvents',
+            query: {
+                kind: NodeKind.HogQLQuery,
+                query: `SELECT uuid, event, distinct_id, toString(timestamp),
+                        properties.$current_url, properties.$screen_name, properties.$pathname, properties.$session_id
+                    FROM events
+                    WHERE ${whereClause}
+                    ORDER BY timestamp DESC
+                    LIMIT 50`,
+                tags: liveQueryTags('live_recent_events'),
+                ...queryParams,
+            },
+        })
+    }
 
     const settled = await Promise.allSettled(
         jobs.map((job) =>
@@ -1372,6 +1433,7 @@ const loadQueryData = async ({
         geo: null,
         recentUsers: null,
         city: null,
+        recentEvents: null,
         allFailed: false,
         failedQueries: [],
     }
@@ -1671,3 +1733,23 @@ const createEmptyBucket = (): SlidingWindowBucket => {
         bots: new Map<string, { count: number; category: string }>(),
     }
 }
+
+type RecentEventRow = [string, string, string, string, string | null, string | null, string | null, string | null]
+
+const toRecentLiveEvents = (response: HogQLQueryResponse, teamId: number): LiveEvent[] =>
+    ((response.results ?? []) as RecentEventRow[]).map(
+        ([uuid, event, distinctId, timestamp, currentUrl, screenName, pathname, sessionId]) => ({
+            uuid,
+            event,
+            distinct_id: distinctId,
+            timestamp,
+            created_at: timestamp,
+            team_id: teamId,
+            properties: {
+                $current_url: currentUrl,
+                $screen_name: screenName,
+                $pathname: pathname,
+                $session_id: sessionId,
+            },
+        })
+    )

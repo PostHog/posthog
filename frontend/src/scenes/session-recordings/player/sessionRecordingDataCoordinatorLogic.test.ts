@@ -2,12 +2,11 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 import { HttpResponse } from 'msw'
+import posthog from 'posthog-js'
 
 import { processAllSnapshots, SnapshotSourceType, SourceKey, ViewportResolution } from '@posthog/replay-shared'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingMetaLogic } from 'scenes/session-recordings/player/sessionRecordingMetaLogic'
@@ -79,14 +78,8 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
         const mountWithMeta = (
             sessionRecordingId: string,
-            meta: Record<string, any>,
-            flagEnabled: boolean
+            meta: Record<string, any>
         ): ReturnType<typeof sessionRecordingDataCoordinatorLogic.build> => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags(
-                flagEnabled ? [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE] : [],
-                flagEnabled ? { [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]: true } : {}
-            )
             overrideSessionRecordingMocks({
                 getMocks: { '/api/environments/:team_id/session_recordings/:id': meta },
             })
@@ -97,7 +90,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
         }
 
         it('never loads snapshots for an unplayably large recording', async () => {
-            const gatedLogic = mountWithMeta('oversized-gated', oversizedMeta, true)
+            const gatedLogic = mountWithMeta('oversized-gated', oversizedMeta)
 
             await expectLogic(gatedLogic)
                 .toDispatchActions(['loadRecordingMetaSuccess'])
@@ -107,60 +100,19 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
         })
 
         it.each([
-            ['the flag is disabled', 'oversized-flag-off', oversizedMeta, false],
-            ['the recording is mobile', 'oversized-mobile', { ...oversizedMeta, snapshot_source: 'mobile' }, true],
+            ['the recording is mobile', 'oversized-mobile', { ...oversizedMeta, snapshot_source: 'mobile' }],
             [
                 'the recording is large but made of ordinary small events',
                 'oversized-small-events',
                 { ...oversizedMeta, event_count: 1_000_000 },
-                true,
             ],
-            [
-                'the recording is small',
-                'oversized-small',
-                { ...oversizedMeta, total_size: 1024, event_count: 10 },
-                true,
-            ],
-        ])('auto-loads snapshots when %s', async (_name, sessionRecordingId, meta, flagEnabled) => {
-            const gatedLogic = mountWithMeta(sessionRecordingId, meta, flagEnabled)
+            ['the recording is small', 'oversized-small', { ...oversizedMeta, total_size: 1024, event_count: 10 }],
+        ])('auto-loads snapshots when %s', async (_name, sessionRecordingId, meta) => {
+            const gatedLogic = mountWithMeta(sessionRecordingId, meta)
 
             await expectLogic(gatedLogic)
                 .toDispatchActions(['loadRecordingMetaSuccess', 'loadSnapshotSources'])
                 .toMatchValues({ recordingTooLargeToPlay: false })
-        })
-
-        const mutationSnapshots = (eventCount: number, addsPerEvent: number, gapMs: number = 1): RecordingSnapshot[] =>
-            Array.from(
-                { length: eventCount },
-                (_, i) =>
-                    ({
-                        windowId: '1',
-                        timestamp: 1000 + i * gapMs,
-                        type: 3,
-                        data: { source: 0, adds: new Array(addsPerEvent).fill({}) },
-                    }) as unknown as RecordingSnapshot
-            )
-
-        it.each([
-            ['a concentrated burst of adds', mutationSnapshots(10, 5000), true, true],
-            ['the same adds spread over minutes', mutationSnapshots(10, 5000, 30_000), true, false],
-            ['a single large render', mutationSnapshots(2, 5000), true, false],
-            [
-                'malformed mutations without adds',
-                mutationSnapshots(10, 0).map((s) => ({ ...s, data: { source: 0 } }) as unknown as RecordingSnapshot),
-                true,
-                false,
-            ],
-            ['the flag is disabled', mutationSnapshots(10, 5000), false, false],
-        ])('detects oversized mutations with %s', (_name, snapshots, flagEnabled, expected) => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags(
-                flagEnabled ? [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE] : [],
-                flagEnabled ? { [FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]: true } : {}
-            )
-            logic.actions.setProcessedSnapshots(snapshots)
-
-            expect(logic.values.hasOversizedMutations).toBe(expected)
         })
     })
 
@@ -190,6 +142,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
         it('fetch metadata error with 500 sets loadMetaError but not isNotFound', async () => {
             silenceKeaLoadersErrors()
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
             logic.unmount()
             overrideSessionRecordingMocks({
                 getMocks: {
@@ -223,11 +176,14 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
             expect(metaLogic.values.isNotFound).toBe(false)
             expect(metaLogic.values.loadMetaError).toBe(true)
+            expect(captureExceptionSpy).toHaveBeenCalled()
+            captureExceptionSpy.mockRestore()
             resumeKeaLoadersErrors()
         })
 
         it('fetch metadata error with 404 sets isNotFound but not loadMetaError', async () => {
             silenceKeaLoadersErrors()
+            const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
             logic.unmount()
             overrideSessionRecordingMocks({
                 getMocks: {
@@ -245,6 +201,8 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
 
             expect(metaLogic.values.isNotFound).toBe(true)
             expect(metaLogic.values.loadMetaError).toBe(false)
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+            captureExceptionSpy.mockRestore()
             resumeKeaLoadersErrors()
         })
 

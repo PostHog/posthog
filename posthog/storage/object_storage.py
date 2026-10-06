@@ -6,9 +6,6 @@ from urllib.parse import urlparse
 from django.conf import settings
 
 import structlog
-from boto3 import client
-from botocore.client import Config
-from botocore.exceptions import ClientError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -32,6 +29,10 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
+    def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
+        pass
+
+    @abc.abstractmethod
     def get_presigned_url(
         self,
         bucket: str,
@@ -46,6 +47,12 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
     def get_presigned_post(
         self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
     ) -> Optional[dict]:
+        pass
+
+    @abc.abstractmethod
+    def get_presigned_put(
+        self, bucket: str, file_key: str, content_length: Optional[int] = None, expiration: int = 3600
+    ) -> Optional[str]:
         pass
 
     @abc.abstractmethod
@@ -107,6 +114,9 @@ class UnavailableStorage(ObjectStorageClient):
     def head_object(self, bucket: str, file_key: str):
         return None
 
+    def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
+        raise ObjectStorageError("object storage is unavailable")
+
     def get_presigned_url(
         self,
         bucket: str,
@@ -120,6 +130,11 @@ class UnavailableStorage(ObjectStorageClient):
     def get_presigned_post(
         self, bucket: str, file_key: str, conditions: list[Any], expiration: int = 3600
     ) -> Optional[dict]:
+        pass
+
+    def get_presigned_put(
+        self, bucket: str, file_key: str, content_length: Optional[int] = None, expiration: int = 3600
+    ) -> Optional[str]:
         pass
 
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
@@ -178,6 +193,24 @@ class ObjectStorage(ObjectStorageClient):
             logger.warn("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
             return None
 
+    def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+        try:
+            return self.aws_client.head_object(Bucket=bucket, Key=file_key)
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code")
+            status_code = e.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if error_code in {"404", "NoSuchKey", "NotFound"} or status_code == 404:
+                return None
+            logger.exception("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("head_object failed") from e
+        except Exception as e:
+            logger.exception("object_storage.head_object_failed", bucket=bucket, file_key=file_key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("head_object failed") from e
+
     def get_presigned_url(
         self,
         bucket: str,
@@ -215,16 +248,33 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             return None
 
+    def get_presigned_put(
+        self, bucket: str, file_key: str, content_length: Optional[int] = None, expiration: int = 3600
+    ) -> Optional[str]:
+        try:
+            params: dict[str, Any] = {"Bucket": bucket, "Key": file_key}
+            if content_length is not None:
+                # Signing `content-length` puts it in the SigV4 canonical request, so storage
+                # refuses a body of any other size. It is exact, not a range like a POST policy's
+                # `content-length-range`, so the caller must know the byte count up front.
+                params["ContentLength"] = content_length
+            return self.presigned_client.generate_presigned_url(
+                ClientMethod="put_object",
+                Params=params,
+                ExpiresIn=expiration,
+                HttpMethod="PUT",
+            )
+        except Exception as e:
+            logger.exception("object_storage.get_presigned_put_failed", file_name=file_key, error=e)
+            capture_exception(e)
+            return None
+
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
         try:
             s3_response = self.aws_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
             if s3_response.get("Contents"):
                 return [obj["Key"] for obj in s3_response["Contents"]]
             else:
-                capture_exception(
-                    Exception("object_storage.no_contents_found_list_objects_in_bucket"),
-                    {"bucket": bucket, "prefix": prefix},
-                )
                 logger.info("object_storage.no_contents_found_list_objects_in_bucket", bucket=bucket, prefix=prefix)
                 return None
         except Exception as e:
@@ -249,6 +299,8 @@ class ObjectStorage(ObjectStorageClient):
         return None if result is None else result[0]
 
     def read_object(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[tuple[bytes, Optional[str]]]:
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
+
         s3_response = {}
         try:
             s3_response = self.aws_client.get_object(Bucket=bucket, Key=key)
@@ -431,6 +483,11 @@ def object_storage_client() -> ObjectStorageClient:
     if not settings.OBJECT_STORAGE_ENABLED:
         _client = UnavailableStorage()
     elif isinstance(_client, UnavailableStorage):
+        # boto3/botocore are imported at call time: this module is on the django.setup() path
+        # (hypercache -> group_type_mapping) and the SDK costs ~40ms that non-S3 processes never need.
+        from boto3 import client  # noqa: PLC0415 — keeps the heavy dep off the import path
+        from botocore.client import Config  # noqa: PLC0415 — keeps the heavy dep off the import path
+
         s3_config = Config(
             signature_version="s3v4",
             connect_timeout=1,
@@ -581,6 +638,15 @@ def get_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3
     )
 
 
+def get_presigned_put(file_key: str, content_length: Optional[int] = None, expiration: int = 3600) -> Optional[str]:
+    return object_storage_client().get_presigned_put(
+        bucket=settings.OBJECT_STORAGE_BUCKET,
+        file_key=file_key,
+        content_length=content_length,
+        expiration=expiration,
+    )
+
+
 _accelerated_presigned_client: Optional[Any] = None
 _accelerated_client_lock = threading.Lock()
 
@@ -590,6 +656,9 @@ def _get_accelerated_presigned_client() -> Optional[Any]:
     if _accelerated_presigned_client is None and settings.OBJECT_STORAGE_TRANSFER_ACCELERATION:
         with _accelerated_client_lock:
             if _accelerated_presigned_client is None:
+                from boto3 import client  # noqa: PLC0415 — keeps the heavy dep off the import path
+                from botocore.client import Config  # noqa: PLC0415 — keeps the heavy dep off the import path
+
                 s3_config = Config(
                     signature_version="s3v4",
                     connect_timeout=1,
@@ -620,6 +689,23 @@ class PresignedPostPair:
     fallback: Optional[dict]
 
 
+@frozen
+class PresignedPutPair:
+    """Presigned PUTs for one upload.
+
+    Mirrors ``PresignedPostPair``: the primary targets the transfer-acceleration endpoint when
+    it is configured and presigning succeeds, and the fallback then targets the standard
+    endpoint. Unlike a POST policy, a PUT carries no ``content-length-range``, so a caller that
+    needs the size enforced passes ``content_length`` and storage signs that exact value.
+
+    Cloudflare R2 and other S3-compatible stores implement presigned PUT but not presigned POST,
+    so this is the only upload form that works everywhere.
+    """
+
+    primary: Optional[str]
+    fallback: Optional[str]
+
+
 def get_presigned_post_pair(file_key: str, conditions: list[Any], expiration: int = 3600) -> PresignedPostPair:
     accelerated = _get_accelerated_presigned_client()
     if accelerated:
@@ -640,8 +726,42 @@ def get_presigned_post_pair(file_key: str, conditions: list[Any], expiration: in
     )
 
 
+def get_presigned_put_pair(
+    file_key: str, content_length: Optional[int] = None, expiration: int = 3600
+) -> PresignedPutPair:
+    accelerated = _get_accelerated_presigned_client()
+    if accelerated:
+        try:
+            params: dict[str, Any] = {"Bucket": settings.OBJECT_STORAGE_BUCKET, "Key": file_key}
+            if content_length is not None:
+                params["ContentLength"] = content_length
+            primary = accelerated.generate_presigned_url(
+                ClientMethod="put_object",
+                Params=params,
+                ExpiresIn=expiration,
+                HttpMethod="PUT",
+            )
+            return PresignedPutPair(
+                primary=primary,
+                fallback=get_presigned_put(file_key=file_key, content_length=content_length, expiration=expiration),
+            )
+        except Exception as e:
+            logger.exception("object_storage.get_accelerated_presigned_put_failed", file_name=file_key, error=e)
+            capture_exception(e)
+    return PresignedPutPair(
+        primary=get_presigned_put(file_key=file_key, content_length=content_length, expiration=expiration),
+        fallback=None,
+    )
+
+
 def head_object(file_key: str, bucket: str | None = None) -> Optional[dict]:
     return object_storage_client().head_object(file_key=file_key, bucket=bucket or settings.OBJECT_STORAGE_BUCKET)
+
+
+def head_object_strict(file_key: str, bucket: str | None = None) -> Optional[dict]:
+    return object_storage_client().head_object_strict(
+        file_key=file_key, bucket=bucket or settings.OBJECT_STORAGE_BUCKET
+    )
 
 
 def health_check() -> bool:

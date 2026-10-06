@@ -1,13 +1,14 @@
 import json
 from collections.abc import Callable
-from datetime import timedelta
 from typing import Any, Optional, cast
 from urllib.parse import urlparse, urlunparse
 
 from django.core.exceptions import ImproperlyConfigured
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db.models import Model, Q
+from django.http import HttpResponseRedirect
 from django.shortcuts import render
+from django.templatetags.static import static
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
 from django.views.decorators.clickjacking import xframe_options_exempt
@@ -31,14 +32,17 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
 from posthog.api.sharing_publish_gate import blocked_access_for_publisher
-from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+from posthog.auth import (
+    SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
+    mint_export_renderer_token,
+)
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.query_runner import ExecutionMode, shared_insights_execution_mode
 from posthog.hogql_queries.refresh_policy import ComputeSurface
-from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import SessionRecording, SharePassword, SharingConfiguration, Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
@@ -50,7 +54,6 @@ from posthog.rate_limit import (
     SustainedRateThrottle,
 )
 from posthog.scopes import APIScopeObject
-from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.shared_link_user import SharedLinkUser
 from posthog.user_permissions import UserPermissions
@@ -79,6 +82,7 @@ from products.exports.backend.models.exported_asset import (
     asset_for_token,
     get_content_response,
 )
+from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, filter_notebook_content_for_sharing
 from products.notebooks.backend.models import Notebook
@@ -225,7 +229,7 @@ SHARING_RESOURCE_ACCESS_CHECKS: dict[str, SharingResourceAccessCheck | None] = {
     "insight": _require_resource_access("insight", "insight"),
     "recording": _require_resource_access("session_recording", "recording"),
     "notebook": _require_resource_access("notebook", "notebook"),
-    # Materialized by the user-interviews link-generation flow, never via SharingConfigurationViewSet.
+    # The user interviews product is retired. No flow creates these configs, and this viewset never edits them.
     "interviewee_context": None,
 }
 
@@ -920,10 +924,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                         "insight",
                         "recording",
                         "notebook",
-                        "interviewee_context",
-                        "interviewee_context__topic",
                     )
-                    .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
+                    .filter(
+                        Q(expires_at__isnull=True) | Q(expires_at__gt=now()),
+                        SharingConfiguration.without_retired_resources_q(),
+                    )
                     .get(access_token=access_token)
                 )
             except SharingConfiguration.DoesNotExist:
@@ -1073,6 +1078,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     request=request,
                     context={
                         "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
+                        "add_safe_og_tags": resource.insight or resource.dashboard,
                         "add_og_tags": None,
                     },
                 )
@@ -1131,7 +1137,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_asset = self.exported_asset_for_sharing_configuration(resource)
             if not exported_asset:
                 raise NotFound()
-            return get_content_response(exported_asset, False)
+            try:
+                return get_content_response(exported_asset, False)
+            except NotFound:
+                fallback = HttpResponseRedirect(static("blank-dashboard-hog.png"))
+                fallback["Cache-Control"] = "no-store"
+                return fallback
         elif isinstance(resource, SharingConfiguration):
             exported_data["accessToken"] = resource.access_token
         elif isinstance(resource, ExportedAsset):
@@ -1139,7 +1150,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 return get_content_response(resource, request.query_params.get("download") == "true")
             exported_data["type"] = "image"
 
-        add_og_tags = resource.insight or resource.dashboard
+        add_safe_og_tags = resource.insight or resource.dashboard
+        add_og_tags = add_safe_og_tags and not (
+            isinstance(resource, SharingConfiguration) and resource.password_required
+        )
         asset_description = ""
 
         # Check both query params (legacy) and settings for configuration options
@@ -1212,10 +1226,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 # Create a scoped JWT for the recording
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
-                    export_access_token = encode_jwt(
-                        {"id": resource.created_by.id},
-                        timedelta(minutes=5),  # 5 mins should be enough for the export to complete
-                        PosthogJwtAudience.EXPORT_RENDERER,
+                    export_access_token = mint_export_renderer_token(
+                        user_id=resource.created_by.id,
+                        team_id=resource.team_id,
+                        exported_asset_id=resource.id,
+                        scope="session_recording:read",
                     )
 
                 asset_title = "Session Recording"
@@ -1253,7 +1268,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             if not heatmap_url:
                 raise NotFound("Invalid heatmap export - missing heatmap_url")
 
-            ok, err = is_url_allowed(heatmap_url)
+            ok, err = is_heatmap_url_allowed(heatmap_url, resource.export_context.get("heatmap_type"))
             if not ok:
                 raise ValidationError(f"heatmap_url not allowed: {err}")
 
@@ -1269,10 +1284,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 # Create a scoped JWT to access the heatmap data
                 export_access_token = ""
                 if resource.created_by and resource.created_by.id:
-                    export_access_token = encode_jwt(
-                        {"id": resource.created_by.id},
-                        timedelta(minutes=5),
-                        PosthogJwtAudience.EXPORT_RENDERER,
+                    export_access_token = mint_export_renderer_token(
+                        user_id=resource.created_by.id,
+                        team_id=resource.team_id,
+                        exported_asset_id=resource.id,
+                        scope="heatmap:read",
                     )
 
                 asset_title = "Heatmap"
@@ -1337,47 +1353,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                     "query_results": serialized_response,
                     "query_title": resource.export_context.get("title"),
                     "themes": get_themes_for_team(resource.team),
-                }
-            )
-        elif isinstance(resource, SharingConfiguration) and resource.interviewee_context:
-            from products.user_interviews.backend.facade.api import (
-                has_replied,
-                is_shared_interviewee_context,
-                parse_interviewee_identifier,
-            )
-
-            ic = resource.interviewee_context
-            topic = ic.topic
-            asset_title = topic.topic or "User interview"
-            asset_description = "PostHog AI user interview"
-            # A shared link's IntervieweeContext carries a sentinel identifier: every visitor is a new
-            # anonymous respondent, so there's no fixed name and no "already replied" gate — the
-            # viewer prompts for a name before starting.
-            shared = is_shared_interviewee_context(ic.interviewee_identifier)
-            if shared:
-                user_name = ""
-                already_replied = False
-            else:
-                user_name = parse_interviewee_identifier(ic.interviewee_identifier).display_name
-                already_replied = has_replied(
-                    team_id=topic.team_id,
-                    topic_id=topic.id,
-                    interviewee_identifier=ic.interviewee_identifier,
-                )
-            # Keep agent_context, questions, and Vapi credentials OUT of the public HTML —
-            # the recipient would otherwise see their own internal-notes context in view-source.
-            # The exporter scene fetches those server-side via /start_call/ when the user clicks Start.
-            exported_data.update(
-                {
-                    "type": "interview",
-                    "interview": {
-                        "topic_id": str(topic.id),
-                        "interviewee_identifier": "" if shared else ic.interviewee_identifier,
-                        "user_name": user_name,
-                        "topic": topic.topic,
-                        "already_replied": already_replied,
-                        "shared": shared,
-                    },
                 }
             )
         elif isinstance(resource, SharingConfiguration) and resource.recording:
@@ -1529,6 +1504,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             "exported_data": json.dumps(exported_data, cls=DjangoJSONEncoder),
             "asset_title": asset_title,
             "asset_description": asset_description,
+            "add_safe_og_tags": add_safe_og_tags,
             "add_og_tags": add_og_tags,
             "asset_opengraph_image_url": shared_url_as_png(request.build_absolute_uri()),
         }

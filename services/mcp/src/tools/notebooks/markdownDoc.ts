@@ -96,12 +96,17 @@ export async function saveMarkdown(
 export async function applyMarkdownEdit(
     context: Context,
     shortId: string,
-    transform: (markdown: string) => string
+    transform: (markdown: string, version: number) => string
 ): Promise<{ notebook: Schemas.Notebook; markdown: string }> {
     let lastError: unknown
     for (let attempt = 0; attempt < 2; attempt++) {
         const state = await fetchMarkdownNotebook(context, shortId)
-        const nextMarkdown = transform(state.markdown)
+        const nextMarkdown = transform(state.markdown, state.version)
+        if (nextMarkdown === state.markdown) {
+            // Saving identical content only bumps the version and tells every collaborator the
+            // document changed. A repeated write-back is the case this spares them.
+            return { notebook: state.notebook, markdown: state.markdown }
+        }
         try {
             const notebook = await saveMarkdown(context, state, nextMarkdown)
             return { notebook, markdown: nextMarkdown }

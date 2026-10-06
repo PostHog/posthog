@@ -34,6 +34,7 @@ import {
     SEVERITY_LEVEL_FILTER,
     setFacetIncluded,
 } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
+import { pinColumnFilters } from 'products/logs/frontend/components/LogsViewer/Filters/columnFilters'
 import {
     LogsFilterTarget,
     mergeFilterIntoValues,
@@ -62,6 +63,10 @@ export interface LogsViewerFiltersLogicProps {
     // attributes — unlike a pinned distinct-ids filter, not capped by how many ids the
     // person page happened to load.
     personId?: string
+    // Scope every query to this session id. Matched server-side against the team's configured
+    // session-id log attributes plus the built-in conventions, in both the attribute and
+    // resource-attribute maps. A filter group can't express that OR (see buildLogsSessionScope).
+    sessionId?: string
 }
 
 // Combines the user-editable filterGroup with pinned filters (prepended to the inner
@@ -138,9 +143,13 @@ export interface logsViewerFiltersLogicValues {
     id: string
     openFilterOnInsert: boolean
     personId: string | undefined
+    personIdScope: string
     pinnedFilters: UniversalFiltersGroup | undefined
     queryFilterGroup: UniversalFiltersGroup
+    queryScopeKey: string
     searchTerm: LogsQuery['searchTerm']
+    sessionId: string | undefined
+    sessionIdScope: string
     utcDateRange: {
         date_from: string | null | undefined
         date_to: string | null | undefined
@@ -193,6 +202,9 @@ export interface logsViewerFiltersLogicActions {
     setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => {
         searchTerm: string | undefined
     }
+    setSessionId: (sessionId: string | undefined) => {
+        sessionId: string | undefined
+    }
     zoomDateRange: (multiplier: number) => {
         multiplier: number
     }
@@ -203,6 +215,9 @@ export interface logsViewerFiltersLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         id: (id: string) => string
+        personId: (personIdScope: string) => string | undefined
+        queryScopeKey: (personIdScope: string, sessionIdScope: string) => string
+        sessionId: (sessionIdScope: string) => string | undefined
         filters: (
             dateRange: DateRange,
             searchTerm: string | undefined,
@@ -257,6 +272,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         // Mirror of the `personId` prop into state, same rationale as `setPinnedFilters`.
         setPersonId: (personId: string | undefined) => ({ personId }),
 
+        // Mirror of the `sessionId` prop into state, same rationale as `setPersonId`.
+        setSessionId: (sessionId: string | undefined) => ({ sessionId }),
+
         zoomDateRange: (multiplier: number) => ({ multiplier }),
 
         bumpFacetRefresh: true,
@@ -299,10 +317,12 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             DEFAULT_UNIVERSAL_GROUP_FILTER as UniversalFiltersGroup,
             {
                 setFilterGroup: (_, { filterGroup }) =>
-                    filterGroup && filterGroup.values ? filterGroup : DEFAULT_UNIVERSAL_GROUP_FILTER,
+                    filterGroup && filterGroup.values ? pinColumnFilters(filterGroup) : DEFAULT_UNIVERSAL_GROUP_FILTER,
                 setFilters: (state, { filters }) =>
                     foldLegacyColumnFilters(
-                        filters.filterGroup && filters.filterGroup.values ? filters.filterGroup : state,
+                        filters.filterGroup && filters.filterGroup.values
+                            ? pinColumnFilters(filters.filterGroup)
+                            : state,
                         filters
                     ),
             },
@@ -328,16 +348,31 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
                 setPinnedFilters: (_, { pinnedFilters }) => pinnedFilters,
             },
         ],
-        personId: [
-            undefined as string | undefined,
+        // A kea reducer cannot return undefined, so a cleared scope is held as an empty string and
+        // mapped back by the selectors below.
+        personIdScope: [
+            '',
             {
-                setPersonId: (_, { personId }) => personId,
+                setPersonId: (_, { personId }) => personId ?? '',
+            },
+        ],
+        sessionIdScope: [
+            '',
+            {
+                setSessionId: (_, { sessionId }) => sessionId ?? '',
             },
         ],
     }),
 
     selectors({
         id: [(_, p) => [p.id], (id: string) => id],
+        personId: [(s) => [s.personIdScope], (personIdScope: string): string | undefined => personIdScope || undefined],
+        // One value the data logic can subscribe to that changes when either scope does.
+        queryScopeKey: [(s) => [s.personIdScope, s.sessionIdScope], (p: string, sid: string) => `${p}|${sid}`],
+        sessionId: [
+            (s) => [s.sessionIdScope],
+            (sessionIdScope: string): string | undefined => sessionIdScope || undefined,
+        ],
         filters: [
             (s) => [s.dateRange, s.searchTerm, s.filterGroup],
             (
@@ -425,6 +460,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         if (logicProps.personId !== oldProps.personId) {
             actions.setPersonId(logicProps.personId)
         }
+        if (logicProps.sessionId !== oldProps.sessionId) {
+            actions.setSessionId(logicProps.sessionId)
+        }
     }),
 
     afterMount(({ actions, props: logicProps }) => {
@@ -436,6 +474,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         }
         if (logicProps.personId) {
             actions.setPersonId(logicProps.personId)
+        }
+        if (logicProps.sessionId) {
+            actions.setSessionId(logicProps.sessionId)
         }
     }),
 ])

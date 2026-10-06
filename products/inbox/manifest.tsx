@@ -14,11 +14,13 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Inbox',
+            displayLabel: 'Self-driving inbox',
             intents: [],
             category: ProductItemCategory.TOOLS,
             iconType: 'inbox' as FileSystemIconType,
             href: urls.inbox(),
             flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
+            tags: ['beta'],
             sceneKey: 'Inbox',
             sceneKeys: ['Inbox'],
         },

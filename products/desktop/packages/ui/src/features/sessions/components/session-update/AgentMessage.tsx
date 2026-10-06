@@ -1,9 +1,11 @@
 import { Check, Copy } from "@phosphor-icons/react";
-import { Box, Code, IconButton } from "@radix-ui/themes";
+import { IconButton } from "@radix-ui/themes";
 import { memo, useCallback, useState } from "react";
 import type { Components } from "react-markdown";
 import { HighlightedCode } from "../../../../primitives/HighlightedCode";
+import { MermaidDiagram } from "../../../../primitives/MermaidDiagram";
 import { Tooltip } from "../../../../primitives/Tooltip";
+import { MERMAID_LANGUAGE } from "../../../../utils/mermaidBlocks";
 import { MarkdownRenderer } from "../../../editor/components/MarkdownRenderer";
 import { StreamingMarkdown } from "../../../editor/components/StreamingMarkdown";
 import { useSmoothedText } from "../../../editor/components/useSmoothedText";
@@ -18,12 +20,11 @@ const agentComponents: Partial<Components> = {
   code: ({ children, className }) => {
     const langMatch = className?.match(/language-(\w+)/);
     if (langMatch) {
-      return (
-        <HighlightedCode
-          code={String(children).replace(/\n$/, "")}
-          language={langMatch[1]}
-        />
-      );
+      const code = String(children).replace(/\n$/, "");
+      if (langMatch[1].toLowerCase() === MERMAID_LANGUAGE) {
+        return <MermaidDiagram code={code} />;
+      }
+      return <HighlightedCode code={code} language={langMatch[1]} />;
     }
 
     const text = String(children).replace(/\n$/, "");
@@ -32,12 +33,9 @@ const agentComponents: Partial<Components> = {
     }
 
     const fallback = (
-      <Code
-        variant="ghost"
-        className="border border-border bg-gray-3 text-[13px]"
-      >
+      <code className="rounded border border-border bg-gray-3 px-1 text-[13px]">
         {children}
-      </Code>
+      </code>
     );
 
     if (looksLikeBareFilename(text)) {
@@ -70,7 +68,7 @@ export const AgentMessage = memo(function AgentMessage({
   }, [content]);
 
   return (
-    <Box className="group/msg relative pl-3 text-[13px] [&>*:last-child]:mb-0 [&_p]:leading-[1.9]">
+    <div className="group/msg relative pl-3 text-[13px] [&>*:last-child]:mb-0 [&_p]:leading-[1.9]">
       {isStreaming ? (
         <StreamingMarkdown
           content={smoothed}
@@ -84,7 +82,7 @@ export const AgentMessage = memo(function AgentMessage({
           componentsOverride={agentComponents}
         />
       )}
-      <Box className="absolute top-1 left-full ml-2 opacity-0 transition-opacity group-hover/msg:opacity-100">
+      <div className="absolute top-1 left-full ml-2 opacity-0 transition-opacity group-hover/msg:opacity-100">
         <Tooltip content={copied ? "Copied!" : "Copy message"}>
           <IconButton
             size="1"
@@ -96,7 +94,7 @@ export const AgentMessage = memo(function AgentMessage({
             {copied ? <Check size={14} /> : <Copy size={14} />}
           </IconButton>
         </Tooltip>
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 });

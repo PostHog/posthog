@@ -108,6 +108,7 @@ oauth_config:
       - chat:write
       - canvases:write
       - files:write
+      - reactions:read
       - reactions:write
       - users:read
       - users:read.email
@@ -122,6 +123,7 @@ settings:
       - app_mention
       - app_home_opened
       - message.channels
+      - reaction_added
   interactivity:
     is_enabled: true
     request_url: https://<you>-posthog.ngrok.dev/slack/interactivity-callback
@@ -140,7 +142,11 @@ Django must be up at that moment.
 > The `app_home` block + `app_home_opened` bot event power the App Home tab; the
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature
-> locally — they're behind the `slack-app-home` and `slack-app-oauth` flags.
+> locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
+> identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
+
+> `reaction_added` + `reactions:read` power thumbs-reaction feedback on agent replies. Without
+> them a 👍/👎 reaction on a reply records nothing, again with no error.
 
 > `message.channels` is what makes Slack deliver plain channel messages. Without it you get
 > `app_mention` only, so `@PostHog` works and everything driven by an untagged message —
@@ -252,6 +258,43 @@ when the repo-discovery agent has to choose among repos (a no-repo prompt skips 
 Follow-ups — reply in-thread with another `@mention` — are forwarded to the running sandbox and
 should react 👀 → 🦔 (or ❌ if the sandbox is gone). Expected from the code; not verified in our run.
 
+## Use a development Slack app from production Desktop
+
+This setup lets selected projects connect to Slack through the MCP store with a development Slack app.
+It does not move bot events to production or change the production Slack app's credentials.
+
+1. Add `https://us.posthog.com/api/mcp_store/oauth_redirect/` to the development app's OAuth redirect URLs for US production.
+   Keep its existing dev redirect URLs and event callbacks.
+   For another region, use that region's PostHog origin instead.
+2. Provision the existing development app's client ID and client secret as the `SLACK_DEV_APP_CLIENT_ID` and `SLACK_DEV_APP_CLIENT_SECRET` instance settings in the target region.
+   Do not replace `SLACK_APP_CLIENT_ID`, `SLACK_APP_CLIENT_SECRET`, or `SLACK_APP_SIGNING_SECRET`.
+3. Set `MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS` to a comma-separated list of permitted project IDs in that region's server configuration.
+   The default is empty, which blocks access.
+   Apply the same configuration to the web processes and workers.
+   Production deployments must also add these variables to `posthog/charts` and provision their values through `posthog/secrets`.
+   Adding the settings in this repository does not configure production.
+4. Enable the `mcp-slack-dev` feature flag for PostHog users.
+   Target users whose email ends with `@posthog.com`.
+   Use that email condition, not a cohort or an early access list.
+   The check evaluates the flag locally and treats targeting it cannot resolve as off.
+   For local testing, add `mcp-slack-dev` to `POSTHOG_FEATURE_FLAGS_FORCE_ENABLED` and restart Django.
+5. Run `python manage.py sync_mcp_server_templates` in that environment.
+   The existing Slack MCP entry becomes **Slack via PostHog (dev)** and uses the separate credentials.
+   It activates only after the shared-client probe passes.
+   Existing Slack MCP installations block a change of OAuth app; do not disconnect them without their owners' approval.
+6. In an allowed project, connect **Slack via PostHog (dev)** from the MCP store, finish Slack authorization, and confirm that a channel search returns results.
+   Confirm that another project cannot list or authorize this entry.
+
+The connection keeps the catalog's reviewed MCP scopes; it does not request all scopes available to the bot.
+The project restriction applies to authorization, token exchange, token refresh, and upstream requests.
+Removing a project from the allowlist blocks its existing connection, even before catalog sync runs.
+
+To retire this setup, empty the allowlist and run catalog sync to deactivate the entry.
+Disconnect the development-app MCP installations, then run catalog sync again to restore the `slack_app` credential source.
+Remove the separate development credentials and the added production redirect URL if nothing else uses them.
+After the production catalog suspension is removed, run catalog sync and reconnect through the production app.
+Tokens from the development app cannot be transferred to the production app.
+
 ## Debugging
 
 - **ngrok request inspector** (`http://127.0.0.1:4040`) — confirms Slack's webhook actually reached
@@ -264,7 +307,22 @@ should react 👀 → 🦔 (or ❌ if the sandbox is gone). Expected from the co
   lines, and Slack's app **Event Deliveries** page shows delivery failures — neither was needed in
   our run, but they're there if you get stuck.
 
+### Channel search cache
+
+Channel name search uses the cached channel list.
+If name search does not find a channel, paste its ID to look it up directly in Slack.
+A successful ID lookup also adds the channel to an existing search cache with the same access scope.
+Concurrent ID lookups keep both channels in the cache.
+The update keeps the cache refresh time and expiry.
+It does not load other missing channels or create a channel list from a single lookup.
+
 ## Troubleshooting
+
+### Channel selection
+
+Paste a Slack channel ID into the channel picker to select that channel.
+The picker shows the channel name when the lookup succeeds, without requiring you to click outside the input.
+Click the selected channel in the list to clear the search text.
 
 The walls we actually hit and fixed:
 

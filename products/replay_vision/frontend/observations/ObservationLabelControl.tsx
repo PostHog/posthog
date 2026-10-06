@@ -2,7 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
-import { LemonButton, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTextArea, Popover } from '@posthog/lemon-ui'
+
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 import { AccessControlLevel } from '~/types'
 
@@ -19,8 +22,7 @@ export interface ObservationLabelProps {
     scannerUserAccessLevel?: AccessControlLevel | null
 }
 
-const FEEDBACK_PLACEHOLDER =
-    'Optional: what did it get right or wrong, and why? Used to improve the scanner configuration.'
+const FEEDBACK_PLACEHOLDER = 'Optional: what did it get right or wrong, and why? The scanner learns from this.'
 
 function useEditAccess(scannerUserAccessLevel?: AccessControlLevel | null): string | null {
     // Editing the shared rating mutates team-wide data derived from a recording, so it needs the same
@@ -67,63 +69,19 @@ function FeedbackEditor({
     )
 }
 
-/**
- * Feedback cell for the calibration table: optional written context on a rated observation (thumbs up or down).
- * Collapses to a truncated one-liner until clicked, so only the row being edited grows. Unrated rows
- * show a hint to rate first, since feedback lives on the shared label.
- */
-export function ObservationLabelFeedback({
-    observationId,
-    initialLabel,
-    onChange,
-    scannerUserAccessLevel,
-}: ObservationLabelProps): JSX.Element {
-    const logic = observationLabelLogic({ observationId, initialLabel, onChange })
-    const { label, feedbackDraft } = useValues(logic)
-    const [editing, setEditing] = useState(false)
-    const canEdit = !useEditAccess(scannerUserAccessLevel)
-
-    if (!label) {
-        return (
-            <Tooltip title="Rate the result first, then add optional feedback">
-                <span className="text-muted">—</span>
-            </Tooltip>
-        )
-    }
-
-    if (!editing) {
-        return (
-            <div
-                className={`text-xs truncate ${feedbackDraft ? 'text-muted' : 'text-muted italic'} ${
-                    canEdit ? 'cursor-pointer hover:text-default' : ''
-                }`}
-                onClick={canEdit ? () => setEditing(true) : undefined}
-                title={canEdit ? 'Click to edit feedback' : undefined}
-                data-attr="replay-vision-label-feedback-collapsed"
-            >
-                {feedbackDraft || 'Add feedback…'}
-            </div>
-        )
-    }
-
-    // The pending autosave still fires after collapsing on blur.
-    return (
-        <FeedbackEditor
-            observationId={observationId}
-            initialLabel={initialLabel}
-            onChange={onChange}
-            scannerUserAccessLevel={scannerUserAccessLevel}
-            compact
-            onBlur={() => setEditing(false)}
-        />
-    )
+// Rendered only beside the page's rating question, so table rows add no key listeners.
+function RatingHotkeys({ onThumb, disabled }: { onThumb: (isCorrect: boolean) => void; disabled: boolean }): null {
+    useKeyboardHotkeys({
+        y: { action: () => onThumb(true), disabled },
+        n: { action: () => onThumb(false), disabled },
+    })
+    return null
 }
 
 /**
  * Thumbs up/down rating on whether the scanner got this session right. The rating is shared across the
- * team (one per observation) and gathered later to improve the scanner prompt. `compact` renders just the
- * buttons for table cells (feedback lives in its own column via `ObservationLabelFeedback`); the default
- * adds the bordered card, question, and inline feedback editor for the detail page.
+ * team (one per observation) and the scanner learns from it. `compact` renders just the buttons; the default
+ * adds the question, opens the optional feedback editor in a popover after a rating, and hides once rated.
  */
 export function ObservationLabelControl({
     observationId,
@@ -131,16 +89,29 @@ export function ObservationLabelControl({
     onChange,
     scannerUserAccessLevel,
     compact = false,
-}: ObservationLabelProps & { compact?: boolean }): JSX.Element {
+}: ObservationLabelProps & { compact?: boolean }): JSX.Element | null {
     const logic = observationLabelLogic({ observationId, initialLabel, onChange })
     const { label, saving, feedbackDraft } = useValues(logic)
     const { rate, clearRating } = useActions(logic)
+    const [feedbackOpen, setFeedbackOpen] = useState(false)
 
     const thumbsUp = label?.is_correct === true
     const thumbsDown = label?.is_correct === false
     const editDisabledReason = useEditAccess(scannerUserAccessLevel)
 
     // Clicking the active thumb again removes the rating.
+    const onThumb = (isCorrect: boolean): void => {
+        if (label?.is_correct === isCorrect) {
+            clearRating()
+            setFeedbackOpen(false)
+            return
+        }
+        rate(isCorrect, feedbackDraft)
+        setFeedbackOpen(!compact)
+    }
+
+    const closeNote = (): void => setFeedbackOpen(false)
+
     const buttons = (
         <div className="flex items-center gap-1">
             <LemonButton
@@ -149,8 +120,22 @@ export function ObservationLabelControl({
                 icon={thumbsUp ? <IconThumbsUpFilled /> : <IconThumbsUp />}
                 loading={saving}
                 disabledReason={editDisabledReason ?? undefined}
-                tooltip={thumbsUp ? 'Remove rating' : 'Scanner got this right'}
-                onClick={() => (thumbsUp ? clearRating() : rate(true, feedbackDraft))}
+                tooltip={
+                    thumbsUp ? (
+                        'Remove rating'
+                    ) : (
+                        <>
+                            Scanner got this right
+                            {!compact && (
+                                <>
+                                    {' '}
+                                    <KeyboardShortcut y />
+                                </>
+                            )}
+                        </>
+                    )
+                }
+                onClick={() => onThumb(true)}
                 data-attr="replay-vision-label-thumbs-up"
             />
             <LemonButton
@@ -159,8 +144,22 @@ export function ObservationLabelControl({
                 icon={thumbsDown ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                 loading={saving}
                 disabledReason={editDisabledReason ?? undefined}
-                tooltip={thumbsDown ? 'Remove rating' : 'Scanner got this wrong'}
-                onClick={() => (thumbsDown ? clearRating() : rate(false, feedbackDraft))}
+                tooltip={
+                    thumbsDown ? (
+                        'Remove rating'
+                    ) : (
+                        <>
+                            Scanner got this wrong
+                            {!compact && (
+                                <>
+                                    {' '}
+                                    <KeyboardShortcut n />
+                                </>
+                            )}
+                        </>
+                    )
+                }
+                onClick={() => onThumb(false)}
                 data-attr="replay-vision-label-thumbs-down"
             />
         </div>
@@ -170,21 +169,46 @@ export function ObservationLabelControl({
         return <div className="py-2">{buttons}</div>
     }
 
+    if (label && !feedbackOpen) {
+        return null
+    }
+
     return (
-        <div className="border rounded p-3 bg-surface-primary space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm font-medium">Did the scanner get this right?</span>
-                {buttons}
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded bg-surface-secondary px-3 py-2">
+            <RatingHotkeys onThumb={onThumb} disabled={saving || !!label || !!editDisabledReason} />
+            <div className="flex flex-col">
+                <span className="text-sm">Did the scanner get this right?</span>
+                <span className="text-xs text-muted">Ratings help this scanner improve.</span>
             </div>
-            {label && (
-                <FeedbackEditor
-                    observationId={observationId}
-                    initialLabel={initialLabel}
-                    onChange={onChange}
-                    scannerUserAccessLevel={scannerUserAccessLevel}
-                    compact={false}
-                />
-            )}
+            <Popover
+                // Waits for the saved label, since the feedback autosave writes onto it.
+                visible={feedbackOpen && !!label}
+                onClickOutside={closeNote}
+                placement="bottom-end"
+                overlay={
+                    <div className="w-80 p-1 flex flex-col gap-2">
+                        <span className="text-sm font-medium">Add a note</span>
+                        <FeedbackEditor
+                            observationId={observationId}
+                            initialLabel={initialLabel}
+                            onChange={onChange}
+                            scannerUserAccessLevel={scannerUserAccessLevel}
+                            compact
+                        />
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            className="self-end"
+                            onClick={closeNote}
+                            data-attr="replay-vision-label-feedback-done"
+                        >
+                            Done
+                        </LemonButton>
+                    </div>
+                }
+            >
+                {buttons}
+            </Popover>
         </div>
     )
 }

@@ -396,7 +396,7 @@ export const problemClauseFor = (
     }
     return hogql.raw(
         `AND invocation_id IN (` +
-            `SELECT instance_id FROM log_entries ` +
+            `SELECT DISTINCT instance_id FROM log_entries ` +
             `WHERE log_source = ${escapeHogQLString(props.functionKind)} ` +
             `AND log_source_id = ${escapeHogQLString(props.id)} ` +
             `AND lower(level) IN ('error', 'warn'))`
@@ -434,7 +434,7 @@ export const buildSearchClause = (
             `OR distinct_id = ${escapeHogQLString(search)} ` +
             `OR person_id = ${escapeHogQLString(search)} ` +
             `OR invocation_id IN (` +
-            `SELECT instance_id FROM log_entries ` +
+            `SELECT DISTINCT instance_id FROM log_entries ` +
             `WHERE log_source = ${escapeHogQLString(props.functionKind)} ` +
             `AND log_source_id = ${escapeHogQLString(props.id)} ` +
             `AND message ILIKE concat('%', ${escapeHogQLString(likeTerm)}, '%') ` +
@@ -492,7 +492,7 @@ const snapToBucket = (t: dayjs.Dayjs, { stepAmount, stepUnit }: SparklineTier): 
  * Bucket key format, matching what ClickHouse renders a bucketed DateTime as. Buckets join on the
  * project's wall clock rather than on an instant: `toStartOfDay` returns local midnight, and the
  * offset it is stamped with is a rendering detail, not a second piece of data. Mirrors
- * `products/mcp_analytics/frontend/timeBuckets.ts`, which solves the same problem for its charts.
+ * `lib/utils/timeBuckets.ts`, which solves the same problem for its charts.
  */
 const BUCKET_FORMAT = 'YYYY-MM-DD HH:mm:ss'
 /** Enough for the widest tier (a minutely day is 1440); caps an absolute range picked far apart. */

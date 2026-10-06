@@ -1,0 +1,73 @@
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+
+import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+
+import { DESTINATION_ICON_MAP, destinationTypeLabel } from './DestinationIcon'
+import { destinationTarget } from './destinationTarget'
+
+export interface JobDestinationsProps {
+    /** Snapshotted on the run when it started. Empty on a run that wrote to the warehouse alone. */
+    destinationIds: readonly string[]
+    /** Every destination the project has, so ids can be named. Absent until the lookup mounts. */
+    destinationsById?: Record<string, ExternalDataDestinationApi>
+    /** True while `destinationsById` is still being fetched, so an id is not yet unknown. */
+    loading?: boolean
+}
+
+interface Logo {
+    key: string
+    type: ExternalDataDestinationApi['type']
+    title: string
+}
+
+function tooltipFor(destination: ExternalDataDestinationApi): string {
+    const target = destinationTarget(destination)
+    return target ? `${destination.name} — ${target}` : destination.name
+}
+
+/** Where one run delivered, as a logo each. */
+export function JobDestinations({ destinationIds, destinationsById = {}, loading }: JobDestinationsProps): JSX.Element {
+    const known = destinationIds.map((id) => destinationsById[id]).filter(Boolean)
+
+    if (destinationIds.length > 0 && known.length === 0) {
+        // A table renders rows before the lookup logic has mounted, so an id that is not in the
+        // map yet is not the same as one that will never be there.
+        return loading || Object.keys(destinationsById).length === 0 ? (
+            <span className="text-muted">—</span>
+        ) : (
+            // Deleting a destination leaves the runs that used it pointing at nothing.
+            <Tooltip title="This run delivered to a destination that no longer exists">
+                <span className="text-muted">{destinationIds.length} removed</span>
+            </Tooltip>
+        )
+    }
+
+    // A run records no ids when it wrote to the PostHog warehouse alone: that is what every run
+    // did before destinations existed, and what the backend still snapshots for a table nobody
+    // has pointed elsewhere. Read from the type rather than a looked-up row, because a project
+    // that has never configured a destination has no warehouse row to look up.
+    const logos: Logo[] =
+        destinationIds.length === 0
+            ? [{ key: 'posthog-warehouse', type: 'PostHogWarehouse', title: 'PostHog warehouse' }]
+            : known.map((destination) => ({
+                  key: destination.id,
+                  type: destination.type,
+                  title: tooltipFor(destination),
+              }))
+
+    return (
+        <div className="flex items-center gap-1">
+            {logos.map(({ key, type, title }) => (
+                <Tooltip key={key} title={title}>
+                    <span className="flex items-center justify-center size-5">
+                        <img
+                            src={DESTINATION_ICON_MAP[type]}
+                            alt={destinationTypeLabel(type)}
+                            className="max-w-full max-h-full"
+                        />
+                    </span>
+                </Tooltip>
+            ))}
+        </div>
+    )
+}
