@@ -1677,6 +1677,15 @@ def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
             )
     except Exception as e:
         # We don't want to hard fail here.
-        logger.exception("Failed to produce internal event", data=serialized_data, error=e)
+        # Identify the entry by ids only: the detail can carry person data and runs to megabytes.
+        logger.exception(
+            "Failed to produce internal event",
+            activity_log_id=str(instance.id),
+            scope=instance.scope,
+            activity=instance.activity,
+            team_id=instance.team_id,
+            organization_id=instance.organization_id,
+            error=e,
+        )
         capture_exception(e)
         return
