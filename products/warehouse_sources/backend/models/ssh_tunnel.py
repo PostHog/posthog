@@ -380,5 +380,5 @@ class SSHTunnel:
                 local_bind_address=("127.0.0.1",),
             )
         # Set on the instance, so that the forwarder class stays the one the tests replace.
-        forwarder._get_transport = functools.partial(_bounded_gateway_transport, forwarder)
+        setattr(forwarder, "_get_transport", functools.partial(_bounded_gateway_transport, forwarder))
         return forwarder
