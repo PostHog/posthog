@@ -1,4 +1,3 @@
-import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
 import { OAUTH_SCOPES_HIDDEN } from 'lib/oauthScopes.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
@@ -140,9 +139,12 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.label).toBe('Read-only access')
         })
 
-        it('contains :read for every entry in API_SCOPES except unprivileged-excluded scopes', () => {
+        it('contains :read for every readable entry in API_SCOPES except unprivileged-excluded scopes', () => {
             const preset = findPreset('read_only_access')
-            const expected = API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded)
+            const expected = API_SCOPES.filter(
+                ({ unprivilegedExcluded, disabledActions }) =>
+                    !unprivilegedExcluded && !disabledActions?.includes('read')
+            )
                 .map(({ key }) => `${key}:read`)
                 .sort()
             expect([...preset.scopes].sort()).toEqual(expected)
@@ -176,14 +178,14 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.scopes).not.toContain('integration:write')
             expect(preset.scopes).not.toContain('user:write')
         })
-
-        it('only includes scopes the key creation UI can render', () => {
-            const renderableScopes = getRenderableKeyCreationScopes()
-
-            expect(AGENT_CLI_API_KEY_SCOPES).toEqual(
-                (AGENT_USE_CASE_SCOPES as readonly string[]).filter((scope) => renderableScopes.has(scope))
-            )
-            expect(AGENT_CLI_API_KEY_SCOPES.every((scope) => renderableScopes.has(scope))).toBe(true)
-        })
     })
+
+    it.each(API_KEY_SCOPE_PRESETS.filter(({ value }) => value !== 'all_access').map(({ value }) => value))(
+        'preset %s only sets levels the key creation UI can render',
+        (value) => {
+            const renderableScopes = getRenderableKeyCreationScopes()
+            const unrenderable = findPreset(value).scopes.filter((scope) => !renderableScopes.has(scope))
+            expect(unrenderable).toEqual([])
+        }
+    )
 })

@@ -9,11 +9,8 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import (
-    FLASH_MODE_MESSAGE_PREFIX,
-    REVIEW_MODE_FLASH,
-    REVIEW_MODE_FULL,
-)
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
+from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
@@ -58,7 +55,7 @@ class TestRenderInProgressBody:
         assert status_marker("rid") in body  # the marker is what makes edit-in-place reuse possible
 
 
-class TestFlashPrefix:
+class TestFlashHeader:
     @parameterized.expand(
         [
             ("in_progress", lambda mode: render_in_progress_body("rid", None, review_mode=mode)),
@@ -77,11 +74,14 @@ class TestFlashPrefix:
             ("failed", lambda mode: render_failed_body("rid", review_mode=mode)),
         ]
     )
-    def test_every_status_body_opens_with_the_prefix_only_in_flash(self, _name: str, render) -> None:
-        # The status comment is rewritten in every state; a state that forgot the prefix would read
+    def test_every_status_header_names_flash_only_in_flash(self, _name: str, render) -> None:
+        # The status comment is rewritten in every state; a state that forgot the label would read
         # as a full review mid-run or at the end, and a full run must never carry it.
-        assert render(REVIEW_MODE_FLASH).startswith(f"{FLASH_MODE_MESSAGE_PREFIX}### ")
-        assert not render(REVIEW_MODE_FULL).startswith("FLASH MODE")
+        flash, full = render(REVIEW_MODE_FLASH), render(REVIEW_MODE_FULL)
+        assert flash.startswith("### \U0001f994 PostHog Review (flash) ")
+        assert full.startswith("### \U0001f994 PostHog Review ")
+        assert "(flash)" not in full
+        assert "FLASH MODE" not in flash + full
 
 
 class TestRenderFinalBody:
@@ -185,15 +185,27 @@ class TestRenderFinalBody:
             review_url=None,
             resolved_from=resolved_from,
             report_url="https://ph.test/project/1/code-review?review=rid",
+            marker=ReviewHogMarker(version="reviewhog-flash-9-9", fingerprint="abc1234"),
         )
         assert f"2 findings stayed below {expected}" in body, body
+        # The version rides in a hidden HTML comment, so it adds no visible text to the PR.
+        hidden = "<!-- reviewhog-version: reviewhog-flash-9-9 abc1234 -->"
+        assert hidden in body
+        assert "reviewhog-flash" not in body.replace(hidden, "")
         # Held-back findings are otherwise invisible to the author — the comment must not dead-end.
         assert "[View them in PostHog](https://ph.test/project/1/code-review?review=rid)" in body
 
-    @parameterized.expand([("default_on", True), ("author_opted_out", False)])
+    @parameterized.expand(
+        [
+            ("default_on", REVIEW_MODE_FULL, True, True),
+            ("author_opted_out", REVIEW_MODE_FULL, False, False),
+            # A clean flash turn never celebrates, whatever the setting says.
+            ("flash", REVIEW_MODE_FLASH, True, False),
+        ]
+    )
     @patch(f"{_MODULE}.random.choice", return_value=("https://example.test/dog.png", "A happy dog"))
     def test_clean_review_media_follows_the_preference(
-        self, _name: str, celebrate: bool, mock_choice: MagicMock
+        self, _name: str, review_mode: str, celebrate: bool, expect_media: bool, mock_choice: MagicMock
     ) -> None:
         body = render_final_body(
             "rid",
@@ -202,16 +214,19 @@ class TestRenderFinalBody:
             held_back_count=0,
             threshold=IssuePriority.SHOULD_FIX,
             review_url=None,
+            review_mode=review_mode,
             celebrate_clean_reviews=celebrate,
         )
 
-        if celebrate:
+        if expect_media:
             assert "![A happy dog](https://example.test/dog.png)" in body
             mock_choice.assert_called_once()
         else:
             assert "dog.png" not in body
             assert "Enjoy the moment" not in body
             mock_choice.assert_not_called()
+        if review_mode == REVIEW_MODE_FLASH:
+            assert "Nothing worth raising." in body
 
 
 def _pr_metadata(pr_number: int = 123) -> PRMetadata:
@@ -267,7 +282,7 @@ class TestEnsureStatusComment(BaseTest):
         ensure_status_comment(self.team.id, str(report.id), review_mode=REVIEW_MODE_FLASH)
 
         assert _posts(mock_request) == ["/repos/o/r/issues/123/comments"]
-        assert mock_request.call_args.kwargs["json"]["body"].startswith(FLASH_MODE_MESSAGE_PREFIX)
+        assert mock_request.call_args.kwargs["json"]["body"].startswith("### \U0001f994 PostHog Review (flash) ")
         report.refresh_from_db()
         assert report.status_comment_id == 777
         assert report.status_comment_edited_at is not None
@@ -430,7 +445,7 @@ class TestFinalizeStatusComment(BaseTest):
         assert "couldn't finish this review" in body
         # The entry point threads the turn's mode into the renderer; a dropped kwarg here would
         # leave a dead flash run reading as a full one.
-        assert body.startswith(FLASH_MODE_MESSAGE_PREFIX)
+        assert body.startswith("### \U0001f994 PostHog Review (flash) ")
 
 
 class TestResolutionSection:

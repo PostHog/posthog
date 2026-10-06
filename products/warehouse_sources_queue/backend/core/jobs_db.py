@@ -586,8 +586,23 @@ def _queue_freshness_sql() -> str:
     """
 
 
+def _claimable_count_sql() -> str:
+    """Count the claimable set alone: an index-only walk of ``sb_claimable_idx``.
+
+    ``created_at`` is a key column of that partial index, so the count needs no
+    heap fetch, no per-run probe and no per-group probe. That is why it still
+    finishes on a backlog where :func:`_queue_depth_sql` times out.
+    """
+    return f"""
+        SELECT count(*)
+        FROM {BATCH_TABLE} b
+        WHERE b.created_at > now() - interval '{CLAIM_ELIGIBILITY_INTERVAL}'
+          AND b.latest_state IN ('pending', 'waiting_retry')
+    """
+
+
 def _queue_depth_sql() -> str:
-    """Queue depth and how it is spread over (team_id, schema_id) groups, in one scan.
+    """How the claimable set is spread over (team_id, schema_id) groups, in one scan.
 
     The claimable set is the same as ``sb_claimable_idx`` covers: 'pending' or
     'waiting_retry' inside ``CLAIM_ELIGIBILITY_INTERVAL``. The per-run and
@@ -598,12 +613,11 @@ def _queue_depth_sql() -> str:
     ``PARTITION_PRUNING_INTERVAL`` because they must see every row that still
     exists, the same as the claim query's gates.
 
-    ``batches`` per group keeps every claimable row, so the depth total stays
-    what the claim query could scan. ``live_batches`` drops the runs that hold a
-    failed batch: the claim query refuses those, so they are neither waiting for
-    a slot nor waiting behind their group. Without that split a leaked run reads
-    as capacity demand forever, which is the same distortion that made the age
-    gauge exclude them.
+    ``live_batches`` drops the runs that hold a failed batch: the claim query
+    refuses those, so they are neither waiting for a slot nor waiting behind
+    their group. Without that split a leaked run reads as capacity demand
+    forever, which is the same distortion that made the age gauge exclude them.
+    The headline count comes from :func:`_claimable_count_sql`, not from here.
 
     Split out from its caller so the plan-shape test can EXPLAIN exactly what
     runs, the way :func:`_state_claim_candidates_sql` is pinned.
@@ -634,14 +648,12 @@ def _queue_depth_sql() -> str:
             SELECT
                 g.team_id,
                 g.schema_id,
-                sum(g.batches) AS batches,
                 coalesce(sum(g.batches) FILTER (WHERE NOT g.blocked), 0) AS live_batches
             FROM gated_runs g
             GROUP BY g.team_id, g.schema_id
         ),
         ranked AS (
             SELECT
-                g.batches,
                 g.live_batches,
                 EXISTS (
                     SELECT 1
@@ -655,7 +667,6 @@ def _queue_depth_sql() -> str:
             FROM groups g
         )
         SELECT
-            coalesce(sum(batches), 0) AS claimable_batches,
             count(*) FILTER (WHERE live_batches > 0) AS claimable_groups,
             coalesce(sum(live_batches), 0) AS live_batches,
             coalesce(sum(live_batches) FILTER (WHERE depth_rank <= %(top_groups)s), 0) AS top_groups_batches,
@@ -836,6 +847,7 @@ class PendingBatch:
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
             "destination_ids": self.destination_ids or [],
+            "external_destination_ids": self.metadata.get("external_destination_ids"),
         }
 
 
@@ -951,13 +963,16 @@ class QueueDepth:
     """
 
     claimable_batches: int
-    claimable_groups: int
+    # The fields below are None when the breakdown statement timed out: the count
+    # statement is much cheaper, so it can still land while a deep queue defeats
+    # the per-run and per-group probes.
+    claimable_groups: int | None
     # 0..1 share of those batches held by the DEPTH_TOP_GROUPS deepest groups; 0 when empty.
-    top_groups_claimable_share: float
+    top_groups_claimable_share: float | None
     # Batches whose group has nothing executing: they start as soon as a slot frees.
-    slot_waiting_batches: int
+    slot_waiting_batches: int | None
     # Batches whose group already has a batch executing: they wait for their own group.
-    serialized_batches: int
+    serialized_batches: int | None
 
 
 # Idle sync connections kept per queue DB for the worker-thread lease checks. Sized to the loader's
@@ -1960,7 +1975,7 @@ class BatchQueue:
 
         The depth companion to :meth:`get_queue_freshness`. ``claimable_batches``
         applies none of the claim's per-run, schema-busy, or lease gates (those
-        need per-row probes, and this must stay one partial-index scan), nor the
+        need per-row probes, and this must stay one index-only count), nor the
         retry-backoff gate (it needs the fleet's backoff config, and this probe
         stays parameter-free), so the count reads slightly high. Bounded by
         ``CLAIM_ELIGIBILITY_INTERVAL`` to match what the claim query can see.
@@ -1970,26 +1985,41 @@ class BatchQueue:
         so ``slot_waiting_batches + serialized_batches`` is the depth minus those.
         See :func:`_queue_depth_sql` for why.
 
-        Raises ``psycopg.errors.QueryCanceled`` past ``statement_timeout_ms``.
+        Two statements, each with its own ``statement_timeout_ms``. A timeout in
+        the count raises ``psycopg.errors.QueryCanceled``. A timeout in the
+        breakdown returns the count with the four other fields set to None.
         """
         async with _gauge_cursor(conn, statement_timeout_ms=statement_timeout_ms) as cur:
-            await cur.execute(_queue_depth_sql(), {"top_groups": DEPTH_TOP_GROUPS})
-            row = await cur.fetchone()
+            await cur.execute(_claimable_count_sql())
+            count_row = await cur.fetchone()
+        claimable_batches = int(count_row[0]) if count_row else 0
+        try:
+            async with _gauge_cursor(conn, statement_timeout_ms=statement_timeout_ms) as cur:
+                await cur.execute(_queue_depth_sql(), {"top_groups": DEPTH_TOP_GROUPS})
+                row = await cur.fetchone()
+        except psycopg.errors.QueryCanceled:
+            return QueueDepth(
+                claimable_batches=claimable_batches,
+                claimable_groups=None,
+                top_groups_claimable_share=None,
+                slot_waiting_batches=None,
+                serialized_batches=None,
+            )
         if row is None:
             return QueueDepth(
-                claimable_batches=0,
+                claimable_batches=claimable_batches,
                 claimable_groups=0,
                 top_groups_claimable_share=0.0,
                 slot_waiting_batches=0,
                 serialized_batches=0,
             )
-        live_batches = int(row[2])
+        live_batches = int(row[1])
         return QueueDepth(
-            claimable_batches=int(row[0]),
-            claimable_groups=int(row[1]),
-            top_groups_claimable_share=int(row[3]) / live_batches if live_batches else 0.0,
-            slot_waiting_batches=int(row[4]),
-            serialized_batches=int(row[5]),
+            claimable_batches=claimable_batches,
+            claimable_groups=int(row[0]),
+            top_groups_claimable_share=int(row[2]) / live_batches if live_batches else 0.0,
+            slot_waiting_batches=int(row[3]),
+            serialized_batches=int(row[4]),
         )
 
     @staticmethod
