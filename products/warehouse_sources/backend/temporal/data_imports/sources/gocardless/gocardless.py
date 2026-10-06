@@ -34,7 +34,7 @@ GOCARDLESS_HOSTS = {
 GOCARDLESS_VERSION = "2015-07-06"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GoCardlessResumeConfig:
     # GoCardless cursor pagination: `after=<id>` from meta.cursors.after; the
     # static params are deterministically rebuilt from job inputs on resume.
