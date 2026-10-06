@@ -337,7 +337,7 @@ class DataWarehouseSavedQuerySerializer(
                 event,
                 {
                     # Never include the query text or the view name: both are customer-authored content.
-                    "view_id": str(view.id),
+                    "saved_query_id": str(view.id),
                     "origin": view.origin,
                     "is_materialized": bool(view.is_materialized),
                     "has_warehouse_tables": bool(view.external_tables),

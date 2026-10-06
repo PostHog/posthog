@@ -161,7 +161,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(
             args[2],
             {
-                "view_id": saved_query["id"],
+                "saved_query_id": saved_query["id"],
                 "origin": "data_warehouse",
                 "is_materialized": False,
                 "has_warehouse_tables": False,
@@ -190,7 +190,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(
             args[2],
             {
-                "view_id": saved_query["id"],
+                "saved_query_id": saved_query["id"],
                 "origin": "data_warehouse",
                 "is_materialized": False,
                 "has_warehouse_tables": False,

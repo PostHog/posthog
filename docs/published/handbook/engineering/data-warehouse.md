@@ -16,7 +16,7 @@ Insights can be saved or updated before running the SQL. Updating a view still r
 
 Direct view creation and edits through the UI, MCP, or API emit `view created` and `view updated`.
 An upsert of an existing view emits `view updated`. Endpoint materialization and managed viewsets do not emit these events for the saved queries they generate.
-The events include `view_id` and request source metadata, but exclude view names and query text.
+The events include `saved_query_id` and request source metadata, but exclude view names and query text.
 
 ## Choosing data in BI mode
 
