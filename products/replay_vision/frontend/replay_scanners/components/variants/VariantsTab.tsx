@@ -70,7 +70,9 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
                 }}
                 onOpenScout={existingScout ? () => openScoutSettings(existingScout.skill_name) : undefined}
             />
-            {readout.window.total_observations === 0 ? (
+            {/* Each watched variant gets a card from the start; the readout lists none only when the
+                experiment can't be read, for example after it was deleted. */}
+            {readout.variants.length === 0 ? (
                 <LemonCard hoverEffect={false} className="p-4 text-sm text-muted">
                     No observations yet. The scanner summarizes sessions of exposed people as they arrive, and each
                     variant shows here once it has some.

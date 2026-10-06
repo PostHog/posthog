@@ -50,6 +50,25 @@ export function variantObservationsUrl(scannerId: string, variantKey: string): s
     }).url
 }
 
+/**
+ * The Observations tab's variant filter choices: every variant, each watched variant, and observations
+ * with no variant. A key from the URL that is not in the list stays selectable, so the filter keeps showing it.
+ */
+export function variantFilterOptions(
+    variantKeys: string[],
+    current: string | null
+): { value: string | null; label: string }[] {
+    const keys =
+        current && current !== UNATTRIBUTED_VARIANT && !variantKeys.includes(current)
+            ? [...variantKeys, current]
+            : variantKeys
+    return [
+        { value: null, label: 'All variants' },
+        ...keys.map((key) => ({ value: key, label: key })),
+        { value: UNATTRIBUTED_VARIANT, label: 'No variant' },
+    ]
+}
+
 export interface ScannerVariantsLogicProps {
     scannerId: string
 }

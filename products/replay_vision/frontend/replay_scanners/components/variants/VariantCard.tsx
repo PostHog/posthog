@@ -1,3 +1,4 @@
+import { IconClock } from '@posthog/icons'
 import { LemonCard } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
@@ -27,24 +28,39 @@ export function VariantCard({
     observationsUrl,
     onOpenObservations,
 }: VariantCardProps): JSX.Element {
-    const stats = [
-        pluralize(variant.observations, 'observation'),
-        pluralize(variant.distinct_people, 'person', 'people'),
-        variant.median_session_duration_s != null
-            ? `median session ${humanFriendlyDuration(variant.median_session_duration_s)}`
-            : null,
-    ].filter(Boolean)
+    const waiting = variant.observations === 0
+    const stats = waiting
+        ? [pluralize(0, 'observation')]
+        : [
+              pluralize(variant.observations, 'observation'),
+              pluralize(variant.distinct_people, 'person', 'people'),
+              variant.median_session_duration_s != null
+                  ? `median session ${humanFriendlyDuration(variant.median_session_duration_s)}`
+                  : null,
+          ].filter(Boolean)
+    const header = (
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b px-4 py-3">
+            <span className="flex min-w-0 items-center gap-2">
+                {/* The color comes from the variant's series index, so it can't be a Tailwind class. */}
+                <span className="inline-block size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: color }} />
+                <span className="truncate font-semibold">{variant.key}</span>
+            </span>
+            <span className="text-xs text-muted">{stats.join(' · ')}</span>
+        </div>
+    )
+
+    if (waiting) {
+        return (
+            <LemonCard hoverEffect={false} className="p-0 flex flex-col" data-attr="vision-variant-card">
+                {header}
+                <WaitingForObservations />
+            </LemonCard>
+        )
+    }
 
     return (
         <LemonCard hoverEffect={false} className="p-0 flex flex-col" data-attr="vision-variant-card">
-            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b px-4 py-3">
-                <span className="flex min-w-0 items-center gap-2">
-                    {/* The color comes from the variant's series index, so it can't be a Tailwind class. */}
-                    <span className="inline-block size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: color }} />
-                    <span className="truncate font-semibold">{variant.key}</span>
-                </span>
-                <span className="text-xs text-muted">{stats.join(' · ')}</span>
-            </div>
+            {header}
 
             {variant.sampling_rate != null && (
                 <div className="px-4 pt-3 text-xs text-muted">
@@ -120,5 +136,38 @@ export function VariantCard({
                 </div>
             )}
         </LemonCard>
+    )
+}
+
+/** The variant's themes and latest observations, laid out empty until the scanner has some. */
+function WaitingForObservations(): JSX.Element {
+    const placeholderLine = 'h-2.5 rounded bg-surface-secondary'
+    return (
+        <div className="flex flex-col gap-4 p-4" data-attr="vision-variant-waiting">
+            <div className="rounded border border-dashed p-3 text-center text-sm text-muted">
+                <div className="flex items-center justify-center gap-1.5 font-semibold text-default">
+                    <IconClock className="text-muted" />
+                    Waiting for observations
+                </div>
+                <div>Summaries of exposed sessions in this variant show here as they arrive.</div>
+            </div>
+            <div className="space-y-2">
+                <div className="text-xs font-semibold uppercase text-muted">Themes</div>
+                <div className={`${placeholderLine} w-3/4`} />
+                <div className={`${placeholderLine} w-3/5`} />
+            </div>
+            <div className="space-y-3">
+                <div className="text-xs font-semibold uppercase text-muted">Latest observations</div>
+                {['w-1/2', 'w-2/5'].map((titleWidth) => (
+                    <div key={titleWidth} className="flex items-start gap-2.5">
+                        <div className="h-10 w-16 shrink-0 rounded bg-surface-secondary" />
+                        <div className="flex-1 space-y-2 pt-1">
+                            <div className={`${placeholderLine} ${titleWidth}`} />
+                            <div className={`${placeholderLine} w-4/5`} />
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
     )
 }
