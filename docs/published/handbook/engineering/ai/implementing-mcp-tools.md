@@ -14,29 +14,33 @@ see [Writing skills](/handbook/engineering/ai/writing-skills).
 ## TL;DR
 
 ```sh
-# 1. Scaffold a starter YAML with all operations disabled
+# 1. Only for a product with no YAML yet: create one with no tools
 pnpm --filter=@posthog/mcp run scaffold-yaml -- --product your_product \
     --output ../../products/your_product/mcp/tools.yaml
 
-# 2. Configure the YAML – enable tools, add descriptions, and annotations for PATCH/POST/PUT
+# 2. List the operations without a YAML entry, then add the ones agents need as enabled tools
+pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product your_product
+pnpm --filter=@posthog/mcp run scaffold-yaml -- --add your_product_things_list --product your_product
+
+# 3. Configure the YAML – adjust titles and descriptions, add annotations for PATCH/POST/PUT
 #    Place in products/<product>/mcp/*.yaml (preferred, e.g. actions, cohorts)
 
-# 3. For read/list tools backed by PostHog database rows, add a HogQL system table
+# 4. For read/list tools backed by PostHog database rows, add a HogQL system table
 #    in posthog/hogql/database/schema/system.py and a model reference in
 #    products/posthog_ai/skills/querying-posthog-data/references/
 
-# 4. Generate handlers and schemas
+# 5. Generate handlers and schemas
 hogli build:openapi
 
-# 5. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
+# 6. Refresh the tool input schema snapshots (CI unit tests fail on a stale snapshot)
 pnpm --filter=@posthog/mcp exec vitest run tests/unit/tool-schema-snapshots.test.ts -u
 # A tool behind a new `feature_flag` needs that flag in the test's `featureFlags` map, set to the value that shows the tool:
 # true for a plain gate, the variant string for a variant gate, a non-true value for a `disable` gate.
 
-# 6. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
+# 7. Only when the YAML uses ui_apps: regenerate the UI apps (CI checks they are current)
 pnpm --filter=@posthog/mcp run generate:ui-apps
 
-# 7. Merge to master – CI builds and distributes automatically
+# 8. Merge to master – CI builds and distributes automatically
 ```
 
 ## Tool design principles

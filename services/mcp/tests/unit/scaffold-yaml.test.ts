@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 
 import { buildAddedTool, findCandidates, mergeWithExisting, renderCategoryYaml } from '../../scripts/scaffold-yaml'
-import type { OpenApiSpec } from '../../scripts/scaffold-yaml'
+import type { Claims, OpenApiSpec } from '../../scripts/scaffold-yaml'
 import { CategoryConfigSchema } from '../../scripts/yaml-config-schema'
 import type { CategoryConfig } from '../../scripts/yaml-config-schema'
 
@@ -27,6 +27,10 @@ const spec: OpenApiSpec = {
 
 function category(tools: Record<string, unknown>): CategoryConfig {
     return CategoryConfigSchema.parse({ category: 'Things', feature: 'things', url_prefix: '/things', tools })
+}
+
+function claims(baseIds: string[] = [], fileByToolName: Record<string, string> = {}): Claims {
+    return { baseIds: new Set(baseIds), fileByToolName: new Map(Object.entries(fileByToolName)) }
 }
 
 function validIds(product: string): Set<string> {
@@ -115,12 +119,23 @@ describe('scaffold-yaml', () => {
     it('adds an enabled entry that the schema accepts', () => {
         const existing = category({})
 
-        const { toolName, entry } = buildAddedTool(spec, 'things', 'things_create', new Set(), existing)
+        const { toolName, entry } = buildAddedTool(spec, 'things', 'things_create', claims())
         const content = renderCategoryYaml(existing, 'things', { ...existing.tools, [toolName]: entry })
 
         expect(CategoryConfigSchema.parse(parseYaml(content)).tools).toEqual({
             'things-create': { operation: 'things_create', enabled: true },
         })
+    })
+
+    it.each([
+        { name: 'feature_flag', gate: { feature_flag: 'things-beta' } },
+        { name: 'feature_entitlement', gate: { feature_entitlement: 'things_paid' } },
+    ])('keeps the category-level $name when it renders the file', ({ gate }) => {
+        const existing = CategoryConfigSchema.parse({ ...category({}), ...gate })
+
+        const content = renderCategoryYaml(existing, 'things', {})
+
+        expect(parseYaml(content)).toMatchObject(gate)
     })
 
     it.each([
@@ -140,15 +155,26 @@ describe('scaffold-yaml', () => {
     })
 
     it.each([
-        { name: 'an unknown operation', operationId: 'missing_list', claimed: [], error: /not in the OpenAPI schema/ },
-        { name: "another product's operation", operationId: 'others_list', claimed: [], error: /not attributed/ },
+        {
+            name: 'an unknown operation',
+            operationId: 'missing_list',
+            claimed: claims(),
+            error: /not in the OpenAPI schema/,
+        },
+        { name: "another product's operation", operationId: 'others_list', claimed: claims(), error: /not attributed/ },
         {
             name: 'an operation that already has an entry',
             operationId: 'things_list_2',
-            claimed: ['things_list'],
+            claimed: claims(['things_list']),
             error: /already has a YAML entry/,
         },
+        {
+            name: 'a tool name that another file already uses',
+            operationId: 'things_create',
+            claimed: claims([], { 'things-create': 'products/others/mcp/tools.yaml' }),
+            error: /"things-create" is already used in products\/others\/mcp\/tools.yaml/,
+        },
     ])('rejects $name', ({ operationId, claimed, error }) => {
-        expect(() => buildAddedTool(spec, 'things', operationId, new Set(claimed), category({}))).toThrow(error)
+        expect(() => buildAddedTool(spec, 'things', operationId, claimed)).toThrow(error)
     })
 })

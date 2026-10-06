@@ -207,6 +207,7 @@ function renderCategoryYaml(
         ...(existing.feature_flag ? { feature_flag: existing.feature_flag } : {}),
         ...(existing.feature_flag_behavior ? { feature_flag_behavior: existing.feature_flag_behavior } : {}),
         ...(existing.feature_flag_variant ? { feature_flag_variant: existing.feature_flag_variant } : {}),
+        ...(existing.feature_entitlement ? { feature_entitlement: existing.feature_entitlement } : {}),
         ui_apps: existing.ui_apps ?? {},
         tools: sortedTools,
     }
@@ -342,20 +343,34 @@ function reportDroppedDisabledTools(droppedDisabledTools: string[]): void {
     }
 }
 
+interface Claims {
+    baseIds: Set<string>
+    fileByToolName: Map<string, string>
+}
+
 // Reads every definition file because an operation can be claimed outside its
 // product's tools.yaml, for example by a subset file of another product.
-function collectClaimedBaseIds(): Set<string> {
-    const claimed = new Set<string>()
+// Tool names are global: codegen merges all files into one tool map, so a duplicate name replaces a tool.
+function collectClaims(): Claims {
+    const claims: Claims = { baseIds: new Set(), fileByToolName: new Map() }
     for (const { filePath } of discoverDefinitions({ definitionsDir: DEFINITIONS_DIR, productsDir: PRODUCTS_DIR })) {
-        const parsed = parseYaml(fs.readFileSync(filePath, 'utf-8')) as { tools?: Record<string, unknown> } | null
-        for (const config of Object.values(parsed?.tools ?? {})) {
+        const parsed = parseYaml(fs.readFileSync(filePath, 'utf-8')) as {
+            tools?: Record<string, unknown>
+            wrappers?: Record<string, unknown>
+        } | null
+        const label = path.relative(REPO_ROOT, filePath)
+        for (const [name, config] of Object.entries(parsed?.tools ?? {})) {
+            claims.fileByToolName.set(name, label)
             const operation = (config as { operation?: unknown } | null)?.operation
             if (typeof operation === 'string') {
-                claimed.add(baseOperationId(operation))
+                claims.baseIds.add(baseOperationId(operation))
             }
         }
+        for (const name of Object.keys(parsed?.wrappers ?? {})) {
+            claims.fileByToolName.set(name, label)
+        }
     }
-    return claimed
+    return claims
 }
 
 function findCandidates(spec: OpenApiSpec, product: string, claimedBaseIds: Set<string>): DiscoveredOperation[] {
@@ -391,8 +406,7 @@ function buildAddedTool(
     spec: OpenApiSpec,
     product: string,
     operationId: string,
-    claimedBaseIds: Set<string>,
-    existing: CategoryConfig
+    claims: Claims
 ): { toolName: string; op: DiscoveredOperation; entry: Record<string, unknown> } {
     const rawOps = findOperationsByProduct(spec, product)
     const ops = deduplicateOperations(rawOps)
@@ -408,14 +422,15 @@ function buildAddedTool(
     }
 
     const base = baseOperationId(operationId)
-    if (claimedBaseIds.has(base)) {
+    if (claims.baseIds.has(base)) {
         throw new Error(`Operation "${operationId}" already has a YAML entry. Edit that entry instead.`)
     }
 
     const op = ops.find((candidate) => baseOperationId(candidate.operationId) === base)!
     const toolName = operationIdToToolName(op.operationId)
-    if (Object.prototype.hasOwnProperty.call(existing.tools, toolName)) {
-        throw new Error(`Tool name "${toolName}" is already used by "${existing.tools[toolName]!.operation}".`)
+    const nameOwner = claims.fileByToolName.get(toolName)
+    if (nameOwner) {
+        throw new Error(`Tool name "${toolName}" is already used in ${nameOwner}.`)
     }
 
     // Title and description fall back to the spec in codegen, so the entry only overrides them when needed.
@@ -578,7 +593,7 @@ function addTool(spec: OpenApiSpec, product: string, operationId: string, filePa
     const existing = loadCategoryConfig(targetFile)
     let added: ReturnType<typeof buildAddedTool>
     try {
-        added = buildAddedTool(spec, product, operationId, collectClaimedBaseIds(), existing)
+        added = buildAddedTool(spec, product, operationId, collectClaims())
     } catch (error) {
         console.error(error instanceof Error ? error.message : String(error))
         process.exit(1)
@@ -641,7 +656,12 @@ function main(): void {
     }
 
     if (args.includes('--candidates')) {
-        const candidates = findCandidates(loadOpenApi(), product, collectClaimedBaseIds())
+        const spec = loadOpenApi()
+        if (findOperationsByProduct(spec, product).length === 0) {
+            console.error(`No operations found for product "${product}"`)
+            process.exit(1)
+        }
+        const candidates = findCandidates(spec, product, collectClaims().baseIds)
         process.stdout.write(formatCandidates(candidates, product))
         return
     }
@@ -690,7 +710,7 @@ function main(): void {
 }
 
 export { buildAddedTool, findCandidates, mergeWithExisting, renderCategoryYaml }
-export type { OpenApiSpec }
+export type { Claims, OpenApiSpec }
 
 function stripExt(filePath: string): string {
     return filePath.replace(/\.[jt]s$/, '')
