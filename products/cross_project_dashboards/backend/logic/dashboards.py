@@ -4,7 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Prefetch, Q, QuerySet
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q, QuerySet
 
 from rest_framework import serializers
 
@@ -50,6 +50,18 @@ def _log_tile_change(dashboard: CrossProjectDashboard, user: User, change: Chang
 
 
 def _to_tile(tile: CrossProjectDashboardTile) -> contracts.CrossProjectTile:
+    if not tile.project_exists:  # type: ignore[attr-defined]
+        # Nobody can open a project that is gone, so nobody may read what was saved for it. That
+        # includes the members who were denied the project before it was deleted or moved out of
+        # the organization. The tile keeps only what the dashboard needs to place and remove it.
+        return contracts.CrossProjectTile(
+            id=tile.id,
+            project_id=tile.project_id,
+            insight_id=tile.insight_id,
+            layouts=tile.layouts or {},
+            color=None,
+            filters_overrides={},
+        )
     return contracts.CrossProjectTile(
         id=tile.id,
         project_id=tile.project_id,
@@ -110,10 +122,15 @@ def _readable_tiles(organization_id: UUID | str, user: User) -> Q:
     )
 
 
-def _dashboards(organization_id: UUID | str, user: User) -> QuerySet[CrossProjectDashboard]:
-    tiles = CrossProjectDashboardTile.objects.filter(_readable_tiles(organization_id, user), deleted=False).order_by(
-        "created_at", "id"
+def _readable_tile_rows(organization_id: UUID | str, user: User) -> QuerySet[CrossProjectDashboardTile]:
+    # _to_tile reads project_exists, so every tile it maps must come from this queryset.
+    return CrossProjectDashboardTile.objects.filter(_readable_tiles(organization_id, user), deleted=False).annotate(
+        project_exists=Exists(_existing_projects(organization_id).filter(id=OuterRef("project_id")))
     )
+
+
+def _dashboards(organization_id: UUID | str, user: User) -> QuerySet[CrossProjectDashboard]:
+    tiles = _readable_tile_rows(organization_id, user).order_by("created_at", "id")
     return (
         CrossProjectDashboard.objects.filter(organization_id=organization_id, deleted=False)
         .select_related("created_by")
@@ -165,13 +182,8 @@ def _lock_for_change(organization_id: UUID | str, dashboard_id: UUID, user: User
 def _tiles(organization_id: UUID | str, dashboard_id: UUID, user: User) -> QuerySet[CrossProjectDashboardTile]:
     # A reader denied a project does not learn which of its insights the dashboard references.
     return (
-        CrossProjectDashboardTile.objects.filter(
-            _readable_tiles(organization_id, user),
-            organization_id=organization_id,
-            dashboard_id=dashboard_id,
-            dashboard__deleted=False,
-            deleted=False,
-        )
+        _readable_tile_rows(organization_id, user)
+        .filter(organization_id=organization_id, dashboard_id=dashboard_id, dashboard__deleted=False)
         .select_related("dashboard")
         .order_by("created_at", "id")
     )
@@ -307,7 +319,7 @@ def create_tile(
             user,
             Change(type="CrossProjectDashboardTile", action="created", field="tiles", after=_tile_reference(created)),
         )
-    return _to_tile(created)
+    return get_tile(organization_id=organization_id, dashboard_id=dashboard_id, tile_id=created.id, user=user)
 
 
 def update_tile(

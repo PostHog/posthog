@@ -268,17 +268,31 @@ class TestCrossProjectDashboardTileAPI(APIBaseTest):
         visible.refresh_from_db()
         assert visible.color is None
 
-    def test_a_tile_whose_project_was_deleted_never_blocks_the_dashboard(self, _flag):
+    @parameterized.expand([("deleted",), ("moved_to_another_organization",)])
+    def test_a_tile_whose_project_is_gone_hides_its_settings_and_never_blocks_the_dashboard(self, _flag, how: str):
+        if how == "deleted":
+            project_id = 987654321
+        else:
+            project_id = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Moved").pk
         gone = CrossProjectDashboardTile.objects.create(
-            dashboard=self.dashboard, organization=self.organization, project_id=987654321, insight_id=1
+            dashboard=self.dashboard,
+            organization=self.organization,
+            project_id=project_id,
+            insight_id=1,
+            color="red",
+            filters_overrides={"properties": [{"type": "person", "key": "email", "value": "someone@example.com"}]},
         )
         dashboard_url = f"/api/organizations/{self.organization.id}/cross_project_dashboards/{self.dashboard.id}/"
 
         listed = self.client.get(self._url()).json()["results"]
+        detail = self.client.get(dashboard_url).json()["tiles"]
         renamed = self.client.patch(dashboard_url, {"name": "Renamed"}, format="json")
         removed = self.client.delete(self._url(f"{gone.id}/"))
 
-        assert [tile["id"] for tile in listed] == [str(gone.id)]
+        assert [(tile["id"], tile["color"], tile["filters_overrides"]) for tile in listed + detail] == [
+            (str(gone.id), None, {}),
+            (str(gone.id), None, {}),
+        ]
         assert renamed.status_code == status.HTTP_200_OK, renamed.json()
         assert removed.status_code == status.HTTP_204_NO_CONTENT
 
