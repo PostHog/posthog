@@ -2082,7 +2082,7 @@ async fn test_delete_persons_with_multiple_distinct_ids() {
 async fn test_delete_persons_large_batch_tombstones_every_chunk() {
     let ctx = TestContext::new().await;
 
-    // 150 persons with chunk_size=50 make 3 chunks in one transaction, and every chunk must be tombstoned
+    // 150 persons with chunk_size=50 make 3 chunks in one transaction.
     let mut uuids = Vec::new();
     let mut persons_with_extra_ids = Vec::new();
     for i in 0..150 {
