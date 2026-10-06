@@ -7,7 +7,7 @@ from products.review_hog.backend.reviewer.models.single_agent_review import Sing
 
 
 def _finding(priority: object) -> SingleAgentFinding:
-    return SingleAgentFinding(title="t", priority=priority, file="a.py", line_start=1, body="b")  # type: ignore[arg-type]
+    return SingleAgentFinding(title="t", priority=priority, file="a.py", line_start=1, body="b")
 
 
 @parameterized.expand([("int", 1, "P1"), ("digit", "2", "P2"), ("tag", "P0", "P0"), ("bracket", "[P3]", "P3")])
