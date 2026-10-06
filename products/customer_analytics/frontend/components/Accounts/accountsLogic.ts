@@ -484,8 +484,8 @@ export interface accountsLogicActions {
         options: ApplyAccountsViewStateOptions
         viewState: AccountsViewState
     }
-    clearCustomPropertyOverrides: () => {
-        value: true
+    clearCustomPropertyOverrides: (keys: string[]) => {
+        keys: string[]
     }
     customPropertyUpdateFinished: (
         accountId: string,
@@ -888,7 +888,7 @@ export const accountsLogic = kea<accountsLogicType>([
         ) => ({ accountId, definition, value }),
         customPropertyUpdateStarted: (accountId: string, definitionId: string) => ({ accountId, definitionId }),
         customPropertyUpdateFinished: (accountId: string, definitionId: string) => ({ accountId, definitionId }),
-        clearCustomPropertyOverrides: true,
+        clearCustomPropertyOverrides: (keys: string[]) => ({ keys }),
         setCustomPropertyOverride: (
             accountId: string,
             definitionId: string,
@@ -1046,7 +1046,13 @@ export const accountsLogic = kea<accountsLogicType>([
                     }
                     return next
                 },
-                clearCustomPropertyOverrides: () => ({}),
+                clearCustomPropertyOverrides: (state, { keys }) => {
+                    const next = { ...state }
+                    for (const key of keys) {
+                        delete next[key]
+                    }
+                    return next
+                },
             },
         ],
         savingRoles: [
@@ -1565,7 +1571,12 @@ export const accountsLogic = kea<accountsLogicType>([
             }
             if (queryId === cache.customPropertyRefreshQueryId) {
                 cache.customPropertyRefreshQueryId = undefined
-                actions.clearCustomPropertyOverrides()
+                // The override of a write that is still pending is newer than this response.
+                // It stays until the refresh that follows that write.
+                const writtenKeys: string[] = cache.writtenCustomPropertyKeys ?? []
+                const isPending = (key: string): boolean => !!values.savingCustomProperties[key]
+                cache.writtenCustomPropertyKeys = writtenKeys.filter(isPending)
+                actions.clearCustomPropertyOverrides(writtenKeys.filter((key) => !isPending(key)))
             }
         },
         loadAccountPresence: async ({ accountIds }) => {
@@ -1994,6 +2005,7 @@ export const accountsLogic = kea<accountsLogicType>([
                     display_type: definition.display_type,
                     workflow_reference: definition.has_workflow_reference,
                 })
+                cache.writtenCustomPropertyKeys = [...(cache.writtenCustomPropertyKeys ?? []), key]
                 cache.awaitingCustomPropertyRefresh = true
                 dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
                 dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')

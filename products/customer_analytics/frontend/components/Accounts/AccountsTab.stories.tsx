@@ -589,6 +589,10 @@ export const ClearCustomProperties: Story = {
             })(Story, context)
         },
     ],
+    // A failed run leaves its resolver behind, and a remount in the same page would release the wrong request.
+    beforeEach: () => {
+        finishClearPropertyWrite = undefined
+    },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await canvas.findByText('New account')

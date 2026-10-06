@@ -1524,6 +1524,36 @@ describe('accountsLogic', () => {
             expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(false)
         })
 
+        it('clears only refreshed overrides when the refresh of an earlier write lands during a pending write', async () => {
+            const saved = buildCustomPropertyDefinition()
+            const pending = buildCustomPropertyDefinition({ id: 'custom-property-2' })
+            const pendingKey = customPropertySavingKey('acc-1', pending.id)
+            const writeResult: Awaited<ReturnType<typeof accountsCustomPropertyValuesCreate>> = {
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: saved.id,
+                value: 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            }
+            let finishPendingWrite!: (value: typeof writeResult) => void
+            mockCustomPropertyValuesCreate
+                .mockResolvedValueOnce(writeResult)
+                .mockImplementationOnce(() => new Promise((resolve) => (finishPendingWrite = resolve)))
+
+            logic.actions.updateAccountCustomProperty('acc-1', saved, null)
+            logic.actions.updateAccountCustomProperty('acc-1', pending, null)
+            await expectLogic(logic).toDispatchActions(['listLoadDataSuccess'])
+
+            expect(logic.values.isCustomPropertySaving('acc-1', pending.id)).toBe(true)
+            expect(logic.values.customPropertyOverrides).toEqual({ [pendingKey]: null })
+
+            finishPendingWrite({ ...writeResult, definition_id: pending.id })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.customPropertyOverrides).toEqual({})
+        })
+
         it.each([
             ['canonical', buildCustomPropertyDefinition({ is_canonical: true }), 42],
             ['canonical', buildCustomPropertyDefinition({ is_canonical: true }), null],
