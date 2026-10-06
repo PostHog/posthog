@@ -2420,6 +2420,21 @@ export interface DraftScannerResponseApi {
     estimated_monthly_observations: number | null
 }
 
+export interface EstimateExperimentScopeApi {
+    /**
+     * The experiment an experiment scanner watches.
+     * @minimum 1
+     */
+    experiment_id: number
+    /**
+     * The variant keys it watches. Null or omitted means every variant.
+     * @minItems 1
+     * @nullable
+     * @items.maxLength 400
+     */
+    variants?: string[] | null
+}
+
 /**
  * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
  */
@@ -2451,6 +2466,8 @@ export interface EstimateRequestApi {
     model?: ScannerModelEnumApi
     /** Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
+    /** For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`. */
+    experiment?: EstimateExperimentScopeApi | null
 }
 
 /**
@@ -2743,11 +2760,27 @@ export interface WatchFeedItemApi {
 }
 
 /**
+ * * `weighted-score` - weighted-score
+ * * `jev` - jev
+ */
+export type RankerEnumApi = (typeof RankerEnumApi)[keyof typeof RankerEnumApi]
+
+export const RankerEnumApi = {
+    WeightedScore: 'weighted-score',
+    Jev: 'jev',
+} as const
+
+/**
  * Response of GET /vision/scanners/watch_feed/.
  */
 export interface WatchFeedResponseApi {
     /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
     results: WatchFeedItemApi[]
+    /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
+     *
+     * * `weighted-score` - weighted-score
+     * * `jev` - jev */
+    ranker: RankerEnumApi
 }
 
 export type VisionAlertsListParams = {

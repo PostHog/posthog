@@ -16,7 +16,7 @@ from posthog.models import Team
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.slack import SlackTransport
-from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
+from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
 from products.alerts_platform.backend.delivery.transport import DeliveryTransport
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -93,6 +93,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     thread_store = DatabaseThreadStore(request.team_id)
     sent = 0
     skipped = 0
+    busy: list[str] = []
     # Per subscription rather than per destination. A destination subscribes to some of the
     # kinds an alert can announce, so one that asked for firings must not be handed the resolve
     # that another group produced in the same evaluation.
@@ -102,16 +103,22 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
             if transport_class is None:
                 skipped += 1
                 continue
-            deliver(
-                transport=transport_class(),
-                thread_store=thread_store,
-                team_id=request.team_id,
-                configuration_id=request.configuration_id,
-                evaluation_key=request.evaluation_key,
-                target=target,
-                announcement=replace(announced, transitions=transitions),
-            )
-            sent += 1
+            try:
+                deliver(
+                    transport=transport_class(),
+                    thread_store=thread_store,
+                    team_id=request.team_id,
+                    configuration_id=request.configuration_id,
+                    evaluation_key=request.evaluation_key,
+                    target=target,
+                    announcement=replace(announced, transitions=transitions),
+                )
+            except ThreadBusy as error:
+                busy.append(str(error))
+            else:
+                sent += 1
+    if busy:
+        raise ThreadBusy("; ".join(busy))
     return DeliveryOutcome(live=True, sent=sent, skipped_without_transport=skipped)
 
 
