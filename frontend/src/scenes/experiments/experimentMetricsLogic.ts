@@ -929,6 +929,13 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     actions.setRecalculatingMetricUuids(
                         values.recalculatingMetricUuids.filter((uuid) => previousRecalculatingMetricUuids.has(uuid))
                     )
+                    if (error?.status === 429) {
+                        // Another tab or an agent used the refresh window first. Reload the latest run so the
+                        // button picks up its completed_at and shows when the next refresh is possible.
+                        lemonToast.info(error?.detail || 'Metrics were recalculated less than 5 minutes ago.')
+                        actions.loadLatestRecalculation()
+                        return
+                    }
                     lemonToast.error(error?.detail || 'Failed to trigger metrics recalculation')
                 } finally {
                     cache.createInFlight = false

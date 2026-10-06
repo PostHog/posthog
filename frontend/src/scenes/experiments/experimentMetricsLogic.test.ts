@@ -899,6 +899,42 @@ describe('experimentMetricsLogic', () => {
                 expect(createMock.mock.calls.length > 0).toBe(posts)
             })
 
+            it('syncs the window and informs the user when the backend answers 429', async () => {
+                // The local window was open (an old run), but another tab or an agent used the window first.
+                const latestCalls: number[] = []
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => {
+                            latestCalls.push(1)
+                            return [200, finishedMinutesAgo(completedRecalculation, 10)]
+                        },
+                    },
+                    post: {
+                        '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
+                            429,
+                            {
+                                code: 'recalculation_rate_limited',
+                                detail: 'Metrics were recalculated less than 5 minutes ago.',
+                            },
+                        ],
+                    },
+                })
+                mountLogic()
+                await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
+                expect(logic.values.isManualRefreshBlocked).toBe(false)
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerRecalculation('manual')
+                })
+                    .toDispatchActions(['triggerRecalculation', 'loadLatestRecalculation'])
+                    .toFinishAllListeners()
+
+                expect(latestCalls).toHaveLength(2)
+                expect(lemonToast.info).toHaveBeenCalledWith('Metrics were recalculated less than 5 minutes ago.')
+                expect(lemonToast.error).not.toHaveBeenCalled()
+                expect(logic.values.isRecalculating).toBe(false)
+            })
+
             it('unblocks the reload button when the window closes, without a new load', async () => {
                 jest.useFakeTimers()
                 try {
