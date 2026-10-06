@@ -79,6 +79,10 @@ const UNREAD_ACTIVITY_DEBOUNCE_MS = 100
 // A space whose latest activity sits below this page shows no faces.
 const SPACE_PRESENCE_FETCH_LIMIT = 100
 const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000
+// Other clients start sessions this tab never hears about, so Recent reloads on a timer and on each return to
+// the tab, and the cooldown holds a flick between tabs to one request.
+const RECENT_REFRESH_INTERVAL_MS = 60_000
+const RECENT_REFRESH_COOLDOWN_MS = 15_000
 
 export type TodayWorkSectionId = 'pinned' | 'recent' | 'spaces'
 
@@ -88,6 +92,10 @@ export type TodayTouchMenu = 'session' | 'space' | 'bulk' | 'filter' | 'chat'
 export function spaceIdForPath(pathname: string): string | null {
     const match = removeProjectIdIfPresent(pathname).match(/^\/spaces\/([^/]+)/)
     return match && match[1] !== 'new' ? match[1] : null
+}
+
+export function recentRefreshIsDue(loadedAt: number | undefined, now: number = Date.now()): boolean {
+    return loadedAt === undefined || now - loadedAt >= RECENT_REFRESH_COOLDOWN_MS
 }
 
 /** The personal space first, then the team's general space, then starred spaces, then the rest by name. */
@@ -227,7 +235,7 @@ export interface todaySpacesLogicActions {
     loadPullRequestStates: (sessionIds: string[]) => {
         sessionIds: string[]
     }
-    loadRecentTasks: () => any
+    loadRecentTasks: (_: void) => void
     loadRecentTasksFailure: (
         error: string,
         errorObject?: any
@@ -237,10 +245,10 @@ export interface todaySpacesLogicActions {
     }
     loadRecentTasksSuccess: (
         recentTasks: TaskListItemApi[],
-        payload?: any
+        payload?: void
     ) => {
         recentTasks: TaskListItemApi[]
-        payload?: any
+        payload?: void
     }
     loadSpaceActivity: () => any
     loadSpaceActivityFailure: (
@@ -471,7 +479,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         recentTasks: [
             [] as TaskListItemApi[],
             {
-                loadRecentTasks: async () => {
+                loadRecentTasks: async (_: void, breakpoint) => {
                     if (!values.currentTeamId || !values.user) {
                         return []
                     }
@@ -481,6 +489,8 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                         basic: true,
                         limit: RECENT_SESSION_LIMIT,
                     })
+                    // A slower earlier reply must not overwrite what a newer refresh already returned.
+                    breakpoint()
                     return response.results
                 },
             },
@@ -723,7 +733,7 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 ),
         ],
     }),
-    listeners(({ actions, values }) => {
+    listeners(({ actions, values, cache }) => {
         // Reading a session anywhere in the app clears it, so the rail follows the open session rather than clicks.
         const markOpenSessionRead = (): void => {
             const { location, searchParams } = router.values
@@ -742,7 +752,10 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                 markOpenSessionRead()
             },
             loadTaskActivitySuccess: markOpenSessionRead,
-            loadRecentTasks: () => actions.loadTaskActivity(),
+            loadRecentTasks: () => {
+                cache.recentTasksLoadedAt = Date.now()
+                actions.loadTaskActivity()
+            },
             markSessionRead: async ({ marker, activityIds }) => {
                 try {
                     await taskActivityMarkReadCreate(String(values.currentTeamId), { activities: [marker] })
@@ -801,12 +814,19 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         }
         actions.loadSpaces()
         actions.loadPinnedTasks()
-        actions.loadRecentTasks()
         // Setup runs now and again whenever the tab comes back, so the faces refresh on return.
         cache.disposables.add(() => {
             actions.loadSpaceActivity()
             const pollTimer = window.setInterval(() => actions.loadSpaceActivity(), SPACE_PRESENCE_POLL_INTERVAL_MS)
             return () => clearInterval(pollTimer)
         }, 'spacePresencePoll')
+        // A disposable rather than a plain afterMount load, so setup runs again on each return to the tab.
+        cache.disposables.add(() => {
+            if (recentRefreshIsDue(cache.recentTasksLoadedAt)) {
+                actions.loadRecentTasks()
+            }
+            const pollTimer = window.setInterval(() => actions.loadRecentTasks(), RECENT_REFRESH_INTERVAL_MS)
+            return () => clearInterval(pollTimer)
+        }, 'recentTasksPoll')
     }),
 ])

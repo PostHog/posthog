@@ -28,13 +28,7 @@ import {
     dataVisualizationLogic,
 } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { performQuery } from '~/queries/query'
-import {
-    DataVisualizationNode,
-    HogLanguage,
-    HogQLMetadata,
-    HogQLQuery,
-    NodeKind,
-} from '~/queries/schema/schema-general'
+import { VisualizationNode, HogLanguage, HogQLMetadata, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
@@ -66,11 +60,11 @@ export interface AIChartRecommendationProps {
     tabId: string
 }
 
-function presentationKey(query: DataVisualizationNode, tab: OutputTab): string {
+function presentationKey(query: VisualizationNode, tab: OutputTab): string {
     return JSON.stringify([query.display, query.chartSettings, tab])
 }
 
-function chartSourceKey(source: DataVisualizationNode['source']): string {
+function chartSourceKey(source: VisualizationNode['source']): string {
     return JSON.stringify({ ...source, tags: undefined })
 }
 
@@ -153,7 +147,7 @@ async function previewChart(
 export interface aiChartRecommendationLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     columns: Column[] // dataVisualizationLogic
-    query: DataVisualizationNode // dataVisualizationLogic
+    query: VisualizationNode // dataVisualizationLogic
     response:
         | ErrorTrackingQueryResponse
         | HogQLAutocompleteResponse
@@ -254,11 +248,11 @@ export interface aiChartRecommendationLogicActions {
             | null
             | undefined
     } // dataNodeLogic
-    _setQuery: (node: DataVisualizationNode) => {
-        node: DataVisualizationNode
+    _setQuery: (node: VisualizationNode) => {
+        node: VisualizationNode
     } // dataVisualizationLogic
-    setQuery: (setter: (node: DataVisualizationNode) => DataVisualizationNode) => {
-        setter: (node: DataVisualizationNode) => DataVisualizationNode
+    setQuery: (setter: (node: VisualizationNode) => VisualizationNode) => {
+        setter: (node: VisualizationNode) => VisualizationNode
     } // dataVisualizationLogic
     setActiveTab: (tab: OutputTab) => {
         tab: OutputTab
@@ -498,7 +492,7 @@ export const aiChartRecommendationLogic: LogicWrapper<aiChartRecommendationLogic
                                 actions.setRecommendationStatus('fallback')
                                 return null
                             }
-                            const node: DataVisualizationNode = {
+                            const node: VisualizationNode = {
                                 ...values.query,
                                 display: recommendation.display,
                                 chartSettings: recommendation.chartSettings,
