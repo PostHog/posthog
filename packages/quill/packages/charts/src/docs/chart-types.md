@@ -61,6 +61,17 @@ Part of whole, one value per series (`data[0]`).
 - `theme.backgroundColor` is required for the hover pop-out mask; without it the pop-out is skipped. `disableHoverOffset` turns the pop-out off.
 - Children read `useRadialLayout()` for `layout.slices`, `innerRadius`, `outerRadius`, `cx`, `cy`, and `centroidAngle`.
 
+## ProportionBar
+
+Part of whole as one horizontal bar that fills 100% of its width, with no axes.
+It takes the same `series` as `PieChart` and sizes each part the same way, so a consumer can swap between the two without a data change.
+
+- It is a preset over `BarChart` with `barLayout: 'percent'` and `axisOrientation: 'horizontal'`, like `Sparkline` is a preset over `BarChart` and `LineChart`.
+- Its props match `PieChart` where the two overlap: `series`, `valueFormatter`, `tooltip`, `onSliceClick`, and `config.legend`.
+- The legend shows below the bar by default. Each row shows `share · value` as its `secondaryLabel`, because the bar has no axis to read a size from. A part hidden through the legend leaves the total, and its row shows no share.
+- A `tooltip` render prop receives the hovered part as `seriesData[0]`, with its raw `value` and its `fraction` of the visible parts, as on `PieChart`.
+- `barHeight` sets the bar thickness. The chart takes its height from the bar and the legend, so it does not need a parent with a fixed height.
+
 ## BoxPlot
 
 Distribution summaries: `{ min, p25, median, mean, p75, max }` per label.
