@@ -945,6 +945,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         "run_environment": task_run.environment,
                         "is_resume": is_resume,
                         "has_pending_message": has_pending,
+                        "internal": task.internal,
                         # Loop attribution: this event uses Task.capture_event (not TaskRun's),
                         # so carry it from the run state the same way TaskRun.capture_event does.
                         "loop_id": state.get("loop_id"),

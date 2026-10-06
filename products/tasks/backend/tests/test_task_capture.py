@@ -54,12 +54,16 @@ class TestTaskCaptureEvent(TestCase):
     @parameterized.expand([(True,), (False,)])
     def test_run_events_carry_internal_flag(self, internal: bool) -> None:
         task = self._task(internal=internal)
-        run = task.create_run(environment=TaskRun.Environment.LOCAL, extra_state={"use_dedicated_stream": False})
 
-        with patch("products.tasks.backend.models.posthoganalytics.capture") as capture:
+        with (
+            patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            run = task.create_run(environment=TaskRun.Environment.LOCAL, extra_state={"use_dedicated_stream": False})
             run.capture_event("task_run_completed")
 
-        self.assertIs(capture.call_args.kwargs["properties"]["internal"], internal)
+        flags = {call.kwargs["event"]: call.kwargs["properties"].get("internal") for call in capture.call_args_list}
+        self.assertEqual(flags, {"task_run_created": internal, "task_run_completed": internal})
 
     @parameterized.expand(
         [
