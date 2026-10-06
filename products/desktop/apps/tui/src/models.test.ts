@@ -158,6 +158,47 @@ describe("piControl", () => {
     ).toEqual([{ name: "review-pr", description: "Review a pull request" }]);
   });
 
+  it("compacts the run's context with the given focus and reports the sizes", async () => {
+    const sendCommand = vi.fn(
+      async ({
+        params,
+      }: {
+        params: { command: { id: string; type: string } };
+      }) => ({
+        success: true,
+        result: {
+          id: params.command.id,
+          type: "response",
+          command: params.command.type,
+          success: true,
+          data: {
+            summary: "s",
+            firstKeptEntryId: "e9",
+            tokensBefore: 150_000,
+            estimatedTokensAfter: 32_000,
+          },
+        },
+      }),
+    );
+
+    const compaction = await piControl(
+      sendCommand as never,
+      "t1",
+      "r1",
+    ).compact("keep the test plan");
+
+    expect(sendCommand.mock.calls[0][0]).toMatchObject({
+      method: "pi/rpc",
+      params: {
+        command: { type: "compact", customInstructions: "keep the test plan" },
+      },
+    });
+    expect(compaction).toEqual({
+      tokensBefore: 150_000,
+      estimatedTokensAfter: 32_000,
+    });
+  });
+
   it("stops the agent's current turn", async () => {
     const sendCommand = vi.fn(
       async ({

@@ -44,6 +44,7 @@ export function useSend({
   openModal,
   openModelSheet,
   openEffortSheet,
+  compact,
   openSearch,
   onChatStarted,
   runShell,
@@ -77,6 +78,11 @@ export function useSend({
   ) => void;
   openModelSheet: (paneId: string, task: Task | undefined) => void;
   openEffortSheet: (paneId: string, task: Task | undefined) => void;
+  compact: (
+    paneId: string,
+    task: Task | undefined,
+    instructions: string,
+  ) => void;
   openSearch: () => void;
   onChatStarted: (paneId: string, taskId: string) => void;
   runShell: (
@@ -141,6 +147,10 @@ export function useSend({
     }
     if (slash?.command === "effort") {
       openEffortSheet(paneId, current);
+      return;
+    }
+    if (slash?.command === "compact") {
+      compact(paneId, current, slash.args.trim());
       return;
     }
     if (slash?.command === "new") {

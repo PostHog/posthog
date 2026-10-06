@@ -194,6 +194,7 @@ export function App({
   const {
     openModelSheet,
     openEffortSheet,
+    compact,
     onRunLive,
     onChatStarted,
     modelLabel,
@@ -231,6 +232,7 @@ export function App({
     openModal,
     openModelSheet,
     openEffortSheet,
+    compact,
     openSearch: search.toggle,
     onChatStarted,
     setTitles,

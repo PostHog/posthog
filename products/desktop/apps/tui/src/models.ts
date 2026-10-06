@@ -41,8 +41,16 @@ export interface PiControl {
   commands(): Promise<RunCommand[]>;
   // Stops the agent's current turn.
   abort(): Promise<void>;
+  // Summarises older messages to free up context, focused by the instructions if given.
+  compact(instructions?: string): Promise<Compaction>;
   // Runs a command where the agent runs and adds its output to the agent's context, like ! in pi.
   bash(command: string): Promise<ShellResult>;
+}
+
+export interface Compaction {
+  tokensBefore: number;
+  // pi's estimate over the rebuilt context, not a provider's count.
+  estimatedTokensAfter?: number;
 }
 
 export interface RunCommand {
@@ -152,6 +160,7 @@ export function controlOf(
     | "setThinkingLevel"
     | "getCommands"
     | "abort"
+    | "compact"
   >,
   // The local client sends bash through the runtime, which the remote client's interface does not cover.
   bash: PiControl["bash"],
@@ -185,6 +194,11 @@ export function controlOf(
     },
     setEffort: (effort) => client.setThinkingLevel(effort),
     abort: () => client.abort(),
+    compact: async (instructions) => {
+      const { tokensBefore, estimatedTokensAfter } =
+        await client.compact(instructions);
+      return { tokensBefore, estimatedTokensAfter };
+    },
     bash,
     commands: async () =>
       (await client.getCommands()).map(({ name, description }) => ({
