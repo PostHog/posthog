@@ -5,8 +5,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { initKeaTests } from '~/test/init'
 
 import * as dwApi from 'products/data_warehouse/frontend/generated/api'
+import type { WarehouseTrinoStatusApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { warehouseProvisioningLogic } from './warehouseProvisioningLogic'
+import { trinoStatusFixture, warehouseStatusFixture } from './warehouseStatusFixtures'
 
 describe('warehouseProvisioningLogic', () => {
     let logic: ReturnType<typeof warehouseProvisioningLogic.build>
@@ -39,16 +41,15 @@ describe('warehouseProvisioningLogic', () => {
 
     // The warehouse reports ready before Trino does. Without polling through that gap, a Trino
     // organization would sit on "Setting up the query engine..." until the user reloads.
-    it.each([
+    it.each<{ name: string; trinoState: WarehouseTrinoStatusApi['state']; expectedAction: string }>([
         { name: 'keeps polling while Trino is provisioning', trinoState: 'provisioning', expectedAction: 'pollStatus' },
         { name: 'keeps polling while Trino is pending', trinoState: 'pending', expectedAction: 'pollStatus' },
         { name: 'stops polling once Trino is ready', trinoState: 'ready', expectedAction: 'stopPolling' },
         { name: 'stops polling when Trino failed', trinoState: 'failed', expectedAction: 'stopPolling' },
     ])('$name', async ({ trinoState, expectedAction }) => {
-        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue({
-            state: 'ready',
-            trino: { state: trinoState, ready_at: null, connection: null },
-        } as any)
+        jest.spyOn(dwApi, 'dataWarehouseWarehouseStatusRetrieve').mockResolvedValue(
+            warehouseStatusFixture({ trino: trinoStatusFixture({ state: trinoState, ready_at: null }) })
+        )
 
         logic = warehouseProvisioningLogic()
         logic.mount()
