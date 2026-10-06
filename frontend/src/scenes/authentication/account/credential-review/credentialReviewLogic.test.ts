@@ -34,8 +34,8 @@ describe('credentialReviewLogic', () => {
     test.each([
         [
             'returns to the page the user was on',
-            '/data-warehouse/new-source?kind=Hubspot',
-            '/data-warehouse/new-source',
+            '/data-warehouse/new-source?kind=Hubspot#configure',
+            '/data-warehouse/new-source?kind=Hubspot#configure',
         ],
         ['ignores an off-site next', 'https://example.com/phish', urls.projectHomepage()],
     ])('Continue %s', async (_, next, expectedPath) => {
@@ -46,8 +46,7 @@ describe('credentialReviewLogic', () => {
         logic.actions.markComplete()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(
-            removeProjectIdIfPresent(expectedPath)
-        )
+        const actualPath = router.values.location.pathname + router.values.location.search + router.values.location.hash
+        expect(removeProjectIdIfPresent(actualPath)).toEqual(removeProjectIdIfPresent(expectedPath))
     })
 })
