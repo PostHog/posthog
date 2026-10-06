@@ -27,6 +27,7 @@ def deliver(
     announcement: EvaluationAnnouncement,
 ) -> None:
     channel_target = transport.channel_target(target)
+    busy = 0
 
     for transition in announcement.transitions:
         key = _thread_key(
@@ -49,8 +50,10 @@ def deliver(
         try:
             claim = thread_store.claim(key, evaluation_key)
         except ThreadBusy:
-            # Another attempt of this send is still posting. Leaving it is what stops the two
-            # of them putting the same message in the channel twice.
+            # Another attempt may still be posting, so sending now could put the same message
+            # in the channel twice. The holder may also have died, and then its claim frees
+            # this thread only when it goes stale. The caller waits and runs the send again.
+            busy += 1
             continue
         if claim is None:
             continue
@@ -68,6 +71,9 @@ def deliver(
             thread_store.release(claim)
             raise
         thread_store.delivered(claim, sent)
+
+    if busy:
+        raise ThreadBusy(f"{busy} of {len(announcement.transitions)} threads are held by another send")
 
 
 def _send(

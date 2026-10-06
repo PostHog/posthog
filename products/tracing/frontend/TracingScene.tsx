@@ -301,6 +301,7 @@ function TracingSceneContents(): JSX.Element {
                             <VirtualizedSpanList
                                 dataSource={listRows}
                                 spanColumns={spanColumns}
+                                showRootTag={filters.viewMode === 'spans'}
                                 loading={spansLoading}
                                 hasMoreToLoad={hasMoreToLoad}
                                 onLoadMore={fetchNextPage}

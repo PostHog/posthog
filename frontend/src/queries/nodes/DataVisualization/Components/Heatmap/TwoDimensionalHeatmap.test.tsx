@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
-import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -21,7 +21,7 @@ jest.mock('~/queries/query', () => ({
 const dataNodeCollectionId = 'new-test-SQL-heatmap'
 let logicCounter = 0
 
-const makeQuery = (nullLabel = '(header null)', nullValue = ''): DataVisualizationNode => ({
+const makeQuery = (nullLabel = '(header null)', nullValue = ''): VisualizationNode => ({
     kind: NodeKind.DataVisualizationNode,
     source: {
         kind: NodeKind.HogQLQuery,
