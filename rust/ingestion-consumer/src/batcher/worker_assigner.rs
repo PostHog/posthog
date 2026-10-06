@@ -1,3 +1,7 @@
+//! Picks each request's worker when it is sent, against the load in flight.
+//! A worker at its request cap takes no new request, so one slow worker
+//! cannot hold every send slot.
+
 use std::collections::HashMap;
 
 use crate::routing::{Router, WorkerLoad};
@@ -11,7 +15,6 @@ pub struct WorkerAssigner {
 }
 
 impl WorkerAssigner {
-    /// A zero cap would never send.
     pub fn new(router: Router, max_requests_per_worker: usize) -> Result<Self, String> {
         if max_requests_per_worker == 0 {
             return Err("max_requests_per_worker must be > 0".to_string());
@@ -39,8 +42,6 @@ impl WorkerAssigner {
     }
 
     pub fn assign(&mut self, pool: &[WorkerId], message_count: usize) -> Option<WorkerId> {
-        // A worker at the request cap is not a candidate, so one slow worker
-        // cannot take every send slot.
         let open: Vec<WorkerId> = pool
             .iter()
             .filter(|worker| self.requests_on(worker) < self.max_requests_per_worker)
@@ -52,7 +53,7 @@ impl WorkerAssigner {
         Some(worker)
     }
 
-    /// Returns true when the worker has nothing left in flight.
+    /// True when the worker has nothing left in flight.
     pub fn release(&mut self, worker: &WorkerId, message_count: usize) -> bool {
         if let Some(load) = self.message_load.get_mut(worker) {
             *load = load.saturating_sub(message_count);

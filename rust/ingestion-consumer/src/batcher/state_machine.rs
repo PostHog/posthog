@@ -9,8 +9,6 @@
 //! no timer. `fatal` means the state machine failed and the process must
 //! exit and replay.
 //!
-//! - Per-key order: a key has at most one run out at a time, and its later
-//!   messages queue behind that run.
 //! - A worker accepts a whole request or none of it. A request that fails on
 //!   the transport hands back all its messages; they go back to the front of
 //!   their keys' queues and are sent again as replay after the retry delay.

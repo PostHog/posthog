@@ -1,5 +1,9 @@
-//! Per-key FIFO queues with at most one claimed run per key, which
-//! preserves per-key order.
+//! Per-key message queues that keep per-key order: a key has at most one run
+//! out, and its later messages wait until that run settles. Messages a
+//! failed run hands back go to the front of the queue as replay under the
+//! run's epoch, so redelivery keeps offset order. If a revoke happens while
+//! a run is out, its handed-back messages of revoked partitions drop. A
+//! settle without a claim is a bookkeeping error.
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -17,9 +21,7 @@ pub struct KeyRun {
 }
 
 impl KeyRun {
-    /// One run per routing key of a poll. The Kafka key is the routing key.
-    /// An unkeyed group gets a synthetic key from its partition and first
-    /// offset, because it carries no per-key order to preserve.
+    /// An unkeyed group gets a synthetic key: it has no per-key order to keep.
     pub fn from_groups(groups: Vec<Group>) -> Vec<KeyRun> {
         let mut runs: Vec<KeyRun> = Vec::with_capacity(groups.len());
         let mut index_by_key: HashMap<Arc<str>, usize> = HashMap::new();
@@ -61,16 +63,12 @@ pub struct ReadyRun {
     pub first_arrival: Instant,
 }
 
-/// Every settle releases a claim the key queues handed out, so a settle
-/// without one is a bookkeeping bug.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 #[error("settled key {routing_key} without a claim")]
 pub struct UnclaimedSettle {
     pub routing_key: String,
 }
 
-/// One push's messages, or one settle's requeued messages. Kept whole, so
-/// a claim of one segment hands its messages on without copying them.
 struct Segment {
     class: RequestClass,
     queued_at: Instant,
@@ -80,19 +78,11 @@ struct Segment {
 
 struct Claim {
     assignment_epoch: u64,
-    /// Partitions revoked while the run was out. Their requeued messages
-    /// drop, because the new partition owner replays them.
     revoked: Vec<(String, i32)>,
 }
 
-/// A key is in one of four states. An idle key is absent from the table. A
-/// ready key has queued messages and no claim. A claimed key has one run
-/// out: waiting for a worker or on the wire. A waiting key
-/// holds requeued messages until `retry_at`. Arrivals for a claimed or
-/// waiting key queue behind it.
 #[derive(Default)]
 struct KeyState {
-    /// Never holds an empty segment.
     queue: VecDeque<Segment>,
     claim: Option<Claim>,
     retry_at: Option<Instant>,
@@ -110,12 +100,9 @@ impl KeyState {
 
 #[derive(Default)]
 pub struct KeyQueues {
-    /// Keyed by customer-chosen routing keys, so the hasher is seeded per
-    /// map to resist collision flooding.
+    /// Seeded per map, because routing keys are customer-chosen.
     keys: HashMap<Arc<str>, KeyState, ahash::RandomState>,
-    /// Ready keys in the order they became ready, so claims stay fair across
-    /// keys. An entry can be stale; `take_ready` skips keys that are no
-    /// longer ready.
+    /// Can hold stale keys; `take_ready` skips them.
     ready: VecDeque<Arc<str>>,
     waiting: BTreeSet<(Instant, Arc<str>)>,
     queued_messages: usize,
@@ -249,10 +236,6 @@ impl KeyQueues {
         runs
     }
 
-    /// Release the key's claim. `requeued` goes back to the front of the
-    /// queue as replay messages under the claimed run's epoch, ahead of
-    /// anything that arrived while the run was out, so the redelivery keeps
-    /// offset order. Returns whether the key left the table.
     pub fn settle(
         &mut self,
         routing_key: &Arc<str>,
@@ -307,7 +290,6 @@ impl KeyQueues {
         Ok(false)
     }
 
-    /// Returns the keys that left the table.
     pub fn purge(&mut self, revoked: &[(String, i32)]) -> Vec<Arc<str>> {
         let revoked_set: HashSet<(&str, i32)> = revoked
             .iter()
@@ -336,8 +318,7 @@ impl KeyQueues {
                 purged += before - segment.messages.len();
             }
             state.queue.retain(|segment| !segment.messages.is_empty());
-            // The wait belongs to the requeued messages. Once the revoke drops
-            // them, newer messages behind them must not wait for their retry.
+            // The wait was for the requeued messages the revoke just dropped.
             if !state.queue.iter().any(|segment| segment.class.replay) {
                 if let Some(at) = state.retry_at.take() {
                     self.waiting.remove(&(at, key.clone()));

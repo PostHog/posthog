@@ -1,4 +1,7 @@
-//! A request on the wire: one or more claimed key runs of one class.
+//! A request on the wire: claimed key runs of one class. The class applies to
+//! every message in the request, so a request never mixes assignment epochs
+//! or fresh and replayed messages. When `purge_request` empties a run, the
+//! caller must release that key's claim.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -6,12 +9,9 @@ use std::time::Instant;
 
 use super::key_queues::{payload_bytes, KeyRun, ReadyRun};
 
-/// The request fields that apply to every message of one request on the
-/// wire, so a request never mixes classes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RequestClass {
     pub assignment_epoch: u64,
-    /// The request repeats messages that a worker may already have seen.
     pub replay: bool,
 }
 
@@ -21,7 +21,6 @@ pub struct Request {
     pub runs: Vec<KeyRun>,
     pub message_count: usize,
     pub bytes: usize,
-    /// When the oldest message of the request was queued.
     pub oldest_arrival: Instant,
 }
 
@@ -37,9 +36,6 @@ impl Request {
     }
 }
 
-/// Drops the request's messages of revoked partitions. A run left empty
-/// leaves the request, and its key goes to `emptied_keys`; the caller must
-/// release that key's claim.
 pub(crate) fn purge_request(
     request: &mut Request,
     revoked: &HashSet<(&str, i32)>,

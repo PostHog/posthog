@@ -1,7 +1,7 @@
-//! What each in-flight request carried, since a response names its request
-//! only by id. `register` a request when it is sent and `take` it when its
-//! response arrives. Then call `accepted` on success, or `hand_back` with the
-//! messages the transport returns on failure: all of them, in send order.
+//! Remembers what each in-flight request carried, because a response names
+//! its request only by id. The transport hands back a failed request's
+//! messages complete and in send order, so `hand_back` cuts them into runs
+//! by length.
 
 use std::collections::HashMap;
 use std::sync::Arc;

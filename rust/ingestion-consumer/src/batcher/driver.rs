@@ -1,3 +1,15 @@
+//! Runs the batcher state machine on one task and performs its effects.
+//! Inputs win the select's ties, so a revoke applies before a response that
+//! is ready at the same time can send a revoked key.
+//!
+//! The rebalance callback runs inside the consumer loop's Kafka poll, so it
+//! queues the revoke instead of waiting for it; the revoke still lands
+//! between the polls submitted before and after the rebalance. Applying it
+//! clears the order sentinel, so no revoked message is noted as sent after.
+//!
+//! A failed send's fence guard drops only after its messages are requeued,
+//! so the worker stream starts no new send ahead of them.
+
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -22,8 +34,6 @@ use crate::transport::SendError;
 use crate::types::Accumulator;
 use crate::worker_registry::WorkerId;
 
-/// Hands inputs to the batcher task, which owns the state machine, begins
-/// its sends, awaits their responses, and fires its wakeups.
 pub(super) struct StateMachineDriver {
     inputs: mpsc::UnboundedSender<Input>,
     assignment_epoch: AssignmentEpoch,
@@ -41,13 +51,10 @@ enum Input {
     Shutdown,
 }
 
-/// The state machine's load after its latest action, for the observer.
 #[derive(Debug, Default)]
 pub(super) struct Load {
     pub pending_messages: AtomicUsize,
     pub in_flight_messages: AtomicUsize,
-    /// Changes only when a worker's first request goes out or its last one
-    /// settles, so a busy worker costs no lock per action.
     pub busy_workers: Mutex<HashSet<WorkerId>>,
 }
 
@@ -161,18 +168,12 @@ impl Drop for StateMachineDriver {
 }
 
 impl RevokeSender {
-    /// Runs on the rebalance callback, inside the consumer loop's Kafka
-    /// poll, so a blocking wait here would stall a runtime worker. The purge
-    /// queues behind the polls submitted before the rebalance and ahead of
-    /// any submitted after it.
     pub(super) fn purge_revoked(&self, partitions: &[(String, i32)]) {
         let _ = self.0.send(Input::PartitionsRevoked(partitions.to_vec()));
     }
 }
 
 impl BatcherTask {
-    /// Inputs win ties, so a revocation applies before a response that is
-    /// ready at the same time can start a send for a revoked key.
     async fn run(mut self, mut state: BatcherStateMachine) {
         loop {
             let wakeup = self.wakeup;
@@ -204,8 +205,6 @@ impl BatcherTask {
                 state.on_groups(now, &self.pool_source.pool(), assignment_epoch, runs)
             }
             Event::Input(Input::PartitionsRevoked(partitions)) => {
-                // Cleared here, in order with the sends, so no revoked
-                // message is noted as sent after the clear.
                 self.key_sentinel.clear();
                 state.on_partitions_revoked(now, &partitions)
             }
@@ -214,8 +213,7 @@ impl BatcherTask {
                 state.on_request_succeeded(now, &self.pool_source.pool(), request, accepted)
             }
             Event::Response(request, Err(failure)) => {
-                // Backpressure is transient, so it does not count against the
-                // worker's health.
+                // Backpressure is transient, not a worker fault.
                 let cause = if failure.error.is_backpressure() {
                     FailureCause::Busy
                 } else {
@@ -233,8 +231,6 @@ impl BatcherTask {
             Event::Wakeup => state.on_wakeup(now, &self.pool_source.pool()),
         };
         self.perform(&state, effects);
-        // The worker stream fences new sends until the failed messages are
-        // back in their queues, so the guard drops only now.
         drop(fence_guard);
         if assigned {
             histogram!("ingestion_consumer_assign_duration_seconds")
@@ -257,7 +253,6 @@ impl BatcherTask {
         } = effects;
         let key_sentinel = Arc::clone(&self.key_sentinel);
         let mut sentinel = key_sentinel.batch();
-        // An ACK advances before its key is evicted.
         for ack in &key_acks {
             sentinel.note_acked(&ack.routing_key, ack.max_offset);
         }
@@ -269,8 +264,7 @@ impl BatcherTask {
         }
         drop(sentinel);
 
-        // Within one action a worker can settle its last request and then
-        // take a new one, never the reverse, so removals go first.
+        // A worker can go idle and then busy in one action, never the reverse.
         if !idle_workers.is_empty() || !busy_workers.is_empty() {
             let mut busy = self.load.busy_workers.lock().unwrap();
             for worker in &idle_workers {
@@ -284,8 +278,6 @@ impl BatcherTask {
             registry.record_outcome(&outcome.worker, outcome.fault);
         }
         for worker in idle_workers {
-            // A draining worker with nothing in flight has finished its work,
-            // so it can be removed now instead of at the drain timeout.
             if registry.is_draining(&worker) {
                 registry.complete_drain(&worker);
             }

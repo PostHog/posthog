@@ -1,5 +1,5 @@
 //! Batcher construction shared by the integration suites. Each suite compiles
-//! this module on its own and uses part of it.
+//! this module separately and uses part of it.
 #![allow(dead_code)]
 
 use std::sync::Arc;
@@ -15,8 +15,6 @@ use ingestion_consumer::routing::Router;
 use ingestion_consumer::scheduler::SchedulerKind;
 use lifecycle::Handle;
 
-/// The batcher `kind` selects, as `main` builds it: the dispatcher's pin-stash
-/// scheduler, or the batcher state machine over the dispatcher's worker pool.
 /// `stall_timeout` is the deferred-flush timeout for pin-stash and the stall
 /// timeout for the state machine.
 pub fn batcher(
@@ -37,8 +35,6 @@ pub fn batcher(
     }
 }
 
-/// The batcher state machine over the dispatcher's worker pool, retrying after
-/// `retry_delay` and failing after `stall_timeout` without progress.
 pub fn key_table_batcher(
     dispatcher: &Dispatcher,
     transport: Arc<GrpcTransport>,
