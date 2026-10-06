@@ -437,8 +437,8 @@ pub struct Config {
 
     // Deadline shared by all persons DB calls in one /flags evaluation: the hash key override
     // check, write, and read, and the properties fetch.
-    // statement_timeout cannot cancel a query on a database that has stopped answering, so
-    // only this timer bounds the request then. On expiry, the flags that need persons data
+    // statement_timeout cannot cancel a query on a database that has stopped answering.
+    // Only this timer bounds the request then. On expiry, the flags that need persons data
     // return an error and the other flags evaluate normally. The default leaves 2s of the
     // 4.5s REQUEST_TIMEOUT_MS for the rest of the request. 0 disables the deadline.
     #[envconfig(from = "PERSONS_DB_DEADLINE_MS", default = "2500")]

@@ -10,10 +10,11 @@ pub async fn before_deadline<T, E>(
     let Some(deadline) = deadline else {
         return call.await;
     };
-    // `timeout_at` polls `call` once before it checks the timer, so an expired deadline
-    // still starts the call. A database call then takes a connection and drops it
-    // mid-query. sqlx pings a connection that it drops mid-query before it returns the
-    // connection to the pool, and on a frozen database that ping never completes.
+    // `timeout_at` polls `call` once before it checks the timer. Without this check, an
+    // expired deadline still starts the call. A database call then takes a connection and
+    // drops it mid-query. When a caller drops a connection mid-query, sqlx pings the
+    // connection before it returns the connection to the pool. On a frozen database, that
+    // ping never completes.
     if Instant::now() >= deadline {
         return Err(expired());
     }

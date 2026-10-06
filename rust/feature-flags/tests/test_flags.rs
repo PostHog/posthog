@@ -6344,7 +6344,8 @@ async fn it_degrades_person_flags_when_the_persons_db_stops_answering() -> Resul
         "postgres://posthog:posthog@{}/posthog_persons",
         stalled_persons_db.local_addr()?
     );
-    // Below the pool acquire timeout, so only the deadline can produce the reason code asserted below.
+    // The deadline is shorter than the pool acquire timeout. Only the deadline can then produce
+    // the reason code that the test asserts below.
     config.persons_db_deadline_ms = 500;
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;

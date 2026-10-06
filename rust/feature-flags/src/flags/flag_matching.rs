@@ -494,7 +494,7 @@ pub struct FeatureFlagMatcher {
     /// Request evaluation time. Only v2 relative-date predicates read it; tests pin it.
     now: DateTime<Utc>,
     /// Every persons DB call in this evaluation fails once this instant passes. `None` leaves
-    /// each call bounded only by pool acquire and statement_timeout.
+    /// each call bounded only by the pool acquire timeout and statement_timeout.
     persons_db_deadline: Option<Instant>,
 }
 
