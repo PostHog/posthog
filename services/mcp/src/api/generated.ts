@@ -80634,7 +80634,7 @@ export namespace Schemas {
       resolve_comments?: boolean;
       /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
       celebrate_clean_reviews?: boolean;
-      /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
+      /** Automatically review pull requests authored by this user in Flash mode, in every repository whose .github/review-hog.yml turns automatic reviews on. Off by default. Flash reviews post findings without resolving comments. */
       review_authored_prs?: boolean;
       /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
        *
@@ -92298,7 +92298,7 @@ export namespace Schemas {
       resolve_comments?: boolean;
       /** Show a fun image in the review comment when a review of this user's pull requests finds nothing to raise. On by default; turning it off makes clean reviews end with the text summary only. */
       celebrate_clean_reviews?: boolean;
-      /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
+      /** Automatically review pull requests authored by this user in Flash mode, in every repository whose .github/review-hog.yml turns automatic reviews on. Off by default. Flash reviews post findings without resolving comments. */
       review_authored_prs?: boolean;
       /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
        *

@@ -65,6 +65,7 @@ def build_review_prompt(
     dig_deeper: bool = False,
     blind_spot_check: bool = False,
     wave_perspectives: dict[str, str] | None = None,
+    repository_instructions: str = "",
 ) -> str:
     """Render one (perspective, chunk) review prompt — also the blind-spot check's, via the same shape.
 
@@ -82,10 +83,13 @@ def build_review_prompt(
     this chunk, so its `skill-get`-loaded sweep knows what ground is spoken for. `blind_spot_check` is
     an explicit flag (not inferred from `wave_perspectives`) because perspective selection can leave a
     chunk with NO lenses — the sweep must then be told it is the chunk's only reviewer.
+    `repository_instructions` is the reviewed repository's own guidance (`.github/review-hog.yml`),
+    rendered after the perspective skill so the lens still decides what is in scope.
     """
     main_template, output_schema = load_template_and_schema("issues_review")
     return main_template.render(
         **build_chunk_prompt_context(chunk, pr_metadata, pr_comments, pr_files),
+        REPOSITORY_INSTRUCTIONS=repository_instructions.strip() or None,
         COVERED_FINDINGS=_covered_findings_for_chunk(prior_findings, same_turn_findings or [], chunk),
         DIG_DEEPER=dig_deeper,
         IS_BLIND_SPOT=blind_spot_check,

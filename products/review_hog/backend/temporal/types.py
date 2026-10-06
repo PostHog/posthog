@@ -20,6 +20,23 @@ TRIGGER_AUTOMATIC = "automatic"
 
 
 @frozen
+class RepositoryReviewPolicy:
+    """What the reviewed repository's `.github/review-hog.yml` decides about a turn.
+
+    Resolved by the automatic trigger when it reads the file, then carried in the workflow input
+    so the turn runs under the config the trigger saw, not a later edit of it.
+    """
+
+    # When False (`authors: members`), an author who maps to a PostHog user is reviewed without
+    # having turned on "Review all your PRs in Flash mode".
+    author_opt_in_required: bool = True
+    # A `ReviewUserSettings.FlashReasoningEffort` value that replaces the author's own setting.
+    flash_reasoning_effort: str | None = None
+    # Repository-wide guidance added to every review perspective's prompt.
+    instructions: str = ""
+
+
+@frozen
 class ReviewPRWorkflowInputs:
     """Input for one single-turn `ReviewPRWorkflow`.
 
@@ -74,10 +91,17 @@ class ReviewPRWorkflowInputs:
     # payloads from before the field still deserialize as full reviews.
     review_mode: str = REVIEW_MODE_FULL
     requested_head_sha: str | None = None
+    # Set by the automatic trigger from the repository's config file; None for every other trigger
+    # and for payloads serialized before the field existed, which run under the defaults.
+    repository_policy: RepositoryReviewPolicy | None = None
 
     @property
     def repository(self) -> str:
         return f"{self.owner}/{self.repo}"
+
+    @property
+    def effective_repository_policy(self) -> RepositoryReviewPolicy:
+        return self.repository_policy if self.repository_policy is not None else RepositoryReviewPolicy()
 
     @property
     def properties_to_log(self) -> dict[str, object]:

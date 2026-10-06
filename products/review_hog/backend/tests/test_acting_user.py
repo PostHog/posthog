@@ -51,14 +51,17 @@ class TestResolveActingUser(BaseTest):
 
     @parameterized.expand(
         [
-            ("enabled", True, True, True),
-            ("opted_out", False, True, True),
-            ("inactive", True, False, True),
-            ("left_organization", True, True, False),
+            ("enabled", True, True, True, True),
+            ("opted_out", False, True, True, True),
+            ("inactive", True, False, True, True),
+            ("left_organization", True, True, False, True),
+            # `authors: members` in the repository config: the opt-in is waived, membership is not.
+            ("opt_in_waived", False, True, True, False),
+            ("opt_in_waived_left_organization", False, True, False, False),
         ]
     )
     def test_automatic_trigger_rechecks_eligible_author(
-        self, _name: str, opted_in: bool, active: bool, member: bool
+        self, _name: str, opted_in: bool, active: bool, member: bool, opt_in_required: bool
     ) -> None:
         report = ReviewReport.objects.for_team(self.team.id).create(
             team_id=self.team.id,
@@ -82,12 +85,29 @@ class TestResolveActingUser(BaseTest):
                 override_user_id=self.user.id,
                 trigger_source=TRIGGER_AUTOMATIC,
                 report_id=str(report.id),
+                author_opt_in_required=opt_in_required,
             )
         )
-        eligible = opted_in and active and member
+        eligible = (opted_in or not opt_in_required) and active and member
         assert result.acting_user_id == (self.user.id if eligible else None)
         report.refresh_from_db()
         assert report.status == (ReviewReport.Status.ACTIVE if eligible else ReviewReport.Status.IDLE)
+
+    def test_repository_policy_effort_replaces_the_authors_setting(self) -> None:
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            flash_reasoning_effort=ReviewUserSettings.FlashReasoningEffort.XHIGH,
+        )
+        result = _resolve_acting_user(
+            ResolveActingUserInput(
+                team_id=self.team.id,
+                author_login="octocat",
+                override_user_id=None,
+                flash_reasoning_effort_override="medium",
+            )
+        )
+        assert result.flash_reasoning_effort == "medium"
 
     def test_settings_row_flows_into_the_result(self) -> None:
         # The user's saved settings must reach the workflow — if resolve stops loading any of them,

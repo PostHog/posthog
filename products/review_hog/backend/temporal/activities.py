@@ -32,7 +32,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.review_hog.backend.automatic_reviews import authored_reviews_enabled
+from products.review_hog.backend.automatic_reviews import automatic_review_allowed
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import (
     CHUNKING_MODEL,
@@ -228,6 +228,11 @@ class ResolveActingUserInput:
     # drift from the identity the sandboxes execute under. Defaulted for old in-flight payloads.
     trigger_source: str = TRIGGER_MANUAL
     default_user_id: int | None = None
+    # The repository config's say on an automatic turn (`RepositoryReviewPolicy`): whether the
+    # author's own opt-in gates the review, and a Flash effort that replaces their setting.
+    # Defaulted to the pre-config behavior so old in-flight payloads keep gating on the opt-in.
+    author_opt_in_required: bool = True
+    flash_reasoning_effort_override: str | None = None
 
 
 @dataclass(frozen=False)
@@ -299,6 +304,9 @@ class SandboxStageInput:
     # their positional fields and pre-field payloads deserialize as full reviews.
     review_mode: str = field(default=REVIEW_MODE_FULL, kw_only=True)
     flash_reasoning_effort: str = field(default=ReasoningEffort.MEDIUM.value, kw_only=True)
+    # The reviewed repository's own review guidance (`.github/review-hog.yml`), rendered into every
+    # perspective prompt. Empty for triggers that read no config and for pre-field payloads.
+    repository_instructions: str = field(default="", kw_only=True)
 
 
 @dataclass
@@ -706,7 +714,10 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
             acting_user_id, resolved_from = input.default_user_id, "default"
     if input.trigger_source == TRIGGER_AUTOMATIC and (
-        acting_user_id is None or not authored_reviews_enabled(team_id=input.team_id, user_id=acting_user_id)
+        acting_user_id is None
+        or not automatic_review_allowed(
+            team_id=input.team_id, user_id=acting_user_id, require_opt_in=input.author_opt_in_required
+        )
     ):
         if input.report_id is not None:
             ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
@@ -758,8 +769,12 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
             )
         ),
         review_authored_prs=settings.review_authored_prs if resolved_from in ("author", "override") else False,
+        # The repository's config sets the Flash budget for every author it reviews; without one,
+        # the author's own strength setting applies.
         flash_reasoning_effort=(
-            str(settings.flash_reasoning_effort)
+            input.flash_reasoning_effort_override
+            if input.flash_reasoning_effort_override is not None
+            else str(settings.flash_reasoning_effort)
             if resolved_from in ("author", "override")
             else ReasoningEffort.MEDIUM.value
         ),
@@ -994,6 +1009,7 @@ def _prepare_review_prompt(
     blind_spot_check: bool,
     wave_perspectives: list[LoadedPerspectiveDTO],
     review_arm: ReviewArm,
+    repository_instructions: str = "",
 ) -> str | None:
     """Build the review prompt for one (perspective, chunk), or None if already reviewed this turn."""
     done = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha, review_arm=review_arm)
@@ -1026,6 +1042,7 @@ def _prepare_review_prompt(
         dig_deeper=bool(same_turn_findings),
         blind_spot_check=blind_spot_check,
         wave_perspectives={p.skill_name: p.description for p in wave_perspectives} if blind_spot_check else None,
+        repository_instructions=repository_instructions,
     )
 
 
@@ -1054,6 +1071,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         input.blind_spot_check,
         input.wave_perspectives,
         arm,
+        repository_instructions=input.repository_instructions,
     )
     if prompt is None:
         return True

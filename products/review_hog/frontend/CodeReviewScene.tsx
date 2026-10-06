@@ -1289,8 +1289,8 @@ function TriggersSection(): JSX.Element {
                             <div className="min-w-0 flex-1">
                                 <div className="text-sm font-semibold">Review all your PRs in Flash mode</div>
                                 <div className="text-xs text-secondary">
-                                    Automatically review PRs you author in PostHog/posthog, including drafts and new
-                                    commits. Starts with future PR activity.
+                                    Automatically review PRs you author in every repository that turns on automatic
+                                    reviews, including drafts and new commits. Starts with future PR activity.
                                 </div>
                             </div>
                             <LemonSwitch

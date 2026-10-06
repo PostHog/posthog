@@ -108,7 +108,7 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            'Automatically review pull requests authored by this user in PostHog\/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments.'
+            'Automatically review pull requests authored by this user in Flash mode, in every repository whose .github\/review-hog.yml turns automatic reviews on. Off by default. Flash reviews post findings without resolving comments.'
         ),
     flash_reasoning_effort: zod
         .enum(['medium', 'xhigh'])

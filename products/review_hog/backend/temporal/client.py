@@ -43,6 +43,7 @@ from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 from products.review_hog.backend.temporal.types import (
     TRIGGER_MANUAL,
+    RepositoryReviewPolicy,
     ResolvePRWorkflowInputs,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
@@ -96,6 +97,7 @@ def _build_inputs(
     signal_priority: ReportPriority | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     requested_head_sha: str | None = None,
+    repository_policy: RepositoryReviewPolicy | None = None,
 ) -> tuple[ReviewPRWorkflowInputs, str]:
     """Validate the review target, the team, and build the workflow inputs + deterministic id.
 
@@ -134,6 +136,7 @@ def _build_inputs(
         resolve_comments=resolve_comments,
         review_mode=review_mode,
         requested_head_sha=requested_head_sha,
+        repository_policy=repository_policy,
     )
     return inputs, workflow_id
 
@@ -208,6 +211,7 @@ def start_review_pr_workflow(
     resolve_comments: bool | None = None,
     review_mode: str = REVIEW_MODE_FULL,
     requested_head_sha: str | None = None,
+    repository_policy: RepositoryReviewPolicy | None = None,
 ) -> str:
     """Start or signal the review queue without blocking and return the workflow id.
 
@@ -234,6 +238,7 @@ def start_review_pr_workflow(
         resolve_comments=resolve_comments,
         review_mode=review_mode,
         requested_head_sha=requested_head_sha,
+        repository_policy=repository_policy,
     )
 
     client = sync_connect()
