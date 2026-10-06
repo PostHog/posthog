@@ -28,7 +28,7 @@ export interface CIExplorerItem {
     status: CIStatus
     startedAt: number
     endedAt: number
-    /** Wall time: for a matrix, its slowest shard. Null while nothing has finished. */
+    /** Elapsed time, from the first start to the last finish. Null while a job of the node has not finished. */
     durationSeconds: number | null
     /** Duration relative to the slowest item of the workflow, 0 to 1. */
     durationShare: number
@@ -130,11 +130,17 @@ function shardLabel(jobName: string, base: string): string {
     return rest.replace(/^\((\d+\/\d+)\)$/, '$1') || name
 }
 
+/** First start to last finish. Null while a job is unfinished, because the last finish is not known yet. */
+export function elapsedSeconds(jobs: WorkflowJobApi[]): number | null {
+    const start = Math.min(...jobs.map(startOf))
+    const end = Math.max(...jobs.map(endOf))
+    return isFinite(start) && isFinite(end) ? Math.max(0, Math.round((end - start) / 1000)) : null
+}
+
 function itemsOf(workflowId: string, jobs: WorkflowJobApi[]): CIExplorerItem[] {
     const items = groupJobs(jobs).map((group): Omit<CIExplorerItem, 'durationShare'> => {
         const id = `${workflowId}/${group.base}`
         const slowest = Math.max(0, ...group.jobs.map((job) => job.duration_seconds ?? 0))
-        const finished = group.jobs.some((job) => job.duration_seconds !== null)
         const single = group.jobs.length === 1 ? group.jobs[0] : null
         return {
             id,
@@ -143,7 +149,7 @@ function itemsOf(workflowId: string, jobs: WorkflowJobApi[]): CIExplorerItem[] {
             status: GROUP_STATUS[group.conclusion],
             startedAt: Math.min(...group.jobs.map(startOf)),
             endedAt: Math.max(...group.jobs.map(endOf)),
-            durationSeconds: finished ? slowest : null,
+            durationSeconds: single ? single.duration_seconds : elapsedSeconds(group.jobs),
             job: single,
             shards: single
                 ? []
@@ -192,6 +198,27 @@ function columnsOf(items: CIExplorerItem[], edges: [string, string][]): Record<s
 
 export function workflowId(run: WorkflowRun): string {
     return run.runId === null ? run.workflow : jobCacheKey(run.runId, run.runAttempt, run.ciEngine)
+}
+
+/** What stays the same across the runs of one workflow. Two providers can run workflows with one display name. */
+function workflowKey(run: WorkflowRun): string {
+    return `${run.ciEngine ?? ''}:${run.workflowId ?? run.workflow}`
+}
+
+/** A re-run replaces the earlier attempt, as it does on GitHub's checks list. */
+export function latestRunPerWorkflow(runs: WorkflowRun[]): WorkflowRun[] {
+    const latest = new Map<string, WorkflowRun>()
+    for (const run of runs) {
+        const seen = latest.get(workflowKey(run))
+        if (
+            !seen ||
+            (run.startedAt ?? '') > (seen.startedAt ?? '') ||
+            ((run.startedAt ?? '') === (seen.startedAt ?? '') && (run.runAttempt ?? 0) > (seen.runAttempt ?? 0))
+        ) {
+            latest.set(workflowKey(run), run)
+        }
+    }
+    return [...latest.values()]
 }
 
 /** The workflows of a push, failed first and then slowest first. */
@@ -361,7 +388,10 @@ export async function layoutWorkflow(
 }
 
 export const TILE_WIDTH = 300
-export const TILE_HEIGHT = 98
+// Tall enough for a workflow name that wraps to three lines.
+export const TILE_HEIGHT = 134
+/** The overview never shows smaller than this, so tile names stay readable. A long list pans instead. */
+export const OVERVIEW_MIN_ZOOM = 0.8
 export const TILE_GAP = 16
 export const TILE_COLUMN_GAP = 56
 /** The tiles hang off a rail that runs along the top and drops down the left of each column. */
@@ -381,6 +411,10 @@ export function tileRows(count: number, stageWidth: number, stageHeight: number)
     for (let columns = 1; columns <= count; columns++) {
         const rows = Math.ceil(count / columns)
         const size = tileGridSize(columns, rows)
+        // More columns than fit at a readable zoom would push tiles off the side of the stage.
+        if (columns > 1 && size.width * OVERVIEW_MIN_ZOOM > stageWidth) {
+            break
+        }
         const scale = Math.min(stageWidth / size.width, stageHeight / size.height)
         if (scale > best.scale + 1e-6) {
             best = { rows, scale }
@@ -395,23 +429,52 @@ export interface CIExplorerFocusLevel {
     durationSeconds: number | null
 }
 
-/** The focused node and what contains it, outermost first. A node id starts with the id of its container. */
-export function focusPath(workflows: CIExplorerWorkflow[], nodeId: string | null): CIExplorerFocusLevel[] {
-    const workflow =
-        nodeId === null ? undefined : workflows.find((w) => nodeId === w.id || nodeId.startsWith(`${w.id}/`))
+/** What a node id names: a workflow, an item of it, or a shard of that item. */
+export interface CIExplorerNode {
+    workflow: CIExplorerWorkflow
+    item: CIExplorerItem | null
+    shard: CIExplorerShard | null
+}
+
+function contains(containerId: string, nodeId: string): boolean {
+    return nodeId === containerId || nodeId.startsWith(`${containerId}/`)
+}
+
+/**
+ * The node with this id and what contains it. A node id starts with the id of its container, so an id that
+ * names nothing still resolves to the deepest container that exists.
+ */
+export function resolveNode(workflows: CIExplorerWorkflow[], nodeId: string | null): CIExplorerNode | null {
+    const workflow = nodeId === null ? undefined : workflows.find((w) => contains(w.id, nodeId))
     if (!workflow || nodeId === null) {
+        return null
+    }
+    const item = workflow.items?.find((i) => contains(i.id, nodeId)) ?? null
+    return { workflow, item, shard: item?.shards.find((s) => s.id === nodeId) ?? null }
+}
+
+/** The jobs a node of the graph stands for: its one job, or every shard of a matrix. */
+export function jobsOf(item: CIExplorerItem): WorkflowJobApi[] {
+    return item.job ? [item.job] : item.shards.map((shard) => shard.job)
+}
+
+export function workflowJobs(workflow: CIExplorerWorkflow): WorkflowJobApi[] {
+    return (workflow.items ?? []).flatMap(jobsOf)
+}
+
+/** The focused node and what contains it, outermost first. */
+export function focusPath(workflows: CIExplorerWorkflow[], nodeId: string | null): CIExplorerFocusLevel[] {
+    const node = resolveNode(workflows, nodeId)
+    if (!node) {
         return []
     }
-    const path: CIExplorerFocusLevel[] = [
-        { id: workflow.id, name: workflow.run.workflow, durationSeconds: workflow.run.durationSeconds },
-    ]
-    const item = workflow.items?.find((i) => nodeId === i.id || nodeId.startsWith(`${i.id}/`))
+    const { workflow, item, shard } = node
+    const path = [{ id: workflow.id, name: workflow.run.workflow, durationSeconds: workflow.run.durationSeconds }]
     if (item) {
         path.push({ id: item.id, name: item.name, durationSeconds: item.durationSeconds })
-        const shard = item.shards.find((s) => s.id === nodeId)
-        if (shard) {
-            path.push({ id: shard.id, name: shard.label, durationSeconds: shard.job.duration_seconds })
-        }
+    }
+    if (shard) {
+        path.push({ id: shard.id, name: shard.label, durationSeconds: shard.job.duration_seconds })
     }
     return path
 }
@@ -421,13 +484,7 @@ export function focusedJob(
     workflows: CIExplorerWorkflow[],
     nodeId: string | null
 ): { job: WorkflowJobApi; run: WorkflowRun } | null {
-    for (const workflow of workflows) {
-        for (const item of workflow.items ?? []) {
-            const job = item.id === nodeId ? item.job : item.shards.find((shard) => shard.id === nodeId)?.job
-            if (job) {
-                return { job, run: workflow.run }
-            }
-        }
-    }
-    return null
+    const node = resolveNode(workflows, nodeId)
+    const job = node?.shard?.job ?? (node?.item?.id === nodeId ? node.item.job : null)
+    return node && job ? { job, run: node.workflow.run } : null
 }
