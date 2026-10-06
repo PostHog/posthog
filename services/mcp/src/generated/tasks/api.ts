@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 25 enabled ops
+ * PostHog API - MCP 27 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1273,7 +1273,7 @@ export const TasksRetrieveParams = () => zod.object({
 })
 
 /**
- * Create a new task run and kick off the workflow.
+ * Create a new task run and kick off the workflow. The response is the refreshed task with the created run under the top-level `run` key: read `run.id` for anything run-scoped, such as the run's stream and command endpoints. The top-level `id` is the task's, and `latest_run` mirrors `run` only as long as nothing newer starts — reading either of those as the created run is deprecated.
  * @summary Run task
  */
 export const tasksRunCreatePathIdRegExp = new RegExp(
@@ -1858,11 +1858,6 @@ export const TasksMeConfigListParams = () => zod.object({
         ),
 })
 
-export const TasksMeConfigListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
-    offset: zod.number().optional().describe('The initial index from which to return the results.'),
-})
-
 /**
  * Set your per-project default AI run preferences; they override the project default wholesale. Send all fields as null to clear and inherit the project default.
  */
@@ -1911,6 +1906,30 @@ export const TasksMeConfigCreateBody = () => zod
     .describe(
         'The default AI run selection stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. What a complete selection is depends on the harness: an ACP default\nsets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send\nevery field as null to clear a stored preference.'
     )
+
+/**
+ * Set your personal instructions, which PostHog cloud agents load in Tasks runs you start, after the project instructions. Autonomous runs never get them. Anyone who continues a task you started can see them, so leave out anything private. Send an empty string to clear.
+ */
+export const TasksMeConfigAgentInstructionsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const tasksMeConfigAgentInstructionsCreateBodyAgentInstructionsMax = 20000
+
+export const TasksMeConfigAgentInstructionsCreateBody = () => zod
+    .object({
+        agent_instructions: zod
+            .string()
+            .max(tasksMeConfigAgentInstructionsCreateBodyAgentInstructionsMax)
+            .describe(
+                'Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.'
+            ),
+    })
+    .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
 
 /**
  * Retrieve the project-wide default AI run preferences for task runs.
@@ -1976,6 +1995,30 @@ export const TasksConfigCreateBody = () => zod
     .describe(
         'The default AI run selection stored at team or user level.\n\nWrite payload for the tasks config endpoints and the `ai_run_preferences` block of\ntheir responses. What a complete selection is depends on the harness: an ACP default\nsets `runtime_adapter` and `model` together, a Pi default sets `model` alone. Send\nevery field as null to clear a stored preference.'
     )
+
+/**
+ * Set the project instructions that PostHog cloud agents load as their user-level AGENTS.md in every eligible Tasks run, including autonomous runs. Send an empty string to clear.
+ */
+export const TasksConfigAgentInstructionsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const tasksConfigAgentInstructionsCreateBodyAgentInstructionsMax = 20000
+
+export const TasksConfigAgentInstructionsCreateBody = () => zod
+    .object({
+        agent_instructions: zod
+            .string()
+            .max(tasksConfigAgentInstructionsCreateBodyAgentInstructionsMax)
+            .describe(
+                'Markdown instructions that PostHog cloud agents read in every eligible Tasks run, the same way a local agent reads AGENTS.md. Send an empty string to clear.'
+            ),
+    })
+    .describe('Markdown instructions that PostHog cloud agents load as their user-level AGENTS.md in Tasks runs.')
 
 /**
  * Return the models a task run may use, with the reasoning efforts each one supports. Derived from the live LLM gateway catalogue, so a newly released model appears without a client change. An empty list means the gateway is unreachable — clients should fall back to their own default rather than treating it as 'no models exist'.

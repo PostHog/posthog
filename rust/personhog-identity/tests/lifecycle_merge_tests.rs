@@ -2288,10 +2288,10 @@ async fn invalid_merge_requests_are_rejected_before_any_work() {
 }
 
 #[tokio::test]
-async fn an_unresolved_target_attaches_to_the_first_resolved_sources_person() {
+async fn an_unresolved_target_with_a_personless_first_source_is_born_and_absorbs_the_rest() {
     let h = MergeHarness::new().await;
     let service = h.service();
-    let survivor = h.ctx.insert_person_with_distinct_id("flip-source").await;
+    let source = h.ctx.insert_person_with_distinct_id("flip-source").await;
 
     let response = service
         .merge_persons(Request::new(rpc_request(
@@ -2301,35 +2301,28 @@ async fn an_unresolved_target_attaches_to_the_first_resolved_sources_person() {
             Uuid::now_v7(),
         )))
         .await
-        .expect("target attach succeeds")
+        .expect("merge succeeds")
         .into_inner();
 
+    // As one-at-a-time identifies would: the first pair births the target,
+    // and the second merges its person into it.
+    let survivor = response.survivor.as_ref().expect("survivor present");
     assert_eq!(
-        response.survivor.as_ref().expect("survivor present").id,
-        survivor
+        survivor.uuid,
+        person_uuid(h.ctx.team_id, "flip-target").to_string()
     );
     assert_eq!(
         rpc_outcomes(&response),
         vec![
             ("flip-personless".to_string(), MergeSourceOutcome::Attached),
-            (
-                "flip-source".to_string(),
-                MergeSourceOutcome::NoopSamePerson
-            ),
+            ("flip-source".to_string(), MergeSourceOutcome::Merged),
         ]
     );
-    // The target distinct id and the personless source both attached to the
-    // surviving person, with version 1 (an override row is always written).
-    assert_eq!(h.pdi_state("flip-target").await, (survivor, false, 1));
-    assert_eq!(h.pdi_state("flip-personless").await, (survivor, false, 1));
-    // Pairs settled, so the survivor is identified via one leader push.
-    assert_eq!(
-        h.leader.calls(),
-        vec![LeaderCall::PropertyPush {
-            person_id: survivor,
-            is_identified: Some(true),
-        }]
-    );
+    assert_eq!(h.pdi_state("flip-target").await.0, survivor.id);
+    assert_eq!(h.pdi_state("flip-personless").await.0, survivor.id);
+    assert_eq!(h.pdi_state("flip-source").await.0, survivor.id);
+    let (source_deleted, _, _) = h.person_state(source).await;
+    assert!(source_deleted);
 
     h.ctx.cleanup().await.expect("cleanup");
 }
@@ -3256,7 +3249,12 @@ async fn settled_sources_stay_out_of_the_resolution_query() {
         .merge_persons(Request::new(rpc_request(
             h.ctx.team_id,
             "resq-target",
-            &["resq-source", "anonymous", &oversized],
+            &[
+                "resq-source",
+                "anonymous",
+                "$posthog_cookieless",
+                &oversized,
+            ],
             Uuid::now_v7(),
         )))
         .await
@@ -3268,6 +3266,10 @@ async fn settled_sources_stay_out_of_the_resolution_query() {
         vec![
             ("resq-source".to_string(), MergeSourceOutcome::Merged),
             ("anonymous".to_string(), MergeSourceOutcome::SkippedIllegal),
+            (
+                "$posthog_cookieless".to_string(),
+                MergeSourceOutcome::SkippedIllegal
+            ),
             (oversized.clone(), MergeSourceOutcome::SkippedIllegal),
         ]
     );
@@ -3284,7 +3286,9 @@ async fn settled_sources_stay_out_of_the_resolution_query() {
         "the live pair still resolves"
     );
     assert!(
-        !resolved.contains(&"anonymous".to_string()) && !resolved.contains(&oversized),
+        !resolved.contains(&"anonymous".to_string())
+            && !resolved.contains(&"$posthog_cookieless".to_string())
+            && !resolved.contains(&oversized),
         "settled sources must not reach the resolution query: {resolved:?}"
     );
 

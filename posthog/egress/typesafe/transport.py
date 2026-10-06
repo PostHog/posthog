@@ -10,10 +10,12 @@ from typing import Any
 
 import requests
 
+from posthog.cloud_utils import is_cloud
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted, EgressClient
 from posthog.egress.typesafe.limiter import ACCOUNT_SCOPE_ID, consume_typesafe_sync
 from posthog.egress.typesafe.observability import typesafe_egress
+from posthog.llm.system_one import SystemOneNotConfigured
 
 
 class TypeSafeEgressBudgetExhausted(EgressBudgetExhausted):
@@ -26,6 +28,11 @@ class TypeSafeClient(EgressClient):
     every caller; wire it through :func:`typesafe_request`."""
 
     observability = typesafe_egress
+
+    def _gate(self, scope: str | None, source: str, priority: Priority, url: str) -> None:
+        if not typesafe_allowed():
+            raise SystemOneNotConfigured("TypeSafe is disabled on PostHog Cloud; use the ai-gateway System One model")
+        super()._gate(scope, source, priority, url)
 
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json", "Content-Type": "application/json"}
@@ -42,6 +49,10 @@ _typesafe_client = TypeSafeClient()
 # A connection that will not open is never worth waiting on. A caller where a person waits for the
 # answer passes a shorter read timeout.
 DEFAULT_TIMEOUT: tuple[float, float] = (3.0, 15.0)
+
+
+def typesafe_allowed() -> bool:
+    return not is_cloud()
 
 
 def typesafe_request(

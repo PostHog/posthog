@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import json
 import time
 import uuid
@@ -67,6 +66,7 @@ from .sandbox import (
     build_agent_runtime_env_prefix,
     build_subscription_flags,
     parse_sandbox_repo_mount_map,
+    read_pinned_agent_version,
     redact_sandbox_command,
     wait_for_health_check,
 )
@@ -96,6 +96,7 @@ STREAMLIT_AUTH_PROXY_PORT = 8080
 # host.docker.internal at `docker run` time (non-localhost hosts pass through).
 _DOCKER_URL_ENV_KEYS = frozenset(
     {
+        "LLM_GATEWAY_URL",
         "POSTHOG_API_URL",
         "POSTHOG_SITE_URL",
         "POSTHOG_AGENT_OTEL_LOGS_URL",
@@ -265,11 +266,10 @@ class DockerSandbox(AgentServerLaunchMixin):
             os.path.join(monorepo_root, "package.json"),
             os.path.join(monorepo_root, "pnpm-workspace.yaml"),
             os.path.join(monorepo_root, "pnpm-lock.yaml"),
-            os.path.join(monorepo_root, "patches"),
             os.path.join(monorepo_root, "scripts", "rimraf.mjs"),
             *[
                 os.path.join(monorepo_root, "packages", package_name, "package.json")
-                for package_name in ("agent", "harness", "shared", "git", "enricher")
+                for package_name in ("agent", "harness", "agent-contracts", "git", "enricher")
             ],
         ]
         missing = [path for path in required_paths if not os.path.exists(path)]
@@ -349,10 +349,9 @@ class DockerSandbox(AgentServerLaunchMixin):
 
             for file_name in (".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"):
                 shutil.copy2(os.path.join(monorepo_root, file_name), workspace_path)
-            shutil.copytree(os.path.join(monorepo_root, "patches"), os.path.join(workspace_path, "patches"))
             shutil.copy2(os.path.join(monorepo_root, "scripts", "rimraf.mjs"), scripts_path)
 
-            for package_name in ("agent", "harness", "shared", "git", "enricher"):
+            for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
                 shutil.copytree(
                     os.path.join(monorepo_root, "packages", package_name),
                     os.path.join(packages_path, package_name),
@@ -983,6 +982,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token_file: str | None = None,
+        sandbox_runtime: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -992,6 +992,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             interaction_origin=interaction_origin,
             agent_runtime=agent_runtime,
             sandbox_id=self.id,
+            sandbox_runtime=sandbox_runtime,
             runtime_adapter=runtime_adapter,
             provider=provider,
             model=model,
@@ -1086,6 +1087,9 @@ class DockerSandbox(AgentServerLaunchMixin):
     def _agent_server_reuse_enabled(self) -> bool:
         return False
 
+    def _sandbox_runtime(self) -> str | None:
+        return "docker"
+
     def _install_agent_server_launch_files(self) -> tuple[str, ...]:
         return ()
 
@@ -1156,18 +1160,35 @@ class DockerSandbox(AgentServerLaunchMixin):
     def wait_for_agent_server_ready(
         self, allowed_domains: list[str] | None = None, *, claude_model_access: str | None = None
     ) -> None:
-        if self._wait_for_health_check(max_attempts=300 if claude_model_access == "own-subscription" else 240):
+        try:
+            healthy = self._wait_for_health_check(
+                max_attempts=300 if claude_model_access == "own-subscription" else 240
+            )
+        except SandboxTimeoutError:
+            credential_error = self._credential_unavailable_error(
+                self._read_agent_server_log(), context={"sandbox_id": self.id}
+            )
+            if credential_error is not None:
+                raise credential_error from None
+            raise
+        if healthy:
             logger.info(f"Agent-server ready on port {self._host_port}")
             return
-        log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
-        logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
+        log_output = self._read_agent_server_log()
+        logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_output}")
+        credential_error = self._credential_unavailable_error(log_output, context={"sandbox_id": self.id})
+        if credential_error is not None:
+            raise credential_error
         # Transient timeout Temporal retries — skip error-tracking capture to avoid noisy issues.
         raise SandboxExecutionError(
             "Agent-server failed to start",
-            {"sandbox_id": self.id, "log": log_result.stdout},
+            {"sandbox_id": self.id, "log": log_output},
             cause=RuntimeError("Health check failed after retries"),
             capture=False,
         )
+
+    def _read_agent_server_log(self) -> str:
+        return self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5).stdout
 
     def mark_repo_ready(self, repo_ready_file: str) -> None:
         self.execute(f"touch {shlex.quote(repo_ready_file)}", timeout_seconds=10)
@@ -1336,12 +1357,7 @@ def _none_if_blank(value: str) -> str | None:
 
 
 def _pinned_agent_version(dockerfile_path: str) -> str | None:
-    try:
-        source = Path(dockerfile_path).read_text(encoding="utf-8")
-    except OSError:
-        return None
-    match = re.search(r"^ARG AGENT_VERSION=(\S+)", source, re.MULTILINE)
-    return match.group(1) if match else None
+    return read_pinned_agent_version(Path(dockerfile_path))
 
 
 def ensure_fresh_base_image(*, force: bool = False) -> None:

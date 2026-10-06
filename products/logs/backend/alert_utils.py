@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid5
 
 from django.db.models import Q
 
 import structlog
 
-from products.alerts.backend.facade.scheduling import (
+from products.alerts_platform.backend.facade.scheduling import (
     advance_next_check_at,
     compute_shard_offset_seconds as shared_compute_shard_offset_seconds,
     parse_blocked_windows_tuples,
@@ -42,9 +42,16 @@ SCHEDULE_INTERVAL_SECONDS = 60
 MAX_BYTES_TO_READ = int(os.environ.get("LOGS_ALERTING_MAX_BYTES_TO_READ", "5368709120"))
 
 
-def compute_shard_offset_seconds(alert_id: UUID, check_interval_minutes: int) -> int:
+# Shard by team, not by alert. The cohort key includes `date_to`, which comes from
+# `next_check_at`, so two alerts from one team share a ClickHouse query only when they
+# land in the same slot. The team ID goes through uuid5 so that sequential IDs do not
+# fill the slots in a pattern.
+_TEAM_SHARD_NAMESPACE = UUID("4f2c9a1e-5b7d-4e8a-9c3f-6d1b2a7e8f90")
+
+
+def compute_shard_offset_seconds(team_id: int, check_interval_minutes: int) -> int:
     return shared_compute_shard_offset_seconds(
-        alert_id,
+        uuid5(_TEAM_SHARD_NAMESPACE, str(team_id)),
         check_interval_minutes,
         schedule_interval_seconds=SCHEDULE_INTERVAL_SECONDS,
     )

@@ -179,7 +179,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         selfOptimisingEnabled
             ? {
                   label: <WorkflowSuggestionsTabLabel id={workflowSceneProps.id!} />,
-                  key: 'suggestions',
+                  key: 'self-driving',
                   content: <WorkflowSuggestions id={workflowSceneProps.id!} />,
               }
             : null,

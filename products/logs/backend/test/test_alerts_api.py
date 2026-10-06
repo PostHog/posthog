@@ -21,7 +21,6 @@ from posthog.models.user import User
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
-from products.logs.backend.alert_utils import compute_shard_offset_seconds
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
@@ -2135,6 +2134,16 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         )
         self._checkpoint_patcher.start()
         self.addCleanup(self._checkpoint_patcher.stop)
+        # Pin the shard offset to 0 so evaluator NCAs align with the simulator's
+        # canonical-grid bucket boundaries. Without this, the evaluator advances NCAs
+        # onto the team's shard offset (e.g. :02/:07 instead of :00/:05) and the
+        # simulator's :00/:05 bucket evaluations disagree on event timing.
+        self._shard_patcher = patch(
+            "products.logs.backend.temporal.activities.compute_shard_offset_seconds",
+            return_value=0,
+        )
+        self._shard_patcher.start()
+        self.addCleanup(self._shard_patcher.stop)
         # A None return would read as "enqueue failed" and roll back every
         # notification, so the fake must return a (mock) ProduceResult.
         self._kafka_patcher = patch(
@@ -2180,17 +2189,6 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
             "state": AlertState.NOT_FIRING.value,
         }
         defaults.update(overrides)
-        # Pin the test alert to shard 0 so its evaluator NCAs align with the
-        # simulator's canonical-grid bucket boundaries. Without this, the
-        # evaluator advances NCAs onto the alert's shard offset (e.g. :02/:07
-        # instead of :00/:05) and the simulator's :00/:05 bucket evaluations
-        # disagree on event timing.
-        cadence = int(defaults["check_interval_minutes"])
-        while True:
-            candidate = uuid4()
-            if compute_shard_offset_seconds(candidate, cadence) == 0:
-                defaults["id"] = candidate
-                break
         return LogsAlertConfiguration.objects.create(**defaults)
 
     def _drive_evaluator(

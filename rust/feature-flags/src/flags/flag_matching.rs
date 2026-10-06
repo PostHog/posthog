@@ -1,14 +1,16 @@
 use crate::api::errors::FlagError;
 use crate::api::types::{FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMatch};
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
-use crate::cohorts::cohort_models::{Cohort, CohortId, MembershipStampPolicy};
+use crate::cohorts::cohort_models::{Cohort, CohortId, CohortMembership, MembershipStampPolicy};
 use crate::cohorts::cohort_operations::{
     apply_cohort_membership_logic, evaluate_dynamic_cohorts, record_stamp_policy_divergence,
 };
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::{pool_names, PostgresRouter};
-use crate::flags::config_v2::Config;
-use crate::flags::evaluate_v2::{Evaluation, EvaluationContext, Evaluator, PersonProperties};
+use crate::flags::config_v2::{Config, NonV1Config};
+use crate::flags::evaluate_v2::{
+    Evaluation, EvaluationContext, EvaluationDetail, Evaluator, PersonProperties,
+};
 use crate::flags::flag_group_type_mapping::{
     GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
 };
@@ -38,7 +40,7 @@ use crate::metrics::consts::{
     PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::properties::property_matching::{match_property, PropertyMatchingContext};
-use crate::properties::property_models::{PropertyFilter, PropertyType};
+use crate::properties::property_models::{OperatorType, PropertyFilter, PropertyType};
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
@@ -106,6 +108,8 @@ pub struct FeatureFlagMatch {
     pub reason: FeatureFlagMatchReason,
     pub condition_index: Option<usize>,
     pub payload: Option<Value>,
+    /// Set only by `get_match_v2`; the v3 record is built from it.
+    pub evaluation_v2: Option<EvaluationDetail>,
 }
 
 impl FeatureFlagMatch {
@@ -126,6 +130,7 @@ impl FeatureFlagMatch {
             reason: FeatureFlagMatchReason::MissingDependency,
             condition_index: None,
             payload: None,
+            evaluation_v2: None,
         }
     }
 }
@@ -203,6 +208,7 @@ pub struct FlagEvaluationState {
     cohort_matches: Option<HashMap<CohortId, bool>>,
     /// Cache of flag evaluation results to avoid repeated DB lookups
     flag_evaluation_results: HashMap<FeatureFlagId, FlagValue>,
+    failed_flag_ids: HashSet<FeatureFlagId>,
 }
 
 impl FlagEvaluationState {
@@ -294,6 +300,77 @@ impl FlagEvaluationState {
     pub fn add_flag_evaluation_result(&mut self, flag_id: FeatureFlagId, flag_value: FlagValue) {
         self.flag_evaluation_results.insert(flag_id, flag_value);
     }
+
+    /// Returns the flag this filter depends on when that flag failed earlier in this request.
+    /// A flag with a recorded result never counts. An unsupported flag fails, but it is
+    /// pre-seeded `false`, so its dependents still read it as false. A malformed filter never
+    /// counts either, because `match_flag_value_to_flag_filter` rejects it for every value.
+    fn failed_dependency(&self, filter: &PropertyFilter) -> Option<FeatureFlagId> {
+        if self.failed_flag_ids.is_empty()
+            || filter.operator != Some(OperatorType::FlagEvaluatesTo)
+            || !matches!(filter.value, Some(Value::Bool(_) | Value::String(_)))
+        {
+            return None;
+        }
+        let flag_id = filter.get_feature_flag_id()?;
+        (!self.flag_evaluation_results.contains_key(&flag_id)
+            && self.failed_flag_ids.contains(&flag_id))
+        .then_some(flag_id)
+    }
+
+    /// Returns true when no single value of some failed flag satisfies all of the filters on that
+    /// flag, for example `true` together with `false`, or two different variants.
+    /// `is_condition_match` passes each filter on a failed flag on its own. This check finds the
+    /// conflict that those separate passes miss.
+    fn failed_dependency_filters_conflict(&self, filters: &[PropertyFilter]) -> bool {
+        let mut filters_by_flag: HashMap<FeatureFlagId, Vec<&PropertyFilter>> = HashMap::new();
+        for filter in filters {
+            if let Some(flag_id) = self.failed_dependency(filter) {
+                filters_by_flag.entry(flag_id).or_default().push(filter);
+            }
+        }
+        filters_by_flag
+            .into_iter()
+            .any(|(flag_id, filters_on_flag)| {
+                if filters_on_flag.len() < 2 {
+                    return false;
+                }
+                let variants = filters_on_flag
+                    .iter()
+                    .filter_map(|filter| match &filter.value {
+                        Some(Value::String(variant)) => Some(FlagValue::String(variant.clone())),
+                        _ => None,
+                    });
+                // A variant that no filter names passes the same filters as `true`.
+                let can_match = [FlagValue::Boolean(false), FlagValue::Boolean(true)]
+                    .into_iter()
+                    .chain(variants)
+                    .any(|value| {
+                        let results = HashMap::from([(flag_id, value)]);
+                        filters_on_flag
+                            .iter()
+                            .all(|filter| match_flag_value_to_flag_filter(filter, &results))
+                    });
+                !can_match
+            })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum ConditionAnswer {
+    Match(Option<String>),
+    NoMatch,
+}
+
+impl ConditionAnswer {
+    fn is_match(&self) -> bool {
+        matches!(self, ConditionAnswer::Match(_))
+    }
+}
+
+struct AnswerIfDependencyMatched {
+    failed_dependency: FeatureFlagId,
+    answer: ConditionAnswer,
 }
 
 static EMPTY_PROPERTY_MAP: std::sync::LazyLock<HashMap<String, Value>> =
@@ -382,6 +459,10 @@ pub struct FeatureFlagMatcher {
     rayon_dispatcher: Option<RayonDispatcher>,
     /// When true, skip all writes to PostgreSQL and Redis.
     skip_writes: bool,
+    /// Keys of flags whose variant neither the caller nor any evaluated flag reads. A failed
+    /// dependency fails one of these flags only when it could change whether the flag matches.
+    /// Every other flag keeps the variant comparison.
+    enabled_only_flag_keys: HashSet<String>,
     /// Flag IDs that should be skipped during evaluation.
     /// Populated once per request from `FeatureFlagList::filtered_out_flag_ids`.
     pub(crate) filtered_out_flag_ids: HashSet<i32>,
@@ -417,6 +498,8 @@ struct FlagSnapshot {
     key: String,
     id: FeatureFlagId,
     version: Option<i32>,
+    /// Keeps a v2 flag's error record labelled v2.
+    non_v1: Option<Arc<NonV1Config>>,
 }
 
 impl FlagSnapshot {
@@ -425,6 +508,7 @@ impl FlagSnapshot {
             key: flag.key.clone(),
             id: flag.id,
             version: flag.version,
+            non_v1: flag.filters.non_v1.clone(),
         }
     }
 }
@@ -443,6 +527,14 @@ fn merge_distinct_id_into_person_properties(
         .entry("distinct_id".to_string())
         .or_insert_with(|| Value::String(distinct_id.to_string()));
     overrides
+}
+
+fn ids_of_failed_flags<'a>(
+    details: impl Iterator<Item = &'a FlagDetails> + 'a,
+) -> impl Iterator<Item = FeatureFlagId> + 'a {
+    details
+        .filter(|details| details.failed)
+        .map(|details| details.metadata.id)
 }
 
 impl FeatureFlagMatcher {
@@ -470,6 +562,7 @@ impl FeatureFlagMatcher {
             parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
             rayon_dispatcher: None,
             skip_writes: false,
+            enabled_only_flag_keys: HashSet::new(),
             filtered_out_flag_ids: HashSet::new(),
             enable_realtime_cohort_evaluation: false,
             use_explicit_exact_matching: false,
@@ -507,6 +600,11 @@ impl FeatureFlagMatcher {
 
     pub fn with_skip_writes(mut self, skip_writes: bool) -> Self {
         self.skip_writes = skip_writes;
+        self
+    }
+
+    pub fn with_enabled_only_flag_keys(mut self, flag_keys: HashSet<String>) -> Self {
+        self.enabled_only_flag_keys = flag_keys;
         self
     }
 
@@ -825,35 +923,142 @@ impl FeatureFlagMatcher {
         // Track cohort evaluations in canonical log
         with_canonical_log(|log| log.eval.cohorts_evaluated += cohort_property_filters.len());
 
+        let (cohort_matches, errors) =
+            self.resolve_cohort_matches(cohort_property_filters, target_properties, &cohorts);
+
+        if let Some(error) = errors.into_iter().next() {
+            return Err(error);
+        }
+
+        // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
+        apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
+    }
+
+    /// Resolves every cohort the given filters reference to a membership boolean, starting from
+    /// the memberships cached during `prepare_flag_evaluation_state` (static and realtime).
+    fn resolve_cohort_matches(
+        &self,
+        cohort_property_filters: &[&PropertyFilter],
+        target_properties: &HashMap<String, Value>,
+        cohorts: &[Cohort],
+    ) -> (HashMap<CohortId, bool>, Vec<FlagError>) {
         // Get cached cohort results (static + realtime, merged during prepare_flag_evaluation_state)
         let cached_matches = match self.flag_evaluation_state.get_cohort_matches() {
             Some(matches) => matches.clone(),
             None => HashMap::new(), // Happens when targeting an anonymous user with no person record
         };
 
+        Self::resolve_cohort_matches_from_cache(
+            cohort_property_filters,
+            target_properties,
+            cohorts,
+            cached_matches,
+            PropertyMatchingContext::new(self.timezone, self.use_explicit_exact_matching),
+        )
+    }
+
+    /// Evaluates any dynamic cohort the filters reference that the cache does not already cover.
+    ///
+    /// Resolution continues past a cohort that fails, and the failures come back alongside the
+    /// memberships that did resolve. A caller that must agree with the whole filter set fails on
+    /// the first error; condition analysis keeps what resolved, because a cohort left out of the
+    /// map reads as unknown rather than as a non-match. Both paths share this loop so a change to
+    /// cohort resolution cannot reach one and miss the other.
+    fn resolve_cohort_matches_from_cache(
+        cohort_property_filters: &[&PropertyFilter],
+        target_properties: &HashMap<String, Value>,
+        cohorts: &[Cohort],
+        cached_matches: HashMap<CohortId, bool>,
+        matching_context: PropertyMatchingContext,
+    ) -> (HashMap<CohortId, bool>, Vec<FlagError>) {
         let mut cohort_matches = cached_matches;
+        let mut errors = Vec::new();
 
         // For any cohorts not yet evaluated (i.e., dynamic ones), evaluate them
         for filter in cohort_property_filters {
-            let cohort_id = filter
-                .get_cohort_id()
-                .ok_or(FlagError::CohortFiltersParsingError)?;
+            let Some(cohort_id) = filter.get_cohort_id() else {
+                errors.push(FlagError::CohortFiltersParsingError);
+                continue;
+            };
 
             if !cohort_matches.contains_key(&cohort_id) {
                 let current_matches = cohort_matches.clone();
-                let match_result = evaluate_dynamic_cohorts(
+                match evaluate_dynamic_cohorts(
                     cohort_id,
                     target_properties,
-                    &cohorts,
+                    cohorts,
                     &current_matches,
-                    PropertyMatchingContext::new(self.timezone, self.use_explicit_exact_matching),
-                )?;
-                cohort_matches.insert(cohort_id, match_result);
+                    matching_context,
+                ) {
+                    Ok(match_result) => {
+                        cohort_matches.insert(cohort_id, match_result);
+                    }
+                    Err(error) => errors.push(error),
+                }
             }
         }
 
-        // Apply cohort membership logic (IN|NOT_IN) to the cohort match results
-        apply_cohort_membership_logic(cohort_property_filters, &cohort_matches)
+        (cohort_matches, errors)
+    }
+
+    /// Resolves cohort memberships for every cohort filter on the flag, for detailed condition
+    /// analysis.
+    ///
+    /// The evaluation state caches static and realtime memberships only, because
+    /// `evaluate_cohort_filters` discards the dynamic ones it resolves. Reading that cache alone
+    /// would report every dynamic cohort as a non-match.
+    fn cohort_matches_for_analysis(
+        &self,
+        flag: &FeatureFlag,
+        person_properties: Option<&HashMap<String, Value>>,
+    ) -> HashMap<CohortId, CohortMembership> {
+        let cohort_filters: Vec<&PropertyFilter> = flag
+            .filters
+            .groups
+            .iter()
+            .filter_map(|group| group.properties.as_ref())
+            .flatten()
+            .filter(|filter| filter.is_cohort())
+            .collect();
+
+        if cohort_filters.is_empty() {
+            return HashMap::new();
+        }
+
+        let Some(cohorts) = self.flag_evaluation_state.cohorts.clone() else {
+            return HashMap::new();
+        };
+
+        let target_properties = person_properties.unwrap_or(&EMPTY_PROPERTY_MAP);
+
+        // A condition can name a cohort the flags payload no longer carries, because Django omits
+        // deleted and cross-team cohorts but keeps the filters that name them. Those failures stay
+        // out of the map, so the analysis reports them as unknown instead of as a non-match.
+        let (cohort_matches, errors) =
+            self.resolve_cohort_matches(&cohort_filters, target_properties, &cohorts);
+
+        for error in errors {
+            warn!("Cohort left unresolved for condition analysis: {error:?}");
+        }
+
+        // A non-match on a behavioral or lifecycle cohort is the dynamic path's default, not a
+        // checked answer, which is why the matcher reports it as `cohort_not_evaluated`.
+        cohort_matches
+            .into_iter()
+            .map(|(cohort_id, is_member)| {
+                let membership = if is_member {
+                    CohortMembership::Member
+                } else if cohorts
+                    .iter()
+                    .any(|cohort| cohort.id == cohort_id && cohort.has_behavioral_condition())
+                {
+                    CohortMembership::UnverifiedNonMember
+                } else {
+                    CohortMembership::NonMember
+                };
+                (cohort_id, membership)
+            })
+            .collect()
     }
 
     /// Evaluates feature flags with property and hash key overrides.
@@ -934,6 +1139,8 @@ impl FeatureFlagMatcher {
         }
 
         // Step 3: Evaluate flags stage by stage in dependency order
+        self.flag_evaluation_state.failed_flag_ids =
+            ids_of_failed_flags(evaluated_flags_map.values()).collect();
         for stage in evaluation_stages {
             let (level_evaluated_flags_map, level_errors) = self
                 .evaluate_flags_in_level(
@@ -947,6 +1154,11 @@ impl FeatureFlagMatcher {
                 )
                 .await?;
             errors_while_computing_flags |= level_errors;
+            if level_errors {
+                self.flag_evaluation_state
+                    .failed_flag_ids
+                    .extend(ids_of_failed_flags(level_evaluated_flags_map.values()));
+            }
             evaluated_flags_map.extend(level_evaluated_flags_map);
         }
 
@@ -1171,6 +1383,8 @@ impl FeatureFlagMatcher {
                     // filters resolve against the group rather than the person.
                     let merged_group_props =
                         self.merged_group_properties_for_flag(flag, group_property_overrides);
+                    let cohort_matches =
+                        self.cohort_matches_for_analysis(flag, merged_person_props.as_ref());
                     FlagDetails::create_with_analysis(
                         flag,
                         flag_match,
@@ -1178,6 +1392,7 @@ impl FeatureFlagMatcher {
                         merged_person_props.as_ref(),
                         Some(&merged_group_props),
                         Some(&self.flag_evaluation_state.flag_evaluation_results),
+                        Some(&cohort_matches),
                         PropertyMatchingContext::new(
                             self.timezone,
                             self.use_explicit_exact_matching,
@@ -1192,16 +1407,20 @@ impl FeatureFlagMatcher {
                 *errors_while_computing_flags = true;
                 with_canonical_log(|log| log.flags_errored += 1);
 
-                if let FlagError::DependencyNotFound(dependency_type, dependency_id) = e {
-                    warn!(
+                match e {
+                    FlagError::DependencyNotFound(dependency_type, dependency_id) => warn!(
                         "Feature flag '{}' targeting deleted {} with id {} for distinct_id '{}': {:?}",
                         flag.key, dependency_type, dependency_id, self.distinct_id, e
-                    );
-                } else {
-                    error!(
+                    ),
+                    // The failed dependency already logged its own error.
+                    FlagError::DependencyFailed(dependency_id) => debug!(
+                        "Feature flag '{}' failed because dependency {} failed",
+                        flag.key, dependency_id
+                    ),
+                    _ => error!(
                         "Error evaluating feature flag '{}' for distinct_id '{}': {:?}",
                         flag.key, self.distinct_id, e
-                    );
+                    ),
                 }
 
                 let reason = e.evaluation_error_code();
@@ -1235,25 +1454,17 @@ impl FeatureFlagMatcher {
     /// analysis so group-typed filters resolve against the group's properties (and the
     /// `$group_key` injected into overrides) rather than the person's. Every referenced
     /// group type index is included, backed by an empty map if no properties were found.
-    fn merged_group_properties_for_flag(
+    pub(crate) fn merged_group_properties_for_flag(
         &self,
         flag: &FeatureFlag,
         group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
     ) -> HashMap<GroupTypeIndex, HashMap<String, Value>> {
-        let mut referenced_indexes: HashSet<GroupTypeIndex> = HashSet::new();
-        for group in &flag.filters.groups {
-            // Mirrors the aggregation the real matching path uses (line ~1371 below), so
-            // an explicit person aggregation (`Some(None)`) does not fall back to the
-            // flag-level group index here.
-            let condition_aggregation = group.effective_aggregation(flag.get_group_type_index());
-            if let Some(properties) = &group.properties {
-                for property in properties {
-                    if let Some(gti) = property.group_filter_index(condition_aggregation) {
-                        referenced_indexes.insert(gti);
-                    }
-                }
-            }
-        }
+        let referenced_indexes: HashSet<GroupTypeIndex> = flag
+            .filters
+            .requirements()
+            .group_property_type_indexes
+            .into_iter()
+            .collect();
 
         let mut merged = HashMap::new();
         for gti in referenced_indexes {
@@ -1373,7 +1584,10 @@ impl FeatureFlagMatcher {
                     has_experiment: default_has_experiment(),
                     active: true,
                     version: snapshot.version,
-                    filters: FlagFilters::default(),
+                    filters: FlagFilters {
+                        non_v1: snapshot.non_v1,
+                        ..FlagFilters::default()
+                    },
                     team_id,
                     name: None,
                     deleted: false,
@@ -1465,6 +1679,7 @@ impl FeatureFlagMatcher {
                     reason: FeatureFlagMatchReason::SuperConditionValue,
                     condition_index: Some(0),
                     payload,
+                    evaluation_v2: None,
                 });
             }
         }
@@ -1487,6 +1702,7 @@ impl FeatureFlagMatcher {
                     reason: evaluation_reason,
                     condition_index: None,
                     payload,
+                    evaluation_v2: None,
                 });
             }
         }
@@ -1494,6 +1710,12 @@ impl FeatureFlagMatcher {
             flag.get_conditions().iter().enumerate().collect();
 
         let early_exit_enabled = flag.filters.early_exit.unwrap_or(false);
+        // A condition on a failed flag cannot settle the answer. Each such condition records the
+        // answer the flag would give if the failed flag matched it. The flag fails only when one
+        // of those answers differs from the answer from its other conditions. Server SDKs read
+        // `failed: true` as false. Failing every dependent would therefore turn a settled `true`
+        // into false.
+        let mut answers_if_dependency_matched: Vec<AnswerIfDependencyMatched> = Vec::new();
         let condition_timer = common_metrics::timing_guard(FLAG_EVALUATE_ALL_CONDITIONS_TIME, &[]);
         for (index, condition) in conditions {
             // Each condition resolves its own aggregation, falling back to the flag-level
@@ -1627,6 +1849,12 @@ impl FeatureFlagMatcher {
                 had_unevaluable_cohort_conditions = true;
             }
 
+            let failed_dependency = condition
+                .properties
+                .iter()
+                .flatten()
+                .find_map(|filter| self.flag_evaluation_state.failed_dependency(filter));
+
             // OutOfRolloutBound means the condition's property filters (if any) already
             // matched and only the rollout check failed, so re-evaluating later groups
             // can't change the outcome.
@@ -1634,13 +1862,47 @@ impl FeatureFlagMatcher {
                 && !is_match
                 && reason == FeatureFlagMatchReason::OutOfRolloutBound
             {
-                return Ok(FeatureFlagMatch {
-                    matches: false,
-                    variant: None,
-                    reason: FeatureFlagMatchReason::OutOfRolloutBound,
-                    condition_index: Some(index),
-                    payload: None,
-                });
+                // If the failed flag matched, the flag would stop here with no match.
+                // Otherwise the later conditions decide.
+                if let Some(failed_dependency) = failed_dependency {
+                    answers_if_dependency_matched.push(AnswerIfDependencyMatched {
+                        failed_dependency,
+                        answer: ConditionAnswer::NoMatch,
+                    });
+                } else {
+                    if let Some(dependency) = self.dependency_that_changes_answer(
+                        flag,
+                        &answers_if_dependency_matched,
+                        &ConditionAnswer::NoMatch,
+                    ) {
+                        return Err(FlagError::DependencyFailed(dependency.into()));
+                    }
+                    return Ok(FeatureFlagMatch {
+                        matches: false,
+                        variant: None,
+                        reason: FeatureFlagMatchReason::OutOfRolloutBound,
+                        condition_index: Some(index),
+                        payload: None,
+                        evaluation_v2: None,
+                    });
+                }
+            }
+
+            if is_match {
+                if let Some(failed_dependency) = failed_dependency {
+                    let variant = self.condition_variant(
+                        flag,
+                        condition,
+                        aggregation,
+                        hash_key_overrides,
+                        request_hash_key_override,
+                    )?;
+                    answers_if_dependency_matched.push(AnswerIfDependencyMatched {
+                        failed_dependency,
+                        answer: ConditionAnswer::Match(variant),
+                    });
+                    continue;
+                }
             }
 
             // Update highest_match and highest_index
@@ -1655,15 +1917,22 @@ impl FeatureFlagMatcher {
             highest_index = new_highest_index;
 
             if is_match {
-                let variant = match flag.pinned_variant(condition) {
-                    Some(pinned) => Some(pinned.to_string()),
-                    None => self.get_matching_variant(
+                let variant = self.condition_variant(
+                    flag,
+                    condition,
+                    aggregation,
+                    hash_key_overrides,
+                    request_hash_key_override,
+                )?;
+                if !answers_if_dependency_matched.is_empty() {
+                    if let Some(dependency) = self.dependency_that_changes_answer(
                         flag,
-                        aggregation,
-                        hash_key_overrides,
-                        request_hash_key_override,
-                    )?,
-                };
+                        &answers_if_dependency_matched,
+                        &ConditionAnswer::Match(variant.clone()),
+                    ) {
+                        return Err(FlagError::DependencyFailed(dependency.into()));
+                    }
+                }
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 
                 return Ok(FeatureFlagMatch {
@@ -1672,8 +1941,17 @@ impl FeatureFlagMatcher {
                     reason: highest_match,
                     condition_index: highest_index,
                     payload,
+                    evaluation_v2: None,
                 });
             }
+        }
+
+        if let Some(dependency) = self.dependency_that_changes_answer(
+            flag,
+            &answers_if_dependency_matched,
+            &ConditionAnswer::NoMatch,
+        ) {
+            return Err(FlagError::DependencyFailed(dependency.into()));
         }
 
         condition_timer.label("outcome", "success").fin();
@@ -1700,11 +1978,13 @@ impl FeatureFlagMatcher {
             reason: highest_match,
             condition_index: highest_index,
             payload: None,
+            evaluation_v2: None,
         })
     }
 
-    /// Projects a v2 outcome onto the v1 match shape: `enabled` is the boolean value (null
-    /// default is false), never a variant or payload; the subject is the request distinct ID.
+    /// Projects a v2 outcome onto the v1 match shape: a null value is disabled, a boolean is
+    /// `enabled`, a string is the variant, and a number or object is an enabled flag whose value
+    /// travels as a JSON-encoded payload, like a v1 payload. The subject is the request distinct ID.
     fn get_match_v2(
         &self,
         config: &Config,
@@ -1734,30 +2014,54 @@ impl FeatureFlagMatcher {
             use_explicit_exact_matching: self.use_explicit_exact_matching,
             now: self.now,
         })?;
-        let (matches, reason, condition_index) = match evaluation {
+        let (value, reason, condition_index) = match evaluation {
             Evaluation::TargetingMatch { value, rule } => (
-                value,
+                Some(value),
                 FeatureFlagMatchReason::ConditionMatch,
                 Some(rule.index),
             ),
             Evaluation::RolloutMiss { value, rule } => (
-                value.unwrap_or(false),
+                value,
                 FeatureFlagMatchReason::OutOfRolloutBound,
                 Some(rule.index),
             ),
-            Evaluation::NoRuleMatch { value } => (
-                value.unwrap_or(false),
-                FeatureFlagMatchReason::NoConditionMatch,
-                None,
-            ),
+            Evaluation::NoRuleMatch { value } => {
+                (value, FeatureFlagMatchReason::NoConditionMatch, None)
+            }
+        };
+        let (matches, variant, payload) = match value {
+            None => (false, None, None),
+            Some(Value::Bool(value)) => (*value, None, None),
+            Some(Value::String(value)) => (true, Some(value.clone()), None),
+            Some(value) => (true, None, Some(Value::String(value.to_string()))),
         };
         Ok(FeatureFlagMatch {
             matches,
-            variant: None,
+            variant,
             reason,
             condition_index,
-            payload: None,
+            payload,
+            evaluation_v2: Some(evaluation.into()),
         })
+    }
+
+    fn dependency_that_changes_answer(
+        &self,
+        flag: &FeatureFlag,
+        answers_if_dependency_matched: &[AnswerIfDependencyMatched],
+        answer: &ConditionAnswer,
+    ) -> Option<FeatureFlagId> {
+        let compare_variants = !self.enabled_only_flag_keys.contains(&flag.key);
+        answers_if_dependency_matched
+            .iter()
+            .find(|candidate| {
+                if compare_variants {
+                    candidate.answer != *answer
+                } else {
+                    candidate.answer.is_match() != answer.is_match()
+                }
+            })
+            .map(|candidate| candidate.failed_dependency)
     }
 
     /// This function determines the highest priority match evaluation for feature flag conditions.
@@ -1810,12 +2114,30 @@ impl FeatureFlagMatcher {
                 );
             }
 
+            if self
+                .flag_evaluation_state
+                .failed_dependency_filters_conflict(flag_property_filters)
+            {
+                return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
+            }
+
             // Single-pass evaluation: flag-value and property filters are evaluated in Vec order
             // and short-circuit immediately on mismatch. Cohort filters (the most expensive)
             // are deferred and batch-evaluated after the loop to avoid unnecessary work.
             let mut cohort_filters: Vec<&PropertyFilter> = Vec::new();
             for filter in flag_property_filters {
                 if filter.depends_on_feature_flag() {
+                    // A filter on a flag that failed earlier in this request passes here, so the
+                    // other filters and the rollout still decide whether the condition can
+                    // match. `get_match` uses such a match only as the answer the flag would give
+                    // if the failed flag matched.
+                    if self
+                        .flag_evaluation_state
+                        .failed_dependency(filter)
+                        .is_some()
+                    {
+                        continue;
+                    }
                     if !match_flag_value_to_flag_filter(
                         filter,
                         &self.flag_evaluation_state.flag_evaluation_results,
@@ -2312,6 +2634,25 @@ impl FeatureFlagMatcher {
         }
     }
 
+    fn condition_variant(
+        &self,
+        flag: &FeatureFlag,
+        condition: &FlagPropertyGroup,
+        aggregation: Option<i32>,
+        hash_key_overrides: Option<&HashMap<String, String>>,
+        request_hash_key_override: &Option<String>,
+    ) -> Result<Option<String>, FlagError> {
+        match flag.pinned_variant(condition) {
+            Some(pinned) => Ok(Some(pinned.to_string())),
+            None => self.get_matching_variant(
+                flag,
+                aggregation,
+                hash_key_overrides,
+                request_hash_key_override,
+            ),
+        }
+    }
+
     /// Returns the variant key for this flag based on the hashed identifier.
     /// The aggregation determines which identifier is hashed (group key vs distinct_id).
     pub(crate) fn get_matching_variant(
@@ -2523,23 +2864,11 @@ impl FeatureFlagMatcher {
     pub(crate) fn referenced_group_type_indexes(
         flag: &FeatureFlag,
     ) -> impl Iterator<Item = GroupTypeIndex> + '_ {
-        flag.get_group_type_index()
+        let requirements = flag.filters.requirements();
+        requirements
+            .aggregation_group_type_indexes
             .into_iter()
-            .chain(flag.get_conditions().iter().flat_map(|condition| {
-                condition
-                    .aggregation_group_type_index
-                    .flatten()
-                    .into_iter()
-                    .chain(
-                        condition
-                            .properties
-                            .iter()
-                            .flatten()
-                            // No aggregation fallback here: the arms above already chain
-                            // every aggregation index, so only explicit indexes are added.
-                            .filter_map(|prop| prop.group_filter_index(None)),
-                    )
-            }))
+            .chain(requirements.group_property_type_indexes)
     }
 
     /// Builds a paired mapping from group type index to group key for flag
@@ -2854,16 +3183,22 @@ mod tests {
                 key: "flag_a".to_string(),
                 id: 10,
                 version: Some(3),
+                non_v1: None,
             },
             FlagSnapshot {
                 key: "flag_b".to_string(),
                 id: 20,
                 version: None,
+                non_v1: Some(Arc::new(NonV1Config {
+                    parsed_v2: None,
+                    document: serde_json::value::RawValue::from_string("{}".to_string()).unwrap(),
+                })),
             },
             FlagSnapshot {
                 key: "flag_c".to_string(),
                 id: 30,
                 version: Some(1),
+                non_v1: None,
             },
         ];
 
@@ -2887,6 +3222,8 @@ mod tests {
         assert_eq!(stub_b.key, "flag_b");
         assert_eq!(stub_b.id, 20);
         assert_eq!(stub_b.version, None);
+        assert!(!stub_b.filters.is_v1());
+        assert!(stub_a.filters.is_v1());
         assert!(matches!(
             err_b,
             Err(FlagError::InternalError {
@@ -2922,12 +3259,18 @@ mod tests {
     /// distinct_id and ignore the stale override, otherwise every distinct_id of the
     /// person keeps bucketing on the old key and resolves to the same stale value.
     #[rstest::rstest]
-    #[case::continuity_off_ignores_stale_override(Some(false), "logged-in-username")]
-    #[case::continuity_unset_ignores_stale_override(None, "logged-in-username")]
-    #[case::continuity_on_applies_override(Some(true), "stale-anon-id")]
+    #[case::continuity_off_ignores_stale_override(Some(false), None, "logged-in-username")]
+    #[case::continuity_unset_ignores_stale_override(None, None, "logged-in-username")]
+    #[case::continuity_on_applies_override(Some(true), None, "stale-anon-id")]
+    #[case::continuity_on_stored_override_beats_request_override(
+        Some(true),
+        Some("request-anon-id"),
+        "stale-anon-id"
+    )]
     #[tokio::test]
     async fn test_hashed_identifier_respects_current_continuity_for_stored_override(
         #[case] ensure_experience_continuity: Option<bool>,
+        #[case] request_hash_key_override: Option<&str>,
         #[case] expected_identifier: &str,
     ) {
         use crate::utils::test_utils::{mock_group_type_cache, TestContext};
@@ -2956,8 +3299,9 @@ mod tests {
             ..Default::default()
         };
 
+        let request_override = request_hash_key_override.map(str::to_string);
         let identifier = matcher
-            .hashed_identifier(&flag, None, Some(&overrides), &None)
+            .hashed_identifier(&flag, None, Some(&overrides), &request_override)
             .unwrap();
 
         assert_eq!(identifier, expected_identifier);
@@ -3010,5 +3354,80 @@ mod tests {
             assert_eq!(result.get(*k), Some(&Value::String((*v).to_string())));
         }
         assert_eq!(result.len(), 1 + expected_extras.len());
+    }
+
+    #[test]
+    fn test_cohort_analysis_keeps_resolved_memberships_when_another_cohort_fails() {
+        // A flag can name a cohort the flags payload no longer carries, because Django omits
+        // deleted and cross-team cohorts but keeps the filters that name them. Resolving the set as
+        // a unit drops the memberships that did resolve along with it.
+        let cohort: Cohort = serde_json::from_value(serde_json::json!({
+            "id": 1,
+            "team_id": 1,
+            "deleted": false,
+            "is_calculating": false,
+            "is_static": false,
+            "errors_calculating": 0,
+            "groups": [],
+            "filters": {
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "OR",
+                        "values": [{
+                            "key": "plan",
+                            "type": "person",
+                            "value": "enterprise",
+                            "operator": "exact"
+                        }]
+                    }]
+                }
+            }
+        }))
+        .unwrap();
+
+        // Cohort 999 comes first, so a resolver that stopped on the first failure would lose
+        // cohort 1 instead of reporting it.
+        let filters: Vec<PropertyFilter> = [999, 1]
+            .into_iter()
+            .map(|id| {
+                serde_json::from_value(serde_json::json!({
+                    "key": "id",
+                    "value": id,
+                    "type": "cohort",
+                    "operator": "in"
+                }))
+                .unwrap()
+            })
+            .collect();
+        let filter_refs: Vec<&PropertyFilter> = filters.iter().collect();
+
+        let target_properties =
+            HashMap::from([("plan".to_string(), Value::String("enterprise".to_string()))]);
+
+        // Cohort 999 is absent from the loaded list, so resolving it fails.
+        let (resolved, errors) = FeatureFlagMatcher::resolve_cohort_matches_from_cache(
+            &filter_refs,
+            &target_properties,
+            &[cohort],
+            HashMap::new(),
+            PropertyMatchingContext::new(Tz::UTC, false),
+        );
+
+        assert_eq!(
+            errors.len(),
+            1,
+            "the failing cohort must be reported, so the strict path can still fail on it"
+        );
+        assert_eq!(
+            resolved.get(&1),
+            Some(&true),
+            "a resolved membership must survive another cohort failing"
+        );
+        assert_eq!(
+            resolved.get(&999),
+            None,
+            "an unresolvable cohort must be absent, so analysis reads it as unknown"
+        );
     }
 }

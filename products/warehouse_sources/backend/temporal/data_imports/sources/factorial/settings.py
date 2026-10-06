@@ -26,13 +26,18 @@ class FactorialEndpointConfig:
 
 
 # A focused, canonical HRIS stream set cross-referenced against the Airbyte/Fivetran Factorial
-# connectors: people & org structure, contracts, time off, attendance, expenses, payroll, project
-# time tracking, and recruiting (ATS). Every list resource is keyed by a unique `id`.
+# connectors: people & org structure, employee change events, contracts, time off, attendance,
+# expenses, cost allocation, payroll, project time tracking, and recruiting (ATS). Every list
+# resource is keyed by a unique `id`.
 FACTORIAL_ENDPOINTS: dict[str, FactorialEndpointConfig] = {
     "employees": FactorialEndpointConfig(
         name="employees",
         path="/resources/employees/employees",
         partition_key="created_at",
+    ),
+    "terminations": FactorialEndpointConfig(
+        name="terminations",
+        path="/resources/employee_updates/terminations",
     ),
     "teams": FactorialEndpointConfig(
         name="teams",
@@ -95,6 +100,10 @@ FACTORIAL_ENDPOINTS: dict[str, FactorialEndpointConfig] = {
         path="/resources/expenses/expenses",
         partition_key="created_at",
     ),
+    "cost_centers": FactorialEndpointConfig(
+        name="cost_centers",
+        path="/resources/finance/cost_centers",
+    ),
     "payroll_supplements": FactorialEndpointConfig(
         name="payroll_supplements",
         path="/resources/payroll/supplements",
@@ -126,6 +135,18 @@ FACTORIAL_ENDPOINTS: dict[str, FactorialEndpointConfig] = {
         name="applications",
         path="/resources/ats/applications",
         partition_key="created_at",
+    ),
+    "application_phases": FactorialEndpointConfig(
+        name="application_phases",
+        path="/resources/ats/application_phases",
+    ),
+    "hiring_stages": FactorialEndpointConfig(
+        name="hiring_stages",
+        path="/resources/ats/hiring_stages",
+    ),
+    "candidate_sources": FactorialEndpointConfig(
+        name="candidate_sources",
+        path="/resources/ats/candidate_sources",
     ),
 }
 

@@ -119,6 +119,11 @@
         "params": [],
         "scope": "project"
     },
+    "aiObservabilityOfflineScorerHistory": {
+        "template": "/ai-evals/evaluations/scorers/{scorerId}/offline",
+        "params": ["scorerId"],
+        "scope": "project"
+    },
     "aiObservabilityPlayground": {
         "template": "/ai-observability/playground",
         "params": [],
@@ -136,6 +141,16 @@
     },
     "aiObservabilityReviews": {
         "template": "/ai-observability/reviews",
+        "params": [],
+        "scope": "project"
+    },
+    "aiObservabilityScorer": {
+        "template": "/ai-evals/evaluations/scorers/{scorerId}",
+        "params": ["scorerId"],
+        "scope": "project"
+    },
+    "aiObservabilityScorers": {
+        "template": "/ai-evals/evaluations/scorers",
         "params": [],
         "scope": "project"
     },
@@ -239,6 +254,21 @@
         "params": [],
         "scope": "global"
     },
+    "autoresearch": {
+        "template": "/autoresearch",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchNew": {
+        "template": "/autoresearch/new",
+        "params": [],
+        "scope": "project"
+    },
+    "autoresearchPipeline": {
+        "template": "/autoresearch/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "batchExport": {
         "template": "/pipeline/batch-exports/{id}",
         "params": ["id"],
@@ -269,6 +299,11 @@
         "params": [],
         "scope": "project"
     },
+    "businessIntelligence": {
+        "template": "/bi",
+        "params": [],
+        "scope": "project"
+    },
     "businessKnowledge": {
         "template": "/business-knowledge",
         "params": [],
@@ -291,6 +326,21 @@
     },
     "canvas": {
         "template": "/canvas",
+        "params": [],
+        "scope": "project"
+    },
+    "canvasDetail": {
+        "template": "/canvases/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "canvasNew": {
+        "template": "/canvases/new",
+        "params": [],
+        "scope": "project"
+    },
+    "canvases": {
+        "template": "/canvases",
         "params": [],
         "scope": "project"
     },
@@ -373,6 +423,16 @@
         "template": "/account/credential-review",
         "params": [],
         "scope": "global"
+    },
+    "crossProjectDashboard": {
+        "template": "/cross-project-dashboards/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "crossProjectDashboards": {
+        "template": "/cross-project-dashboards",
+        "params": [],
+        "scope": "project"
     },
     "customCss": {
         "template": "/themes/custom-css",
@@ -884,6 +944,11 @@
         "params": ["skillName"],
         "scope": "project"
     },
+    "inboxScoutTrials": {
+        "template": "/scout-trials",
+        "params": [],
+        "scope": "project"
+    },
     "inboxScratchpad": {
         "template": "/inbox/scouts/scratchpad",
         "params": [],
@@ -1011,21 +1076,6 @@
     },
     "legalDocuments": {
         "template": "/legal",
-        "params": [],
-        "scope": "project"
-    },
-    "link": {
-        "template": "/link/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "links": {
-        "template": "/links",
-        "params": [],
-        "scope": "project"
-    },
-    "liveDebugger": {
-        "template": "/live-debugger",
         "params": [],
         "scope": "project"
     },
@@ -1644,6 +1694,36 @@
         "params": [],
         "scope": "project"
     },
+    "taskNewSession": {
+        "template": "/spaces/new",
+        "params": [],
+        "scope": "project"
+    },
+    "taskSpace": {
+        "template": "/spaces/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceCanvases": {
+        "template": "/spaces/{id}/canvases",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceNewSession": {
+        "template": "/spaces/{id}/new",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaceSettings": {
+        "template": "/spaces/{id}/settings",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "taskSpaces": {
+        "template": "/spaces",
+        "params": [],
+        "scope": "project"
+    },
     "taskTracker": {
         "template": "/tasks",
         "params": [],
@@ -1656,6 +1736,11 @@
     },
     "toolbarLaunch": {
         "template": "/toolbar",
+        "params": [],
+        "scope": "project"
+    },
+    "tools": {
+        "template": "/tools",
         "params": [],
         "scope": "project"
     },
@@ -1689,21 +1774,6 @@
         "params": [],
         "scope": "project"
     },
-    "userInterview": {
-        "template": "/user_research/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "userInterviewResponse": {
-        "template": "/user_research/{topicId}/response/{responseId}",
-        "params": ["topicId", "responseId"],
-        "scope": "project"
-    },
-    "userInterviews": {
-        "template": "/user_research",
-        "params": [],
-        "scope": "project"
-    },
     "variable": {
         "template": "/data-management/variables/{id}",
         "params": ["id"],
@@ -1731,6 +1801,16 @@
     },
     "verifyEmail": {
         "template": "/verify_email",
+        "params": [],
+        "scope": "project"
+    },
+    "views": {
+        "template": "/views",
+        "params": [],
+        "scope": "project"
+    },
+    "viewsNew": {
+        "template": "/views/new",
         "params": [],
         "scope": "project"
     },

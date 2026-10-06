@@ -308,8 +308,21 @@ describe('accountsLogic', () => {
             },
         ])
 
+        logic.actions.setAccountFilterGroups([
+            [
+                ACCOUNT_FILTERS[0],
+                {
+                    type: PropertyFilterType.AccountCustomProperty,
+                    key: '99999999-9999-9999-9999-999999999999',
+                    operator: PropertyOperator.Exact,
+                    value: 'missing',
+                },
+            ],
+        ])
+
         expect(logic.values.accountFilters).toEqual([])
-        expect(logic.values.activeFilterCount).toBe(0)
+        expect(logic.values.accountFilterGroups).toEqual([[ACCOUNT_FILTERS[0]]])
+        expect(logic.values.activeFilterCount).toBe(1)
     })
 
     it('adds native account filters to the query and shareable view state', () => {
@@ -354,6 +367,23 @@ describe('accountsLogic', () => {
         })
         expect(capture.mock.calls.at(-1)?.[1]).not.toHaveProperty('key')
         expect(capture.mock.calls.at(-1)?.[1]).not.toHaveProperty('value')
+    })
+
+    it('tracks edits to OR groups without tracking restored state', () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        logic.actions.setAccountFilters([ACCOUNT_FILTERS[0]])
+        logic.actions.setAccountFilterGroups([[ACCOUNT_FILTERS[0]]])
+        expect(capture).not.toHaveBeenCalledWith(AccountsEvents.FilterChanged, expect.anything())
+
+        logic.actions.updateAccountFilterGroup(0, [ACCOUNT_FILTERS[1]])
+        logic.actions.addAccountFilterGroup()
+        logic.actions.removeAccountFilterGroup(1)
+
+        expect(capture.mock.calls.filter(([event]) => event === AccountsEvents.FilterChanged)).toEqual([
+            [AccountsEvents.FilterChanged, expect.objectContaining({ filter_type: 'or_group', group_count: 2 })],
+            [AccountsEvents.FilterChanged, expect.objectContaining({ filter_type: 'or_group', group_count: 3 })],
+            [AccountsEvents.FilterChanged, expect.objectContaining({ filter_type: 'or_group', group_count: 2 })],
+        ])
     })
 
     it('setTagsFilter updates the reducer', () => {
@@ -412,6 +442,7 @@ describe('accountsLogic', () => {
                 tags: [],
                 tileFilter: null,
                 customProperties: [],
+                filterGroups: [],
             },
             tiles: [...DEFAULT_TILES],
             columnDisplay: {},
@@ -477,6 +508,36 @@ describe('accountsLogic', () => {
             expect.objectContaining({ kind: 'relationship' })
         )
         expect(logic.values.activeFilterCount).toBe(0)
+    })
+
+    it('keeps custom-property groups until definitions load after a relationship failure', async () => {
+        logic.unmount()
+        silenceKeaLoadersErrors()
+        let resolveDefinitions!: (result: Awaited<ReturnType<typeof customPropertyDefinitionsList>>) => void
+        mockCustomPropertiesList.mockReturnValueOnce(
+            new Promise<Awaited<ReturnType<typeof customPropertyDefinitionsList>>>((resolve) => {
+                resolveDefinitions = resolve
+            })
+        )
+        mockDefinitionsList.mockRejectedValueOnce(new Error('network'))
+        logic = accountsLogic()
+        logic.mount()
+        const customFilter = {
+            type: PropertyFilterType.AccountCustomProperty as const,
+            key: CSM_DEFINITION_ID,
+            operator: PropertyOperator.Exact,
+            value: 5,
+        }
+        logic.actions.setAccountFilterGroups([[customFilter]])
+
+        await expectLogic(accountsColumnConfigLogic.findMounted()!).toDispatchActions([
+            'loadRelationshipDefinitionsFailure',
+        ])
+        expect(logic.values.accountFilterGroups).toEqual([[customFilter]])
+
+        resolveDefinitions({ count: 1, results: [buildCustomPropertyDefinition({ id: CSM_DEFINITION_ID })] })
+        await expectLogic(accountsColumnConfigLogic.findMounted()!).toFinishAllListeners()
+        expect(logic.values.accountFilterGroups).toEqual([[customFilter]])
     })
 
     it('keeps overview metrics off the list query', () => {
@@ -1108,6 +1169,24 @@ describe('accountsLogic', () => {
                         tags: ['enterprise'],
                         assignedTo: [7],
                         columns: [ACCOUNTS_NAME_COLUMN, 'csm'],
+                        customProperties: [
+                            {
+                                type: PropertyFilterType.Account,
+                                key: AccountsTableAccountField.Name,
+                                operator: PropertyOperator.IsSet,
+                                value: null,
+                            },
+                        ],
+                        filterGroups: [
+                            [
+                                {
+                                    type: PropertyFilterType.Account,
+                                    key: AccountsTableAccountField.ExternalId,
+                                    operator: PropertyOperator.IsSet,
+                                    value: null,
+                                },
+                            ],
+                        ],
                     },
                 }
             )
@@ -1123,6 +1202,10 @@ describe('accountsLogic', () => {
                 { kind: 'search', query: 'acme' },
                 { kind: 'tags', tagNames: ['enterprise'] },
                 { kind: 'assigned_to', userIds: [7] },
+            ])
+            expect(source.filterGroups).toEqual([
+                [{ kind: 'account_field', field: 'name', operator: 'is_set', values: [] }],
+                [{ kind: 'account_field', field: 'external_id', operator: 'is_set', values: [] }],
             ])
         })
 
@@ -1343,6 +1426,16 @@ describe('accountsLogic', () => {
             expect(logic.values.accountsQuerySource?.filters).toEqual([{ kind: 'account_id', accountId: ACCOUNT_ID }])
         })
 
+        it('clears OR groups when opening an account hidden by the current filters', () => {
+            logic.actions.setAccountFilters([ACCOUNT_FILTERS[0]])
+            logic.actions.setAccountFilterGroups([[ACCOUNT_FILTERS[0]]])
+
+            logic.actions.openAccount(ACCOUNT_ID, 'target-account', 'Target account', DEFAULT_ACCOUNT_TAB)
+
+            expect(logic.values.accountFilters).toEqual([])
+            expect(logic.values.accountFilterGroups).toEqual([])
+        })
+
         it('survives a view-state restore rewriting the URL', async () => {
             router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
             await expectLogic(logic).toFinishAllListeners()
@@ -1370,27 +1463,27 @@ describe('accountsLogic', () => {
     })
 
     describe('updateAccountCustomProperty', () => {
-        it('writes the value and masks stale query data with the saved value', async () => {
+        it.each([42, 0, false, null])('writes %s and masks stale query data with the saved value', async (value) => {
             const definition = buildCustomPropertyDefinition()
             const capture = jest.spyOn(posthog, 'capture').mockImplementation()
             mockCustomPropertyValuesCreate.mockResolvedValue({
                 id: 'value-1',
                 account_id: 'acc-1',
                 definition_id: definition.id,
-                value: 42,
+                value: value ?? 42,
                 created_at: '2026-01-01T00:00:00Z',
                 created_by_id: 1,
             })
 
-            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            logic.actions.updateAccountCustomProperty('acc-1', definition, value)
 
-            expect(logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]).toBe(42)
+            expect(logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]).toBe(value)
 
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockCustomPropertyValuesCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
                 definition: definition.id,
-                value: 42,
+                value,
             })
             expect(
                 logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]
@@ -1402,11 +1495,72 @@ describe('accountsLogic', () => {
             })
         })
 
+        it('blocks duplicate clear requests while a write is pending', async () => {
+            const definition = buildCustomPropertyDefinition()
+            let finishWrite!: (value: Awaited<ReturnType<typeof accountsCustomPropertyValuesCreate>>) => void
+            mockCustomPropertyValuesCreate.mockImplementationOnce(
+                () =>
+                    new Promise<Awaited<ReturnType<typeof accountsCustomPropertyValuesCreate>>>(
+                        (resolve) => (finishWrite = resolve)
+                    )
+            )
+
+            logic.actions.updateAccountCustomProperty('acc-1', definition, null)
+            logic.actions.updateAccountCustomProperty('acc-1', definition, null)
+
+            expect(mockCustomPropertyValuesCreate).toHaveBeenCalledTimes(1)
+            expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(true)
+            expect(logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]).toBeNull()
+
+            finishWrite({
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: definition.id,
+                value: 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(false)
+        })
+
+        it('clears only refreshed overrides when the refresh of an earlier write lands during a pending write', async () => {
+            const saved = buildCustomPropertyDefinition()
+            const pending = buildCustomPropertyDefinition({ id: 'custom-property-2' })
+            const pendingKey = customPropertySavingKey('acc-1', pending.id)
+            const writeResult: Awaited<ReturnType<typeof accountsCustomPropertyValuesCreate>> = {
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: saved.id,
+                value: 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            }
+            let finishPendingWrite!: (value: typeof writeResult) => void
+            mockCustomPropertyValuesCreate
+                .mockResolvedValueOnce(writeResult)
+                .mockImplementationOnce(() => new Promise((resolve) => (finishPendingWrite = resolve)))
+
+            logic.actions.updateAccountCustomProperty('acc-1', saved, null)
+            logic.actions.updateAccountCustomProperty('acc-1', pending, null)
+            await expectLogic(logic).toDispatchActions(['listLoadDataSuccess'])
+
+            expect(logic.values.isCustomPropertySaving('acc-1', pending.id)).toBe(true)
+            expect(logic.values.customPropertyOverrides).toEqual({ [pendingKey]: null })
+
+            finishPendingWrite({ ...writeResult, definition_id: pending.id })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.customPropertyOverrides).toEqual({})
+        })
+
         it.each([
-            ['canonical', buildCustomPropertyDefinition({ is_canonical: true })],
-            ['data warehouse managed', buildCustomPropertyDefinition({ source: createCustomPropertySource() })],
-        ])('does not write a %s property', async (_, definition) => {
-            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            ['canonical', buildCustomPropertyDefinition({ is_canonical: true }), 42],
+            ['canonical', buildCustomPropertyDefinition({ is_canonical: true }), null],
+            ['data warehouse managed', buildCustomPropertyDefinition({ source: createCustomPropertySource() }), 42],
+            ['data warehouse managed', buildCustomPropertyDefinition({ source: createCustomPropertySource() }), null],
+        ] as const)('does not write a %s property', async (_, definition, value) => {
+            logic.actions.updateAccountCustomProperty('acc-1', definition, value)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockCustomPropertyValuesCreate).not.toHaveBeenCalled()
@@ -1437,11 +1591,11 @@ describe('accountsLogic', () => {
             })
         })
 
-        it('reverts the optimistic override after a failed write', async () => {
+        it.each([42, null])('reverts the optimistic override after a failed write of %s', async (value) => {
             const definition = buildCustomPropertyDefinition()
             mockCustomPropertyValuesCreate.mockRejectedValueOnce(new Error('boom'))
 
-            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            logic.actions.updateAccountCustomProperty('acc-1', definition, value)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(

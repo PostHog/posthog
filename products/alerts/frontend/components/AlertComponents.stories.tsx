@@ -416,6 +416,20 @@ function PreviewStory(): JSX.Element {
     )
 }
 
+function PreviewDelayHistoryTooShortStory(): JSX.Element {
+    return (
+        <div className="max-w-md border rounded bg-surface-primary p-4">
+            <AlertPreviewCard
+                alertForm={buildTrendsAlertForm({ evaluation_delay_intervals: 10 })}
+                trendsValues={[]}
+                funnelPreview={null}
+                hogqlPreview={null}
+                previewHistoryTooShort
+            />
+        </div>
+    )
+}
+
 function PreviewRelativeStory(): JSX.Element {
     return (
         <div className="max-w-md border rounded bg-surface-primary p-4">
@@ -499,6 +513,7 @@ export const NotificationsMultipleSlackWorkspaces: Story = { render: () => <Mult
 export const QuietHours: Story = { render: () => <QuietHoursStory /> }
 export const EvaluationHistory: Story = { render: () => <EvaluationHistoryStory /> }
 export const Preview: Story = { render: () => <PreviewStory /> }
+export const PreviewDelayHistoryTooShort: Story = { render: () => <PreviewDelayHistoryTooShortStory /> }
 export const PreviewRelative: Story = { render: () => <PreviewRelativeStory /> }
 export const PreviewLogScale: Story = { render: () => <PreviewLogScaleStory /> }
 export const PreviewBreakdown: Story = { render: () => <PreviewBreakdownStory /> }

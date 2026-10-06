@@ -130,6 +130,11 @@ export interface PipelineActivityRowApi {
      * @nullable
      */
     origin: string | null
+    /**
+     * Id of the source the run belongs to, for linking to it. Null for model runs.
+     * @nullable
+     */
+    source_id?: string | null
 }
 
 export interface PipelineActivityResponseApi {
@@ -164,6 +169,11 @@ export interface DataHealthIssueApi {
      * @nullable
      */
     source_type?: string | null
+    /**
+     * How a sync issue's table is kept up to date, for example 'incremental' or 'webhook'. A webhook table is pushed to rather than pulled on a schedule. Null for other types.
+     * @nullable
+     */
+    sync_type?: string | null
     /** Why it is unhealthy. One of: failed, disabled, degraded, billing_limit. */
     status: string
     /**
@@ -172,7 +182,7 @@ export interface DataHealthIssueApi {
      */
     error: string | null
     /**
-     * When it last failed.
+     * When a sync issue's table last synced successfully. Null if it never has.
      * @nullable
      */
     failed_at: string | null
@@ -1658,7 +1668,7 @@ export interface SyncFrequencyBoundsApi {
 export interface DataWarehouseSavedQueryApi {
     readonly id: string
     /** @nullable */
-    deleted?: boolean | null
+    readonly deleted: boolean | null
     /**
      * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
      * @maxLength 128
@@ -1724,12 +1734,12 @@ export interface DataWarehouseSavedQueryApi {
      */
     readonly latest_history_id: string | null
     /**
-     * If true, skip column inference and validation. For saving drafts.
+     * If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.
      * @nullable
      */
     soft_update?: boolean | null
     /**
-     * Optional DAG to place this view into
+     * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
      * @nullable
      */
     dag_id?: string | null
@@ -1787,7 +1797,7 @@ export type PatchedDataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQ
 export interface PatchedDataWarehouseSavedQueryApi {
     readonly id?: string
     /** @nullable */
-    deleted?: boolean | null
+    readonly deleted?: boolean | null
     /**
      * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
      * @maxLength 128
@@ -1853,12 +1863,12 @@ export interface PatchedDataWarehouseSavedQueryApi {
      */
     readonly latest_history_id?: string | null
     /**
-     * If true, skip column inference and validation. For saving drafts.
+     * If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.
      * @nullable
      */
     soft_update?: boolean | null
     /**
-     * Optional DAG to place this view into
+     * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
      * @nullable
      */
     dag_id?: string | null
@@ -3156,6 +3166,7 @@ export interface CredentialApi {
  * * `Donorbox` - Donorbox
  * * `Doorloop` - Doorloop
  * * `Dovetail` - Dovetail
+ * * `Dragonboat` - Dragonboat
  * * `Drchrono` - Drchrono
  * * `Dynamics365BusinessCentral` - Dynamics365BusinessCentral
  * * `EcbDataPortal` - EcbDataPortal
@@ -3391,6 +3402,7 @@ export interface CredentialApi {
  * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
  * * `WhoGho` - WhoGho
  * * `Whop` - Whop
+ * * `Wistia` - Wistia
  * * `Wiz` - Wiz
  * * `Wompi` - Wompi
  * * `Workiz` - Workiz
@@ -3499,6 +3511,19 @@ export interface CredentialApi {
  * * `Expo` - Expo
  * * `PostNord` - PostNord
  * * `Commslayer` - Commslayer
+ * * `Sprinto` - Sprinto
+ * * `Gem` - Gem
+ * * `AudioGO` - AudioGO
+ * * `ExactOnline` - ExactOnline
+ * * `LettrLabs` - LettrLabs
+ * * `GrafanaIRM` - GrafanaIRM
+ * * `Tessitura` - Tessitura
+ * * `ChargebackStop` - ChargebackStop
+ * * `Chargeflow` - Chargeflow
+ * * `Dreamdata` - Dreamdata
+ * * `GoogleBusinessProfile` - GoogleBusinessProfile
+ * * `Ledyer` - Ledyer
+ * * `Supermetrics` - Supermetrics
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4509,6 +4534,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Donorbox: 'Donorbox',
     Doorloop: 'Doorloop',
     Dovetail: 'Dovetail',
+    Dragonboat: 'Dragonboat',
     Drchrono: 'Drchrono',
     Dynamics365BusinessCentral: 'Dynamics365BusinessCentral',
     EcbDataPortal: 'EcbDataPortal',
@@ -4744,6 +4770,7 @@ export const ExternalDataSourceTypeEnumApi = {
     WhatsappBusinessManagement: 'WhatsappBusinessManagement',
     WhoGho: 'WhoGho',
     Whop: 'Whop',
+    Wistia: 'Wistia',
     Wiz: 'Wiz',
     Wompi: 'Wompi',
     Workiz: 'Workiz',
@@ -4852,6 +4879,19 @@ export const ExternalDataSourceTypeEnumApi = {
     Expo: 'Expo',
     PostNord: 'PostNord',
     Commslayer: 'Commslayer',
+    Sprinto: 'Sprinto',
+    Gem: 'Gem',
+    AudioGO: 'AudioGO',
+    ExactOnline: 'ExactOnline',
+    LettrLabs: 'LettrLabs',
+    GrafanaIRM: 'GrafanaIRM',
+    Tessitura: 'Tessitura',
+    ChargebackStop: 'ChargebackStop',
+    Chargeflow: 'Chargeflow',
+    Dreamdata: 'Dreamdata',
+    GoogleBusinessProfile: 'GoogleBusinessProfile',
+    Ledyer: 'Ledyer',
+    Supermetrics: 'Supermetrics',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -5265,6 +5305,15 @@ export type DataWarehouseCompletedActivityRetrieveParams = {
      */
     cutoff_days?: number
     /**
+     * Which runs to return: 'import' for warehouse source syncs, 'model' for materialized view runs, 'all' for both. Defaults to 'all'.
+     *
+     * * `all` - all
+     * * `import` - import
+     * * `model` - model
+     * @minLength 1
+     */
+    kind?: DataWarehouseCompletedActivityRetrieveKind
+    /**
      * Max rows to return. Capped at 50 server-side. Defaults to 20.
      */
     limit?: number
@@ -5273,14 +5322,24 @@ export type DataWarehouseCompletedActivityRetrieveParams = {
      */
     offset?: number
     /**
-     * Which outcome to return: 'completed' or 'failed'. Defaults to 'completed'.
+     * Which outcome to return: 'completed', 'failed', or 'all' for every run that finished either way. Defaults to 'completed'. Running jobs come from `running_activity` instead.
      *
      * * `completed` - completed
      * * `failed` - failed
+     * * `all` - all
      * @minLength 1
      */
     outcome?: DataWarehouseCompletedActivityRetrieveOutcome
 }
+
+export type DataWarehouseCompletedActivityRetrieveKind =
+    (typeof DataWarehouseCompletedActivityRetrieveKind)[keyof typeof DataWarehouseCompletedActivityRetrieveKind]
+
+export const DataWarehouseCompletedActivityRetrieveKind = {
+    All: 'all',
+    Import: 'import',
+    Model: 'model',
+} as const
 
 export type DataWarehouseCompletedActivityRetrieveOutcome =
     (typeof DataWarehouseCompletedActivityRetrieveOutcome)[keyof typeof DataWarehouseCompletedActivityRetrieveOutcome]
@@ -5288,6 +5347,7 @@ export type DataWarehouseCompletedActivityRetrieveOutcome =
 export const DataWarehouseCompletedActivityRetrieveOutcome = {
     Completed: 'completed',
     Failed: 'failed',
+    All: 'all',
 } as const
 
 export type DataWarehouseJobStatsRetrieveParams = {
@@ -5371,6 +5431,39 @@ export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
      */
     source_id: string
 }
+
+export type DataWarehouseRunningActivityRetrieveParams = {
+    /**
+     * Only include runs created within this many days of now. Defaults to 30.
+     */
+    cutoff_days?: number
+    /**
+     * Which runs to return: 'import' for warehouse source syncs, 'model' for materialized view runs, 'all' for both. Defaults to 'all'.
+     *
+     * * `all` - all
+     * * `import` - import
+     * * `model` - model
+     * @minLength 1
+     */
+    kind?: DataWarehouseRunningActivityRetrieveKind
+    /**
+     * Max rows to return. Capped at 50 server-side. Defaults to 20.
+     */
+    limit?: number
+    /**
+     * Rows to skip, for pagination. Defaults to 0.
+     */
+    offset?: number
+}
+
+export type DataWarehouseRunningActivityRetrieveKind =
+    (typeof DataWarehouseRunningActivityRetrieveKind)[keyof typeof DataWarehouseRunningActivityRetrieveKind]
+
+export const DataWarehouseRunningActivityRetrieveKind = {
+    All: 'all',
+    Import: 'import',
+    Model: 'model',
+} as const
 
 export type FixHogqlListParams = {
     /**

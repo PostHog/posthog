@@ -41,11 +41,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.d
     retry_on_operational_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    repartition_activity_has_work,
     repartition_import_hold_reason,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import retry_internal_db_operation
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits import (
+    billing_limit_reached,
+)
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
@@ -159,17 +165,16 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
         raise V3PipelineLockLostError("v3 pipeline lock lost to another run before job creation")
 
 
-# Per-run state, not configuration. `cdc_deferred_runs` is a notification queue that reaches
-# hundreds of KB on a busy CDC schema, and `schema_metadata` is the source table's column list.
-# Copying them onto every job row was most of the snapshot's storage cost.
-_SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"cdc_deferred_runs", "schema_metadata"})
+# `schema_metadata` is the source table's column list, not configuration. Copying it onto every
+# job row would be most of the snapshot's storage cost.
+_SNAPSHOT_EXCLUDED_CONFIG_KEYS = frozenset({"schema_metadata"})
 
 
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
     """The schema as it was when this job started, for debugging a run after the fact.
 
-    `post_import_job` reads `last_synced_at` back, and CDC extraction adds `cdc_write_mode` for
-    the jobs API. The rest is only ever read by a person: the schema audit log does not diff
+    `post_import_job` reads `last_synced_at` back, and a CDC history lane's job adds
+    `cdc_write_mode` for the jobs API. The rest is only ever read by a person: the schema audit log does not diff
     `sync_type_config`, so this is the one record of the cursor and reset flags a run ran with.
     """
     sync_type_config = {
@@ -326,6 +331,18 @@ class CreateExternalDataJobModelActivityOutputs:
     # The workflow hands this to the import, which resets only while the schema is still due. Nothing is
     # stored on the schema, so a run that stops before the wipe leaves no reset behind for later runs.
     scheduled_full_refresh: bool = False
+    # True when the pre-extraction repartition activity has a rewrite, swap or on-disk measurement to
+    # do. Defaults True so a payload from a worker that predates the field still schedules it.
+    repartition_needed: bool = True
+    # True when this activity already answered the billing-limit question, so the workflow reads
+    # `hit_billing_limit` instead of scheduling the separate check. Defaults False so a payload
+    # recorded before the field existed still replays the check activity it recorded.
+    billing_limit_checked: bool = False
+    hit_billing_limit: bool = False
+    # True when the post-import source-templates activity has anything to create: only a Stripe
+    # source's first completed sync does. Defaults True so a payload that predates the field still
+    # schedules the activity its history recorded.
+    source_templates_needed: bool = True
 
 
 @activity.defn
@@ -418,13 +435,8 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type, schema.name, ai_data_processing_approved
         )
 
-        # Column-statistics profiling is gated on its feature flag only (no consent term) — let the
-        # workflow skip the child rather than spawn a no-op. Lazy import keeps deltalake off this path.
-        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (  # noqa: PLC0415
-            statistics_enabled,
-        )
-
-        statistics_should_run = bool(team is not None and statistics_enabled(team))
+        # Column-statistics profiling needs no consent term, only a team to attribute it to.
+        statistics_should_run = team is not None
 
         # Narrow "permitted" down to "permitted AND has work to do" so steady-state syncs don't spawn
         # no-op metadata workflows. The activities re-check this themselves as a safety net.
@@ -443,6 +455,22 @@ def create_external_data_job_model_activity(
             statistics_needed=statistics_needed,
         )
 
+        # The repartition activity re-checks this itself; deciding here lets the workflow skip
+        # scheduling it at all, which for most syncs is its whole cost.
+        repartition_needed = repartition_activity_has_work(schema)
+
+        # Answered here, after the job row exists, in the order the separate activity ran it. A
+        # transient app-DB failure is retried in place: this activity has one Temporal attempt.
+        hit_billing_limit = retry_internal_db_operation(
+            lambda: billing_limit_reached(job, source, inputs.team_id, logger)
+        )
+
+        source_templates_needed = source.source_type == ExternalDataSourceType.STRIPE and not (
+            ExternalDataJob.objects.filter(
+                team_id=inputs.team_id, pipeline_id=source.id, status=ExternalDataJob.Status.COMPLETED
+            ).exists()
+        )
+
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),
             incremental_or_append=schema.is_incremental or schema.is_append or schema.is_webhook,
@@ -457,6 +485,10 @@ def create_external_data_job_model_activity(
             person_property_sync_enabled=person_property_sync_enabled,
             fast_return_eligible=fast_return_eligible,
             scheduled_full_refresh=scheduled_full_refresh,
+            repartition_needed=repartition_needed,
+            billing_limit_checked=True,
+            hit_billing_limit=hit_billing_limit,
+            source_templates_needed=source_templates_needed,
         )
     except V3PipelineLockLostError:
         # The takeover race the guard handles, not a defect — skip the generic handler's

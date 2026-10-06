@@ -17,7 +17,7 @@ import { urls } from 'scenes/urls'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
-    DataVisualizationNode,
+    VisualizationNode,
     HogQLQuery,
     HogQLQueryResponse,
     HogQLVariable,
@@ -55,9 +55,9 @@ import { applyDataVisualizationQueryUpdate } from './queryUpdateUtils'
 
 export interface DataTableVisualizationProps {
     uniqueKey?: string | number
-    query: DataVisualizationNode
-    setQuery: (query: DataVisualizationNode) => void
-    context?: QueryContext<DataVisualizationNode>
+    query: VisualizationNode
+    setQuery: (query: VisualizationNode) => void
+    context?: QueryContext<VisualizationNode>
     /* Cached Results are provided when shared or exported,
     the data node logic becomes read only implicitly */
     cachedResults?: AnyResponseType
@@ -91,7 +91,7 @@ export function DataTableVisualization({
     const queryRef = useRef(query)
     queryRef.current = query
 
-    const insightProps: InsightLogicProps<DataVisualizationNode> = context?.insightProps || {
+    const insightProps: InsightLogicProps<VisualizationNode> = context?.insightProps || {
         dashboardItemId: `new-AdHoc.${key}`,
         query,
         setQuery,
@@ -136,7 +136,7 @@ export function DataTableVisualization({
         dashboardId: insightProps.dashboardId,
         sourceQuery: query,
         setQuery: setQuery,
-        onUpdate: (query: DataVisualizationNode) => {
+        onUpdate: (query: VisualizationNode) => {
             loadData(shouldQueryBeAsync(query.source) ? 'force_async' : 'force_blocking', undefined, query.source)
         },
     }
@@ -202,7 +202,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     // Overlay alert threshold bounds on the chart, like trends does — only when rendering a saved
     // insight (the SQL editor and other unsaved contexts have no alerts to show). Deliberately maps
     // alerts directly instead of using the alertThresholdLines selector: that selector gates on the
-    // trends-only showAlertThresholdLines viz setting, which DataVisualizationNode doesn't have, so
+    // trends-only showAlertThresholdLines viz setting, which VisualizationNode doesn't have, so
     // going through it would hide the lines on SQL charts entirely.
     const alertsInsightProps = (props.context?.insightProps as InsightLogicProps | undefined) ?? {
         dashboardItemId: undefined,

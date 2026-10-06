@@ -51,6 +51,25 @@ def readable_head_names(metadata: Mapping[str, Any]) -> frozenset[str]:
     return frozenset(entry["head"] for entry in metadata.get("heads", []) if entry.get("readable"))
 
 
+def classification_thresholds(metadata: Mapping[str, Any]) -> dict[str, float]:
+    """The saved refit threshold per head. A model saved before thresholds existed has none, and its
+    grades then report null classification fields rather than a threshold read from the graded rows."""
+    return {
+        entry["head"]: float(entry["refit_classification_threshold"])
+        for entry in metadata.get("heads", [])
+        if entry.get("refit_classification_threshold") is not None
+    }
+
+
+def head_lifts(scores: Mapping[str, float], metadata: Mapping[str, Any]) -> dict[str, float]:
+    """Each head's probability over its base rate, the saved refit threshold. A head without a
+    positive saved threshold has no lift, and no other value may stand in for it."""
+    thresholds = classification_thresholds(metadata)
+    return {
+        head: probability / thresholds[head] for head, probability in scores.items() if thresholds.get(head, 0.0) > 0.0
+    }
+
+
 def trained_head_files(metadata: Mapping[str, Any], known_heads: Collection[str]) -> dict[str, str]:
     """The `<head>.ubj` object name per head the candidate fit, of the heads in `known_heads`.
 

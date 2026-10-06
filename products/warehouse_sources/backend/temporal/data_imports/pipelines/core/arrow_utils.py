@@ -6,8 +6,7 @@ import math
 import uuid
 import decimal
 import datetime
-from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
-from functools import _make_key, wraps
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from ipaddress import IPv4Address, IPv6Address
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
@@ -17,7 +16,6 @@ import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
 from arro3.core.types import ArrowSchemaExportable
-from circular_dict import CircularDict
 from dateutil import parser
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from psycopg.types.multirange import Multirange
@@ -1452,8 +1450,9 @@ def _process_batch(
     # Support both given schemas and inferred schemas
     if schema is None or len(schema.names) == 0:
         try:
-            # Gather all unique keys from all items, not just the first
-            all_keys = set().union(*(d.keys() for d in table_data))
+            # Gather all unique keys from all items, not just the first. Use a dict, not a set, so
+            # that the columns keep the order the source gave them.
+            all_keys = dict.fromkeys(key for d in table_data for key in d)
             first_item = table_data[0]
             first_item = {key: first_item.get(key, None) for key in all_keys}
             table_data[0] = first_item
@@ -1465,7 +1464,7 @@ def _process_batch(
 
     drop_column_names: set[str] = set()
 
-    column_names = set(table_data[0].keys())
+    column_names = list(table_data[0].keys())
     columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
 
     for col in column_names:
@@ -1856,53 +1855,6 @@ def _process_batch(
                 arrow_schema = arrow_schema.remove(arrow_schema.get_field_index(str(column)))
 
     return pa.Table.from_pydict(columnar_table_data, schema=arrow_schema)
-
-
-# from `conditional-cache`, but changed to be made async
-def conditional_lru_cache_async(
-    maxsize: int = 128, typed: bool = False, condition: Callable[[Any], bool] = lambda x: True
-):
-    cache = CircularDict(maxlen=maxsize)
-
-    def decorator(func):
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
-            key = _make_key(args, kwargs, typed)
-
-            if key in cache:
-                return cache[key]
-
-            result = await func(*args, **kwargs)
-
-            if condition(result):
-                cache[key] = result
-
-            return result
-
-        def cache_remove(*args, **kwargs):
-            key = _make_key(args, kwargs, typed)
-            cache.pop(key, None)
-
-        def cache_pop(*args, **kwargs) -> Any:
-            """Remove and return a cached value without ever invoking `func` — unlike calling
-            `wrapper` itself, a cache miss returns `None` instead of computing and storing a
-            fresh result. For callers that only want to release an already-cached resource.
-
-            Checks membership before popping: CircularDict.pop(key, None) treats a `None`
-            default as "no default" and raises KeyError on a miss instead of returning it.
-            """
-            key = _make_key(args, kwargs, typed)
-            if key not in cache:
-                return None
-            return cache.pop(key)
-
-        cast(Any, wrapper).cache_remove = cache_remove
-        cast(Any, wrapper).cache_clear = lambda: cache.clear()
-        cast(Any, wrapper).cache_pop = cache_pop
-
-        return wrapper
-
-    return decorator
 
 
 def realign_decimal_buffers(table: pa.Table) -> pa.Table:

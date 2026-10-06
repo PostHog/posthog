@@ -4,16 +4,15 @@ import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
-import { externalDataSourcesConnectionsList } from 'products/warehouse_sources/frontend/generated/api'
-import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
-
 import {
     addHiddenSelectedConnectionOption,
     connectionSelectorLogic,
     getConnectionSelectorValue,
     LOADING_CONNECTIONS,
     POSTHOG_WAREHOUSE,
-} from './connectionSelectorLogic'
+} from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
+import { externalDataSourcesConnectionsList } from 'products/warehouse_sources/frontend/generated/api'
+import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
     externalDataSourcesConnectionsList: jest.fn(),

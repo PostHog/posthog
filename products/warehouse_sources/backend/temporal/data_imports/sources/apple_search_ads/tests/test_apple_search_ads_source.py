@@ -258,7 +258,7 @@ class TestAppleSearchAdsSource:
             (
                 "apple being unreachable",
                 requests.ConnectionError("connection refused"),
-                "Could not exchange the Apple Ads credentials for an access token",
+                "couldn't reach Apple",
             ),
         ]
     )

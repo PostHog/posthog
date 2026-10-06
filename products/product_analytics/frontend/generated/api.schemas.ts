@@ -239,6 +239,7 @@ export const BreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -253,6 +254,7 @@ export const MultipleBreakdownTypeApi = {
     Person: 'person',
     Event: 'event',
     EventMetadata: 'event_metadata',
+    Element: 'element',
     Group: 'group',
     Session: 'session',
     Hogql: 'hogql',
@@ -651,6 +653,8 @@ export interface HogQLQueryModifiersApi {
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    personIdPushdown?: boolean | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
     personsOnEventsMode?: PersonsOnEventsModeApi | null
@@ -667,6 +671,8 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
     usePreaggregatedTableTransforms?: boolean | null
@@ -3908,6 +3914,13 @@ export const QueryIndexUsageApi = {
     Yes: 'yes',
 } as const
 
+export interface HogQLMetadataColumnApi {
+    /** Output column name, in the same order as the SELECT list. */
+    name: string
+    /** Inferred runtime type, including nullability. Unknown means inference could not determine the type; execution remains authoritative. */
+    type: string
+}
+
 export interface HogQLMetadataResponseApi {
     ch_table_names?: string[] | null
     errors: HogQLNoticeApi[]
@@ -3916,6 +3929,8 @@ export interface HogQLMetadataResponseApi {
     isUsingIndices?: QueryIndexUsageApi | null
     isValid?: boolean | null
     notices: HogQLNoticeApi[]
+    /** Best-effort output schema, without executing the query. Only included when includeOutputTypes is requested and inference succeeds. */
+    output_columns?: HogQLMetadataColumnApi[] | null
     query?: string | null
     table_names?: string[] | null
     warnings: HogQLNoticeApi[]
@@ -4348,6 +4363,7 @@ export const IntegrationKindApi = {
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
     YoutubeAnalytics: 'youtube-analytics',
+    TwitterAds: 'twitter-ads',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -5818,6 +5834,8 @@ export interface PathsV2ActorsQueryApi {
 export interface HogQLFiltersApi {
     /** Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown. */
     breakdownFilter?: BreakdownFilterApi | null
+    /** Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}. */
+    compareFilter?: CompareFilterApi | null
     dateRange?: DateRangeApi | null
     filterTestAccounts?: boolean | null
     /** Time granularity consumed by the {filters.interval} placeholder. Set from the dashboard-level interval. */
@@ -7635,55 +7653,6 @@ export interface AccountsTableCustomPropertyHistoryColumnApi {
     windowDays: WindowDaysApi
 }
 
-export interface AccountsTableSearchFilterApi {
-    kind?: 'search'
-    query: string
-}
-
-export interface AccountsTableTagsFilterApi {
-    kind?: 'tags'
-    /** Match accounts carrying any of these tag names. */
-    tagNames: string[]
-}
-
-export interface AccountsTableAssignedToFilterApi {
-    kind?: 'assigned_to'
-    /** Match accounts where any listed user actively holds any relationship. */
-    userIds: number[]
-}
-
-export const AccountsTableAssignedFilterApiValue = {
-    kind: 'assigned',
-} as const
-export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
-
-export const AccountsTableUnassignedFilterApiValue = {
-    kind: 'unassigned',
-} as const
-export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
-
-export type AccountsTableRelationshipOperatorApi =
-    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
-
-export const AccountsTableRelationshipOperatorApi = {
-    Exact: 'exact',
-    IsNot: 'is_not',
-    IsSet: 'is_set',
-    IsNotSet: 'is_not_set',
-} as const
-
-export interface AccountsTableRelationshipFilterApi {
-    definitionId: string
-    kind?: 'relationship'
-    operator: AccountsTableRelationshipOperatorApi
-    userIds?: number[] | null
-}
-
-export interface AccountsTableAccountIdFilterApi {
-    accountId: string
-    kind?: 'account_id'
-}
-
 export type AccountsTableAccountFieldOperatorApi =
     (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
 
@@ -7704,6 +7673,23 @@ export interface AccountsTableAccountFieldFilterApi {
     kind?: 'account_field'
     operator: AccountsTableAccountFieldOperatorApi
     values?: string[] | null
+}
+
+export type AccountsTableRelationshipOperatorApi =
+    (typeof AccountsTableRelationshipOperatorApi)[keyof typeof AccountsTableRelationshipOperatorApi]
+
+export const AccountsTableRelationshipOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface AccountsTableRelationshipFilterApi {
+    definitionId: string
+    kind?: 'relationship'
+    operator: AccountsTableRelationshipOperatorApi
+    userIds?: number[] | null
 }
 
 export type AccountsTableCustomPropertyOperatorApi =
@@ -7733,6 +7719,38 @@ export interface AccountsTableCustomPropertyFilterApi {
     operator: AccountsTableCustomPropertyOperatorApi
     /** Values interpreted according to the custom property definition's display type. */
     values?: (string | number | boolean)[] | null
+}
+
+export interface AccountsTableSearchFilterApi {
+    kind?: 'search'
+    query: string
+}
+
+export interface AccountsTableTagsFilterApi {
+    kind?: 'tags'
+    /** Match accounts carrying any of these tag names. */
+    tagNames: string[]
+}
+
+export interface AccountsTableAssignedToFilterApi {
+    kind?: 'assigned_to'
+    /** Match accounts where any listed user actively holds any relationship. */
+    userIds: number[]
+}
+
+export const AccountsTableAssignedFilterApiValue = {
+    kind: 'assigned',
+} as const
+export type AccountsTableAssignedFilterApi = typeof AccountsTableAssignedFilterApiValue
+
+export const AccountsTableUnassignedFilterApiValue = {
+    kind: 'unassigned',
+} as const
+export type AccountsTableUnassignedFilterApi = typeof AccountsTableUnassignedFilterApiValue
+
+export interface AccountsTableAccountIdFilterApi {
+    accountId: string
+    kind?: 'account_id'
 }
 
 export const AccountsTableCountMetricApiValue = {
@@ -7833,6 +7851,14 @@ export interface AccountsTableQueryApi {
         | AccountsTableCustomPropertyColumnApi
         | AccountsTableCustomPropertyHistoryColumnApi
     )[]
+    /** Nonempty property-filter groups are ORed together; filters within each group use AND. Global filters still apply. */
+    filterGroups?:
+        | (
+              | AccountsTableAccountFieldFilterApi
+              | AccountsTableRelationshipFilterApi
+              | AccountsTableCustomPropertyFilterApi
+          )[][]
+        | null
     /** Filters are combined with AND. Values within tag and assignment filters use OR. */
     filters?:
         | (
@@ -8255,6 +8281,154 @@ export interface DataVisualizationNodeApi {
     version?: number | null
 }
 
+export type BIDateBucketApi = (typeof BIDateBucketApi)[keyof typeof BIDateBucketApi]
+
+export const BIDateBucketApi = {
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
+
+export interface BIDataSourceApi {
+    connectionId?: string | null
+    table: string
+}
+
+export type DatabaseSerializedFieldTypeApi =
+    (typeof DatabaseSerializedFieldTypeApi)[keyof typeof DatabaseSerializedFieldTypeApi]
+
+export const DatabaseSerializedFieldTypeApi = {
+    Integer: 'integer',
+    Float: 'float',
+    Decimal: 'decimal',
+    String: 'string',
+    Datetime: 'datetime',
+    Date: 'date',
+    Boolean: 'boolean',
+    Array: 'array',
+    Json: 'json',
+    LazyTable: 'lazy_table',
+    VirtualTable: 'virtual_table',
+    FieldTraverser: 'field_traverser',
+    Expression: 'expression',
+    View: 'view',
+    MaterializedView: 'materialized_view',
+    Unknown: 'unknown',
+} as const
+
+export interface BIFieldApi {
+    dateBucket?: BIDateBucketApi | null
+    expression: string
+    id: string
+    name: string
+    source: BIDataSourceApi
+    type: DatabaseSerializedFieldTypeApi
+}
+
+export type BIFilterOperatorApi = (typeof BIFilterOperatorApi)[keyof typeof BIFilterOperatorApi]
+
+export const BIFilterOperatorApi = {
+    Equals: 'equals',
+    NotEquals: 'not_equals',
+    Contains: 'contains',
+    In: 'in',
+    NotIn: 'not_in',
+    Between: 'between',
+    GreaterThan: 'greater_than',
+    LessThan: 'less_than',
+    Last7Days: 'last_7_days',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    Custom: 'custom',
+} as const
+
+export interface BIFilterApi {
+    customExpression?: string | null
+    enabled?: boolean | null
+    field: BIFieldApi
+    operator: BIFilterOperatorApi
+    value: string
+    valueTo?: string | null
+    values?: string[] | null
+}
+
+export type BIQueryLimitApi = (typeof BIQueryLimitApi)[keyof typeof BIQueryLimitApi]
+
+export const BIQueryLimitApi = {
+    Number100: 100,
+    Number1000: 1000,
+    Number10000: 10000,
+    Number50000: 50000,
+} as const
+
+export type BISortDirectionApi = (typeof BISortDirectionApi)[keyof typeof BISortDirectionApi]
+
+export const BISortDirectionApi = {
+    Asc: 'asc',
+    Desc: 'desc',
+} as const
+
+export interface BISortApi {
+    direction: BISortDirectionApi
+    key: string
+}
+
+export type BIAggregationApi = (typeof BIAggregationApi)[keyof typeof BIAggregationApi]
+
+export const BIAggregationApi = {
+    Count: 'count',
+    CountDistinct: 'count_distinct',
+    Sum: 'sum',
+    Average: 'average',
+    Minimum: 'minimum',
+    Maximum: 'maximum',
+    Custom: 'custom',
+} as const
+
+export interface BIValueApi {
+    aggregation: BIAggregationApi
+    customExpression?: string | null
+    field: BIFieldApi
+    label?: string | null
+}
+
+export interface BIConfigApi {
+    chartType: ChartDisplayTypeApi
+    columns: BIFieldApi[]
+    compareFilter?: CompareFilterApi | null
+    /** Column that receives the worksheet and dashboard date range. */
+    dateField?: BIFieldApi | null
+    dateRange?: DateRangeApi | null
+    filters: BIFilterApi[]
+    limit: BIQueryLimitApi
+    rows: BIFieldApi[]
+    /** null sorts automatically: newest date or highest value first, so top rows survive the LIMIT. */
+    sort?: BISortApi | null
+    source?: BIDataSourceApi | null
+    values: BIValueApi[]
+}
+
+export type BIVisualizationNodeApiKind = (typeof BIVisualizationNodeApiKind)[keyof typeof BIVisualizationNodeApiKind]
+
+export const BIVisualizationNodeApiKind = {
+    BIVisualizationNode: 'BIVisualizationNode',
+} as const
+
+export interface BIVisualizationNodeApi {
+    chartSettings?: ChartSettingsApi | null
+    config: BIConfigApi
+    display?: ChartDisplayTypeApi | null
+    kind: BIVisualizationNodeApiKind
+    source: HogQLQueryApi
+    tableSettings?: TableSettingsApi | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
 export type HogQueryApiKind = (typeof HogQueryApiKind)[keyof typeof HogQueryApiKind]
 
 export const HogQueryApiKind = {
@@ -8283,10 +8457,16 @@ export interface HogQueryApi {
  * The query definition for this insight. The `kind` field determines the query type:
  * - `InsightVizNode` — product analytics (trends, funnels, retention, paths, stickiness, lifecycle)
  * - `DataVisualizationNode` — SQL insights using HogQL
+ * - `BIVisualizationNode` — business intelligence worksheets with a HogQL source
  * - `DataTableNode` — raw data tables
  * - `HogQuery` — Hog language queries
  */
-export type _InsightQuerySchemaApi = InsightVizNodeApi | DataTableNodeApi | DataVisualizationNodeApi | HogQueryApi
+export type _InsightQuerySchemaApi =
+    | InsightVizNodeApi
+    | DataTableNodeApi
+    | DataVisualizationNodeApi
+    | BIVisualizationNodeApi
+    | HogQueryApi
 
 export interface DashboardTileBasicApi {
     readonly id: number

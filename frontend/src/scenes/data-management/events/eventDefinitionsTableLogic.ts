@@ -15,14 +15,18 @@ import { projectLogic } from 'scenes/projectLogic'
 import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
 
 import { eventDefinitionsBulkUpdateVerifiedCreate } from 'products/event_definitions/frontend/generated/api'
-import type { EventDefinitionBulkUpdateVerifiedResponseApi } from 'products/event_definitions/frontend/generated/api.schemas'
+import type {
+    EventDefinitionBulkUpdateVerifiedResponseApi,
+    PaginatedEnterpriseEventDefinitionListApi,
+} from 'products/event_definitions/frontend/generated/api.schemas'
 
 import type {
     BulkUpdateTagsUUIDErrorApi,
     EventDefinitionBulkUpdateVerifiedItemApi,
 } from '../../../../../products/event_definitions/frontend/generated/api.schemas'
 
-export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
+export interface EventDefinitionsPaginatedResponse
+    extends PaginatedResponse<EventDefinition>, Pick<PaginatedEnterpriseEventDefinitionListApi, 'count_is_capped'> {
     current?: string
     count?: number
     page?: number

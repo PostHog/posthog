@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { initKeaTests } from '~/test/init'
-import type { UserType } from '~/types'
+import { PropertyFilterType, PropertyOperator, type UserType } from '~/types'
 
 import type { ColumnConfigurationApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
@@ -150,5 +150,45 @@ describe('AccountsTabFilters', () => {
         fireEvent.click(screen.getByText('Assigned to anyone'))
 
         expect(logic.values.assignmentStatus).toBe('assigned')
+    })
+    it('keeps OR branches when collapsed and returns to the empty trigger after removing every group', async () => {
+        const first = [
+            {
+                type: PropertyFilterType.Account as const,
+                key: 'name',
+                operator: PropertyOperator.Exact,
+                value: ['Acme'],
+            },
+        ]
+        const second = [
+            {
+                type: PropertyFilterType.Account as const,
+                key: 'name',
+                operator: PropertyOperator.Exact,
+                value: ['Globex'],
+            },
+        ]
+        logic.actions.setAccountFilters(first)
+        logic.actions.setAccountFilterGroups([second])
+        renderFilters()
+
+        expect(screen.queryByText('Add OR group')).not.toBeInTheDocument()
+        expect(screen.getByText('Filters').closest('button')).toHaveAttribute('aria-expanded', 'false')
+        fireEvent.click(screen.getByText('Filters'))
+        expect(screen.getByText('Filters').closest('button')).toHaveAttribute('aria-expanded', 'true')
+        expect(screen.queryByText('Match all conditions')).not.toBeInTheDocument()
+        expect(await screen.findByText('Add OR group')).toBeInTheDocument()
+        fireEvent.click(screen.getByText('Filters'))
+        expect(logic.values.accountFilters).toEqual(first)
+        expect(logic.values.accountFilterGroups).toEqual([second])
+
+        fireEvent.click(screen.getByText('Filters'))
+        fireEvent.click(await screen.findByLabelText('Remove group A'))
+        expect(logic.values.accountFilters).toEqual(second)
+        expect(logic.values.accountFilterGroups).toEqual([])
+        fireEvent.click(screen.getByLabelText('Remove group A'))
+        expect(await screen.findByText('Filter')).toBeInTheDocument()
+        expect(screen.queryByText('Filters')).not.toBeInTheDocument()
+        expect(logic.values.accountFilters).toEqual([])
     })
 })

@@ -1,20 +1,20 @@
-import asyncio
 from typing import Literal
 from urllib.parse import urlparse
 
 from django.conf import settings
 
 import structlog
+import posthoganalytics
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 
-from posthog.api.embedding_worker import async_generate_embedding
+from posthog.event_usage import groups
+from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.business_knowledge.backend.constants import BK_EMBEDDING_MODEL, BK_QUERY_EMBEDDING_TIMEOUT
-from products.business_knowledge.backend.logic import has_ready_sources, search_knowledge
+from products.business_knowledge.backend.logic import RetrievalTrace, async_search_knowledge_for_team, has_ready_sources
 
 from ee.hogai.context.entity_search.context import EntityKind
 from ee.hogai.tool import MaxSubtool, MaxTool, ToolMessagesArtifact
@@ -184,23 +184,20 @@ class SearchTool(MaxTool):
         return response, None
 
     async def _search_business_knowledge(self, query: str) -> str:
-        query_embedding = await self._get_query_embedding(query)
-        use_semantic = query_embedding is not None
-
-        # thread_sensitive=False: the hybrid path issues a ClickHouse query that
-        # can take seconds; the default shared sync thread would serialize all
-        # such calls and block other DB work. Run it on the general pool.
-        results = await database_sync_to_async(search_knowledge, thread_sensitive=False)(
-            self._team.id,
-            query,
-            use_semantic=use_semantic,
-            query_embedding=query_embedding,
-        )
+        results = await async_search_knowledge_for_team(self._team, query, trace=RetrievalTrace(surface="posthog_ai"))
+        try:
+            await database_sync_to_async(posthoganalytics.capture)(
+                distinct_id=str(self._team.uuid),
+                event="business knowledge searched",
+                properties={"result_count": len(results), "surface": "posthog_ai"},
+                groups=groups(team=self._team),
+            )
+        except Exception:
+            logger.warning("bk_search_capture_failed", team_id=self._team.id, exc_info=True)
         logger.info(
             "bk_search_results",
             team_id=self._team.id,
             result_count=len(results),
-            use_semantic=use_semantic,
         )
         if not results:
             return BK_SEARCH_NO_RESULTS_TEMPLATE
@@ -211,27 +208,12 @@ class SearchTool(MaxTool):
             source_name = sanitize_for_system_reminder(r.source_name)
             content = sanitize_for_system_reminder(r.content)
             handle = f"`[bk-doc={r.document_id} #{r.ordinal}]`"
-            chunks.append(f"# {source_name} — {heading} {handle}\n\n{content}")
+            url_line = f"\nURL: {sanitize_for_system_reminder(r.url)}" if r.url else ""
+            chunks.append(f"# {source_name} — {heading} {handle}{url_line}\n\n{content}")
 
         formatted = "\n\n---\n\n".join(chunks)
         header = BK_SEARCH_RESULTS_HEADER.format(count=len(results))
         return f"{header}\n\n{formatted}\n{BK_SEARCH_RESULTS_FOOTER}"
-
-    async def _get_query_embedding(self, query: str) -> list[float] | None:
-        """Embed the query with a tight timeout; returns None on failure (FTS fallback)."""
-        try:
-            response = await asyncio.wait_for(
-                async_generate_embedding(self._team, query, model=BK_EMBEDDING_MODEL),
-                timeout=BK_QUERY_EMBEDDING_TIMEOUT,
-            )
-            return response.embedding
-        except Exception:
-            logger.warning(
-                "bk_query_embedding_failed",
-                team_id=self._team.id,
-                exc_info=True,
-            )
-            return None
 
     @property
     def _fts_entities(self) -> list[str]:
@@ -279,7 +261,7 @@ def is_community_question_url(url: str) -> bool:
     return path == COMMUNITY_QUESTIONS_PATH or path.startswith(f"{COMMUNITY_QUESTIONS_PATH}/")
 
 
-async def perform_inkeep_docs_search(query: str, *, include_system_reminder: bool = True) -> str:
+async def _fetch_inkeep_payload(query: str) -> dict | None:
     model = ChatOpenAI(
         model="inkeep-rag",
         base_url="https://api.inkeep.com/v1/",
@@ -291,9 +273,28 @@ async def perform_inkeep_docs_search(query: str, *, include_system_reminder: boo
 
     prompt = ChatPromptTemplate.from_messages([("user", "{query}")])
     chain = prompt | model | SimpleJsonOutputParser()
-    rag_context_raw = await chain.ainvoke({"query": query})
+    return await chain.ainvoke({"query": query})
 
-    return format_inkeep_docs_response(rag_context_raw, include_system_reminder=include_system_reminder)
+
+async def perform_inkeep_docs_search(
+    query: str,
+    *,
+    include_system_reminder: bool = True,
+    team: Team | None = None,
+) -> str:
+    async def fetch_inkeep() -> dict | None:
+        return await _fetch_inkeep_payload(query)
+
+    # Circular: docs_search_shadow imports is_community_question_url from this module.
+    from ee.hogai.tools.docs_search_shadow import fetch_inkeep_with_shadow  # noqa: PLC0415
+
+    if team is None:
+        payload = await fetch_inkeep()
+    else:
+        payload = await fetch_inkeep_with_shadow(
+            team=team, query=query, fetch_inkeep=fetch_inkeep, surface="posthog_ai"
+        )
+    return format_inkeep_docs_response(payload, include_system_reminder=include_system_reminder)
 
 
 def format_inkeep_docs_response(rag_context_raw: dict | None, *, include_system_reminder: bool = True) -> str:
@@ -326,7 +327,7 @@ def format_inkeep_docs_response(rag_context_raw: dict | None, *, include_system_
 
 class InkeepDocsSearchTool(MaxSubtool):
     async def execute(self, query: str, tool_call_id: str) -> tuple[str, ToolMessagesArtifact | None]:
-        return await perform_inkeep_docs_search(query), None
+        return await perform_inkeep_docs_search(query, team=self._team), None
 
 
 # ---------------------------------------------------------------------------

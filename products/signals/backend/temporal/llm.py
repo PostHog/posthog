@@ -19,12 +19,12 @@ from products.signals.backend.temporal import metrics
 
 logger = structlog.get_logger(__name__)
 
-MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-5")
+MATCHING_MODEL = os.getenv("SIGNAL_MATCHING_LLM_MODEL", "claude-sonnet-5-5")
 
 # Both safety stages resolve their model from here. The default is a literal rather than
 # MATCHING_MODEL, so a matching-model swap leaves the gate on the model its prompt was measured
 # against, and moving the gate takes a deliberate change to this setting.
-SAFETY_MODEL = os.getenv("SIGNAL_SAFETY_LLM_MODEL") or "claude-sonnet-5"
+SAFETY_MODEL = os.getenv("SIGNAL_SAFETY_LLM_MODEL") or "claude-sonnet-5-5"
 
 
 @frozen
@@ -58,6 +58,7 @@ MODEL_CAPABILITIES: dict[str, ModelCapabilities] = {
     "claude-sonnet-4-6": ModelCapabilities(prefill=False, temperature=True, thinking="adaptive"),
     "claude-opus-4-8": _MODERN,
     "claude-sonnet-5": _MODERN,
+    "claude-sonnet-5-5": _MODERN,
     "claude-opus-5": _MODERN,
 }
 
@@ -184,8 +185,9 @@ async def call_llm(
         messages.append({"role": "assistant", "content": "{"})
 
     # A cached system prompt is billed at about a tenth of the input price on every call after the
-    # first. Only a prompt above the model's cache minimum (1,024 tokens on Sonnet 5) and on a hot
-    # path pays for the cache write, so a call site opts in rather than every stage paying it.
+    # first. Only a prompt above the model's cache minimum (512 tokens on Sonnet 5.5, 1,024 on
+    # Sonnet 5) and on a hot path pays for the cache write, so a call site opts in rather than
+    # every stage paying it.
     system: str | list[TextBlockParam] = system_prompt
     if cache_system_prompt:
         system = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]

@@ -1,17 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCollapse,
-    LemonDialog,
-    LemonModal,
-    LemonSkeleton,
-    LemonTag,
-    LemonTextArea,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonModal, LemonSkeleton, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 
+import { MarkdownTextDiff } from 'lib/components/MarkdownNotebook/MarkdownTextDiff'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+
+import { ContentAutopilotBriefPanel } from './ContentAutopilotBriefPanel'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { ContentAutopilotSourceLedger } from './ContentAutopilotSourceLedger'
+import { ContentAutopilotValidationSummary } from './ContentAutopilotValidationSummary'
 
 export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
     const {
@@ -22,9 +19,17 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
         proposalMutationLoading,
         exportedProposalLoading,
         proposalActionReasons,
+        proposalTab,
     } = useValues(contentAutopilotLogic)
-    const { selectProposal, setProposedMarkdown, saveProposal, rejectProposal, regenerateProposal, exportProposal } =
-        useActions(contentAutopilotLogic)
+    const {
+        selectProposal,
+        setProposedMarkdown,
+        saveProposal,
+        rejectProposal,
+        regenerateProposal,
+        exportProposal,
+        setProposalTab,
+    } = useActions(contentAutopilotLogic)
 
     if (!selectedProposalId) {
         return null
@@ -49,7 +54,7 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
 
     if (!selectedProposal) {
         return (
-            <LemonModal isOpen onClose={closeProposal} title="Loading proposal" width={960}>
+            <LemonModal isOpen onClose={closeProposal} title="Loading draft" width={960}>
                 <LemonSkeleton className="h-72 w-full" />
             </LemonModal>
         )
@@ -57,14 +62,14 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
 
     const confirmReject = (): void => {
         LemonDialog.open({
-            title: 'Reject this proposal?',
-            description: 'The proposal will leave the review queue. This does not change your site.',
+            title: 'Reject this draft?',
+            description: 'The draft leaves the review queue. This does not change your site.',
             primaryButton: {
-                children: 'Reject proposal',
+                children: 'Reject draft',
                 status: 'danger',
                 onClick: () => rejectProposal(selectedProposal.id),
             },
-            secondaryButton: { children: 'Keep proposal' },
+            secondaryButton: { children: 'Keep draft' },
         })
     }
 
@@ -98,98 +103,101 @@ export const ContentAutopilotProposalDetail = (): JSX.Element | null => {
                     </div>
                     <div className="flex gap-2">
                         <LemonButton
-                            type="secondary"
+                            type="primary"
                             onClick={() => exportProposal(selectedProposal.id)}
                             loading={exportedProposalLoading}
                             disabledReason={proposalActionReasons.exportMarkdown}
+                            data-attr="content-autopilot-download-draft"
                         >
-                            Export Markdown
+                            Download Markdown
                         </LemonButton>
                     </div>
                 </div>
             }
         >
-            <div className="flex flex-col gap-5">
-                {selectedProposal.evidence.length > 0 ? (
-                    <section>
-                        <h3>Why PostHog selected this</h3>
-                        <div className="flex flex-col gap-2">
-                            {selectedProposal.evidence.map((evidence) => (
-                                <div
-                                    key={`${evidence.opportunity_kind}-${evidence.page_url}-${evidence.query}-${evidence.explanation}`}
-                                    className="rounded border p-3"
-                                >
-                                    <LemonTag>{evidence.opportunity_kind.replaceAll('_', ' ')}</LemonTag>
-                                    <p className="mb-0 mt-2">{evidence.explanation}</p>
-                                    {evidence.query ? (
-                                        <div className="text-sm mt-2">Query: {evidence.query}</div>
-                                    ) : null}
-                                </div>
-                            ))}
-                        </div>
-                    </section>
-                ) : null}
+            <div className="flex flex-col gap-4">
+                <ContentAutopilotValidationSummary report={selectedProposal.validation_report} />
 
-                <section>
-                    <h3>Validation</h3>
-                    {!selectedProposal.validation_report.passed ? (
-                        <LemonBanner type="error" className="mb-3">
-                            You cannot export this proposal until its blocked checks pass. Edit the draft or regenerate
-                            it.
-                        </LemonBanner>
-                    ) : null}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        {selectedProposal.validation_report.checks.map((check) => (
-                            <div key={check.check_key} className="rounded border p-3">
-                                <div className="flex items-center justify-between gap-2">
-                                    <span className="font-semibold">{check.label}</span>
-                                    <LemonTag type={check.passed ? 'success' : check.blocking ? 'danger' : 'warning'}>
-                                        {check.passed ? 'Passed' : check.blocking ? 'Blocked' : 'Review'}
-                                    </LemonTag>
+                <LemonTabs
+                    activeKey={proposalTab}
+                    onChange={setProposalTab}
+                    data-attr="content-autopilot-proposal-tabs"
+                    rightSlot={
+                        proposalTab === 'draft' ? (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => saveProposal(selectedProposal.id)}
+                                loading={proposalMutationLoading}
+                                disabledReason={proposalActionReasons.save}
+                            >
+                                Save changes
+                            </LemonButton>
+                        ) : null
+                    }
+                    tabs={[
+                        {
+                            key: 'preview',
+                            label: 'Preview',
+                            content: proposedMarkdown ? (
+                                <div className="max-h-160 overflow-auto rounded border p-4">
+                                    <LemonMarkdown disableImages="all" disableLinks disableMentions>
+                                        {proposedMarkdown}
+                                    </LemonMarkdown>
                                 </div>
-                                <div className="text-sm mt-1 text-muted">{check.message}</div>
-                            </div>
-                        ))}
-                    </div>
-                </section>
-
-                <section>
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                        <h3 className="m-0">Draft</h3>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => saveProposal(selectedProposal.id)}
-                            loading={proposalMutationLoading}
-                            disabledReason={proposalActionReasons.save}
-                        >
-                            Save changes
-                        </LemonButton>
-                    </div>
-                    {selectedProposal.proposal_type === 'page_improvement' && selectedProposal.original_markdown ? (
-                        <LemonCollapse
-                            className="mb-3"
-                            panels={[
-                                {
-                                    key: 'original',
-                                    header: 'View original content',
-                                    content: (
-                                        <pre className="max-h-72 overflow-auto rounded border p-3 whitespace-pre-wrap">
-                                            {selectedProposal.original_markdown}
-                                        </pre>
-                                    ),
-                                },
-                            ]}
-                        />
-                    ) : null}
-                    <LemonTextArea
-                        aria-label="Proposal Markdown"
-                        value={proposedMarkdown}
-                        onChange={setProposedMarkdown}
-                        minRows={18}
-                        className="font-mono"
-                    />
-                </section>
+                            ) : (
+                                <p className="text-muted m-0">Nothing to preview yet. Regenerate to write the draft.</p>
+                            ),
+                        },
+                        {
+                            key: 'draft',
+                            label: 'Edit',
+                            content: (
+                                <LemonTextArea
+                                    aria-label="Draft Markdown"
+                                    value={proposedMarkdown}
+                                    onChange={setProposedMarkdown}
+                                    minRows={18}
+                                    className="font-mono"
+                                />
+                            ),
+                        },
+                        selectedProposal.proposal_type === 'page_improvement' && selectedProposal.original_markdown
+                            ? {
+                                  key: 'changes',
+                                  label: 'Changes',
+                                  content: (
+                                      <div className="max-h-160 overflow-auto rounded border p-3 whitespace-pre-wrap font-mono text-sm">
+                                          <MarkdownTextDiff
+                                              before={selectedProposal.original_markdown}
+                                              after={proposedMarkdown}
+                                          />
+                                      </div>
+                                  ),
+                              }
+                            : null,
+                        {
+                            key: 'brief',
+                            label: 'Brief',
+                            content: (
+                                <ContentAutopilotBriefPanel
+                                    brief={selectedProposal.brief}
+                                    evidence={selectedProposal.evidence}
+                                />
+                            ),
+                        },
+                        {
+                            key: 'sources',
+                            label: 'Sources',
+                            content: (
+                                <ContentAutopilotSourceLedger
+                                    entries={selectedProposal.source_ledger}
+                                    notes={selectedProposal.content_package.source_notes}
+                                />
+                            ),
+                        },
+                    ]}
+                />
             </div>
         </LemonModal>
     )

@@ -6,7 +6,8 @@ Birth days use the UTC interval returned by `snapshot_bounds`, including the sta
 The label comes from the snapshot `horizon_days` later, including outcomes already present on the birth day.
 
 The `pr_merged` head includes every report and reads merges within 14 days.
-The `dismiss_wrong` head includes impressed reports and reads wrong-dismissal outcomes within 14 days.
+The `dismiss_wrong` head includes every report and reads wrong-dismissal outcomes within 21 days.
+The `dismiss_lowvalue` head includes every report and reads `wontfix_irrelevant` dismissals within 21 days.
 
 The examples asset records `reports_missing_birth_snapshot` for observed reports born inside the lookback whose birth-day partition is missing.
 These reports produce no birth-grain example; reports born before the lookback do not contribute to this count.
@@ -19,6 +20,56 @@ Before and after holdout numbers are not comparable because the example populati
 The daily snapshots and selectable scoring-moment and report grains remain available for future models.
 
 See the [ranking DAG README](../../products/signals/dags/inbox_ranking/README.md) for the feature-set contract and operating instructions.
+
+## What each probability means
+
+Each head is conditioned on its cohort (`training/heads.py`).
+Every head uses every report as its cohort, so the probabilities are over the same reports and can be compared.
+Each head is graded only on its cohort.
+
+| Head               | Probability                                                 | Horizon |
+| ------------------ | ----------------------------------------------------------- | ------- |
+| `open`             | P(opened) over every report                                 | 3d      |
+| `action`           | P(acted on) over every report                               | 7d      |
+| `discuss`          | P(discuss) over every report                                | 7d      |
+| `dismiss_wrong`    | P(dismissed as wrong) over every report                     | 21d     |
+| `reviewer_fix`     | P(reviewers corrected) over every report                    | 14d     |
+| `thumbs_up`        | P(thumbs up) over every report                              | 7d      |
+| `pr_created`       | P(PR created) over every report                             | 7d      |
+| `pr_merged`        | P(PR merged) over every report                              | 14d     |
+| `fixed`            | P(fixed) over every report                                  | 21d     |
+| `refund`           | P(refund) over every report                                 | 14d     |
+| `dismiss_lowvalue` | P(dismissed as real but not worth fixing) over every report | 21d     |
+
+Each head in `metadata.json` records `cohort` (`everyone`) and `horizon_days`.
+
+## Row budget
+
+A feature set can limit the rows one head keeps (`max_examples_per_head`).
+The embedding families set it to 100,000; the tabular family has no budget.
+The budget limits history, not the rows inside a day:
+
+- The head's examples are grouped by report-creation day, newest first.
+- Whole days are kept while the running total stays within the budget, and every older day is dropped.
+- The newest day is always kept, even when it alone exceeds the budget.
+
+Every kept day keeps all of its positives and negatives, so the kept label rate is the population rate of those days.
+The scores stay calibrated to that population, and the holdout stays a clean time split.
+A recency cut drops old positives with old negatives, so the budget must stay large enough to keep the rare heads fed.
+
+Each head in `metadata.json` records `example_window_start`, the earliest report-creation day kept, and `example_cap_bound`, whether the budget dropped any day.
+`inbox_ranking_examples_built` carries both fields, so a chart shows when the budget starts to bind.
+
+## Promotion
+
+A candidate replaces its family's champion only when, on every head the champion could read:
+
+- its holdout AUC is at most `AUC_TOLERANCE` below the champion's, and
+- its holdout calibration error (ECE) is at most `ECE_TOLERANCE` above the champion's.
+
+Both champion numbers come from the champion's `<head>.holdout.ubj` scored on the candidate's holdout.
+A head without a paired champion ECE skips the calibration check.
+`inbox_ranking_promotion_decided` carries the paired values as `champion_<head>_auc_on_this_holdout` and `champion_<head>_ece_on_this_holdout`.
 
 ## Baked and unbaked unseen metrics
 
@@ -82,7 +133,7 @@ It means "at least as likely as the average fitting example", not a 50% probabil
 - A champion keeps its own threshold. A candidate and a champion graded on the same reports use different cuts.
 
 The threshold is specific to the head, family, version and fitting population.
-A row budget keeps every positive and samples the negatives, so it raises the rate.
+A row budget keeps only the newest report-creation days, so the rate is that window's rate, not the rate of the full lookback.
 Do not read the threshold as population prevalence, and do not compute it again from evaluation labels.
 
 ### Metrics
@@ -113,3 +164,44 @@ A pooled line over several versions uses the frozen threshold of each version, s
 
 After deployment and a new training and scoring run, check that the candidate events carry numeric `holdout_` fields and `refit_classification_threshold`, and that the unseen events carry `classification_threshold`.
 Check the mature grades as each head's horizon becomes available.
+
+## Served-model classification metrics
+
+The unseen grades rescore the newborn pool with the day's candidate and champion.
+They are not the scores the inbox served.
+The served grade closes that gap.
+
+### Score events
+
+Each `inbox_ranking_report_scored` event carries the served threshold of its model:
+
+- `threshold_<head>`: the head's `refit_classification_threshold` from the serving copy's metadata. A serving copy is immutable per model key, so this is the threshold that scored the report.
+- `predicted_<head>`: `p_<head> >= threshold_<head>`. A score equal to the threshold is a positive prediction.
+- `readable_heads`: the heads whose holdout was readable.
+
+A head without a saved threshold has no `threshold_` or `predicted_` property.
+Models trained before thresholds existed have none, and no other value stands in for one.
+
+### The served grade
+
+`inbox_ranking_served_scores` writes `inbox_ranking_served_scores/v1/dt=D/` in the unseen scores schema.
+
+- Population: D's newborn pool, the same reports the unseen grade covers.
+- Score: the earliest scored event in D with the `served` role and this deployment's `environment`.
+- `classification_threshold` comes from `threshold_<head>`, and is null when the event has none.
+- Asset metadata: `served_pool_coverage`, rows per model version, and the heads without a threshold.
+
+`inbox_ranking_unseen_graded` reads the served object next to the unseen object for each scoring partition.
+Its events then carry `model_role = 'served'`, with no new event type.
+A missing served object is a skip in the asset metadata, not a failure.
+
+Caveats:
+
+- The daily promotion can change the served model part of the way through D, so one day's cohort can split across two versions. Grades stay per `(model_name, model_version, model_role)`. Never pool them across versions.
+- A report first scored after D ends, for example when its vector arrived late, is not in D's served rows. `served_pool_coverage` shows this. A later score never fills it in.
+- The sweep scores with the vector current at scoring time. The unseen grade uses the end-of-day vector. Served and candidate grades of one day are two reads, not one paired number.
+- A deployment where the sweep is off writes an empty object with coverage 0 and grades nothing.
+
+After deployment, check the new properties on a live sweep's events.
+Check the first `model_role = 'served'` early grades the next day, and the mature grades as each head's horizon passes.
+Until a model trained with thresholds is served, the events have no threshold properties and the served grades have null classification fields.

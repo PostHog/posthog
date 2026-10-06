@@ -166,7 +166,7 @@ export function withStagedDraft(workflow: HogFlow): HogFlow {
     return { ...rest, ...draft } as HogFlow
 }
 
-// Mirrors DRAFT_CONTENT_FIELDS in products/workflows/backend/api/hog_flow.py: the fields the draft
+// Mirrors DRAFT_CONTENT_FIELDS in products/workflows/backend/presentation/views/hog_flow.py: the fields the draft
 // cycle stages and publish promotes. Keep the two lists in sync.
 const WORKFLOW_CONTENT_FIELDS = [
     'actions',
@@ -593,6 +593,15 @@ export interface workflowLogicActions {
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
+                                utm_params?:
+                                    | {
+                                          utm_campaign?: string | undefined
+                                          utm_content?: string | undefined
+                                          utm_medium?: string | undefined
+                                          utm_source?: string | undefined
+                                      }
+                                    | undefined
+                                utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1449,6 +1458,15 @@ export interface workflowLogicActions {
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
+                                utm_params?:
+                                    | {
+                                          utm_campaign?: string | undefined
+                                          utm_content?: string | undefined
+                                          utm_medium?: string | undefined
+                                          utm_source?: string | undefined
+                                      }
+                                    | undefined
+                                utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -2351,6 +2369,15 @@ export interface workflowLogicActions {
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
+                  utm_params?:
+                      | {
+                            utm_campaign?: string | undefined
+                            utm_content?: string | undefined
+                            utm_medium?: string | undefined
+                            utm_source?: string | undefined
+                        }
+                      | undefined
+                  utm_tags_enabled?: boolean | undefined
               }
         >
     }
@@ -2733,6 +2760,15 @@ export interface workflowLogicActions {
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
+                  utm_params?:
+                      | {
+                            utm_campaign?: string | undefined
+                            utm_content?: string | undefined
+                            utm_medium?: string | undefined
+                            utm_source?: string | undefined
+                        }
+                      | undefined
+                  utm_tags_enabled?: boolean | undefined
               }
     }
     setWorkflowActionEdges: (

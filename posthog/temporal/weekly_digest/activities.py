@@ -4,7 +4,7 @@ import time
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime
-from typing import Any, TypeVar
+from typing import Any, ParamSpec, TypeVar
 from uuid import UUID
 
 from django.conf import settings
@@ -29,6 +29,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization_notification_lock import GovernedSetting, notification_locks_for_users
 from posthog.models.team import Team
@@ -40,7 +41,7 @@ from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.tasks.email_utils import compute_week_over_week_change
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.common.utils import asyncify
+from posthog.temporal.common.utils import asyncify, make_sync_retryable_with_exponential_backoff
 from posthog.temporal.weekly_digest.keys import TeamDataKey, UserDataKey, org_digest_key, team_data_key, user_data_key
 from posthog.temporal.weekly_digest.queries import (
     query_experiments_completed,
@@ -98,6 +99,12 @@ LOGGER = get_write_only_logger()
 REDIS_COMMAND_CHUNK_SIZE = 5000
 
 T = TypeVar("T")
+P = ParamSpec("P")
+
+
+def _retry_while_clickhouse_busy(fn: Callable[P, T]) -> Callable[P, T]:
+    # Other workloads share the offline cluster's per-user query limit, so a rejection clears within seconds.
+    return make_sync_retryable_with_exponential_backoff(fn, retryable_exceptions=(ClickHouseAtCapacity,))
 
 
 def _redis_url(common: CommonInput) -> str:
@@ -405,11 +412,8 @@ def generate_filter_lookup(input: GenerateDigestDataBatchInput) -> None:
 TTL_THRESHOLD = 10  # days
 
 
-def _generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None:
-    logger = _bind_batch_logger(input)
-    logger.info("Generating Replay recording count batch")
-
-    eligible_team_ids = _eligible_team_ids(input)
+@_retry_while_clickhouse_busy
+def _expiring_session_counts(input: GenerateDigestDataBatchInput) -> dict[int, int]:
     tag_queries(product=Product.INTERNAL, feature=Feature.DIGEST)
     rows = sync_execute(
         SessionReplayEvents.count_soon_to_expire_sessions_by_team_query(),
@@ -421,14 +425,23 @@ def _generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None:
         },
         workload=Workload.OFFLINE,
     )
+    return {team_id: int(count) for team_id, count in rows}
+
+
+def _generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None:
+    logger = _bind_batch_logger(input)
+    logger.info("Generating Replay recording count batch")
+
+    eligible_team_ids = _eligible_team_ids(input)
+    counts_by_team = _expiring_session_counts(input)
 
     # Teams without expiring recordings get no key; aggregation defaults the count to zero.
     payload_by_team: dict[int, str] = {}
     recording_count = 0
-    for team_id, count in rows:
+    for team_id, count in counts_by_team.items():
         if team_id not in eligible_team_ids:
             continue
-        expiring_recordings = RecordingCount(recording_count=int(count))
+        expiring_recordings = RecordingCount(recording_count=count)
         payload_by_team[team_id] = expiring_recordings.model_dump_json()
         recording_count += expiring_recordings.recording_count
 
@@ -513,6 +526,7 @@ GROUP BY team_id
 """
 
 
+@_retry_while_clickhouse_busy
 def _active_team_ids(input: GenerateDigestDataBatchInput) -> set[int]:
     tag_queries(product=Product.INTERNAL, feature=Feature.DIGEST)
     rows = sync_execute(
@@ -528,6 +542,7 @@ def _active_team_ids(input: GenerateDigestDataBatchInput) -> set[int]:
     return {int(team_id) for (team_id,) in rows}
 
 
+@_retry_while_clickhouse_busy
 def _query_team_usage_trends(team: Team, period_start: datetime, period_end: datetime) -> UsageTrends | None:
     """Run the per-team usage snapshot on the offline cluster. Returns None for inactive teams."""
     window = period_end - period_start

@@ -705,7 +705,6 @@ def _stream_rows_as_arrow_batches(
     chunk_size: int,
     arrow_schema: pa.Schema,
     *,
-    byte_bounded: bool = False,
     primary_keys: list[str] | None = None,
     binary_reporter: BinaryColumnReporter | None = None,
 ) -> Iterator[pa.Table]:
@@ -725,9 +724,7 @@ def _stream_rows_as_arrow_batches(
             binary_reporter=binary_reporter,
         )
 
-    for rows in iter_row_batches(
-        cursor.stream(query, size=_libpq_rows_per_chunk()), max_rows=chunk_size, byte_bounded=byte_bounded
-    ):
+    for rows in iter_row_batches(cursor.stream(query, size=_libpq_rows_per_chunk()), max_rows=chunk_size):
         if not column_names:
             # Only described once the first result arrives, so it can't be read before the loop.
             column_names = [column.name for column in cursor.description or []]
@@ -740,7 +737,6 @@ def _fetch_arrow_batches(
     arrow_schema: pa.Schema,
     fetch_size: int | None = None,
     *,
-    byte_bounded: bool = False,
     primary_keys: list[str] | None = None,
     binary_reporter: BinaryColumnReporter | None = None,
 ) -> Iterator[pa.Table]:
@@ -762,9 +758,7 @@ def _fetch_arrow_batches(
             binary_reporter=binary_reporter,
         )
 
-    for rows in fetch_row_batches(
-        cursor.fetchmany, max_rows=chunk_size, byte_bounded=byte_bounded, max_page_rows=fetch_size or chunk_size
-    ):
+    for rows in fetch_row_batches(cursor.fetchmany, max_rows=chunk_size, max_page_rows=fetch_size or chunk_size):
         yield to_arrow(rows)
 
 
@@ -776,7 +770,6 @@ def _stream_arrow_batches(
     cursor_name: str,
     logger: FilteringBoundLogger,
     *,
-    byte_bounded: bool = False,
     primary_keys: list[str] | None = None,
 ) -> Iterator[pa.Table]:
     """Stream `query` as Arrow tables, holding only `chunk_size` rows in the worker at a time.
@@ -809,7 +802,6 @@ def _stream_arrow_batches(
                 query,
                 chunk_size,
                 arrow_schema,
-                byte_bounded=byte_bounded,
                 primary_keys=primary_keys,
                 binary_reporter=binary_reporter,
             ):
@@ -837,7 +829,6 @@ def _stream_arrow_batches(
                     chunk_size,
                     arrow_schema,
                     fetch_size,
-                    byte_bounded=byte_bounded,
                     primary_keys=primary_keys,
                     binary_reporter=binary_reporter,
                 ):
@@ -1568,6 +1559,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             # error tracking. Mirrors `get_rows_to_sync`/`fetch_table_stats`.
             logger.debug(f"has_duplicate_primary_keys: no privilege to run duplicate-key probe, skipping check: {e}")
             return None
+        except psycopg.errors.UndefinedTable as e:
+            # The table existed when schema discovery ran but was dropped or renamed before this
+            # probe executed — the same already-known, non-actionable condition
+            # `get_non_retryable_errors` stops the sync for entirely. The duplicate-key probe is
+            # best-effort, so skip gracefully instead of reporting the expected error to error
+            # tracking. Mirrors `get_rows_to_sync`.
+            logger.debug(f"has_duplicate_primary_keys: table no longer exists, skipping check: {e}")
+            return None
         except Exception as e:
             # A Redshift system-requested query abort (error code 1020, "system requested abort")
             # is the cluster's WLM/QMR cancelling the query — the same transient, non-actionable
@@ -2069,7 +2068,6 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     arrow_schema,
                     f"posthog_{inputs.team_id}_{schema}.{table_name}",
                     logger,
-                    byte_bounded=inputs.byte_bounded_extraction,
                     primary_keys=primary_keys,
                 )
 

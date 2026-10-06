@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AttentionPullRequestListApi,
     AuthorFrictionDetailApi,
     AuthorFrictionListApi,
     BranchPRMatchApi,
@@ -21,6 +22,7 @@ import type {
     DeliveryComparisonApi,
     DeliverySummaryApi,
     DoraOverviewApi,
+    EngineeringAnalyticsAttentionPullRequestsParams,
     EngineeringAnalyticsAuthorFrictionDetailParams,
     EngineeringAnalyticsAuthorFrictionParams,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
@@ -80,6 +82,39 @@ import type {
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from './api.schemas'
+
+export const getEngineeringAnalyticsAttentionPullRequestsUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsAttentionPullRequestsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/attention_pull_requests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/attention_pull_requests/`
+}
+
+/**
+ * Open pull requests that need attention: failing CI, or stuck (open, non-draft, non-bot, older than 7 days), by the same rules as the ci_cards counts. Failing first, then newest, capped; `total` counts every match in the whole open backlog, however old. Cost and billable minutes can lag new CI by up to 5 minutes.
+ */
+export const engineeringAnalyticsAttentionPullRequests = async (
+    projectId: string,
+    params?: EngineeringAnalyticsAttentionPullRequestsParams,
+    options?: RequestInit
+): Promise<AttentionPullRequestListApi> => {
+    return apiMutator<AttentionPullRequestListApi>(getEngineeringAnalyticsAttentionPullRequestsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getEngineeringAnalyticsAuthorFrictionUrl = (
     projectId: string,
@@ -729,7 +764,7 @@ export const getEngineeringAnalyticsPullRequestsUrl = (
 }
 
 /**
- * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; CI counts can lag until late completions settle.
+ * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. Pass state to list one state only. The list is paged by limit and offset; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; CI counts can lag until late completions settle. Cost and billable minutes can lag new CI by up to 5 minutes.
  */
 export const engineeringAnalyticsPullRequests = async (
     projectId: string,

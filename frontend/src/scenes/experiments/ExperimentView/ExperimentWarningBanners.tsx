@@ -9,6 +9,9 @@ import { urls } from 'scenes/urls'
 
 import type { Experiment } from '~/types'
 
+import { healthFindingForExperimentWarning } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
+import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
+
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentWarning } from '../experimentLogic'
 
@@ -24,8 +27,9 @@ function warningCaption(key: ExperimentWarning['key']): string {
         case 'running_but_flag_disabled':
             return 'The experiment is paused'
         case 'running_but_single_variant_shipped':
+            return 'The experiment is running, but all users see a single variant'
         case 'running_but_no_rollout':
-            return 'The experiment is running, but no users are exposed to the A/B test'
+            return 'The experiment is running, but no new users are being exposed'
         case 'ended_but_multiple_variants_rolled_out':
         case 'not_started_but_multiple_variants_rolled_out':
             return 'The experiment is not running, but users are exposed to multiple variants'
@@ -58,8 +62,9 @@ function WarningDetail({
         case 'running_but_no_rollout':
             return (
                 <>
-                    The feature flag {flagLink} has a <strong>0% rollout</strong>. End the experiment with a conclusion,
-                    or increase the rollout percentage to start collecting data.
+                    The feature flag {flagLink} has a <strong>0% rollout</strong>, so no new users are being exposed.
+                    Users exposed earlier are still included in the results. End the experiment with a conclusion, or
+                    increase the rollout percentage to expose users.
                 </>
             )
         case 'ended_but_multiple_variants_rolled_out':
@@ -82,6 +87,9 @@ function WarningDetail({
 
 export function ExperimentWarningBanner(): JSX.Element | null {
     const { experimentWarning, experiment } = useValues(experimentLogic)
+    const { reportActedOn } = useHealthFindingReporting(
+        experimentWarning ? healthFindingForExperimentWarning(experimentWarning.key) : null
+    )
 
     useEffect(() => {
         if (experimentWarning) {
@@ -94,7 +102,11 @@ export function ExperimentWarningBanner(): JSX.Element | null {
     }
 
     const flagLink = experiment.feature_flag ? (
-        <Link target="_blank" to={urls.featureFlag(experiment.feature_flag.id)}>
+        <Link
+            target="_blank"
+            to={urls.featureFlag(experiment.feature_flag.id)}
+            onClick={() => reportActedOn('open_feature_flag')}
+        >
             {experiment.feature_flag.key}
         </Link>
     ) : null

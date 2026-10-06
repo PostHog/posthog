@@ -2,23 +2,28 @@ import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { ModelAccessEnumApi, TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { codexBillingLogic } from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
 import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic } from '../../logics/runInteractionLogic'
 import { TaskDraftPersistence, taskDraftStorageKey } from '../../logics/taskDraftPersistence'
+import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
 import { welcomeOverrideLogic } from '../../logics/welcomeOverrideLogic'
@@ -344,7 +349,10 @@ describe('taskTrackerSceneLogic', () => {
             })
             logic.mount()
             router.actions.push('/tasks/new')
-            logic.actions.setNewTaskData({ description: 'Explain the example chart' })
+            logic.actions.setNewTaskData({
+                description: 'Explain the example chart',
+                seedContextItems: [{ type: 'skill', key: 'example-skill' }],
+            })
             logic.actions.submitNewTask()
             const streamKey = logic.values.activeCreation!.streamKey
             expect(runStreamLogic({ streamKey }).values.streamPhase).toBe('provisioning')
@@ -369,6 +377,7 @@ describe('taskTrackerSceneLogic', () => {
             expect(logic.values.newTaskData.description).toBe(
                 'Explain the example chart\n\nInclude a weekly comparison\n\nAlso include a chart'
             )
+            expect(logic.values.newTaskData.seedContextItems).toEqual([{ type: 'skill', key: 'example-skill' }])
             expect(logic.values.isSubmittingTask).toBe(false)
             expect(router.values.location.pathname).toContain('/tasks/new')
             expect(toolEvents.values.applyBackTargetClaims[streamKey]).toBeUndefined()
@@ -390,6 +399,8 @@ describe('taskTrackerSceneLogic', () => {
             repository: null,
             github_integration: null,
         })
+        // Only a host that passes `channelId` files the task in a channel.
+        expect(createBody).not.toHaveProperty('channel')
         // Interactive so the sandbox event stream survives across turns (follow-ups stream), and the
         // typed message is seeded as turn 1 (interactive runs boot with the agent pulling it from run
         // state). Dropping either regresses follow-up streaming / loses the first prompt.
@@ -423,6 +434,69 @@ describe('taskTrackerSceneLogic', () => {
         expect(createBody).toMatchObject({ description: 'do the thing' })
         expect(runBody).toMatchObject({ pending_user_message: 'do the thing' })
         expect(logic.values.newTaskData.description).toBe('')
+    })
+
+    describe('task defaults', () => {
+        const useTaskDefaultsMocks = (): void => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/tasks/@me/config/': {
+                        ...myConfigResponse(null),
+                        task_defaults: { start_in_plan_mode: true, auto_publish_cloud_runs: true },
+                    },
+                },
+            })
+        }
+
+        it.each([
+            ['on', true, 'plan', true],
+            ['off', false, 'auto', undefined],
+        ])(
+            'applies the stored defaults to a new task with today-rail-nav %s',
+            async (_state, flagOn, expectedMode, expectedAutoPublish) => {
+                useTaskDefaultsMocks()
+                featureFlagLogic.mount()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                    [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn,
+                })
+                logic.mount()
+                await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+                logic.actions.setNewTaskData({ description: 'do the thing' })
+                logic.actions.submitNewTask()
+
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(runBody?.initial_permission_mode).toBe(expectedMode)
+                expect(runBody?.auto_publish).toBe(expectedAutoPublish)
+                expect(createBody?.auto_publish).toBe(expectedAutoPublish)
+            }
+        )
+
+        it.each([
+            ['a picked mode', 'default' as const, 'default'],
+            ['a model change alone', null, 'plan'],
+        ])('sends the right mode after %s', async (_case, pickedMode, expectedMode) => {
+            useTaskDefaultsMocks()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
+            logic.mount()
+            logic.actions.setNewTaskData({
+                description: 'do the thing',
+                model: 'claude-opus-5-5',
+                permissionMode: 'auto',
+            })
+            if (pickedMode) {
+                logic.actions.pickPermissionMode(pickedMode)
+            }
+            await expectLogic(taskRunDefaultsLogic).toFinishAllListeners()
+            logic.actions.submitNewTask()
+
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(runBody?.initial_permission_mode).toBe(expectedMode)
+        })
     })
 
     // A warm sandbox is adopted inside `tasks/create`, which returns the activated Run as `latest_run`.
@@ -559,24 +633,44 @@ describe('taskTrackerSceneLogic', () => {
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
     // `runInteractionLogic`, which prunes against the task-scoped store) re-wraps the same refs.
-    it('marks seeded context sent for the created task so the first follow-up will not re-wrap it', async () => {
-        logic.mount()
-        attachedContextLogic().actions.registerContext('scene', [
-            { type: 'insight', key: 'sig', label: 'Signups' },
-            { type: 'text', value: 'always resend me' },
-        ])
+    it.each(['scene', 'seed', 'both'])(
+        'marks %s context sent for the created task without adding it to later sends',
+        async (source) => {
+            logic.mount()
+            const contextItems = [
+                { type: 'insight', key: 'sig', label: 'Signups' },
+                { type: 'text', value: 'always resend me' },
+            ]
+            if (source !== 'seed') {
+                attachedContextLogic().actions.registerContext(
+                    'scene',
+                    source === 'both' ? [{ type: 'insight', key: 'scene-sig', label: 'Scene signups' }] : contextItems
+                )
+            }
+            if (source === 'scene') {
+                logic.actions.setNewTaskData({ description: 'why the drop?' })
+                logic.actions.submitNewTask()
+            } else {
+                composerSeedLogic().actions.setSeed({ prompt: 'why the drop?', autoSubmit: true, contextItems })
+            }
 
-        logic.actions.setNewTaskData({ description: 'why the drop?' })
-        logic.actions.submitNewTask()
-        await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
-        // The message sent to the agent is wrapped; the task description stays raw.
-        expect(runBody?.pending_user_message).toContain('<posthog_untrusted_context>')
-        expect(runBody?.pending_user_message).toContain('- insight sig ("Signups")')
-        expect(createBody?.description).toBe('why the drop?')
-        // Only the entity ref is marked sent (text items always resend), under the created task's id.
-        expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({ 'new-task': ['insight:sig'] })
-    })
+            expect(runBody?.pending_user_message).toContain('<posthog_untrusted_context>')
+            expect(runBody?.pending_user_message).toContain('- insight sig ("Signups")')
+            expect(runBody?.pending_user_message).toContain(
+                source === 'both' ? '- insight scene-sig ("Scene signups")' : '- insight sig ("Signups")'
+            )
+            expect(createBody?.description).toBe('why the drop?')
+            expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({
+                'new-task': source === 'both' ? ['insight:scene-sig', 'insight:sig'] : ['insight:sig'],
+            })
+            expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
+            expect(attachedContextLogic().values.contextItems).toHaveLength(
+                source === 'seed' ? 0 : source === 'both' ? 1 : 2
+            )
+        }
+    )
 
     // The tasks backend has no server-side consent check (unlike the conversations coordinator), so a
     // send must be blocked client-side before it ever reaches `api.tasks.create` — otherwise a sandbox
@@ -667,6 +761,37 @@ describe('taskTrackerSceneLogic', () => {
         expect(logic.values.newTaskData.model).toBeNull()
     })
 
+    it('bills a codex default to the saved chatgpt plan when the task submits before the defaults load', async () => {
+        const flag = FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD
+        featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
+        useMocks({
+            get: {
+                '/api/projects/:team/tasks/@me/config/': myConfigResponse({
+                    runtime_adapter: 'codex',
+                    model: 'gpt-5',
+                    reasoning_effort: 'high',
+                    source: 'user',
+                }),
+                '/api/users/@me/integrations/codex/': { status: 'connected' },
+            },
+        })
+        const billing = codexBillingLogic()
+        billing.mount()
+        billing.actions.setPreferredCodexModelAccess(ModelAccessEnumApi.OwnSubscription)
+        logic.mount()
+
+        logic.actions.setNewTaskData({ description: 'do the thing' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(runBody).toMatchObject({
+            runtime_adapter: 'codex',
+            model: 'gpt-5',
+            codex_model_access: ModelAccessEnumApi.OwnSubscription,
+        })
+        billing.unmount()
+    })
+
     // The repo picker only renders once `repositoryConfig.integrationId` is set (auto-selected from the
     // connected GitHub org). Submitting resets the form, wiping that id; without re-deriving it the picker
     // stays blank for every subsequent new task. Guards that the auto-select is restored after a submit.
@@ -688,6 +813,70 @@ describe('taskTrackerSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.newTaskData.repositoryConfig.integrationId).toBe(7)
+    })
+
+    // A channel host starts on its own repo instead of the remembered one, files the task in its channel, and
+    // keeps the shared last-used repo intact.
+    it('creates the task in the host channel from the host repository default', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/integrations/': {
+                    results: [{ id: 7, kind: 'github', display_name: 'acme', config: {} }],
+                },
+            },
+        })
+        localStorage.setItem(
+            'posthog_ai.tasks.lastRepositoryConfig',
+            JSON.stringify({ integrationId: 7, repository: 'acme/remembered' })
+        )
+        const onTaskCreated = jest.fn()
+        logic = taskTrackerSceneLogic({
+            panelId: 'space-1',
+            channelId: 'channel-1',
+            initialRepositoryConfig: { integrationId: 7, repository: 'acme/space-repo' },
+            onTaskCreated,
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.newTaskData.repositoryConfig).toEqual({ integrationId: 7, repository: 'acme/space-repo' })
+
+        logic.actions.setNewTaskData({ description: 'ship it' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({
+            channel: 'channel-1',
+            repository: 'acme/space-repo',
+            github_integration: 7,
+        })
+        expect(onTaskCreated).toHaveBeenCalledWith('new-task')
+        expect(logic.values.newTaskData.repositoryConfig.repository).toBe('acme/space-repo')
+        expect(logic.values.persistedRepositoryConfig).toEqual({ integrationId: 7, repository: 'acme/remembered' })
+    })
+
+    it('refreshes the rail’s Recent list when a composer creates a session', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/task_channels/': [],
+                '/api/projects/:team/task_activity/': { results: [] },
+            },
+        })
+        const rail = todaySpacesLogic()
+        rail.mount()
+        // Step past the load the rail does on mount, so the assertion below can only match a later one.
+        await expectLogic(rail).toDispatchActions(['loadRecentTasksSuccess']).toFinishAllListeners()
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setNewTaskData({ description: 'ship it' })
+
+        await expectLogic(rail, () => {
+            logic.actions.submitNewTask()
+        })
+            .toFinishAllListeners()
+            .toDispatchActions(['loadRecentTasks'])
+
+        rail.unmount()
     })
 
     // The side panel shares this logic, so a hidden picker can still hold a remembered repo. It must not reach the requests.
@@ -891,15 +1080,31 @@ describe('taskTrackerSceneLogic', () => {
     it('picks up a seed set before mount and prefills without submitting when autoSubmit is false', async () => {
         const seedLogic = composerSeedLogic()
         seedLogic.mount()
-        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false })
+        const contextItems = [{ type: 'skill', key: 'example-skill' }]
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems })
 
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.newTaskData.description).toBe('analyze churn')
+        expect(logic.values.newTaskData.seedContextItems).toEqual(contextItems)
         expect(seedLogic.values.seed).toBeNull()
         // No submit: submitting opens an optimistic activeCreation, prefill-only leaves it null.
         expect(logic.values.activeCreation).toBeNull()
+
+        seedLogic.actions.setSeed({ prompt: 'unrelated request', autoSubmit: false })
+        expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
+
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems })
+        logic.actions.setNewTaskData({ description: 'different request' })
+        expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
+
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems })
+        logic.actions.setNewTaskData({ description: 'analyze churn' })
+        expect(logic.values.newTaskData.seedContextItems).toEqual(contextItems)
+        logic.unmount()
+        logic.mount()
+        expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
 
         seedLogic.unmount()
     })

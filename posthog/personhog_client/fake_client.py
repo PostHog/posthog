@@ -114,8 +114,6 @@ class FakePersonHogClient:
         is_deleted: bool = False,
         tombstoned_distinct_ids: list[str] | None = None,
     ) -> person_pb2.Person:
-        # Unlike the replica, the fake returns tombstoned persons on reads, so tests can inspect
-        # what a delete left in place.
         person = person_pb2.Person(
             id=person_id,
             uuid=uuid,
@@ -134,6 +132,8 @@ class FakePersonHogClient:
             self._persons_by_uuid[(team_id, uuid)] = person
         for did in distinct_ids or []:
             self._persons_by_distinct_id[(team_id, did)] = person
+            # A re-added mapping is live again, as a revival upsert makes it in the replica.
+            self._tombstoned_distinct_ids.discard((team_id, did))
             self._distinct_ids.setdefault((team_id, person_id), []).append(
                 person_pb2.DistinctIdWithVersion(distinct_id=did, version=(distinct_id_versions or {}).get(did, 0))
             )
@@ -207,9 +207,28 @@ class FakePersonHogClient:
     def close(self) -> None:
         pass
 
+    # Reads mirror the replica, which filters tombstoned persons and mappings out of every person
+    # lookup. The tombstone RPCs below read the internal dicts, so they still see the tombstones.
+    @staticmethod
+    def _live(person: person_pb2.Person | None) -> person_pb2.Person | None:
+        return None if person is None or person.is_deleted else person
+
+    def _live_by_distinct_id(self, team_id: int, distinct_id: str) -> person_pb2.Person | None:
+        if (team_id, distinct_id) in self._tombstoned_distinct_ids:
+            return None
+        return self._live(self._persons_by_distinct_id.get((team_id, distinct_id)))
+
+    def stored_person(self, team_id: int, uuid: str) -> person_pb2.Person | None:
+        """The stored row, tombstoned or not, for tests that check what a delete left in place."""
+        return self._persons_by_uuid.get((team_id, uuid))
+
+    def stored_person_by_distinct_id(self, team_id: int, distinct_id: str) -> person_pb2.Person | None:
+        """The person a stored mapping points at, tombstoned or not."""
+        return self._persons_by_distinct_id.get((team_id, distinct_id))
+
     def get_person(self, request: person_pb2.GetPersonRequest) -> person_pb2.GetPersonResponse:
         self.calls.append(_Call("get_person", request))
-        person = self._persons_by_id.get((request.team_id, request.person_id))
+        person = self._live(self._persons_by_id.get((request.team_id, request.person_id)))
         return person_pb2.GetPersonResponse(person=person)
 
     def get_persons(self, request: person_pb2.GetPersonsRequest) -> person_pb2.PersonsResponse:
@@ -217,7 +236,7 @@ class FakePersonHogClient:
         found = []
         missing = []
         for pid in request.person_ids:
-            person = self._persons_by_id.get((request.team_id, pid))
+            person = self._live(self._persons_by_id.get((request.team_id, pid)))
             if person:
                 found.append(person)
             else:
@@ -226,7 +245,7 @@ class FakePersonHogClient:
 
     def get_person_by_uuid(self, request: person_pb2.GetPersonByUuidRequest) -> person_pb2.GetPersonResponse:
         self.calls.append(_Call("get_person_by_uuid", request))
-        person = self._persons_by_uuid.get((request.team_id, request.uuid))
+        person = self._live(self._persons_by_uuid.get((request.team_id, request.uuid)))
         return person_pb2.GetPersonResponse(person=person)
 
     def get_persons_by_uuids(self, request: person_pb2.GetPersonsByUuidsRequest) -> person_pb2.PersonsResponse:
@@ -234,7 +253,7 @@ class FakePersonHogClient:
         found = []
         missing_ids: list[int] = []
         for uuid in request.uuids:
-            person = self._persons_by_uuid.get((request.team_id, uuid))
+            person = self._live(self._persons_by_uuid.get((request.team_id, uuid)))
             if person:
                 found.append(person)
         return person_pb2.PersonsResponse(persons=found, missing_ids=missing_ids)
@@ -243,7 +262,7 @@ class FakePersonHogClient:
         self, request: person_pb2.GetPersonByDistinctIdRequest
     ) -> person_pb2.GetPersonResponse:
         self.calls.append(_Call("get_person_by_distinct_id", request))
-        person = self._persons_by_distinct_id.get((request.team_id, request.distinct_id))
+        person = self._live_by_distinct_id(request.team_id, request.distinct_id)
         return person_pb2.GetPersonResponse(person=person)
 
     def get_persons_by_distinct_ids_in_team(
@@ -252,7 +271,7 @@ class FakePersonHogClient:
         self.calls.append(_Call("get_persons_by_distinct_ids_in_team", request))
         results = []
         for did in request.distinct_ids:
-            person = self._persons_by_distinct_id.get((request.team_id, did))
+            person = self._live_by_distinct_id(request.team_id, did)
             if person:
                 results.append(person_pb2.PersonWithDistinctIds(distinct_id=did, person=person))
         return person_pb2.PersonsByDistinctIdsInTeamResponse(results=results)

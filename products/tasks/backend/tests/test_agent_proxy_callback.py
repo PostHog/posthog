@@ -218,12 +218,69 @@ class TestAgentProxyCallback(TestCase):
         self.assertTrue(retried.json()["dispatched"])
         self.assertEqual(dispatch.call_args_list[0], dispatch.call_args_list[1])
 
-    def test_heartbeat_dispatches_when_active(self) -> None:
+    @parameterized.expand(
+        [
+            ("captured", {}, True, 200, 1),
+            ("capture_failed", {}, False, 503, 0),
+            ("missing_kill", {"process_killed": None}, True, 400, 0),
+            ("negative_size", {"process_killed": {"tree_rss_bytes": -1}}, True, 400, 0),
+        ]
+    )
+    def test_process_killed_capture(
+        self,
+        _name: str,
+        overrides: dict[str, Any],
+        capture_ok: bool,
+        expected_status: int,
+        expected_count: int,
+    ) -> None:
+        killed = {
+            "comm": "bash",
+            "signal": "SIGTERM",
+            "tree_rss_bytes": 12 * 1024**3,
+            "memory_current_bytes": 14 * 1024**3,
+            "memory_limit_bytes": 16 * 1024**3,
+        }
+        if isinstance(overrides.get("process_killed"), dict):
+            killed.update(overrides["process_killed"])
+        body = self._body(kind="process_killed", agent_active=False, sequence=5, process_killed=killed)
+        if "process_killed" in overrides and overrides["process_killed"] is None:
+            del body["process_killed"]
+        counter_before = REGISTRY.get_sample_value("posthog_tasks_sandbox_process_killed_notifications_total") or 0.0
+
+        with patch.object(TaskRun, "capture_event", return_value=capture_ok) as capture:
+            response = self._post(body, token=self._token())
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(
+            REGISTRY.get_sample_value("posthog_tasks_sandbox_process_killed_notifications_total"),
+            counter_before + expected_count,
+        )
+        if expected_status == 400:
+            capture.assert_not_called()
+            return
+        capture.assert_called_once_with(
+            "sandbox_process_killed",
+            {
+                "process_comm": "bash",
+                "process_signal": "SIGTERM",
+                "process_tree_rss_bytes": 12 * 1024**3,
+                "memory_current_bytes": 14 * 1024**3,
+                "memory_limit_bytes": 16 * 1024**3,
+            },
+            event_uuid=str(uuid5(NAMESPACE_URL, f"posthog-task-process-killed:{self.task_run.id}:5")),
+        )
+
+    @parameterized.expand([None, False, True])
+    def test_heartbeat_dispatches_when_active(self, activity_started: bool | None) -> None:
+        body = self._body(kind="heartbeat", agent_active=True)
+        if activity_started is not None:
+            body["activity_started"] = activity_started
         with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:
-            response = self._post(self._body(kind="heartbeat", agent_active=True), token=self._token())
+            response = self._post(body, token=self._token())
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["dispatched"])
-        heartbeat.assert_called_once_with(agent_active=True)
+        heartbeat.assert_called_once_with(agent_active=True, force=bool(activity_started))
 
     def test_heartbeat_not_dispatched_when_inactive(self) -> None:
         with patch.object(TaskRun, "heartbeat_workflow") as heartbeat:
@@ -279,16 +336,22 @@ class TestAgentProxyCallback(TestCase):
             int(turn_completed is False),
         )
 
-    def test_awaiting_input_signals_turn_end_but_skips_push_for_background_run(self) -> None:
+    @parameterized.expand([("omitted", None, False), ("succeeded", True, True), ("not_succeeded", False, False)])
+    def test_awaiting_input_signals_turn_end_but_skips_push_for_background_run(
+        self, _name: str, turn_succeeded: bool | None, expected_succeeded: bool
+    ) -> None:
+        body = self._body(kind="awaiting_input", agent_active=False)
+        if turn_succeeded is not None:
+            body["turn_succeeded"] = turn_succeeded
         with (
             patch("products.tasks.backend.push_dispatcher.notify_task_run_turn_completed") as notify,
             patch.object(TaskRun, "signal_agent_turn_completed") as signal_turn_completed,
         ):
-            response = self._post(self._body(kind="awaiting_input", agent_active=False), token=self._token())
+            response = self._post(body, token=self._token())
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["dispatched"])
         notify.assert_not_called()
-        signal_turn_completed.assert_called_once()
+        signal_turn_completed.assert_called_once_with(succeeded=expected_succeeded)
 
     def test_turn_failed_signals_workflow_completion_as_failed(self) -> None:
         with patch(

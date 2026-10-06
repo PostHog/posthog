@@ -2,7 +2,6 @@ import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  reportsInboxEnabled: true,
   currentUser: {
     data: { uuid: "user-1" } as { uuid: string } | undefined,
     isLoading: false,
@@ -25,9 +24,6 @@ vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
   useInboxReports: mocks.useInboxReports,
 }));
-vi.mock("@posthog/ui/features/feature-flags/useReportsInboxEnabled", () => ({
-  useReportsInboxEnabled: () => mocks.reportsInboxEnabled,
-}));
 
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useInboxActivityPreview } from "./useInboxActivityPreview";
@@ -35,7 +31,6 @@ import { useInboxActivityPreview } from "./useInboxActivityPreview";
 describe("useInboxActivityPreview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.reportsInboxEnabled = true;
     mocks.currentUser = {
       data: { uuid: "user-1" },
       isLoading: false,
@@ -104,34 +99,20 @@ describe("useInboxActivityPreview", () => {
     );
   });
 
-  it.each([
-    [
-      "the project rollout is off",
-      () => {
-        mocks.reportsInboxEnabled = false;
-      },
-    ],
-    [
-      "the project has not opted in",
-      () => useActivityFilterStore.setState({ inboxEnabledByAuthIdentity: {} }),
-    ],
-  ])(
-    "hides cached reports and disables the query when %s",
-    (_name, disable) => {
-      disable();
+  it("hides cached reports and disables the query when the project has not opted in", () => {
+    useActivityFilterStore.setState({ inboxEnabledByAuthIdentity: {} });
 
-      const { result } = renderHook(() => useInboxActivityPreview());
+    const { result } = renderHook(() => useInboxActivityPreview());
 
-      expect(result.current).toEqual({
-        reports: [],
-        totalCount: 0,
-        isLoading: false,
-        isIncluded: false,
-      });
-      expect(mocks.useInboxReports).toHaveBeenCalledWith(
-        expect.anything(),
-        expect.objectContaining({ enabled: false }),
-      );
-    },
-  );
+    expect(result.current).toEqual({
+      reports: [],
+      totalCount: 0,
+      isLoading: false,
+      isIncluded: false,
+    });
+    expect(mocks.useInboxReports).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ enabled: false }),
+    );
+  });
 });

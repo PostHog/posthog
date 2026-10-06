@@ -75,6 +75,17 @@ def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
             _raised_from(ApplicationError("Failed to emit $ai_evaluation"), KeyError("team_id")),
             False,
         ),
+        # Code using a raw psycopg connection instead of Django's ORM (e.g. the warehouse-sources
+        # postgres queue producer) raises psycopg's own exception classes directly, never wrapped
+        # in Django's OperationalError/InterfaceError/InternalError.
+        (
+            psycopg.errors.ProtocolViolation(
+                "server login has been failing, cached error: connect failed (server_login_retry)"
+            ),
+            True,
+        ),
+        (psycopg.errors.ProtocolViolation("query_wait_timeout"), True),
+        (psycopg.errors.SyntaxErrorOrAccessRuleViolation("syntax error"), False),
     ],
 )
 def test_is_transient_db_error_by_message(error: BaseException, expected: bool) -> None:

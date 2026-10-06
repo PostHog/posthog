@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.set
     ENDPOINTS,
     REPORT_ENDPOINTS,
     REPORT_INCREMENTAL_LOOKBACK_SECONDS,
+    WORK_SESSION_INCREMENTAL_LOOKBACK_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gladly.source import GladlySource
 
@@ -69,11 +70,13 @@ class TestGladlySource:
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        assert all(schema.supports_incremental for schema in schemas)
-        # Report windows are re-read on resume and behind the watermark, so
-        # appending would duplicate rows — report streams are merge-only.
+        # Lookup lists have no change filter, so they only full-refresh. Report
+        # windows are re-read on resume and behind the watermark, so appending
+        # would duplicate rows — report streams are merge-only.
+        lookups = {"teams", "inboxes"}
         for schema in schemas:
-            assert schema.supports_append is (schema.name not in REPORT_ENDPOINTS)
+            assert schema.supports_incremental is (schema.name not in lookups)
+            assert schema.supports_append is (schema.name not in {*REPORT_ENDPOINTS, *lookups})
 
     def test_schemas_advertise_the_expected_cursor(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
@@ -86,6 +89,9 @@ class TestGladlySource:
                 "conversations": ["created_at"],
                 "conversation_timestamps": ["timestamp"],
                 "contact_timestamps": ["timestamp"],
+                "work_session_events": ["contact_session_created_at"],
+                "teams": [],
+                "inboxes": [],
             }.get(schema.name, ["_job_updated_at"])
             assert [f["field"] for f in schema.incremental_fields] == expected
 
@@ -96,15 +102,18 @@ class TestGladlySource:
         # an explicit choice; the conversations report and job-export streams
         # keep syncing by default.
         for schema in schemas:
-            assert schema.should_sync_default is (schema.name not in {"conversation_timestamps", "contact_timestamps"})
+            assert schema.should_sync_default is (
+                schema.name not in {"conversation_timestamps", "contact_timestamps", "work_session_events"}
+            )
 
     def test_conversations_schema_defaults_to_a_restatement_lookback(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
-        # Conversation-report rows restate in place, so only that schema
-        # re-reads a trailing window on incremental runs.
+        # Conversation and work-session report rows restate in place, so only
+        # those schemas re-read a trailing window on incremental runs.
         lookbacks = {schema.name: schema.default_incremental_lookback_seconds for schema in schemas}
         assert lookbacks.pop("conversations") == REPORT_INCREMENTAL_LOOKBACK_SECONDS
+        assert lookbacks.pop("work_session_events") == WORK_SESSION_INCREMENTAL_LOOKBACK_SECONDS
         assert all(seconds is None for seconds in lookbacks.values())
 
     def test_get_schemas_filtered_by_names(self):
@@ -122,3 +131,16 @@ class TestGladlySource:
         assert "Gladly returned no report" in retryable
         assert set(exhausted) <= retryable
         assert not any("Gladly returned no report" in key for key in self.source.get_non_retryable_errors())
+
+    def test_a_report_gladly_never_served_stops_the_sync_instead_of_retrying(self):
+        observed_error = (
+            "Gladly report unavailable for this account: metricSet=ContactTimestampsReport returned "
+            "an error body instead of a CSV on every attempt, and this table has never completed a "
+            "sync. First line: ['Unexpected error occurred']"
+        )
+        message = self.source.get_non_retryable_errors()["Gladly report unavailable for this account"]
+
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+        assert not any(key in observed_error for key in self.source.get_retryable_errors())
+        assert message is not None
+        assert "gladly support" in message.lower()

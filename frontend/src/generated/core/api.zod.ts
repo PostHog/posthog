@@ -944,6 +944,51 @@ export const FileSystemShortcutPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Create and delete several of the current user's shortcuts in one transaction, then return the full shortcut list in display order. Any unknown ID in `remove_ids` rejects the whole request.
+ */
+export const fileSystemShortcutBulkUpdateCreateBodyAddItemTypeDefault = ``
+export const fileSystemShortcutBulkUpdateCreateBodyAddItemTypeMax = 100
+
+export const fileSystemShortcutBulkUpdateCreateBodyAddItemRefMax = 4000
+
+export const fileSystemShortcutBulkUpdateCreateBodyAddMax = 500
+
+export const fileSystemShortcutBulkUpdateCreateBodyRemoveIdsMax = 500
+
+export const FileSystemShortcutBulkUpdateCreateBody = /* @__PURE__ */ zod.object({
+    add: zod
+        .array(
+            zod.object({
+                path: zod.string().describe('Display path of the shortcut in the sidebar.'),
+                type: zod
+                    .string()
+                    .max(fileSystemShortcutBulkUpdateCreateBodyAddItemTypeMax)
+                    .default(fileSystemShortcutBulkUpdateCreateBodyAddItemTypeDefault)
+                    .describe("Type of the linked item (e.g. 'folder', 'insight'), or blank."),
+                ref: zod
+                    .string()
+                    .max(fileSystemShortcutBulkUpdateCreateBodyAddItemRefMax)
+                    .nullish()
+                    .describe('Reference to the linked item, scoped to its type. Null for href-only shortcuts.'),
+                href: zod
+                    .string()
+                    .nullish()
+                    .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
+            })
+        )
+        .max(fileSystemShortcutBulkUpdateCreateBodyAddMax)
+        .optional()
+        .describe(
+            'Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped.'
+        ),
+    remove_ids: zod
+        .array(zod.uuid())
+        .max(fileSystemShortcutBulkUpdateCreateBodyRemoveIdsMax)
+        .optional()
+        .describe("IDs of the current user's shortcuts to delete."),
+})
+
+/**
  * Set the display order of the current user's shortcuts. `ordered_ids` becomes the new top-to-bottom order; any unknown IDs are rejected.
  */
 export const FileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.object({
@@ -1221,7 +1266,7 @@ export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live.
+ * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live. A legacy feature flags secure API key is matched through its migrated project secret API key row; it cannot be rotated automatically, so its project admins get an email to rotate it.
  *
  * This endpoint only checks the region it is running on. `"found": false` does not guarantee the token is safe. If you're not sure which region issued it, check both: https://app.posthog.com/api/revoke_leaked_key and https://eu.posthog.com/api/revoke_leaked_key.
  * @summary Report and revoke a leaked PostHog API key or token
@@ -1233,7 +1278,7 @@ export const RevokeLeakedKeyCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(revokeLeakedKeyCreateBodyTokenMax)
         .describe(
-            'The leaked PostHog personal API key, project secret API key, or OAuth access\/refresh token to revoke.'
+            'The leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access\/refresh token to revoke.'
         ),
 })
 
@@ -1324,7 +1369,7 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -1415,7 +1460,7 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -1503,7 +1548,7 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -1779,7 +1824,7 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -1870,7 +1915,7 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -1961,7 +2006,7 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -2049,7 +2094,7 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -2137,7 +2182,7 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -2225,7 +2270,7 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 
@@ -2313,7 +2358,7 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .unknown()
         .optional()
         .describe(
-            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar section and item visibility, and SQL editor settings such as Vim mode and the vimrc. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. Once `sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true.'
         ),
 })
 

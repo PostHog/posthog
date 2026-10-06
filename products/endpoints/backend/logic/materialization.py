@@ -180,18 +180,12 @@ class EndpointMaterializationService:
             clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[version.version])
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="success").inc()
             if version.saved_query:
-                log_activity(
-                    organization_id=self.team.organization_id,
-                    team_id=self.team.pk,
-                    user=self.user,
-                    was_impersonated=is_impersonated(self.request),
-                    item_id=str(version.saved_query.id),
-                    scope="DataWarehouseSavedQuery",
-                    activity="materialization_enabled",
-                    detail=Detail(
-                        name=version.saved_query.name,
-                        context=EndpointContext(version=version.version),
-                    ),
+                self._log_materialization_activity(
+                    endpoint,
+                    version,
+                    "materialization_enabled",
+                    saved_query_id=str(version.saved_query.id),
+                    saved_query_name=version.saved_query.name,
                 )
         except ValidationError:
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
@@ -375,22 +369,42 @@ class EndpointMaterializationService:
                 ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="disable", status="error").inc()
                 raise
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="disable", status="success").inc()
+            self._log_materialization_activity(
+                endpoint,
+                version,
+                "materialization_disabled",
+                saved_query_id=saved_query_id,
+                saved_query_name=saved_query_name,
+            )
+        # Clears this version's throttle-readiness key plus the "current" key (the disabled
+        # version may be the current one) — the next request lazily re-checks the DB.
+        clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[version.version])
+
+    def _log_materialization_activity(
+        self,
+        endpoint: Endpoint,
+        version: EndpointVersion,
+        activity: str,
+        *,
+        saved_query_id: str,
+        saved_query_name: str,
+    ) -> None:
+        # Two rows: the model's history reads the saved query, the endpoint's history reads the
+        # endpoint. A read-time join can't replace this, since disabling unlinks the saved query.
+        for item_id, scope, name in (
+            (saved_query_id, "DataWarehouseSavedQuery", saved_query_name),
+            (str(endpoint.id), "EndpointVersion", endpoint.name),
+        ):
             log_activity(
                 organization_id=self.team.organization_id,
                 team_id=self.team.pk,
                 user=self.user,
                 was_impersonated=is_impersonated(self.request),
-                item_id=saved_query_id,
-                scope="DataWarehouseSavedQuery",
-                activity="materialization_disabled",
-                detail=Detail(
-                    name=saved_query_name,
-                    context=EndpointContext(version=version.version),
-                ),
+                item_id=item_id,
+                scope=scope,
+                activity=activity,
+                detail=Detail(name=name, context=EndpointContext(version=version.version)),
             )
-        # Clears this version's throttle-readiness key plus the "current" key (the disabled
-        # version may be the current one) — the next request lazily re-checks the DB.
-        clear_endpoint_materialization_cache(self.team.pk, endpoint.name, versions=[version.version])
 
     def preview(
         self,
@@ -514,7 +528,11 @@ class EndpointMaterializationService:
             # frontend uses execution_query only as a presence flag and renders the display variant.
             if version.is_materialized:
                 execution_query_str = to_printed_hogql(
-                    _build_exec_preview(version.materialized_view_name), team=self.team
+                    _build_exec_preview(version.materialized_view_name),
+                    team=self.team,
+                    # Display-only text for the endpoint's own materialized view, and no rows are read.
+                    # Without the bypass, the userless database denies the view and the print fails.
+                    bypass_warehouse_access_control=True,
                 )
             else:
                 execution_query_str = print_prepared_ast(

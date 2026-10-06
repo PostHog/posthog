@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 49 enabled ops
+ * PostHog API - MCP 52 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -15,6 +15,9 @@ export const SignalsReportsListParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const signalsReportsListQueryCountOnlyDefault = false
+export const signalsReportsListQueryIncludeSourceMetadataDefault = true
 
 export const SignalsReportsListQueryParams = () => zod.object({
     actionability: zod
@@ -41,10 +44,14 @@ export const SignalsReportsListQueryParams = () => zod.object({
         ),
     count_only: zod
         .boolean()
-        .optional()
+        .default(signalsReportsListQueryCountOnlyDefault)
         .describe(
             'Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.'
         ),
+    created_after: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('ISO 8601 datetime. Keeps reports created at or after this time.'),
     has_implementation_pr: zod
         .boolean()
         .optional()
@@ -57,13 +64,19 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             "When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason\/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned."
         ),
+    include_source_metadata: zod
+        .boolean()
+        .default(signalsReportsListQueryIncludeSourceMetadataDefault)
+        .describe(
+            'Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass false to skip that lookup and get the page from Postgres only: rows then carry an empty `source_products` and a null `scout_name`. Load them after with `source_metadata`. Defaults to true.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
         .string()
         .optional()
         .describe(
-            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id. Defaults to '-is_suggested_reviewer,status,-updated_at'."
+            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_\* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400."
         ),
     priority: zod
         .string()
@@ -127,6 +140,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.'
         ),
+    unread: zod.boolean().optional().describe("Filter by the current user's report read state."),
     use_priority_preference: zod
         .boolean()
         .optional()
@@ -469,7 +483,7 @@ export const SignalsReportArtefactsPartialUpdateBody = () => zod
     )
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const SignalsReportArtefactsDestroyParams = () => zod.object({
@@ -509,7 +523,7 @@ export const SignalsReportChecksListQueryParams = () => zod.object({
 })
 
 /**
- * Checks attached to a signal report: read and cancel.
+ * Checks attached to a signal report: read, approve, replace metrics, and cancel.
  *
  * There is no create here. A check is authored by a scout run or by the research pipeline, both
  * through `report_check_authoring.create_check`. An `agent` check puts its author's prose in front
@@ -517,8 +531,9 @@ export const SignalsReportChecksListQueryParams = () => zod.object({
  * endpoint accepts one. Anyone who can read the report can read its checks, and a person can
  * still stop one.
  *
- * There is no update: a check is a claim about the future, and editing its threshold after a
- * result would make the recorded verdict unreadable. Cancel it and let its author write a new one.
+ * There is no in-place update: a check is a claim about the future, and editing its threshold
+ * after a result would make the recorded verdict unreadable. Replacing an open metric check
+ * cancels the old row and creates a new one in one transaction.
  * @summary Get a single check
  */
 export const SignalsReportChecksRetrieveParams = () => zod.object({
@@ -533,6 +548,104 @@ export const SignalsReportChecksRetrieveParams = () => zod.object({
         .describe(
             "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404."
         ),
+})
+
+/**
+ * Atomically replace an open metric check. The old check stays live if the new one is invalid.
+ * @summary Replace a metric follow-up check
+ */
+export const SignalsReportChecksReplaceCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal report check.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    report_id: zod.string(),
+})
+
+export const signalsReportChecksReplaceCreateBodyTitleMax = 200
+
+export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
+
+export const signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax = 40
+
+export const SignalsReportChecksReplaceCreateBody = () => zod.object({
+    title: zod.string().max(signalsReportChecksReplaceCreateBodyTitleMax).describe('Label for the new metric check.'),
+    rationale: zod
+        .string()
+        .max(signalsReportChecksReplaceCreateBodyRationaleMax)
+        .optional()
+        .describe('Why this check is better.'),
+    config: zod
+        .object({
+            metric_id: zod
+                .union([zod.string(), zod.null()])
+                .optional()
+                .describe(
+                    "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created."
+                ),
+            query: zod
+                .union([zod.record(zod.string(), zod.unknown()), zod.null()])
+                .optional()
+                .describe(
+                    'Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.'
+                ),
+            comparison: zod
+                .object({
+                    operator: zod.enum(['lte', 'gte', 'between']).describe('`lte`, `gte`, or `between`.'),
+                    value: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe('The bound for `lte` and `gte`; unused by `between`.'),
+                    bounds: zod
+                        .union([
+                            zod.object({
+                                lower: zod.number(),
+                                upper: zod.number(),
+                            }),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe('The inclusive range for `between`; unused by `lte` and `gte`.'),
+                })
+                .describe('What the measured value must satisfy to pass.'),
+            baseline_value: zod
+                .union([zod.number(), zod.null()])
+                .optional()
+                .describe('The value observed when the check was written, recorded on each result for context.'),
+            metric_kind: zod
+                .union([
+                    zod.enum([
+                        'affected_users',
+                        'affected_sessions',
+                        'occurrences',
+                        'conversion_rate',
+                        'error_rate',
+                        'duration',
+                        'revenue',
+                        'custom',
+                    ]),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('How to draw this measurement; copied from a referenced metric.'),
+            value_format: zod
+                .union([
+                    zod.enum(['number', 'count', 'percentage', 'percentage_scaled', 'duration', 'currency']),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('How to format measured values; copied from a referenced metric.'),
+            unit: zod
+                .union([zod.string().max(signalsReportChecksReplaceCreateBodyConfigOneUnitOneMax), zod.null()])
+                .optional()
+                .describe('Optional value suffix.'),
+        })
+        .describe(
+            "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."
+        )
+        .describe('Metric threshold configuration, including a bounded query and comparison.'),
 })
 
 /**
@@ -648,7 +761,7 @@ export const signalsScoutCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const signalsScoutCreateBodyConfigOneRepositoriesMax = 10
 
-export const signalsScoutCreateBodyConfigOneWriteScopesMax = 8
+export const signalsScoutCreateBodyConfigOneWriteScopesMax = 10
 
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMin = 30
 export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMax = 43200
@@ -750,7 +863,7 @@ export const SignalsScoutCreateBody = () => zod
                     .max(signalsScoutCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
                     ),
                 enabled: zod
                     .boolean()
@@ -916,7 +1029,7 @@ export const signalsScoutConfigCreateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigCreateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigCreateBodyWriteScopesMax = 8
+export const signalsScoutConfigCreateBodyWriteScopesMax = 10
 
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
@@ -978,7 +1091,7 @@ export const SignalsScoutConfigCreateBody = () => zod
             .max(signalsScoutConfigCreateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
             ),
         enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
         emit: zod
@@ -1132,7 +1245,9 @@ export const signalsScoutConfigUpdateBodyRepositoriesItemMax = 255
 
 export const signalsScoutConfigUpdateBodyRepositoriesMax = 10
 
-export const signalsScoutConfigUpdateBodyWriteScopesMax = 8
+export const signalsScoutConfigUpdateBodyWriteScopesMax = 10
+
+export const signalsScoutConfigUpdateBodySuggestionIdMax = 64
 
 export const SignalsScoutConfigUpdateBody = () => zod
     .object({
@@ -1284,7 +1399,14 @@ export const SignalsScoutConfigUpdateBody = () => zod
             .max(signalsScoutConfigUpdateBodyWriteScopesMax)
             .optional()
             .describe(
-                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `dashboard:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+            ),
+        suggestion_id: zod
+            .string()
+            .max(signalsScoutConfigUpdateBodySuggestionIdMax)
+            .optional()
+            .describe(
+                "Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored."
             ),
     })
     .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')
@@ -1330,6 +1452,74 @@ export const SignalsScoutConfigRunBody = () => zod
     .describe(
         'Request body for an on-demand (`run now`) scout dispatch.\n\nEvery field is optional: a plain trigger sends no body at all.'
     )
+
+/**
+ * Run a prompt, model, or effort variant against live data with private memory and report capture.
+ * @summary Run a private scout variant
+ */
+export const SignalsScoutConfigTrialParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsScoutConfigTrialBodyVariantMax = 100
+
+export const signalsScoutConfigTrialBodySkillBodyMax = 100000
+
+export const signalsScoutConfigTrialBodyModelMax = 200
+
+export const signalsScoutConfigTrialBodyReasoningEffortMax = 20
+
+export const signalsScoutConfigTrialBodyNoteMax = 1000
+
+export const SignalsScoutConfigTrialBody = () => zod.object({
+    launch_id: zod.string().describe('Unique launch ID. Reuse it only when retrying this exact request.'),
+    context_id: zod.string().optional().describe('Saved starting context from a previous launch in this comparison.'),
+    variant: zod
+        .string()
+        .max(signalsScoutConfigTrialBodyVariantMax)
+        .optional()
+        .describe('Operator label for this variant.'),
+    skill_body: zod
+        .string()
+        .max(signalsScoutConfigTrialBodySkillBodyMax)
+        .optional()
+        .describe('Replacement skill body for this run. Supporting files and tool permissions stay pinned.'),
+    model: zod.string().max(signalsScoutConfigTrialBodyModelMax).optional().describe('Model identifier for this run.'),
+    reasoning_effort: zod
+        .string()
+        .max(signalsScoutConfigTrialBodyReasoningEffortMax)
+        .optional()
+        .describe(
+            'Reasoning effort supported by the selected model. Required when the saved source has no pinned effort.'
+        ),
+    note: zod
+        .string()
+        .max(signalsScoutConfigTrialBodyNoteMax)
+        .optional()
+        .describe('Common investigation note, saved before applying any variant overrides.'),
+})
+
+/**
+ * Read a trial's existing run status and its privately captured reports and memory changes.
+ * @summary Read a private scout trial result
+ */
+export const SignalsScoutConfigTrialResultParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const SignalsScoutConfigTrialResultQueryParams = () => zod.object({
+    launch_id: zod.string().describe('Launch identity returned by the trial action.'),
+})
 
 /**
  * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, retire the skills whose canonical scout no longer ships, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so the scout UIs and setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
@@ -1394,7 +1584,7 @@ export const SignalsScoutMetadataGetParams = () => zod.object({
 })
 
 /**
- * Return the steering notes left for this project's scouts, newest first. Pass `skill_name` to get the notes addressed to one scout (or one pipeline audience, e.g. `pipeline:report-research`) plus the general (blank-target) fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to browse every note. Expired notes are excluded unless `include_expired=true`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past the cap. Results capped at 500.
+ * Return the steering notes left for this project's scouts, newest first. Pass `skill_name` to get the notes addressed to one scout (or one pipeline audience, e.g. `pipeline:report-research`) plus the general (blank-target) fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to browse every note. Expired notes are excluded unless `include_expired=true`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past the cap. Pass `text` to keep only the notes whose content contains it, case-insensitively. Results capped at 500.
  * @summary List scout notes
  */
 export const SignalsScoutNotesListParams = () => zod.object({
@@ -1410,6 +1600,8 @@ export const signalsScoutNotesListQueryContentMaxCharsMin = 0
 export const signalsScoutNotesListQueryIncludeExpiredDefault = false
 export const signalsScoutNotesListQueryIncludeGeneralDefault = true
 export const signalsScoutNotesListQueryLimitMax = 500
+
+export const signalsScoutNotesListQueryTextMax = 200
 
 export const SignalsScoutNotesListQueryParams = () => zod.object({
     content_max_chars: zod
@@ -1451,6 +1643,14 @@ export const SignalsScoutNotesListQueryParams = () => zod.object({
         .optional()
         .describe(
             "Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a configured scout's skill name or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project."
+        ),
+    text: zod
+        .string()
+        .min(1)
+        .max(signalsScoutNotesListQueryTextMax)
+        .optional()
+        .describe(
+            'Return only the notes whose content contains this text, case-insensitively. Pass an entity (an error id, a flag key, a page path, an event name) to find the notes about it, including older ones the newest-first cap would hide.'
         ),
 })
 
@@ -1613,7 +1813,7 @@ export const SignalsScoutRunsRetrieveParams = () => zod.object({
 })
 
 /**
- * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may only close a check dispatched to its own scout.
+ * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it. `inconclusive` with the `awaiting_data` reason looks again later, and any other reason ends the check. Send the outcome you actually reached rather than the one that closes the loop. A run may close the check it was dispatched for, or a check on its own scout that is due or waiting on a run.
  * @summary Record the verdict on a report check
  */
 export const SignalsScoutRecordCheckResultParams = () => zod.object({
@@ -1631,10 +1831,25 @@ export const SignalsScoutRecordCheckResultBody = () => zod
     .object({
         check_id: zod.string().describe('The check this run was dispatched to answer, as given in the run note.'),
         outcome: zod
-            .enum(['passed', 'failed', 'errored'])
-            .describe('\* `passed` - Passed\n\* `failed` - Failed\n\* `errored` - Errored')
+            .enum(['passed', 'failed', 'errored', 'inconclusive'])
             .describe(
-                '`passed` when the expectation still holds, `failed` when it does not, and `errored` when you could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion.\n\n\* `passed` - Passed\n\* `failed` - Failed\n\* `errored` - Errored'
+                '\* `passed` - Passed\n\* `failed` - Failed\n\* `errored` - Errored\n\* `inconclusive` - Inconclusive'
+            )
+            .describe(
+                "`passed` when the evidence meets the check's stated bar and the expectation holds, `failed` when the evidence meets the bar and the expectation does not hold. `inconclusive` when your tools worked but the evidence cannot settle the question; give a `reason`. `errored` only when a tool, query, or model call failed. `failed` retires the check, so use it for a conclusion, not a suspicion.\n\n\* `passed` - Passed\n\* `failed` - Failed\n\* `errored` - Errored\n\* `inconclusive` - Inconclusive"
+            ),
+        reason: zod
+            .union([
+                zod
+                    .enum(['awaiting_data', 'unmeasurable', 'needs_manual_verification', 'no_fix_to_measure'])
+                    .describe(
+                        '\* `awaiting_data` - Awaiting Data\n\* `unmeasurable` - Unmeasurable\n\* `needs_manual_verification` - Needs Manual Verification\n\* `no_fix_to_measure` - No Fix To Measure'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Required with `inconclusive`, and refused with any other outcome. `awaiting_data`: the data can still arrive (a rollout lag, a soak not complete, too few samples so far), so the check looks again later. `unmeasurable`: the data the check needs is not captured. `needs_manual_verification`: only a person or another environment can verify it. `no_fix_to_measure`: nothing was changed to fix the claim, so no window after a fix exists. A report resolved without a pull request still has a window that starts when it resolved. Every reason except `awaiting_data` ends the check.\n\n\* `awaiting_data` - Awaiting Data\n\* `unmeasurable` - Unmeasurable\n\* `needs_manual_verification` - Needs Manual Verification\n\* `no_fix_to_measure` - No Fix To Measure'
             ),
         explanation: zod
             .string()
@@ -1650,7 +1865,7 @@ export const SignalsScoutRecordCheckResultBody = () => zod
     .describe('Request body for `scout-check-record-result`: the verdict on one dispatched report check.')
 
 /**
- * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
+ * Rewrite a report's title/summary, append a note or fresh evidence, set its suggested reviewers, and/or point it at another repository. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Reviewers and repository are how you rescue a report that surfaced routed to no one or against the wrong codebase: each replaces what the report holds and re-runs autostart, so a report that was missing a qualifying reviewer or a repository can open a draft PR. The response carries the repository the report holds after the edit, and the call fails when a repository it named did not land. Set `actionability` and/or `priority` (each with its explanation) when new evidence changed your judgment: each replaces the report's decision and re-runs autostart, without changing the report's inbox status. Title/summary edits are best-effort: the pipeline may later re-research them. Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated predecessor PRs close only after the replacement completes with verified open PRs.
  * @summary Edit an existing report for a run
  */
 export const SignalsScoutEditReportParams = () => zod.object({
@@ -1967,7 +2182,7 @@ export const SignalsScoutEditReportBody = () => zod
                                 '\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of'
                             )
                             .describe(
-                                "How the edited report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.\n\n\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of"
+                                "How this report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.\n\n\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of"
                             ),
                         report_id: zod
                             .string()
@@ -1978,7 +2193,7 @@ export const SignalsScoutEditReportBody = () => zod
                             .optional()
                             .describe('Optional one-line note on why the reports are linked this way.'),
                     })
-                    .describe('One typed, directed link to write on the report being edited.')
+                    .describe('One typed, directed link to write on the report being emitted or edited.')
             )
             .max(signalsScoutEditReportBodyLinksMax)
             .optional()
@@ -1989,8 +2204,46 @@ export const SignalsScoutEditReportBody = () => zod
             .boolean()
             .optional()
             .describe(
-                "Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement."
+                "Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why."
             ),
+        actionability: zod
+            .union([
+                zod
+                    .enum(['immediately_actionable', 'requires_human_input', 'not_actionable'])
+                    .describe(
+                        '\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Optional new actionability call, for when new evidence changed your judgment. Replaces the report's actionability decision and re-runs autostart: `immediately_actionable` can open a draft PR, `requires_human_input` and `not_actionable` stop autostart from opening one. The report's inbox status does not change. Send it with `actionability_explanation`, and with `already_addressed` when the issue is handled, since the three replace the decision as one unit.\n\n\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable"
+            ),
+        actionability_explanation: zod
+            .string()
+            .nullish()
+            .describe('2-3 sentence evidence-grounded justification for `actionability`. Required when you set it.'),
+        already_addressed: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'Whether the issue is already handled: fixed, or with a fix in flight. Part of the actionability decision, so it requires `actionability` and `actionability_explanation` too; omitted means false. Set it when a fix lands or starts, so autostart does not open a duplicate PR.'
+            ),
+        priority: zod
+            .union([
+                zod
+                    .enum(['P0', 'P1', 'P2', 'P3', 'P4'])
+                    .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Optional new priority (`P0`-`P4`), for when the issue escalated or eased. Replaces the report's priority and re-runs autostart, which needs a priority to open a draft PR. Requires `priority_explanation`.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4"
+            ),
+        priority_explanation: zod
+            .string()
+            .nullish()
+            .describe('2-3 sentence justification for `priority`. Required when `priority` is set.'),
     })
     .describe(
         "Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."
@@ -2073,6 +2326,10 @@ export const signalsScoutEmitReportBodyMetricsMax = 6
 export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 200
 
 export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
+
+export const signalsScoutEmitReportBodyLinksItemReasonMax = 500
+
+export const signalsScoutEmitReportBodyLinksMax = 10
 
 export const signalsScoutEmitReportBodyIdempotencyKeyMax = 200
 
@@ -2337,6 +2594,34 @@ export const SignalsScoutEmitReportBody = () => zod
             .describe(
                 "Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them."
             ),
+        links: zod
+            .array(
+                zod
+                    .object({
+                        kind: zod
+                            .enum(['depends_on', 'part_of', 'follow_up_of', 'duplicate_of', 'recurrence_of'])
+                            .describe(
+                                '\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of'
+                            )
+                            .describe(
+                                "How this report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.\n\n\* `depends_on` - Depends on\n\* `part_of` - Part of\n\* `follow_up_of` - Follow-up of\n\* `duplicate_of` - Duplicate of\n\* `recurrence_of` - Recurrence of"
+                            ),
+                        report_id: zod
+                            .string()
+                            .describe('Id of the report to link to. Must be another report in this project.'),
+                        reason: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodyLinksItemReasonMax)
+                            .optional()
+                            .describe('Optional one-line note on why the reports are linked this way.'),
+                    })
+                    .describe('One typed, directed link to write on the report being emitted or edited.')
+            )
+            .max(signalsScoutEmitReportBodyLinksMax)
+            .optional()
+            .describe(
+                'Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.'
+            ),
         idempotency_key: zod
             .string()
             .max(signalsScoutEmitReportBodyIdempotencyKeyMax)
@@ -2558,6 +2843,8 @@ export const signalsScoutReportCheckCreateBodyTitleMax = 200
 
 export const signalsScoutReportCheckCreateBodyRationaleMax = 2000
 
+export const signalsScoutReportCheckCreateBodyConfigOneOneUnitOneMax = 40
+
 export const signalsScoutReportCheckCreateBodyConfigOneTwoInstructionsMax = 2000
 
 export const signalsScoutReportCheckCreateBodyConfigOneTwoSkillNameOneMax = 200
@@ -2625,6 +2912,43 @@ export const SignalsScoutReportCheckCreateBody = () => zod
                             .describe(
                                 'The value observed when the check was written, recorded on each result for context.'
                             ),
+                        metric_kind: zod
+                            .union([
+                                zod.enum([
+                                    'affected_users',
+                                    'affected_sessions',
+                                    'occurrences',
+                                    'conversion_rate',
+                                    'error_rate',
+                                    'duration',
+                                    'revenue',
+                                    'custom',
+                                ]),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('How to draw this measurement; copied from a referenced metric.'),
+                        value_format: zod
+                            .union([
+                                zod.enum([
+                                    'number',
+                                    'count',
+                                    'percentage',
+                                    'percentage_scaled',
+                                    'duration',
+                                    'currency',
+                                ]),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('How to format measured values; copied from a referenced metric.'),
+                        unit: zod
+                            .union([
+                                zod.string().max(signalsScoutReportCheckCreateBodyConfigOneOneUnitOneMax),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe('Optional value suffix.'),
                     })
                     .describe(
                         "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived."

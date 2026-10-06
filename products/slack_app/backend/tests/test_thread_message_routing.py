@@ -1,3 +1,5 @@
+import time
+
 from unittest.mock import patch
 
 from django.apps import apps
@@ -332,11 +334,13 @@ class TestRouteThreadMessage(TestCase):
         with (
             patch("products.slack_app.backend.api._post_user_resolution_failure_reply") as mock_failure,
             patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+            patch("products.slack_app.backend.api.posthoganalytics.capture") as mock_capture,
         ):
             result = self._route(event)
         assert result == ROUTE_HANDLED_LOCALLY
         mock_failure.assert_not_called()
         mock_start.assert_not_called()
+        assert mock_capture.call_args.kwargs["properties"]["slack_email_available"] is False
 
     # --- Scope + approval gates ------------------------------------------
 
@@ -533,6 +537,138 @@ class TestRouteThreadMessage(TestCase):
         assert mock_start.called is expect_workflow
         if expect_workflow:
             assert mock_start.call_args.kwargs["untagged_followup"] is True
+
+    # --- Edits that add the tag --------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("never_seen_before_the_edit", None, 20, {}, None),
+            ("reply_dropped_with_followups_off", "untagged_reply_followups_off", 20, {}, None),
+            ("original_mention_already_handled", "mention", 20, {}, "handled_as_mention"),
+            ("untagged_reply_already_dispatched", "untagged_reply", 20, {}, "handled_as_untagged_followup"),
+            ("second_edit_of_the_same_message", "edited_mention", 20, {}, "handled_as_edited_mention"),
+            ("posted_before_the_window", None, 2 * 60 * 60, {}, "too_old"),
+            ("message_changed_envelope", None, 20, {"subtype": "message_changed"}, "message_changed_envelope"),
+        ]
+    )
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_edited_mention_runs_only_when_the_message_was_never_handled(
+        self, _name, earlier, posted_seconds_ago, edit_overrides, expected_ignore_cause
+    ):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, SLACK_MENTION_DROPPED_EVENT
+
+        now = time.time()
+        untagged_reply = self._make_event(user="U_ALICE", ts=f"{now - posted_seconds_ago:.6f}")
+        mention = {**untagged_reply, "type": "app_mention", "text": "<@U0BOT> check the export filter logic"}
+        edited_mention = {**mention, "edited": {"user": "U_ALICE", "ts": f"{now:.6f}"}, **edit_overrides}
+        earlier_events = {
+            "untagged_reply": untagged_reply,
+            "untagged_reply_followups_off": untagged_reply,
+            "mention": mention,
+            "edited_mention": edited_mention,
+        }
+        if earlier == "untagged_reply_followups_off":
+            self._set_creator_mode(UntaggedFollowupMode.NEVER)
+
+        with (
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+            ) as mock_start,
+            patch("products.slack_app.backend.api.posthoganalytics.capture") as mock_capture,
+        ):
+            if earlier is not None:
+                self._route(earlier_events[earlier])
+            mock_start.reset_mock()
+            mock_capture.reset_mock()
+            result = self._route(edited_mention)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_start.called is (expected_ignore_cause is None)
+        if expected_ignore_cause is None:
+            assert mock_start.call_args.kwargs.get("untagged_followup", False) is False
+        else:
+            drops = [
+                call.kwargs["properties"]
+                for call in mock_capture.call_args_list
+                if call.kwargs["event"] == SLACK_MENTION_DROPPED_EVENT
+            ]
+            assert [(drop["drop_reason"], drop.get("edit_ignore_cause")) for drop in drops] == [
+                ("ignored:edit", expected_ignore_cause)
+            ]
+
+    # --- Reply to a bare mention -------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("same_person", "U_BOB", 30, "and how many signups last week", False, True, []),
+            ("no_bare_mention_in_the_thread", None, 30, "and how many signups last week", False, False, []),
+            (
+                "another_person",
+                "U_ALICE",
+                30,
+                "and how many signups last week",
+                False,
+                False,
+                ["awaited_reply_other_user"],
+            ),
+            (
+                "another_person_but_the_thread_has_a_run",
+                "U_ALICE",
+                30,
+                "and how many signups last week",
+                True,
+                True,
+                [],
+            ),
+            ("tagged_copy", "U_BOB", 30, "<@U0BOT> how many signups last week", False, False, []),
+            (
+                "thread_older_than_a_claim_can_live",
+                "U_BOB",
+                2 * 60 * 60,
+                "and how many signups last week",
+                False,
+                False,
+                [],
+            ),
+        ]
+    )
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_untagged_reply_runs_only_when_the_thread_awaits_its_author(
+        self, _name, awaited_from, thread_age_seconds, text, thread_has_run, expect_workflow, expected_drop_reasons
+    ):
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, SLACK_MENTION_DROPPED_EVENT
+        from products.slack_app.backend.services.bare_mention import await_request
+
+        now = time.time()
+        thread_ts = f"{now - thread_age_seconds:.6f}"
+        if awaited_from is not None:
+            await_request("T_SLACK", "C001", thread_ts, slack_user_id=awaited_from)
+        if thread_has_run:
+            self.mapping.thread_ts = thread_ts
+            self.mapping.save(update_fields=["thread_ts"])
+        event = self._make_event(user="U_BOB", thread_ts=thread_ts, ts=f"{now:.6f}", text=text)
+
+        with (
+            patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False),
+            patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value="U0BOT"),
+            patch(
+                "products.slack_app.backend.api._start_mention_workflow", return_value=ROUTE_HANDLED_LOCALLY
+            ) as mock_start,
+            patch("products.slack_app.backend.api.posthoganalytics.capture") as mock_capture,
+        ):
+            result = self._route(event)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert mock_start.called is expect_workflow
+        if expect_workflow:
+            assert mock_start.call_args.kwargs["untagged_followup"] is thread_has_run
+            assert mock_start.call_args.kwargs["awaited_request_reply"] is not thread_has_run
+        drop_reasons = [
+            call.kwargs["properties"]["drop_reason"]
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"] == SLACK_MENTION_DROPPED_EVENT
+        ]
+        assert drop_reasons == expected_drop_reasons
 
 
 class TestMirrorSlackMessageEventTask(SimpleTestCase):

@@ -17,8 +17,16 @@ export const manifest: ProductManifest = {
             iconType: 'experiment',
             docsHref: 'https://posthog.com/docs/experiments',
         },
+        ExperimentsStaffTools: {
+            import: () => import('./frontend/scenes/ExperimentsStaffToolsScene'),
+            instanceLevel: true,
+            name: 'Experiments staff tools',
+        },
     },
-    routes: { '/experiments': ['Experiments', 'experiments'] },
+    routes: {
+        '/experiments': ['Experiments', 'experiments'],
+        '/experiments/staff': ['ExperimentsStaffTools', 'experimentsStaffTools'],
+    },
     urls: {
         experiment: (
             id: string | number,
@@ -34,6 +42,7 @@ export const manifest: ProductManifest = {
             return params ? `${baseUrl}?${params}` : baseUrl
         },
         experiments: (): string => '/experiments',
+        experimentsStaffTools: (): string => '/experiments/staff',
         experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
         experimentsSharedMetric: (id: string | number, action?: string): string =>
             action ? `/experiments/shared-metrics/${id}/${action}` : `/experiments/shared-metrics/${id}`,
@@ -43,6 +52,7 @@ export const manifest: ProductManifest = {
             name: 'Experiment',
             iconType: 'experiment',
             href: (ref: string) => urls.experiment(ref),
+            listHref: () => urls.experiments(),
             iconColor: ['var(--color-product-experiments-light)'],
             filterKey: 'experiment',
         },

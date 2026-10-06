@@ -2001,6 +2001,16 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["content"] == "abcd"
 
+    def test_list_text_filter_finds_an_old_note_past_the_cap(self) -> None:
+        # The filter has to run before the cap and ignore case, or a run searching for one entity
+        # still gets only the newest notes back.
+        SignalScoutNote.objects.create(team=self.team, content="the /checkout spike is expected")
+        SignalScoutNote.objects.create(team=self.team, content="watch the EU signup funnel")
+        SignalScoutNote.objects.create(team=self.team, content="billing reports go to the billing folks")
+        response = self.client.get(self._list_url(), data={"text": "CHECKOUT", "limit": "1"})
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["content"] for row in response.json()] == ["the /checkout spike is expected"]
+
     def test_list_excludes_expired_notes_by_default(self) -> None:
         SignalScoutNote.objects.create(
             team=self.team, content="stale steering", expires_at=timezone.now() - timedelta(days=1)
@@ -3124,6 +3134,36 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         config.refresh_from_db()
         assert config.status == SignalScoutConfig.Status.PENDING_PAUSE
         assert config.pause_reason == SignalScoutConfig.PauseReason.NO_OUTPUT
+
+    @parameterized.expand(
+        [
+            ("empty_write", {}, "background"),
+            ("schedule_edit", {"run_interval_minutes": 60}, "team"),
+            ("pause", {"enabled": False}, "team"),
+        ]
+    )
+    def test_a_human_edit_takes_over_a_background_scout(
+        self, _name: str, payload: dict, expected_managed_by: str
+    ) -> None:
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            managed_by=SignalScoutConfig.ManagedBy.BACKGROUND,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["managed_by"] == expected_managed_by
+        config.refresh_from_db()
+        assert config.managed_by == expected_managed_by
+        managed_by_changes = [
+            (change["before"], change["after"])
+            for entry in ActivityLog.objects.filter(team_id=self.team.id, scope="SignalScoutConfig", item_id=config.id)
+            for change in (entry.detail or {}).get("changes", [])
+            if change["field"] == "managed by"
+        ]
+        assert managed_by_changes == ([("background", "team")] if expected_managed_by == "team" else [])
 
     def test_partial_update_slack_destination_is_project_scoped_and_round_trips(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
