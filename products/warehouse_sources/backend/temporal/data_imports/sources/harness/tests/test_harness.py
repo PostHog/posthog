@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from http import HTTPStatus
 from typing import Any, Literal, cast
 from urllib.parse import parse_qs, urlsplit
@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.harness import (
     HarnessSourceConfig,
 )
@@ -25,6 +26,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.harness.ha
 from products.warehouse_sources.backend.temporal.data_imports.sources.harness.source import HarnessSource
 
 SESSION_FACTORY = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+
+
+def items(response: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], response.items())
 
 
 @pytest.fixture
@@ -113,7 +118,7 @@ def test_requests_and_pagination(
         response({"data": {"content": [row], "totalPages": 2}}),
     ]
     source = harness_source(config, name, 1, "job", manager)
-    assert list(source.items()) == [[expected], [expected]]
+    assert list(items(source)) == [[expected], [expected]]
     assert transport.send.call_count == 2
     for page, call in enumerate(transport.send.call_args_list):
         request = call.args[0]
@@ -145,7 +150,7 @@ def test_resume_from_saved_page(
     transport.send.return_value = response(
         {"data": {"content": [{"identifier": "last"}], "totalPages": 5 if has_saved_state else 1}}
     )
-    assert list(harness_source(config, "pipelines", 1, "job", manager).items()) == [[{"identifier": "last"}]]
+    assert list(items(harness_source(config, "pipelines", 1, "job", manager))) == [[{"identifier": "last"}]]
     query = parse_qs(urlsplit(transport.send.call_args.args[0].url).query)
     assert query["page"] == ["4" if has_saved_state else "0"]
     manager.save_state.assert_not_called()
@@ -159,7 +164,7 @@ def test_empty_terminal_page(
     if total_pages is not None:
         data["totalPages"] = total_pages
     transport.send.return_value = response({"data": data})
-    assert list(harness_source(config, "pipelines", 1, "job", manager).items()) == []
+    assert list(items(harness_source(config, "pipelines", 1, "job", manager))) == []
     transport.send.assert_called_once()
     manager.save_state.assert_not_called()
 
@@ -200,7 +205,7 @@ def test_sync_auth_errors_are_terminal(
 ) -> None:
     transport.send.return_value = response({}, status)
     with pytest.raises(HTTPError) as error:
-        list(harness_source(config, "executions", 1, "job", manager).items())
+        list(items(harness_source(config, "executions", 1, "job", manager)))
     assert any(pattern in str(error.value) for pattern in HarnessSource().get_non_retryable_errors())
     transport.send.assert_called_once()
 
@@ -231,7 +236,7 @@ def test_region_routes_requests(
 ) -> None:
     config.region = region
     transport.send.return_value = response({"data": {"content": [], "totalPages": 0}})
-    list(harness_source(config, "services", 1, "job", manager).items())
+    list(items(harness_source(config, "services", 1, "job", manager)))
     request = transport.send.call_args.args[0]
     assert urlsplit(request.url).hostname == host
     assert urlsplit(request.url).scheme == "https"
@@ -262,7 +267,7 @@ def test_malformed_response_fails(
 ) -> None:
     transport.send.return_value = response(body)
     with pytest.raises(ValueError, match=error):
-        list(harness_source(config, name, 1, "job", manager).items())
+        list(items(harness_source(config, name, 1, "job", manager)))
     manager.save_state.assert_not_called()
 
 
