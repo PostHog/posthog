@@ -1942,18 +1942,7 @@ class PostgresSource(
                 supports_resume=False,
             )
 
-        # Defense in depth for the v3-forcing invariant: a run that resolved its pipeline version
-        # before its table started streaming, or a worker one deploy behind, would consume this
-        # buffer on v2, which stamps no position on the rows it writes, so every later run would
-        # find nothing to resume from and re-merge the whole buffer. Fail the run loudly instead of
-        # degrading silently.
         job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
-        if job is not None and job.pipeline_version != ExternalDataJob.PipelineVersion.V3:
-            raise ValueError(
-                f"Buffered CDC schema {schema.name} reached a {job.pipeline_version} pipeline run. "
-                "Buffered consumption requires v3, whose loader stamps each row with the position "
-                "the next run resumes from."
-            )
 
         # A CDC reset must travel through snapshot mode, which re-seeds the table before the buffer
         # replays over it; every reset writer does that. Merging the buffer into a wiped table
