@@ -1,3 +1,6 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
+
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -35,7 +38,18 @@ export const manifest: ProductManifest = {
             spaceId ? `/canvases/new?space=${encodeURIComponent(spaceId)}` : '/canvases/new',
         canvasDetail: (id: string): string => `/canvases/${id}`,
     },
-    fileSystemTypes: {},
+    fileSystemTypes: {
+        canvas: {
+            name: 'Canvas',
+            iconType: 'canvas',
+            // Canvases open only under the Today navigation, so the old tree's type filters hide them with it.
+            flag: FEATURE_FLAGS.TODAY_RAIL_NAV,
+            href: (ref: string) => urls.canvasDetail(ref),
+            listHref: () => urls.canvases(),
+            iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
+            filterKey: 'canvas',
+        },
+    },
     treeItemsNew: [],
     treeItemsProducts: [],
 }

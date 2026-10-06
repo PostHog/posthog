@@ -5456,6 +5456,7 @@ export interface FileSystemEntry {
 export type FileSystemIconType =
     | 'default_icon_type'
     | 'dashboard'
+    | 'canvas'
     | 'llm_analytics'
     | 'product_analytics'
     | 'revenue_analytics'
