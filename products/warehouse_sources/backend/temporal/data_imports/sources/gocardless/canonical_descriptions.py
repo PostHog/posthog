@@ -112,4 +112,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             links="Related resources the event concerns (payment, mandate, subscription, etc.).",
         ),
     },
+    "customer_bank_accounts": {
+        "description": "A customer's bank account that payments are collected from.",
+        "docs_url": "https://developer.gocardless.com/api-reference/#core-endpoints-customer-bank-accounts",
+        "columns": _columns(
+            account_holder_name="Name of the account holder, as known by the bank.",
+            account_number_ending="Last two digits of the account number.",
+            account_type="Type of bank account, for countries that need it (savings or checking).",
+            bank_name="Name of the bank the account is held with.",
+            country_code="ISO 3166-1 two-letter country code of the bank account.",
+            currency="ISO 4217 three-letter currency code of the bank account.",
+            enabled="Whether the bank account can be used for new mandates.",
+            links="Related resources (customer).",
+        ),
+    },
+    "creditors": {
+        "description": "The entity, usually your organisation, that payments are collected on behalf of.",
+        "docs_url": "https://developer.gocardless.com/api-reference/#core-endpoints-creditors",
+        "columns": _columns(
+            name="Name of the creditor.",
+            creditor_type="Type of business of the creditor (e.g. company, individual, charity).",
+            country_code="ISO 3166-1 two-letter country code of the creditor's address.",
+            verification_status="State of the creditor's verification (successful, in_review, or action_required).",
+            scheme_identifiers="Scheme identifiers the creditor collects payments under.",
+            links="Related resources, including the default payout bank account per currency.",
+        ),
+    },
+    "balances": {
+        "description": "A snapshot of a creditor's funds held by GoCardless, one row per balance type and currency.",
+        "docs_url": "https://developer.gocardless.com/api-reference/#core-endpoints-balances",
+        "columns": {
+            "creditor_id": "ID of the creditor the balance belongs to.",
+            "balance_type": "Type of balance (e.g. confirmed_funds, pending_payouts, pending_payments_submitted).",
+            "amount": "Balance amount, in the smallest currency unit.",
+            "currency": "ISO 4217 three-letter currency code of the balance.",
+            "last_updated_at": "Time the balance was last updated (ISO 8601).",
+            "links": "Related resources (creditor).",
+        },
+    },
+    "payout_items": {
+        "description": "A line item of a payout: a payment, refund, fee, or other amount that makes up the payout total.",
+        "docs_url": "https://developer.gocardless.com/api-reference/#core-endpoints-payout-items",
+        "columns": {
+            "payout_id": "ID of the payout this item belongs to.",
+            "type": "Type of item (e.g. payment_paid_out, payment_failed, refund, gocardless_fee, app_fee).",
+            "amount": "Amount of the item, in the smallest currency unit, as a string.",
+            "taxes": "Taxes applied to a fee item, with amount, currency, and tax rate.",
+            "links": "Related resources (payment, mandate, refund).",
+        },
+    },
 }

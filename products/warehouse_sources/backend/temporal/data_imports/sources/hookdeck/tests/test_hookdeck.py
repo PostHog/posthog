@@ -28,7 +28,8 @@ HOOKDECK_SESSION_PATCH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.hookdeck.hookdeck.make_tracked_session"
 )
 
-API_VERSION = "2025-07-01"
+API_VERSION = "2026-09-01"
+SUPPORTED_VERSIONS = ["2025-07-01", "2026-09-01"]
 
 INCREMENTAL_ENDPOINTS = sorted(name for name, c in HOOKDECK_ENDPOINTS.items() if c.incremental_fields)
 FULL_REFRESH_ENDPOINTS = sorted(name for name, c in HOOKDECK_ENDPOINTS.items() if not c.incremental_fields)
@@ -69,10 +70,10 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return param_snapshots
 
 
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any):
+def _source(endpoint: str, manager: mock.MagicMock, api_version: str = API_VERSION, **kwargs: Any):
     return hookdeck_source(
         "hd_key",
-        API_VERSION,
+        api_version,
         endpoint,
         team_id=1,
         job_id="job-1",
@@ -102,9 +103,20 @@ class TestHookdeckTransport:
         assert result == expected
         assert "+00:00" not in result
 
-    def test_base_url_carries_the_version_segment(self) -> None:
-        # An unversioned request resolves to Hookdeck's OLDEST supported version.
-        assert base_url(API_VERSION) == f"https://api.hookdeck.com/{API_VERSION}"
+    @pytest.mark.parametrize("api_version", SUPPORTED_VERSIONS)
+    def test_base_url_carries_the_version_segment(self, api_version: str) -> None:
+        # An unversioned request tracks Hookdeck's latest version.
+        assert base_url(api_version) == f"https://api.hookdeck.com/{api_version}"
+
+    @pytest.mark.parametrize("api_version", SUPPORTED_VERSIONS)
+    @mock.patch(HOOKDECK_SESSION_PATCH)
+    def test_sync_requests_carry_the_pinned_version(self, MockSession, api_version: str) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response([{"id": "des_1"}], None)])
+
+        _rows(_source("destinations", _make_manager(), api_version=api_version))
+
+        assert session.prepare_request.call_args.args[0].url == f"https://api.hookdeck.com/{api_version}/destinations"
 
     @pytest.mark.parametrize("endpoint", sorted(HOOKDECK_ENDPOINTS))
     def test_every_request_pins_ascending_order(self, endpoint: str) -> None:
@@ -180,17 +192,18 @@ class TestHookdeckTransport:
 
 class TestHookdeckCredentials:
     @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
+    @pytest.mark.parametrize("api_version", SUPPORTED_VERSIONS)
     @mock.patch(HOOKDECK_SESSION_PATCH)
-    def test_status_mapping(self, mock_session_factory, status_code: int, expected: bool) -> None:
+    def test_status_mapping(self, mock_session_factory, api_version: str, status_code: int, expected: bool) -> None:
         mock_session_factory.return_value.get.return_value = mock.MagicMock(status_code=status_code)
 
-        is_valid, status = validate_credentials("hd_key", API_VERSION)
+        is_valid, status = validate_credentials("hd_key", api_version)
 
         assert is_valid is expected
         assert status == status_code
 
         call = mock_session_factory.return_value.get.call_args
-        assert call.args[0] == f"https://api.hookdeck.com/{API_VERSION}/sources?limit=1"
+        assert call.args[0] == f"https://api.hookdeck.com/{api_version}/sources?limit=1"
         assert call.kwargs["headers"]["Authorization"] == "Bearer hd_key"
 
     @mock.patch(HOOKDECK_SESSION_PATCH)
