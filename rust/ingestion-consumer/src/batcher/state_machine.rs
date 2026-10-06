@@ -14,7 +14,7 @@
 //! instead of growing lag.
 
 use std::cmp::Reverse;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -23,10 +23,9 @@ use metrics::{gauge, histogram};
 
 use super::in_flight::{InFlightRequest, InFlightRequests, RequestId, SentRun};
 use super::key_queues::{KeyQueues, KeyRun};
-use super::request::{purge_request, Request, RequestClass};
+use super::request::{Request, RequestClass};
 use super::retry_policy::{RetryPolicy, RetryReason};
 use super::worker_assigner::WorkerAssigner;
-use super::worker_pool::WorkerPool;
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
 
@@ -91,7 +90,6 @@ impl BatcherStateMachine {
             keys: KeyQueues::new(),
             assigner,
             in_flight: InFlightRequests::new(),
-            unplaced: VecDeque::new(),
             retry,
             stall_timeout,
             last_progress: now,
@@ -101,13 +99,13 @@ impl BatcherStateMachine {
     pub fn on_groups(
         self,
         now: Instant,
-        pool: &WorkerPool,
+        workers: &[WorkerId],
         assignment_epoch: u64,
         runs: Vec<KeyRun>,
     ) -> (Self, Effects) {
         match self {
             BatcherStateMachine::Running(mut active) => {
-                let result = active.on_groups(now, pool, assignment_epoch, runs);
+                let result = active.on_groups(now, workers, assignment_epoch, runs);
                 Self::after(active, false, result)
             }
             BatcherStateMachine::Draining(_) | BatcherStateMachine::Stopped => {
@@ -120,11 +118,11 @@ impl BatcherStateMachine {
     pub fn on_request_succeeded(
         self,
         now: Instant,
-        pool: &WorkerPool,
+        workers: &[WorkerId],
         request: RequestId,
         accepted: u32,
     ) -> (Self, Effects) {
-        self.act(|active| active.on_request_succeeded(now, pool, request, accepted))
+        self.act(|active| active.on_request_succeeded(now, workers, request, accepted))
     }
 
     /// A worker accepts a whole request or none of it. The failed request's
@@ -133,18 +131,18 @@ impl BatcherStateMachine {
     pub fn on_request_failed(
         self,
         now: Instant,
-        pool: &WorkerPool,
+        workers: &[WorkerId],
         request: RequestId,
         cause: FailureCause,
         messages: Vec<SerializedKafkaMessage>,
     ) -> (Self, Effects) {
-        self.act(|active| active.on_request_failed(now, pool, request, cause, messages))
+        self.act(|active| active.on_request_failed(now, workers, request, cause, messages))
     }
 
-    pub fn on_wakeup(self, now: Instant, pool: &WorkerPool) -> (Self, Effects) {
+    pub fn on_wakeup(self, now: Instant, workers: &[WorkerId]) -> (Self, Effects) {
         self.act(|active| {
             let mut effects = Effects::default();
-            active.advance(now, pool, &mut effects)?;
+            active.advance(now, workers, &mut effects)?;
             Ok(effects)
         })
     }
@@ -162,10 +160,10 @@ impl BatcherStateMachine {
 
     /// Takes no new groups from now on, and stops once nothing is pending or
     /// in flight.
-    pub fn on_shutdown(self, now: Instant, pool: &WorkerPool) -> (Self, Effects) {
+    pub fn on_shutdown(self, now: Instant, workers: &[WorkerId]) -> (Self, Effects) {
         match self {
             BatcherStateMachine::Running(active) => {
-                BatcherStateMachine::Draining(active).on_wakeup(now, pool)
+                BatcherStateMachine::Draining(active).on_wakeup(now, workers)
             }
             other => (other, Effects::default()),
         }
@@ -240,8 +238,6 @@ pub struct ActiveState {
     keys: KeyQueues,
     assigner: WorkerAssigner,
     in_flight: InFlightRequests,
-    /// Their keys stay claimed.
-    unplaced: VecDeque<Request>,
     retry: RetryPolicy,
     stall_timeout: Duration,
     last_progress: Instant,
@@ -250,11 +246,6 @@ pub struct ActiveState {
 impl ActiveState {
     fn pending_messages(&self) -> usize {
         self.keys.queued_messages()
-            + self
-                .unplaced
-                .iter()
-                .map(|request| request.message_count)
-                .sum::<usize>()
     }
 
     /// The stall clock starts when work becomes pending, not at the last
@@ -272,7 +263,7 @@ impl ActiveState {
     fn on_groups(
         &mut self,
         now: Instant,
-        pool: &WorkerPool,
+        workers: &[WorkerId],
         assignment_epoch: u64,
         runs: Vec<KeyRun>,
     ) -> Result<Effects, String> {
@@ -282,14 +273,14 @@ impl ActiveState {
                 .push(run.routing_key, assignment_epoch, run.messages, now);
         }
         let mut effects = Effects::default();
-        self.advance(now, pool, &mut effects)?;
+        self.advance(now, workers, &mut effects)?;
         Ok(effects)
     }
 
     fn on_request_succeeded(
         &mut self,
         now: Instant,
-        pool: &WorkerPool,
+        workers: &[WorkerId],
         request: RequestId,
         accepted: u32,
     ) -> Result<Effects, String> {
@@ -315,14 +306,14 @@ impl ActiveState {
         for run in runs {
             self.settle_key(&run.routing_key, Vec::new(), None, now, &mut effects)?;
         }
-        self.advance(now, pool, &mut effects)?;
+        self.advance(now, workers, &mut effects)?;
         Ok(effects)
     }
 
     fn on_request_failed(
         &mut self,
         now: Instant,
-        pool: &WorkerPool,
+        workers: &[WorkerId],
         request: RequestId,
         cause: FailureCause,
         messages: Vec<SerializedKafkaMessage>,
@@ -350,7 +341,7 @@ impl ActiveState {
                 &mut effects,
             )?;
         }
-        self.advance(now, pool, &mut effects)?;
+        self.advance(now, workers, &mut effects)?;
         Ok(effects)
     }
 
@@ -363,20 +354,6 @@ impl ActiveState {
             evicted_keys: self.keys.purge(partitions),
             ..Effects::default()
         };
-
-        let mut emptied_keys = Vec::new();
-        let revoked: HashSet<(&str, i32)> = partitions
-            .iter()
-            .map(|(topic, partition)| (topic.as_str(), *partition))
-            .collect();
-        for request in self.unplaced.iter_mut() {
-            purge_request(request, &revoked, &mut emptied_keys);
-        }
-        self.unplaced.retain(|request| !request.runs.is_empty());
-        for key in emptied_keys {
-            self.settle_key(&key, Vec::new(), None, now, &mut effects)?;
-        }
-
         self.finish(now, &mut effects)?;
         if self.keys.has_ready() {
             effects.next_wakeup = Some(now);
@@ -420,7 +397,7 @@ impl ActiveState {
     fn advance(
         &mut self,
         now: Instant,
-        pool: &WorkerPool,
+        workers: &[WorkerId],
         effects: &mut Effects,
     ) -> Result<(), String> {
         self.restart_stall_clock_if_quiet(now);
@@ -428,39 +405,40 @@ impl ActiveState {
         // failures drain to nothing in flight and the watchdog can fire.
         let stalled = self.pending_messages() > 0 && now >= self.last_progress + self.stall_timeout;
         if !stalled {
-            self.place(now, pool, effects);
+            self.place(now, workers, effects)?;
         }
         self.finish(now, effects)
     }
 
-    fn place(&mut self, now: Instant, pool: &WorkerPool, effects: &mut Effects) {
-        let mut batch: Vec<Request> = self.unplaced.drain(..).collect();
-        batch.extend(self.keys.take_ready(now).into_iter().map(Request::from_run));
+    fn place(
+        &mut self,
+        now: Instant,
+        workers: &[WorkerId],
+        effects: &mut Effects,
+    ) -> Result<(), String> {
+        let free_slots = self.assigner.free_slots(workers);
+        let mut batch: Vec<Request> = self
+            .keys
+            .take_ready(now, free_slots)
+            .into_iter()
+            .map(Request::from_run)
+            .collect();
         if self.assigner.prefers_largest_first() {
             // Bin-packing places the heavy requests first, so they drive
             // the load distribution.
             batch.sort_by_key(|request| Reverse(request.message_count));
         }
         for request in batch {
-            // A replay escapes the aperture slice and routes over the whole
-            // healthy pool: the slice may be exactly what it failed in.
-            let candidates = if request.class.replay {
-                &pool.healthy
-            } else {
-                &pool.candidates
-            };
-            let Some(worker) = self.assigner.assign(candidates, request.message_count) else {
-                // Requests carry disjoint keys, so their send order does
-                // not matter for per-key order. A request that no
-                // candidate can take must not hold back the others.
-                self.unplaced.push_back(request);
-                continue;
-            };
+            let worker = self
+                .assigner
+                .assign(workers, request.message_count)
+                .ok_or("no worker took a request within the free slots")?;
             if self.assigner.requests_on(&worker) == 1 {
                 effects.busy_workers.push(worker.clone());
             }
             self.send(now, worker, request, effects);
         }
+        Ok(())
     }
 
     fn send(&mut self, now: Instant, worker: WorkerId, request: Request, effects: &mut Effects) {
@@ -499,7 +477,9 @@ impl ActiveState {
         }
         effects.next_wakeup = [
             self.keys.next_retry_at(),
-            (!self.unplaced.is_empty()).then(|| self.retry.retry_at(now, RetryReason::NoWorker)),
+            self.keys
+                .has_ready()
+                .then(|| self.retry.retry_at(now, RetryReason::NoWorker)),
             (pending > 0 && in_flight == 0).then_some(stall_deadline),
         ]
         .into_iter()
@@ -515,13 +495,6 @@ impl ActiveState {
         gauge!("ingestion_consumer_batcher_queued_bytes").set(self.keys.queued_bytes() as f64);
         gauge!("ingestion_consumer_batcher_claimed_keys").set(self.keys.claimed_keys() as f64);
         gauge!("ingestion_consumer_batcher_waiting_keys").set(self.keys.waiting_keys() as f64);
-        gauge!("ingestion_consumer_batcher_unplaced_requests").set(self.unplaced.len() as f64);
-        gauge!("ingestion_consumer_batcher_unplaced_messages").set(
-            self.unplaced
-                .iter()
-                .map(|request| request.message_count)
-                .sum::<usize>() as f64,
-        );
         gauge!("ingestion_consumer_batcher_in_flight_requests").set(self.in_flight.len() as f64);
     }
 }
@@ -570,8 +543,6 @@ fn key_acks(runs: &[SentRun]) -> Vec<KeyAck> {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
     use super::*;
     use crate::batcher::test_support::{message, offsets};
     use crate::routing::{Router, RoutingStrategy};
@@ -595,12 +566,8 @@ mod tests {
         BatcherStateMachine::new(assigner, retry_policy(), STALL, now).expect("valid stall timeout")
     }
 
-    fn pool(workers: &[&str]) -> WorkerPool {
-        let workers: Vec<WorkerId> = workers.iter().map(|w| WorkerId::from(*w)).collect();
-        WorkerPool {
-            healthy: workers.clone(),
-            candidates: workers,
-        }
+    fn pool(workers: &[&str]) -> Vec<WorkerId> {
+        workers.iter().map(|w| WorkerId::from(*w)).collect()
     }
 
     fn run(key: &str, offsets: &[i64]) -> KeyRun {
@@ -698,38 +665,6 @@ mod tests {
     }
 
     #[test]
-    fn a_replay_is_sent_past_a_fresh_request_that_no_candidate_can_take() {
-        let now = Instant::now();
-        let batcher = batcher(4, now);
-        let (batcher, effects) = batcher.on_groups(now, &pool(&["w"]), 0, vec![run("b", &[2])]);
-        let request = effects.sends[0].request;
-        let (batcher, _) = batcher.on_request_failed(
-            now,
-            &pool(&["w"]),
-            request,
-            FailureCause::Busy,
-            vec![message("b", 0, 2)],
-        );
-
-        let outside_the_slice = WorkerPool {
-            healthy: pool(&["w"]).healthy,
-            candidates: Vec::new(),
-        };
-        let (batcher, effects) =
-            batcher.on_groups(now, &outside_the_slice, 0, vec![run("a", &[1])]);
-        assert!(
-            effects.sends.is_empty(),
-            "a fresh request routes only within the slice"
-        );
-
-        let retry = now + BUSY_DELAY;
-        let (_, effects) = batcher.on_wakeup(retry, &outside_the_slice);
-        assert_eq!(effects.sends.len(), 1);
-        assert!(effects.sends[0].class.replay);
-        assert_eq!(shape(&effects.sends[0]), vec![("b", vec![2])]);
-    }
-
-    #[test]
     fn bin_packing_places_the_largest_request_first() {
         let now = Instant::now();
         let workers = pool(&["w1", "w2"]);
@@ -773,9 +708,14 @@ mod tests {
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
         assert_eq!(effects.sends.len(), 1);
         let request = effects.sends[0].request;
+        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("b", &[3])]);
 
         let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
-        assert_eq!(shape(&effects.sends[0]), vec![("b", vec![2])]);
+        assert_eq!(
+            shape(&effects.sends[0]),
+            vec![("b", vec![2, 3])],
+            "b was never claimed, so its later message joins the run"
+        );
         // The freed slot is refilled in the same action, so the worker is
         // reported idle and then busy again.
         assert_eq!(effects.idle_workers, vec![WorkerId::from("w")]);
@@ -801,22 +741,11 @@ mod tests {
         assert_eq!(effects.idle_workers, vec![WorkerId::from("w")]);
     }
 
-    /// Where the revoked message waits: with no healthy worker, or with no
-    /// candidate in the aperture slice.
-    #[rstest]
-    #[case::no_worker(&[], &[])]
-    #[case::outside_the_slice(&["w"], &[])]
-    fn a_revoke_drops_pending_messages_and_never_sends_them(
-        #[case] healthy: &[&str],
-        #[case] candidates: &[&str],
-    ) {
+    #[test]
+    fn a_revoke_drops_pending_messages_and_never_sends_them() {
         let now = Instant::now();
         let batcher = batcher(4, now);
-        let at_arrival = WorkerPool {
-            healthy: pool(healthy).healthy,
-            candidates: pool(candidates).candidates,
-        };
-        let (batcher, effects) = batcher.on_groups(now, &at_arrival, 0, vec![run("a", &[1])]);
+        let (batcher, effects) = batcher.on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
         assert!(effects.sends.is_empty());
 
         let (batcher, effects) = batcher.on_partitions_revoked(now, &[("events".to_string(), 0)]);

@@ -177,7 +177,7 @@ impl KeyQueues {
         }
     }
 
-    pub fn take_ready(&mut self, now: Instant) -> Vec<ReadyRun> {
+    pub fn take_ready(&mut self, now: Instant, limit: usize) -> Vec<ReadyRun> {
         while let Some((at, _)) = self.waiting.first() {
             if *at > now {
                 break;
@@ -191,8 +191,11 @@ impl KeyQueues {
             }
         }
 
-        let mut runs = Vec::with_capacity(self.ready.len());
-        while let Some(key) = self.ready.pop_front() {
+        let mut runs = Vec::with_capacity(limit.min(self.ready.len()));
+        while runs.len() < limit {
+            let Some(key) = self.ready.pop_front() else {
+                break;
+            };
             let Some(state) = self.keys.get_mut(&key) else {
                 continue;
             };
@@ -379,7 +382,7 @@ mod tests {
         let mut queues = KeyQueues::new();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
         assert_eq!(
-            claimed(&queues.take_ready(now)),
+            claimed(&queues.take_ready(now, usize::MAX)),
             vec![("a", vec![1], false)]
         );
 
@@ -389,15 +392,39 @@ mod tests {
             vec![message("a", 0, 2), message("a", 0, 3)],
             now,
         );
-        assert!(queues.take_ready(now).is_empty(), "one run per key is out");
+        assert!(
+            queues.take_ready(now, usize::MAX).is_empty(),
+            "one run per key is out"
+        );
 
         assert_eq!(queues.settle(&key("a"), Vec::new(), None, now), Ok(false));
         assert_eq!(
-            claimed(&queues.take_ready(now)),
+            claimed(&queues.take_ready(now, usize::MAX)),
             vec![("a", vec![2, 3], false)]
         );
         assert_eq!(queues.settle(&key("a"), Vec::new(), None, now), Ok(true));
         assert_eq!(queues.key_count(), 0);
+    }
+
+    #[test]
+    fn keys_past_the_take_limit_stay_unclaimed_and_keep_their_turn() {
+        let now = Instant::now();
+        let mut queues = KeyQueues::new();
+        for routing_key in ["a", "b", "c"] {
+            queues.push(key(routing_key), 0, vec![message(routing_key, 0, 1)], now);
+        }
+
+        assert_eq!(
+            claimed(&queues.take_ready(now, 1)),
+            vec![("a", vec![1], false)]
+        );
+        assert!(queues.take_ready(now, 0).is_empty());
+        assert_eq!(queues.claimed_keys(), 1);
+        assert_eq!(queues.queued_messages(), 2);
+        assert_eq!(
+            claimed(&queues.take_ready(now, usize::MAX)),
+            vec![("b", vec![1], false), ("c", vec![1], false)]
+        );
     }
 
     #[test]
@@ -411,7 +438,7 @@ mod tests {
             vec![message("a", 0, 1), message("a", 0, 2)],
             now,
         );
-        queues.take_ready(now);
+        queues.take_ready(now, usize::MAX);
         queues.push(key("a"), 0, vec![message("a", 0, 3)], now);
 
         let requeued = vec![message("a", 0, 2)];
@@ -420,20 +447,20 @@ mod tests {
             Ok(false)
         );
         assert!(
-            queues.take_ready(now).is_empty(),
+            queues.take_ready(now, usize::MAX).is_empty(),
             "waits for its retry time"
         );
         assert_eq!(queues.next_retry_at(), Some(retry_at));
 
         assert_eq!(
-            claimed(&queues.take_ready(retry_at)),
+            claimed(&queues.take_ready(retry_at, usize::MAX)),
             vec![("a", vec![2], true)]
         );
         queues
             .settle(&key("a"), Vec::new(), None, retry_at)
             .expect("claimed");
         assert_eq!(
-            claimed(&queues.take_ready(retry_at)),
+            claimed(&queues.take_ready(retry_at, usize::MAX)),
             vec![("a", vec![3], false)]
         );
     }
@@ -445,7 +472,7 @@ mod tests {
         queues.push(key("a"), 1, vec![message("a", 0, 1)], now);
         queues.push(key("a"), 2, vec![message("a", 0, 2)], now);
 
-        let runs = queues.take_ready(now);
+        let runs = queues.take_ready(now, usize::MAX);
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].class.assignment_epoch, 1);
         assert_eq!(offsets(&runs[0].run.messages), vec![1]);
@@ -461,7 +488,7 @@ mod tests {
             vec![message("a", 0, 1), message("a", 1, 7)],
             now,
         );
-        queues.take_ready(now);
+        queues.take_ready(now, usize::MAX);
         queues.push(key("a"), 0, vec![message("a", 0, 2)], now);
         queues.push(key("b"), 0, vec![message("b", 0, 5)], now);
 
@@ -474,7 +501,7 @@ mod tests {
             .settle(&key("a"), requeued, None, now)
             .expect("claimed");
         assert_eq!(
-            claimed(&queues.take_ready(now)),
+            claimed(&queues.take_ready(now, usize::MAX)),
             vec![("a", vec![7], true)],
             "only the message of the kept partition returns"
         );
@@ -485,7 +512,7 @@ mod tests {
         let now = Instant::now();
         let mut queues = KeyQueues::new();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
-        queues.take_ready(now);
+        queues.take_ready(now, usize::MAX);
         queues.push(key("a"), 0, vec![message("a", 1, 7)], now);
         let retry_at = now + Duration::from_millis(100);
         queues
@@ -495,7 +522,7 @@ mod tests {
         queues.purge(&[("events".to_string(), 0)]);
         assert_eq!(queues.next_retry_at(), None);
         assert_eq!(
-            claimed(&queues.take_ready(now)),
+            claimed(&queues.take_ready(now, usize::MAX)),
             vec![("a", vec![7], false)]
         );
     }
@@ -546,7 +573,7 @@ mod tests {
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
         queues.push(key("a"), 0, vec![message("a", 0, 2)], now);
         assert_eq!(
-            claimed(&queues.take_ready(now)),
+            claimed(&queues.take_ready(now, usize::MAX)),
             vec![("a", vec![1, 2], false)]
         );
     }
@@ -561,7 +588,7 @@ mod tests {
             vec![message("a", 0, 1), message("a", 1, 2)],
             now,
         );
-        queues.take_ready(now);
+        queues.take_ready(now, usize::MAX);
         assert_eq!(queues.queued_bytes(), 0);
 
         let requeued = vec![message("a", 0, 1), message("a", 1, 2)];

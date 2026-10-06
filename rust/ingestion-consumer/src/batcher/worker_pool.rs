@@ -64,15 +64,22 @@ impl WorkerPoolSource {
 
     pub fn pool(&self) -> WorkerPool {
         let healthy = self.registry.healthy_workers();
-        let ring = aperture::sorted_ring(self.registry.workers());
-        // The fleet's slices tile the pool, so each consumer's requests
-        // consolidate onto few workers.
-        let candidates = self
-            .slice(&ring, &healthy)
-            .unwrap_or_else(|| healthy.clone());
+        let candidates = self.narrow(&healthy).unwrap_or_else(|| healthy.clone());
         WorkerPool {
             healthy,
             candidates,
         }
+    }
+
+    pub fn candidates(&self) -> Vec<WorkerId> {
+        let healthy = self.registry.healthy_workers();
+        self.narrow(&healthy).unwrap_or(healthy)
+    }
+
+    fn narrow(&self, healthy: &[WorkerId]) -> Option<Vec<WorkerId>> {
+        let ring = aperture::sorted_ring(self.registry.workers());
+        // The fleet's slices tile the pool, so each consumer's requests
+        // consolidate onto few workers.
+        self.slice(&ring, healthy)
     }
 }

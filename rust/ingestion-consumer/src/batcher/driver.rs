@@ -197,7 +197,7 @@ impl BatcherTask {
                 runs,
             }) => {
                 assigned = true;
-                state.on_groups(now, &self.pool_source.pool(), assignment_epoch, runs)
+                state.on_groups(now, &self.pool_source.candidates(), assignment_epoch, runs)
             }
             Event::Input(Input::PartitionsRevoked(partitions)) => {
                 // Cleared in order with the sends, so no revoked message is
@@ -205,9 +205,9 @@ impl BatcherTask {
                 self.key_sentinel.clear();
                 state.on_partitions_revoked(now, &partitions)
             }
-            Event::Input(Input::Shutdown) => state.on_shutdown(now, &self.pool_source.pool()),
+            Event::Input(Input::Shutdown) => state.on_shutdown(now, &self.pool_source.candidates()),
             Event::Response(request, Ok(accepted)) => {
-                state.on_request_succeeded(now, &self.pool_source.pool(), request, accepted)
+                state.on_request_succeeded(now, &self.pool_source.candidates(), request, accepted)
             }
             Event::Response(request, Err(failure)) => {
                 // Backpressure is transient, not a worker fault.
@@ -219,13 +219,13 @@ impl BatcherTask {
                 fence_guard = failure.fence_guard;
                 state.on_request_failed(
                     now,
-                    &self.pool_source.pool(),
+                    &self.pool_source.candidates(),
                     request,
                     cause,
                     failure.messages,
                 )
             }
-            Event::Wakeup => state.on_wakeup(now, &self.pool_source.pool()),
+            Event::Wakeup => state.on_wakeup(now, &self.pool_source.candidates()),
         };
         self.perform(&state, effects);
         // The worker stream takes no new send until the failed messages are
