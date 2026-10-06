@@ -18,12 +18,17 @@
         outline-offset: -2px;
     }
 
-    &__cardButton:focus-visible,
+    &__cardButton:focus-visible {
+        outline: calc(2px * var(--i0)) solid var(--color-accent);
+        outline-offset: calc(2px * var(--i0));
+    }
+
+    // A node inside a tile's graph is also shrunk with the graph, so its outline is sized for both scales.
     &__job:focus-visible,
     &__cellHead:focus-visible,
     &__step:focus-visible {
-        outline: calc(2px * var(--i0)) solid var(--color-accent);
-        outline-offset: calc(2px * var(--i0));
+        outline: calc(2px * var(--b2)) solid var(--color-accent);
+        outline-offset: calc(2px * var(--b2));
     }
 
     .react-flow__pane {
