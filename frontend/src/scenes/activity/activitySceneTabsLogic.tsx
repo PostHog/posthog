@@ -52,11 +52,11 @@ export interface activitySceneTabsLogicMeta {
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => ActivitySceneTab[]
         sceneTabs: (groupTabs: ActivitySceneTab[], featureFlags: FeatureFlagsSet) => ActivitySceneTab[]
-        activityTabs: (sceneTabs: any) => ActivitySceneTab[]
-        peopleTabs: (sceneTabs: any) => ActivitySceneTab[]
+        activityTabs: (sceneTabs: ActivitySceneTab[]) => ActivitySceneTab[]
+        peopleTabs: (sceneTabs: ActivitySceneTab[]) => ActivitySceneTab[]
         tabsForKey: (
-            activityTabs: any,
-            peopleTabs: any
+            activityTabs: ActivitySceneTab[],
+            peopleTabs: ActivitySceneTab[]
         ) => (activeKey: ActivitySceneTabKey) => LemonTab<ActivitySceneTabKey>[]
     }
 }
