@@ -697,12 +697,13 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         if uses_decision_model:
             return
         if model and is_non_chat_model(model):
+            guidance = (
+                "Choose a chat model or a supported decision model."
+                if decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL)
+                else "Choose a chat model."
+            )
             raise serializers.ValidationError(
-                {
-                    "model_configuration": (
-                        f"'{model}' is not supported as an evaluation judge. Choose a chat model or a supported decision model."
-                    )
-                }
+                {"model_configuration": f"'{model}' is not supported as an evaluation judge. {guidance}"}
             )
 
     def _validate_can_run(self, data: dict) -> None:

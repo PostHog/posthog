@@ -963,6 +963,10 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.json())
         if expected_status == 400:
             self.assertEqual(response.data["attr"], "model_configuration")
+            if flag:
+                self.assertIn("Choose a chat model or a supported decision model.", response.data["detail"])
+            else:
+                self.assertIn("Choose a chat model.", response.data["detail"])
 
     @parameterized.expand([("omitted", False), ("null", True)])
     def test_llm_judge_creation_requires_model_configuration(self, _name, include_null_configuration):

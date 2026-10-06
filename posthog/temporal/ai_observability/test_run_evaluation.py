@@ -729,7 +729,7 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(
         ("system_one", 402, "identity", "quota_error"),
         ("system_one", 422, "identity", "request_rejected"),
         ("system_one", 200, "gzip", "request_rejected"),
-        ("openrouter", 301, "identity", "endpoint_blocked"),
+        ("openrouter", 301, "identity", None),
         ("openrouter", 400, "identity", "request_rejected"),
         ("openrouter", 402, "identity", "quota_error"),
         ("openrouter", 422, "identity", "request_rejected"),
@@ -738,7 +738,7 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(
     ],
 )
 def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
-    provider: str, status: int, encoding: str, expected_skip_reason: str
+    provider: str, status: int, encoding: str, expected_skip_reason: str | None
 ) -> None:
     key = MagicMock(
         provider=provider,
@@ -760,14 +760,17 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         spec.return_value.resolve.return_value = MagicMock(
             provider=provider, model="example-judge-v1", provider_key=key, is_byok=True
         )
-        result = call_llm_judge(
-            evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
-            system_prompt="",
-            user_prompt="Hello!",
-            allows_na=False,
-        )
-    assert result["skip_reason"] == expected_skip_reason
+        with pytest.raises(TransientJudgeError) if expected_skip_reason is None else nullcontext():
+            result = call_llm_judge(
+                evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+                system_prompt="",
+                user_prompt="Hello!",
+                allows_na=False,
+            )
     request.assert_called_once()
+    if expected_skip_reason is None:
+        return
+    assert result["skip_reason"] == expected_skip_reason
     if status in (301, 402):
         assert result["terminal_user_error"] is True
         assert result["provider_key_state"] == "error"

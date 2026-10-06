@@ -71,6 +71,7 @@ Turning the flag off stops subsequent runs, including queued work, without disab
 Keep the experimental flag limited to staff projects during rollout.
 OpenRouter decision models, including Jev, appear under an existing OpenRouter key in the evaluation model picker when this flag is enabled.
 They use OpenRouter's alpha `/api/alpha/decisions` endpoint with that key; no custom endpoint or System One connection is needed.
+These requests send the same PostHog attribution headers as OpenRouter chat requests.
 The picker discovers models through the catalogue's `decisions` output modality, so new models and versions appear without a code change.
 The picker does not exclude individual decision models. Listed models may not support every evaluation output type.
 The catalogue does not expose supported question types. If a model rejects a request, the run is skipped without retrying, with a reason to check output-type and criteria compatibility.
@@ -136,7 +137,8 @@ Decision model answers contain no written reasoning, so reports inspect the orig
 Endpoint rate limits and overload responses are retried through Temporal, honoring `Retry-After` up to one minute.
 Evaluation events retain model, usage, latency, and error telemetry.
 If retries fail, the run fails and the evaluation stays enabled.
-Blocked endpoints and redirects disable the evaluation and mark the connection for revalidation, without recording model usage.
+Blocked System One endpoints and redirects disable the evaluation and mark the connection for revalidation, without recording model usage.
+DNS failures and redirects at OpenRouter's fixed decision endpoint retry without disabling the evaluation or marking its key as failing. Redirects are never followed.
 Requests rejected because of an individual input skip that run without changing the shared connection.
 Invalid probabilities, missing answers, and mismatched answer types skip the item as an unparsable response.
 Inputs rejected for exceeding the model's context window are skipped.

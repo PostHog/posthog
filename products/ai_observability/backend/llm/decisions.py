@@ -16,7 +16,7 @@ from posthog.llm.system_one import (
 from posthog.models import Team
 from posthog.ph_client import get_feature_flag_or_none
 from posthog.security.pinned_requests import SSRFBlockedError
-from posthog.security.url_validation import has_authority_bypass_chars, validate_url_and_pin_ips
+from posthog.security.url_validation import UNRESOLVED_HOST_REASON, has_authority_bypass_chars, validate_url_and_pin_ips
 
 from products.ai_observability.backend.llm.errors import (
     RESPONSE_LIMIT_MESSAGE,
@@ -26,6 +26,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     ProviderConnectionError,
+    ProviderHostUnresolvedError,
     ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
@@ -34,7 +35,7 @@ from products.ai_observability.backend.llm.errors import (
     is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
-from products.ai_observability.backend.llm.providers.openrouter import decision_model_ids
+from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_HEADERS, decision_model_ids
 
 
 def is_decision_model(provider: str | None, model: str | None, *, openrouter_enabled: bool) -> bool:
@@ -121,7 +122,12 @@ class DecisionClient:
         try:
             verdict = validate_url_and_pin_ips(base_url)
             if not verdict.allowed:
+                if path == "decisions" and verdict.reason == UNRESOLVED_HOST_REASON:
+                    raise ProviderHostUnresolvedError()
                 raise SSRFBlockedError(verdict.reason)
+            headers = dict(OPENROUTER_HEADERS) if path == "decisions" else {}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
             with tagged_http_client(
                 pin=(base_url, verdict.pinned_ips),
                 timeout=timeout,
@@ -130,7 +136,7 @@ class DecisionClient:
             ) as client:
                 response = client.post(
                     f"{base_url}/{path}",
-                    headers={"Authorization": f"Bearer {api_key}"} if api_key else {},
+                    headers=headers,
                     json=build_system_one_body(state=state, questions=questions, model=model),
                 )
         except SSRFBlockedError as error:
@@ -161,6 +167,9 @@ class DecisionClient:
         if status >= 500:
             raise ProviderConnectionError("The decision endpoint is temporarily unavailable. Try again.")
         if 300 <= status < 400:
+            # OpenRouter owns this fixed endpoint; redirects must not invalidate its shared key.
+            if path == "decisions":
+                raise ProviderConnectionError("The OpenRouter decision endpoint redirected the request. Try again.")
             raise DecisionEndpointBlockedError("The endpoint redirected the request. Use its final HTTPS URL.")
         if status == 413 or (status == 422 and is_context_window_error_message(response.text)):
             raise ContextWindowExceededError("This input exceeds the endpoint's size limit. Reduce the input.")

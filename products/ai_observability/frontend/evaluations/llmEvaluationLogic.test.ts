@@ -724,9 +724,13 @@ return result`,
                 await expectLogic(logic).toMatchValues({ formValid: true })
             })
 
-            it.each(['system_one', 'openrouter'] as const)(
-                'requires numeric bounds for a %s decision judge',
-                async (provider) => {
+            it.each([
+                ['system_one', false, true],
+                ['openrouter', true, true],
+                ['openrouter', false, false],
+            ] as const)(
+                'requires numeric bounds for %s with supportsDecisions=%s: %s',
+                async (provider, supportsDecisions, boundsRequired) => {
                     await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
                     await expectLogic(logic).toFinishAllListeners()
                     modelPickerLogic.actions.loadByokModelsSuccess([
@@ -736,7 +740,7 @@ return result`,
                             provider: 'OpenRouter',
                             description: '',
                             providerKeyId: 'key-1',
-                            supportsDecisions: true,
+                            supportsDecisions,
                         },
                     ])
                     logic.actions.loadEvaluationSuccess({
@@ -745,12 +749,12 @@ return result`,
                         output_config: {},
                         model_configuration: { provider, model: 'custom-model', provider_key_id: 'key-1' },
                     })
-                    expect(logic.values.formValid).toBe(false)
+                    expect(logic.values.formValid).toBe(!boundsRequired)
 
                     logic.actions.patchOutputConfig({ min: 1, max: 10 })
                     expect(logic.values.formValid).toBe(true)
                     logic.actions.patchOutputConfig({ max: null })
-                    expect(logic.values.formValid).toBe(false)
+                    expect(logic.values.formValid).toBe(!boundsRequired)
 
                     logic.actions.setModelConfiguration({
                         provider: 'openai',

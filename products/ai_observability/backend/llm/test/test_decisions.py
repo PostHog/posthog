@@ -2,6 +2,7 @@ import json
 from collections.abc import Iterator
 from contextlib import nullcontext
 from ipaddress import ip_address
+from typing import Literal
 from uuid import uuid4
 
 import pytest
@@ -27,9 +28,11 @@ from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     ModelPermissionError,
     ProviderConnectionError,
+    ProviderHostUnresolvedError,
     QuotaExceededError,
     StructuredOutputParseError,
 )
+from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL, OPENROUTER_HEADERS
 
 
 def _response(status: int, body: dict[str, object] | str = "") -> httpx.Response:
@@ -305,33 +308,68 @@ def test_system_one_requires_every_requested_answer(answers: dict[str, object]) 
 
 
 @pytest.mark.parametrize(
-    "status,message,error_type",
+    "status,message,error_type,path",
     [
-        (200, "<html>Bad gateway</html>", StructuredOutputParseError),
-        (302, "Redirect", DecisionEndpointBlockedError),
-        (401, "Invalid key", AuthenticationError),
-        (402, "Insufficient credits", QuotaExceededError),
-        (403, "Access denied", ModelPermissionError),
-        (500, "Unavailable", ProviderConnectionError),
-        (413, "Request too large", ContextWindowExceededError),
-        (422, "Input exceeds the context window", ContextWindowExceededError),
-        (422, "Invalid question", DecisionRequestRejectedError),
+        (200, "<html>Bad gateway</html>", StructuredOutputParseError, "systemone"),
+        (302, "Redirect", DecisionEndpointBlockedError, "systemone"),
+        (302, "Redirect", ProviderConnectionError, "decisions"),
+        (401, "Invalid key", AuthenticationError, "systemone"),
+        (402, "Insufficient credits", QuotaExceededError, "systemone"),
+        (403, "Access denied", ModelPermissionError, "systemone"),
+        (500, "Unavailable", ProviderConnectionError, "systemone"),
+        (413, "Request too large", ContextWindowExceededError, "systemone"),
+        (422, "Input exceeds the context window", ContextWindowExceededError, "systemone"),
+        (422, "Invalid question", DecisionRequestRejectedError, "systemone"),
     ],
 )
-def test_system_one_preserves_error_categories(status: int, message: str, error_type: type[Exception]) -> None:
+def test_decision_requests_preserve_error_categories(
+    status: int, message: str, error_type: type[Exception], path: Literal["systemone", "decisions"]
+) -> None:
     response = _response(status, message)
     response.headers["Location"] = "https://other.example.com/systemone"
     with (
-        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response),
+        patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
         pytest.raises(error_type),
     ):
         DecisionClient.evaluate(
             api_key="example-token",
-            base_url="https://decisions.example.com/v1",
+            base_url=OPENROUTER_DECISIONS_BASE_URL if path == "decisions" else "https://decisions.example.com/v1",
+            path=path,
             model="example-judge-v1",
             state="Hello!",
             questions={"verdict": NoulQuestion(instructions="Polite?")},
         )
+    request.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "path,address,error_type",
+    [
+        ("decisions", None, ProviderHostUnresolvedError),
+        ("systemone", None, DecisionEndpointBlockedError),
+        ("decisions", "127.0.0.1", DecisionEndpointBlockedError),
+    ],
+)
+def test_endpoint_resolution_errors(
+    path: Literal["systemone", "decisions"], address: str | None, error_type: type[Exception]
+) -> None:
+    with (
+        override_settings(DEBUG=False, TEST=False),
+        patch(
+            "posthog.security.url_validation.resolve_host_ips", return_value={ip_address(address)} if address else set()
+        ),
+        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
+        pytest.raises(error_type),
+    ):
+        DecisionClient.evaluate(
+            api_key="example-token",
+            base_url=OPENROUTER_DECISIONS_BASE_URL if path == "decisions" else "https://decisions.example.com/v1",
+            path=path,
+            model="example-judge-v1",
+            state="Hello!",
+            questions={"verdict": NoulQuestion(instructions="Polite?")},
+        )
+    request.assert_not_called()
 
 
 @override_settings(
@@ -342,7 +380,10 @@ def test_system_one_preserves_error_categories(status: int, message: str, error_
     TYPESAFE_API_KEY="example-instance-key",
 )
 @pytest.mark.parametrize("api_key", ["example-token", ""])
-def test_custom_endpoint_and_model(api_key: str) -> None:
+@pytest.mark.parametrize("path", ["systemone", "decisions"])
+def test_custom_endpoint_and_model(api_key: str, path: Literal["systemone", "decisions"]) -> None:
+    base_url = OPENROUTER_DECISIONS_BASE_URL if path == "decisions" else "https://decisions.example.com/v1"
+    host = "openrouter.ai" if path == "decisions" else "decisions.example.com"
     response = _response(
         200,
         {
@@ -355,8 +396,8 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
 
     def respond(request: httpx.Request) -> httpx.Response:
         assert request.url.host == "8.8.8.8"
-        assert request.headers["Host"] == "decisions.example.com"
-        assert request.extensions["sni_hostname"] == "decisions.example.com"
+        assert request.headers["Host"] == host
+        assert request.extensions["sni_hostname"] == host
         return response
 
     with (
@@ -366,7 +407,8 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
     ):
         result = DecisionClient.evaluate(
             api_key=api_key,
-            base_url="https://decisions.example.com/v1/",
+            base_url=f"{base_url}/",
+            path=path,
             model="custom-model",
             state="Hello!",
             questions={
@@ -374,8 +416,10 @@ def test_custom_endpoint_and_model(api_key: str) -> None:
                 "applicable": NoulQuestion(instructions="Relevant?"),
             },
         )
-    assert str(request.call_args.args[0].url) == "https://decisions.example.com/v1/systemone"
+    assert str(request.call_args.args[0].url) == f"{base_url}/{path}"
     assert request.call_args.args[0].headers.get("Authorization") == (f"Bearer {api_key}" if api_key else None)
+    for name, value in OPENROUTER_HEADERS.items():
+        assert request.call_args.args[0].headers.get(name) == (value if path == "decisions" else None)
     assert json.loads(request.call_args.args[0].content)["model"] == "custom-model"
     budget.assert_not_called()
     telemetry.assert_not_called()
