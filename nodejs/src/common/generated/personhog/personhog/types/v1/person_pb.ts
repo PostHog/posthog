@@ -1420,12 +1420,10 @@ export const PersonVersionFloorSchema: GenMessage<PersonVersionFloor> =
     messageDesc(file_personhog_types_v1_person, 45)
 
 /**
- * EnsurePersonVersionFloorsRequest raises each person tombstone to at least min_version, so a
- * later revival by ingestion lands above it; a missing person gets a tombstone, a live row is
- * left unchanged, and no version is lowered. One transaction per request.
- * The caller publishes a ClickHouse tombstone at the returned version for every result that is not LIVE,
- * because the drain removes only tombstones the sweep finds in ClickHouse; a retried call can report its
- * own committed insert as TOMBSTONE_AT_FLOOR.
+ * EnsurePersonVersionFloorsRequest raises each person tombstone to at least min_version in one transaction,
+ * inserting a tombstone for a missing person and leaving a live person unchanged. Publish a ClickHouse tombstone
+ * at the returned version for every non-LIVE result, because the Postgres cleanup drain removes only tombstones
+ * the ClickHouse deletion sweep finds.
  *
  * @generated from message personhog.types.v1.EnsurePersonVersionFloorsRequest
  */
@@ -2009,7 +2007,7 @@ export const DeletePersonsModeSchema: GenEnum<DeletePersonsMode> =
     enumDesc(file_personhog_types_v1_person, 0)
 
 /**
- * What an Ensure*VersionFloors call found and did for one key.
+ * What EnsurePersonVersionFloors found and did for one person.
  *
  * @generated from enum personhog.types.v1.VersionFloorOutcome
  */
