@@ -1,7 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.batch_exports.backend.presentation.views import file_download
-from products.batch_exports.backend.presentation.views.batch_export import export_backfills, export_runs, exports
+from products.batch_exports.backend.presentation.views.batch_export import backfills, exports, runs
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -17,12 +17,12 @@ def register_routes(routers: RouterRegistry) -> None:
     )
 
     batch_exports_router.register(
-        r"runs", export_runs.BatchExportRunViewSet, "project_batch_export_runs", ["team_id", "batch_export_id"]
+        r"runs", runs.BatchExportRunViewSet, "project_batch_export_runs", ["team_id", "batch_export_id"]
     )
 
     batch_exports_router.register(
         r"backfills",
-        export_backfills.BatchExportBackfillViewSet,
+        backfills.BatchExportBackfillViewSet,
         "project_batch_export_backfills",
         ["team_id", "batch_export_id"],
     )

@@ -16,9 +16,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.integration import Integration
 
-from products.batch_exports.backend.presentation.views.batch_export.export_destinations import (
-    BatchExportDestinationSerializer,
-)
+from products.batch_exports.backend.presentation.views.batch_export.destinations import BatchExportDestinationSerializer
 from products.batch_exports.backend.presentation.views.batch_export.exports import (
     BatchExportSerializer,
     parse_events_hogql_query,

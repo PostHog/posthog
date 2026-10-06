@@ -82,7 +82,7 @@ from products.batch_exports.backend.temporal.destinations.constants import (
 )
 from products.batch_exports.backend.temporal.sql.events import EXPORTABLE_EVENTS_MODEL_FIELDS
 
-from . import export_destinations, export_runs
+from . import destinations, runs
 
 HOGQL_QUERY_HELP_TEXT = (
     "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. "
@@ -120,7 +120,7 @@ class BatchExportRequestSerializer(serializers.Serializer):
             "The hogql model exports the results of hogql_query."
         ),
     )
-    destination = export_destinations.BatchExportDestinationRequestField(
+    destination = destinations.BatchExportDestinationRequestField(
         help_text="Destination configuration. Required integration_id is enforced per destination type.",
     )
     interval = serializers.ChoiceField(
@@ -240,10 +240,10 @@ class _DatabaseFieldFinder(TraversingVisitor):
 class BatchExportSerializer(serializers.ModelSerializer):
     """Serializer for a BatchExport model."""
 
-    destination = export_destinations.BatchExportDestinationSerializer(
+    destination = destinations.BatchExportDestinationSerializer(
         help_text="Destination configuration (type, config, and optional integration)."
     )
-    latest_runs = export_runs.BatchExportRunSerializer(
+    latest_runs = runs.BatchExportRunSerializer(
         many=True,
         read_only=True,
         help_text="The 10 most recent runs of this batch export, ordered newest first.",
@@ -496,7 +496,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         # This setting is used for grandfathered exports that used the legacy Parquet file extension,
         # and is a one-way migration; once exports use the new `.parquet` extension it is not
         # possible to go back to using the legacy extension.
-        if config.get("legacy_parquet_extension") is True and not export_destinations._uses_legacy_parquet_extension(
+        if config.get("legacy_parquet_extension") is True and not destinations._uses_legacy_parquet_extension(
             destination_type, existing_config
         ):
             raise serializers.ValidationError(
@@ -560,7 +560,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             # The integration must match the destination kind. (Team ownership is already enforced
             # by the team-scoped `integration` field, which can only resolve integrations belonging
             # to the request's team.)
-            if integration.kind != export_destinations.S3_DESTINATION_TO_INTEGRATION_KIND[destination_type]:
+            if integration.kind != destinations.S3_DESTINATION_TO_INTEGRATION_KIND[destination_type]:
                 raise serializers.ValidationError(
                     f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
                 )
@@ -677,9 +677,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 credential_keys = {"aws_access_key_id", "aws_secret_access_key"}
 
                 bucket_credentials = copy_inputs["bucket_credentials"]
-                bucket_integration_id = export_destinations._coerce_integration_id(bucket_credentials)
+                bucket_integration_id = destinations._coerce_integration_id(bucket_credentials)
                 authorization = copy_inputs.get("authorization")
-                authorization_integration_id = export_destinations._coerce_integration_id(authorization)
+                authorization_integration_id = destinations._coerce_integration_id(authorization)
 
                 existing_copy_inputs = existing_config.get("copy_inputs") or {}
 
@@ -694,7 +694,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     if (
                         instance is not None
                         and copy_integration_id is None
-                        and export_destinations._coerce_integration_id(existing_copy_inputs.get(field_name)) is not None
+                        and destinations._coerce_integration_id(existing_copy_inputs.get(field_name)) is not None
                     ):
                         raise serializers.ValidationError(
                             f"Cannot switch '{field_name}' from an integration to inline credentials. "
@@ -786,7 +786,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             # TODO: Migrate batch exports using a HogQL query to HogQL model.
             validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
 
-        export_destinations._set_default_parquet_extension(destination_data["type"], destination_data["config"])
+        destinations._set_default_parquet_extension(destination_data["type"], destination_data["config"])
 
         destination = BatchExportDestination(**destination_data)
         user = self.context["request"].user
@@ -944,7 +944,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             if destination_data:
                 # Type changes are rejected by `validate_destination` — the incoming `type`
                 # (if any) always equals the existing type by the time we get here.
-                export_destinations._pin_existing_parquet_extension(
+                destinations._pin_existing_parquet_extension(
                     batch_export.destination.type, batch_export.destination.config
                 )
                 batch_export.destination.config = recursive_dict_merge(
