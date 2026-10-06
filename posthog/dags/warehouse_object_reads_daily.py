@@ -1,20 +1,23 @@
 from datetime import UTC, date, datetime, time, timedelta
 
+from django.conf import settings
+
 import dagster
 
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import Feature
 from posthog.clickhouse.warehouse_object_reads import (
-    REPLACE_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL,
+    REPLACE_SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL,
+    SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
+    SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE,
     SORT_KEY_COLUMNS,
-    WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
-    WAREHOUSE_OBJECT_READS_DAILY_TABLE,
     ReadKind,
     SubjectKind,
 )
 from posthog.dags.common import JobOwners, settings_with_log_comment
 from posthog.dags.common.common import EXECUTING_RUN_STATUSES, describe_runs
+from posthog.dags.common.resources import SatelliteClickhouseClusterResource
 
 from products.web_analytics.dags.web_preaggregated_utils import (
     get_partitions,
@@ -27,6 +30,8 @@ QUERY_LOG_ARCHIVE_TABLE = "query_log_archive"
 TEMPORAL_QUERY_KIND = "temporal"
 QUERY_FINISH_TYPE = "QueryFinish"
 MAX_EXECUTION_TIME_SECONDS = 600
+NO_MEMORY_LIMIT = 0
+ROLLUP_NODE_ROLE = NodeRole.AUX
 ROLLUP_START_DATE = "2026-09-17"
 SCHEDULE_HOUR_UTC = 7
 CONCURRENCY_TAG = {"warehouse_object_reads_backfill_concurrency": "warehouse_object_reads_v1"}
@@ -125,7 +130,7 @@ REFRESH_READS_SQL = _archive_branch_sql(
 )
 
 INSERT_ROLLUP_SQL = f"""
-INSERT INTO {WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE}
+INSERT INTO {SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE}
 SELECT
     {", ".join(SORT_KEY_COLUMNS)},
     {", ".join(AGGREGATE_COLUMNS)}
@@ -151,10 +156,11 @@ def insert_rollup_into_staging(
     cluster: ClickhouseCluster,
     day: date,
 ) -> None:
-    query_settings = {**settings_with_log_comment(context), "max_execution_time": MAX_EXECUTION_TIME_SECONDS}
     cluster.any_host_by_roles(
-        lambda client: client.execute(INSERT_ROLLUP_SQL, _day_query_parameters(day), settings=query_settings),
-        [NodeRole.DATA],
+        lambda client: client.execute(
+            INSERT_ROLLUP_SQL, _day_query_parameters(day), settings=settings_with_log_comment(context)
+        ),
+        [ROLLUP_NODE_ROLE],
     ).result()
 
 
@@ -174,10 +180,23 @@ def refuse_to_run_beside_another_rollup(context: dagster.OpExecutionContext) -> 
 
 
 def publish_day(context: dagster.OpExecutionContext, cluster: ClickhouseCluster, day: date) -> None:
-    sync_partitions_on_replicas(context, cluster, WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE)
-    if get_partitions(context, cluster, WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE, filter_by_partition_window=True):
+    sync_partitions_on_replicas(
+        context, cluster, SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE, node_role=ROLLUP_NODE_ROLE
+    )
+    staged_partitions = get_partitions(
+        context,
+        cluster,
+        SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
+        filter_by_partition_window=True,
+        node_role=ROLLUP_NODE_ROLE,
+    )
+    if staged_partitions:
         swap_partitions_from_staging(
-            context, cluster, WAREHOUSE_OBJECT_READS_DAILY_TABLE, WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE
+            context,
+            cluster,
+            SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE,
+            SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
+            node_role=ROLLUP_NODE_ROLE,
         )
         return
     drop_day_partition(cluster, day)
@@ -186,10 +205,10 @@ def publish_day(context: dagster.OpExecutionContext, cluster: ClickhouseCluster,
 def drop_day_partition(cluster: ClickhouseCluster, day: date) -> None:
     cluster.any_host_by_roles(
         lambda client: client.execute(
-            f"ALTER TABLE {WAREHOUSE_OBJECT_READS_DAILY_TABLE} DROP PARTITION ID %(partition_id)s",
+            f"ALTER TABLE {SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE} DROP PARTITION ID %(partition_id)s",
             {"partition_id": day.strftime(PARTITION_ID_FORMAT)},
         ),
-        [NodeRole.DATA],
+        [ROLLUP_NODE_ROLE],
     ).result()
 
 
@@ -205,8 +224,9 @@ def rollup_warehouse_object_reads_for_day(
     recreate_staging_table(
         context,
         cluster,
-        WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
-        REPLACE_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL,
+        SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
+        REPLACE_SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE_SQL,
+        node_role=ROLLUP_NODE_ROLE,
     )
     insert_rollup_into_staging(context, cluster, day)
     publish_day(context, cluster, day)
@@ -214,6 +234,13 @@ def rollup_warehouse_object_reads_for_day(
 
 @dagster.job(
     partitions_def=daily_partitions,
+    resource_defs={
+        "cluster": SatelliteClickhouseClusterResource(
+            satellite_cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+            max_execution_time=MAX_EXECUTION_TIME_SECONDS,
+            max_memory_usage=NO_MEMORY_LIMIT,
+        )
+    },
     tags={"owner": JobOwners.TEAM_DATA_MODELING.value, "dagster/max_runtime": MAX_RUNTIME_SECONDS, **CONCURRENCY_TAG},
 )
 def warehouse_object_reads_daily_job() -> None:

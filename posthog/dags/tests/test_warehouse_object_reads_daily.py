@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Iterator
 from datetime import date, datetime, time, timedelta
 from functools import partial
 from typing import Any
@@ -10,6 +11,7 @@ from unittest.mock import patch
 import dagster
 from clickhouse_driver import Client
 
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_TABLE
 from posthog.clickhouse.warehouse_object_reads import WAREHOUSE_OBJECT_READS_DAILY_TABLE
@@ -22,6 +24,12 @@ from posthog.models import Team
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+
+@pytest.fixture(autouse=True)
+def rollup_on_the_local_data_node() -> Iterator[None]:
+    with patch("posthog.dags.warehouse_object_reads_daily.ROLLUP_NODE_ROLE", NodeRole.DATA):
+        yield
 
 
 def rollup_day() -> date:

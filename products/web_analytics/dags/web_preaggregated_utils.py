@@ -65,6 +65,7 @@ def get_partitions(
     cluster: ClickhouseCluster,
     table_name: str,
     filter_by_partition_window: bool = False,
+    node_role: NodeRole = NodeRole.DATA,
 ) -> list[str]:
     partition_query = f"SELECT DISTINCT partition FROM system.parts WHERE table = '{table_name}' AND active = 1"
 
@@ -75,7 +76,7 @@ def get_partitions(
         partition_query += f" AND partition >= '{start_partition}' AND partition < '{end_partition}'"
 
     partitions_result = cluster.any_host_by_roles(
-        lambda client: client.execute(partition_query), node_roles=[NodeRole.DATA]
+        lambda client: client.execute(partition_query), node_roles=[node_role]
     ).result()
     context.log.info(f"Found {len(partitions_result)} partitions for {table_name}: {partitions_result}")
     return sorted([partition_row[0] for partition_row in partitions_result if partition_row and len(partition_row) > 0])
@@ -103,12 +104,15 @@ def drop_partitions_for_date_range(
 
 
 def sync_partitions_on_replicas(
-    context: dagster.OpExecutionContext | dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str
+    context: dagster.OpExecutionContext | dagster.AssetExecutionContext,
+    cluster: ClickhouseCluster,
+    target_table: str,
+    node_role: NodeRole = NodeRole.DATA,
 ) -> None:
     context.log.info(f"Syncing replicas for {target_table} on all hosts")
     cluster.map_hosts_by_roles(
         lambda client: client.execute(f"SYSTEM SYNC REPLICA {target_table}"),
-        node_roles=[NodeRole.DATA],
+        node_roles=[node_role],
     ).result()
 
 
@@ -117,15 +121,18 @@ def swap_partitions_from_staging(
     cluster: ClickhouseCluster,
     target_table: str,
     staging_table: str,
+    node_role: NodeRole = NodeRole.DATA,
 ) -> None:
-    staging_partitions = get_partitions(context, cluster, staging_table, filter_by_partition_window=True)
+    staging_partitions = get_partitions(
+        context, cluster, staging_table, filter_by_partition_window=True, node_role=node_role
+    )
     context.log.info(f"Swapping partitions {staging_partitions} from {staging_table} to {target_table}")
 
     def replace_partition(client, pid):
         return client.execute(f"ALTER TABLE {target_table} REPLACE PARTITION '{pid}' FROM {staging_table}")
 
     for partition_id in staging_partitions:
-        cluster.any_host_by_roles(partial(replace_partition, pid=partition_id), node_roles=[NodeRole.DATA]).result()
+        cluster.any_host_by_roles(partial(replace_partition, pid=partition_id), node_roles=[node_role]).result()
 
 
 def clear_all_staging_partitions(
@@ -155,6 +162,7 @@ def recreate_staging_table(
     cluster: ClickhouseCluster,
     staging_table: str,
     replace_sql_func: Callable[[], str],
+    node_role: NodeRole = NodeRole.DATA,
 ) -> None:
     """Recreate staging table on all hosts using REPLACE TABLE."""
     context.log.info(f"Recreating staging table {staging_table}")
@@ -163,7 +171,7 @@ def recreate_staging_table(
     # exact command on each host, otherwise we would get a new uuid per host and replication
     # woudn't kick in.
     sql_statement = replace_sql_func()
-    cluster.map_hosts_by_roles(lambda client: client.execute(sql_statement), node_roles=[NodeRole.DATA]).result()
+    cluster.map_hosts_by_roles(lambda client: client.execute(sql_statement), node_roles=[node_role]).result()
 
 
 # Shared config schema for daily processing
