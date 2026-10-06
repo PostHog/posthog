@@ -68,6 +68,26 @@ class TestParseJobLog:
                 ],
                 [("cache", "failed", 1, ["download stopped"])],
             ),
+            (
+                "restore_failed_keeps_the_hit_of_another_restore",
+                [
+                    "Cache hit for: tools-b2",
+                    "Cache not found for input keys: docs-c3",
+                    "Cache hit for: packages-a1",
+                    "##[warning]Failed to restore: download stopped",
+                    "Cache not found for input keys: packages-a1",
+                ],
+                [
+                    ("cache", "hit", 1, ["tools-b2"]),
+                    ("cache", "miss", 1, ["docs-c3"]),
+                    ("cache", "failed", 1, ["download stopped"]),
+                ],
+            ),
+            (
+                "restore_failed_without_a_hit_keeps_the_earlier_miss",
+                ["Cache not found for input keys: docs-c3", "##[warning]Failed to restore: download stopped"],
+                [("cache", "miss", 1, ["docs-c3"]), ("cache", "failed", 1, ["download stopped"])],
+            ),
         ]
     )
     def test_cache_outcome_lands_on_the_restoring_step(

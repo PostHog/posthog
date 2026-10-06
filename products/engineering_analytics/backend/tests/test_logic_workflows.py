@@ -25,6 +25,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_cost_per_merge_series, query_pr_cost
 from products.engineering_analytics.backend.logic.queries.workflow_flakiness import query_workflow_flakiness
+from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_job
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
     ISSUE_EVENTS_COLUMNS,
@@ -63,6 +64,37 @@ class TestWorkflowEndpointMapping(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         connect_github_source_without_data(self.team)
+
+    @parameterized.expand(
+        [
+            # Depot CI lists a job that a later attempt did not re-run under that attempt too, with the same id.
+            ("depot_job_listed_under_two_attempts", [(1, 0, "depot_ci"), (2, 1, "depot_ci")], "attempt-1"),
+            ("one_id_in_two_engines", [(1, 0, "depot_ci"), (1, 0, "github_actions")], None),
+        ]
+    )
+    def test_workflow_job_lookup_is_ambiguous_only_across_engines(
+        self, _name: str, listings: list[tuple[int, int, str]], native_attempt_id: str | None
+    ) -> None:
+        started = _dt("2026-01-05T10:00:00")
+        rows = [
+            # Mirrors the SELECT column order of the jobs query.
+            (
+                *(91000, 9100, attempt, "build", "completed", "success", "[]", "", started, started, 0, None, is_copy),
+                *(engine, "run", "workflow", "job", f"attempt-{attempt}", "[]"),
+            )
+            for attempt, is_copy, engine in listings
+        ]
+        curated = CuratedGitHubSource(
+            team=self.team, tables=GitHubTables(pull_requests="prs", workflow_runs="runs", workflow_jobs="jobs")
+        )
+
+        with mock.patch(_RUN_QUERY, return_value=_resp(rows)):
+            if native_attempt_id is None:
+                with pytest.raises(ValueError, match="Ambiguous job_id"):
+                    query_workflow_job(curated=curated, run_id=9100, job_id=91000)
+            else:
+                job = query_workflow_job(curated=curated, run_id=9100, job_id=91000)
+                assert job is not None and job.native_attempt_id == native_attempt_id
 
     def test_current_branch_health_counts_every_workflow(self) -> None:
         workflow_rows = [(f"Workflow {index}", 1, 0) for index in range(100)]

@@ -270,6 +270,11 @@ class JobLogInsightsSerializer(DataclassSerializer):
                 "help_text": "False when the log's step markers did not line up with the job's steps, so the "
                 "badges are reported for the job only.",
             },
+            "log_truncated": {
+                "help_text": "True when only part of the log was parsed, because the log is too large or its "
+                "download took too long. The badges are then a lower bound: an outcome in the part that was not "
+                "parsed is missing.",
+            },
         }
 
 

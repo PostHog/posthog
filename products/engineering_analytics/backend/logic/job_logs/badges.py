@@ -42,21 +42,53 @@ _RUNNER_STEPS = ("Set up job", "Complete job")
 _POST_PREFIX = "Post "
 
 _BadgeKey = tuple[JobLogBadgeKind, JobLogBadgeState]
+_HIT: _BadgeKey = (JobLogBadgeKind.CACHE, JobLogBadgeState.HIT)
+_MISS: _BadgeKey = (JobLogBadgeKind.CACHE, JobLogBadgeState.MISS)
+_FAILED: _BadgeKey = (JobLogBadgeKind.CACHE, JobLogBadgeState.FAILED)
 
 
 class _Found:
     """The matches of one job or one step. The pull request's author writes the log, so what is kept
-    of it is bounded while it is read: every match is counted, and only the first few details are held."""
+    of it is bounded while it is read: every match is counted, and only the first few details are held.
+
+    A restore that fails logs a hit, then the failure, then a miss. Only the failure is worth showing,
+    so the failure removes the hit logged just before it and drops the miss logged just after it. The
+    hits and misses of other restores stay."""
 
     def __init__(self) -> None:
         self.counts: dict[_BadgeKey, int] = {}
         self.details: dict[_BadgeKey, list[str]] = {}
+        # Set while the last cache line was a hit. The value says whether the hit's detail was kept.
+        self._last_hit_detail_kept: bool | None = None
+        self._miss_belongs_to_failure = False
 
     def add(self, key: _BadgeKey, detail: str) -> None:
+        if key[0] is JobLogBadgeKind.CACHE:
+            if key == _FAILED:
+                self._remove_last_hit()
+                self._miss_belongs_to_failure = True
+            elif key == _MISS and self._miss_belongs_to_failure:
+                self._miss_belongs_to_failure = False
+                return
+            else:
+                self._miss_belongs_to_failure = False
         self.counts[key] = self.counts.get(key, 0) + 1
         details = self.details.setdefault(key, [])
-        if len(details) < _MAX_DETAILS:
+        detail_kept = len(details) < _MAX_DETAILS
+        if detail_kept:
             details.append(detail[:_MAX_DETAIL_CHARS])
+        if key[0] is JobLogBadgeKind.CACHE:
+            self._last_hit_detail_kept = detail_kept if key == _HIT else None
+
+    def _remove_last_hit(self) -> None:
+        if self._last_hit_detail_kept is None:
+            return
+        if self._last_hit_detail_kept:
+            self.details[_HIT].pop()
+        self.counts[_HIT] -= 1
+        if not self.counts[_HIT]:
+            del self.counts[_HIT]
+            del self.details[_HIT]
 
 
 def parse_job_log(log_text: str, steps: Sequence[WorkflowJobStep]) -> JobLogInsights:
@@ -125,12 +157,7 @@ class _StepAssigner:
 
 
 def _badges(found: _Found) -> list[JobLogBadge]:
-    # A restore that fails logs a hit, then the failure, then a miss. Only the failure is worth showing.
-    failed = found.counts.get((JobLogBadgeKind.CACHE, JobLogBadgeState.FAILED), 0)
-    badges: list[JobLogBadge] = []
-    for (kind, state), matches in found.counts.items():
-        masked = kind is JobLogBadgeKind.CACHE and state in (JobLogBadgeState.HIT, JobLogBadgeState.MISS)
-        count = matches - (failed if masked else 0)
-        if count > 0:
-            badges.append(JobLogBadge(kind=kind, state=state, count=count, detail=found.details[(kind, state)]))
-    return badges
+    return [
+        JobLogBadge(kind=kind, state=state, count=count, detail=found.details[(kind, state)])
+        for (kind, state), count in found.counts.items()
+    ]

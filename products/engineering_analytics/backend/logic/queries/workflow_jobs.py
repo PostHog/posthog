@@ -129,9 +129,13 @@ def query_workflow_job(
         },
     )
     rows = list(response.results or [])
-    if len(rows) > 1:
+    if len({row[13] for row in rows}) > 1:
         raise ValueError("Ambiguous job_id; specify ci_engine.")
-    return _to_job(rows[0]) if rows else None
+    if not rows:
+        return None
+    # A Depot CI job that a later run attempt did not re-run is listed again under that attempt with the
+    # same id. The row that ran sorts first, then the latest attempt.
+    return _to_job(min(rows, key=lambda row: (bool(row[12]), -int(row[2] or 0))))
 
 
 def query_jobs_by_run(

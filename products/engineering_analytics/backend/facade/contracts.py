@@ -524,13 +524,15 @@ class JobLogInsights:
 
     ``log_read`` is False when there is no log to read: a Depot CI job, an unknown job, or a failed
     fetch. ``attributed_to_steps`` is False when the log's step markers did not match the job's steps,
-    and then ``steps`` is empty and ``job`` alone carries the badges.
+    and then ``steps`` is empty and ``job`` alone carries the badges. ``log_truncated`` is True when
+    only part of the log was parsed, so an outcome in the missing part is not reported.
     """
 
     log_read: bool
     attributed_to_steps: bool
     job: list[JobLogBadge]
     steps: list[JobStepLogBadges]
+    log_truncated: bool = False
 
 
 @dataclass(frozen=True)
