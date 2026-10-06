@@ -2414,14 +2414,14 @@ class TestReconcileFailedRuns:
         consumer = _make_consumer()
         canceled = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
         good = _depth(
-            47_000,
+            12_000,
             claimable_groups=9,
             top_groups_claimable_share=0.5,
-            slot_waiting_batches=40_000,
-            serialized_batches=7_000,
+            slot_waiting_batches=10_000,
+            serialized_batches=2_000,
         )
         no_breakdown = QueueDepth(
-            claimable_batches=51_000,
+            claimable_batches=13_000,
             claimable_groups=None,
             top_groups_claimable_share=None,
             slot_waiting_batches=None,
@@ -2453,11 +2453,11 @@ class TestReconcileFailedRuns:
             timeouts_before = DEPTH_PROBE_TIMEOUTS_TOTAL.labels(stage="count")._value.get()
             await consumer._reconcile_failed_runs()
 
-        expected_batches = 51_000 if second_round_failure == "depth_breakdown_timeout" else 47_000
+        expected_batches = 13_000 if second_round_failure == "depth_breakdown_timeout" else 12_000
         assert CLAIMABLE_BATCHES._value.get() == expected_batches
         assert CLAIMABLE_GROUPS._value.get() == 9
-        assert SLOT_WAITING_BATCHES._value.get() == 40_000
-        assert SERIALIZED_BATCHES._value.get() == 7_000
+        assert SLOT_WAITING_BATCHES._value.get() == 10_000
+        assert SERIALIZED_BATCHES._value.get() == 2_000
         assert TOP_GROUPS_CLAIMABLE_SHARE._value.get() == 0.5
         assert DEPTH_SAMPLE_AGE_SECONDS._value.get() >= 0
         counted = DEPTH_PROBE_TIMEOUTS_TOTAL.labels(stage="count")._value.get() - timeouts_before
@@ -2481,7 +2481,7 @@ class TestReconcileFailedRuns:
                 consumer_module.BatchQueue,
                 "get_queue_depth",
                 new_callable=AsyncMock,
-                side_effect=[_depth(47_000, claimable_groups=3), canceled],
+                side_effect=[_depth(12_000, claimable_groups=3), canceled],
             ),
             patch.object(consumer_module.BatchQueue, "get_failed_runs", new_callable=AsyncMock, return_value=[]),
         ):
