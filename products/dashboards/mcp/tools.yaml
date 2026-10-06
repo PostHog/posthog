@@ -57,6 +57,10 @@ tools:
             - persisted_filters
             - persisted_variables
             - _create_in_folder
+        param_overrides:
+            restriction_level:
+                description: >
+                    Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.
         response:
             exclude:
                 - effective_restriction_level
@@ -458,20 +462,21 @@ tools:
         title: Update dashboard
         description: >
             Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned
-            status, tags, filters, and restriction level. After you create or add insight tiles, call dashboard-get to
-            get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h
-            per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is
-            12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole
-            number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show
-            hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to
-            change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile
-            you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order
-            and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile
-            sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from
-            dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the
-            UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget
-            tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to
-            save context — use dashboard-insights-run to fetch the actual data for each insight.
+            status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API.
+            After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each
+            tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type,
+            including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and
+            height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's
+            minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's
+            whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and
+            overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set
+            `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use
+            dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same
+            `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus
+            the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer
+            dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this
+            dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context
+            — use dashboard-insights-run to fetch the actual data for each insight.
         exclude_params:
             - creation_mode
             - effective_restriction_level
@@ -487,6 +492,9 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+            restriction_level:
+                description: >
+                    Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.
         response:
             exclude:
                 - effective_restriction_level
