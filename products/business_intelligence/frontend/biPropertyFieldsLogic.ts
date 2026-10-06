@@ -208,7 +208,7 @@ export const biPropertyFieldsLogic: LogicWrapper<biPropertyFieldsLogicType> = ke
                 cache.localPage = values.page
                 cache.localPageSearch = values.localSearch
             }
-            if (!search && !values.expanded) {
+            if (!search && !values.manuallyExpanded) {
                 actions.restorePage(cache.localPageSearch === values.localSearch ? (cache.localPage ?? null) : null)
             } else {
                 actions.loadPage({ offset: 0 })
