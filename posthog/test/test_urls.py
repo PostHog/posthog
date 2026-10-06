@@ -5,6 +5,7 @@ from pathlib import Path
 
 from posthog.test.base import APIBaseTest
 
+from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.urls import URLResolver, resolve
 from django.urls.resolvers import RegexPattern
@@ -14,7 +15,12 @@ from rest_framework import status
 
 from posthog import urls
 from posthog.api.playwright_setup import delete_events
-from posthog.frontend_views import home, home_with_region_redirect, region_host_from_current_instance
+from posthog.frontend_views import (
+    home,
+    home_with_region_redirect,
+    public_page_metadata_context,
+    region_host_from_current_instance,
+)
 from posthog.models.instance_setting import override_instance_config
 from posthog.temporal.codec_server import decode_payloads
 from posthog.views import handler500, metrics_view
@@ -209,6 +215,31 @@ class TestRegionHostFromCurrentInstance(SimpleTestCase):
     )
     def test_region_host_from_current_instance(self, _name, cookie_value, expected):
         self.assertEqual(region_host_from_current_instance(cookie_value), expected)
+
+
+class TestPublicPageMetadata(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("login_with_next", "/login?next=/insights", "Log in • PostHog", "/login"),
+            ("signup_with_email", "/signup/?email=someone%40example.com", "Sign up • PostHog", "/signup"),
+            ("preflight", "/preflight", "PostHog", None),
+            ("invite_signup", "/signup/0b8e1f2a-1111-4c2d-9e3f-123456789abc", "PostHog", None),
+        ]
+    )
+    @override_settings(SITE_URL="https://us.example.com")
+    def test_head_renders_search_metadata(self, _name, request_path, expected_title, expected_canonical_path):
+        request = RequestFactory().get(request_path)
+        html = render_to_string("head.html", public_page_metadata_context(request))
+
+        self.assertIn(f"<title>{expected_title}</title>", html)
+        if expected_canonical_path is None:
+            self.assertNotIn('rel="canonical"', html)
+            self.assertNotIn('name="description"', html)
+        else:
+            canonical_url = f"https://us.example.com{expected_canonical_path}"
+            self.assertIn(f'<link rel="canonical" href="{canonical_url}">', html)
+            self.assertIn(f'<meta property="og:url" content="{canonical_url}">', html)
+            self.assertIn('<meta name="description" content="', html)
 
 
 class TestLegacyDuckgresAdminUrls(SimpleTestCase):
