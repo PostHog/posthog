@@ -124,7 +124,7 @@ def test_list_pagination_auth_and_terminal_page(transport: Transport, manager: M
 
 
 @pytest.mark.parametrize("name", ["checks", "check_groups", "alert_channels"])
-def test_definitions_exclude_monitored_service_credentials(transport: Transport, manager: MagicMock, name: str) -> None:
+def test_definitions_project_only_safe_metadata(transport: Transport, manager: MagicMock, name: str) -> None:
     transport.add(
         [
             {
@@ -135,7 +135,9 @@ def test_definitions_exclude_monitored_service_credentials(transport: Transport,
                     "body": "password=secret",
                     "headers": [{"key": "Authorization", "value": "Bearer secret"}],
                     "queryParameters": [{"key": "token", "value": "secret"}],
+                    "grpcConfig": {"metadata": [{"key": "authorization", "value": "Bearer secret"}]},
                 },
+                "heartbeat": {"pingToken": "secret", "pingUrl": "https://checklyhq.com/ping/secret"},
                 "script": "login('secret')",
                 "localSetupScript": "setup('secret')",
                 "localTearDownScript": "teardown('secret')",
@@ -146,20 +148,13 @@ def test_definitions_exclude_monitored_service_credentials(transport: Transport,
                     "browserCheckDefaults": {"script": "login('group-secret')"},
                 },
                 "config": {"webhookUrl": "https://example.com/secret"},
+                "newProviderField": "future-secret",
             }
         ]
     )
     transport.add([])
 
-    assert materialize(checkly_source(CONFIG, manager, inputs(name))) == [
-        [
-            {
-                "id": "check-a",
-                "request": {},
-                "apiCheckDefaults": {},
-            }
-        ]
-    ]
+    assert materialize(checkly_source(CONFIG, manager, inputs(name))) == [[{"id": "check-a"}]]
 
 
 def test_list_resume(transport: Transport, manager: MagicMock) -> None:

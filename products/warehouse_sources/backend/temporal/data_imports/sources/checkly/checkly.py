@@ -87,29 +87,16 @@ def validate_credentials(
     return True, None
 
 
-_SECRET_FIELD_NAMES = frozenset(
-    {
-        "basicAuth",
-        "body",
-        "browserCheckDefaults",
-        "config",
-        "environmentVariables",
-        "headers",
-        "localSetupScript",
-        "localTearDownScript",
-        "queryParameters",
-        "script",
-        "url",
-    }
-)
+_SAFE_FIELDS_BY_RESOURCE = {
+    "checks": frozenset({"id", "name", "checkType", "groupId", "created_at"}),
+    "check_groups": frozenset({"id", "name"}),
+    "alert_channels": frozenset({"id", "type", "created_at"}),
+}
 
 
-def _strip_secret_fields(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {key: _strip_secret_fields(item) for key, item in value.items() if key not in _SECRET_FIELD_NAMES}
-    if isinstance(value, list):
-        return [_strip_secret_fields(item) for item in value]
-    return value
+def _project_safe_fields(name: str, row: dict[str, Any]) -> dict[str, Any]:
+    allowed = _SAFE_FIELDS_BY_RESOURCE[name]
+    return {key: value for key, value in row.items() if key in allowed}
 
 
 def list_resource(name: str, api_version: str) -> EndpointResource:
@@ -123,8 +110,8 @@ def list_resource(name: str, api_version: str) -> EndpointResource:
             "paginator": PageNumberPaginator(base_page=1) if endpoint.paginated else SinglePagePaginator(),
         },
     }
-    if name in {"checks", "check_groups", "alert_channels"}:
-        resource["data_map"] = _strip_secret_fields
+    if name in _SAFE_FIELDS_BY_RESOURCE:
+        resource["data_map"] = lambda row: _project_safe_fields(name, row)
     return resource
 
 
