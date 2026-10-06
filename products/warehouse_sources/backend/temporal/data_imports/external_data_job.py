@@ -138,6 +138,11 @@ LOGGER = get_logger(__name__)
 # expensive retry-exhaustion paths fast.
 MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
+# A rewrite that stops for a worker shutdown resumes on its next attempt, and each stop uses one
+# attempt. When the attempts end, the sync merges on the old layout, and that merge can remove source
+# files the rewrite already copied, which discards its progress. A long rewrite on a fleet that
+# deploys often therefore needs the same room as a resumable import.
+MAX_REPARTITION_ACTIVITY_ATTEMPTS = MAX_RESUMABLE_SOURCE_RETRIES
 
 MISSING_INTEGRATION_MESSAGE = (
     "The connected account for this source is no longer available — it may have been disconnected. "
@@ -957,7 +962,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         ),
                         start_to_close_timeout=dt.timedelta(hours=6),
                         heartbeat_timeout=dt.timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        retry_policy=RetryPolicy(maximum_attempts=MAX_REPARTITION_ACTIVITY_ATTEMPTS),
                     )
                 except Exception:
                     workflow.logger.warning(
