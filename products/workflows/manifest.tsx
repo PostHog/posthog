@@ -1,8 +1,10 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import type { AudienceTab } from './frontend/Audience/audienceSceneLogic'
 import type { MessagingNavTabKey } from './frontend/messagingTabs'
 import type { WorkflowsSceneTab } from './frontend/WorkflowsScene'
 
@@ -43,6 +45,13 @@ export const manifest: ProductManifest = {
             projectBased: true,
             description: 'Send a one-time or scheduled email to a group of people',
         },
+        Audience: {
+            import: () => import('./frontend/Audience/AudienceScene'),
+            name: 'Audience',
+            iconType: 'cohort',
+            projectBased: true,
+            description: 'The email addresses you can send to, their topic preferences, and how they engage',
+        },
     },
     routes: {
         // URL: [Scene, SceneKey]
@@ -65,6 +74,9 @@ export const manifest: ProductManifest = {
         // kea-router matches in declaration order, so the literal 'new' comes before ':id'.
         '/broadcasts/new': ['Broadcast', 'broadcast'],
         '/broadcasts/:id': ['Broadcast', 'broadcast'],
+        '/audience': ['Audience', 'audience'],
+        '/audience/recipients/:email': ['Audience', 'audience'],
+        '/audience/:tab': ['Audience', 'audience'],
     },
     urls: {
         workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
@@ -78,6 +90,8 @@ export const manifest: ProductManifest = {
         broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
         broadcast: (id: string): string => `/broadcasts/${id}`,
         broadcastNew: (): string => '/broadcasts/new',
+        audience: (tab?: AudienceTab): string => `/audience${tab ? `/${tab}` : ''}`,
+        audienceRecipient: (email: string): string => `/audience/recipients/${encodeURIComponent(email)}`,
     },
     fileSystemTypes: {
         workflows: {
@@ -109,6 +123,18 @@ export const manifest: ProductManifest = {
             iconType: 'broadcasts',
             iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
             sceneKey: 'Broadcasts',
+        },
+        {
+            // No intents while the flag gates it: onboarding and the backend pick product items by intent without checking flags.
+            path: 'Audience',
+            intents: [],
+            href: urls.audience(),
+            type: 'audience',
+            category: ProductItemCategory.MESSAGING,
+            iconType: 'cohort',
+            iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+            sceneKey: 'Audience',
+            flag: FEATURE_FLAGS.WORKFLOWS_AUDIENCE,
         },
     ],
 }
