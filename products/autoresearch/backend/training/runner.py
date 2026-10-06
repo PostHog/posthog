@@ -46,6 +46,7 @@ from products.autoresearch.backend.models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.training.explanation import MAX_TOP_FEATURES
 from products.tasks.backend.facade import (
     api as tasks_facade,
     cancellation as tasks_cancellation,
@@ -660,6 +661,10 @@ def build_agent_description(
            - `recommended_next`: concretely what a future run should try next given what you found.{notebook_field}
            The backend derives the rest of the summary (the kept ladder and dead-ends) from your
            recorded iterations, so keep these two fields to judgment only — do not restate the ladder.
+           Also pass `model_explanation`, which the model card charts. Use exactly this shape:
+           `{{"method": "<how you computed importance, one short line>", "top_features": [{{"name": "<feature column>", "importance": <number >= 0>, "direction": "positive" | "negative"}}]}}`.
+           List at most {MAX_TOP_FEATURES} features of the winning iteration, strongest first. `direction` is
+           "positive" when a higher value raises the predicted probability, else "negative". Other keys are dropped.
 
         **Honesty note**: holdout_auc is checked against realized outcomes after inference. An
         AUC of 0.55 that reflects real data beats a fabricated 0.80 — the realized gate is unfakeable.
