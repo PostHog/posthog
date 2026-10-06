@@ -269,6 +269,8 @@ class AnnouncedTransition:
     condition: dict[str, Any]
     source_config: dict[str, Any]
     error_message: str | None
+    # A resolve states this as the time its firing ended.
+    occurred_at: datetime
 
 
 @frozen
@@ -280,6 +282,7 @@ class EvaluationAnnouncement:
     to hold. It arrives with fan-in rather than waiting here empty.
     """
 
+    configuration_id: str
     alert_name: str
     # Evaluation-level, so it sits here rather than on a transition: a failed check fails the
     # whole evaluation, and every group in one announcement saw the same count.

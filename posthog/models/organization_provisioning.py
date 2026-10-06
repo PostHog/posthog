@@ -33,6 +33,8 @@ class OrganizationProvisioning(models.Model):
         blank=True,
         related_name="provisioned_organizations",
     )
+    # Reported by the partner that created the organization, not observed by PostHog.
+    terms_accepted_at = models.DateTimeField(null=True, blank=True)
     billing_has_payer = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -47,13 +49,13 @@ class OrganizationProvisioning(models.Model):
 
 
 def get_billing_lock_partner(organization: "Organization") -> OAuthApplication | None:
-    # Billing decides who pays, so an organization is locked while billing reports a payer for it, even after the
-    # partner's pays_for_customers flag is switched off: the flag doesn't stop billing from invoicing the partner.
-    # Billing gives a partner-paid organization its own Stripe customer, so customer_id says nothing about who pays.
-    # Before billing has linked a payer, an organization without a customer_id is locked when its partner has
-    # pays_for_customers, so its members can't start self-serve billing first.
-    provisioned = Q(provisioned_organizations__organization=organization)
-    partner_pays = Q(provisioned_organizations__billing_has_payer=True)
-    if not organization.customer_id:
-        partner_pays |= Q(_provisioning_config__pays_for_customers=True)
-    return OAuthApplication.objects.filter(provisioned & partner_pays).first()
+    applications = OAuthApplication.objects.all()
+    if not organization.billing_has_payer:
+        if organization.customer_id:
+            return None
+        applications = applications.filter(_provisioning_config__pays_for_customers=True)
+    if organization.provisioning_source is not None:
+        if organization.provisioning_application_id is None:
+            return None
+        return applications.filter(pk=organization.provisioning_application_id).first()
+    return applications.filter(provisioned_organizations__organization=organization).first()

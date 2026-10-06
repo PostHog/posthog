@@ -1,6 +1,7 @@
 import csv
 import uuid
 import tempfile
+from datetime import timedelta
 from io import StringIO
 from pathlib import Path
 
@@ -10,7 +11,11 @@ from django.core.management import call_command
 
 from parameterized import parameterized
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization import Organization
+from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
@@ -38,7 +43,7 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
             is_provisioning_partner=is_provisioning_partner,
         )
 
-    def _run_command(self, rows: list[tuple[object, object]], *args: str) -> str:
+    def _run_command(self, rows: list[tuple[object, object]], *args: str) -> dict[str, str]:
         out = StringIO()
         with tempfile.TemporaryDirectory() as tmp_dir:
             csv_path = Path(tmp_dir) / "attribution.csv"
@@ -47,7 +52,7 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
                 writer.writerow(["team_id", "partner_id"])
                 writer.writerows(rows)
             call_command("backfill_agentic_provisioning_attribution", str(csv_path), *args, stdout=out)
-        return out.getvalue()
+        return dict(line.rsplit(": ", 1) for line in out.getvalue().splitlines() if ": " in line)
 
     def _seed_config(self, team: Team, application: str | None) -> None:
         TeamProvisioningConfig.objects.create(team=team, application=self.apps[application] if application else None)
@@ -85,8 +90,10 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
 
         assert self._attribution(self.team) == NO_ROW
         assert self._attribution(null_team) is None
-        assert "would create: 1" in output
-        assert "would fill: 1" in output
+        assert self._recorded_creator() is None
+        assert output["would create"] == "1"
+        assert output["would fill"] == "1"
+        assert output["provisioning_api organizations, would create"] == "1"
 
     def test_live_run_skips_unresolvable_rows_and_attributes_the_rest(self):
         other_team = Team.objects.create(organization=self.organization, name="Other team")
@@ -108,7 +115,160 @@ class TestBackfillAgenticProvisioningAttribution(BaseTest):
         assert self._attribution(self.team) == NO_ROW
         assert self._attribution(other_team) == "partner"
         assert self._attribution(conflicting_team) == NO_ROW
-        assert "skipped_team_not_found: 1" in output
-        assert "skipped_application_not_found: 1" in output
-        assert "skipped_invalid_row: 1" in output
-        assert "skipped_conflicting_partners: 1" in output
+        assert output["skipped_team_not_found"] == "1"
+        assert output["skipped_application_not_found"] == "1"
+        assert output["skipped_invalid_row"] == "1"
+        assert output["skipped_conflicting_partners"] == "1"
+
+    def _recorded_creator(self) -> tuple[str, str | None] | None:
+        self.organization.refresh_from_db()
+        if self.organization.provisioning_source is None:
+            return None
+        application = next(
+            (name for name, app in self.apps.items() if app.id == self.organization.provisioning_application_id), None
+        )
+        return self.organization.provisioning_source, application
+
+    def _add_vercel_installation(self, config: dict[str, object]) -> None:
+        OrganizationIntegration.objects.create(
+            organization=self.organization,
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id="icfg_backfill_test",
+            config=config,
+        )
+
+    @parameterized.expand(
+        [
+            ("csv_partner_on_first_team", "csv", "first_team", ("provisioning_api", "partner")),
+            ("csv_partner_on_later_team", "csv", "later_team", None),
+            ("csv_partner_on_lowest_team_created_after_organization", "csv", "lowest_team_created_later", None),
+            ("csv_partner_on_first_team_attributed_to_other_partner", "csv", "first_team_other_partner", None),
+            ("unmarked_vercel_install", "vercel_marketplace", None, None),
+            ("vercel_connectable_link", "vercel_connectable", None, None),
+            (
+                "csv_and_unmarked_vercel_install",
+                "csv+vercel_marketplace",
+                "first_team",
+                ("provisioning_api", "partner"),
+            ),
+        ]
+    )
+    def test_live_run_records_organization_creator(
+        self, _name: str, sources: str, team_choice: str | None, expected: tuple[str, str | None] | None
+    ) -> None:
+        later_team = Team.objects.create(organization=self.organization, name="Later team")
+        team = later_team if team_choice == "later_team" else self.team
+        if team_choice == "lowest_team_created_later":
+            Team.objects.filter(id=self.team.id).update(created_at=self.organization.created_at + timedelta(days=30))
+        if team_choice == "first_team_other_partner":
+            self._seed_config(self.team, "other_partner")
+        rows: list[tuple[object, object]] = []
+        if "csv" in sources:
+            rows.append((team.id, self.apps["partner"].id))
+        if "vercel_marketplace" in sources:
+            self._add_vercel_installation({"scopes": ["read-write:integration-configuration"]})
+        if "vercel_connectable" in sources:
+            self._add_vercel_installation({"type": "connectable"})
+
+        self._run_command(rows, "--live-run")
+
+        assert self._recorded_creator() == expected
+        assert not OrganizationProvisioning.objects.exists()
+
+    def test_live_run_never_replaces_recorded_organization_creator(self):
+        Organization.objects.filter(id=self.organization.id).update(
+            provisioning_source=Organization.ProvisioningSource.PROVISIONING_API,
+            provisioning_application=self.apps["other_partner"],
+        )
+
+        output = self._run_command([(self.team.id, self.apps["partner"].id)], "--live-run")
+
+        assert self._recorded_creator() == ("provisioning_api", "other_partner")
+        assert output["provisioning_api organizations, skipped_other_partner"] == "1"
+
+    @parameterized.expand(
+        [
+            ("api", "provisioning_api", "partner", None, True, ("provisioning_api", "partner"), "create"),
+            ("stripe", "stripe_projects", "partner", None, True, ("stripe_projects", "partner"), "create"),
+            ("vercel", "vercel", None, None, True, ("vercel", None), "create"),
+            ("dry_run", "provisioning_api", "partner", None, False, None, "would create"),
+            (
+                "same_creator",
+                "provisioning_api",
+                "partner",
+                "partner",
+                True,
+                ("provisioning_api", "partner"),
+                "already_recorded",
+            ),
+            (
+                "different_creator",
+                "provisioning_api",
+                "partner",
+                "other_partner",
+                True,
+                ("provisioning_api", "other_partner"),
+                "skipped_other_partner",
+            ),
+        ]
+    )
+    def test_copies_existing_organization_attribution(
+        self,
+        _name: str,
+        source: str,
+        application: str | None,
+        existing_application: str | None,
+        live_run: bool,
+        expected: tuple[str, str | None] | None,
+        outcome: str,
+    ) -> None:
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=source,
+            application=self.apps[application] if application else None,
+        )
+        if existing_application:
+            Organization.objects.filter(id=self.organization.id).update(
+                provisioning_source=Organization.ProvisioningSource.PROVISIONING_API,
+                provisioning_application=self.apps[existing_application],
+            )
+
+        output = self._run_command([], *(["--live-run"] if live_run else []))
+
+        assert self._recorded_creator() == expected
+        assert output[f"Existing organization attribution, {outcome}"] == "1"
+        logs = ActivityLog.objects.filter(
+            organization_id=self.organization.id, scope="Organization", activity="updated"
+        )
+        assert logs.count() == int(live_run and outcome == "create")
+        if live_run and outcome == "create":
+            detail = logs.get().detail
+            assert detail is not None
+            assert detail["trigger"]["job_id"] == "backfill_agentic_provisioning_attribution"
+            assert all(change["action"] == "created" for change in detail["changes"])
+            assert {change["field"]: change["after"] for change in detail["changes"]} == {
+                "provisioning_source": source,
+                **(
+                    {
+                        "provisioning_application": {
+                            "id": str(self.apps[application].id),
+                            "name": self.apps[application].name,
+                        }
+                    }
+                    if application
+                    else {}
+                ),
+            }
+
+    @parameterized.expand([("live", True), ("dry", False)])
+    def test_existing_attribution_takes_precedence_over_inferred_creator(self, _name: str, live_run: bool) -> None:
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
+            application=self.apps["other_partner"],
+        )
+
+        output = self._run_command([(self.team.id, self.apps["partner"].id)], *(["--live-run"] if live_run else []))
+
+        assert self._recorded_creator() == (("stripe_projects", "other_partner") if live_run else None)
+        assert output["provisioning_api organizations, skipped_other_partner"] == "1"

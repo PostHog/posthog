@@ -1,9 +1,11 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.models.organization import Organization
 from posthog.models.user import User
 
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
@@ -45,6 +47,29 @@ class TestAccountRequests(StripeProvisioningTestBase):
         assert code_data["issued_at"]
         welcome.delay.assert_called_once()
         assert welcome.delay.call_args[0][2] == "Stripe"
+
+    def test_only_the_organization_created_for_a_new_user_is_recorded_as_stripe_created(self):
+        self._post_signed(URL, data=_account_request(self.user.email))
+        self._post_signed(URL, data=_account_request("brand-new@example.com"))
+
+        new_organization = User.objects.get(email="brand-new@example.com").organization
+        assert new_organization is not None
+        assert list(
+            Organization.objects.filter(provisioning_source__isnull=False).values_list(
+                "id", "provisioning_source", "provisioning_application_id"
+            )
+        ) == [(new_organization.id, "stripe_projects", self.stripe_app.id)]
+
+    @override_settings(STRIPE_POSTHOG_OAUTH_CLIENT_ID="")
+    def test_new_user_is_not_created_without_the_stripe_app(self) -> None:
+        organization_count = Organization.objects.count()
+
+        res = self._post_signed(URL, data=_account_request("brand-new@example.com"))
+
+        assert res.status_code == 500
+        assert res.json()["error"]["code"] == "server_error"
+        assert not User.objects.filter(email="brand-new@example.com").exists()
+        assert Organization.objects.count() == organization_count
 
     def test_existing_user_gets_silent_code_for_requested_team(self):
         res = self._post_signed(

@@ -231,7 +231,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             excludedProperties: [
                 ...new Set([
                     ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
-                    ...hiddenEventNames(featureFlags, includeHiddenEvents),
+                    ...hiddenEventNames(currentTeam?.flag_evaluations_mode, includeHiddenEvents),
                 ]),
             ],
             ...withKeywordShortcuts<Record<string, any>>(

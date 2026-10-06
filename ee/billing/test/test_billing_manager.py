@@ -21,7 +21,6 @@ from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -968,23 +967,20 @@ class TestBillingManager(BaseTest):
             ("billing_reports_a_payer", False, {"has_payer": True}, True),
             ("billing_reports_no_payer", True, {"has_payer": False}, False),
             ("billing_status_without_the_key", True, {}, True),
-            ("organization_without_a_provisioning_row", None, {"has_payer": True}, None),
+            ("organization_without_a_provisioning_row", None, {"has_payer": True, "customer_id": "cus_example"}, True),
         ]
     )
-    def test_update_org_details_mirrors_has_payer_onto_the_provisioning_row(
+    def test_update_org_details_mirrors_has_payer_onto_the_organization(
         self, _name: str, before: bool | None, customer: dict[str, Any], after: bool | None
     ) -> None:
-        if before is not None:
-            OrganizationProvisioning.objects.create(
-                organization=self.organization,
-                partner=OrganizationProvisioning.Partner.VERCEL,
-                billing_has_payer=before,
-            )
+        self.organization.billing_has_payer = before
+        self.organization.save()
 
         BillingManager(license=None).update_org_details(self.organization, cast(BillingStatus, {"customer": customer}))
 
-        provisioning = OrganizationProvisioning.objects.filter(organization=self.organization)
-        assert provisioning.values_list("billing_has_payer", flat=True).first() == after
+        assert self.organization.billing_has_payer == after
+        self.organization.refresh_from_db()
+        assert self.organization.billing_has_payer == after
 
 
 class TestBillingSession(SimpleTestCase):

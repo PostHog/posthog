@@ -10,6 +10,7 @@ import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instruction
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
+import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
 import { getToolsFromContext } from '@/tools'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
 import {
@@ -1146,6 +1147,95 @@ describe('exec tool', () => {
             const exec = createExec([makeMockTool({ handler: async () => ({ status: 'proposed' }) })])
             const result = await exec.handler(mockContext, { command: 'call mock-tool' })
             expect(result).not.toContain('NONCANONICAL')
+        })
+    })
+
+    describe('ignored input keys', () => {
+        const ignoredKeysTool = makeMockTool({
+            schema: z.preprocess(
+                normalizeParamAliases({ id: ['insightId'] }),
+                z.object({
+                    id: z.string().optional(),
+                    name: z.string().optional(),
+                    query: z.object({ kind: z.string() }).optional(),
+                    series: z.array(z.object({ event: z.string() })).optional(),
+                })
+            ) as unknown as ZodObjectAny,
+            handler: async () => ({ ok: true }),
+        })
+
+        it.each([
+            ['an unknown top-level key', '{"title":"x"}', ['title']],
+            ['an unknown nested key', '{"query":{"kind":"a","serie":1}}', ['query.serie']],
+            [
+                'an unknown key inside an array item',
+                '{"series":[{"event":"a"},{"event":"b","extra":1}]}',
+                ['series.1.extra'],
+            ],
+            ['several unknown keys', '{"title":"x","name":"y","other":1}', ['title', 'other']],
+            ['a key name with a newline', '{"a\\nb":1}', ['a?b']],
+            ['an undeclared key named like an inherited property', '{"constructor":"x"}', ['constructor']],
+            ['a declared alias that the schema folds', '{"insightId":"abc"}', undefined],
+            ['only declared keys', '{"id":"abc","name":"y"}', undefined],
+        ])('reports %s', async (_label, input, expected) => {
+            const exec = createExec([ignoredKeysTool])
+            const result = (await exec.handler(mockContext, {
+                command: `call --json mock-tool ${input}`,
+            })) as string
+            const parsed = JSON.parse(result)
+            expect(parsed._ignoredKeys).toEqual(expected)
+            expect(parsed._ignoredKeysNote === undefined).toBe(expected === undefined)
+        })
+
+        it.each([
+            ['read-data-schema folding its own aliases', ReadDataSchemaSchema, '{"event":"$pageview"}'],
+            ['a union schema that normalizes with a transform', OrganizationSetActiveSchema, '{"id":"abc"}'],
+            [
+                'a root transform that renames a key',
+                z.object({ a: z.string() }).transform((v) => ({ b: v.a })),
+                '{"a":"x"}',
+            ],
+        ])('reports nothing for %s', async (_label, schema, input) => {
+            const exec = createExec([
+                makeMockTool({ schema: schema as unknown as ZodObjectAny, handler: async () => ({ ok: true }) }),
+            ])
+            const result = (await exec.handler(mockContext, {
+                command: `call --json mock-tool ${input}`,
+            })) as string
+            expect(JSON.parse(result)).toEqual({ ok: true })
+        })
+
+        it('appends the notice to the formatted text the agent reads', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ name: z.string().optional() }),
+                handler: async () => ({
+                    results: [1],
+                    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'table',
+                }),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool {"title":"x"}' })) as string
+            expect(result).toContain('table')
+            expect(result).toContain('Ignored input keys: "title".')
+        })
+
+        it('keeps the informational wrapper on an array result and quotes key names in the notice', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ name: z.string().optional() }),
+                handler: async () => withInformationalResponse([{ id: 1 }], 'rows'),
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, {
+                command: 'call mock-tool {"bad\\nkey":"x"}',
+            })) as string
+            expect(result).toContain('<rows informational="true"')
+            expect(result).toContain('Ignored input keys: "bad?key".')
+        })
+
+        it('leaves a clean call without a notice in text mode', async () => {
+            const exec = createExec([ignoredKeysTool])
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool {"name":"x"}' })) as string
+            expect(result).not.toContain('Ignored input keys')
         })
     })
 

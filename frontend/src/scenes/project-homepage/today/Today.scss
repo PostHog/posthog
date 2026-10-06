@@ -1,7 +1,9 @@
 // The Today layout keeps its own "paper" palette. Colours that also appear on tinted surfaces stay literal,
 // the rest switch with the app theme. The app layout shares it so the page behind the rail matches.
 .Today,
-.TodayAppLayout {
+.TodayAppLayout,
+.TodayHoverMark__popup,
+.TodayImplementMenu {
     --today-ink: #151515;
     --today-muted: #8d8d88;
     --today-faint: #a3a39e;
@@ -9,24 +11,17 @@
     --today-line: #e5e5e0;
     --today-card: #fff;
     --today-soft: #efefeb;
-    --today-soft-2: #f2f2ee;
-    --today-drawer: #fbfbf9;
-    --today-secondary-text: #5f5f5a;
     --today-body-text: #454541;
     --today-input-border: #deded8;
     --today-focus-border: #a7a7a0;
-    --today-success-text: #24733a;
-    --today-success-fill: #e8f6eb;
     --today-button: #151515;
-    --today-button-hover: #33332f;
     --today-button-text: #fff;
-    --today-pill: #eeeeea;
-    --today-pill-border: #e2e2dc;
     --today-ease: cubic-bezier(0.23, 1, 0.32, 1);
     --today-ease-in-out: cubic-bezier(0.645, 0.045, 0.355, 1);
-    --today-ease-rise: cubic-bezier(0.22, 1, 0.36, 1);
     --today-ease-nudge: cubic-bezier(0.2, 0.8, 0.2, 1);
     --today-card-shadow: 0 1px 2px #00000008, 0 12px 32px -24px #00000059;
+    --today-marker: #f54e00;
+    --today-key-clause: rgb(29 74 255 / 75%);
 
     [theme='dark'] & {
         --today-ink: #f1f1ee;
@@ -36,19 +31,13 @@
         --today-line: #2c2c2a;
         --today-card: #1f1f1d;
         --today-soft: #262624;
-        --today-soft-2: #232321;
-        --today-drawer: #1b1b1a;
-        --today-secondary-text: #b5b5ae;
         --today-body-text: #d4d4ce;
         --today-input-border: #353532;
         --today-focus-border: #5c5c57;
-        --today-success-text: #7fd694;
-        --today-success-fill: #1d3323;
         --today-button: #f1f1ee;
-        --today-button-hover: #d9d9d4;
         --today-button-text: #151515;
-        --today-pill: #262624;
-        --today-pill-border: #333331;
+        --today-marker: #ff8a4c;
+        --today-key-clause: rgb(138 164 255 / 85%);
     }
 }
 
@@ -57,14 +46,6 @@
     color: var(--today-ink);
     background: var(--today-paper);
     -webkit-font-smoothing: antialiased;
-}
-
-.Today__label {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--today-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
 }
 
 .Today__page {
@@ -173,6 +154,7 @@
 .TodayHome,
 .TodayReport {
     width: min(840px, 100% - 144px);
+    padding: 94px 0 140px;
     margin: 0 auto;
 
     @container main-content (max-width: 900px) {
@@ -181,22 +163,7 @@
 
     @container main-content (max-width: 600px) {
         width: calc(100% - 40px);
-    }
-}
-
-.TodayHome {
-    padding: 94px 0 140px;
-
-    @container main-content (max-width: 600px) {
         padding: 20px 0 64px;
-    }
-}
-
-.TodayReport {
-    padding: 56px 0 140px;
-
-    @container main-content (max-width: 600px) {
-        padding: 12px 0 64px;
     }
 }
 
@@ -339,6 +306,11 @@
         text-decoration: none;
     }
 
+    // The strike outlives the reset above, so a resolved item reads the same here as in the rail.
+    .TodayReportLink[data-state='done'] {
+        text-decoration: line-through;
+    }
+
     [theme='dark'] & {
         background: #ff48002e;
 
@@ -378,74 +350,234 @@
     margin-top: 76px;
 }
 
-// Report page
-
-.TodayReport__kicker {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    color: var(--report-color);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+.TodayHoverMark {
+    cursor: default;
+    outline: none;
 }
 
-.TodayTile {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    color: #fff;
-    background: var(--tile-color, var(--report-color));
-    border-radius: 8px;
+.TodayHoverMark__popup {
+    position: relative;
 
-    svg {
-        width: 15px;
-        height: 15px;
+    &::after {
+        position: absolute;
+        top: calc(100% + 1px);
+        right: -8px;
+        left: -8px;
+        height: 32px;
+        pointer-events: none;
+        content: '';
+        background: linear-gradient(var(--today-paper), transparent);
     }
 }
 
-.TodayReport__heading {
-    max-width: 560px;
-    margin: 14px 0 12px;
-    font-size: 18px;
-    font-weight: 560;
-    line-height: 1.3;
-    text-wrap: balance;
-    letter-spacing: -0.015em;
-}
+.TodayHoverMark__card {
+    background: var(--today-card);
+    border-color: var(--today-line);
+    box-shadow:
+        0 0 0 8px var(--today-paper),
+        0 1px 2px #00000008,
+        0 6px 16px -8px #00000024;
 
-.TodayReport__body {
-    max-width: 600px;
-    margin-top: 24px;
-    font-size: 14px;
-    line-height: 1.65;
-    color: var(--today-muted);
+    [theme='dark'] & {
+        background: #242422;
+        border-color: #5c5c55;
+        box-shadow:
+            0 0 0 8px var(--today-paper),
+            0 10px 28px -10px #000000b3;
+    }
 
-    > * + * {
-        margin-top: 20px;
+    blockquote {
+        border-inline-start-color: color-mix(in sRGB, currentColor 22%, transparent);
     }
 }
 
-// Evidence and prompts
+.TodayReportArticle {
+    > *,
+    [data-attr='today-report-abstract'] {
+        transition: opacity 0.15s;
+    }
 
-.TodayEvidence,
-.TodayPrompts {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    max-width: 600px;
-    margin-top: 48px;
+    &:has(.TodayHoverMark[data-popup-open]) {
+        > :not(:has(.TodayHoverMark[data-popup-open])),
+        [data-attr='today-report-abstract']:not(:has(.TodayHoverMark[data-popup-open])) {
+            filter: grayscale(1);
+            opacity: 0.06;
+        }
+    }
 }
 
-.TodayEvidence__note,
-.TodayPrompts__hint {
-    margin: 0;
-    font-size: 12px;
-    color: var(--today-muted);
+.TodayFigureMark {
+    position: relative;
+    display: inline-block;
+    margin-inline: 0.04em;
+    white-space: nowrap;
+
+    &:first-child {
+        margin-inline-start: 0;
+    }
+}
+
+.TodayFigureMark__circle {
+    position: absolute;
+    top: -0.12em;
+    left: -0.26em;
+    z-index: -1;
+    width: calc(100% + 0.52em);
+    height: calc(100% + 0.24em);
+    overflow: visible;
+    pointer-events: none;
+
+    path {
+        fill: none;
+        stroke: var(--today-marker);
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 1.8px;
+        transition: stroke-dashoffset 0.18s ease-in;
+        vector-effect: non-scaling-stroke;
+    }
+}
+
+.TodayFigureMark:hover,
+.TodayFigureMark:focus-visible,
+.TodayFigureMark[data-popup-open] {
+    .TodayPenMark__stroke {
+        opacity: 0;
+    }
+
+    .TodayFigureMark__circle path {
+        stroke-dashoffset: 0;
+        transition: stroke-dashoffset 0.5s var(--today-ease);
+    }
+}
+
+.TodayKeyClauseMark {
+    padding-bottom: 0.12em;
+    background-image: linear-gradient(var(--today-key-clause), var(--today-key-clause));
+    background-repeat: no-repeat;
+    background-position: 0 100%;
+    background-size: 100% 1.5px;
+    transition: background-size 0.15s var(--today-ease);
+    animation: TodayKeyClauseMark__sweep 0.7s var(--today-ease-in-out) 0.5s both;
+
+    &:hover,
+    &:focus-visible,
+    &[data-popup-open] {
+        background-size: 100% 2.5px;
+    }
+}
+
+@keyframes TodayKeyClauseMark__sweep {
+    from {
+        background-size: 0% 1.5px;
+    }
+}
+
+.TodayPenMark__stroke {
+    position: absolute;
+    bottom: -0.18em;
+    left: -0.04em;
+    width: calc(100% + 0.16em);
+    height: 0.38em;
+    overflow: visible;
+    pointer-events: none;
+    transition: opacity 0.15s;
+
+    path {
+        fill: none;
+        stroke: var(--today-marker);
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+        stroke-linecap: round;
+        stroke-width: 3.8;
+        animation: TodayPenMark__draw 0.42s cubic-bezier(0.55, 0.1, 0.35, 1) var(--today-mark-delay, 0ms) forwards;
+    }
+
+    path + path {
+        opacity: 0.5;
+        stroke-width: 2.6;
+        animation-duration: 0.3s;
+        animation-delay: calc(var(--today-mark-delay, 0ms) + 0.36s);
+    }
+}
+
+@keyframes TodayPenMark__draw {
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+.TodayImplementMenu.TodayImplementMenu {
+    background: var(--today-card);
+    border: 1px solid var(--today-line);
+    box-shadow:
+        0 1px 2px #0000000f,
+        0 12px 32px -8px #00000038;
+
+    [role='separator'] {
+        background-color: var(--today-line);
+    }
+
+    [theme='dark'] & {
+        background: #242422;
+        border-color: #5c5c55;
+        box-shadow: 0 12px 32px -8px #000000c0;
+
+        [role='separator'] {
+            background-color: #3c3c38;
+        }
+    }
+}
+
+.TodayEvidenceDetail {
+    display: grid;
+    grid-template-rows: 1fr;
+    animation: TodayEvidenceDetail__open 0.22s var(--today-ease);
+}
+
+@keyframes TodayEvidenceDetail__open {
+    from {
+        grid-template-rows: 0fr;
+        opacity: 0;
+    }
+}
+
+.TodayEvidenceDetail__text {
+    color: color-mix(in sRGB, var(--foreground) 72%, transparent);
+}
+
+.TodayCodeExcerpt {
+    background: var(--today-card);
+    border-color: var(--today-line);
+
+    &__header {
+        border-bottom: 1px solid var(--today-line);
+    }
+
+    &__body {
+        color: color-mix(in sRGB, currentColor 78%, transparent);
+    }
+
+    &__line {
+        padding-inline-start: 2ch;
+        text-indent: -2ch;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .TodayPenMark__stroke path {
+        stroke-dashoffset: 0;
+        animation: none;
+    }
+
+    .TodayFigureMark .TodayFigureMark__circle path,
+    .TodayFigureMark:hover .TodayFigureMark__circle path,
+    .TodayFigureMark:focus-visible .TodayFigureMark__circle path,
+    .TodayFigureMark[data-popup-open] .TodayFigureMark__circle path {
+        transition: none;
+    }
 }
 
 // Keyframes

@@ -130,3 +130,23 @@ export function readParamAliases(schema: z.ZodType): Record<string, readonly str
     }
     return merged
 }
+
+// A schema that transforms its input (other than alias folding) consumes keys on purpose,
+// so comparing sent keys to the parsed result would report them as ignored.
+export function reshapesInputBeyondAliases(schema: z.ZodType): boolean {
+    let current: unknown = schema
+    for (let depth = 0; depth < MAX_PREPROCESS_DEPTH && current instanceof z.ZodPipe; depth++) {
+        const input = current.in as { def?: { transform?: unknown } }
+        if (current.in instanceof z.ZodTransform) {
+            const transform = input.def?.transform
+            if (typeof transform !== 'function' || !ALIAS_MAPS.has(transform as (input: unknown) => unknown)) {
+                return true
+            }
+        }
+        if (current.out instanceof z.ZodTransform) {
+            return true
+        }
+        current = current.out
+    }
+    return current instanceof z.ZodUnion
+}
