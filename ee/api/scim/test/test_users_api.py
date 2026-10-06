@@ -167,7 +167,7 @@ class TestSCIMUsersAPI(APILicensedTest):
     def test_default_role_applies_to_provisioning_and_reactivation(
         self, _name: str, activation: str, legacy_role: bool
     ) -> None:
-        self.organization.available_product_features += [
+        self.organization.available_product_features = (self.organization.available_product_features or []) + [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": "Access control"},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": "Role-based access"},
         ]
