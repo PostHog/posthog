@@ -596,7 +596,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # probe below only runs when the connection actually changed. Direct query sources still
         # probe on every save: the same call refreshes their schemas and connection metadata.
         try:
-            stored_job_inputs = source.parse_config(existing_job_inputs).to_dict()
+            stored_job_inputs = source.serialize_config(source.parse_config(existing_job_inputs))
         except Exception:
             # A stored config that no longer parses can't be compared, so treat it as changed and
             # let the probe run rather than skipping validation on a config we can't read.

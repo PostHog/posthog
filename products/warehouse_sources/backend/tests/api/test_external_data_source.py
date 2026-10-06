@@ -145,7 +145,14 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
 
     The update path also asks the source whether an edit introduces a new connection host or leaves
     row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
-    trip the credential-reentry gate. Stub them to their real (falsy) defaults."""
+    trip the credential-reentry gate. Stub them to their real (falsy) defaults.
+
+    Both the create and update paths persist `source.serialize_config(source_config)` rather than
+    `source_config.to_dict()` directly, so a source stays able to retain rollout-compatible fields
+    (see `AppleSearchAdsSource.serialize_config`). A bare MagicMock's `serialize_config` otherwise
+    returns an unconfigured MagicMock, which Django's ORM then tries to treat as a query expression
+    and rejects. Delegate it to the parsed config's own `to_dict()`, matching the base class's
+    default implementation, so a test that only sets up `parse_config` keeps working."""
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
     mock_get_source.return_value.max_instances_per_team = None
@@ -154,6 +161,7 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     mock_get_source.return_value.server_managed_job_input_fields.return_value = []
     mock_get_source.return_value.job_inputs_add_connection_host.return_value = False
     mock_get_source.return_value.has_preserved_row_backed_credentials.return_value = False
+    mock_get_source.return_value.serialize_config.side_effect = lambda config: config.to_dict()
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -6958,6 +6966,54 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs[secret_field] == stored_job_inputs[secret_field]
         assert source.auto_sync_new_schemas is True
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.source.AppleSearchAdsSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_apple_ads_key_pair_unrelated_field_does_not_reprobe(self, mock_validate_credentials):
+        # Apple Ads' serialize_config adds the four key-pair fields back onto the flat dict for a
+        # key_pair source, which parse_config().to_dict() alone does not. Comparing those two shapes
+        # always disagreed, so every save re-probed Apple's API — even one that only flips an
+        # unrelated setting. Compare like for like instead: serialize_config on both sides.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="AppleSearchAds",
+            created_by=self.user,
+            prefix="test_apple_ads_no_reprobe",
+            job_inputs={
+                "source_type": "AppleSearchAds",
+                "org_id": "4242",
+                "ad_account_id": "acct-1",
+                "client_id": "cid",
+                "apple_team_id": "tid",
+                "key_id": "kid",
+                "private_key": "pem",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "org_id": "4242",
+                    "ad_account_id": "acct-1",
+                    "client_id": "cid",
+                    "apple_team_id": "tid",
+                    "key_id": "kid",
+                    "private_key": "pem",
+                },
+                "auto_sync_new_schemas": True,
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.auto_sync_new_schemas is True
+        mock_validate_credentials.assert_not_called()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
