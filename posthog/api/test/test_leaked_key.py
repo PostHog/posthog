@@ -228,7 +228,7 @@ class TestPublicLeakedKeyReport(APIBaseTest):
         self.assertEqual(response.json(), {"found": True, "type": "team_secret_token"})
         self.assertFalse(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
         self.assertTrue(
-            RevokedTeamSecretToken.objects.filter(team=self.team, secure_value=hash_key_value(token)).exists()
+            RevokedTeamSecretToken.objects.for_team(self.team.id).filter(secure_value=hash_key_value(token)).exists()
         )
         self.team.refresh_from_db()
         self.assertEqual(getattr(self.team, token_field), token)

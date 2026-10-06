@@ -326,6 +326,7 @@ rules:
                               |QuarantinedIdentifier
                               |QueryTabState
                               |QueueJob
+                              |RevokedTeamSecretToken
                               |QueueSchedulerDecision
                               |QueueSchedulerState
                               |QuickFilter
@@ -763,6 +764,7 @@ rules:
                         |QuarantinedIdentifier
                         |QueryTabState
                         |QueueJob
+                        |RevokedTeamSecretToken
                         |QueueSchedulerDecision
                         |QueueSchedulerState
                         |QuickFilter

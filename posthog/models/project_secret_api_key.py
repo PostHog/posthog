@@ -6,6 +6,7 @@ from django.db import models
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.manager import TeamScopedManager
 
 from .utils import generate_random_token, hash_key_value
 
@@ -74,11 +75,9 @@ class RevokedTeamSecretToken(models.Model):
     deleted by leak revocation. The pre-drop rerun of the backfill reads these, so a
     leaked token that was never rotated does not get a fresh mirror row.
 
-    Not TeamScopedRootMixin: tokens are environment-scoped, and the canonical-team
-    save() rewrite would file a child environment's hash under its root team.
+    TeamScopedManager without RootTeamMixin: tokens are environment-scoped, and the
+    canonical-team save() rewrite would file a child environment's hash under its root.
     """
-
-    objects: models.Manager["RevokedTeamSecretToken"]
 
     # db_constraint=False: a real FK to the hot posthog_team table needs a parent lock
     # to create. ORM-level CASCADE still removes rows when the team goes.
@@ -90,6 +89,8 @@ class RevokedTeamSecretToken(models.Model):
     )
     secure_value = models.CharField(max_length=300, unique=True, editable=False)
     created_at = models.DateTimeField(default=timezone.now)
+
+    objects = TeamScopedManager["RevokedTeamSecretToken"]()
 
     class Meta:
         db_table = "posthog_revokedteamsecrettoken"

@@ -53,7 +53,7 @@ class TestProjectSecretAPIKeyAdmin(BaseTest):
 
         self.assertEqual(response.status_code, 302)
         self.assertFalse(type(mirrored).objects.filter(pk=mirrored.pk).exists())
-        self.assertTrue(RevokedTeamSecretToken.objects.filter(team=self.team).exists())
+        self.assertTrue(RevokedTeamSecretToken.objects.for_team(self.team.id).filter().exists())
         self.team.refresh_from_db()
         self.assertEqual(self.team.secret_api_token, token)
         mock_ff_exposed.assert_called_once()

@@ -219,7 +219,7 @@ def revoke_exposed_project_secret_api_key(project_secret_api_key: ProjectSecretA
             with transaction.atomic():
                 # Remember the hash: the pre-drop rerun of the #63111 backfill must not
                 # give this still-unrotated leaked token a fresh mirror row.
-                RevokedTeamSecretToken.objects.get_or_create(
+                RevokedTeamSecretToken.objects.for_team(team.id).get_or_create(
                     team_id=team.id, secure_value=project_secret_api_key.secure_value
                 )
                 project_secret_api_key.delete()

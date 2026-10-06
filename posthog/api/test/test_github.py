@@ -651,7 +651,7 @@ class TestProjectSecretAPIKeySecretAlert(APIBaseTest):
         self.assertEqual(response.json()[0]["label"], "true_positive")
         self.assertFalse(ProjectSecretAPIKey.objects.filter(pk=row.pk).exists())
         self.assertTrue(
-            RevokedTeamSecretToken.objects.filter(team=self.team, secure_value=hash_key_value(token)).exists()
+            RevokedTeamSecretToken.objects.for_team(self.team.id).filter(secure_value=hash_key_value(token)).exists()
         )
         mock_psak_exposed.assert_not_called()
         mock_ff_exposed.assert_called_once()
