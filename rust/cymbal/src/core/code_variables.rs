@@ -7,6 +7,7 @@
 
 use std::{borrow::Cow, collections::HashMap, sync::LazyLock};
 
+use base64::Engine;
 use regex::{Captures, Regex};
 use serde_json::{Map, Value};
 
@@ -18,8 +19,12 @@ const MAX_DEPTH: usize = 12;
 const SECRET_MIN_LENGTH: usize = 16;
 const SECRET_MIN_ENTROPY_BITS: f64 = 3.8;
 const SECRET_MIN_CHAR_CLASSES: u8 = 3;
-// Shorter values are prose, such as "the bearer of".
+// Shorter values are prose, such as "the bearer of", and so is a lowercase word of up to
+// 15 letters, such as "bearer transportation". A random lowercase token is longer than
+// that. A `Basic` credential of any length is still redacted when it decodes to
+// `user:password`, e.g. `YTpi` for `a:b`.
 const AUTH_CREDENTIAL_MIN_LENGTH: usize = 8;
+const AUTH_PROSE_WORD_MAX_LENGTH: usize = 15;
 const PEM_PRIVATE_KEY_MARKER: &str = "PRIVATE KEY-----";
 // Punctuation of reprs and structured strings. A bare token never holds it.
 const SECRET_REJECT_CHARS: &str = "()[]{}<>'\"`,;";
@@ -197,12 +202,15 @@ fn redacted_key(result: &Map<String, Value>, next: &mut usize) -> String {
     }
 }
 
+// URLs go first, because the `Authorization` pass can consume a URL scheme, as in
+// `Bearer postgresql://user:pass@host`.
 fn redact_embedded_credentials(value: &str) -> Cow<'_, str> {
-    let value = AUTH_HEADER_CREDENTIALS.replace_all(value, redact_auth_credential);
-    if !value.contains("://") {
-        return value;
-    }
-    let redacted = match URL_CREDENTIALS.replace_all(&value, redact_url_credential) {
+    let value = if value.contains("://") {
+        URL_CREDENTIALS.replace_all(value, redact_url_credential)
+    } else {
+        Cow::Borrowed(value)
+    };
+    let redacted = match AUTH_HEADER_CREDENTIALS.replace_all(&value, redact_auth_credential) {
         Cow::Owned(redacted) => Some(redacted),
         Cow::Borrowed(_) => None,
     };
@@ -210,10 +218,22 @@ fn redact_embedded_credentials(value: &str) -> Cow<'_, str> {
 }
 
 fn redact_auth_credential(caps: &Captures) -> String {
-    if caps[3].len() < AUTH_CREDENTIAL_MIN_LENGTH {
+    let credential = &caps[3];
+    let is_basic_pair = caps[1].eq_ignore_ascii_case("basic") && is_basic_credential(credential);
+    let is_prose_word = credential.len() <= AUTH_PROSE_WORD_MAX_LENGTH
+        && credential.bytes().all(|b| b.is_ascii_lowercase());
+    if !is_basic_pair && (credential.len() < AUTH_CREDENTIAL_MIN_LENGTH || is_prose_word) {
         return caps[0].to_string();
     }
     format!("{}{}{REDACTED}", &caps[1], &caps[2])
+}
+
+fn is_basic_credential(credential: &str) -> bool {
+    base64::engine::general_purpose::STANDARD
+        .decode(credential)
+        .ok()
+        .and_then(|decoded| String::from_utf8(decoded).ok())
+        .is_some_and(|decoded| decoded.contains(':'))
 }
 
 fn redact_url_credential(caps: &Captures) -> String {
@@ -366,6 +386,16 @@ mod tests {
                 json!({"value": format!("Bearer {REDACTED}")}),
             ),
             (
+                "short Basic credential that decodes to user:password",
+                json!({"value": "Basic YTpi"}),
+                json!({"value": format!("Basic {REDACTED}")}),
+            ),
+            (
+                "DSN after the scheme keeps its own credential redacted",
+                json!({"value": "Bearer mongodb+srv://alice:sunflower99@db.example.com/app"}),
+                json!({"value": format!("Bearer {REDACTED}://{REDACTED}@db.example.com/app")}),
+            ),
+            (
                 "colon between the scheme and the credential",
                 json!({"value": format!("Bearer: {bearer_token}")}),
                 json!({"value": format!("Bearer: {REDACTED}")}),
@@ -433,6 +463,8 @@ mod tests {
             "design",
             "/signup?step=2",
             "the bearer of bad news",
+            "bearer transportation",
+            "basic: configuration",
             "basicConfig(level=10)",
             "550e8400-e29b-41d4-a716-446655440000",
             "da39a3ee5e6b4b0d3255bfef95601890afd80709",
