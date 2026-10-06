@@ -242,7 +242,14 @@ export default meta
 type Story = StoryObj<typeof PartnerBilling>
 
 export const BillingNotOnYet: Story = {
-    decorators: [mswDecorator(partnerBillingMocks({ name: PAYER.name, billing_enabled: false }, []))],
+    decorators: [
+        mswDecorator(partnerBillingMocks({ name: PAYER.name, billing_enabled: false }, [])),
+        (Story) => (
+            <div className="w-200">
+                <Story />
+            </div>
+        ),
+    ],
 }
 
 export const BillingOn: Story = {
