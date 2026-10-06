@@ -88,13 +88,9 @@ FLASH_ARM = ReviewArm(
     initial_permission_mode="full-access",
 )
 
-# The status comment of a flash turn starts with this, so a reader can tell a flash review from a
-# full one. Only the status comment carries it, because one label per review is enough.
-FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
-
-
-def message_prefix_for_mode(review_mode: str) -> str:
-    return FLASH_MODE_MESSAGE_PREFIX if review_mode == REVIEW_MODE_FLASH else ""
+# Flash comments posted before reviewhog-flash-1-1 open with this banner. Comments on old pull
+# requests keep it, so the matchers that read them back still remove it.
+LEGACY_FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
 
 
 def flash_arm_for_effort(reasoning_effort: str) -> ReviewArm:

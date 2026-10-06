@@ -9,11 +9,11 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
+    LEGACY_FLASH_MODE_MESSAGE_PREFIX,
     PRIORITY_LABELS,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     effective_priority,
-    message_prefix_for_mode,
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
@@ -355,9 +355,7 @@ def _review_already_posted(
                 or (
                     legacy_marker is not None
                     and legacy_marker in (review.get("body") or "")
-                    and (review.get("body") or "").startswith(
-                        ("FLASH MODE\n", message_prefix_for_mode(REVIEW_MODE_FLASH))
-                    )
+                    and (review.get("body") or "").startswith(("FLASH MODE\n", LEGACY_FLASH_MODE_MESSAGE_PREFIX))
                     == (review_mode == REVIEW_MODE_FLASH)
                 )
             )

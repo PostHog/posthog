@@ -349,7 +349,9 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     whose threshold it was (the author's / the requester's / the default, from `resolved_from`) plus a
     "View them in PostHog" deep link to the exact report (`/project/<team>/code-review?review=<report id>`,
     a **permanent public contract** — the frontend URL sync and `report_deep_link` must keep agreeing on it).
-    The status comment of a **flash** turn, in each of its states, opens with `FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review` + newline (`message_prefix_for_mode`).
+    The status comment header of a **flash** turn, in each of its states, names `PostHog Review (flash)` instead of `PostHog Review`.
+    A clean flash turn shows the plain line "Nothing worth raising." and never the clean-review media; a full turn follows the `celebrate_clean_reviews` setting.
+    Flash comments posted before reviewhog-flash-1-1 open with a banner line (`LEGACY_FLASH_MODE_MESSAGE_PREFIX`); the publish-idempotency scan and the outcome comment matcher still recognize it.
     The promo, the review body, and the inline comments carry no flash label, so one review shows the label once.
     An inline comment holds the title, a plain-text severity line, the issue, and the suggested fix, then the hidden `REVIEW_HOG_FINDING_MARKER`.
     The validator's argumentation stays out of GitHub; the reviews API returns it as `validator_note`.

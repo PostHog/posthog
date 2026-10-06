@@ -5,7 +5,7 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding
-from products.review_hog.backend.reviewer.constants import FLASH_MODE_MESSAGE_PREFIX
+from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.outcomes.comment_signal import engagement_method, find_finding_comment
 
@@ -27,7 +27,7 @@ class TestFindFindingComment:
     @parameterized.expand(
         [
             ("current_layout", "### Off-by-one\n\n**Must fix** · bug"),
-            ("old_flash_banner", f"{FLASH_MODE_MESSAGE_PREFIX}### Off-by-one\n\n![badge](x)"),
+            ("old_flash_banner", f"{LEGACY_FLASH_MODE_MESSAGE_PREFIX}### Off-by-one\n\n![badge](x)"),
         ]
     )
     def test_matches_by_path_and_title_heading(self, _name: str, body: str):
