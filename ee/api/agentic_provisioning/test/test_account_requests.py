@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
+import time_machine
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -62,17 +63,23 @@ class TestAccountRequests(ProvisioningTestBase):
 
     @parameterized.expand(
         [
-            ("terms_accepted", timedelta(days=-1)),
-            ("terms_accepted_within_clock_skew", TERMS_ACCEPTED_AT_MAX_CLOCK_SKEW / 2),
-            ("terms_not_sent", None),
+            ("terms_accepted", timedelta(days=-1), timedelta(days=-1)),
+            ("terms_accepted_within_clock_skew", TERMS_ACCEPTED_AT_MAX_CLOCK_SKEW / 2, timedelta(0)),
+            ("terms_sent_blank", "", None),
+            ("terms_not_sent", None, None),
         ]
     )
     def test_new_user_creates_org_and_team_attributed_to_partner(
-        self, _name: str, terms_accepted_offset: timedelta | None
+        self, _name: str, terms_accepted_sent: timedelta | str | None, terms_accepted_stored: timedelta | None
     ) -> None:
-        terms_accepted_at = None if terms_accepted_offset is None else timezone.now() + terms_accepted_offset
-        overrides = {} if terms_accepted_at is None else {"terms_accepted_at": terms_accepted_at.isoformat()}
-        self._post_account_request(self._account_request_payload(**overrides))
+        now = timezone.now()
+        overrides: dict[str, str] = {}
+        if isinstance(terms_accepted_sent, timedelta):
+            overrides["terms_accepted_at"] = (now + terms_accepted_sent).isoformat()
+        elif terms_accepted_sent is not None:
+            overrides["terms_accepted_at"] = terms_accepted_sent
+        with time_machine.travel(now, tick=False):
+            self._post_account_request(self._account_request_payload(**overrides))
         user = User.objects.get(email="newuser@example.com")
         assert user.organization is not None
         assert user.team is not None
@@ -81,7 +88,7 @@ class TestAccountRequests(ProvisioningTestBase):
         assert (record.partner, record.application_id, record.terms_accepted_at) == (
             "provisioning_api",
             self.partner.id,
-            terms_accepted_at,
+            None if terms_accepted_stored is None else now + terms_accepted_stored,
         )
 
     def test_new_user_starts_unverified(self):
@@ -121,12 +128,14 @@ class TestAccountRequests(ProvisioningTestBase):
                 TERMS_ACCEPTED_AT_MAX_CLOCK_SKEW + timedelta(minutes=1),
                 "invalid_request",
             ),
+            ("terms_accepted_unparseable", "terms_accepted_at", "yesterday", "invalid_request"),
         ]
     )
-    def test_out_of_range_timestamp_returns_400(
-        self, _name: str, field: str, offset: timedelta, expected_code: str
+    def test_invalid_timestamp_returns_400(
+        self, _name: str, field: str, value: timedelta | str, expected_code: str
     ) -> None:
-        payload = self._account_request_payload(**{field: (timezone.now() + offset).isoformat()})
+        sent = (timezone.now() + value).isoformat() if isinstance(value, timedelta) else value
+        payload = self._account_request_payload(**{field: sent})
         res = self._post_account_request(payload)
         assert res.status_code == 400
         assert res.json()["type"] == "error"
