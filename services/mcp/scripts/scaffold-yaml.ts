@@ -220,14 +220,14 @@ function renderCategoryYaml(
     return yamlHeader(tag, filePath) + stringifyYaml(merged, { indent: 4, lineWidth: 120 })
 }
 
-function generateFreshYaml(tag: string): string {
+function generateFreshYaml(tag: string, filePath?: string): string {
     const fresh = CategoryConfigSchema.parse({
         category: tag.charAt(0).toUpperCase() + tag.slice(1),
         feature: tag.replace(/-/g, '_'),
         url_prefix: `/${tag.replace(/_/g, '-')}`,
         tools: {},
     })
-    return renderCategoryYaml(fresh, tag, {})
+    return renderCategoryYaml(fresh, tag, {}, filePath)
 }
 
 function loadCategoryConfig(filePath: string): CategoryConfig {
@@ -700,7 +700,7 @@ function main(): void {
         reportLostEnabledTools(lostEnabledTools)
     } else {
         fs.mkdirSync(path.dirname(resolvedOutput), { recursive: true })
-        fs.writeFileSync(resolvedOutput, generateFreshYaml(product))
+        fs.writeFileSync(resolvedOutput, generateFreshYaml(product, resolvedOutput))
         process.stdout.write(
             `Created ${resolvedOutput} with no tools. ${ops.length} operation(s) found; list them with --candidates.\n`
         )
