@@ -27,14 +27,12 @@ function PrimaryAction({
     reportUrl,
     isSample,
     startReason,
-    onStartWithPostHog,
 }: {
     primary: TodayPrimaryAction
     report: SignalReport
     reportUrl: string
     isSample: boolean
     startReason: string | null
-    onStartWithPostHog: (prompt: string) => void
 }): JSX.Element {
     const { openReportTask } = useActions(inboxTaskKickoffLogic)
     if (primary.kind === 'review') {
@@ -71,7 +69,6 @@ function PrimaryAction({
             reportUrl={reportUrl}
             disabled={isSample}
             postHogDisabledReason={startReason}
-            onStartWithPostHog={onStartWithPostHog}
         />
     )
 }
@@ -125,7 +122,6 @@ export function TodayReportNextStep({
                         reportUrl={reportUrl}
                         isSample={isSample}
                         startReason={startDisabledReason(report, pickedUp, createPrDisabledReason)}
-                        onStartWithPostHog={focusComposer}
                     />
                 )}
                 <TodayActionButton
