@@ -574,6 +574,7 @@ class JwtAuthentication(ActivityCredentialMixin, authentication.BaseAuthenticati
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
                         user = User.objects.get(pk=info["id"])
+                        refuse_blocked_account(request, user, call_site="jwt", impersonated=False)
                         self.record_activity_actor(user)
                         return (user, None)
                     except AuthenticationFailed:
@@ -841,12 +842,14 @@ class ExportRendererAuthentication(ActivityCredentialMixin, authentication.BaseA
             self.exported_asset_id = exported_asset_id
             self.export_context = export_context
             user = User.objects.get(pk=user_id)
-            self.record_activity_actor(user, str(exported_asset_id))
-            return user, None
         except (jwt.DecodeError, jwt.InvalidAudienceError):
             return None
         except Exception:
             raise AuthenticationFailed(detail="Token invalid.")
+        # Outside the try, so the refusal keeps its code instead of becoming "Token invalid."
+        refuse_blocked_account(request, user, call_site="export_renderer", impersonated=False)
+        self.record_activity_actor(user, str(exported_asset_id))
+        return user, None
 
     def authenticate_header(self, request) -> str:
         return self.keyword

@@ -18,7 +18,7 @@ from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.db import connection
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -41,7 +41,9 @@ from posthog.api.authentication import password_reset_token_generator, social_lo
 from posthog.api.email_verification import is_email_verification_disabled
 from posthog.auth import (
     ACCOUNT_BLOCKED_DETAIL,
+    ExportRendererAuthentication,
     InternalAPIUser,
+    JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
@@ -51,6 +53,7 @@ from posthog.auth import (
     TeamSecretTokenUser,
     WidgetAuthentication,
     _extract_phs_token,
+    mint_export_renderer_token,
 )
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags, tags_context
 from posthog.helpers.user_devices import (
@@ -58,6 +61,7 @@ from posthog.helpers.user_devices import (
     build_known_device_cookie_value,
     has_valid_known_device_cookie,
 )
+from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 from posthog.models.activity_logging.signal_handlers import post_login
@@ -71,6 +75,7 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
@@ -838,6 +843,39 @@ class TestDevLoginAPI(APIBaseTest):
     def test_dev_login_hidden_when_not_debug(self):
         response = self.client.get("/api/login/dev")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class TestInternalTokensRefuseBlockedAccounts(APIBaseTest):
+    def _authenticator_and_request(self, kind: str) -> tuple[authentication.BaseAuthentication, HttpRequest]:
+        if kind == "export_renderer":
+            asset = ExportedAsset.objects.create(
+                team=self.team,
+                created_by=self.user,
+                export_format=ExportedAsset.ExportFormat.PNG,
+                export_context={"session_recording_id": "recording-id"},
+            )
+            token = mint_export_renderer_token(
+                user_id=self.user.id, team_id=self.team.id, exported_asset_id=asset.id, scope="session_recording:read"
+            )
+            authenticator: authentication.BaseAuthentication = ExportRendererAuthentication()
+        else:
+            token = encode_jwt({"id": self.user.id}, timedelta(minutes=5), PosthogJwtAudience.IMPERSONATED_USER)
+            authenticator = JwtAuthentication()
+        return authenticator, APIRequestFactory().get("/", headers={"authorization": f"Bearer {token}"})
+
+    @parameterized.expand([("export renderer token", "export_renderer"), ("internal JWT", "jwt")])
+    def test_a_refused_account_keeps_the_refusal_code(self, _name: str, kind: str) -> None:
+        # Both authenticators wrap their body in a catch-all that would turn the refusal into "Token invalid."
+        authenticator, request = self._authenticator_and_request(kind)
+
+        with patch("posthog.auth.security_access_refused", return_value=True):
+            with pytest.raises(AuthenticationFailed) as raised:
+                authenticator.authenticate(request)
+        assert raised.value.get_codes() == "access_blocked"
+
+        with patch("posthog.auth.security_access_refused", return_value=False):
+            result = authenticator.authenticate(request)
+        assert result is not None and result[0] == self.user
 
 
 class TestLogoutRedirect(APIBaseTest):

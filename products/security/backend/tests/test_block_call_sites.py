@@ -104,22 +104,33 @@ class TestBlockCallSites(APIBaseTest):
         assert _count("signup", "invite_signup", "email") == before + would_block
         assert self.user.organizations.filter(id=new_org.id).exists() is (status == 201)
 
-    @parameterized.expand([("logged only", [], False, 1), ("enforced", ["app"], True, 0)])
-    def test_blocked_sso_login(self, _name: str, enforced: list[str], refused: bool, would_block: int) -> None:
-        user = User.objects.create_and_join(self.organization, "blocked.sso@example.com", "a-long-password-123")
-        seed_rules(block_rule(targetType="user_uuid", targetValue=str(user.uuid)))
-        before = _count("app", "sso_login", "user_uuid")
+    @parameterized.expand(
+        [
+            ("existing account, logged only", False, [], False),
+            ("existing account, enforced", False, ["app"], True),
+            ("new account, logged only", True, [], False),
+            ("new account, enforced", True, ["signup"], True),
+        ]
+    )
+    def test_blocked_sso(self, _name: str, new_account: bool, enforced: list[str], refused: bool) -> None:
+        # A new account over SSO can come from an invite or a verified domain, which never reach
+        # the signup serializer, so the pipeline step checks it as a signup.
+        seed_rules(block_rule(targetValue="blocked.sso@example.com"))
+        user = None if new_account else User.objects.create_and_join(self.organization, "blocked.sso@example.com", None)
+        surface, call_site = ("signup", "sso_signup") if new_account else ("app", "sso_login")
+        before = _count(surface, call_site, "email")
         strategy = MagicMock(request=RequestFactory().get("/complete/google-oauth2/"))
+        details = {"email": "blocked.sso@example.com"}
 
         with enforcing(*enforced):
             if refused:
                 with pytest.raises(AuthFailed, match="access_blocked"):
-                    social_access_rules_allow(strategy, MagicMock(), user=user)
+                    social_access_rules_allow(strategy, MagicMock(), user=user, details=details)
             else:
-                social_access_rules_allow(strategy, MagicMock(), user=user)
+                social_access_rules_allow(strategy, MagicMock(), user=user, details=details)
 
-        assert _count("app", "sso_login", "user_uuid") == before + would_block
-        # The step does nothing unless the pipeline runs it before the session starts.
+        assert _count(surface, call_site, "email") == before + (0 if refused else 1)
+        # The step does nothing unless the pipeline runs it before the account or session exists.
         pipeline = list(settings.SOCIAL_AUTH_PIPELINE)
         assert pipeline.index("posthog.api.authentication.social_access_rules_allow") < pipeline.index(
             "posthog.api.signup.social_create_user"
