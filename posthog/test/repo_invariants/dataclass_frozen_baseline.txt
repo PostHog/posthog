@@ -712,7 +712,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jenkins/jenkins.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jenkins/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jfrog_artifactory/jfrog_artifactory.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/jfrog_artifactory/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jira/jira.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jira/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/jobnimbus/jobnimbus.py
