@@ -1020,8 +1020,12 @@ class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDTModel):
 
     Rows are an outbox: a dispatcher claims rows where `dispatched_at` is null and
     fans them out to alerts and automations, so a change that commits is never lost.
-    `snapshot` holds the watched issue fields after the change, so consumers never
-    read the issue row, which can change again or be merged away before dispatch.
+    The row id is also the notification id, so delivery retries stay idempotent per change.
+
+    `snapshot` holds the watched issue fields after the change, so consumers never read
+    the issue row, which can change again or be merged away before dispatch. `data`
+    holds only what the snapshot cannot: its shape depends on `kind` and is defined by
+    the payload types in logic/issue_changes.py.
     """
 
     class Kind(models.TextChoices):
@@ -1029,8 +1033,11 @@ class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDTModel):
         STATUS_CHANGED = "status_changed", "Status changed"
         ASSIGNEE_CHANGED = "assignee_changed", "Assignee changed"
         SEVERITY_CHANGED = "severity_changed", "Severity changed"
+        NAME_CHANGED = "name_changed", "Name changed"
         MERGED = "merged", "Merged"
         SPLIT = "split", "Split"
+        # An observation, not a change: nothing on the issue changes. It is here because
+        # spike alerts open notification threads like the changes above.
         SPIKING = "spiking", "Spiking"
 
     class ActorType(models.TextChoices):
@@ -1047,28 +1054,38 @@ class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDTModel):
     # Not a foreign key: the history of a merged issue must outlive the issue row.
     issue_id = models.UUIDField()
     kind = models.TextField(choices=Kind)
-    # The changed field for attribute changes, e.g. "status". Empty for created, merged, split and spiking.
-    field = models.TextField(blank=True, default="", db_default="")
-    before = models.JSONField(null=True, blank=True)
-    after = models.JSONField(null=True, blank=True)
+    data = models.JSONField(default=dict, db_default={})
+    snapshot = models.JSONField(default=dict, db_default={})
+    # One id per user action, ingestion transaction or automation run. Rows of one
+    # operation are delivered together, e.g. a resolve and an assign in one request.
+    operation_id = models.UUIDField()
+    bulk = models.BooleanField(default=False, db_default=False)
     actor_type = models.TextField(choices=ActorType)
-    # User id for users, automation id for automations, null for ingestion.
-    actor_id = models.TextField(null=True, blank=True)
+    # Plain ids, not foreign keys: the history must outlive deleted users and automations.
+    actor_user_id = models.IntegerField(null=True, blank=True)
+    actor_automation_id = models.UUIDField(null=True, blank=True)
     # The change that caused this one, when an automation reacts to an earlier change.
     causation_id = models.UUIDField(null=True, blank=True)
     # Length of the automation chain that led here. Dispatch stops chains past a limit.
     depth = models.PositiveSmallIntegerField(default=0, db_default=0)
-    snapshot = models.JSONField(default=dict, db_default={})
     # Reference to the exception that caused an ingestion change. The event itself stays in ClickHouse.
     event_uuid = models.UUIDField(null=True, blank=True)
     event_timestamp = models.DateTimeField(null=True, blank=True)
-    # False for changes that may only reply into existing alert threads, e.g. bulk actions.
-    opener_allowed = models.BooleanField(default=True, db_default=True)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     dispatched_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_errortrackingissuechange"
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(actor_type="ingestion", actor_user_id__isnull=True, actor_automation_id__isnull=True)
+                    | models.Q(actor_type="user", actor_user_id__isnull=False, actor_automation_id__isnull=True)
+                    | models.Q(actor_type="automation", actor_user_id__isnull=True, actor_automation_id__isnull=False)
+                ),
+                name="et_issue_change_actor_matches_type",
+            ),
+        ]
         indexes = [
             # Outbox claim. Stays small because rows are dispatched within seconds.
             models.Index(
