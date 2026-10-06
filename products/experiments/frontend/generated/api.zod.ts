@@ -9,6 +9,9 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsCreateBodyNameMax = 400
 
 export const experimentHoldoutsCreateBodyDescriptionMax = 400
@@ -285,6 +288,9 @@ export const ExperimentHoldoutsCreateBody = /* @__PURE__ */ zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsUpdateBodyNameMax = 400
 
 export const experimentHoldoutsUpdateBodyDescriptionMax = 400
@@ -561,6 +567,9 @@ export const ExperimentHoldoutsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const experimentHoldoutsPartialUpdateBodyNameMax = 400
 
 export const experimentHoldoutsPartialUpdateBodyDescriptionMax = 400
@@ -1085,13 +1094,14 @@ export const ExperimentsMetricsRecalculationCreateBody = /* @__PURE__ */ zod
                 'experiment_launch',
                 'experiment_stop',
                 'experiment_update',
+                'timeseries_sync',
             ])
             .describe(
-                '\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
+                '\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update\n\* `timeseries_sync` - Timeseries Sync'
             )
             .default(experimentsMetricsRecalculationCreateBodyTriggerDefault)
             .describe(
-                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update'
+                'What triggered this recalculation (manual is the default for user-initiated runs)\n\n\* `manual` - Manual\n\* `agent_mcp` - Agent (MCP)\n\* `cold_run` - Cold Run\n\* `stale_refresh` - Stale Refresh\n\* `auto_refresh` - Auto Refresh\n\* `experiment_config_change` - Experiment Config Change\n\* `metric_config_change` - Metric Config Change\n\* `config_change` - Config Change\n\* `experiment_launch` - Experiment Launch\n\* `experiment_stop` - Experiment Stop\n\* `experiment_update` - Experiment Update\n\* `timeseries_sync` - Timeseries Sync'
             ),
     })
     .describe('Request body for triggering a metrics recalculation.')
@@ -1447,3 +1457,346 @@ export const ExperimentsSessionContextsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for the batch session-context endpoint.')
+
+/**
+ * Facts about this project that decide how to configure a new experiment.
+ *
+ * Returns the team's experiment defaults, which SDKs call feature flags, traffic on a target
+ * surface, the baseline of a candidate metric, how recent experiments were set up, and the
+ * most reused shared metrics. Each section has its own status, so a slow or failed read
+ * leaves the others valid. POST because the inputs describe a plan rather than a resource;
+ * the endpoint only reads.
+ */
+export const experimentsSetupContextCreateBodyTargetEventMax = 400
+
+export const experimentsSetupContextCreateBodyTargetUrlContainsMax = 1000
+
+export const experimentsSetupContextCreateBodyTargetPropertiesOneItemOneOperatorDefault = `exact`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneItemOneTypeDefault = `event`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneItemTwoTypeDefault = `person`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneMax = 10
+
+export const experimentsSetupContextCreateBodyMetricEventMax = 400
+
+export const experimentsSetupContextCreateBodyMetricPropertiesOneItemOneOperatorDefault = `exact`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneItemOneTypeDefault = `event`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneItemTwoTypeDefault = `person`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneMax = 10
+
+export const experimentsSetupContextCreateBodyPreviousExperimentsLimitDefault = 10
+export const experimentsSetupContextCreateBodyPreviousExperimentsLimitMax = 25
+
+export const experimentsSetupContextCreateBodySharedMetricsLimitDefault = 10
+export const experimentsSetupContextCreateBodySharedMetricsLimitMax = 25
+
+export const ExperimentsSetupContextCreateBody = /* @__PURE__ */ zod
+    .object({
+        target_event: zod
+            .string()
+            .max(experimentsSetupContextCreateBodyTargetEventMax)
+            .nullish()
+            .describe(
+                "Event that marks a visit to the surface under test, for example '$pageview' or '$screen'. Needed for target_surface and for the baseline in candidate_metric."
+            ),
+        target_url_contains: zod
+            .string()
+            .max(experimentsSetupContextCreateBodyTargetUrlContainsMax)
+            .nullish()
+            .describe(
+                "Only counts target events whose $current_url contains this text, ignoring case. Needs target_event to be '$pageview'."
+            ),
+        target_properties: zod
+            .union([
+                zod
+                    .array(
+                        zod.union([
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        experimentsSetupContextCreateBodyTargetPropertiesOneItemOneOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(experimentsSetupContextCreateBodyTargetPropertiesOneItemOneTypeDefault)
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                type: zod
+                                    .literal('person')
+                                    .default(experimentsSetupContextCreateBodyTargetPropertiesOneItemTwoTypeDefault)
+                                    .describe('Person properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                        ])
+                    )
+                    .max(experimentsSetupContextCreateBodyTargetPropertiesOneMax)
+                    .describe('Event or person property filters that narrow which events are counted.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Event or person property filters that narrow the target event, for example an exact $host and $pathname for one page. At most 10 filters, and each needs type 'event' or 'person'. Needs target_event. Combines with target_url_contains."
+            ),
+        metric_event: zod
+            .string()
+            .max(experimentsSetupContextCreateBodyMetricEventMax)
+            .nullish()
+            .describe(
+                "Event of the candidate primary metric. With target_event, candidate_metric returns a baseline. Without it, candidate_metric returns only the event's volume. Also marks the shared metrics that count this event."
+            ),
+        metric_properties: zod
+            .union([
+                zod
+                    .array(
+                        zod.union([
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        experimentsSetupContextCreateBodyMetricPropertiesOneItemOneOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(experimentsSetupContextCreateBodyMetricPropertiesOneItemOneTypeDefault)
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                type: zod
+                                    .literal('person')
+                                    .default(experimentsSetupContextCreateBodyMetricPropertiesOneItemTwoTypeDefault)
+                                    .describe('Person properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                        ])
+                    )
+                    .max(experimentsSetupContextCreateBodyMetricPropertiesOneMax)
+                    .describe('Event or person property filters that narrow which events are counted.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Event or person property filters that narrow the metric event, for the metric that counts only some of its occurrences. At most 10 filters, and each needs type 'event' or 'person'. Needs metric_event."
+            ),
+        previous_experiments_limit: zod
+            .number()
+            .min(1)
+            .max(experimentsSetupContextCreateBodyPreviousExperimentsLimitMax)
+            .default(experimentsSetupContextCreateBodyPreviousExperimentsLimitDefault)
+            .describe('How many experiments to return, most recently launched first, then drafts, 1 to 25.'),
+        shared_metrics_limit: zod
+            .number()
+            .min(1)
+            .max(experimentsSetupContextCreateBodySharedMetricsLimitMax)
+            .default(experimentsSetupContextCreateBodySharedMetricsLimitDefault)
+            .describe('How many shared metrics to return, most reused first, 1 to 25.'),
+    })
+    .describe(
+        "What the caller plans to test. Every field is optional; a section that needs a missing input\ncomes back with status 'skipped'."
+    )

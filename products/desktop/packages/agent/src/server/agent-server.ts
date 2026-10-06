@@ -5642,7 +5642,7 @@ export class AgentServer {
       this.session?.sseController ?? this.initializingSseController;
     if (controller) {
       this.sendSseEvent(controller, event);
-    } else {
+    } else if (!this.eventStreamSender) {
       // Buffers events raised before a session exists yet (e.g. an MCP relay
       // request fired the instant the client subprocess starts, ahead of
       // `this.session` assignment) or before its SSE controller attaches.

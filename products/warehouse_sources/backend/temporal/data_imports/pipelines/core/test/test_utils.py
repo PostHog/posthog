@@ -13,6 +13,8 @@ import pyarrow as pa
 import deltalake
 import structlog
 from dateutil import parser
+from psycopg.types.multirange import Multirange
+from psycopg.types.range import Range
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.errors import NonReportableError
@@ -643,6 +645,43 @@ def test_table_from_py_list_with_ipv6_address():
             ]
         )
     )
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        (Range(4, 5, "[)"), "[4,5)"),
+        (Range(4, 5, "[]"), "[4,5]"),
+        (Range(empty=True), "empty"),
+        (Range(None, None, "()"), "(,)"),
+        (Range(5, None, "[)"), "[5,)"),
+        # A bound holding a space is quoted, the way Postgres writes a timestamp range
+        (
+            Range(datetime.datetime(2020, 1, 1), datetime.datetime(2020, 2, 1), "[)"),
+            '["2020-01-01 00:00:00","2020-02-01 00:00:00")',
+        ),
+        (Multirange([Range(1, 4, "[)"), Range(7, 9, "[)")]), "{[1,4),[7,9)}"),
+        (Multirange([]), "{}"),
+    ],
+)
+def test_table_from_py_list_with_postgres_range(value, expected):
+    # The Postgres source declares a range or multirange column as a string, so without a
+    # conversion pyarrow rejects the psycopg object with "Expected bytes, got a 'Range' object".
+    declared_schema = pa.schema(cast(Any, [pa.field("column", pa.string())]))
+
+    for schema in (None, declared_schema):
+        table = table_from_py_list([{"column": value}, {"column": None}], schema)
+
+        assert table.schema.field("column").type == pa.string()
+        assert table.column("column").to_pylist() == [expected, None]
+
+
+def test_table_from_py_list_list_of_ranges_is_json_of_range_text():
+    # A Postgres array of ranges reaches the JSON fallback, which must render each element as
+    # range text rather than as the psycopg object's Python repr.
+    table = table_from_py_list([{"column": [Range(1, 2, "[)"), Range(3, 4, "[]")]}])
+
+    assert table.column("column").to_pylist() == ['["[1,2)","[3,4]"]']
 
 
 def test_normalize_table_column_names_prevents_collisions():

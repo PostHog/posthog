@@ -50,6 +50,7 @@ POOLS = {
         "namespace_by_environment": {
             "dev": "flags-cache-jumphost",
             "prod-eu": "flags-cache-jumphost",
+            "prod-us": "flags-cache-jumphost",
         },
         "app_label": "flags-cache-jumphost",
         "claimed_label_key": "flags-jumphost-claimed",

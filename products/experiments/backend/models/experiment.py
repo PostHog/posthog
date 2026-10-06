@@ -546,6 +546,9 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         EXPERIMENT_LAUNCH = "experiment_launch", "Experiment Launch"
         EXPERIMENT_STOP = "experiment_stop", "Experiment Stop"
         EXPERIMENT_UPDATE = "experiment_update", "Experiment Update"
+        # Written by the daily timeseries workflow, not by a user: a completed run assembled from the
+        # timeseries points of one daily run, so the latest read serves fresh data without a recompute.
+        TIMESERIES_SYNC = "timeseries_sync", "Timeseries Sync"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)

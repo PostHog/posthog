@@ -105,6 +105,20 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.SLOT_IN_USE,
             ),
             (
+                # Recreating a customer-owned publication (e.g. after slot invalidation recovery)
+                # requires owning every table added to it, not just SELECT. This must not fall
+                # through to the retryable UNKNOWN bucket, or recovery retries forever against the
+                # same permission wall.
+                "must_be_owner_is_non_retryable_permission_denied",
+                psycopg.errors.InsufficientPrivilege("must be owner of table orders"),
+                CDCErrorCategory.PERMISSION_DENIED,
+            ),
+            (
+                "permission_denied_for_table_is_non_retryable_permission_denied",
+                psycopg.errors.InsufficientPrivilege("permission denied for table orders"),
+                CDCErrorCategory.PERMISSION_DENIED,
+            ),
+            (
                 "wal_decode_struct_error",
                 struct.error("unpack requires a buffer of 4 bytes"),
                 CDCErrorCategory.WAL_DECODE_ERROR,

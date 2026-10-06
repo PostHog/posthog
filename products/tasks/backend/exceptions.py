@@ -103,6 +103,11 @@ class TaskInvalidStateError(ProcessTaskFatalError):
     pass
 
 
+class OrganizationExecutionError(ProcessTaskError):
+    def __init__(self, message: str, team_id: int, reason: str) -> None:
+        super().__init__(message, {"team_id": team_id, "reason": reason}, None, capture=False, non_retryable=True)
+
+
 class SandboxProvisionError(ProcessTaskTransientError):
     """Failed to provision sandbox environment."""
 

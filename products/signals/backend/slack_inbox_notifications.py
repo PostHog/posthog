@@ -52,6 +52,8 @@ from products.signals.backend.slack_formatting import (
     strip_chart_references as _strip_chart_references,
 )
 from products.signals.backend.slack_notification_targets import is_slack_member_target, lookup_slack_user_id_by_email
+from products.signals.backend.slack_report_threads import record_report_slack_thread
+from products.slack_app.backend.facade.api import slack_followup_invite
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
 # report notifies iff its latest actionability judgment is one of these (and it's READY).
@@ -63,6 +65,7 @@ logger = logging.getLogger(__name__)
 
 _SUMMARY_EXCERPT_MAX_LEN = 600
 _SLACK_HEADER_MAX_LEN = 150
+_INBOX_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=signals_inbox&utm_medium=slack"
 # Bound message size / avoid pinging a crowd.
 _MAX_REVIEWER_MENTIONS = 5
 
@@ -687,9 +690,29 @@ def _deliver_route_notification(
             reviewer_mentions=mentions,
             repository=repository,
         )
+        # Added here rather than inside the block builder, which stays free of the integration so it
+        # can be tested without one. Approval is read now, not assumed from generation time: a
+        # reviewer can be added to a retained report after the org revoked it.
+        ai_enabled = bool(report.team.organization.is_ai_data_processing_approved)
+        if invite := slack_followup_invite(route.integration, utm_tags=_INBOX_INVITE_UTM_TAGS, ai_enabled=ai_enabled):
+            blocks.append(invite)
         response = slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=text)
         delivered = True
         thread_ts = response.get("ts") if hasattr(response, "get") else None
+        # A member target opens a direct message, so the conversation Slack posted into is not the
+        # id we sent. An inbound mention names the conversation, so that is what the link records.
+        posted_channel = response.get("channel") if hasattr(response, "get") else None
+        if thread_ts:
+            # Recorded before the evidence replies, so a failure posting those still leaves the
+            # thread resolvable back to the report.
+            record_report_slack_thread(
+                slack_workspace_id=route.integration.integration_id,
+                team_id=report.team_id,
+                report_id=str(report.id),
+                integration_id=route.integration.id,
+                channel=str(posted_channel or channel_id),
+                thread_ts=str(thread_ts),
+            )
         if signals and thread_ts:
             _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)
     except Exception:

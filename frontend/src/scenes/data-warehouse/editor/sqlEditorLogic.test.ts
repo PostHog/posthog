@@ -26,7 +26,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
+import { ChartDisplayType, InsightShortId, InsightModel } from '~/types'
 
 import { BI_EDITOR_EVENTS } from './bi/biEditorAnalytics'
 import { biEditorLogic } from './bi/biEditorLogic'
@@ -67,7 +67,7 @@ const MOCK_DATA_TABLE_INSIGHT_QUERY: DataTableNode = {
     },
 }
 
-const MOCK_DATA_TABLE_INSIGHT: QueryBasedInsightModel = {
+const MOCK_DATA_TABLE_INSIGHT: InsightModel = {
     id: 2,
     short_id: MOCK_DATA_TABLE_INSIGHT_SHORT_ID,
     name: 'DataTable Insight',
@@ -94,9 +94,9 @@ const MOCK_DATA_TABLE_INSIGHT: QueryBasedInsightModel = {
     layouts: {},
     color: null,
     user_access_level: 'none',
-} as QueryBasedInsightModel
+} as InsightModel
 
-const MOCK_INSIGHT: QueryBasedInsightModel = {
+const MOCK_INSIGHT: InsightModel = {
     id: 1,
     short_id: MOCK_INSIGHT_SHORT_ID,
     name: 'Test Insight',
@@ -123,7 +123,7 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
     layouts: {},
     color: null,
     user_access_level: 'none',
-} as QueryBasedInsightModel
+} as InsightModel
 
 const MOCK_VIEW = {
     id: 'test-view',
@@ -1347,7 +1347,7 @@ describe('sqlEditorLogic', () => {
             editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
             editorRootLogic.mount()
 
-            const insightWithEmptyName = { ...MOCK_INSIGHT, name: '' } as QueryBasedInsightModel
+            const insightWithEmptyName = { ...MOCK_INSIGHT, name: '' } as InsightModel
             logic.actions.createTab(MOCK_INSIGHT_QUERY.source.query, undefined, insightWithEmptyName)
             await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
 
@@ -2869,7 +2869,7 @@ describe('sqlEditorLogic', () => {
                 ...MOCK_INSIGHT,
                 dashboards,
                 dashboard_tiles: dashboardTiles,
-            } as QueryBasedInsightModel
+            } as InsightModel
             logic.actions.editInsight(MOCK_INSIGHT_QUERY.source.query, insightOnDashboards)
             await expectLogic(logic)
                 .toDispatchActions(['createTab', 'updateTab'])

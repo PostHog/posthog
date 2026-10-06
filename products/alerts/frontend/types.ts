@@ -12,7 +12,7 @@ import {
     MetricsAlertConfig,
     TrendsAlertConfig,
 } from '~/queries/schema/schema-general'
-import { QueryBasedInsightModel, UserBasicType } from '~/types'
+import { InsightModel, UserBasicType } from '~/types'
 
 import type { AlertDeliveryApi } from './generated/api.schemas'
 
@@ -113,7 +113,7 @@ export interface AlertTypeBase {
     condition: AlertCondition
     threshold: { configuration: AlertThreshold }
     enabled: boolean
-    insight: QueryBasedInsightModel
+    insight: InsightModel
     config: AlertConfig
     skip_weekend?: boolean
     schedule_restriction?: ScheduleRestriction | null

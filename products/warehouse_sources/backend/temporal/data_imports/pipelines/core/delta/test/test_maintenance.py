@@ -8,6 +8,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     COMPACT_OFFSET_OVERFLOW_RETRIES,
     DeltaMaintenance,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    ObjectStorePermissionDeniedError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
 
 _MAINTENANCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance"
@@ -146,6 +149,26 @@ class TestCompactTable:
 
         maintenance._table.get_delta_table.assert_called_once()
         mock_delta.optimize.compact.assert_called_once()
+        mock_delta.vacuum.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_refused_vacuum_does_not_fail_the_sync(self):
+        # Vacuum only reclaims files the load already tombstoned, so a bucket that refuses the delete
+        # leaves every live row queryable. compact_table's caller reports anything it raises, which
+        # turned a refused cleanup into a reported failure on a sync that had loaded its rows fine.
+        mock_delta = MagicMock()
+        mock_delta.optimize.compact = MagicMock(return_value={})
+        mock_delta.vacuum = MagicMock(
+            side_effect=OSError(
+                "Kernel error -> The operation lacked the necessary privileges to complete for path "
+                "warehouse/team_42_source_7/orders/part-00003.parquet"
+            )
+        )
+        maintenance = _make_maintenance(mock_delta)
+
+        await maintenance.compact_table()
+
+        # One attempt only: a refusal must not be retried as though it were a commit conflict.
         mock_delta.vacuum.assert_called_once()
 
     @pytest.mark.asyncio
@@ -436,6 +459,12 @@ class TestRunScheduled:
                 ),
                 False,
             ),
+            # A refused read/write/delete on our own bucket is a policy condition rather than a
+            # maintenance defect, and no code change fixes it, so reporting it once per sync says
+            # the same thing repeatedly. The watermark assertion below is what keeps the cadence
+            # re-attempting the vacuum instead of waiting another commit_threshold commits for a
+            # cleanup that never ran.
+            ("object_store_refusal_warned_only", ObjectStorePermissionDeniedError("denied"), False),
         ]
     )
     @pytest.mark.asyncio

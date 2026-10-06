@@ -1,7 +1,7 @@
 import itertools
 from collections.abc import Generator
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional, cast
+from typing import Optional
 
 from django.db.models import Q
 
@@ -11,10 +11,9 @@ from celery import shared_task
 from celery.canvas import chain
 from prometheus_client import Counter, Gauge
 
-from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
 
-from posthog.api.services.query import process_query_dict
+from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.utils import largest_teams
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
@@ -29,8 +28,10 @@ from posthog.query_creator_access import creator_access_revoked, report_creator_
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
+from posthog.utils import variables_override_requested_by_client
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.product_analytics.backend.facade.api import insight_variables_for_team
 from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
@@ -247,22 +248,28 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
         try:
-            results = process_query_dict(
-                insight.team,
-                cast(dict[str, Any], insight.query),
-                dashboard_filters_json=dashboard.filters if dashboard is not None else None,
+            tile = dashboard.tiles.filter(insight=insight).first() if dashboard is not None else None
+            variables_override = (
+                variables_override_requested_by_client(None, dashboard, insight_variables_for_team(insight.team_id))
+                if dashboard is not None and dashboard.variables
+                else None
+            )
+            # The same call a dashboard load makes, so warming writes the cache key the page reads.
+            results = calculate_for_query_based_insight(
+                insight,
+                team=insight.team,
+                dashboard=dashboard,
                 # We need an execution mode with recent cache:
                 # - in case someone refreshed after this task was triggered
                 # - if insight + dashboard combinations have the same cache key, we prevent needless recalculations
-                limit_context=LimitContext.QUERY_ASYNC,
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 user=insight.created_by,
-                insight_id=insight_id,
-                dashboard_id=dashboard_id,
+                variables_override=variables_override,
+                tile_filters_override=tile.filters_overrides if tile is not None else None,
                 analytics_props={"source": EventSource.CACHE_WARMING},
             )
 
-            is_cached = getattr(results, "is_cached", False)
+            is_cached = results.is_cached
 
             PRIORITY_INSIGHTS_COUNTER.labels(
                 team_id=insight.team_id,

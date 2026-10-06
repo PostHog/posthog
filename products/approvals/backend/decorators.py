@@ -77,11 +77,7 @@ def _is_approvals_enabled(organization) -> bool:
 def _check_policy_for_action(action_class, team, organization) -> Optional[Any]:
     """Check if there's an enabled policy for this action."""
     policy_engine = PolicyEngine()
-    policy = policy_engine.get_policy(
-        action_key=action_class.key,
-        team=team,
-        organization=organization,
-    )
+    policy = policy_engine.get_policy_for_action(action_class, team, organization)
     if policy and policy.enabled:
         return policy
     return None
@@ -290,6 +286,7 @@ def _evaluate_gate(
         actor=request.user,
         intent=intent_data,
         context=context,
+        ignore_conditions=policy.action_key != action_class.key,
     )
 
     if decision.result == "ALLOW":

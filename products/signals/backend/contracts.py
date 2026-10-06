@@ -329,7 +329,6 @@ class SignalsScoutSignalExtra(SignalExtraBase):
     finding_id: str
     skill_name: str
     skill_version: int
-    confidence: float
     severity: ReportPriority | None = None
     hypothesis: str | None = None
     evidence: list[SignalsScoutEvidenceEntry]

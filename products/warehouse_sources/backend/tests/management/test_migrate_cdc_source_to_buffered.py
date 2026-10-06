@@ -120,6 +120,19 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
         mocks["unpause"].assert_called_once()
         mocks["unpause_schema"].assert_called_once_with(str(schema.id))
 
+    @parameterized.expand([("flip", None, "buffered"), ("rollback", "buffered", "legacy")])
+    def test_the_mode_is_written_without_saving_the_source(self, _name, ingest_mode, expected_mode):
+        source = self._source(ingest_mode=ingest_mode)
+        self._schema(source, "users")
+
+        with _mocked_side_effects():
+            with patch.object(ExternalDataSource, "save", side_effect=AssertionError("source.save must not run")):
+                self._run(source, rollback=ingest_mode == "buffered")
+
+        source.refresh_from_db()
+        assert source.job_inputs["cdc_ingest_mode"] == expected_mode
+        assert source.job_inputs["cdc_buffered_before"]
+
     def test_flip_aborts_when_a_buffer_file_survives_the_purge(self):
         # The purge itself is best-effort; a surviving file would replay legacy-delivered rows
         # against a lane with no watermark, silently. Abort with the mode unchanged.

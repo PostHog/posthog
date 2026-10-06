@@ -468,7 +468,7 @@ class TestGoogleAdsSourceValidation:
 
         assert is_valid is False
         assert error is not None
-        assert "Insufficient permissions" in error
+        assert "Reconnect your Google Ads account" in error
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client"

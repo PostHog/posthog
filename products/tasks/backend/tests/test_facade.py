@@ -1493,6 +1493,34 @@ class TestFacadeReadsAndMappers(TestCase):
         assert created.latest_run is not None
         self.assertEqual(created.latest_run.task_id, created.task_id)
 
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_slack_report_link_is_idempotent_and_does_not_claim_implementation(self, _mock_workflow):
+        from products.signals.backend.models import (
+            SignalReport,
+            SignalReportAction,
+            SignalReportArtefact,
+            SignalReportTask,
+        )
+
+        report = SignalReport.objects.create(team=self.team, title="Report", summary="Summary")
+        created = facade.create_and_run_task(
+            team=self.team,
+            title="Started from a Slack thread",
+            description="desc",
+            origin_product=facade.TaskOriginProduct.SLACK,
+            user_id=self.user.id,
+        )
+        for _ in range(2):
+            facade.link_slack_task_to_report(
+                team_id=self.team.id, task_id=str(created.task_id), report_id=str(report.id), user_id=self.user.id
+            )
+        assert Task.objects.get(id=created.task_id).signal_report_id == report.id
+        assert SignalReportArtefact.objects.filter(report_id=report.id, task_id=created.task_id).count() == 1
+        assert (
+            SignalReportAction.objects.for_team(self.team.id).get(report_id=report.id, user_id=self.user.id).count == 1
+        )
+        assert not SignalReportTask.objects.filter(report_id=report.id).exists()
+
     @patch("products.tasks.backend.logic.services.title_generator.generate_task_title")
     def test_create_task_names_from_naming_source_keeping_description_bare(self, mock_title):
         # When a client pastes text (stored as an attachment), it sends the pasted content as

@@ -1,4 +1,5 @@
 import re
+import errno
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import datetime
@@ -21,7 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.naming_convention 
 # A best-effort delete of old query folders can hit a transient S3 connectivity blip
 # (connect/read timeout, dropped connection). The folder is timestamped and simply gets
 # picked up by the age-based GC on a later sync, so these aren't worth an error-tracking
-# issue - unlike a real failure (permissions, missing bucket), which still gets captured.
+# issue - unlike a failure that needs a human (denied permissions, a storage backend with no
+# free space), which still gets captured.
 _TRANSIENT_S3_CONNECTION_EXCEPTIONS = (
     botocore.exceptions.ConnectionError,  # covers ConnectTimeoutError, EndpointConnectionError
     botocore.exceptions.ReadTimeoutError,
@@ -31,6 +33,62 @@ _TRANSIENT_S3_CONNECTION_EXCEPTIONS = (
 
 def _is_transient_s3_connection_error(error: BaseException) -> bool:
     return isinstance(error, _TRANSIENT_S3_CONNECTION_EXCEPTIONS)
+
+
+# s3fs turns an S3 error response into a Python exception by error code
+# (``s3fs/errors.py::translate_boto_error``) and keeps the original ``ClientError`` on ``__cause__``.
+# Every code S3 uses to ask a client to back off - ``SlowDown``, ``ServiceUnavailable``,
+# ``OperationAborted`` and the bare 503/409 statuses - maps onto ``errno.EBUSY``, so the errno
+# identifies "busy, come back later" without matching a vendor's free-text message. The code itself
+# is read too, for a ``ClientError`` that reaches us untranslated.
+_S3_THROTTLING_ERROR_CODES = frozenset({"SlowDown", "ServiceUnavailable", "OperationAborted", "503", "409"})
+
+
+def _s3_error_code(error: BaseException) -> Optional[str]:
+    client_error = error if isinstance(error, botocore.exceptions.ClientError) else error.__cause__
+    if not isinstance(client_error, botocore.exceptions.ClientError):
+        return None
+    code = client_error.response.get("Error", {}).get("Code")
+    return str(code) if code is not None else None
+
+
+def _is_s3_throttling_error(error: BaseException) -> bool:
+    """True when the object store refused the request to protect itself, rather than failing it.
+
+    The same request succeeds once the rate drops, so the caller retries with backoff instead of
+    reporting. Bulk operations hit this the hardest: one recursive delete of a query folder is a
+    list plus a batched DeleteObjects against a single prefix, which is exactly the shape S3
+    rate-limits.
+    """
+    if isinstance(error, OSError) and error.errno == errno.EBUSY:
+        return True
+    return _s3_error_code(error) in _S3_THROTTLING_ERROR_CODES
+
+
+class S3OperationError(Exception):
+    """An operation on PostHog's own data-warehouse bucket failed for a reason a retry cannot fix.
+
+    Denied permissions and a storage backend out of free space both reach us as the raw s3fs text,
+    which names our bucket, one team's folder and the object key. That text is not only logged: an
+    activity failure we do not classify has its message stored as the ``latest_error`` a customer
+    reads (``external_data_job.py::_customer_facing_error``), and it is also the title error
+    tracking groups on, where a per-object message splits one condition across many issues. This
+    error's message names the operation and the kind of path instead, and the original error stays
+    on ``__cause__`` for the logs and the captured exception chain.
+
+    Deliberately not a ``NonReportableError``: these conditions need a human, so they must still
+    reach error tracking.
+    """
+
+    def __init__(self, operation: str, cause: BaseException) -> None:
+        super().__init__(
+            f"PostHog couldn't {operation}. The problem is in PostHog's own storage, not in "
+            "your data. The next scheduled run will try again."
+        )
+        self.operation = operation
+        # Set here rather than through ``raise ... from cause`` so a site that reports this error
+        # without raising it keeps the original too.
+        self.__cause__ = cause
 
 
 class NonRetryableException(NonReportableError):
@@ -71,6 +129,11 @@ S3_DELETE_TIME_BUFFER = 600
 # the same class of race. 6 attempts gives ~62s of cumulative backoff (2+4+8+16+32s), comfortably
 # past that documented worst case; 4 attempts (~14s) wasn't.
 _COPY_FILES_MAX_ATTEMPTS = 6
+
+# A recursive delete is idempotent (a folder already gone is the outcome it wanted), so retrying the
+# whole delete after a throttling response is as safe as retrying one call. 4 attempts gives ~14s of
+# cumulative backoff (2+4+8s), the same budget `_purge_s3_prefix` uses against the same condition.
+_DELETE_FOLDER_MAX_ATTEMPTS = 4
 
 
 def is_posthog_team(team_id: int) -> bool:
@@ -248,8 +311,13 @@ async def prepare_s3_files_for_querying(
                 # s3fs wraps a CopyObject/PutObject 5xx (e.g. S3's InternalError, already retried to
                 # exhaustion at the boto layer) as a plain OSError. That's a blip on S3's side, not a
                 # bug here - retry the whole (idempotent) copy batch with backoff before giving up.
-                if attempt >= _COPY_FILES_MAX_ATTEMPTS or not is_transient_object_store_error(e):
-                    raise
+                if attempt >= _COPY_FILES_MAX_ATTEMPTS or not (
+                    is_transient_object_store_error(e) or _is_s3_throttling_error(e)
+                ):
+                    # Either the failure needs a human (denied permissions, a storage backend with no
+                    # free space) or the retries ran out. Both leave the raw s3fs message, so re-raise
+                    # as the typed error that names the operation without the bucket and key.
+                    raise S3OperationError("copy this table's files into its query folder", e)
                 await _log(
                     f"Transient S3 error while copying files (attempt {attempt}/{_COPY_FILES_MAX_ATTEMPTS}), "
                     f"retrying: {e}",
@@ -263,12 +331,35 @@ async def prepare_s3_files_for_querying(
 
             async def delete_folder(file: str) -> None:
                 async with semaphore:
-                    try:
-                        await s3._rm(file, recursive=True)
-                    except Exception as e:
-                        await _log(f"Error while deleting old query folder {file}: {e}", level="error")
-                        if not _is_transient_s3_connection_error(e):
-                            capture_exception(e)
+                    delete_attempt = 0
+                    while True:
+                        delete_attempt += 1
+                        try:
+                            await s3._rm(file, recursive=True)
+                            return
+                        except FileNotFoundError:
+                            # The folder is already gone: another sync's cleanup pass took it, or an
+                            # earlier attempt of this one deleted it and lost the response. That is
+                            # the outcome this delete wanted, so there is nothing to report.
+                            await _log(f"Old query folder was already deleted: {file}")
+                            return
+                        except Exception as e:
+                            if _is_s3_throttling_error(e) and delete_attempt < _DELETE_FOLDER_MAX_ATTEMPTS:
+                                await _log(
+                                    f"S3 throttled the delete of old query folder {file} (attempt "
+                                    f"{delete_attempt}/{_DELETE_FOLDER_MAX_ATTEMPTS}), retrying: {e}",
+                                    level="error",
+                                )
+                                await asyncio.sleep(2**delete_attempt)
+                                continue
+
+                            await _log(f"Error while deleting old query folder {file}: {e}", level="error")
+                            if not _is_transient_s3_connection_error(e):
+                                capture_exception(S3OperationError("delete an old query folder for this table", e))
+                            # Cleanup stays best effort: the folder is timestamped, so the age-based
+                            # GC above picks it up on a later sync. Failing the sync over it would
+                            # throw away a load that has already landed.
+                            return
 
             await asyncio.gather(*[delete_folder(file) for file in files_to_delete])
 

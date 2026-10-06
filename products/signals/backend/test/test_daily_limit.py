@@ -103,6 +103,7 @@ class TestFirstVisibleStamp(BaseTest):
         [
             ("ready", SignalReport.Status.READY, None),
             ("pending_input", SignalReport.Status.PENDING_INPUT, "needs a repository"),
+            ("failed", SignalReport.Status.FAILED, "boom"),
         ]
     )
     def test_first_visible_transition_stamps(self, _name, target, error):
@@ -140,7 +141,6 @@ class TestFirstVisibleStamp(BaseTest):
                 SignalReport.Status.IN_PROGRESS,
                 {"signals_at_run_increment": 3},
             ),
-            ("fail", SignalReport.Status.IN_PROGRESS, SignalReport.Status.FAILED, {"error": "boom"}),
             (
                 "reset",
                 SignalReport.Status.IN_PROGRESS,

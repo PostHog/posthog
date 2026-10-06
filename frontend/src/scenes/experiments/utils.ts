@@ -43,7 +43,7 @@ import {
     MultivariateFlagVariant,
     PropertyFilterType,
     PropertyOperator,
-    type QueryBasedInsightModel,
+    type InsightModel,
     UniversalFiltersGroupValue,
 } from '~/types'
 
@@ -641,7 +641,7 @@ export function getDefaultExperimentMetric(metricType: ExperimentMetricType): Ex
     }
 }
 
-export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel | null): ExperimentMetric | undefined {
+export function getExperimentMetricFromInsight(insight: InsightModel | null): ExperimentMetric | undefined {
     if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
         return undefined
     }
@@ -881,8 +881,11 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
 
     const source: ExperimentMetricSource | null = match(metric)
         .when(isExperimentRatioMetric, (ratioMetric) => ratioMetric.numerator)
+        // An exposure-anchored start has no literal event to preview, so show completion-event activity
         .when(isExperimentRetentionMetric, (retentionMetric) =>
-            isExperimentExposureNode(retentionMetric.start_event) ? null : retentionMetric.start_event
+            isExperimentExposureNode(retentionMetric.start_event)
+                ? retentionMetric.completion_event
+                : retentionMetric.start_event
         )
         .when(isExperimentMeanMetric, (meanMetric) => meanMetric.source)
         .otherwise(() => null)

@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from typing import Any
 
 from temporalio import activity
@@ -56,6 +57,107 @@ def _append_unconfirmed_attachment_notice(
 _FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
 
 
+class _SlackChunkPacker:
+    """Packs markdown into chunks of at most ``limit`` characters."""
+
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._chunks: list[str] = []
+        self._current = ""
+
+    def _try_append(self, atom: str, joiner: str) -> bool:
+        """Add ``atom`` to the open chunk, or report that it does not fit."""
+        if len(self._current) + len(joiner) + len(atom) > self._limit:
+            return False
+        self._current = self._current + joiner + atom
+        return True
+
+    def _flush(self) -> None:
+        stripped = self._current.rstrip()
+        if stripped:
+            self._chunks.append(stripped)
+        self._current = ""
+
+    def _append_atom(self, atom: str, separator: str) -> None:
+        """Append ``atom``, starting a new chunk first if it would overflow the open one."""
+        if self._try_append(atom, separator if self._current else ""):
+            return
+        self._flush()
+        self._current = atom
+
+    def _split_long_line(self, line: str) -> None:
+        """Hard-split a single line that is itself longer than the limit."""
+        remaining = line
+        while len(remaining) > self._limit:
+            self._flush()
+            self._chunks.append(remaining[: self._limit])
+            remaining = remaining[self._limit :]
+        if remaining:
+            self._append_atom(remaining, "\n")
+
+    def _pack(self, body: str, separator: str, overflow: Callable[[str], None]) -> None:
+        """Pack the parts of ``body``, sending a part that alone overflows to ``overflow``."""
+        # The joiner rule here differs from _append_atom's: on a part after the first it
+        # keeps the separator even when the open chunk is empty, where _append_atom drops
+        # it. The two are not interchangeable, because merging them changes which
+        # characters start a chunk.
+        for index, atom in enumerate(body.split(separator)):
+            joiner = separator if index > 0 or self._current else ""
+            if self._try_append(atom, joiner):
+                continue
+            if len(atom) <= self._limit:
+                self._append_atom(atom, separator)
+            else:
+                overflow(atom)
+
+    def _pack_lines(self, paragraph: str) -> None:
+        self._pack(paragraph, "\n", self._split_long_line)
+
+    def _add_text(self, body: str) -> None:
+        self._pack(body, "\n\n", self._pack_lines)
+
+    def _add_fenced_chunks(self, body: str, *, fence_open: str, fence_close: str) -> None:
+        """Spread a code body too long for one chunk over several, each one fully fenced.
+
+        Every chunk repeats the fence pair, so it comes out of that chunk's own budget.
+        A break lands on a line boundary when one falls inside the remaining room.
+        """
+        room = max(1, self._limit - len(fence_open) - len(fence_close))
+        cursor = 0
+        while cursor < len(body):
+            end = min(cursor + room, len(body))
+            if end < len(body):
+                newline = body.rfind("\n", cursor, end)
+                if newline > cursor:
+                    end = newline
+            self._chunks.append(f"{fence_open}{body[cursor:end]}{fence_close}")
+            cursor = end + 1 if end < len(body) and body[end] == "\n" else end
+
+    def _add_code_block(self, language: str, body: str) -> None:
+        fence_open = f"```{language}\n" if language else "```\n"
+        fence_close = "\n```"
+        if len(fence_open) + len(body) + len(fence_close) <= self._limit:
+            self._append_atom(f"{fence_open}{body}{fence_close}", "\n\n")
+            return
+        self._flush()
+        self._add_fenced_chunks(body, fence_open=fence_open, fence_close=fence_close)
+
+    def add_markdown(self, text: str) -> None:
+        """Pack ``text``, keeping every fenced code block apart from the prose around it."""
+        pos = 0
+        for match in _FENCED_CODE_RE.finditer(text):
+            if match.start() > pos:
+                self._add_text(text[pos : match.start()])
+            self._add_code_block(match.group(1), match.group(2))
+            pos = match.end()
+        if pos < len(text):
+            self._add_text(text[pos:])
+
+    def finish(self) -> list[str]:
+        self._flush()
+        return self._chunks
+
+
 def _split_markdown_for_slack(text: str, limit: int) -> list[str]:
     """Split raw markdown into Slack-sized chunks at safe structural boundaries.
 
@@ -68,90 +170,9 @@ def _split_markdown_for_slack(text: str, limit: int) -> list[str]:
     if len(text) <= limit:
         return [text]
 
-    segments: list[tuple[str, str, str]] = []
-    pos = 0
-    for match in _FENCED_CODE_RE.finditer(text):
-        if match.start() > pos:
-            segments.append(("text", "", text[pos : match.start()]))
-        segments.append(("code", match.group(1), match.group(2)))
-        pos = match.end()
-    if pos < len(text):
-        segments.append(("text", "", text[pos:]))
-
-    chunks: list[str] = []
-    current = ""
-
-    def flush() -> None:
-        nonlocal current
-        stripped = current.rstrip()
-        if stripped:
-            chunks.append(stripped)
-        current = ""
-
-    def append_atom(atom: str, separator: str = "") -> None:
-        """Append ``atom`` to the current chunk, flushing first if it would overflow."""
-        nonlocal current
-        candidate = current + (separator if current else "") + atom
-        if len(candidate) <= limit:
-            current = candidate
-            return
-        flush()
-        current = atom
-
-    def split_long_line(line: str) -> None:
-        """Hard-split a single line that is itself longer than the limit."""
-        nonlocal current
-        remaining = line
-        while len(remaining) > limit:
-            flush()
-            chunks.append(remaining[:limit])
-            remaining = remaining[limit:]
-        if remaining:
-            append_atom(remaining, separator="\n")
-
-    for kind, lang, body in segments:
-        if kind == "text":
-            for paragraph_index, paragraph in enumerate(body.split("\n\n")):
-                separator = "\n\n" if paragraph_index > 0 or current else ""
-                if len(current) + len(separator) + len(paragraph) <= limit:
-                    current = current + separator + paragraph
-                    continue
-                if len(paragraph) <= limit:
-                    append_atom(paragraph, separator="\n\n")
-                    continue
-                # Paragraph alone overflows — fall back to per-line packing.
-                for line_index, line in enumerate(paragraph.split("\n")):
-                    sep = "\n" if line_index > 0 or current else ""
-                    if len(current) + len(sep) + len(line) <= limit:
-                        current = current + sep + line
-                    elif len(line) <= limit:
-                        append_atom(line, separator="\n")
-                    else:
-                        split_long_line(line)
-            continue
-
-        fence_open = f"```{lang}\n" if lang else "```\n"
-        fence_close = "\n```"
-        full_block = f"{fence_open}{body}{fence_close}"
-        if len(full_block) <= limit:
-            append_atom(full_block, separator="\n\n")
-            continue
-        # Block itself overflows — emit it across multiple fenced chunks, line-aligned.
-        flush()
-        overhead = len(fence_open) + len(fence_close)
-        room = max(1, limit - overhead)
-        cursor = 0
-        while cursor < len(body):
-            end = min(cursor + room, len(body))
-            if end < len(body):
-                newline = body.rfind("\n", cursor, end)
-                if newline > cursor:
-                    end = newline
-            chunks.append(f"{fence_open}{body[cursor:end]}{fence_close}")
-            cursor = end + 1 if end < len(body) and body[end] == "\n" else end
-
-    flush()
-    return chunks
+    packer = _SlackChunkPacker(limit)
+    packer.add_markdown(text)
+    return packer.finish()
 
 
 @frozen

@@ -118,10 +118,12 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     head_grades,
     leaked_report_ids,
     model_mismatch,
+    readable_head_names,
     report_grade_rows,
     score_event_rows,
     score_pool,
     scored_pool,
+    trained_head_files,
     unseen_pool,
     with_model_names,
 )
@@ -359,6 +361,26 @@ def test_dismissed_as_wrong_prefers_the_cumulative_count(frame, expected):
             [True, True, True],
             [True, False, False],
         ),
+        # thumbs_up: cohort is opened reports, label is a positive rating.
+        (
+            "thumbs_up",
+            pd.DataFrame({"open_count": [1, 1, 0], "feedback_positive_count": [1, 0, 0]}),
+            [True, True, False],
+            [True, False, False],
+        ),
+        # reviewer_fix: cohort is impressed reports, and an add or a remove is the same label.
+        (
+            "reviewer_fix",
+            pd.DataFrame(
+                {
+                    "impression_unit_count": [1, 1, 1, 0],
+                    "reviewer_add_count": [1, 0, 0, 0],
+                    "reviewer_remove_count": [0, 2, 0, 0],
+                }
+            ),
+            [True, True, True, False],
+            [True, True, False, False],
+        ),
     ],
 )
 def test_new_heads_read_the_right_cohort_and_label_columns(head_name, frame, expected_cohort, expected_label):
@@ -385,7 +407,7 @@ class _ParquetS3:
         return {"Body": io.BytesIO(self._objects[Key])}
 
 
-@pytest.mark.parametrize("head_name", ["pr_merged", "refund"])
+@pytest.mark.parametrize("head_name", ["pr_merged", "refund", "thumbs_up", "reviewer_fix"])
 def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name):
     # load_snapshots projects the labels parquet down to _LABEL_COLUMNS before any head sees it, so a
     # head whose label column is missing from that list trains on all-zero labels. The cohort/label
@@ -393,8 +415,26 @@ def test_new_head_label_columns_survive_the_load_snapshots_projection(head_name)
     # Drive the real parquet -> projection -> build_examples path and assert a positive label survives.
     head = HEADS_BY_NAME[head_name]
     later = D0 + datetime.timedelta(days=head.horizon_days)
-    labels_now = _labels(["a"], pr_created_count=[0], pr_merged_count=[0], refund_count=[0])
-    labels_later = _labels(["a"], pr_created_count=[1], pr_merged_count=[1], refund_count=[1])
+    labels_now = _labels(
+        ["a"],
+        open_count=[1],
+        pr_created_count=[0],
+        pr_merged_count=[0],
+        refund_count=[0],
+        feedback_positive_count=[0],
+        reviewer_add_count=[0],
+        reviewer_remove_count=[0],
+    )
+    labels_later = _labels(
+        ["a"],
+        open_count=[1],
+        pr_created_count=[1],
+        pr_merged_count=[1],
+        refund_count=[1],
+        feedback_positive_count=[1],
+        reviewer_add_count=[1],
+        reviewer_remove_count=[0],
+    )
     objects: dict[str, bytes] = {}
     for date, labels in ((D0, labels_now), (later, labels_later)):
         key = date.isoformat()
@@ -1229,6 +1269,7 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "rows": 1,
         "positives": 1,
         "birth_day_positives": 1,
+        "readable": True,
         "auc": None,
         "mean_score": 0.8,
     }.items() <= head_graded_props.items()
@@ -1248,6 +1289,8 @@ def test_training_events_carry_the_dashboard_contract(monkeypatch):
         "horizon_days",
         "scoring_partition",
         "pool",
+        # The holdout side reports readability on its own per-head event, not on every bucket.
+        "readable",
     }
     assert by_event["inbox_ranking_holdout_calibration"][0]["properties"]["model_role"] == CANDIDATE_ROLE
     report_graded_props = by_event["inbox_ranking_unseen_report_graded"][0]["properties"]
@@ -1458,6 +1501,49 @@ def _unseen_model(model_name: str, feature_set: FeatureSet, role: str = CANDIDAT
         feature_set=feature_set,
         boosters={"open": _booster_ubj(tuple(feature_set.feature_names))},
     )
+
+
+def test_an_unreadable_trained_head_is_still_scored_and_graded():
+    # A rare head never clears min_holdout_positives on one day's holdout, so gating the scoring on
+    # readability means the pooled newborn grade, the only read that can ever give it a number,
+    # never starts. The grade carries the flag instead, so the two populations stay apart.
+    metadata = {
+        "heads": [
+            {"head": "open", "file": "open.ubj", "readable": True},
+            {"head": "thumbs_up", "file": "thumbs_up.ubj", "readable": False},
+        ]
+    }
+    assert trained_head_files(metadata) == {"open": "open.ubj", "thumbs_up": "thumbs_up.ubj"}
+    assert readable_head_names(metadata) == frozenset({"open"})
+
+    booster = _booster_ubj(tuple(TABULAR_FEATURE_SET.feature_names))
+    model = UnseenModel(
+        model_name=TABULAR_MODEL_NAME,
+        model_version="2026-08-10",
+        model_role=CANDIDATE_ROLE,
+        feature_set=TABULAR_FEATURE_SET,
+        boosters={"open": booster, "thumbs_up": booster},
+        readable_heads=readable_head_names(metadata),
+    )
+    scores = score_pool(_state(["a", "b"]), _labels(["a", "b"]), [model], snapshot_date=D0)
+    assert scores.groupby("head")["head_readable"].all().to_dict() == {"open": True, "thumbs_up": False}
+
+    head = HEADS_BY_NAME["thumbs_up"]
+    labels = _labels(["a", "b"], open_count=[1, 1], feedback_positive_count=[1, 0])
+    graded = graded_rows(scores[scores["head"] == head.name], labels, head, pool=POOL_NAME)
+    (grade,) = head_grades(graded, head, pool=POOL_NAME, scoring_partition="2026-08-10")
+    assert (grade.rows, grade.positives, grade.readable) == (2, 1, False)
+
+
+def test_a_scores_object_written_before_the_readable_column_grades_as_readable():
+    # The grader reads objects up to 14 days old, and those runs scored a head only when it was
+    # readable, so a missing column must not turn a readable series unreadable overnight.
+    head = HEADS_BY_NAME["open"]
+    # _scores builds the pre-column row shape, so the frame reaching the grader carries no flag.
+    graded = graded_rows(_scores(["a", "b"]), _labels(["a", "b"], open_count=[1, 0]), head, pool=POOL_NAME)
+    assert graded["head_readable"].all()
+    (grade,) = head_grades(graded, head, pool=POOL_NAME, scoring_partition="2026-08-10")
+    assert grade.readable
 
 
 def test_score_pool_builds_one_matrix_per_feature_set_and_shares_it():

@@ -242,6 +242,7 @@ export class ToolDomainExtractor {
         'end',
         'freeze',
         'launch',
+        'migrate',
         'move',
         'patch',
         'pause',

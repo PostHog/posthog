@@ -67,8 +67,7 @@ function InsightSubscriptionsModalWrapper({
             closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
             insightShortId={insight.short_id}
             insightName={insight.name || insight.derived_name || 'Untitled insight'}
-            isCreating={isNewSubscription}
-            subscriptionId={itemId}
+            subscriptionId={isNewSubscription ? undefined : itemId}
         />
     )
 }

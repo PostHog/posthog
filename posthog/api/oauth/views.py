@@ -99,10 +99,13 @@ from posthog.scopes import (
 )
 from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
-from posthog.utils import absolute_uri, get_instance_region, render_template
+from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_ip, render_template
 from posthog.views import login_required
 
 from products.access_control.backend.facade.api import user_organizations_use_access_controls
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger(__name__)
 
@@ -348,6 +351,19 @@ def _gateway_blocklist_block(
     if not GATEWAY_BEARING_SCOPES & requested:
         return None
     organization_ids = _scoped_organization_ids(request.user, access_level, scoped_organization_ids, scoped_team_ids)
+    try:
+        security_shadow_check(
+            SecuritySubject(
+                email=request.user.email,
+                user_uuid=str(request.user.uuid),
+                organization_ids=tuple(str(organization_id) for organization_id in organization_ids),
+                ip=get_trusted_client_ip(getattr(request, "_request", request)),
+            ),
+            SecuritySurface.AI_GATEWAY,
+            call_site="oauth_authorize",
+        )
+    except Exception:
+        logger.exception("security_shadow_check_site_failed", call_site="oauth_authorize")
     if not wizard_identity_blocked(
         distinct_id=str(request.user.distinct_id),
         email=request.user.email,

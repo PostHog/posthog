@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -22,9 +23,12 @@ import {
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
-import { MarketingAnalyticsTab, marketingAnalyticsLogic } from './marketingAnalyticsLogic'
+import { MarketingAnalyticsTab, SetupSection, marketingAnalyticsLogic } from './marketingAnalyticsLogic'
+import { marketingAnalyticsSettingsLogic } from './marketingAnalyticsSettingsLogic'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
 import { marketingAnalyticsTilesLogic } from './marketingAnalyticsTilesLogic'
+
+jest.mock('posthog-js')
 
 // Kea builds this from the reducer's path and name. It is pinned in the logic, so a rename cannot
 // silently point the reducer at a different key and abandon what someone already saved.
@@ -243,4 +247,41 @@ describe('marketingAnalyticsLogic', () => {
             integrationFilter: { integrationSourceIds: ['source-1'] },
         })
     })
+
+    it.each(['tab', 'scene'] as const)(
+        'clears the dashboard setup entry point when leaving the %s',
+        async (destination) => {
+            const settings = marketingAnalyticsSettingsLogic()
+            const unmountSettings = settings.mount()
+            logic = marketingAnalyticsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () =>
+                logic.actions.openSetup(SetupSection.CONVERSION_GOALS, 'dashboard_customer_cards')
+            )
+                .toFinishAllListeners()
+                .toMatchValues({
+                    activeTab: MarketingAnalyticsTab.SETUP,
+                    setupSection: SetupSection.CONVERSION_GOALS,
+                    setupEntryPoint: 'dashboard_customer_cards',
+                })
+            expect(posthog.capture).toHaveBeenCalledWith('marketing analytics dashboard setup opened', {
+                entry_point: 'dashboard_customer_cards',
+                section: SetupSection.CONVERSION_GOALS,
+            })
+
+            await expectLogic(logic, () => logic.actions.setSetupSection(SetupSection.SOURCES))
+                .toFinishAllListeners()
+                .toMatchValues({ setupEntryPoint: 'dashboard_customer_cards' })
+            if (destination === 'tab') {
+                await expectLogic(logic, () =>
+                    logic.actions.setActiveTab(MarketingAnalyticsTab.DASHBOARD)
+                ).toFinishAllListeners()
+            } else {
+                logic.unmount()
+            }
+            expect(settings.values.setupEntryPoint).toBeNull()
+            unmountSettings()
+        }
+    )
 })

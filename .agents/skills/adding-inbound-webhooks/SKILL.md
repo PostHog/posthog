@@ -19,6 +19,10 @@ Which job are you doing?
 - No endpoint exists for this third party, or the semgrep rule flagged a hand-rolled verifier: **add a provider**, then add its consumer.
 - Outbound call to a vendor API, which is the other direction: `/routing-outbound-api-calls`.
 
+Before you migrate a verifier, read what the existing code verifies with.
+A verifier the vendor ships in its SDK, or one from a maintained library, stays as it is: it is written by the people who define the scheme, and a reimplementation only adds bugs.
+Ingress wraps such a verifier at most. Only a hand-rolled `hmac` check is a migration.
+
 ## Add a consumer
 
 A product declares its consumers in `products/<product>/backend/webhook_consumers.py`, in a `WEBHOOK_CONSUMERS` sequence of `WebhookConsumer` values from `posthog.ingress.contracts`.

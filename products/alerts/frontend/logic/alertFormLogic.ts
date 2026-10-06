@@ -22,7 +22,7 @@ import {
     InsightsThresholdBounds,
 } from '~/queries/schema/schema-general'
 import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
-import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
+import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
 import {
     blockSubmitWithoutEntitlement,
@@ -74,7 +74,7 @@ export type AlertFormType = Pick<
 > & {
     id?: AlertType['id']
     created_by?: AlertType['created_by'] | null
-    insight?: QueryBasedInsightModel['id']
+    insight?: InsightModel['id']
 }
 
 export function canCheckOngoingInterval(
@@ -143,7 +143,7 @@ export function insightAlertKindForQuery(query?: Record<string, any> | null): In
 
 export interface AlertFormLogicProps {
     alert: AlertType | null
-    insightId: QueryBasedInsightModel['id']
+    insightId: InsightModel['id']
     onEditSuccess: (alertId?: AlertType['id']) => void
     insightVizDataLogicProps?: InsightLogicProps
     insightInterval?: IntervalType
@@ -234,7 +234,7 @@ function insightIntervalToAlertInterval(interval?: IntervalType | null): AlertCa
     }
 }
 
-function alertToFormType(alert: AlertType, insightId: QueryBasedInsightModel['id']): AlertFormType {
+function alertToFormType(alert: AlertType, insightId: InsightModel['id']): AlertFormType {
     return {
         ...alert,
         insight: insightId,

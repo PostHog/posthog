@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
-import { scoutDisplayName } from '../../../utils/scoutRunsWindow'
+import { runStripEmptyLabel, scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
 import { ScoutExemptionBadge, ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
@@ -45,6 +45,7 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
         rollups,
         updatingScoutIds,
         scoutRunsLoadedOnce,
+        scoutRunsCoverFleet,
         scoutRunCosts,
         scoutCostRollups,
         expensiveRunCostThreshold,
@@ -112,8 +113,14 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                         <ScoutRunBoxes runs={runs} costs={scoutRunCosts} costThreshold={expensiveRunCostThreshold} />
                     ) : (
                         // Until the runs request has landed once, an empty rollup means "not
-                        // loaded", not "never ran"; the poll retries a failed load on its own.
-                        <span className="text-xs text-muted">{scoutRunsLoadedOnce ? 'No runs yet' : '…'}</span>
+                        // loaded", not "never ran"; the poll retries a failed load on its own. Past
+                        // the fleet the response covers it means neither, so the card says so.
+                        <span className="text-xs text-muted">
+                            {runStripEmptyLabel({
+                                loadedOnce: scoutRunsLoadedOnce,
+                                coversFleet: scoutRunsCoverFleet,
+                            })}
+                        </span>
                     )}
                 </div>
                 <ScoutEnabledSwitch

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, NoReturn, Optional
 from django.db import InterfaceError, InternalError, OperationalError
 from django.db.models import Prefetch
 
+import redis.exceptions as redis_exceptions
 from jsonpath_ng.exceptions import JSONPathError
 from requests.exceptions import HTTPError
 from structlog.contextvars import bind_contextvars
@@ -726,7 +727,8 @@ async def _handle_import_error(
     by type, since it's already a ``NonReportableError`` subclass and every REST-based source hits
     that condition already. A transient object-store hiccup talking to our own data-warehouse
     bucket is re-raised as ``NonReportableError`` the same way, as is a Django
-    ``OperationalError``/``InterfaceError`` (a connection-pool blip against our own app DB).
+    ``OperationalError``/``InterfaceError`` (a connection-pool blip against our own app DB) and a
+    ``redis.exceptions.ConnectionError``/``TimeoutError`` (a blip against our own DATA_WAREHOUSE_REDIS).
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
@@ -865,6 +867,17 @@ async def _handle_import_error(
     if is_transient_object_store_error(error):
         await logger.awarning(error_msg)
         await logger.adebug("Transient object-store error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # DATA_WAREHOUSE_REDIS backs resumable-source checkpoints, row tracking, and sync locks — it's
+    # PostHog's own instance, never anything a customer's source touches. A connectivity blip there
+    # (unreachable, refusing connections while restarting) clears on its own once the instance is
+    # reachable again, so it shouldn't disable the schema or page anyone. Narrowed to
+    # Connection/TimeoutError rather than the broader RedisError so a real command-level defect
+    # (ResponseError) still reaches error tracking.
+    if isinstance(error, redis_exceptions.ConnectionError | redis_exceptions.TimeoutError):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient data-warehouse Redis error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
     # A Django OperationalError/InterfaceError/InternalError here comes from a lookup against

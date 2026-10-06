@@ -683,10 +683,19 @@ def labels_parquet(rows: list[dict[str, Any]]) -> bytes:
     df = pd.DataFrame(
         {
             "distinct_id": [str(r.get("distinct_id", "")) for r in rows],
-            _LABEL_COL: [int(r.get(_LABEL_COL) or 0) for r in rows],
+            _LABEL_COL: [_label(r) for r in rows],
         }
     )
     return _to_parquet_bytes(df)
+
+
+def label_classes(rows: list[dict[str, Any]]) -> set[int]:
+    """The distinct label values ``labels_parquet`` would write for ``rows``."""
+    return {_label(r) for r in rows}
+
+
+def _label(row: dict[str, Any]) -> int:
+    return int(row.get(_LABEL_COL) or 0)
 
 
 def _to_parquet_bytes(df: pd.DataFrame) -> bytes:

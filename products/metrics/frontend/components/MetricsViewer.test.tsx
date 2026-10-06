@@ -8,13 +8,7 @@ import { insightsApi } from 'scenes/insights/utils/api'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import {
-    AccessControlLevel,
-    AccessControlResourceType,
-    AppContext,
-    InsightShortId,
-    QueryBasedInsightModel,
-} from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext, InsightShortId, InsightModel } from '~/types'
 
 import {
     metricsAttributesRetrieve,
@@ -42,7 +36,7 @@ jest.mock('scenes/insights/utils/api', () => ({
 // picker binds to, and `id` is what a dashboard write would patch. Typed as a Partial — the
 // shape `insightsApi.create` accepts — so these two fields are checked without padding the
 // fixture with the rest of the model, which this flow never touches.
-const SAVED_INSIGHT: Partial<QueryBasedInsightModel> = { id: 7, short_id: 'insight7' as InsightShortId }
+const SAVED_INSIGHT: Partial<InsightModel> = { id: 7, short_id: 'insight7' as InsightShortId }
 
 describe('MetricsViewer', () => {
     let logic: ReturnType<typeof metricsViewerLogic.build>
@@ -61,7 +55,7 @@ describe('MetricsViewer', () => {
         jest.mocked(metricsNamesRetrieve).mockResolvedValue({ results: [] })
         jest.mocked(metricsQueryCreate).mockResolvedValue({ results: [] })
         jest.mocked(metricsAttributesRetrieve).mockResolvedValue({ results: [], count: 0 })
-        jest.mocked(insightsApi.create).mockResolvedValue(SAVED_INSIGHT as QueryBasedInsightModel)
+        jest.mocked(insightsApi.create).mockResolvedValue(SAVED_INSIGHT as InsightModel)
         logic = metricsViewerLogic()
         logic.mount()
     })

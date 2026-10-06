@@ -23,15 +23,21 @@ from uuid import UUID
 
 from django.shortcuts import get_object_or_404
 
+from posthog.hogql.property_access_types import RestrictedProperty
+
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models.user import User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
 from products.access_control.backend.models.role import Role
 
 from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
-from ..property_access_control import is_property_access_control_enabled
+from ..property_access_control import (
+    get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
+    is_property_access_control_enabled,
+)
 from . import contracts
 from .contracts import PropertyAccessLevel
 from .user_access_control import (
@@ -96,6 +102,29 @@ def _get_property_definition(property_definition_id: str, team_id: int) -> Prope
 
 
 # --- Read API ---
+
+
+def get_restricted_properties_with_group_type_index_for_team(
+    *, user: User | None, team_id: int
+) -> set[RestrictedProperty]:
+    """Return property restrictions for a user and team."""
+    return _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+
+
+def split_restricted_property_names(restrictions: set[RestrictedProperty]) -> contracts.RestrictedPropertyNames:
+    """Return restricted event and person property names."""
+    return contracts.RestrictedPropertyNames(
+        event=frozenset(
+            restriction.name
+            for restriction in restrictions
+            if restriction.property_type == PropertyDefinition.Type.EVENT
+        ),
+        person=frozenset(
+            restriction.name
+            for restriction in restrictions
+            if restriction.property_type == PropertyDefinition.Type.PERSON
+        ),
+    )
 
 
 def get_property_access_state(

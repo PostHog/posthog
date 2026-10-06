@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
+import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -28,6 +29,7 @@ import {
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
 import { EmitEventStepOutput, createEmitEventStep } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { createFetchPersonChunkStep } from '~/ingestion/common/steps/event-processing/fetch-person-chunk-step'
+import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
@@ -42,13 +44,17 @@ import { resolveExceptionUsageKey } from '~/ingestion/common/usage-records/billa
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
 import { TopHogRegistry, count } from '~/ingestion/framework/extensions/tophog'
-import { createBatch } from '~/ingestion/framework/helpers'
 
 import { createAttachMessageBytesStep } from './attach-message-bytes-step'
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'
-import { ErrorTrackingHogTransformer } from './error-tracking-consumer'
 import { createErrorTrackingPrepareEventStep } from './prepare-event-step'
+
+/** The hog transformer methods the pipeline uses; lifecycle stays with the owning scope. */
+export type ErrorTrackingHogTransformer = Pick<
+    HogTransformer,
+    'transformEventAndProduceMessages' | 'processInvocationResults'
+>
 
 export interface ErrorTrackingPipelineInput {
     message: Message
@@ -79,7 +85,7 @@ export interface ErrorTrackingPipelineConfig {
     promiseScheduler: PromiseScheduler
     teamManager: TeamManager
     personRepository: PersonReadRepository
-    hogTransformer: ErrorTrackingHogTransformer | null
+    hogTransformer: ErrorTrackingHogTransformer
     cymbalClient: CymbalClient
     groupTypeManager: ReadOnlyGroupTypeManager
     cookielessManager: CookielessManager
@@ -186,12 +192,10 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
     const afterCymbal = preCymbal
         // Process through Cymbal as a batch (before enrichment - Cymbal only
         // needs raw exception data, not person/geoip/group data).
-        // Retry on transient failures (5xx, timeout, network errors).
-        // 3 retries keeps the worst-case batch time (3 × 45s timeout =
-        // 135s) well within the 180s liveness interval, and reduces
-        // amplification pressure on Cymbal during degradation.
+        // softDeadlineMs (10s) + ERROR_TRACKING_CYMBAL_TIMEOUT_MS (15s) stays below
+        // CONSUMER_MAX_HEARTBEAT_INTERVAL_MS (30s).
         .pipeChunk(createCymbalProcessingStep(cymbalClient), {
-            retry: { tries: 3, sleepMs: 100, name: 'cymbal_processing' },
+            retry: { tries: 5, sleepMs: 100, backoffFactor: 4, softDeadlineMs: 10000, name: 'cymbal_processing' },
         })
 
     return (
@@ -225,35 +229,12 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
             })
             .pipe(createRecordEventUsageAfterIngestStep())
             .pipe(createRecordIngestionLagStep())
-            .afterBatch((b) => b.pipe(createFlushEventUsageStep()))
+            .afterBatch((b) =>
+                b
+                    .pipe(createFlushEventUsageStep())
+                    // Drain hog transformer invocation results once per batch.
+                    .pipe(createFlushHogTransformerStep(hogTransformer))
+            )
             .build()
     )
-}
-
-/**
- * Runs a batch of messages through the error tracking pipeline.
- *
- * Events are emitted to the output topic as a side effect. Failures are
- * handled by the result handling pipeline (DLQ, drop, redirect).
- *
- * All side effects — element results and batch hooks alike — are handled
- * inside the pipeline (scheduled on the promise scheduler, which the consumer
- * drains before committing offsets), so this driver only drains results.
- */
-export async function runErrorTrackingPipeline(pipeline: ErrorTrackingPipeline, messages: Message[]): Promise<void> {
-    if (messages.length === 0) {
-        return
-    }
-
-    const batch = createBatch(messages.map((message) => ({ message })))
-    // The consumer drains each batch fully before feeding the next and the hooks
-    // always succeed, so a rejected feed can only be a framework invariant violation.
-    const feedResult = await pipeline.feed(batch, {})
-    if (!feedResult.ok) {
-        throw new Error(`error tracking pipeline rejected feed: ${feedResult.kind} (${feedResult.reason})`)
-    }
-
-    while ((await pipeline.next()) !== null) {
-        // Drain all results
-    }
 }

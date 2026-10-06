@@ -49,6 +49,7 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     # through it, and posthog/urls.py imports that chain unconditionally), and --no-editable copies
     # it into the venv so the image never depends on this bind mount's path surviving.
     --mount=type=bind,source=packages/owners-yaml,target=packages/owners-yaml \
+    --mount=type=bind,source=packages/personhog-proto,target=packages/personhog-proto \
     uv sync --locked --no-dev --no-editable --no-install-project --group sentiment --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -60,8 +61,11 @@ ENV PATH=/python-runtime/bin:$PATH \
 # --no-editable above leaves an editable install pointing at /code/packages/owners-yaml and every Django
 # entrypoint dies on `import owners_yaml` at runtime instead of here. The root Dockerfile asserts
 # the same invariant with `test -d packages/owners-yaml/owners_yaml`; this image never copies that source
-# tree, so assert importability instead of presence.
-RUN python -c "import owners_yaml"
+# tree, so assert importability instead of presence. personhog-proto is installed from a bind mount
+# the same way. Django loads posthog.models at startup, which imports posthog.personhog_client and
+# through it the generated personhog package, so a stale or editable install breaks every Django
+# entrypoint.
+RUN python -c "import owners_yaml, personhog.service.v1.service_pb2_grpc"
 
 # Pre-warm the tiktoken BPE encoding cache into the image so runtime token counting reads the
 # blobs from disk instead of fetching them from OpenAI's blob host on first use, which fails under

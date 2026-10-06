@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import json
 import math
 import uuid
@@ -19,6 +20,8 @@ from arro3.core.types import ArrowSchemaExportable
 from circular_dict import CircularDict
 from dateutil import parser
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
+from psycopg.types.multirange import Multirange
+from psycopg.types.range import Range
 from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.errors import NonReportableError
@@ -755,9 +758,58 @@ def _convert_uuid_to_string(row: dict) -> dict:
     return {key: str(value) if isinstance(value, uuid.UUID) else value for key, value in row.items()}
 
 
+RANGE_TYPES = (Range, Multirange)
+
+# Postgres quotes a bound in its range text output when the bound is empty or holds a character
+# that range syntax itself uses.
+_RANGE_BOUND_NEEDS_QUOTES = re.compile(r'[\s",\\()\[\]]')
+
+
+def _format_range_bound(value: Any) -> str:
+    # An infinite bound is written as nothing at all, so "[5,)" is a range with no upper bound.
+    if value is None:
+        return ""
+
+    text = str(value)
+    if text == "" or _RANGE_BOUND_NEEDS_QUOTES.search(text):
+        return '"' + text.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    return text
+
+
+def _format_range(value: Range | Multirange) -> str:
+    """Render a psycopg range or multirange the way Postgres writes it as text.
+
+    pyarrow has no type for either object, so the column has to be stored as a string. The Postgres
+    text form ("[4,5)", "empty", "{[1,4),[7,9)}") is what the Postgres source's own range loader
+    already produces for the range types it covers, so every range column reads the same way in the
+    warehouse. `str()` on these objects gives a Python rendering instead, which writes an infinite
+    bound as "None" and cannot be read back as a range.
+    """
+    if isinstance(value, Multirange):
+        return "{" + ",".join(_format_range(item) for item in value) + "}"
+
+    if value.isempty:
+        return "empty"
+
+    lower_bracket = "[" if value.lower_inc else "("
+    upper_bracket = "]" if value.upper_inc else ")"
+
+    return f"{lower_bracket}{_format_range_bound(value.lower)},{_format_range_bound(value.upper)}{upper_bracket}"
+
+
+def _json_default(obj: Any) -> str:
+    if isinstance(obj, RANGE_TYPES):
+        return _format_range(obj)
+
+    # orjson reads a TypeError from `default` as "still not serializable", so the caller falls
+    # through to its own fallbacks.
+    raise TypeError
+
+
 def _json_dumps(obj: Any) -> str:
     try:
-        return orjson.dumps(obj).decode()
+        return orjson.dumps(obj, default=_json_default).decode()
     except TypeError:
         try:
             return json.dumps(obj)
@@ -1296,6 +1348,11 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
     if issubclass(type_, uuid.UUID):
         return pa.string()
 
+    # Range and multirange values are rendered as Postgres text later in `_process_batch`, for the
+    # same reason.
+    if issubclass(type_, RANGE_TYPES):
+        return pa.string()
+
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
 
@@ -1743,6 +1800,18 @@ def _process_batch(
                 [None if s is None else str(s) for s in _to_list_array(columnar_table_data[field_name])]
             )
             columnar_table_data[field_name] = str_array
+            py_type = str
+            if arrow_schema:
+                arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))
+
+        # Convert Postgres range and multirange values to their text form. The source declares such
+        # a column as a string, and pyarrow rejects the psycopg object with "Expected bytes, got a
+        # 'Range'/'Multirange' object" when it builds the column array.
+        if issubclass(py_type, RANGE_TYPES):
+            range_str_array = pa.array(
+                [None if s is None else _format_range(s) for s in _to_list_array(columnar_table_data[field_name])]
+            )
+            columnar_table_data[field_name] = range_str_array
             py_type = str
             if arrow_schema:
                 arrow_schema = arrow_schema.set(field_index, arrow_schema.field(field_index).with_type(pa.string()))

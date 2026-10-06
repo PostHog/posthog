@@ -10,8 +10,15 @@ import { MessageList } from './MessageList'
 jest.mock('./Message', () => {
     const React = jest.requireActual<typeof import('react')>('react')
     return {
-        Message: ({ message }: { message: ChatMessage }) =>
-            React.createElement('div', { 'data-attr': `message-${message.id}` }, message.content),
+        Message: ({ message, onApplyAiDraft }: { message: ChatMessage; onApplyAiDraft?: () => void }) =>
+            React.createElement(
+                'div',
+                { 'data-attr': `message-${message.id}` },
+                message.content,
+                onApplyAiDraft
+                    ? React.createElement('button', { 'data-attr': `apply-${message.id}`, onClick: onApplyAiDraft })
+                    : null
+            ),
     }
 })
 
@@ -140,6 +147,32 @@ describe('MessageList', () => {
 
         expect(scrollToSpy).toHaveBeenCalledWith({ top: SCROLL_HEIGHT, behavior: 'smooth' })
         expect(screen.queryByText(PILL)).not.toBeInTheDocument()
+    })
+
+    // Applying a draft records the outcome against the ticket's current AI run, so an older draft
+    // must not offer the action — it would mark the newest run as used.
+    it('offers the draft action on the newest AI draft only', () => {
+        const draft = (id: string, createdAt: string): ChatMessage => ({
+            id,
+            content: `Draft ${id}`,
+            authorType: 'AI',
+            authorName: 'PostHog Assistant',
+            createdAt,
+            isPrivate: true,
+            persistAs: 'reply',
+        })
+
+        render(
+            <MessageList
+                messages={[draft('old', '2026-01-01T00:00:00Z'), draft('new', '2026-01-01T00:05:00Z')]}
+                messagesLoading={false}
+                canEditTicket
+                onApplyAiDraft={jest.fn()}
+            />
+        )
+
+        expect(screen.getByTestId('apply-new')).toBeInTheDocument()
+        expect(screen.queryByTestId('apply-old')).not.toBeInTheDocument()
     })
 
     it('dismisses the pill once the reader scrolls back to the bottom themselves', () => {

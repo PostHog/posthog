@@ -37,6 +37,13 @@ export const DesktopFeedbackCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(desktopFeedbackCreateBodyFeedbackViewMax)
         .describe('Desktop view that was active when the feedback form opened.'),
+    feedback_type: zod
+        .enum(['bug', 'feature', 'general'])
+        .describe('\* `bug` - Bug\n\* `feature` - Feature\n\* `general` - General')
+        .optional()
+        .describe(
+            'Feedback type selected by the user: bug, feature, or general.\n\n\* `bug` - Bug\n\* `feature` - Feature\n\* `general` - General'
+        ),
     feedback_task_id: zod
         .string()
         .max(desktopFeedbackCreateBodyFeedbackTaskIdMax)

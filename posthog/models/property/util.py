@@ -15,7 +15,6 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.models.event import Selector
-from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.property import Property, PropertyGroup, PropertyIdentifier, PropertyName
 
 from products.actions.backend.models.action import Action
@@ -54,7 +53,7 @@ def get_property_string_expr(
 
     if use_new_events_schema and table == "events":
         if materialised_table_column in ("properties", "person_properties"):
-            return _json_events_property_expr(property_name, var, f"{table_string}{column}", materialised_table_column)
+            return _json_events_property_expr(property_name, var, f"{table_string}{column}")
         # The JSON events table has no mat_* columns at all; group columns there stay String blobs.
         allow_denormalized_props = False
 
@@ -78,30 +77,12 @@ def get_property_string_expr(
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
 
 
-def _json_events_property_expr(
-    property_name: PropertyName, var: str, column_ref: str, materialised_table_column: str
-) -> tuple[str, bool]:
-    """Property value read against the native-JSON events schema.
-
-    Typed subcolumns read like non-nullable materialized columns (missing reads ''), so callers'
-    denormalized-column handling applies unchanged. Dynamic properties combine the scalar path and
-    sub-object path for that key, preserving the logical JSON string without rebuilding the document.
-    """
-    subcolumns = (
-        EVENTS_PROPERTIES_JSON_SUBCOLUMNS
-        if materialised_table_column == "properties"
-        else PERSON_PROPERTIES_JSON_SUBCOLUMNS
-    )
+def _json_events_property_expr(property_name: PropertyName, var: str, column_ref: str) -> tuple[str, bool]:
     scalar_value = _json_events_subcolumn_expr(property_name, var, column_ref)
-    if property_name in subcolumns:
-        if subcolumns[property_name].startswith(("Array(", "Map(")):
-            return f"if(empty({scalar_value}), '', toJSONString({scalar_value}))", True
-        return f"ifNull({scalar_value}, '')", True
-
-    object_value = f"toJSONString({_json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)})"
+    object_value = f"JSONStripEmptyStringsAndNulls(toJSONString({_json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)}))"
     # dynamicType only chooses scalar versus container formatting; both branches cast the
     # whole Dynamic value rather than selecting one physical variant.
-    dynamic_type = f"dynamicType({scalar_value})"
+    dynamic_type = f"dynamicType(accurateCast({scalar_value}, 'Dynamic'))"
     is_container = " OR ".join(f"startsWith({dynamic_type}, '{family}')" for family in ("Array", "Map", "Tuple"))
     scalar_string = f"toString({scalar_value})"
     formatted_scalar = (
@@ -109,9 +90,9 @@ def _json_events_property_expr(
     )
     raw_value = (
         f"if({object_value} != '{{}}', {object_value}, "
-        f"if({is_container}, toJSONString({scalar_value}), {formatted_scalar}))"
+        f"if({is_container}, nullIf(nullIf(toJSONString({scalar_value}), '[]'), '{{}}'), {formatted_scalar}))"
     )
-    return trim_quotes_expr(f"ifNull({raw_value}, '')"), False
+    return f"ifNull({raw_value}, '')", False
 
 
 def _json_events_subcolumn_expr(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import json
 import time
 import uuid
@@ -1049,8 +1050,11 @@ class DockerSandbox(AgentServerLaunchMixin):
         if self._host_port is None:
             raise RuntimeError("Sandbox was not created with port exposure.")
 
-    def _reuse_healthy_agent_server(self, allowed_domains: list[str] | None) -> bool:
+    def _agent_server_reuse_enabled(self) -> bool:
         return False
+
+    def _install_agent_server_launch_files(self) -> tuple[str, ...]:
+        return ()
 
     def _prepare_agent_server_launch(self, allowed_domains: list[str] | None) -> None:
         # The agent runs each tool command in a fresh shell; BASH_ENV re-sources
@@ -1298,37 +1302,27 @@ def _none_if_blank(value: str) -> str | None:
     return value
 
 
-def _resolve_latest_agent_version() -> str | None:
-    """Latest published @posthog/agent version, or ``None`` if npm is unavailable.
-
-    Any failure (npm missing, nonzero exit, timeout) resolves to ``None`` so the caller
-    can fall back to reusing the existing image rather than failing the whole run.
-    """
+def _pinned_agent_version(dockerfile_path: str) -> str | None:
     try:
-        result = subprocess.run(
-            ["npm", "view", "@posthog/agent", "version"],
-            capture_output=True,
-            text=True,
-            timeout=15,
-        )
-    except Exception:
+        source = Path(dockerfile_path).read_text(encoding="utf-8")
+    except OSError:
         return None
-    if result.returncode != 0:
-        return None
-    return result.stdout.strip() or None
+    match = re.search(r"^ARG AGENT_VERSION=(\S+)", source, re.MULTILINE)
+    return match.group(1) if match else None
 
 
 def ensure_fresh_base_image(*, force: bool = False) -> None:
     """Rebuild ``posthog-sandbox-base`` when it is stale, otherwise reuse it.
 
     Stale means any of: ``force``; the image is missing; the Dockerfile changed since the
-    image was built; or @posthog/agent published a newer version than the one baked in.
-    This is the only place that reaches out to npm.
+    image was built; or the baked agent version differs from the Dockerfile's pin.
     """
     dockerfile_path = _base_dockerfile_path()
     current_dockerfile_sha = _base_image_source_sha(dockerfile_path)
 
-    latest = _resolve_latest_agent_version()
+    pinned = _pinned_agent_version(dockerfile_path)
+    if pinned is None:
+        raise RuntimeError(f"no ARG AGENT_VERSION in {dockerfile_path}")
 
     # A nonzero exit means the image is missing; otherwise the two labels come back
     # tab-separated (or "<no value>" for a label the image predates).
@@ -1352,9 +1346,7 @@ def ensure_fresh_base_image(*, force: bool = False) -> None:
         image_agent_version = _none_if_blank(parts[1]) if len(parts) > 1 else None
 
     dockerfile_changed = image_dockerfile_sha is None or image_dockerfile_sha != current_dockerfile_sha
-    agent_stale = latest is not None and (
-        image_agent_version is None or image_agent_version == "unknown" or image_agent_version != latest
-    )
+    agent_stale = image_agent_version is None or image_agent_version == "unknown" or image_agent_version != pinned
 
     if force:
         reason = "forced"
@@ -1363,32 +1355,24 @@ def ensure_fresh_base_image(*, force: bool = False) -> None:
     elif dockerfile_changed:
         reason = "dockerfile changed"
     elif agent_stale:
-        reason = f"stale agent version (have {image_agent_version!r}, latest {latest!r})"
+        reason = f"stale agent version (have {image_agent_version!r}, pinned {pinned!r})"
     else:
         reason = None
 
     if reason is None:
-        if latest is None:
-            # npm unreachable but the on-disk image still matches the Dockerfile — the best
-            # we can do offline is trust it rather than fail or force a needless rebuild.
-            logger.warning(
-                "could not check @posthog/agent freshness (npm unreachable); reusing existing posthog-sandbox-base"
-            )
-        else:
-            logger.info("posthog-sandbox-base is up to date (agent %s); reusing existing image", latest)
+        logger.info("posthog-sandbox-base is up to date (agent %s); reusing existing image", pinned)
         return
 
     # Passing the agent version as COMMIT_HASH lets docker's layer cache no-op the npm
     # install layer when the version is unchanged, and re-run exactly that layer onward
-    # when it changed. When we can't resolve a version, fall back to a unique cache-bust.
-    cache_bust = latest or f"force-{int(time.time())}"
+    # when it changed.
     logger.info("Rebuilding posthog-sandbox-base: %s", reason)
     DockerSandbox._build_image_if_needed(
         DEFAULT_IMAGE_NAME,
         dockerfile_path,
-        build_args={"COMMIT_HASH": cache_bust},
+        build_args={"COMMIT_HASH": pinned},
         labels={
-            _AGENT_VERSION_LABEL: latest or "unknown",
+            _AGENT_VERSION_LABEL: pinned,
             _DOCKERFILE_SHA_LABEL: current_dockerfile_sha,
         },
         force=True,

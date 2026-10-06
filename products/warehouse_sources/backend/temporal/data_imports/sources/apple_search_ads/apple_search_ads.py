@@ -146,10 +146,7 @@ def missing_context_id(credentials: AppleSearchAdsCredentials, api_version: str)
     """Message naming the context id this version needs, when the form did not collect it."""
     if api_version == APPLE_ADS_API_VERSION_V1:
         if not credentials.ad_account_id:
-            return (
-                "Enter the ad account ID. The Apple Ads Platform API scopes every request to an "
-                "ad account, which is not the same as the organization ID the older API used."
-            )
+            return "Enter the ad account ID."
         return None
     if not credentials.org_id:
         return "Enter the organization ID. The Apple Search Ads API scopes every request to an organization."
@@ -308,7 +305,9 @@ def validate_credentials(
     # message can name the ids this API client can actually read.
     missing = missing_context_id(credentials, api_version)
     if missing is not None:
-        return False, missing + _readable_ad_accounts(client, api_version)
+        if api_version == APPLE_ADS_API_VERSION_V1:
+            return False, _blank_ad_account_message(_readable_ad_accounts(client, api_version))
+        return False, missing
 
     # The campaign list is the cheapest account-scoped read: it exercises the access token
     # *and* the `X-AP-Context` id, which the ACL endpoint would not.
@@ -333,14 +332,13 @@ def validate_credentials(
     return False, f"The Apple Ads API returned an unexpected status code: {status}"
 
 
-def _readable_ad_accounts(client: AppleSearchAdsClient, api_version: str) -> str:
-    """Sentence naming the ad accounts these credentials can read, to append to an error.
+def _readable_ad_accounts(client: AppleSearchAdsClient, api_version: str) -> Optional[list[tuple[str, Optional[str]]]]:
+    """Ad accounts these credentials can read as ``(id, name)`` pairs, or None when the lookup fails.
 
-    Best effort. The ACL lookup carries no context id, so it works before one is entered, but
-    a failure here must not replace the more useful message asking for the id.
+    Best effort. The ACL lookup carries no context id, so it works before one is entered.
     """
     if api_version != APPLE_ADS_API_VERSION_V1:
-        return ""
+        return None
 
     config = endpoints_for_version(api_version)["acls"]
     request = page_request(config, api_version, RequestScope(), offset=0)
@@ -349,19 +347,45 @@ def _readable_ad_accounts(client: AppleSearchAdsClient, api_version: str) -> str
             request.method, request.path, params=request.params, body=request.body, requires_context=False
         )
     except (requests.RequestException, ValueError):
-        return ""
+        return None
 
-    named = []
+    accounts: list[tuple[str, Optional[str]]] = []
     for account in flatten_acl_rows(page_rows(payload, config, api_version)):
         account_id = account.get("id")
         if account_id is None:
             continue
         name = account.get("name")
-        named.append(f"{account_id} ({name})" if name else str(account_id))
+        accounts.append((str(account_id), str(name) if name else None))
+    return accounts
 
-    if not named:
-        return " These credentials cannot read any ad account yet. Check the API user's role in Apple Ads."
-    return " These credentials can read: " + ", ".join(named) + "."
+
+_AD_ACCOUNT_SCOPING = (
+    "The Platform API scopes every request to one ad account, which is not the organization ID the older API used."
+)
+
+
+def _blank_ad_account_message(accounts: Optional[list[tuple[str, Optional[str]]]]) -> str:
+    if accounts is None:
+        return (
+            "Enter the ad account ID. PostHog could not list the ad accounts these credentials can "
+            "read. Read adAccount.id from Apple's Get User ACL endpoint, "
+            f"GET https://api.ads.apple.com/v1/acls, and connect again. {_AD_ACCOUNT_SCOPING}"
+        )
+    if not accounts:
+        return (
+            "These credentials cannot read any ad account yet. Give the API user the API Account "
+            "Read Only role for the ad account in Apple Ads, then connect again."
+        )
+    named = ", ".join(f"{account_id} ({name})" if name else account_id for account_id, name in accounts)
+    if len(accounts) == 1:
+        return (
+            f"These credentials can read one ad account: {named}. Enter {accounts[0][0]} in Ad "
+            f"account ID and connect again. {_AD_ACCOUNT_SCOPING}"
+        )
+    return (
+        f"These credentials can read these ad accounts: {named}. Enter one of those IDs in Ad "
+        f"account ID and connect again. {_AD_ACCOUNT_SCOPING}"
+    )
 
 
 def _today() -> date:

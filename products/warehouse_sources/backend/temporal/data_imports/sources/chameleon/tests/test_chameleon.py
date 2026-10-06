@@ -132,6 +132,26 @@ class TestStandardEndpointPagination:
         assert snapshots[1]["params"]["before"] == "S2"
         assert snapshots[2]["params"]["before"] == "S3"
 
+    @parameterized.expand(
+        [
+            # /analyze/profiles answers 422 to the `limit=500` the other list endpoints accept, so
+            # it must go out with no `limit` and let Chameleon pick the page size.
+            ("profiles_sends_no_limit", "profiles", None),
+            ("other_endpoints_keep_the_page_size", "segments", 500),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_page_size_is_only_sent_where_the_endpoint_accepts_it(
+        self, _name: str, endpoint: str, expected_limit: int | None, MockSession: mock.MagicMock
+    ) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(session, [_response({endpoint: [{"id": "X1"}], "cursor": {}})])
+
+        rows = _rows(endpoint, _make_manager())
+
+        assert [r["id"] for r in rows] == ["X1"]
+        assert snapshots[0]["params"].get("limit") == expected_limit
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_when_cursor_missing(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value

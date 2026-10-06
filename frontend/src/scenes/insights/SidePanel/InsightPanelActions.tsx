@@ -39,7 +39,7 @@ import {
     ExporterFormat,
     InsightLogicProps,
     InsightShortId,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
@@ -103,7 +103,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
             <SceneDuplicate
                 dataAttrKey={RESOURCE_TYPE}
                 loading={insightDuplicating}
-                onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
+                onClick={() => duplicateInsight(insight as InsightModel, true)}
             />
             {isSavedInsight && canCopyToProject && (
                 <ButtonPrimitive

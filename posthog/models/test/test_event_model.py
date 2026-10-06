@@ -1,15 +1,19 @@
 import re
+from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Element
 from posthog.models.element.element import elements_to_string
 from posthog.models.event import Selector
+from posthog.models.event.util import bulk_create_events, create_event
 from posthog.models.property.util import build_selector_regex
+from posthog.test.test_journeys import journeys_for
 
 
 class TestSelectors(BaseTest):
@@ -309,3 +313,36 @@ class TestSelectorRegexMonotonicity(SimpleTestCase):
                     newly_matching_pairs += 1
         # the corpus has to exercise the widening, or the superset check is vacuous
         self.assertGreater(newly_matching_pairs, 0)
+
+
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+class TestNativeEventInserts(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(["bulk", "single", "journey"])
+    def test_properties_follow_ingestion_cleanup(self, insertion: str) -> None:
+        properties = {
+            "$feature/enabled": True,
+            "$feature/disabled": False,
+            "$feature_flags": {"existing": "control"},
+            "$sdk_debug_replay_internal_buffer_length": 0,
+        }
+        if insertion == "journey":
+            journeys_for({"test": [{"event": "test", "properties": properties}]}, self.team)
+        elif insertion == "bulk":
+            bulk_create_events([{"team": self.team, "event": "test", "distinct_id": "test", "properties": properties}])
+        else:
+            create_event(event_uuid=uuid4(), team=self.team, event="test", distinct_id="test", properties=properties)
+
+        result = sync_execute(
+            "SELECT properties.`$feature_flags`, "
+            "toJSONString(temporary_properties.`$sdk_debug_replay_internal_buffer_length`), "
+            "isNull(properties.`$sdk_debug_replay_internal_buffer_length`) "
+            "FROM events_json WHERE team_id = %(team_id)s",
+            {"team_id": self.team.pk},
+        )
+        assert result == [
+            (
+                {"disabled": "false", "enabled": "true", "existing": "control"},
+                "0",
+                1,
+            )
+        ]

@@ -10,7 +10,11 @@ from asgiref.sync import async_to_sync
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
-from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
+from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import (
+    CleanupSandboxInput,
+    cleanup_sandbox,
+    cleanup_sandbox_now,
+)
 
 
 @pytest.mark.django_db
@@ -114,16 +118,25 @@ def test_cleanup_sandbox_retries_when_final_destroy_fails(activity_environment, 
 
 
 @pytest.mark.django_db
-def test_cleanup_sandbox_completes_stream_when_requested(activity_environment, mocker):
-    run_id = str(uuid.uuid4())
+@pytest.mark.parametrize("current_sandbox", ["sandbox-123", "sandbox-replacement"])
+def test_cleanup_sandbox_completes_stream_when_requested(mocker, test_task_run, current_sandbox):
+    run_id = str(test_task_run.id)
+    connection = {
+        "sandbox_id": current_sandbox,
+        "sandbox_url": "https://sandbox.example.com",
+        "sandbox_connect_token": "fake-token",
+        "sandbox_jwt_kid": "fake-key",
+        "sandbox_backend": "modal",
+    }
+    test_task_run.state = {"other": "preserved", **connection}
+    test_task_run.save(update_fields=["state"])
     sandbox = mocker.Mock(id="sandbox-123")
     mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
     publish_complete = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.cleanup_sandbox.publish_task_run_stream_complete"
     )
 
-    async_to_sync(activity_environment.run)(
-        cleanup_sandbox,
+    cleanup_sandbox_now(
         CleanupSandboxInput(
             sandbox_id="sandbox-123",
             run_id=run_id,
@@ -134,6 +147,10 @@ def test_cleanup_sandbox_completes_stream_when_requested(activity_environment, m
     sandbox.execute.assert_not_called()
     sandbox.destroy.assert_called_once_with()
     publish_complete.assert_called_once_with(run_id, False)
+    test_task_run.refresh_from_db()
+    assert test_task_run.state == (
+        {"other": "preserved"} if current_sandbox == "sandbox-123" else {"other": "preserved", **connection}
+    )
 
 
 @pytest.mark.django_db

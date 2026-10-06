@@ -22,12 +22,13 @@ from posthog.team_notifications.slack import (
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM, PathOwnership
 from products.visual_review.backend.facade.contracts import (
     FLAKINESS_EXPIRY_SOON_DAYS,
+    TOLERATION_PILEUP_WINDOW_DAYS,
     CreateRunInput,
     SnapshotManifestItem,
 )
 from products.visual_review.backend.facade.enums import RunType
 from products.visual_review.backend.logic import artifact_store, debt_digest, quarantine, repos, runs, story_index
-from products.visual_review.backend.models import ToleratedHash
+from products.visual_review.backend.models import Run, ToleratedHash
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
 _PRODUCT_PATH = "products/visual_review/"
@@ -63,7 +64,7 @@ def _item(
     attribution: debt_digest.Attribution,
     identifier: str = _IDENTIFIER,
     line: str = "a line",
-    facts: str = "*3* accepted variants of the current baseline",
+    facts: str = "Tolerated *3* times in the last 30 days",
 ) -> debt_digest.DebtItem:
     return debt_digest.DebtItem(
         identifier=identifier, run_type="storybook", attribution=attribution, line=line, facts=facts
@@ -105,8 +106,8 @@ class TestLead:
         "expiring,pileups,fields,mentions_lapse",
         [
             (1, 0, ["*1 quarantine* expires soon"], True),
-            (0, 2, ["*2 snapshots* with piled-up variants"], False),
-            (3, 1, ["*3 quarantines* expire soon", "*1 snapshot* with piled-up variants"], True),
+            (0, 2, ["*2 snapshots* keep getting tolerated"], False),
+            (3, 1, ["*3 quarantines* expire soon", "*1 snapshot* keeps getting tolerated"], True),
         ],
     )
     def test_the_lead_names_the_team_and_counts_only_the_conditions_it_has(
@@ -137,7 +138,7 @@ class TestLead:
 
         assert message.text == (
             "Visual review debt for team-devex in PostHog/posthog: 1 quarantine expires soon, "
-            "2 snapshots with piled-up variants."
+            "2 snapshots keep getting tolerated."
         )
 
 
@@ -146,8 +147,8 @@ class TestThreadReplies:
         "expiring,pileups,headings",
         [
             (1, 0, ["*Quarantines expiring soon*"]),
-            (0, 1, ["*Snapshots with piled-up variants*"]),
-            (2, 2, ["*Quarantines expiring soon*", "*Snapshots with piled-up variants*"]),
+            (0, 1, ["*Snapshots that keep getting tolerated*"]),
+            (2, 2, ["*Quarantines expiring soon*", "*Snapshots that keep getting tolerated*"]),
         ],
     )
     def test_one_reply_per_condition_that_has_items(self, expiring: int, pileups: int, headings: list[str]) -> None:
@@ -159,7 +160,7 @@ class TestThreadReplies:
         messages = debt_digest.thread_messages(_repo(), _team_digest(expiring=1, pileups=1), _MONDAY)
 
         buttons = _all_buttons(messages)
-        assert [button["text"]["text"] for button in buttons] == ["Extend or fix", "Reset baseline"]
+        assert [button["text"]["text"] for button in buttons] == ["Extend or fix", "Fix or quarantine"]
         assert all(
             button["url"] == f"{settings.SITE_URL}/project/7/visual_review/repos/abc/storybook/snapshots/{_IDENTIFIER}"
             for button in buttons
@@ -366,7 +367,7 @@ class TestRendering:
     def test_links_to_the_snapshot_page_with_encoded_segments(self) -> None:
         line = debt_digest._pileup_line(_repo(), "storybook", "scenes/Button--dark", 4)
 
-        assert line.startswith("4 accepted variants of the current baseline · scenes/Button--dark (storybook)")
+        assert line.startswith("Tolerated 4 times in 30 days · scenes/Button--dark (storybook)")
         assert line.endswith("/project/7/visual_review/repos/abc/storybook/snapshots/scenes%2FButton--dark")
 
     @pytest.mark.parametrize(
@@ -513,16 +514,58 @@ class TestCollectAndSend:
         runs.finish_processing(run.id)
         return run
 
-    def _pile_up(self, repo, identifier=_IDENTIFIER, count=3):
-        for index in range(count):
+    def _pile_up(
+        self,
+        repo,
+        identifier=_IDENTIFIER,
+        baseline_hashes=("old_hash",) * 3,
+        reason="human",
+        age=None,
+        source_run_type=None,
+    ):
+        source_run = (
+            Run.objects.create(
+                repo=repo, team_id=repo.team_id, run_type=source_run_type, commit_sha="def", branch="feature"
+            )
+            if source_run_type
+            else None
+        )
+        for index, baseline_hash in enumerate(baseline_hashes):
             ToleratedHash.objects.create(
                 repo=repo,
                 team_id=repo.team_id,
                 identifier=identifier,
-                baseline_hash="old_hash",
+                baseline_hash=baseline_hash,
                 alternate_hash=f"variant_{index}",
-                reason="human",
+                reason=reason,
+                source_run=source_run,
             )
+        if age is not None:
+            # created_at is auto_now_add, so backdating takes a second write.
+            ToleratedHash.objects.filter(repo=repo, identifier=identifier).update(created_at=timezone.now() - age)
+
+    @pytest.mark.parametrize(
+        "baseline_hashes,reason,age,source_run_type,expected",
+        [
+            (("older_hash", "old_hash", "old_hash"), "human", timedelta(days=1), None, [_IDENTIFIER]),
+            (("old_hash",) * 3, "agent", timedelta(days=1), None, [_IDENTIFIER]),
+            (("old_hash",) * 3, "human", timedelta(days=TOLERATION_PILEUP_WINDOW_DAYS + 1), None, []),
+            (("old_hash",) * 3, "auto_threshold", timedelta(days=1), None, []),
+            (("old_hash",) * 2, "human", timedelta(days=1), None, []),
+            (("old_hash",) * 3, "human", timedelta(days=1), RunType.STORYBOOK, [_IDENTIFIER]),
+            (("old_hash",) * 3, "human", timedelta(days=1), RunType.PLAYWRIGHT, []),
+        ],
+    )
+    def test_a_pile_up_counts_recent_intentional_tolerations_across_baselines(
+        self, repo, mocker, baseline_hashes, reason, age, source_run_type, expected
+    ):
+        self._completed_run(repo, mocker)
+        self._pile_up(repo, baseline_hashes=baseline_hashes, reason=reason, age=age, source_run_type=source_run_type)
+
+        with _with_index(_INDEX):
+            debt = debt_digest.collect_debt(repo, timezone.now())
+
+        assert [item.identifier for item in debt.variant_pileups] == expected
 
     def test_collects_both_conditions_and_names_the_story_file(self, repo, team, user, mocker):
         self._completed_run(repo, mocker)
@@ -546,7 +589,7 @@ class TestCollectAndSend:
         assert [(item.identifier, item.attribution) for item in debt.expiring_quarantines] == [
             (_ABSENT_IDENTIFIER, _STORY_ABSENT)
         ]
-        assert "3 accepted variants of the current baseline" in debt.variant_pileups[0].line
+        assert "Tolerated 3 times in 30 days" in debt.variant_pileups[0].line
 
     def test_an_unreadable_story_index_leaves_the_items_unattributed(self, repo, mocker):
         self._completed_run(repo, mocker)
@@ -633,7 +676,7 @@ class TestCollectAndSend:
         assert len(rendered) == 1
         # Preview prints the plain text behind every message, so a by-hand run reads without Slack.
         assert rendered[0].startswith("Visual review debt for team-devex in org/test-debt: ")
-        assert "3 accepted variants of the current baseline" in rendered[0]
+        assert "Tolerated 3 times in 30 days" in rendered[0]
         assert rendered[0].rstrip().split("\n")[-1].startswith("Next digest Monday, ")
 
     def test_an_unreadable_owners_file_sends_nothing(self, repo, mocker):

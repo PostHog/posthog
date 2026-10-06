@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -27,6 +28,14 @@ describe('inboxTaskKickoffLogic', () => {
         let logic: ReturnType<typeof inboxTaskKickoffLogic.build>
         let createdTasks: Record<string, unknown>[]
         let startedRuns: Record<string, unknown>[]
+        let warmRequests: Record<string, unknown>[]
+        let cancelledRuns: { taskId: string; runId: string; body: Record<string, unknown> }[]
+        let warmResponse: Record<string, unknown>
+        let warmResponses: Record<string, unknown>[]
+        // Holds every warm response until the test resolves it, so a test can act mid-flight.
+        let warmGate: Promise<void> | null
+        let createResponse: Record<string, unknown>
+        let createStatus: number
         // Runs while the kickoff awaits its run response, so a test can act as the reader does mid-flight.
         let onRunRequest: (() => void) | null
         const report = makeReport({ id: 'report-sidebar', status: SignalReportStatus.READY })
@@ -35,6 +44,13 @@ describe('inboxTaskKickoffLogic', () => {
             localStorage.clear()
             createdTasks = []
             startedRuns = []
+            warmRequests = []
+            cancelledRuns = []
+            warmResponse = {}
+            warmResponses = []
+            warmGate = null
+            createResponse = { id: 'report-task' }
+            createStatus = 201
             onRunRequest = null
             useMocks({
                 get: {
@@ -43,7 +59,28 @@ describe('inboxTaskKickoffLogic', () => {
                 post: {
                     '/api/projects/:team/tasks/': async ({ request }) => {
                         createdTasks.push((await request.json()) as Record<string, unknown>)
-                        return [201, { id: 'report-task' }]
+                        if (createStatus !== 201) {
+                            return [
+                                createStatus,
+                                { code: 'signal_report_task_cap', error: 'Report task limit reached' },
+                            ]
+                        }
+                        return [201, createResponse]
+                    },
+                    '/api/projects/:team/tasks/warm/': async ({ request }) => {
+                        warmRequests.push((await request.json()) as Record<string, unknown>)
+                        if (warmGate) {
+                            await warmGate
+                        }
+                        return [200, warmResponses.shift() ?? warmResponse]
+                    },
+                    '/api/projects/:team/tasks/:taskId/runs/:runId/cancel/': async ({ request, params }) => {
+                        cancelledRuns.push({
+                            taskId: String(params.taskId),
+                            runId: String(params.runId),
+                            body: (await request.json()) as Record<string, unknown>,
+                        })
+                        return [200, { id: params.runId }]
                     },
                     '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
                         startedRuns.push((await request.json()) as Record<string, unknown>)
@@ -91,7 +128,10 @@ describe('inboxTaskKickoffLogic', () => {
                     expect(createdTasks[0]).toMatchObject({
                         description: expect.stringContaining('- insight insight-one ("Conversion rate")'),
                         signal_report_discussion_question: 'Explain the recommendation',
+                        branch: null,
+                        model: 'claude-opus-5',
                     })
+                    expect(createdTasks[0].pending_user_message).toBe(createdTasks[0].description)
                     expect(startedRuns[0].pending_user_message).toBe(createdTasks[0].description)
                     expect(attachedContextLogic.values.sentContextKeysByTask['report-task']).toContain(
                         'insight:insight-one'
@@ -118,6 +158,165 @@ describe('inboxTaskKickoffLogic', () => {
                 expect(startedRuns).toHaveLength(1)
             }
         )
+
+        it('warms a repo-less sandbox for the report when Ask AI opens, and only once per report', async () => {
+            warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
+
+            await expectLogic(logic, () => {
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            }).toFinishAllListeners()
+
+            expect(warmRequests).toHaveLength(1)
+            expect(warmRequests[0]).toMatchObject({
+                origin_product: 'signal_report',
+                signal_report: report.id,
+                branch: null,
+                runtime_adapter: 'claude',
+                model: 'claude-opus-5',
+            })
+            expect(warmRequests[0]).not.toHaveProperty('repository')
+            expect(logic.values.reportWarmLease).toEqual({
+                reportId: report.id,
+                taskId: 'warm-task',
+                runId: 'warm-run',
+            })
+            expect(cancelledRuns).toHaveLength(0)
+        })
+
+        it('does not warm when Create PR opens the panel', async () => {
+            await expectLogic(logic, () => logic.actions.createPrFromReport(report)).toFinishAllListeners()
+
+            expect(warmRequests).toHaveLength(0)
+            expect(createdTasks[0]).not.toHaveProperty('branch')
+        })
+
+        it('reuses the warm run on submit instead of starting a second run', async () => {
+            warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
+            createResponse = { id: 'warm-task', latest_run: { id: 'warm-run' } }
+            await expectLogic(logic, () =>
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            ).toFinishAllListeners()
+
+            await expectLogic(logic, () =>
+                logic.actions.discussReport(report, 'https://example.com/report', 'Explain the recommendation')
+            ).toFinishAllListeners()
+
+            expect(createdTasks).toHaveLength(1)
+            expect(startedRuns).toHaveLength(0)
+            expect(cancelledRuns).toHaveLength(0)
+            expect(logic.values.reportWarmLease).toBeNull()
+            expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
+                taskId: 'warm-task',
+                runId: 'warm-run',
+            })
+        })
+
+        it.each([
+            ['the side panel closes', (): void => sidePanelStateLogic.actions.closeSidePanel()],
+            [
+                'another side panel tab opens',
+                (): void => sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Notebooks),
+            ],
+            [
+                'the Max tab reopens without the report',
+                (): void => sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max),
+            ],
+            ['the panel options leave the report', (): void => sidePanelStateLogic.actions.setSidePanelOptions(null)],
+            [
+                'another report opens',
+                (): void =>
+                    logic.actions.openReportDiscussion(
+                        makeReport({ id: 'report-other', status: SignalReportStatus.READY }),
+                        'https://example.com/other'
+                    ),
+            ],
+        ])('releases the warm run when %s', async (_name, act) => {
+            warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
+            await expectLogic(logic, () =>
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            ).toFinishAllListeners()
+
+            await expectLogic(logic, act).toFinishAllListeners()
+
+            expect(cancelledRuns).toEqual([
+                { taskId: 'warm-task', runId: 'warm-run', body: { only_if_awaiting_first_message: true } },
+            ])
+            expect(logic.values.reportWarmLease?.reportId ?? null).not.toBe(report.id)
+        })
+
+        it('warms one report at a time and hands the slot to the newest report', async () => {
+            const otherReport = makeReport({ id: 'report-other', status: SignalReportStatus.READY })
+            let settleWarm!: () => void
+            warmGate = new Promise<void>((resolve) => {
+                settleWarm = resolve
+            })
+            warmResponses = [
+                { task_id: 'warm-task', run_id: 'warm-run' },
+                { task_id: 'other-task', run_id: 'other-run' },
+            ]
+
+            logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            logic.actions.openReportDiscussion(otherReport, 'https://example.com/other')
+            warmGate = null
+            settleWarm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(warmRequests.map((request) => request.signal_report)).toEqual([report.id, otherReport.id])
+            expect(cancelledRuns).toEqual([
+                { taskId: 'warm-task', runId: 'warm-run', body: { only_if_awaiting_first_message: true } },
+            ])
+            expect(logic.values.reportWarmLease).toEqual({
+                reportId: otherReport.id,
+                taskId: 'other-task',
+                runId: 'other-run',
+            })
+        })
+
+        it('keeps the warm when the same report reopens before its warm settles', async () => {
+            let settleWarm!: () => void
+            warmGate = new Promise<void>((resolve) => {
+                settleWarm = resolve
+            })
+            warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
+
+            logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            sidePanelStateLogic.actions.closeSidePanel()
+            logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            warmGate = null
+            settleWarm()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(warmRequests).toHaveLength(1)
+            expect(cancelledRuns).toHaveLength(0)
+            expect(logic.values.reportWarmLease).toEqual({
+                reportId: report.id,
+                taskId: 'warm-task',
+                runId: 'warm-run',
+            })
+        })
+
+        it('cancels the warm run when task creation fails', async () => {
+            warmResponse = { task_id: 'warm-task', run_id: 'warm-run' }
+            createStatus = 429
+            await expectLogic(logic, () =>
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+            ).toFinishAllListeners()
+
+            await expectLogic(logic, () =>
+                logic.actions.discussReport(report, 'https://example.com/report', 'Explain the recommendation')
+            ).toFinishAllListeners()
+
+            expect(createdTasks).toHaveLength(1)
+            expect(startedRuns).toHaveLength(0)
+            expect(logic.values.reportWarmLease).toBeNull()
+            expect(logic.values.isDiscussing).toBe(false)
+            await waitFor(() =>
+                expect(cancelledRuns).toEqual([
+                    { taskId: 'warm-task', runId: 'warm-run', body: { only_if_awaiting_first_message: true } },
+                ])
+            )
+        })
 
         it('shows implementation provisioning before the run request finishes and attaches the result in place', async () => {
             let optimisticStreamKey: string | undefined

@@ -134,6 +134,34 @@ describe('scoutGroups', () => {
             expect(scoutSubtitle(makeConfig(overrides), undefined, NOW)?.text).toEqual(expected)
         })
 
+        // A card that only says when a scout went off sends the reader to the activity log to find
+        // out who did it, which nobody looking at the roster knows to open.
+        it.each<[string, Partial<SignalScoutConfig>, string]>([
+            [
+                'a user pause names the person who did it',
+                {
+                    enabled: false,
+                    status: 'paused_by_user',
+                    status_changed_at: '2026-06-24T00:00:00Z',
+                    status_changed_by: {
+                        id: 7,
+                        uuid: 'user-7',
+                        first_name: 'Ada',
+                        last_name: 'Byron',
+                        email: 'ada@example.com',
+                    } as SignalScoutConfig['status_changed_by'],
+                },
+                'Turned off by Ada Byron · Jun 24, 2026',
+            ],
+            [
+                'an unattributed pause credits nobody',
+                { enabled: false, status: 'paused_by_user', status_changed_at: '2026-06-24T00:00:00Z' },
+                'Turned off Jun 24, 2026',
+            ],
+        ])('%s', (_name, overrides, expected) => {
+            expect(scoutSubtitle(makeConfig(overrides), undefined, NOW)?.text).toEqual(expected)
+        })
+
         it('prefers what the last run checked over the scout description', () => {
             const rollup = rollupFor([
                 makeRun({ summary: 'Swept 40 event series against the 14-day baseline. All inside range.' }),

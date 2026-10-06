@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import timedelta
 from hashlib import sha256
@@ -24,6 +25,7 @@ from posthog.hogql.editor_assist_metrics import (
     LANGUAGE_SERVICE_RESPONSE_SIZE_BYTES,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.timings import HogQLTimings
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PropertyDefinition, Team, User
@@ -46,6 +48,10 @@ _CATALOG_PUBLICATION_LOCK_WAIT_SECONDS = 0.25
 _CATALOG_PUBLICATION_REDIS_TIMEOUT_SECONDS = 0.1
 
 logger = structlog.get_logger(__name__)
+
+
+def _measure(timings: HogQLTimings | None, key: str) -> AbstractContextManager[None]:
+    return timings.measure(key) if timings is not None else nullcontext()
 
 
 class LanguageServiceError(Exception):
@@ -73,6 +79,7 @@ def coordinate_catalog_publication(
     service_target: str,
     check_catalog: Callable[[], LanguageServiceResult | None],
     publish_catalog: Callable[[], None],
+    timings: HogQLTimings | None = None,
 ) -> LanguageServiceResult | None:
     scope = sha256(
         f"{service_target}:{team_id}:{user_id}:{WAREHOUSE_ALIAS_CATALOG_REVISION_PREFIX}".encode()
@@ -81,51 +88,59 @@ def coordinate_catalog_publication(
     marker_key = f"{key_prefix}:success"
     lock_key = f"{key_prefix}:lock"
 
+    def measured_check_catalog() -> LanguageServiceResult | None:
+        with _measure(timings, "language_service_check"):
+            return check_catalog()
+
     try:
-        redis_client = get_client(
-            socket_timeout=_CATALOG_PUBLICATION_REDIS_TIMEOUT_SECONDS,
-            socket_connect_timeout=_CATALOG_PUBLICATION_REDIS_TIMEOUT_SECONDS,
-        )
-        marker_exists = bool(redis_client.get(marker_key))
+        with _measure(timings, "redis_marker_lookup"):
+            redis_client = get_client(
+                socket_timeout=_CATALOG_PUBLICATION_REDIS_TIMEOUT_SECONDS,
+                socket_connect_timeout=_CATALOG_PUBLICATION_REDIS_TIMEOUT_SECONDS,
+            )
+            marker_exists = bool(redis_client.get(marker_key))
     except (redis.exceptions.RedisError, ImproperlyConfigured):
         logger.warning("hogql_catalog_publication_redis_unavailable", exc_info=True)
         publish_catalog()
-        return check_catalog()
+        return measured_check_catalog()
 
     if marker_exists:
-        result = check_catalog()
+        result = measured_check_catalog()
         if result is not None:
             return result
 
     try:
-        lock = redis_client.lock(
-            lock_key,
-            timeout=_CATALOG_PUBLICATION_LOCK_TTL_SECONDS,
-            blocking_timeout=_CATALOG_PUBLICATION_LOCK_WAIT_SECONDS,
-        )
-        acquired = lock.acquire()
+        with _measure(timings, "redis_lock_acquire"):
+            lock = redis_client.lock(
+                lock_key,
+                timeout=_CATALOG_PUBLICATION_LOCK_TTL_SECONDS,
+                blocking_timeout=_CATALOG_PUBLICATION_LOCK_WAIT_SECONDS,
+            )
+            acquired = lock.acquire()
     except redis.exceptions.RedisError:
         logger.warning("hogql_catalog_publication_lock_unavailable", exc_info=True)
         publish_catalog()
-        return check_catalog()
+        return measured_check_catalog()
 
     if not acquired:
-        return check_catalog()
+        return measured_check_catalog()
 
     try:
-        result = check_catalog()
+        result = measured_check_catalog()
         if result is not None:
             return result
 
         publish_catalog()
         try:
-            redis_client.set(marker_key, "1", ex=_CATALOG_PUBLICATION_MARKER_TTL_SECONDS)
+            with _measure(timings, "redis_marker_write"):
+                redis_client.set(marker_key, "1", ex=_CATALOG_PUBLICATION_MARKER_TTL_SECONDS)
         except redis.exceptions.RedisError:
             logger.warning("hogql_catalog_publication_marker_failed", exc_info=True)
-        return check_catalog()
+        return measured_check_catalog()
     finally:
         try:
-            lock.release()
+            with _measure(timings, "redis_lock_release"):
+                lock.release()
         except redis.exceptions.LockNotOwnedError:
             logger.warning("hogql_catalog_publication_lock_expired")
         except redis.exceptions.RedisError:
@@ -273,7 +288,15 @@ class LanguageServiceClient:
         )
 
     def validate(self, team_id: int, user_id: int, query: str) -> LanguageServiceResult:
-        return self._request("POST", team_id, user_id, "validate", "validate", {"query": query}, 1)
+        return self._request(
+            "POST",
+            team_id,
+            user_id,
+            "validate",
+            "validate",
+            {"query": query, "positionEncoding": "utf-16"},
+            1,
+        )
 
     def _request(
         self,

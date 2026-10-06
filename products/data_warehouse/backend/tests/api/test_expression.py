@@ -50,8 +50,11 @@ class TestExpressionApi(APIBaseTest):
 
         context = HogQLContext(team_id=self.team.pk, database=database, enable_select_queries=True)
         printed, _ = prepare_and_print_ast(parse_select("SELECT browser FROM events"), context, "clickhouse")
-        self.assertIn("JSONExtractRaw(events.properties", printed)
-        self.assertIn("$browser", context.values.values())
+        if context.uses_new_events_schema():
+            self.assertIn("nullIf(events.properties.`$browser`, '') AS browser", printed)
+        else:
+            self.assertIn("JSONExtractRaw(events.properties", printed)
+            self.assertIn("$browser", context.values.values())
 
     @parameterized.expand(
         [

@@ -49,6 +49,7 @@ from products.review_hog.backend.reviewer.progress import (
     snapshot_stats,
     turn_stats,
 )
+from products.review_hog.backend.reviewer.review_state import review_already_published
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRMetadata, PRParser
 from products.review_hog.backend.temporal.client import (
@@ -278,10 +279,9 @@ class ReviewTriggerResponseSerializer(serializers.Serializer):
     )
     status = serializers.CharField(
         help_text="Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the "
-        "pull request's current commit already has a published review (no new run starts), "
-        "'joined_running_review' when a review was already in flight (no new run starts and its mode "
-        "stays unchanged; requests for Full mode lift a cheaper stored tier for later Full reviews, "
-        "while Flash requests leave the tier unchanged)."
+        "pull request's current commit already has a published review in the requested mode, "
+        "'joined_running_review' when a review was already in flight and the request joined its queue. "
+        "A requested Full review waits for an active Flash review."
     )
 
 
@@ -838,7 +838,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         report = (
             ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
         )
-        if report is not None and pr_meta.head_sha and report.published_head_sha == pr_meta.head_sha:
+        review_mode = REVIEW_MODE_FLASH if run_mode == RUN_MODE_FLASH else REVIEW_MODE_FULL
+        if report is not None and review_already_published(report, pr_meta.head_sha or "", review_mode):
             # The workflow would early-exit before resolving the acting user anyway — say so instead
             # of answering "started" for a run that will do nothing.
             return Response(
@@ -859,7 +860,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             trigger_source=TRIGGER_UI,
             # None = the requester's resolve_comments setting decides; review_only and flash pin it off.
             resolve_comments=False if run_mode in (RUN_MODE_REVIEW_ONLY, RUN_MODE_FLASH) else None,
-            review_mode=REVIEW_MODE_FLASH if run_mode == RUN_MODE_FLASH else REVIEW_MODE_FULL,
+            review_mode=review_mode,
+            requested_head_sha=pr_meta.head_sha,
         )
         if joins_running_review:
             # Flash is excluded for the same reason the fetch upsert excludes it: the lift rewrites

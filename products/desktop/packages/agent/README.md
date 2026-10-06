@@ -276,11 +276,11 @@ ACP defines standard methods like `session/prompt`, `session/update`, and `sessi
 
 Releases are automatic. There is no manual version bump: `package.json` stays at `0.0.0-dev` and the release workflow sets the version from the tag.
 
-1. A merge to `master` that changes a file in this package runs `.github/workflows/desktop-agent-tag.yml`.
-2. It pushes the tag `agent-vX.Y.Z`. `Z` is the number of commits to this package since the base tag `agent-vX.Y.0`.
-3. The tag push runs `.github/workflows/desktop-agent-release.yml`, which builds, tests and publishes to npm with provenance, then rebuilds the sandbox base images.
+1. A merge to `master` that changes a file in this package or `products/desktop/packages/harness` runs `.github/workflows/desktop-agent-tag.yml`.
+2. It pushes the tag `agent-vX.Y.Z`. `Z` counts commits that change either package since the base tag `agent-vX.Y.0`. A commit that changes both packages counts once.
+3. The tag push runs `.github/workflows/desktop-agent-release.yml`, which builds, tests and publishes to npm with provenance, then opens a pull request that bumps the agent pin in `Dockerfile.sandbox-base`. Merging that pull request builds and ships the sandbox images.
 
-A merge that changes nothing in this package adds no new version.
+A merge that changes neither package adds no new version.
 A change to either agent workflow file still runs the tag job, so it releases any package commits that have no tag yet.
 
 The publish job runs in the `npm-posthog-agent` GitHub environment, which only deploys from `agent-v*` tags.

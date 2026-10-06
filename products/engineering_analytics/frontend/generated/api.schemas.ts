@@ -385,7 +385,7 @@ export interface DeliveryLeadTimeApi {
     environment_scope: string
     /** PRs in scope merged in the window (bots and drafts excluded). */
     merged_pr_count: number
-    /** Of merged_pr_count, the PRs a successful in-scope deploy contains. The rest are still waiting for a deploy or fall outside the scan. */
+    /** Of merged_pr_count, the PRs whose first successful in-scope deployment was observed by the window end. The rest are still waiting for a deploy or fall outside the scan. */
     deployed_merged_pr_count: number
 }
 

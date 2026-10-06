@@ -12,7 +12,7 @@ schema-version = "1.10.0"
 # does not prevent that. Deliberately left at schema-version
 # 1.10.0: the field works there, and bumping the schema would hard-gate
 # anyone below flox 1.11.0 for no added effect.
-minimum-cli-version = "1.15.0"
+minimum-cli-version = "1.16.0"
 
 # List packages you wish to install in your environment inside
 # the `[install]` section.

@@ -16,7 +16,7 @@ from common.hogvm.python.objects import (
     new_hog_closure,
 )
 from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0, Operation
-from common.hogvm.python.stl import STL
+from common.hogvm.python.stl import STL, STLFunction
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
 from common.hogvm.python.utils import (
     MAX_MEMORY,
@@ -39,11 +39,12 @@ MAX_FUNCTION_ARGS_LENGTH = 300
 CALLSTACK_LENGTH = 1000
 
 
-@dataclass
+@dataclass(frozen=False)
 class BytecodeResult:
     result: Any
     bytecodes: dict[str, Any]
     stdout: list[str]
+    max_memory_used: int = 0
 
 
 def _compare_values(left: Any, right: Any, comparison: Callable[[Any, Any], bool]) -> bool:
@@ -61,6 +62,7 @@ def execute_bytecode(
     team: Optional["Team"] = None,
     debug=False,
     disallowed_functions: Optional[frozenset[str]] = None,
+    memory_limit: int = MAX_MEMORY,
 ) -> BytecodeResult:
     bytecodes: dict[str, Any] = input if isinstance(input, dict) else {"root": {"bytecode": input}}
     root_bytecode = bytecodes.get("root", {}).get("bytecode", []) or []
@@ -72,7 +74,7 @@ def execute_bytecode(
     ):
         raise HogVMException(f"Invalid bytecode. Must start with '{HOGQL_BYTECODE_IDENTIFIER}'")
     version = root_bytecode[1] if len(root_bytecode) >= 2 and root_bytecode[0] == HOGQL_BYTECODE_IDENTIFIER else 0
-    start_time = time.time()
+    start_time = time.monotonic()
     last_op = len(root_bytecode) - 1
     stack: list = []
     upvalues: list[dict] = []
@@ -173,16 +175,25 @@ def execute_bytecode(
         mem_used += mem_stack[-1]
         nonlocal max_mem_used
         max_mem_used = max(mem_used, max_mem_used)
-        if mem_used > MAX_MEMORY:
-            raise HogVMMemoryExceededException(memory_limit=MAX_MEMORY, attempted_memory=mem_used)
+        if mem_used > memory_limit:
+            raise HogVMMemoryExceededException(memory_limit=memory_limit, attempted_memory=mem_used)
 
     def check_timeout():
-        if time.time() - start_time > timeout.total_seconds() and not debug:
+        if time.monotonic() - start_time > timeout.total_seconds() and not debug:
             raise HogVMRuntimeExceededException(timeout_seconds=timeout.total_seconds(), ops_performed=ops)
 
     def remaining_timeout() -> float:
         # Budget left for this run, so blocking STL functions (e.g. sleep) can bound themselves to it.
-        return max(0.0, timeout.total_seconds() - (time.time() - start_time))
+        return max(0.0, timeout.total_seconds() - (time.monotonic() - start_time))
+
+    def call_stl(stl_fn: STLFunction, args: list[Any]) -> Any:
+        if stl_fn.memory_cost is not None:
+            attempted_memory = mem_used + stl_fn.memory_cost(args)
+            if attempted_memory > memory_limit:
+                raise HogVMMemoryExceededException(memory_limit=memory_limit, attempted_memory=attempted_memory)
+        result = stl_fn.fn(args, team, stdout, remaining_timeout())
+        check_timeout()
+        return result
 
     def check_allowed(name: str):
         # Enforced at dispatch so it catches every path to an STL call (direct, expression call,
@@ -217,8 +228,12 @@ def execute_bytecode(
             if len(call_stack) == 0 or last_call_frame is None:
                 if len(stack) > 1:
                     raise HogVMException("Invalid bytecode. More than one value left on stack")
+                check_timeout()
                 return BytecodeResult(
-                    result=pop_stack() if len(stack) > 0 else None, stdout=stdout, bytecodes=bytecodes
+                    result=pop_stack() if len(stack) > 0 else None,
+                    stdout=stdout,
+                    bytecodes=bytecodes,
+                    max_memory_used=max_mem_used,
                 )
             stack_start = last_call_frame.stack_start
             stack_keep_first_elements(stack_start)
@@ -358,7 +373,10 @@ def execute_bytecode(
                 response = pop_stack()
                 last_call_frame = call_stack.pop()
                 if len(call_stack) == 0 or last_call_frame is None:
-                    return BytecodeResult(result=response, stdout=stdout, bytecodes=bytecodes)
+                    check_timeout()
+                    return BytecodeResult(
+                        result=response, stdout=stdout, bytecodes=bytecodes, max_memory_used=max_mem_used
+                    )
                 stack_start = last_call_frame.stack_start
                 stack_keep_first_elements(stack_start)
                 push_stack(response)
@@ -564,7 +582,7 @@ def execute_bytecode(
                             args = [pop_stack() for _ in range(arg_count)]
                         else:
                             args = stack_keep_first_elements(len(stack) - arg_count)
-                        push_stack(stl_fn.fn(args, team, stdout, remaining_timeout()))
+                        push_stack(call_stl(stl_fn, args))
                     elif name in BYTECODE_STL:
                         arg_names = BYTECODE_STL[name][0]
                         if len(arg_names) != arg_count:
@@ -641,7 +659,7 @@ def execute_bytecode(
                         args = list(reversed([pop_stack() for _ in range(args_length)]))
                         if stl_fn.maxArgs is not None and len(args) < stl_fn.maxArgs:
                             args = [*args, *([None] * (stl_fn.maxArgs - len(args)))]
-                    push_stack(stl_fn.fn(args, team, stdout, remaining_timeout()))
+                    push_stack(call_stl(stl_fn, args))
 
                 elif callable.get("__hogCallable__") == "async":
                     raise HogVMException("Async functions are not supported")
@@ -691,7 +709,13 @@ def execute_bytecode(
 
         frame.ip += 1
 
-    return BytecodeResult(result=pop_stack() if len(stack) > 0 else None, stdout=stdout, bytecodes=bytecodes)
+    check_timeout()
+    return BytecodeResult(
+        result=pop_stack() if len(stack) > 0 else None,
+        stdout=stdout,
+        bytecodes=bytecodes,
+        max_memory_used=max_mem_used,
+    )
 
 
 def validate_bytecode(bytecode: list[Any] | dict, inputs: Optional[dict] = None) -> tuple[bool, Optional[str]]:

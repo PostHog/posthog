@@ -62,6 +62,14 @@ Notification recipient checks retain the existing global warehouse-resource poli
 
 Catalog access is a project permission resource. Notification visibility follows that permission, including after access is revoked.
 
+## Models overview
+
+The models overview reports one status for the whole project. It shows the status panel only when the model list and the check list have both answered, and when no model and no check needs attention. A request that failed is reported as a failure, so an unanswered request never reads as an all-clear.
+
+The panel's text follows the check results. It claims that all data quality checks passed only when every check passed on its last run. A check that was skipped or has never run is not a passed check, so the panel then says that no checks are failing and some have not passed yet. The overview reads one page of checks, so a project that fills that page gets the same text as a project with the data quality tab off: a check on a later page could be failing. A project with no checks is asked to add some. When the data quality tab is not available, the panel speaks about the models alone.
+
+A project that has no models and no saved views gets the first-view text instead of a status claim.
+
 ## Subject schedules
 
 A subject whose checks run on a recurring schedule has one Temporal Schedule in its canonical project. Metrics and PostHog tables are those subjects; a warehouse table's and a view's checks run when their data changes instead. A PostHog table is never synced or materialized, so a schedule is the only trigger its checks have. The first check creates an enabled daily schedule after the check transaction commits and starts an initial run. Available intervals are one hour, six hours, twelve hours, one day, and one week. A deterministic offset spreads recurring executions across each interval.

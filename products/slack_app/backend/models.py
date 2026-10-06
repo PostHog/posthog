@@ -132,12 +132,12 @@ class SlackSettings(UUIDModel):
 
     Two row shapes share this table:
     - ``slack_user_id`` set → that Slack user's personal settings for this workspace.
-      Written by the Slack `@PostHog project <id>` directive or the user-level
+      Written by the Slack `/posthog project <id>` command or the user-level
       settings UI.
     - ``slack_user_id IS NULL`` → workspace-wide fallback, applied when an
       inbound event's Slack user has no personal row yet. Written via the
       PostHog project-level settings UI by a team admin, or via the Slack
-      `@PostHog project workspace <id>` directive by a Slack workspace
+      `/posthog project workspace <id>` command by a Slack workspace
       admin/owner.
 
     A user-specific row, if present, always wins over the workspace-wide row at

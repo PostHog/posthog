@@ -41,12 +41,24 @@ Agent-sourced runs use the read-only MCP permission preset.
 Run state updates cannot change or remove the run source or base branch.
 The `state` field must be a JSON object.
 
+## Event delivery
+
+Cloud runs send live events through event ingest. Clients can replay only events mirrored into the backend stream.
+Presence-gated runs do not mirror events while no reader is attached.
+Reload the run's session logs to recover agent output.
+Refetch the run for its current state because run-state and progress frames are not in those logs.
+When event ingest is enabled, the agent server does not also retain events for a disconnected SSE client.
+An attached SSE client still receives live events.
+Runs without event ingest buffer events until an SSE client attaches.
+The Claude adapter forwards partial tool inputs without retaining each intermediate snapshot in session history.
+
 ## Run summaries
 
 `PATCH /api/projects/{team_id}/tasks/{task_id}/runs/{run_id}/set_summary/` replaces the run's progress summary.
 Send a JSON object with a `summary` string of 1 to 1,500 characters after trimming whitespace.
 The endpoint requires permission to control the task. A task-bound sandbox token can update only its own task.
 The update does not complete the run or change its structured `output`.
+Cloud agent runs write the summary through the `task_summary_update` local tool; local Desktop sessions do not have the tool.
 Generic run-state updates cannot change the summary or its inherited value.
 
 A resumed run uses its source run's summary until it saves a new summary.

@@ -26,6 +26,14 @@ METRIC_BUILDERS: dict[str, type[ExperimentMetric]] = {
     "retention": ExperimentRetentionMetric,
 }
 
+# The daily timeseries activities build only these. The sync that turns their points into a recalculation reads
+# the same set, so a metric the daily run never computes is not counted as a gap in the row it creates.
+DAILY_TIMESERIES_METRIC_TYPES: frozenset[str] = frozenset({"mean", "funnel", "ratio"})
+
+
+def is_daily_timeseries_metric(metric: dict[str, Any] | None) -> bool:
+    return bool(metric and metric.get("metric_type") in DAILY_TIMESERIES_METRIC_TYPES)
+
 
 def _merge_saved_metric_breakdowns(saved_query: dict[str, Any], metadata: dict[str, Any] | None) -> dict[str, Any]:
     """Merge per-experiment breakdowns from the M2M link metadata into the saved query, mirroring the

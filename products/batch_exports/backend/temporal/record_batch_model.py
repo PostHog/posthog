@@ -3,10 +3,12 @@ import uuid
 import typing
 import datetime as dt
 
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
+
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
 
@@ -14,6 +16,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.credentials import AWSKeyPair
 from posthog.models import Team
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -22,6 +25,7 @@ from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
     create_hogql_context_for_batch_export,
     parse_hogql_select_for_batch_export,
+    serialize_batch_export_query,
 )
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.metrics import log_query_duration
@@ -436,5 +440,23 @@ def resolve_batch_exports_model(
         extra_query_parameters = model["values"] if model is not None else {}
         fields = model["fields"] if model is not None else None
         filters = None
+
+    schema = batch_export_schema or (batch_export_model.schema if batch_export_model is not None else None)
+    if schema is not None and (query := schema.get("hogql_query")) and use_new_events_schema(team_id):
+        context = HogQLContext(
+            team_id=team_id,
+            enable_select_queries=True,
+            limit_top_select=False,
+            modifiers=HogQLQueryModifiers(
+                materializationMode=MaterializationMode.DISABLED,
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            ),
+        )
+        compiled = serialize_batch_export_query(typing.cast(ast.SelectQuery, parse_select(query)), context)
+        fields = [
+            {"expression": compiled_field["expression"], "alias": stored_field["alias"]}
+            for stored_field, compiled_field in zip(schema["fields"], compiled["fields"], strict=True)
+        ]
+        extra_query_parameters = compiled["values"]
 
     return model, record_batch_model, model_name, fields, filters, extra_query_parameters

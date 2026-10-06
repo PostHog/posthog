@@ -7,7 +7,7 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
+import { AccessControlLevel, DashboardMode, DashboardType, InsightModel } from '~/types'
 
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/types/streamTypes'
@@ -26,7 +26,7 @@ jest.mock('products/posthog_ai/frontend/api/logics', () => ({
     useMcpToolApplyBack: jest.fn(),
 }))
 
-const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
+const MOCK_DASHBOARD: DashboardType = {
     id: 5,
     name: 'Test Dashboard',
     description: 'A test dashboard',
@@ -51,7 +51,7 @@ const MOCK_DASHBOARD: DashboardType<QueryBasedInsightModel> = {
     variables: {},
 }
 
-function makeDashboard(overrides: Record<string, any> = {}): DashboardType<QueryBasedInsightModel> {
+function makeDashboard(overrides: Record<string, any> = {}): DashboardType {
     return { ...MOCK_DASHBOARD, ...overrides }
 }
 
@@ -78,7 +78,7 @@ describe('DashboardHeader', () => {
     })
 
     function renderHeader(opts: {
-        dashboard?: DashboardType<QueryBasedInsightModel> | null
+        dashboard?: DashboardType | null
         dashboardMode?: DashboardMode | null
         dashboardEditing?: { filters: boolean; layout: boolean } | null
         dashboardModeSource?: DashboardEventSource
@@ -276,7 +276,7 @@ describe('DashboardHeader', () => {
                               id: 1,
                               color: null,
                               layouts: {},
-                              insight: { id: 1, short_id: 'test', name: 'Test' } as QueryBasedInsightModel,
+                              insight: { id: 1, short_id: 'test', name: 'Test' } as InsightModel,
                           },
                       ]
                     : [],

@@ -206,6 +206,12 @@ REPLAY_VISION_GEMINI_CLEANUP_BACKLOG = Gauge(
     "Tracked Gemini files awaiting cleanup (a growing backlog means the sweep is losing)",
 )
 
+REPLAY_VISION_MEDIA_BACKFILL_TICK = Counter(
+    "replay_vision_media_backfill_tick",
+    "Observations a media backfill tick dispatched, skipped as unfillable, or left cooling off",
+    labelnames=["outcome"],
+)
+
 
 def record_observation(status: str, scanner_type: str) -> None:
     labels = {"status": status, "scanner_type": scanner_type}
@@ -357,3 +363,14 @@ def record_enqueue_claim_failure(operation: str) -> None:
 def record_gemini_cleanup_backlog(count: int) -> None:
     REPLAY_VISION_GEMINI_CLEANUP_BACKLOG.set(count)
     _otel.record_gauge_twin(REPLAY_VISION_GEMINI_CLEANUP_BACKLOG, count)
+
+
+def record_media_backfill_tick(*, dispatched: int, without_video: int, cooling_off: int) -> None:
+    """A fail-soft path leaves no other trace, so the sweep's own numbers are the alert surface."""
+    for outcome, count in (
+        ("dispatched", dispatched),
+        ("without_video", without_video),
+        ("cooling_off", cooling_off),
+    ):
+        REPLAY_VISION_MEDIA_BACKFILL_TICK.labels(outcome=outcome).inc(count)
+        _otel.record_counter_twin(REPLAY_VISION_MEDIA_BACKFILL_TICK, count, {"outcome": outcome})

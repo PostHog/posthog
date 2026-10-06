@@ -29,7 +29,7 @@ INBOUND_LEASES_TOTAL = Counter(
 DELIVERY_ATTEMPTS_TOTAL = Counter(
     "posthog_conversations_delivery_attempts_total",
     "Outbound delivery-part processing attempts by part key and result",
-    labelnames=["part_key", "result"],  # claimed | retry | accepted | failed
+    labelnames=["part_key", "result"],  # claimed | retry | deferred | accepted | failed
 )
 DELIVERY_LEASES_TOTAL = Counter(
     "posthog_conversations_delivery_leases_total",

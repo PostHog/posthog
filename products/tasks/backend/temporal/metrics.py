@@ -38,6 +38,37 @@ TASKS_LATENCY_HISTOGRAM_BUCKETS = [
     3_600_000.0,
 ]
 
+TASKS_SDK_LATENCY_HISTOGRAM_METRICS = (
+    "temporal_activity_execution_latency",
+    "temporal_activity_schedule_to_start_latency",
+    "temporal_workflow_task_execution_latency",
+)
+TASKS_SDK_LATENCY_HISTOGRAM_BUCKETS = [
+    1.0,
+    10.0,
+    20.0,
+    50.0,
+    100.0,
+    200.0,
+    250.0,
+    500.0,
+    1_000.0,
+    2_500.0,
+    5_000.0,
+    10_000.0,
+    15_000.0,
+    20_000.0,
+    30_000.0,
+    45_000.0,
+    60_000.0,
+    90_000.0,
+    120_000.0,
+    180_000.0,
+    300_000.0,
+    600_000.0,
+    1_000_000.0,
+]
+
 TASKS_LAUNCH_PREPARATION_HISTOGRAM_METRICS = ("tasks_modal_launch_preparation_latency",)
 TASKS_LAUNCH_PREPARATION_HISTOGRAM_BUCKETS = [
     100.0,
@@ -432,6 +463,25 @@ def record_agent_server_step_ms(
         ).record(dt.timedelta(milliseconds=duration_ms))
     except Exception:
         pass
+
+
+def record_agent_server_boot_phases_ms(
+    boot_phases_ms: Mapping[str, int],
+    boot_path: str,
+    *,
+    used_snapshot: bool | None = None,
+    origin_product: str | None = None,
+    runtime: str | None = None,
+) -> None:
+    for phase, duration_ms in boot_phases_ms.items():
+        record_agent_server_step_ms(
+            f"agent_server_phase_{phase}",
+            duration_ms,
+            boot_path,
+            used_snapshot=used_snapshot,
+            origin_product=origin_product,
+            runtime=runtime,
+        )
 
 
 def increment_agent_server_readiness_retry(

@@ -47,12 +47,22 @@ _DATA_QUALITY_INFORMATION_SCHEMA_TABLES = frozenset(
 _ACCOUNT_COMMUNICATION_LAZY_FIELDS = frozenset({"email_threads", "support_tickets"})
 
 # Scopes a system table's rows depend on beyond its own `access_scope`, because its visibility rules
-# read another access-controlled table. `system.activity_logs` limits Canvas rows to the canvases in
-# `system.canvases` (see activity_log_visibility.py), so its rows follow the caller's Canvas grants:
-# without partitioning on `canvas` too, two users with identical activity-log access but different
-# Canvas grants share one cache key, and the narrower one is served the wider one's Canvas rows.
+# read another access-controlled table, or because it declares no scope of its own.
+# `system.activity_logs` limits Canvas rows to the canvases in `system.canvases` (see
+# activity_log_visibility.py), so its rows follow the caller's Canvas grants: without partitioning
+# on `canvas` too, two users with identical activity-log access but different Canvas grants share
+# one cache key, and the narrower one is served the wider one's Canvas rows.
 _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     "system.activity_logs": frozenset({"canvas"}),
+    # These predicates resolve scoped parents at execution, after a cache hit would return.
+    # Keep row filtering on the parent so its creator exemption also applies to junction rows.
+    "system._account_tagged_items": frozenset({"account"}),
+    "system._account_resource_notebooks": frozenset({"account"}),
+    "system._ticket_tagged_items": frozenset({"ticket"}),
+    "system._ticket_assignments": frozenset({"ticket"}),
+    "system._ticket_assignee_roles": frozenset({"ticket"}),
+    # Task predicates need these public channel IDs even under object-only task grants.
+    "system._task_public_channels": frozenset({"task"}),
     "system.customer_tasks": frozenset({"account"}),
 }
 

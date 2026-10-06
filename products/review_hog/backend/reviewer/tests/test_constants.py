@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import pytest
 
 from posthog.temporal.oauth import has_write_scopes, resolve_scopes
@@ -35,7 +37,7 @@ from products.review_hog.backend.reviewer.constants import (
     select_review_tier,
     validation_arm_for_mode,
 )
-from products.review_hog.backend.temporal.types import TRIGGER_INBOX
+from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_INBOX
 from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import (
     LLMProvider,
@@ -160,12 +162,12 @@ def test_only_tiers_cheaper_than_human_lift_on_a_human_trigger(tier: ReviewTier,
     assert is_below_human_tier(tier) is expected
 
 
-def test_human_triggers_cover_every_trigger_but_the_inbox() -> None:
+def test_human_triggers_exclude_automatic_triggers() -> None:
     # The set is spelled out in constants.py (persistence cannot import the temporal package). A
     # trigger added to types.py but not here would leave a person's ask on a cheap tier, so the
     # expected set is derived from the module rather than spelled out a second time.
     every_trigger = {value for name, value in vars(trigger_types).items() if name.startswith("TRIGGER_")}
-    assert HUMAN_TRIGGER_SOURCES == every_trigger - {TRIGGER_INBOX}
+    assert HUMAN_TRIGGER_SOURCES == every_trigger - {TRIGGER_INBOX, TRIGGER_AUTOMATIC}
 
 
 # A registry-valid arm that differs from the default pins on every field, so honored-verbatim
@@ -213,18 +215,27 @@ def test_review_mcp_scopes_open_a_session_and_stay_read_only() -> None:
 
 
 @pytest.mark.parametrize(
-    "review_mode,expected_review,expected_validation",
+    "review_mode,effort,expected_review,expected_validation",
     [
         # A flash turn swaps both seats; a full turn keeps the report's own arm and the validator pins.
         # A helper that read the pins for flash would run the expensive review under a cheap label
         # and the analytics events, which share these helpers, would misprice every flash turn.
-        pytest.param(REVIEW_MODE_FLASH, FLASH_ARM, FLASH_ARM, id="flash"),
-        pytest.param(REVIEW_MODE_FULL, REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2], DEFAULT_VALIDATION_ARM, id="full"),
+        pytest.param(REVIEW_MODE_FLASH, "medium", FLASH_ARM, FLASH_ARM, id="flash-medium"),
+        pytest.param(
+            REVIEW_MODE_FLASH,
+            "xhigh",
+            replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH),
+            replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH),
+            id="flash-xhigh",
+        ),
+        pytest.param(
+            REVIEW_MODE_FULL, "xhigh", REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2], DEFAULT_VALIDATION_ARM, id="full"
+        ),
     ],
 )
 def test_mode_helpers_pick_both_seats(
-    review_mode: str, expected_review: ReviewArm, expected_validation: ReviewArm
+    review_mode: str, effort: str, expected_review: ReviewArm, expected_validation: ReviewArm
 ) -> None:
     persisted = REVIEW_ARMS_BY_TIER[ReviewTier.AGENT_P2]
-    assert review_arm_for_mode(review_mode, persisted) == expected_review
-    assert validation_arm_for_mode(review_mode) == expected_validation
+    assert review_arm_for_mode(review_mode, persisted, flash_reasoning_effort=effort) == expected_review
+    assert validation_arm_for_mode(review_mode, flash_reasoning_effort=effort) == expected_validation

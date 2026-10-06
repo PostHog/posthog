@@ -41,10 +41,13 @@ utility = true
 [[modules]]
 path = "ee"
 depends_on = [
+    # Facade-only: a Slack subscription asks whether the bot can answer a follow-up on its report.
+    "products.slack_app",
     "products.cohorts",
     "posthog",
     "products.access_control",
     "products.actions",
+    "products.approvals",
     "products.alerts",
     "products.cdp",
     "products.conversations",
@@ -145,6 +148,7 @@ depends_on = [
     "products.workflows",
     "products.actions",
     "products.alerts", "products.warehouse_sources", "products.data_tools", "products.exports", "products.annotations",
+    "products.security",
 ]
 layer = "modules"
 
@@ -237,6 +241,7 @@ path = "products.batch_exports"
 depends_on = [
     "ee",
     "posthog",
+    "products.access_control",
     "products.notifications",
 ]
 layer = "modules"
@@ -712,6 +717,7 @@ depends_on = [
     "products.alerts",
     "products.dashboards",
     "products.event_definitions",
+    "products.exports",
     "products.annotations",
     "products.warehouse_sources", "products.access_control",
     # A trends query filtering on a first-pageview-aware property builds it through
@@ -816,6 +822,9 @@ layer = "modules"
 [[modules]]
 path = "products.signals"
 depends_on = [
+    # Facade-only: a scout report asks whether the bot can answer a follow-up on it. products.slack_app
+    # depends on products.signals in turn, so both directions stay facade-only to keep the pair honest.
+    "products.slack_app",
     "ee",
     "products.cohorts",
     "posthog",
@@ -1497,7 +1506,8 @@ from = [
 
 [[modules]]
 path = "products.exports"
-depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics", "products.access_control"]
+# products.slack_app is facade-only: an AI subscription asks whether the bot can answer a follow-up.
+depends_on = ["posthog", "products.actions", "products.dashboards", "ee", "products.annotations", "products.ai_observability", "products.posthog_ai", "products.product_analytics", "products.access_control", "products.slack_app"]
 layer = "modules"
 
 [[modules]]
@@ -1604,4 +1614,19 @@ expose = [
 ]
 from = [
     "products.ai_training",
+]
+
+[[modules]]
+path = "products.security"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+    "backend\\.presentation\\.hub_api.*",
+]
+from = [
+    "products.security",
 ]

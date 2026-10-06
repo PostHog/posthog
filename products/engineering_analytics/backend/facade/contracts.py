@@ -1632,11 +1632,11 @@ class DeliveryLeadTime:
     """Lead time to deploy for one scope against the repository, over the DORA deployed-PR
     population (bots and drafts excluded, containment resolved through the deploy's head commit).
 
-    The distributions cover PRs whose first containing deploy succeeded in the window, so the
-    three stages compose. The coverage pair counts PRs merged in the window instead:
-    ``deployed_merged_pr_count`` of ``merged_pr_count`` reached a deploy. Deploy failure share and
-    recovery are per deploy and one deploy ships many PRs, so they are not attributable to an
-    author or a team and are not part of this type.
+    The distributions cover PRs merged in the window whose first containing deploy succeeded by
+    the window end, so the three stages compose. ``deployed_merged_pr_count`` of
+    ``merged_pr_count`` reached such a deploy. Deploy failure share and recovery are per deploy and
+    one deploy ships many PRs, so they are not attributable to an author or a team and are not part
+    of this type.
     """
 
     deploy_data_available: bool

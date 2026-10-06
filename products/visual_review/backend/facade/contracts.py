@@ -521,6 +521,11 @@ BASELINE_DRIFT_RECENT_RUN_COUNT = 10
 # "the baseline" means for that snapshot, and the same floor the frequently-tolerated stat uses.
 VARIANT_PILEUP_MIN = 3
 
+# Rolling window for counting a snapshot's tolerations across baselines. The debt digest flags
+# `VARIANT_PILEUP_MIN` intentional tolerations in this window. The Tolerate dialog's quarantine
+# suggestion in the frontend (`lib/quarantineNudge.ts`) uses the same window and floor.
+TOLERATION_PILEUP_WINDOW_DAYS = 30
+
 
 @dataclass(frozen=True)
 class BaselineQuarantineSummary:

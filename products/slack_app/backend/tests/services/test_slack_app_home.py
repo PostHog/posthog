@@ -38,6 +38,7 @@ from products.slack_app.backend.services.slack_app_home import (
     ACTION_EDIT_PERSONAL,
     ACTION_RESET_PERSONAL,
     ACTION_RESET_PROJECT_PERSONAL,
+    ACTION_SET_PROJECT_WORKSPACE,
     ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
     ACTION_TASKS_FILTER_REPO,
     ACTION_TASKS_PAGE_NEXT,
@@ -331,14 +332,18 @@ def _block_action_payload(
     slack_user_id: str,
     trigger_id: str | None = None,
     channel: str | None = None,
+    selected_value: str | None = None,
 ) -> dict:
+    action: dict[str, Any] = {"action_id": action_id}
+    if selected_value is not None:
+        action["selected_option"] = {"value": selected_value}
     return {
         "type": "block_actions",
         "team": {"id": SLACK_WORKSPACE_ID},
         "user": {"id": slack_user_id},
         "trigger_id": trigger_id,
         "channel": {"id": channel} if channel else None,
-        "actions": [{"action_id": action_id}],
+        "actions": [action],
     }
 
 
@@ -1000,6 +1005,13 @@ class TestTasksControlsRepublishTheList:
     """
 
     def _seed(self, integration) -> None:
+        # The card is scoped to the projects the clicker can reach, so U001 needs an identity.
+        viewer = User.objects.create_and_join(integration.team.organization, "viewer@posthog.com", None)
+        SlackUserProfileCache.objects.create(
+            integration=integration,
+            slack_user_id="U001",
+            email=viewer.email,
+        )
         # More than one page, so a Next click has somewhere to go.
         for index in range(12):
             task = Task.objects.create(
@@ -1151,6 +1163,35 @@ class TestHandleAppHomeOpened:
         assert "opener-gh" in text
         assert "colleague-gh" not in text
 
+    @pytest.mark.parametrize(
+        "viewer_email, is_member, reaches_project",
+        [
+            (None, False, False),
+            ("outsider@example.com", False, False),
+            ("member@posthog.com", True, True),
+        ],
+        ids=["viewer_we_cannot_identify", "viewer_outside_every_connected_org", "organization_member"],
+    )
+    def test_only_an_organization_member_reaches_the_connected_project(
+        self, slack_integration, mock_slack_client, flag_on, admin_user, viewer_email, is_member, reaches_project
+    ):
+        slack_integration.team.name = "Zephyr Analytics"
+        slack_integration.team.save(update_fields=["name"])
+        if is_member:
+            User.objects.create_and_join(slack_integration.team.organization, viewer_email, None)
+        if viewer_email:
+            SlackUserProfileCache.objects.create(
+                integration=slack_integration,
+                slack_user_id="U001",
+                email=viewer_email,
+            )
+
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+
+        text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
+        assert ("Zephyr Analytics" in text) is reaches_project
+        assert ("No project to show yet" in text) is not reaches_project
+
     def test_deactivated_user_is_not_resolved_from_their_slack_identity(
         self, slack_integration, mock_slack_client, flag_on, admin_user
     ):
@@ -1169,7 +1210,7 @@ class TestHandleAppHomeOpened:
 
         text = _all_text(mock_slack_client.views_publish.call_args.kwargs["view"])
         assert "offboarded-gh" not in text
-        assert "Link your PostHog account first" in text
+        assert "No project to show yet" in text
 
 
 # ---------------------------------------------------------------------------
@@ -1260,6 +1301,63 @@ class TestResetProjectPersonal:
         handle_ai_preferences_block_action(payload, payload["actions"][0])
         # Nothing to clear — still republish so the view stays in sync.
         assert mock_slack_client.views_publish.called
+
+
+class TestSetProjectWorkspace:
+    """The workspace default is one setting for everyone in the Slack workspace.
+
+    Slack's admin flag gates the control upstream and says nothing about PostHog, so
+    these cover the second gate: the clicker must reach the project they picked. Every
+    case arrives as a `block_actions` payload, which is what a view Slack published
+    before access was removed replays.
+    """
+
+    def _click(self, slack_user_id: str, team_id: int) -> dict:
+        return _block_action_payload(
+            action_id=ACTION_SET_PROJECT_WORKSPACE,
+            slack_user_id=slack_user_id,
+            selected_value=str(team_id),
+        )
+
+    def test_slack_admin_with_no_posthog_account_cannot_set_the_default(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        payload = self._click("U001", slack_integration.team_id)
+
+        handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        assert not SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id=None).exists()
+
+    def test_slack_admin_who_is_an_organization_member_sets_the_default(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        member = User.objects.create_and_join(slack_integration.team.organization, "admin@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=member.email)
+        payload = self._click("U001", slack_integration.team_id)
+
+        handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        row = SlackSettings.objects.get(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id=None)
+        assert row.default_integration_id == slack_integration.id
+
+    def test_member_of_one_connected_organization_cannot_pick_another_ones_project(
+        self, slack_integration, mock_slack_client, flag_on, admin_user
+    ):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_integration = Integration.objects.create(
+            team=other_team,
+            kind="slack",
+            integration_id=SLACK_WORKSPACE_ID,
+            sensitive_config={"access_token": "xoxb"},
+        )
+        member = User.objects.create_and_join(slack_integration.team.organization, "admin@posthog.com", None)
+        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=member.email)
+        payload = self._click("U001", other_integration.team_id)
+
+        handle_ai_preferences_block_action(payload, payload["actions"][0])
+
+        assert not SlackSettings.objects.filter(slack_workspace_id=SLACK_WORKSPACE_ID, slack_user_id=None).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1535,18 +1633,34 @@ class TestNoProjectAccessCard:
         kwargs.update(overrides)
         return render_home_view(**kwargs)
 
-    def test_explains_the_dead_end_and_links_to_the_settings_page(self):
-        text = _all_text(self._view())
-
-        assert "No project to show yet" in text
-        assert "ask an admin" in text
-        urls = [
+    @staticmethod
+    def _urls(view: dict) -> list[str]:
+        return [
             element["url"]
-            for block in self._view()["blocks"]
+            for block in view["blocks"]
             for element in block.get("elements", []) or []
             if "url" in element
         ]
-        assert urls == ["http://localhost:8010/settings/project-integrations"]
+
+    def test_explains_the_dead_end_and_links_to_the_settings_page(self):
+        view = self._view()
+
+        assert "No project to show yet" in _all_text(view)
+        assert "ask an admin" in _all_text(view)
+        assert self._urls(view) == ["http://localhost:8010/settings/project-integrations"]
+
+    def test_names_the_address_mismatch_and_routes_it_to_personal_integrations(self):
+        personal = "http://localhost:8010/project/7/settings/user-personal-integrations"
+        view = self._view(account_settings_url=personal)
+
+        assert "same email address as your Slack profile" in _all_text(view)
+        assert personal in self._urls(view)
+
+    def test_withholds_the_signed_account_link_from_a_viewer_who_was_not_identified(self):
+        # The URL is in `account_state` on this path, so its absence has to be asserted.
+        view = self._view(account_settings_url="http://localhost:8010/project/7/settings/user-personal-integrations")
+
+        assert "https://app/link" not in json.dumps(view)
 
     def test_suppresses_every_card_that_needs_a_project(self):
         # Each of these would otherwise render from the states passed above.
@@ -1565,7 +1679,7 @@ class TestUnidentifiedViewerProjectList:
     """What the tab lists for a Slack user it cannot map to a PostHog account.
 
     The regression to catch is the list widening again. A Slack workspace can connect
-    several organizations, so returning every candidate publishes the project and
+    several organizations, so reaching any candidate publishes the project and
     organization names of orgs the viewer is not a member of to anyone in the workspace.
     """
 
@@ -1590,7 +1704,7 @@ class TestUnidentifiedViewerProjectList:
             sensitive_config={"access_token": "xoxb"},
         )
 
-    def test_shows_only_the_project_the_tab_renders_for(self):
+    def test_reaches_no_project_at_all(self):
         from products.slack_app.backend.services.slack_app_home import _filter_accessible_integrations
 
         # No SlackUserProfileCache row and no OAuth link, so the viewer is unidentifiable.
@@ -1598,5 +1712,4 @@ class TestUnidentifiedViewerProjectList:
             self.rendered_for, "U_STRANGER", [self.rendered_for, self.other_org_install]
         )
 
-        assert [i.id for i in accessible] == [self.rendered_for.id]
-        assert self.other_org_install.id not in {i.id for i in accessible}
+        assert accessible == []

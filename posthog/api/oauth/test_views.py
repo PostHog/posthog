@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.db import OperationalError
@@ -54,6 +54,7 @@ from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 # A cut-off `scope` parameter only reads as truncated once enough real scopes come through
 # before the fragment, so a fixture standing in for one has to be that long.
@@ -3439,6 +3440,27 @@ class TestOAuthAPI(APIBaseTest):
         self.assertIn("llm_gateway:read", grant.scope.split())
         self.assertEqual(mock_blocked.call_args.kwargs["surface"], "oauth_authorize")
         self.assertEqual(mock_blocked.call_args.kwargs["email"], self.user.email)
+
+    @patch("posthog.api.oauth.views.security_shadow_check")
+    def test_authorize_records_a_shadow_access_check_for_the_gateway_scope(self, shadow: MagicMock) -> None:
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+
+        self._first_party_authorize_grant(app, "insight:read llm_gateway:read")
+
+        shadow.assert_called_once()
+        subject, surface = shadow.call_args.args
+        self.assertEqual(surface, SecuritySurface.AI_GATEWAY)
+        self.assertEqual(subject.user_uuid, str(self.user.uuid))
+        self.assertEqual(shadow.call_args.kwargs, {"call_site": "oauth_authorize"})
+
+    @patch("posthog.api.oauth.views.security_shadow_check", side_effect=RuntimeError("boom"))
+    def test_authorize_grants_the_gateway_scope_when_the_shadow_check_raises(self, shadow: MagicMock) -> None:
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+
+        grant = self._first_party_authorize_grant(app, "insight:read llm_gateway:read")
+
+        self.assertIn("llm_gateway:read", grant.scope.split())
+        shadow.assert_called_once()
 
     def test_authorize_wildcard_narrowed_to_seeded_ceiling(self):
         # A `*` request against a seeded ceiling is narrowed to the resolved ceiling

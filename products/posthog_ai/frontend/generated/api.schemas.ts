@@ -464,6 +464,7 @@ export interface PatchedConversationApi {
  * * `evaluation` - evaluation
  * * `event` - event
  * * `insight` - insight
+ * * `instructions` - instructions
  * * `notebook` - notebook
  * * `text` - text
  */
@@ -477,6 +478,7 @@ export const SandboxAttachedContextItemTypeEnumApi = {
     Evaluation: 'evaluation',
     Event: 'event',
     Insight: 'insight',
+    Instructions: 'instructions',
     Notebook: 'notebook',
     Text: 'text',
 } as const
@@ -489,7 +491,7 @@ export const SandboxAttachedContextItemTypeEnumApi = {
  * the live path wraps context client-side (`products/posthog_ai/frontend/utils/posthogContextBlock.ts`).
  */
 export interface SandboxAttachedContextItemApi {
-    /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
+    /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` and `instructions` carry `value`. `instructions` is the caller's own guidance and renders into the trusted context block; every other kind renders into the untrusted block, which tells the agent to read it as data.
      *
      * * `action` - action
      * * `dashboard` - dashboard
@@ -497,6 +499,7 @@ export interface SandboxAttachedContextItemApi {
      * * `evaluation` - evaluation
      * * `event` - event
      * * `insight` - insight
+     * * `instructions` - instructions
      * * `notebook` - notebook
      * * `text` - text */
     type: SandboxAttachedContextItemTypeEnumApi
@@ -504,7 +507,7 @@ export interface SandboxAttachedContextItemApi {
     id?: unknown
     /** Optional human-readable label rendered in the context block. */
     name?: string
-    /** Free-text content. Only for `text` attachments. */
+    /** Free-text content. Only for `text` and `instructions` attachments. */
     value?: string
 }
 
@@ -572,6 +575,54 @@ export interface SandboxMessageResponseApi {
     just_created_run: boolean
 }
 
+/**
+ * * `pending` - Pending
+ * * `completed` - Completed
+ * * `skipped` - Skipped
+ */
+export type CoreMemoryScrapingStatusEnumApi =
+    (typeof CoreMemoryScrapingStatusEnumApi)[keyof typeof CoreMemoryScrapingStatusEnumApi]
+
+export const CoreMemoryScrapingStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Skipped: 'skipped',
+} as const
+
+export interface MaxCoreMemoryApi {
+    readonly id: string
+    /**
+     * What Max remembers about the project, as free-form text.
+     * @maxLength 10000
+     */
+    text: string
+    scraping_status?: CoreMemoryScrapingStatusEnumApi | BlankEnumApi | null
+}
+
+export interface PaginatedMaxCoreMemoryListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: MaxCoreMemoryApi[]
+}
+
+export interface PatchedMaxCoreMemoryApi {
+    readonly id?: string
+    /**
+     * What Max remembers about the project, as free-form text.
+     * @maxLength 10000
+     */
+    text?: string
+    scraping_status?: CoreMemoryScrapingStatusEnumApi | BlankEnumApi | null
+}
+
+export interface HandsFreeTokenApi {
+    /** Single-use ElevenLabs Scribe realtime token, valid for 15 minutes. */
+    token: string
+}
+
 export interface JsonValueApi {}
 
 /**
@@ -609,6 +660,17 @@ export interface DocsSearchResponseApi {
 }
 
 export type ConversationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CoreMemoryListParams = {
     /**
      * Number of results to return per page.
      */

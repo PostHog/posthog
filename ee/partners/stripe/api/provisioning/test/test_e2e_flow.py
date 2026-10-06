@@ -6,8 +6,12 @@ from django.utils import timezone
 
 from posthog.models.user import User
 
-from ee.partners.stripe.api.provisioning.signature import compute_signature
-from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, HMAC_SECRET, StripeProvisioningTestBase
+from ee.partners.stripe.api.provisioning.test.base import (
+    BASE_PATH,
+    HMAC_SECRET,
+    StripeProvisioningTestBase,
+    compute_signature,
+)
 
 
 class TestE2EProvisioningFlow(StripeProvisioningTestBase):

@@ -116,6 +116,14 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
     if any(marker in message for marker in _AUTH_MARKERS):
         return CDCErrorCategory.AUTH_FAILED
 
+    # SQLSTATE 42501 (insufficient_privilege) — the connecting role lacks a privilege CDC needs.
+    # Covers both "permission denied for table/view/schema ..." (missing SELECT/USAGE) and
+    # "must be owner of table ..." (managing a publication requires table ownership, not just
+    # SELECT). Deterministic until the customer grants the privilege, so it must not fall through
+    # to the retryable UNKNOWN bucket, where a stuck grant would otherwise retry forever.
+    if isinstance(exc, psycopg.errors.InsufficientPrivilege):
+        return CDCErrorCategory.PERMISSION_DENIED
+
     if isinstance(exc, psycopg.OperationalError):
         if any(marker in message for marker in _SSL_REQUIRED_MARKERS):
             return CDCErrorCategory.SSL_REQUIRED

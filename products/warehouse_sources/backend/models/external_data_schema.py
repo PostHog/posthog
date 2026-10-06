@@ -13,6 +13,7 @@ from django.conf import settings
 from django.db import models, transaction
 from django.utils import timezone
 
+import structlog
 from dateutil import parser
 
 from posthog.dataclasses import frozen
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import (
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+
+logger = structlog.get_logger(__name__)
 
 type IncrementalFieldValue = str | int | float | None
 
@@ -1086,6 +1089,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             try:
                 client = get_s3_client()
                 client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+            except FileNotFoundError:
+                # s3fs raises this when nothing exists under the prefix. The files are already
+                # gone, which is the state this method wants, so the teardown below still runs.
+                logger.info("delete_table_prefix_already_deleted", schema_id=str(self.id), team_id=self.team_id)
             except Exception as e:
                 capture_exception(e)
 

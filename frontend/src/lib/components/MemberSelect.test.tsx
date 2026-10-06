@@ -84,4 +84,30 @@ describe('MemberSelect', () => {
 
         expect(onChange).toHaveBeenCalledWith(MOCK_SECOND_BASIC_USER)
     })
+
+    it('preserves an open picker search when another picker mounts and clears it after closing', async () => {
+        const pickers = (showSecond: boolean): JSX.Element => (
+            <Provider>
+                <>
+                    <MemberSelect value={null} onChange={onChange} />
+                    {showSecond ? <MemberSelect value={null} onChange={onChange} /> : null}
+                    <button type="button">Outside</button>
+                </>
+            </Provider>
+        )
+        const { rerender } = render(pickers(false))
+
+        await userEvent.click(screen.getByText('Any user'))
+        const searchInput = await screen.findByPlaceholderText('Search')
+        await userEvent.type(searchInput, 'Rose')
+
+        rerender(pickers(true))
+        expect(screen.getByPlaceholderText('Search')).toHaveValue('Rose')
+
+        await userEvent.click(screen.getByText('Outside'))
+        await waitFor(() => expect(screen.queryByPlaceholderText('Search')).not.toBeInTheDocument())
+        await userEvent.click(screen.getAllByText('Any user')[0])
+
+        expect(await screen.findByPlaceholderText('Search')).toHaveValue('')
+    })
 })

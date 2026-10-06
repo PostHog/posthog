@@ -37,12 +37,14 @@ import { KnowledgeList } from "./KnowledgeList";
 import { MarkdownFileDialog } from "./MarkdownFileDialog";
 
 const COLUMN = "mx-auto w-full max-w-[1100px] px-8";
+const TAB_COLUMN = "w-full px-6";
 
 interface SpaceContextPageProps {
   channelId: string;
   channelName: string;
   store: ContextDocumentStore;
   wikiPath: string | null;
+  hideTitle?: boolean;
   onOpenInWiki?: () => void;
 }
 
@@ -51,6 +53,7 @@ export function SpaceContextPage({
   channelName,
   store,
   wikiPath,
+  hideTitle = false,
   onOpenInWiki,
 }: SpaceContextPageProps) {
   const [agentOpen, setAgentOpen] = useState(false);
@@ -120,50 +123,10 @@ export function SpaceContextPage({
     );
   };
 
-  return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <PageHeader className="px-0">
-        <div className={COLUMN}>
-          <PageHeaderHeading>
-            <PageHeaderTitleRow>
-              <PageHeaderTitle>Context</PageHeaderTitle>
-              {store.isRefreshing || store.isSaving ? (
-                <Spinner size="xs" aria-hidden="true" />
-              ) : null}
-              <PageHeaderActions>
-                {onOpenInWiki ? (
-                  <Button variant="outline" size="sm" onClick={onOpenInWiki}>
-                    <ArrowSquareOutIcon size={14} />
-                    Open in wiki
-                  </Button>
-                ) : null}
-                {!isBlank ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setAgentOpen(true)}
-                  >
-                    <SparkleIcon size={14} />
-                    Update with agent
-                  </Button>
-                ) : null}
-              </PageHeaderActions>
-            </PageHeaderTitleRow>
-            <PageHeaderDescription>
-              {isBlank
-                ? "Every agent working in this space reads this first."
-                : null}
-              {!isBlank && store.updatedAt ? (
-                <>
-                  Updated <RelativeTimestamp timestamp={store.updatedAt} />
-                </>
-              ) : null}
-            </PageHeaderDescription>
-          </PageHeaderHeading>
-        </div>
-      </PageHeader>
-
+  const body = (
+    <>
       {store.isLoading ? <LoadingState className="flex-1" /> : null}
+
       {store.error ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6">
           <Text size="xs" variant="muted">
@@ -176,7 +139,13 @@ export function SpaceContextPage({
       ) : null}
       {ready ? (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className={cn(COLUMN, "flex flex-col gap-6 pt-10 pb-24")}>
+          <div
+            className={cn(
+              hideTitle ? TAB_COLUMN : COLUMN,
+              "flex flex-col gap-6",
+              hideTitle ? "pt-6 pb-24" : "pt-10 pb-24",
+            )}
+          >
             {store.saveError ? (
               <div className="flex items-center justify-between gap-3 border-border border-y py-2.5">
                 <Text size="xs" className="text-warning-foreground">
@@ -246,6 +215,71 @@ export function SpaceContextPage({
           onClose={() => setEditingContextFile(false)}
         />
       ) : null}
+    </>
+  );
+
+  const purpose = isBlank ? (
+    "Every agent working in this space reads this first."
+  ) : store.updatedAt ? (
+    <>
+      Updated <RelativeTimestamp timestamp={store.updatedAt} />
+    </>
+  ) : null;
+  const actions = (
+    <>
+      {onOpenInWiki ? (
+        <Button variant="outline" size="sm" onClick={onOpenInWiki}>
+          <ArrowSquareOutIcon size={14} />
+          Open in wiki
+        </Button>
+      ) : null}
+      {!isBlank ? (
+        <Button variant="outline" size="sm" onClick={() => setAgentOpen(true)}>
+          <SparkleIcon size={14} />
+          Update with agent
+        </Button>
+      ) : null}
+    </>
+  );
+
+  if (hideTitle) {
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="shrink-0 border-border border-b">
+          <div className="flex h-11 w-full items-center gap-2 px-6">
+            <Text size="xs" variant="muted" className="min-w-0 truncate">
+              {purpose}
+            </Text>
+            {store.isRefreshing || store.isSaving ? (
+              <Spinner size="xs" aria-hidden="true" />
+            ) : null}
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              {actions}
+            </div>
+          </div>
+        </div>
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <PageHeader className="px-0">
+        <div className={COLUMN}>
+          <PageHeaderHeading>
+            <PageHeaderTitleRow>
+              <PageHeaderTitle>Context</PageHeaderTitle>
+              {store.isRefreshing || store.isSaving ? (
+                <Spinner size="xs" aria-hidden="true" />
+              ) : null}
+              <PageHeaderActions>{actions}</PageHeaderActions>
+            </PageHeaderTitleRow>
+            <PageHeaderDescription>{purpose}</PageHeaderDescription>
+          </PageHeaderHeading>
+        </div>
+      </PageHeader>
+      {body}
     </div>
   );
 }

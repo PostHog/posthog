@@ -10,6 +10,7 @@ import unittest.mock
 from django.conf import settings
 from django.test import override_settings
 
+import pyarrow as pa
 import pytest_asyncio
 from aioresponses import aioresponses
 from temporalio import activity
@@ -95,6 +96,7 @@ async def assert_clickhouse_records_in_mock_server(
 
     expected_records = []
     for records in iter_records(
+        use_new_events_schema=False,
         client=clickhouse_client,
         team_id=team_id,
         interval_start=data_interval_start.isoformat(),
@@ -232,6 +234,120 @@ async def test_insert_into_http_activity_inserts_data_into_http_endpoint(
         exclude_events=exclude_events,
         backfill_details=insert_inputs.backfill_details,
     )
+
+
+async def test_insert_into_http_activity_preserves_mutation_properties_when_using_native_events(
+    activity_environment, http_config
+):
+    """Native ingestion strips the mutation keys out of `properties`, so the export has to put them
+    back from the columns the native source carries.
+    """
+    interval_end = dt.datetime(2026, 1, 2, tzinfo=dt.UTC)
+    event_time = interval_end - dt.timedelta(hours=1)
+    record_batch = pa.RecordBatch.from_pylist(
+        [
+            {
+                "uuid": str(uuid4()),
+                "timestamp": event_time,
+                "_inserted_at": event_time,
+                "event": "$pageview",
+                "properties": "{}",
+                "distinct_id": "person-1",
+                "elements_chain": None,
+                "set": '{"email":"person@example.com"}',
+                "set_once": '{"first_seen":"2026-01-01"}',
+                "unset": '["old_property"]',
+                "group_set": '{"company":{"name":"Example"}}',
+            }
+        ]
+    )
+    insert_inputs = HttpInsertInputs(
+        team_id=randint(1, 1000000),
+        data_interval_start=None,
+        data_interval_end=interval_end.isoformat(),
+        batch_export_schema=None,
+        backfill_details=BackfillDetails(
+            backfill_id=None,
+            start_at=None,
+            end_at=interval_end.isoformat(),
+        ),
+        **http_config,
+    )
+    mock_server = MockServer()
+
+    with (
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.http_batch_export.use_new_events_schema",
+            return_value=True,
+        ),
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.http_batch_export.iter_records",
+            return_value=iter([record_batch]),
+        ),
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses,
+    ):
+        responses.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
+        await activity_environment.run(insert_into_http_activity, insert_inputs)
+
+    assert mock_server.records[0]["properties"] == {
+        "$geoip_disable": True,
+        "$set": {"email": "person@example.com"},
+        "$set_once": {"first_seen": "2026-01-01"},
+        "$unset": ["old_property"],
+        "$group_set": {"company": {"name": "Example"}},
+    }
+
+
+@pytest.mark.parametrize("is_backfill", [False, True], ids=["scheduled", "backfill"])
+async def test_insert_into_http_activity_exports_mutation_properties_from_legacy_table(
+    clickhouse_client, activity_environment, http_config, is_backfill
+):
+    """A recent interval reads a legacy table even on the native schema, and those tables project no
+    mutation columns. The keys come from `properties`, which a legacy table still carries.
+    """
+    team_id = randint(1, 1000000)
+    interval_end = dt.datetime.now(tz=dt.UTC).replace(microsecond=0) - dt.timedelta(hours=1)
+    interval_start = interval_end - dt.timedelta(hours=1)
+    await generate_test_events_in_clickhouse(
+        client=clickhouse_client,
+        team_id=team_id,
+        start_time=interval_start,
+        end_time=interval_end,
+        count=1,
+        count_outside_range=0,
+        count_other_team=0,
+        properties={"$browser": "Chrome", "$set": {"email": "person@example.com"}, "$unset": ["old_property"]},
+        inserted_at=interval_start,
+        table="events_recent",
+    )
+    insert_inputs = HttpInsertInputs(
+        team_id=team_id,
+        data_interval_start=interval_start.isoformat(),
+        data_interval_end=interval_end.isoformat(),
+        batch_export_schema=None,
+        backfill_details=(
+            BackfillDetails(backfill_id=None, start_at=interval_start.isoformat(), end_at=interval_end.isoformat())
+            if is_backfill
+            else None
+        ),
+        **http_config,
+    )
+    mock_server = MockServer()
+
+    with (
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.http_batch_export.use_new_events_schema",
+            return_value=True,
+        ),
+        aioresponses(passthrough=[settings.CLICKHOUSE_HTTP_URL]) as responses,
+    ):
+        responses.post(TEST_URL, status=200, callback=mock_server.post, repeat=True)
+        result = await activity_environment.run(insert_into_http_activity, insert_inputs)
+
+    assert result.records_completed == 1
+    [exported] = mock_server.records
+    assert exported["properties"]["$set"] == {"email": "person@example.com"}
+    assert exported["properties"]["$unset"] == ["old_property"]
 
 
 async def test_insert_into_http_activity_throws_on_bad_http_status(

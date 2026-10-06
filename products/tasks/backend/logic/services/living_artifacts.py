@@ -35,7 +35,7 @@ from products.tasks.backend.models import TaskArtifact, TaskRun
 
 logger = structlog.get_logger(__name__)
 
-# Both scopes are approved but recent (see posthog/helpers/slack_scopes.py), so an install
+# Both scopes are approved but recent (see products/slack_app/backend/services/slack_scopes.py), so an install
 # authorized earlier lacks them until it reconnects — the adapters check them at point of use
 # and can name the one to grant.
 SLACK_CANVAS_SCOPE = "canvases:write"

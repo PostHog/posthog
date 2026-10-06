@@ -47,12 +47,15 @@ const PersonsCohortsRetrieveSchema = () => {
     return PersonsCohortsRetrieveQueryParams.omit({ format: true })
 }
 
-const personsCohortsRetrieve = (): ToolBase<ReturnType<typeof PersonsCohortsRetrieveSchema>, unknown> => ({
+const personsCohortsRetrieve = (): ToolBase<
+    ReturnType<typeof PersonsCohortsRetrieveSchema>,
+    Schemas.PersonCohortsResponse
+> => ({
     name: 'persons-cohorts-retrieve',
     schema: PersonsCohortsRetrieveSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof PersonsCohortsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas.PersonCohortsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/cohorts/`,
             query: {

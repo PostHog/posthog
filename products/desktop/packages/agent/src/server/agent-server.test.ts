@@ -2590,27 +2590,32 @@ describe("AgentServer HTTP Mode", () => {
       };
     }
 
-    it("enqueues and buffers events raised before a session is assigned", () => {
-      // Regression: an MCP relay request can fire the instant the client
-      // subprocess starts, ahead of session assignment. broadcastEvent must
-      // not silently drop it.
-      const testServer = exposeBroadcastEvent(createServer());
-      testServer.eventStreamSender = {
-        enqueue: vi.fn(),
-        stop: vi.fn(async () => {}),
-      };
-      testServer.session = null;
+    it.each([null, { sseController: null }])(
+      "enqueues events without retaining an SSE replay buffer for session %j",
+      (session) => {
+        // Regression: an MCP relay request can fire the instant the client
+        // subprocess starts, ahead of session assignment. broadcastEvent must
+        // not silently drop it.
+        const testServer = exposeBroadcastEvent(createServer());
+        testServer.eventStreamSender = {
+          enqueue: vi.fn(),
+          stop: vi.fn(async () => {}),
+        };
+        testServer.session = session;
 
-      const event = {
-        type: "mcp_request",
-        requestId: "req-1",
-        server: "slack",
-      };
-      testServer.broadcastEvent(event);
+        const event = {
+          type: "mcp_request",
+          requestId: "req-1",
+          server: "slack",
+        };
+        testServer.broadcastEvent(event);
 
-      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(event);
-      expect(testServer.pendingEvents).toEqual([event]);
-    });
+        expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
+          event,
+        );
+        expect(testServer.pendingEvents).toEqual([]);
+      },
+    );
 
     it("buffers events with no event stream sender configured and no session", () => {
       const testServer = exposeBroadcastEvent(createServer());
@@ -2624,6 +2629,27 @@ describe("AgentServer HTTP Mode", () => {
       expect(() => testServer.broadcastEvent(event)).not.toThrow();
 
       expect(testServer.pendingEvents).toEqual([event]);
+    });
+
+    it("delivers events to an attached SSE controller with event ingest enabled", () => {
+      const testServer = exposeBroadcastEvent(createServer());
+      testServer.eventStreamSender = {
+        enqueue: vi.fn(),
+        stop: vi.fn(async () => {}),
+      };
+      const controller = { send: vi.fn(), close: vi.fn() };
+      testServer.session = { sseController: controller };
+      const event = {
+        type: "mcp_request",
+        requestId: "req-1",
+        server: "slack",
+      };
+
+      testServer.broadcastEvent(event);
+
+      expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(event);
+      expect(controller.send).toHaveBeenCalledWith(event);
+      expect(testServer.pendingEvents).toEqual([]);
     });
 
     it("redacts authorization headers before an event leaves the sandbox", () => {
@@ -2656,7 +2682,7 @@ describe("AgentServer HTTP Mode", () => {
       const serialized = JSON.stringify(broadcast);
       expect(serialized).not.toContain("mcp-secret");
       expect(serialized).toContain("x-posthog-mcp-consumer");
-      expect(testServer.pendingEvents).toEqual([broadcast]);
+      expect(testServer.pendingEvents).toEqual([]);
     });
   });
 

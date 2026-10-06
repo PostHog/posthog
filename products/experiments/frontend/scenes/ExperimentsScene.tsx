@@ -79,6 +79,7 @@ import {
 } from 'products/experiments/frontend/scenes/experimentsLogic'
 import { ExperimentsSettingsScene } from 'products/experiments/frontend/scenes/ExperimentsSettingsScene'
 import { ExperimentsSharedMetricsScene } from 'products/experiments/frontend/scenes/ExperimentsSharedMetricsScene'
+import { SetupInspectorButton } from 'products/experiments/frontend/setupInspector/SetupInspectorButton'
 
 // "Experiments open feedback" in project 2: https://us.posthog.com/project/2/surveys/01a08364-270e-0000-585b-147d32bf96ed
 // Button-only: its URL condition never matches, so this button is the survey's sole entry point.
@@ -734,6 +735,7 @@ export function ExperimentsScene(): JSX.Element {
                 }}
                 actions={
                     <>
+                        <SetupInspectorButton />
                         <FeedbackSurveyButton
                             surveyId={EXPERIMENTS_FEEDBACK_SURVEY_ID}
                             data-attr="experiments-feedback-button"

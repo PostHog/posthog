@@ -5237,6 +5237,7 @@ export interface PaginatedTaskSummaryDTOListApi {
 /**
  * * `user_created` - user_created
  * * `posthog_ai` - posthog_ai
+ * * `signal_report` - signal_report
  */
 export type WarmTaskRequestOriginProductEnumApi =
     (typeof WarmTaskRequestOriginProductEnumApi)[keyof typeof WarmTaskRequestOriginProductEnumApi]
@@ -5244,6 +5245,7 @@ export type WarmTaskRequestOriginProductEnumApi =
 export const WarmTaskRequestOriginProductEnumApi = {
     UserCreated: 'user_created',
     PosthogAi: 'posthog_ai',
+    SignalReport: 'signal_report',
 } as const
 
 /**
@@ -5310,7 +5312,8 @@ export interface WarmTaskRequestApi {
     /** Product the warm Run is for. Fixed when the sandbox boots — it selects the OAuth app, the quota gate, the warm-pool budget, and PR authorship — so a submit only reuses a warm born under the same origin. Defaults to the Code app.
      *
      * * `user_created` - user_created
-     * * `posthog_ai` - posthog_ai */
+     * * `posthog_ai` - posthog_ai
+     * * `signal_report` - signal_report */
     origin_product?: WarmTaskRequestOriginProductEnumApi
     /** Permission mode to boot the agent session on. Read at session construction, so it cannot be changed once the sandbox is warm — a submit selecting a different mode falls through to a cold Run. Omit to take the runtime's default.
      *
@@ -5322,6 +5325,11 @@ export interface WarmTaskRequestApi {
      * * `read-only` - read-only
      * * `full-access` - full-access */
     initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi | null
+    /**
+     * Inbox report the warm discussion is about. Required with origin_product `signal_report`, where the warm Run boots repo-less and the submit that creates the report's discussion task activates it.
+     * @nullable
+     */
+    signal_report?: string | null
 }
 
 /**

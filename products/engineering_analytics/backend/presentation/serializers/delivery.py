@@ -92,8 +92,8 @@ class DeliveryLeadTimeSerializer(DataclassSerializer):
             },
             "merged_pr_count": {"help_text": "PRs in scope merged in the window (bots and drafts excluded)."},
             "deployed_merged_pr_count": {
-                "help_text": "Of merged_pr_count, the PRs a successful in-scope deploy contains. The rest are "
-                "still waiting for a deploy or fall outside the scan."
+                "help_text": "Of merged_pr_count, the PRs whose first successful in-scope deployment was observed "
+                "by the window end. The rest are still waiting for a deploy or fall outside the scan."
             },
         }
 

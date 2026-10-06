@@ -16,7 +16,6 @@ a breach the same way and there is one place where "is this value out of bounds?
 from __future__ import annotations
 
 import time
-import uuid
 from datetime import datetime, timedelta
 from functools import partial
 
@@ -49,6 +48,7 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckResult
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck
+from products.signals.backend.report_check_artefacts import write_check_expired
 from products.signals.backend.report_check_telemetry import (
     capture_report_check_evaluated,
     capture_report_checks_expired,
@@ -422,8 +422,10 @@ def expire_overdue_checks(now: datetime) -> int:
     """
 
     overdue = list(
-        SignalReportCheck.all_teams.filter(status__in=SignalReportCheck.OPEN_STATUSES, expires_at__lte=now).values_list(
-            "id", "team_id", "last_run_at"
+        # Only the columns the log entry and the telemetry read. A `metric_threshold` config carries
+        # a copied-in query, and a full tick hydrates five hundred rows.
+        SignalReportCheck.all_teams.filter(status__in=SignalReportCheck.OPEN_STATUSES, expires_at__lte=now).only(
+            "id", "team_id", "report_id", "kind", "title", "last_run_at"
         )[:MAX_CHECK_EXPIRIES_PER_TICK]
     )
     if not overdue:
@@ -432,24 +434,49 @@ def expire_overdue_checks(now: datetime) -> int:
     # which arms its pending checks and moves `expires_at` forward, and an update filtered on id and
     # status alone would retire a check that has just been given a clock.
     expired = SignalReportCheck.all_teams.filter(
-        id__in=[check_id for check_id, _, _ in overdue],
+        id__in=[check.id for check in overdue],
         status__in=SignalReportCheck.OPEN_STATUSES,
         expires_at__lte=now,
     ).update(status=SignalReportCheck.Status.EXPIRED, updated_at=now)
     if expired:
+        _log_expired_checks(overdue, now, expired)
         _report_expired_checks(overdue)
     return expired
 
 
-def _report_expired_checks(overdue: list[tuple[uuid.UUID, int, datetime | None]]) -> None:
+def _log_expired_checks(overdue: list[SignalReportCheck], now: datetime, expired: int) -> None:
+    """Write one `check_expired` entry per row this sweep actually retired.
+
+    Which rows those are is re-read when the write took fewer than the selection, because it skips
+    a check whose report resolved in between. Telemetry can live with counting that row; the
+    activity log cannot, because an entry saying a check retired is permanent and a reader acts on
+    it. One transaction rather than one per row, so a full tick is a single commit ahead of the
+    runs it delays.
+    """
+    retired = (
+        {check.id for check in overdue}
+        if expired == len(overdue)
+        else set(
+            SignalReportCheck.all_teams.filter(
+                id__in=[check.id for check in overdue], status=SignalReportCheck.Status.EXPIRED, updated_at=now
+            ).values_list("id", flat=True)
+        )
+    )
+    with transaction.atomic():
+        for check in overdue:
+            if check.id in retired:
+                write_check_expired(check, now)
+
+
+def _report_expired_checks(overdue: list[SignalReportCheck]) -> None:
     """Emit one expiry event per project for the rows a sweep selected.
 
     Counted from the selection rather than the write, so a row armed in between is over-counted by
     one. That is acceptable for telemetry and saves a second read of every retired row.
     """
     per_team: dict[int, list[datetime | None]] = {}
-    for _, team_id, last_run_at in overdue:
-        per_team.setdefault(team_id, []).append(last_run_at)
+    for check in overdue:
+        per_team.setdefault(check.team_id, []).append(check.last_run_at)
     try:
         teams = Team.objects.filter(id__in=per_team.keys()).select_related("organization")
         for team in teams:

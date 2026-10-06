@@ -254,6 +254,44 @@ describe('runStreamLogic', () => {
             })
             expect(result.threadItems.find((item) => item.id === 'missing-start')?.startedAt).toBeUndefined()
         })
+
+        it.each([
+            {
+                label: 'a debug row stays whole',
+                interloper: notification('_posthog/console', { level: 'debug', message: 'Refresh session requested' }),
+                expected: ['the snapshot runner stops waiting on a skeleton'],
+            },
+            {
+                label: 'a tool call splits at the boundary',
+                interloper: sessionUpdate({ sessionUpdate: 'tool_call', toolCallId: 'tc-1', status: 'in_progress' }),
+                expected: ['the snapshot runner stops wa', 'iting on a skeleton'],
+            },
+        ])('a streamed answer interrupted by $label', ({ interloper, expected }) => {
+            const frames = [
+                sessionUpdate({
+                    sessionUpdate: 'agent_message_chunk',
+                    messageId: 'm-1',
+                    content: { type: 'text', text: 'the snapshot runner stops wa' },
+                }),
+                interloper,
+                sessionUpdate({
+                    sessionUpdate: 'agent_message_chunk',
+                    messageId: 'm-1',
+                    content: { type: 'text', text: 'iting on a skeleton' },
+                }),
+            ]
+
+            const result = foldLogToThread(
+                frames.map((entry) => ({ source: 'replay' as const, entry })),
+                { isResumeRun: false }
+            )
+
+            // A debug row renders nothing for most viewers, so a split there would have no visible cause.
+            expect(
+                result.threadItems.filter((item) => item.type === 'assistant_message').map((item) => item.text)
+            ).toEqual(expected)
+        })
+
         it.each([
             ['Claude', 'live'],
             ['Claude', 'history'],

@@ -91,6 +91,8 @@ export const HogFlowBatchJobSchema = z.object({
 // NOTE: these are purposefully exported as interfaces to support kea typegen
 export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     created_by?: UserBasicType | null
+    // UX discriminator set by purpose-built surfaces; 'broadcast' rows are managed via the
+    // broadcasts UI and hidden from the ordinary workflows list.
     // Product surface that owns this workflow (e.g. `loops` for Desktop loops). Null when built directly in the workflows UI.
     origin_product?: HogFlowOriginProductEnumApi | null
     // Effective access level of the current user for this workflow (resource access control).

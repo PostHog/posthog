@@ -27,7 +27,10 @@ from products.signals.backend.artefact_schemas import (
     ImplementationAssessment,
     ImplementationTarget,
     NoteArtefact,
+    RelatedTo,
+    ReportLink,
 )
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.report_charts import ReportChart
@@ -53,6 +56,7 @@ from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
     RunAgenticReportInput,
     _load_previous_research,
+    _load_resolved_report_context,
     _parse_artefact_content,
     _parse_stored_charts,
     _parse_stored_metrics,
@@ -254,6 +258,62 @@ def _build_signals() -> list[SignalData]:
             timestamp=now,
         ),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("parent_status", "dismissal_reason", "expected"),
+    [
+        (SignalReport.Status.RESOLVED, None, True),
+        (SignalReport.Status.SUPPRESSED, "already_fixed", True),
+        # Archived because nobody wants to see it, not because it was fixed: there is no prior fix
+        # to reason about, so the research agent is told nothing.
+        (SignalReport.Status.SUPPRESSED, "wontfix_intentional", False),
+    ],
+)
+@pytest.mark.parametrize("typed_link", [False, True])
+@pytest.mark.parametrize("safety_verdicts", [[], [False], [True], [False, True], [True, False], ["invalid"]])
+async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
+    ateam, parent_status, dismissal_reason, expected, typed_link, safety_verdicts
+):
+    parent = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam, status=parent_status, title="stale chunk TypeError", summary="Imports fail after a deploy."
+    )
+    if dismissal_reason is not None:
+        await database_sync_to_async(SignalReportArtefact.append_dismissal)(
+            team_id=ateam.id,
+            report_id=str(parent.id),
+            content=Dismissal(reason=dismissal_reason),
+            attribution=ArtefactAttribution.system(),
+        )
+    fork = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="fork", summary="fork")
+    for verdict in safety_verdicts:
+        await database_sync_to_async(SignalReportArtefact.objects.create)(
+            team=ateam,
+            report=parent,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content="invalid" if verdict == "invalid" else json.dumps({"choice": verdict}),
+        )
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(fork.id),
+        content=(
+            ReportLink(kind=ReportLinkKind.RECURRENCE_OF, report_id=str(parent.id))
+            if typed_link
+            else RelatedTo(report_id=str(parent.id))
+        ),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    context = await _load_resolved_report_context(ateam.id, str(fork.id))
+
+    safe = not safety_verdicts or safety_verdicts[-1] is True
+    valid_link = typed_link or parent_status == SignalReport.Status.RESOLVED
+    assert context == (
+        ("stale chunk TypeError", "Imports fail after a deploy.") if expected and safe and valid_link else (None, None)
+    )
+    assert await _load_previous_research(ateam.id, str(fork.id)) is None
 
 
 @pytest.mark.asyncio

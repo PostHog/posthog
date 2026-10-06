@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { LemonButton, LemonButtonProps, LemonDropdown, LemonDropdownProps, LemonInput } from '@posthog/lemon-ui'
 
@@ -42,20 +42,22 @@ export function MemberSelect({
         return meFirstMembers.find((member) => member.user[propToCompare] === value)?.user ?? null
     }, [value, meFirstMembers, propToCompare])
 
+    const handleVisibilityChange = (visible: boolean): void => {
+        setShowPopover(visible)
+        if (search) {
+            setSearch('')
+        }
+        if (visible) {
+            ensureAllMembersLoaded()
+        }
+    }
+
     const _onChange = (value: UserBasicType | null): void => {
-        setShowPopover(false)
+        handleVisibilityChange(false)
         onChange(value)
     }
 
-    useEffect(() => {
-        if (showPopover) {
-            ensureAllMembersLoaded()
-        } else {
-            setSearch('')
-        }
-    }, [showPopover]) // oxlint-disable-line react-hooks/exhaustive-deps
-
-    const members = selectableMembers(excludedMembers, propToCompare)
+    const members = showPopover ? selectableMembers(excludedMembers, propToCompare) : []
 
     return (
         <LemonDropdown
@@ -64,44 +66,46 @@ export function MemberSelect({
             matchWidth={false}
             placement="bottom-start"
             actionable
-            onVisibilityChange={(visible) => setShowPopover(visible)}
+            onVisibilityChange={handleVisibilityChange}
             overlay={
-                <div className="max-w-100 deprecated-space-y-2">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search"
-                        autoFocus
-                        value={search}
-                        onChange={setSearch}
-                        fullWidth
-                    />
-                    <ul className="deprecated-space-y-px">
-                        {allowNone && (
-                            <li>
-                                <LemonButton fullWidth role="menuitem" size="small" onClick={() => _onChange(null)}>
-                                    {defaultLabel}
-                                </LemonButton>
-                            </li>
-                        )}
+                showPopover ? (
+                    <div className="max-w-100 deprecated-space-y-2">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search"
+                            autoFocus
+                            value={search}
+                            onChange={setSearch}
+                            fullWidth
+                        />
+                        <ul className="deprecated-space-y-px">
+                            {allowNone && (
+                                <li>
+                                    <LemonButton fullWidth role="menuitem" size="small" onClick={() => _onChange(null)}>
+                                        {defaultLabel}
+                                    </LemonButton>
+                                </li>
+                            )}
 
-                        {members.map((member) => (
-                            <MemberSelectRow
-                                key={member.user.uuid}
-                                member={member}
-                                isYou={member.user.uuid === me?.user.uuid}
-                                onClick={() => _onChange(member.user)}
-                            />
-                        ))}
+                            {members.map((member) => (
+                                <MemberSelectRow
+                                    key={member.user.uuid}
+                                    member={member}
+                                    isYou={member.user.uuid === me?.user.uuid}
+                                    onClick={() => _onChange(member.user)}
+                                />
+                            ))}
 
-                        {membersLoading ? (
-                            <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
-                        ) : members.length === 0 ? (
-                            <div className="p-2 text-secondary italic truncate border-t">
-                                {search ? <span>No matches</span> : <span>No users</span>}
-                            </div>
-                        ) : null}
-                    </ul>
-                </div>
+                            {membersLoading ? (
+                                <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
+                            ) : members.length === 0 ? (
+                                <div className="p-2 text-secondary italic truncate border-t">
+                                    {search ? <span>No matches</span> : <span>No users</span>}
+                                </div>
+                            ) : null}
+                        </ul>
+                    </div>
+                ) : null
             }
         >
             {children ? (

@@ -12,10 +12,23 @@ if TYPE_CHECKING:
 MENTION_COMMAND_PREFIX = "@PostHog"
 SLASH_COMMAND_PREFIX = "/posthog"
 
-MENTION_HELP_REDIRECT = (
-    f"Run `{SLASH_COMMAND_PREFIX} help` to see the available commands. "
-    "To start a task, mention me with a description of the work."
-)
+# `help` and the retired `default repo` verbs have no entry, so they fall back to the listing.
+_SLASH_EQUIVALENT = {
+    "list": "rules list",
+    "add": 'rules add "description" org/repo',
+    "remove": "rules remove <number>",
+    "project_show": "project",
+    "project_set": "project <id>",
+    "project_set_workspace": "project workspace <id>",
+}
+
+
+def mention_command_redirect(command: "RulesCommand") -> str:
+    """The reply to a mention that reads as a command. Only the slash surface runs commands."""
+    return (
+        f"Commands have moved. Run `{SLASH_COMMAND_PREFIX} {_SLASH_EQUIVALENT.get(command.action, 'help')}` instead.\n"
+        "To start a task, mention me with a description of the work."
+    )
 
 
 def rule_text_too_long_message(rule_text: str) -> str:
@@ -54,10 +67,9 @@ def _handle_help(
     *,
     command_prefix: str,
 ) -> None:
-    """Post the command listing. Only the slash surface reaches this; see ``dispatch_rules_command``."""
     from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 
-    # Task creation and thread follow-ups have no slash equivalent, but this listing is the only
+    # Task creation and thread follow-ups stay on the mention surface, and this listing is the only
     # help a user can reach, so it documents them under the mention prefix they actually type.
     lines = [
         "*Available commands:*\n",
@@ -95,7 +107,7 @@ def _handle_rules_list(
     thread_ts: str,
     *,
     slack_user_id: str,
-    command_prefix: str = MENTION_COMMAND_PREFIX,
+    command_prefix: str,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
@@ -200,7 +212,7 @@ def _handle_rules_remove(
     rule_numbers: list[int] | None,
     *,
     slack_user_id: str,
-    command_prefix: str = MENTION_COMMAND_PREFIX,
+    command_prefix: str,
 ) -> None:
     from posthog.models.repo_routing_rule import RepoRoutingRule
 
@@ -252,7 +264,7 @@ def _handle_project_show(
     user_id: int,
     workspace_candidates: list[Integration] | None = None,
     *,
-    command_prefix: str = MENTION_COMMAND_PREFIX,
+    command_prefix: str,
 ) -> None:
     from posthog.models.user import User
 
@@ -393,7 +405,7 @@ def _handle_project_set_workspace(
     target_team_id: int,
     workspace_candidates: list[Integration] | None = None,
     *,
-    command_prefix: str = MENTION_COMMAND_PREFIX,
+    command_prefix: str,
 ) -> None:
     """Set the workspace-wide default project (the ``slack_user_id IS NULL`` row),
     which applies to every Slack user in the workspace without a personal default.
@@ -528,7 +540,7 @@ def dispatch_rules_command(
     slack_workspace_id: str,
     user_id: int,
     workspace_candidates: list[Integration] | None = None,
-    command_prefix: str = MENTION_COMMAND_PREFIX,
+    command_prefix: str,
 ) -> None:
     """Run the right handler for a parsed ``RulesCommand``. Assumes the caller has
     already resolved a single ``integration`` to act on; project commands also
@@ -538,13 +550,13 @@ def dispatch_rules_command(
     repo" reply. The mention workflow's picker flow must catch that case
     *before* calling this dispatcher.
 
-    ``command_prefix`` is the entry-point token surfaced in user-facing help and
-    error strings — ``@PostHog`` for mentions, ``/posthog`` for the slash command
-    surface. Defaults preserve the mention copy for existing callers.
+    ``command_prefix`` is the entry-point token surfaced in user-facing help and error strings. It
+    is the slash command as the workspace invoked it, which a workspace is free to rename, so it is
+    read from the payload rather than assumed to be ``/posthog``.
 
     Commands configure the app rather than produce work: routing rules, project
     defaults, the help listing. The answer concerns whoever ran the command, so
-    every reply below goes out ephemerally, on both surfaces.
+    every reply below goes out ephemerally.
     """
     from posthog.models.user import User
 
@@ -556,19 +568,11 @@ def dispatch_rules_command(
         slack_user_id=slack_user_id,
         posthog_user=User.objects.filter(id=user_id).first(),
         action=command.action,
-        source="mention" if command_prefix == MENTION_COMMAND_PREFIX else "slash_command",
+        source="slash_command",
     )
 
     if command.action == "help":
-        # The slash command owns the listing, so a mention only points at it. Answering here
-        # rather than inside the handler keeps the Slack users.info call the listing needs off
-        # the mention path entirely.
-        if command_prefix == MENTION_COMMAND_PREFIX:
-            post_slack_ephemeral(
-                slack.client, channel=channel, user=slack_user_id, thread_ts=thread_ts, text=MENTION_HELP_REDIRECT
-            )
-        else:
-            _handle_help(slack, integration, channel, thread_ts, slack_user_id, command_prefix=command_prefix)
+        _handle_help(slack, integration, channel, thread_ts, slack_user_id, command_prefix=command_prefix)
     elif command.action == "list":
         _handle_rules_list(
             slack,

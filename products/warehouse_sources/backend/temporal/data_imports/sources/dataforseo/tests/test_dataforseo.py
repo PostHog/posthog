@@ -14,8 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo
     DataForSEOAPIError,
     DataForSEOResumeConfig,
     DataForSEORetryableError,
-    _post_task,
     _raise_for_body_status,
+    _request_task,
     dataforseo_source,
     get_rows,
     parse_targets,
@@ -26,6 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo
     DATAFORSEO_ENDPOINTS,
     ENDPOINTS,
 )
+
+TARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.targeted]
+LOOKUP_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if not config.targeted]
 
 
 def _resp(body: Any, status: int = 200) -> Any:
@@ -69,7 +72,8 @@ def _drive(
     responses: list[Any],
     targets: list[str] | None = None,
 ) -> tuple[list[tuple[str, Any]], list[list[dict[str, Any]]]]:
-    # Drives get_rows with a mocked tracked session, returning (posted (url, payload) pairs, batches).
+    # Drives get_rows with a mocked tracked session, returning ((url, payload) pairs, batches).
+    # A GET lookup records a None payload.
     calls: list[tuple[str, Any]] = []
     response_iter = iter(responses)
 
@@ -77,10 +81,15 @@ def _drive(
         calls.append((url, json[0]))
         return next(response_iter)
 
+    def fake_get(url: str, timeout: Any = None, **_kwargs: Any) -> Any:
+        calls.append((url, None))
+        return next(response_iter)
+
     with patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo.make_tracked_session"
     ) as MockSession:
         MockSession.return_value.post.side_effect = fake_post
+        MockSession.return_value.get.side_effect = fake_get
         batches = list(
             get_rows(
                 api_login="login",
@@ -146,14 +155,14 @@ class TestBodyStatusClassification:
             _raise_for_body_status(status_code, "nope")
 
 
-class TestPostTask:
+class TestRequestTask:
     # Exercise a single attempt via __wrapped__ so the tenacity retry loop (and its real
     # backoff sleeps) is not driven.
     def _post(self, response: Any) -> list[dict[str, Any]]:
         session = MagicMock()
         session.post.return_value = response
-        return _post_task.__wrapped__(  # type: ignore[attr-defined]
-            session, "/dataforseo_labs/google/ranked_keywords/live", {"target": "example.com"}, MagicMock()
+        return _request_task.__wrapped__(  # type: ignore[attr-defined]
+            session, "POST", "/dataforseo_labs/google/ranked_keywords/live", {"target": "example.com"}, MagicMock()
         )
 
     @pytest.mark.parametrize("status", [429, 500, 503])
@@ -182,9 +191,19 @@ class TestPostTask:
     def test_wraps_payload_in_array(self) -> None:
         session = MagicMock()
         session.post.return_value = _resp(_body([]))
-        _post_task.__wrapped__(session, "/path", {"target": "example.com"}, MagicMock())  # type: ignore[attr-defined]
+        _request_task.__wrapped__(session, "POST", "/path", {"target": "example.com"}, MagicMock())  # type: ignore[attr-defined]
         _, kwargs = session.post.call_args
         assert kwargs["json"] == [{"target": "example.com"}]
+
+    def test_get_sends_no_body(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _resp(_body([{"category_code": 10021}]))
+        result = _request_task.__wrapped__(  # type: ignore[attr-defined]
+            session, "GET", "/dataforseo_labs/categories", None, MagicMock()
+        )
+        assert result == [{"category_code": 10021}]
+        session.post.assert_not_called()
+        assert "json" not in session.get.call_args.kwargs
 
 
 class TestGetRows:
@@ -365,6 +384,91 @@ class TestGetRows:
         assert kwargs["headers"]["Authorization"].startswith("Basic ")
         assert "password" in kwargs["redact_values"]
 
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "expected_payload"),
+        [
+            (
+                "relevant_pages",
+                "/dataforseo_labs/google/relevant_pages/live",
+                {
+                    "target": "example.com",
+                    "location_name": "United States",
+                    "language_name": "English",
+                    "limit": PAGE_SIZE,
+                    "offset": 0,
+                },
+            ),
+            (
+                "backlinks_referring_domains",
+                "/backlinks/referring_domains/live",
+                {"target": "example.com", "include_subdomains": True, "limit": PAGE_SIZE, "offset": 0},
+            ),
+            ("backlinks_history", "/backlinks/history/live", {"target": "example.com"}),
+            (
+                "backlinks_timeseries_summary",
+                "/backlinks/timeseries_summary/live",
+                {
+                    "target": "example.com",
+                    "date_from": "2019-01-30",
+                    "group_range": "month",
+                    "include_subdomains": True,
+                },
+            ),
+        ],
+    )
+    def test_request_shape_per_endpoint(self, endpoint: str, path: str, expected_payload: dict[str, Any]) -> None:
+        # The Backlinks API rejects the Labs location/language fields, and neither trend endpoint
+        # accepts limit/offset, so the payload each endpoint sends is asserted in full.
+        manager = _manager()
+        item = {
+            "date": "2020-08-31 00:00:00 +00:00",
+            "domain": "news.example",
+            "page_address": "https://example.com/a",
+        }
+        calls, batches = _drive(endpoint, manager, [_resp(_body([_items_result([item], total_count=1)]))])
+
+        assert calls == [(f"{DATAFORSEO_BASE_URL}{path}", expected_payload)]
+        assert batches == [[{**item, "target": "example.com"}]]
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "row"),
+        [
+            (
+                "locations_and_languages",
+                "/dataforseo_labs/locations_and_languages",
+                {"location_code": 2840, "location_name": "United States", "available_languages": []},
+            ),
+            (
+                "categories",
+                "/dataforseo_labs/categories",
+                {"category_code": 10178, "category_name": "Apparel Accessories", "category_code_parent": 10021},
+            ),
+        ],
+    )
+    def test_lookup_endpoints_use_get_and_yield_untargeted_rows(
+        self, endpoint: str, path: str, row: dict[str, Any]
+    ) -> None:
+        manager = _manager()
+        # Two targets and two queued responses catch a lookup falling into the per-target fan-out,
+        # which would duplicate every row and stamp it with a target the API never returned.
+        calls, batches = _drive(
+            endpoint, manager, [_resp(_body([row])), _resp(_body([row]))], targets=["a.com", "b.com"]
+        )
+
+        # A None payload means the call went out as a GET with no body.
+        assert calls == [(f"{DATAFORSEO_BASE_URL}{path}", None)]
+        assert batches == [[row]]
+        assert "target" not in batches[0][0]
+        manager.save_state.assert_not_called()
+
+    def test_lookup_endpoint_ignores_saved_resume_state(self) -> None:
+        # A lookup has no cursor, so state left behind by another endpoint must not skip the call.
+        manager = _manager(DataForSEOResumeConfig(target="a.com", offset=PAGE_SIZE))
+        calls, batches = _drive("categories", manager, [_resp(_body([{"category_code": 1}]))], targets=["a.com"])
+
+        assert len(calls) == 1
+        assert batches == [[{"category_code": 1}]]
+
 
 class TestDataForSEOSourceResponse:
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
@@ -390,11 +494,16 @@ class TestDataForSEOSourceResponse:
             assert response.partition_mode is None
             assert response.partition_keys is None
 
-    @pytest.mark.parametrize("endpoint", ENDPOINTS)
-    def test_primary_keys_include_target(self, endpoint: str) -> None:
-        # Every endpoint fans out over the configured targets, so the injected target must be
-        # part of the key for table-wide uniqueness.
+    @pytest.mark.parametrize("endpoint", TARGETED_ENDPOINTS)
+    def test_targeted_primary_keys_include_target(self, endpoint: str) -> None:
+        # A targeted endpoint fans out over the configured targets, so the injected target must
+        # be part of the key for table-wide uniqueness.
         assert "target" in DATAFORSEO_ENDPOINTS[endpoint].primary_keys
+
+    @pytest.mark.parametrize("endpoint", LOOKUP_ENDPOINTS)
+    def test_lookup_primary_keys_exclude_target(self, endpoint: str) -> None:
+        # Lookup rows carry no target column, so keying on one would key every row on null.
+        assert "target" not in DATAFORSEO_ENDPOINTS[endpoint].primary_keys
 
 
 class TestValidateCredentials:

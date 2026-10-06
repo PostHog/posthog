@@ -1,5 +1,6 @@
 import { DEFAULT_TAB_HREF, type TabIdentity } from "@posthog/shared";
 import { channelSectionFor } from "@posthog/ui/features/canvas/channelSections";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useCallback } from "react";
@@ -12,6 +13,7 @@ export function useGoToTab(): (tab: TabRef) => void {
   const navigate = useNavigate();
   const router = useRouter();
   const channelReportsEnabled = useChannelReportsEnabled();
+  const workLayout = useWorkLayout();
   return useCallback(
     (tab: TabRef) => {
       const state = (prev: object) => ({ ...prev, tabId: tab.id });
@@ -107,9 +109,9 @@ export function useGoToTab(): (tab: TabRef) => void {
           }
         }
       } else {
-        navigate({ to: DEFAULT_TAB_HREF, state });
+        navigate({ to: workLayout ? "/new" : DEFAULT_TAB_HREF, state });
       }
     },
-    [channelReportsEnabled, navigate, router.history],
+    [channelReportsEnabled, navigate, router.history, workLayout],
   );
 }

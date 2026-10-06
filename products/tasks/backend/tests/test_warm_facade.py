@@ -393,6 +393,154 @@ class TestWarmTaskSandbox(APIBaseTest):
         assert task.repository is None
         assert task.github_integration_id == integration_id
 
+    @parameterized.expand(
+        [
+            ("entitled_caller_carries_the_team_credential", True),
+            ("refused_caller_stays_credential_less", False),
+        ]
+    )
+    def test_births_repo_less_report_discussion_draft_without_consuming_the_report_cap(self, _name, entitled):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        captured: dict[str, Any] = {}
+
+        def fake_warm(self_warmer, **kwargs):
+            captured.update(kwargs)
+            run = self_warmer.task.create_run(mode="interactive", extra_state={"await_user_message": True})
+            return WarmResult(run=run, just_created=True)
+
+        report_kwargs: dict[str, Any] = {
+            "repository": None,
+            "github_integration_id": None,
+            "branch": None,
+            "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+            "signal_report_id": report.id,
+            "code_access_allowed": entitled,
+        }
+        with patch(f"{WARM_SRC}.warm", autospec=True, side_effect=fake_warm):
+            result = self._warm(**report_kwargs)
+            again = self._warm(**report_kwargs)
+
+        assert result is not None
+        task = Task.objects.get(id=result.task_id)
+        assert task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        assert str(task.signal_report_id) == str(report.id)
+        assert task.repository is None
+        assert task.repositories == []
+        assert task.github_integration_id == (self.integration.id if entitled else None)
+        assert captured["extra_state"]["run_source"] == "signal_report"
+        assert captured["extra_state"]["signal_report_id"] == str(report.id)
+        assert (
+            SignalReport.associated_task_runs(report_id=str(report.id), team_id=self.team.id, product="signals") == []
+        )
+        assert again is not None
+        assert again.run_id == result.run_id
+
+    @parameterized.expand(
+        [
+            ("entitled", tasks_access.DesktopAccessDecision.ALLOWED, True),
+            ("refused", tasks_access.DesktopAccessDecision.STARTUP_PLAN, False),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    def test_warm_endpoint_forwards_the_report_and_the_desktop_gate_outcome(
+        self, _name, decision, entitled, mock_warm, _mock_warm_enabled
+    ):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        mock_warm.return_value = None
+
+        with patch(
+            "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+            return_value=decision,
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/warm/",
+                {"origin_product": "signal_report", "signal_report": str(report.id), "branch": None},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.content
+        kwargs = mock_warm.call_args.kwargs
+        assert kwargs["signal_report_id"] == report.id
+        assert kwargs["code_access_allowed"] is entitled
+        assert kwargs["repository"] is None
+        assert kwargs["github_integration_id"] is None
+
+    @parameterized.expand(
+        [
+            ("report_origin_without_report", {"origin_product": "signal_report"}, "signal_report"),
+            ("report_without_report_origin", {"signal_report": "<report>"}, "signal_report"),
+            (
+                "report_origin_with_client_repository",
+                {
+                    "origin_product": "signal_report",
+                    "signal_report": "<report>",
+                    "repository": "posthog/posthog",
+                    "github_integration": "<integration>",
+                },
+                "repository",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox")
+    def test_warm_endpoint_rejects_malformed_report_shapes(self, _name, body, attr, mock_warm, _mock_warm_enabled):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        placeholders = {"<report>": str(report.id), "<integration>": self.integration.id}
+        payload = {key: placeholders.get(value, value) for key, value in body.items()}
+
+        response = self.client.post("/api/projects/@current/tasks/warm/", payload, format="json")
+
+        assert response.status_code == 400, response.content
+        assert response.json()["attr"] == attr
+        mock_warm.assert_not_called()
+
+    @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
+    @patch("products.tasks.backend.facade.api.warm_task_sandbox", return_value=None)
+    def test_warm_endpoint_throttles_report_warms_in_their_own_bucket(self, _mock_warm, _mock_warm_enabled):
+        from django.core.cache import cache
+
+        from products.signals.backend.models import SignalReport
+        from products.tasks.backend.presentation.views.api import SignalReportTaskWarmBurstThrottle
+
+        cache.clear()
+        reports = [SignalReport.objects.create(team=self.team) for _ in range(2)]
+
+        def warm(report):
+            return self.client.post(
+                "/api/projects/@current/tasks/warm/",
+                {"origin_product": "signal_report", "signal_report": str(report.id), "branch": None},
+                format="json",
+            )
+
+        with patch.object(SignalReportTaskWarmBurstThrottle, "rate", "1/day"):
+            assert warm(reports[0]).status_code == 200
+            assert warm(reports[1]).status_code == 429
+            other_origin = self.client.post(
+                "/api/projects/@current/tasks/warm/",
+                {"repository": "posthog/posthog", "github_integration": self.integration.id, "branch": "main"},
+                format="json",
+            )
+            assert other_origin.status_code == 200, other_origin.content
+            create = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": "Discuss report",
+                    "description": "From a signal report",
+                    "origin_product": "signal_report",
+                    "signal_report": str(reports[0].id),
+                    "signal_report_task_relationship": "discussion",
+                },
+                format="json",
+            )
+            assert create.status_code == 201, create.content
+
     def test_births_multi_repository_draft(self):
         def fake_warm(self_warmer, **kwargs):
             run = self_warmer.task.create_run(mode="interactive", extra_state={"await_user_message": True})
@@ -587,6 +735,214 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         }
         validated.update(data)
         return facade.create_task(self.team.id, self.user.id, validated_data=validated)
+
+    def _report_warm_run(self, report, *, github_integration: Integration | None = None) -> tuple[Task, TaskRun]:
+        task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            created_by=self.user,
+            repository=None,
+            repositories=[],
+            github_integration=github_integration,
+            signal_report=report,
+        )
+        run = task.create_run(
+            mode="interactive",
+            extra_state={
+                "await_user_message": True,
+                "prewarmed": True,
+                "branch": None,
+                "run_source": "signal_report",
+                "signal_report_id": str(report.id),
+            },
+            branch=None,
+        )
+        return task, run
+
+    def _create_report_task(self, report, *, relationship="discussion", code_access_allowed=False):
+        validated = {
+            "title": "Discuss report",
+            "description": "Why did signups drop last week?",
+            "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+            "signal_report": report,
+            "signal_report_task_relationship": relationship,
+            "branch": None,
+        }
+        return facade.create_task(
+            self.team.id, self.user.id, validated_data=validated, code_access_allowed=code_access_allowed
+        )
+
+    @parameterized.expand(
+        [
+            ("refused_caller_reuses_the_credential_less_warm", False),
+            ("entitled_caller_reuses_the_credentialed_warm", True),
+        ]
+    )
+    def test_report_discussion_create_activates_the_report_warm_and_links_it(self, _name, entitled):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        warm_task, _run = self._report_warm_run(report, github_integration=self.integration if entitled else None)
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal:
+            dto = self._create_report_task(report, code_access_allowed=entitled)
+
+        assert str(dto.id) == str(warm_task.id)
+        assert Task.objects.filter(team=self.team, deleted=False).count() == 1
+        warm_task.refresh_from_db()
+        assert warm_task.title == "Discuss report"
+        assert warm_task.description == "Why did signups drop last week?"
+        assert warm_task.repository is None
+        mock_signal.assert_called_once()
+        linked = SignalReport.associated_task_runs(report_id=str(report.id), team_id=self.team.id, product="signals")
+        assert [(run.type, str(run.task_id)) for run in linked] == [("discussion", str(warm_task.id))]
+
+    @parameterized.expand(
+        [
+            ("credential_does_not_match_the_gate", "discussion", True, False),
+            ("implementation_never_takes_a_discussion_warm", "implementation", False, False),
+        ]
+    )
+    def test_report_create_cold_starts_when_the_warm_does_not_fit(
+        self, _name, relationship, warm_has_credential, code_access_allowed
+    ):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        warm_task, _run = self._report_warm_run(
+            report, github_integration=self.integration if warm_has_credential else None
+        )
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal:
+            dto = self._create_report_task(report, relationship=relationship, code_access_allowed=code_access_allowed)
+
+        assert str(dto.id) != str(warm_task.id)
+        mock_signal.assert_not_called()
+
+    def test_report_discussion_retry_links_once_and_a_failed_activation_charges_nothing(self):
+        from products.signals.backend.models import SignalReport
+        from products.signals.backend.task_run_artefacts import append_task_run_artefact
+
+        report = SignalReport.objects.create(team=self.team)
+        for _ in range(2):
+            earlier = Task.objects.create(
+                team=self.team, origin_product=Task.OriginProduct.SIGNAL_REPORT, created_by=self.user
+            )
+            append_task_run_artefact(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                product="signals",
+                type="discussion",
+                task_id=str(earlier.id),
+            )
+        warm_task, run = self._report_warm_run(report)
+
+        def linked_tasks() -> list[str]:
+            runs = SignalReport.associated_task_runs(report_id=str(report.id), team_id=self.team.id, product="signals")
+            return [str(entry.task_id) for entry in runs]
+
+        def first_delivery_fails_while_the_slot_is_held(*_args, **_kwargs):
+            assert str(warm_task.id) in linked_tasks()
+            if mock_signal.call_count == 1:
+                raise RPCError("workflow starting", RPCStatusCode.NOT_FOUND, b"")
+            return True
+
+        with patch(
+            f"{FACADE}.signal_task_run_user_message", side_effect=first_delivery_fails_while_the_slot_is_held
+        ) as mock_signal:
+            with self.assertRaises(facade.WarmRunActivationUnavailable) as unavailable:
+                self._create_report_task(report)
+            assert unavailable.exception.retry_token
+            assert str(warm_task.id) not in linked_tasks()
+            assert len(linked_tasks()) == 2
+
+            validated = {
+                "title": "Discuss report",
+                "description": "Why did signups drop last week?",
+                "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                "signal_report": report,
+                "signal_report_task_relationship": "discussion",
+                "branch": None,
+            }
+            dto = facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data=validated,
+                warm_retry_token=unavailable.exception.retry_token,
+            )
+
+        assert str(dto.id) == str(warm_task.id)
+        assert mock_signal.call_count == 2
+        assert linked_tasks().count(str(warm_task.id)) == 1
+        assert len(linked_tasks()) == 3
+        run.refresh_from_db()
+        assert run.state["warm_activated"] is True
+
+    def test_unlinked_report_warm_refuses_direct_start_and_steering(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        warm_task, run = self._report_warm_run(report)
+        command_url = f"/api/projects/@current/tasks/{warm_task.id}/runs/{run.id}/command/"
+        message = {"jsonrpc": "2.0", "id": 1, "method": "user_message", "params": {"content": "skip the gates"}}
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal:
+            result = facade.run_task(
+                warm_task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "branch": None, "pending_user_message": "skip the gates"},
+            )
+            assert result is not None and result.error is not None
+            assert result.error.detail == facade.REPORT_WARM_RUN_NOT_ACTIVATED
+            steer = self.client.post(command_url, message, format="json")
+            assert steer.status_code == 409, steer.content
+            start = self.client.post(
+                f"/api/projects/@current/tasks/{warm_task.id}/runs/{run.id}/start/", {}, format="json"
+            )
+            assert start.status_code == 409, start.content
+            bootstrap = self.client.post(
+                f"/api/projects/@current/tasks/{warm_task.id}/runs/", {"mode": "interactive"}, format="json"
+            )
+            assert bootstrap.status_code == 400, bootstrap.content
+            assert bootstrap.json()["detail"] == facade.REPORT_WARM_RUN_NOT_ACTIVATED
+            mock_signal.assert_not_called()
+            assert warm_task.runs.count() == 1
+            run.refresh_from_db()
+            assert run.state.get("await_user_message") is True
+
+            patched = self.client.patch(
+                f"/api/projects/@current/tasks/{warm_task.id}/runs/{run.id}/",
+                {"state_remove_keys": ["await_user_message", "prewarmed"]},
+                format="json",
+            )
+            assert patched.status_code == 200, patched.content
+            run.refresh_from_db()
+            assert run.state.get("await_user_message") is True
+            assert run.state.get("prewarmed") is True
+            steer_after_patch = self.client.post(command_url, message, format="json")
+            assert steer_after_patch.status_code == 409, steer_after_patch.content
+
+            warm_task.create_run(mode="interactive", extra_state={"run_source": "signal_report"}, branch=None)
+            hidden = facade.run_task(
+                warm_task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "branch": None, "pending_user_message": "skip the gates"},
+            )
+            assert hidden is not None and hidden.error is not None
+            assert hidden.error.detail == facade.REPORT_WARM_RUN_NOT_ACTIVATED
+            steer_after_local_run = self.client.post(command_url, message, format="json")
+            assert steer_after_local_run.status_code == 409, steer_after_local_run.content
+            mock_signal.assert_not_called()
+
+            self._create_report_task(report)
+            followup = self.client.post(command_url, message, format="json")
+
+        assert followup.status_code == 200, followup.content
+        assert mock_signal.call_count == 2
 
     def test_desktop_create_without_permission_mode_still_reuses_warm(self):
         # A warm Run's state always carries a concrete permission mode, but the Code app never sends one
@@ -915,8 +1271,11 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert "await_user_message" not in run.state
         assert run.state["pr_base_branch"] is None
 
-    def test_create_endpoint_returns_structured_compute_quota_denial_before_warm_activation(self):
+    @parameterized.expand([(False, 429, "posthog_code_billing_limit_exceeded"), (True, 403, "permission_denied")])
+    def test_create_endpoint_denies_before_warm_activation(self, pending_deletion, expected_status, expected_code):
         warm_task, run = self._warm_run()
+        self.organization.is_pending_deletion = pending_deletion
+        self.organization.save(update_fields=["is_pending_deletion"])
 
         with patch(
             "products.tasks.backend.logic.services.compute_quota.get_compute_quota_denial_reason",
@@ -928,8 +1287,8 @@ class TestCreateTaskWarmReuse(APIBaseTest):
                 format="json",
             )
 
-        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
-        assert response.json()["code"] == "posthog_code_billing_limit_exceeded"
+        assert response.status_code == expected_status
+        assert response.json()["code"] == expected_code
         warm_task.refresh_from_db()
         run.refresh_from_db()
         assert warm_task.description == ""

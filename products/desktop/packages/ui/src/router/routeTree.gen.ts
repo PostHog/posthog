@@ -65,6 +65,7 @@ import { Route as ShellSpacesChannelIdHistoryRouteImport } from './routes/_shell
 import { Route as ShellSpacesChannelIdContextRouteImport } from './routes/_shell/spaces/$channelId/context'
 import { Route as ShellSpacesChannelIdCanvasesRouteImport } from './routes/_shell/spaces/$channelId/canvases'
 import { Route as ShellSpacesChannelIdArtifactsRouteImport } from './routes/_shell/spaces/$channelId/artifacts'
+import { Route as ShellSpacesChannelIdActivityRouteImport } from './routes/_shell/spaces/$channelId/activity'
 import { Route as ShellSpacesChannelIdTasksTaskIdRouteImport } from './routes/_shell/spaces/$channelId/tasks/$taskId'
 import { Route as ShellSpacesChannelIdReportsReportIdRouteImport } from './routes/_shell/spaces/$channelId/reports/$reportId'
 import { Route as ShellSpacesChannelIdDashboardsDashboardIdRouteImport } from './routes/_shell/spaces/$channelId/dashboards/$dashboardId'
@@ -355,6 +356,12 @@ const ShellSpacesChannelIdArtifactsRoute =
     path: '/spaces/$channelId/artifacts',
     getParentRoute: () => ShellRoute,
   } as any)
+const ShellSpacesChannelIdActivityRoute =
+  ShellSpacesChannelIdActivityRouteImport.update({
+    id: '/spaces/$channelId/activity',
+    path: '/spaces/$channelId/activity',
+    getParentRoute: () => ShellRoute,
+  } as any)
 const ShellSpacesChannelIdTasksTaskIdRoute =
   ShellSpacesChannelIdTasksTaskIdRouteImport.update({
     id: '/spaces/$channelId/tasks/$taskId',
@@ -422,6 +429,7 @@ export interface FileRoutesByFullPath {
   '/inbox/reports/': typeof InboxReportsIndexRoute
   '/inbox/runs/': typeof InboxRunsIndexRoute
   '/loops/$loopId/': typeof LoopsLoopIdIndexRoute
+  '/spaces/$channelId/activity': typeof ShellSpacesChannelIdActivityRoute
   '/spaces/$channelId/artifacts': typeof ShellSpacesChannelIdArtifactsRoute
   '/spaces/$channelId/canvases': typeof ShellSpacesChannelIdCanvasesRoute
   '/spaces/$channelId/context': typeof ShellSpacesChannelIdContextRoute
@@ -476,6 +484,7 @@ export interface FileRoutesByTo {
   '/inbox/reports': typeof InboxReportsIndexRoute
   '/inbox/runs': typeof InboxRunsIndexRoute
   '/loops/$loopId': typeof LoopsLoopIdIndexRoute
+  '/spaces/$channelId/activity': typeof ShellSpacesChannelIdActivityRoute
   '/spaces/$channelId/artifacts': typeof ShellSpacesChannelIdArtifactsRoute
   '/spaces/$channelId/canvases': typeof ShellSpacesChannelIdCanvasesRoute
   '/spaces/$channelId/context': typeof ShellSpacesChannelIdContextRoute
@@ -538,6 +547,7 @@ export interface FileRoutesById {
   '/inbox/reports/': typeof InboxReportsIndexRoute
   '/inbox/runs/': typeof InboxRunsIndexRoute
   '/loops/$loopId/': typeof LoopsLoopIdIndexRoute
+  '/_shell/spaces/$channelId/activity': typeof ShellSpacesChannelIdActivityRoute
   '/_shell/spaces/$channelId/artifacts': typeof ShellSpacesChannelIdArtifactsRoute
   '/_shell/spaces/$channelId/canvases': typeof ShellSpacesChannelIdCanvasesRoute
   '/_shell/spaces/$channelId/context': typeof ShellSpacesChannelIdContextRoute
@@ -600,6 +610,7 @@ export interface FileRouteTypes {
     | '/inbox/reports/'
     | '/inbox/runs/'
     | '/loops/$loopId/'
+    | '/spaces/$channelId/activity'
     | '/spaces/$channelId/artifacts'
     | '/spaces/$channelId/canvases'
     | '/spaces/$channelId/context'
@@ -654,6 +665,7 @@ export interface FileRouteTypes {
     | '/inbox/reports'
     | '/inbox/runs'
     | '/loops/$loopId'
+    | '/spaces/$channelId/activity'
     | '/spaces/$channelId/artifacts'
     | '/spaces/$channelId/canvases'
     | '/spaces/$channelId/context'
@@ -715,6 +727,7 @@ export interface FileRouteTypes {
     | '/inbox/reports/'
     | '/inbox/runs/'
     | '/loops/$loopId/'
+    | '/_shell/spaces/$channelId/activity'
     | '/_shell/spaces/$channelId/artifacts'
     | '/_shell/spaces/$channelId/canvases'
     | '/_shell/spaces/$channelId/context'
@@ -1143,6 +1156,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ShellSpacesChannelIdArtifactsRouteImport
       parentRoute: typeof ShellRoute
     }
+    '/_shell/spaces/$channelId/activity': {
+      id: '/_shell/spaces/$channelId/activity'
+      path: '/spaces/$channelId/activity'
+      fullPath: '/spaces/$channelId/activity'
+      preLoaderRoute: typeof ShellSpacesChannelIdActivityRouteImport
+      parentRoute: typeof ShellRoute
+    }
     '/_shell/spaces/$channelId/tasks/$taskId': {
       id: '/_shell/spaces/$channelId/tasks/$taskId'
       path: '/spaces/$channelId/tasks/$taskId'
@@ -1181,6 +1201,7 @@ interface ShellRouteChildren {
   ShellFeedsIndexRoute: typeof ShellFeedsIndexRoute
   ShellSettingsIndexRoute: typeof ShellSettingsIndexRoute
   ShellSpacesIndexRoute: typeof ShellSpacesIndexRoute
+  ShellSpacesChannelIdActivityRoute: typeof ShellSpacesChannelIdActivityRoute
   ShellSpacesChannelIdArtifactsRoute: typeof ShellSpacesChannelIdArtifactsRoute
   ShellSpacesChannelIdCanvasesRoute: typeof ShellSpacesChannelIdCanvasesRoute
   ShellSpacesChannelIdContextRoute: typeof ShellSpacesChannelIdContextRoute
@@ -1208,6 +1229,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellFeedsIndexRoute: ShellFeedsIndexRoute,
   ShellSettingsIndexRoute: ShellSettingsIndexRoute,
   ShellSpacesIndexRoute: ShellSpacesIndexRoute,
+  ShellSpacesChannelIdActivityRoute: ShellSpacesChannelIdActivityRoute,
   ShellSpacesChannelIdArtifactsRoute: ShellSpacesChannelIdArtifactsRoute,
   ShellSpacesChannelIdCanvasesRoute: ShellSpacesChannelIdCanvasesRoute,
   ShellSpacesChannelIdContextRoute: ShellSpacesChannelIdContextRoute,

@@ -41,35 +41,35 @@ import {
     InsightShortId,
     PropertyFilterType,
     PropertyOperator,
-    QueryBasedInsightModel,
+    InsightModel,
 } from '~/types'
 
 import { DashboardGridCompaction } from 'products/dashboards/frontend/dashboardCustomization'
 
 import { dashboardResult, insightOnDashboard, tileFromInsight } from './dashboardLogic.testHelpers'
 
-const TEXT_TILE: DashboardTile<QueryBasedInsightModel> = {
+const TEXT_TILE: DashboardTile = {
     id: 4,
     text: { body: 'I AM A TEXT', last_modified_at: '2021-01-01T00:00:00Z' },
     layouts: {},
     color: InsightColor.Blue,
 }
 
-const WIDGET_TILE: DashboardTile<QueryBasedInsightModel> = {
+const WIDGET_TILE: DashboardTile = {
     id: 7,
     widget: { id: '1', widget_type: 'error_tracking_list', config: {} },
     layouts: {},
     color: null,
 }
 
-const WIDGET_TILE_WITH_CUSTOM_NAME: DashboardTile<QueryBasedInsightModel> = {
+const WIDGET_TILE_WITH_CUSTOM_NAME: DashboardTile = {
     id: 8,
     widget: { id: '2', widget_type: 'error_tracking_list', config: {}, name: 'Critical errors' },
     layouts: {},
     color: null,
 }
 
-const uncached = (insight: QueryBasedInsightModel): QueryBasedInsightModel => ({
+const uncached = (insight: InsightModel): InsightModel => ({
     ...insight,
     result: null,
     last_refresh: null,
@@ -83,7 +83,7 @@ export const boxToId = (param: string | readonly string[]): number => {
     throw new Error("this shouldn't be an array")
 }
 
-const insight800 = (): QueryBasedInsightModel => ({
+const insight800 = (): InsightModel => ({
     ...insightOnDashboard(800, [9, 10]),
     id: 800,
     short_id: '800' as InsightShortId,
@@ -111,12 +111,12 @@ describe('dashboardLogic', () => {
      *               /     \
      *             i666    i999
      */
-    let dashboards: Record<number, DashboardType<QueryBasedInsightModel>> = {}
+    let dashboards: Record<number, DashboardType> = {}
 
     beforeEach(() => {
         jest.spyOn(api, 'update')
 
-        const insights: Record<number, QueryBasedInsightModel> = {
+        const insights: Record<number, InsightModel> = {
             172: {
                 ...insightOnDashboard(172, [5, 6], {
                     query: examples.InsightRetention,
@@ -296,7 +296,7 @@ describe('dashboardLogic', () => {
                         }
                         const insightId = boxToId(params.id as string | readonly string[])
 
-                        const starting: QueryBasedInsightModel = insights[insightId]
+                        const starting: InsightModel = insights[insightId]
                         insights[insightId] = {
                             ...starting,
                             ...updates,
@@ -473,10 +473,10 @@ describe('dashboardLogic', () => {
 
         it('persists the latest movement mode after a save is already in flight', async () => {
             await expectLogic(logic).toFinishAllListeners()
-            let resolveFirstSave: (dashboard: DashboardType<QueryBasedInsightModel>) => void = () => {
+            let resolveFirstSave: (dashboard: DashboardType) => void = () => {
                 throw new Error('First save resolver is unavailable')
             }
-            const firstSave = new Promise<DashboardType<QueryBasedInsightModel>>((resolve) => {
+            const firstSave = new Promise<DashboardType>((resolve) => {
                 resolveFirstSave = resolve
             })
             ;(api.update as jest.Mock).mockImplementationOnce(() => firstSave)
@@ -563,10 +563,10 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             const staleLayoutResponse = logic.values.dashboard!
-            let finishLayoutSave: (dashboard: DashboardType<QueryBasedInsightModel>) => void = () => {
+            let finishLayoutSave: (dashboard: DashboardType) => void = () => {
                 throw new Error('Layout save resolver is unavailable')
             }
-            const layoutSave = new Promise<DashboardType<QueryBasedInsightModel>>((resolve) => {
+            const layoutSave = new Promise<DashboardType>((resolve) => {
                 finishLayoutSave = resolve
             })
             jest.spyOn(api, 'update')
@@ -1030,7 +1030,7 @@ describe('dashboardLogic', () => {
 
         it('keeps unapplied filters separate from layout cancellation and layout saving', async () => {
             const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 8)
-            const nineTileDashboard: DashboardType<QueryBasedInsightModel> = {
+            const nineTileDashboard: DashboardType = {
                 ...dashboards[5],
                 tiles: Array.from({ length: 9 }, (_, index) => ({
                     ...dashboards[5].tiles[0],
@@ -2231,7 +2231,7 @@ describe('dashboardLogic', () => {
                 })
 
             await expectLogic(dashboardEightlogic, () => {
-                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile<QueryBasedInsightModel>, 8)
+                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 8)
             }).toMatchValues({
                 dashboard: truth(({ tiles }) => {
                     return tiles.length === 2
@@ -2252,7 +2252,7 @@ describe('dashboardLogic', () => {
                 })
 
             await expectLogic(dashboardEightlogic, () => {
-                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile<QueryBasedInsightModel>, 10)
+                dashboardsModel.actions.tileMovedToDashboard({} as DashboardTile, 10)
             }).toMatchValues({
                 dashboard: truth(({ tiles }) => {
                     return tiles.length === 1
@@ -3376,10 +3376,10 @@ describe('dashboardLogic', () => {
 
         it('keeps edits made while dashboard changes save', async () => {
             await mountDashboardWithVariable({})
-            let finishSave: (dashboard: DashboardType<QueryBasedInsightModel>) => void = () => {
+            let finishSave: (dashboard: DashboardType) => void = () => {
                 throw new Error('Save resolver is unavailable')
             }
-            const save = new Promise<DashboardType<QueryBasedInsightModel>>((resolve) => {
+            const save = new Promise<DashboardType>((resolve) => {
                 finishSave = resolve
             })
             jest.spyOn(api, 'update').mockReturnValueOnce(save)
@@ -3454,10 +3454,10 @@ describe('dashboardLogic', () => {
         it('makes Preview available when a SQL variable changes during an older preview', async () => {
             const autoPreviewLimit = jest.replaceProperty(dashboardUtils, 'AUTO_PREVIEW_TILE_LIMIT', 0)
             await mountDashboardWithVariable({})
-            let finishPreview: (insight: QueryBasedInsightModel) => void = () => {
+            let finishPreview: (insight: InsightModel) => void = () => {
                 throw new Error('Preview resolver is unavailable')
             }
-            const preview = new Promise<QueryBasedInsightModel>((resolve) => {
+            const preview = new Promise<InsightModel>((resolve) => {
                 finishPreview = resolve
             })
             const getInsightWithRetrySpy = jest.spyOn(dashboardUtils, 'getInsightWithRetry').mockReturnValue(preview)
@@ -3671,7 +3671,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight({
                     short_id: 'not_already_on_the_dashboard' as InsightShortId,
-                } as QueryBasedInsightModel)
+                } as InsightModel)
             })
                 .toFinishAllListeners()
                 .toDispatchActions(['loadDashboard'])
@@ -3974,7 +3974,7 @@ describe('dashboardLogic', () => {
             }))
         ).toEqual([{ dashboards: [9, 10], short_id: '800' }])
 
-        const changedInsight: QueryBasedInsightModel = { ...insight800(), dashboards: [10, 5] } // Moved from to 9 to 5
+        const changedInsight: InsightModel = { ...insight800(), dashboards: [10, 5] } // Moved from to 9 to 5
         dashboardsModel.actions.updateDashboardInsight(changedInsight, [9])
 
         expect(
@@ -4055,7 +4055,7 @@ describe('dashboardLogic', () => {
                 dashboard: {
                     ...dashboards[5],
                     tiles: [...dashboards[5].tiles, WIDGET_TILE],
-                } as DashboardType<QueryBasedInsightModel>,
+                } as DashboardType,
             })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -4076,7 +4076,7 @@ describe('dashboardLogic', () => {
                 dashboard: {
                     ...dashboards[5],
                     tiles: [...dashboards[5].tiles, WIDGET_TILE],
-                } as DashboardType<QueryBasedInsightModel>,
+                } as DashboardType,
             })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
@@ -4154,7 +4154,7 @@ describe('dashboardLogic', () => {
                 widget: { id: '3', widget_type: 'error_tracking_list', config: { limit: 5 } },
                 layouts: { sm: { i: '99', x: 0, y: 10, w: 6, h: 5 } },
                 color: null,
-            } as unknown as DashboardTile<QueryBasedInsightModel>
+            } as unknown as DashboardTile
 
             jest.spyOn(api, 'update').mockResolvedValueOnce(
                 dashboardResult(5, [...dashboards[5].tiles, WIDGET_TILE, duplicatedTile])
@@ -4218,7 +4218,7 @@ describe('dashboardLogic', () => {
                 widget: { id: '3', widget_type: 'error_tracking_list', config: { limit: 5 } },
                 layouts: { sm: { i: '99', x: 0, y: 10, w: 6, h: 5 } },
                 color: null,
-            } as unknown as DashboardTile<QueryBasedInsightModel>
+            } as unknown as DashboardTile
 
             jest.spyOn(api, 'create').mockResolvedValueOnce({
                 tiles: [addedTile],
@@ -4260,7 +4260,7 @@ describe('dashboardLogic', () => {
                         description: 'Top issues this week',
                         config: { limit: 5 },
                     },
-                } as DashboardTile<QueryBasedInsightModel>)
+                } as DashboardTile)
 
             logic = dashboardLogic({ id: 5 })
             logic.mount()

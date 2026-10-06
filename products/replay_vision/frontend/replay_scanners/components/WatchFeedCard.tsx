@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPlay } from '@posthog/icons'
+import { IconPlay, IconPlayFilled } from '@posthog/icons'
 import { LemonButton, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -11,6 +11,7 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 import { urls } from 'scenes/urls'
 
 import { CitedText, ObservationResultSummary, readResult } from '../../components/ObservationCard'
+import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
@@ -178,8 +179,11 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
         >
             {/* The thumbnail column spans the card's full height; everything else stacks beside it. */}
             <div className="hidden @md:flex w-48 shrink-0 flex-col gap-1">
-                <div className="h-24 rounded bg-surface-secondary border flex items-center justify-center relative">
-                    <IconPlay className="text-2xl text-muted" />
+                {/* The dot and the duration sit outside the poster, which clips its own overflow. */}
+                <div className="relative">
+                    <ObservationThumbnail observation={observation}>
+                        <IconPlayFilled className="text-2xl text-brand-red drop-shadow" aria-hidden />
+                    </ObservationThumbnail>
                     {!observation.viewed && (
                         <Tooltip title="You haven't opened this observation yet">
                             <span

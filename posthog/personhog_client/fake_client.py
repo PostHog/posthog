@@ -25,13 +25,9 @@ from typing import Any
 
 from unittest.mock import patch
 
+from personhog.types.v1 import cohort_pb2, feature_flag_pb2, group_pb2, person_pb2
+
 from posthog.models.person.missing_person import uuidFromDistinctId
-from posthog.personhog_client.proto.generated.personhog.types.v1 import (
-    cohort_pb2,
-    feature_flag_pb2,
-    group_pb2,
-    person_pb2,
-)
 from posthog.utils import is_anonymous_id
 
 

@@ -20,6 +20,7 @@ from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     ReportSignalMeta,
     SignalSourceReference,
+    fetch_origin_sources_for_report,
     fetch_signal_stats_for_source_slice,
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
@@ -266,6 +267,37 @@ class TestFetchSourceReferencesForReport(_SignalEmbeddingsTestBase):
             SignalSourceReference(
                 source_product="linear", label="Linear issue", url="https://linear.app/a/issue/ENG-1"
             ),
+        ]
+
+
+class TestFetchOriginSourcesForReport(_SignalEmbeddingsTestBase):
+    def test_summarizes_live_sources_of_the_report_earliest_first(self) -> None:
+        self._emit_version(document_id="later", report_id="r1", source_product="error_tracking", inserted_at=self.base)
+        self._emit_version(
+            document_id="scout",
+            report_id="r1",
+            source_product="error_tracking",
+            inserted_at=self.base - timedelta(hours=1),
+            skill_name="signals-scout-error-tracking",
+        )
+        self._emit_version(document_id="gone", report_id="r1", source_product="logs", inserted_at=self.base)
+        self._emit_version(
+            document_id="gone",
+            report_id="r1",
+            source_product="logs",
+            inserted_at=self.base + timedelta(minutes=1),
+            deleted=True,
+        )
+        self._emit_version(document_id="moved", report_id="r1", source_product="logs", inserted_at=self.base)
+        self._emit_version(
+            document_id="moved", report_id="r2", source_product="logs", inserted_at=self.base + timedelta(minutes=1)
+        )
+
+        sources = fetch_origin_sources_for_report(self.team, "r1")
+
+        assert [(s.source_product, s.scout_name, s.entity_ids) for s in sources] == [
+            ("error_tracking", "signals-scout-error-tracking", ("src-scout",)),
+            ("error_tracking", "", ("src-later",)),
         ]
 
 

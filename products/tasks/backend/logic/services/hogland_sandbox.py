@@ -73,7 +73,7 @@ TEMPLATE_TO_SNAPSHOT_ALIAS: dict[SandboxTemplate, str] = {
 # restore must inherit-or-match it, so per-task overrides are ignored and the provisioned
 # box is always this size. Keep in sync with the shape the CI golden bake boots at.
 HOGLAND_GOLDEN_CPU_CORES = 4.0
-HOGLAND_GOLDEN_MEMORY_GB = 16.0
+HOGLAND_GOLDEN_MEMORY_GB = 20.0
 HOGLAND_GOLDEN_DISK_GB = 64.0
 
 # Hogland rejects a create whose tags carry a `key=value` entry longer than this. The

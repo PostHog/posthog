@@ -110,6 +110,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
             r"\$ip",
             # feature flags and experiments
             r"\$feature\/",
+            r"^\$feature_flags$",
             r"\$feature_enrollment\/",
             r"\$feature_interaction\/",
             # product tours

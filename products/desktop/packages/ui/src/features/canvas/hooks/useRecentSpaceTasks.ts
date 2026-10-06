@@ -319,12 +319,13 @@ export function useSpaceOverview(
   spaceId: string,
   createdBy: UserBasic | null,
   peopleLimit: number,
+  { enabled = true }: { enabled?: boolean } = {},
 ): SpaceOverview {
   const client = useOptionalAuthenticatedClient();
   const archivedTaskIds = useArchivedTaskIds();
   const { data } = useQuery({
     ...spaceTaskPageQuery(client, spaceId),
-    enabled: !!client,
+    enabled: enabled && !!client,
   });
   // A dependency, not `Date.now()` inline: the query keeps `data` referentially
   // equal across polls that return the same rows, so without the clock in the
@@ -442,7 +443,10 @@ export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
   return useMemo(() => {
     if (!data) return NO_PRESENCE;
     const live = data.tasks.filter((task) => !archivedTaskIds.has(task.id));
-    const fresh = presenceByChannel(live, { now, limit: SPACE_PRESENCE_LIMIT });
+    const fresh = presenceByChannel(live, {
+      now,
+      limit: SPACE_PRESENCE_LIMIT,
+    });
     const stable = new Map<string, ChannelPresence>();
     for (const [channelId, next] of fresh) {
       const prev = cache.current.get(channelId);

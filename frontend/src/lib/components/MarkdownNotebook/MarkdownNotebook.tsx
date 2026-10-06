@@ -22,10 +22,10 @@ import {
 } from 'react'
 
 import { IconCode, IconComment, IconDrag } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { downloadFile } from 'lib/utils/dom'
+import { downloadFile, isMac } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
 // Monaco is heavy, so the markdown source editor only loads when the source drawer opens.
@@ -353,6 +353,9 @@ const POINTER_INERT_LINK_CONTAINER_SELECTOR =
 
 const UNDO_TYPING_GROUP_MS = 1000
 
+/** How long the pointer rests on a link in an editable block before the open-link hint appears. */
+const LINK_HINT_DELAY_MS = 400
+
 /** How many recent local serializations to remember for save-echo detection. Must comfortably
  * cover the keystrokes that can land between a save being sent and its response echoing back. */
 const MAX_TRACKED_LOCAL_SNAPSHOTS = 100
@@ -641,6 +644,9 @@ function MarkdownNotebookEditor({
         ensureEditableNotebookDocument(parseMarkdownNotebook(value))
     )
     const [floatingToolbar, setFloatingToolbar] = useState<FloatingToolbarState | null>(null)
+    const [linkHintRect, setLinkHintRect] = useState<DOMRect | null>(null)
+    const hoveredLinkRef = useRef<Element | null>(null)
+    const linkHintTimeoutRef = useRef<number | null>(null)
     const [insertMenu, setInsertMenu] = useState<InsertMenuState | null>(null)
     const [insertMenuPosition, setInsertMenuPosition] = useState<InsertMenuPosition | null>(null)
     const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null)
@@ -4090,6 +4096,47 @@ function MarkdownNotebookEditor({
         }
     }, [mode])
 
+    const clearLinkHint = useCallback((): void => {
+        if (linkHintTimeoutRef.current !== null) {
+            window.clearTimeout(linkHintTimeoutRef.current)
+            linkHintTimeoutRef.current = null
+        }
+        hoveredLinkRef.current = null
+        setLinkHintRect(null)
+    }, [])
+
+    useEffect(() => clearLinkHint, [clearLinkHint])
+
+    // The hint is positioned from the link's rect at hover time, so a scroll would strand it
+    useEffect(() => {
+        if (!linkHintRect) {
+            return
+        }
+        window.addEventListener('scroll', clearLinkHint, { capture: true, passive: true })
+        return () => window.removeEventListener('scroll', clearLinkHint, { capture: true })
+    }, [linkHintRect, clearLinkHint])
+
+    // Links in editable blocks only open on modifier-click, which nothing else on screen tells
+    // the reader. Leaving the link for any other part of the canvas lands here too and clears it.
+    const handleCanvasMouseOver = (event: ReactMouseEvent<HTMLDivElement>): void => {
+        const linkElement = mode === 'edit' && event.target instanceof Element ? event.target.closest('a[href]') : null
+        if (!linkElement || !linkElement.closest(POINTER_INERT_LINK_CONTAINER_SELECTOR)) {
+            if (hoveredLinkRef.current) {
+                clearLinkHint()
+            }
+            return
+        }
+        if (linkElement === hoveredLinkRef.current) {
+            return
+        }
+        clearLinkHint()
+        hoveredLinkRef.current = linkElement
+        linkHintTimeoutRef.current = window.setTimeout(() => {
+            linkHintTimeoutRef.current = null
+            setLinkHintRect(linkElement.getBoundingClientRect())
+        }, LINK_HINT_DELAY_MS)
+    }
+
     const handleCanvasClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
         if (!(event.target instanceof Element)) {
             return
@@ -5047,6 +5094,7 @@ function MarkdownNotebookEditor({
     }
 
     const handleCanvasMouseLeave = (): void => {
+        clearLinkHint()
         setActiveRowIndex(null)
         setActiveBoundaryIndex(null)
     }
@@ -6224,6 +6272,7 @@ function MarkdownNotebookEditor({
                         aria-activedescendant={activeInsertMenuOptionDomId}
                         onInput={handleRootEditableInput}
                         onKeyDown={handleRootEditableKeyDown}
+                        onMouseOver={handleCanvasMouseOver}
                         onMouseLeave={handleCanvasMouseLeave}
                         onClick={handleCanvasClick}
                         onDragStartCapture={() => {
@@ -6317,6 +6366,23 @@ function MarkdownNotebookEditor({
                             listItemRefs={listItemRefs}
                             containerRef={mainRef}
                         />
+                    ) : null}
+                    {linkHintRect && mode === 'edit' && !floatingToolbar ? (
+                        // A link in the canvas is raw HTML, so no Tooltip can wrap it; this empty
+                        // box sits over the hovered link and anchors the tooltip instead. The
+                        // formatting toolbar has its own open-link button and would sit under it.
+                        <Tooltip visible title={`${isMac() ? '⌘' : 'Ctrl'} + click to open link`}>
+                            <span
+                                aria-hidden
+                                className="MarkdownNotebook__link-hint-anchor"
+                                style={{
+                                    top: linkHintRect.top,
+                                    left: linkHintRect.left,
+                                    width: linkHintRect.width,
+                                    height: linkHintRect.height,
+                                }}
+                            />
+                        </Tooltip>
                     ) : null}
                     {floatingToolbar && mode === 'edit' ? (
                         <FormattingToolbar

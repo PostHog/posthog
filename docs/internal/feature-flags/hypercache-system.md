@@ -497,11 +497,12 @@ The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache u
 
 Cache freshness is maintained through scheduled Celery tasks.
 
-| Task                                         | Schedule         | Purpose                                              |
-| -------------------------------------------- | ---------------- | ---------------------------------------------------- |
-| `refresh_expiring_flags_cache_entries`       | Hourly at :15    | Refresh caches with TTL < 24h before they expire     |
-| `cleanup_stale_flags_expiry_tracking_task`   | Daily at 3:15 AM | Remove expired team entries from tracking sorted set |
-| `verify_and_fix_flag_definitions_cache_task` | Hourly at :50    | Verify flag definitions cache against database       |
+| Task                                              | Schedule         | Purpose                                              |
+| ------------------------------------------------- | ---------------- | ---------------------------------------------------- |
+| `refresh_expiring_flags_cache_entries`            | Hourly at :15    | Refresh caches with TTL < 24h before they expire     |
+| `cleanup_stale_flags_expiry_tracking_task`        | Daily at 3:15 AM | Remove expired team entries from tracking sorted set |
+| `refresh_expiring_flag_definitions_cache_entries` | Hourly at :35    | Refresh flag definitions caches before they expire   |
+| `verify_and_fix_flag_definitions_cache_task`      | Hourly at :50    | Verify flag definitions cache against database       |
 
 ### Refresh task
 
@@ -597,10 +598,16 @@ FLAGS_REDIS_URL=redis://flags-redis:6379
 FLAGS_CACHE_TTL=604800             # 7 days (default)
 FLAGS_CACHE_MISS_TTL=86400         # 1 day (default)
 
-# Scheduled task settings
+# Scheduled task settings for the flags cache sweep
 FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS=24  # Refresh caches expiring within 24h
 FLAGS_CACHE_REFRESH_LIMIT=5000              # Max teams per refresh run
 FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5  # Skip recently updated flags
+
+# Scheduled task settings for the flag definitions cache sweep.
+# Each one defaults to the resolved flags value above, so both sweeps move together.
+# Uncomment one to move this sweep alone.
+# FLAG_DEFINITIONS_CACHE_REFRESH_TTL_THRESHOLD_HOURS=12
+# FLAG_DEFINITIONS_CACHE_REFRESH_LIMIT=2000
 
 # For S3 fallback
 OBJECT_STORAGE_ENABLED=true

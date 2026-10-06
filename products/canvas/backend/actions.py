@@ -81,6 +81,12 @@ class TaskCreatePayloadSerializer(serializers.Serializer):
 
 class TaskCreateAndRunPayloadSerializer(TaskCreatePayloadSerializer):
     idempotency_key = serializers.UUIDField(help_text="Reuse this UUID when retrying the same cloud task request.")
+    model = serializers.CharField(
+        required=False, max_length=255, help_text="Task model identifier. Omit to use the viewer's default model."
+    )
+    reasoning_effort = serializers.CharField(
+        required=False, max_length=32, help_text="Reasoning effort supported by the selected model. Requires model."
+    )
 
 
 def _create_annotation(team_id: int, user_id: int, canvas: "Canvas", payload: dict[str, Any]) -> dict[str, Any]:
@@ -122,6 +128,8 @@ def _create_and_run_task(team_id: int, user_id: int, canvas: "Canvas", payload: 
         description=payload["description"],
         idempotency_key=payload["idempotency_key"],
         before_create=check_usage,
+        model=payload.get("model"),
+        reasoning_effort=payload.get("reasoning_effort"),
     )
     return {"task_id": str(run.task_id), "run_id": str(run.id), "status": run.status}
 
@@ -186,16 +194,19 @@ CANVAS_ACTIONS: dict[str, CanvasAction] = {
         ),
         CanvasAction(
             verb="tasks.create_and_run",
-            summary="Create and start a cloud task in this space with default settings.",
+            summary="Create and start a cloud task in this space, with optional model settings.",
             destructive=False,
             payload_serializer=TaskCreateAndRunPayloadSerializer,
             execute=_create_and_run_task,
             required_scopes=("task:write",),
             starts_cloud_run=True,
             usage=(
-                "Payload `{title, description?, idempotency_key}` returns `{task_id, run_id, status}`. "
+                "Payload `{title, description?, idempotency_key, model?, reasoning_effort?}` returns "
+                "`{task_id, run_id, status}`. "
                 "Creates a task in the canvas's space as the viewer and queues its cloud run. "
                 "Inherits the space's repositories and the viewer's default run settings. "
+                "Optional model and reasoning_effort (from the task model catalogue) override those defaults for "
+                "this task only; reasoning_effort requires model. "
                 "The standard cloud access and usage limits apply. This action uses paid compute. "
                 "Use a 'Start cloud task' button and disable it while the request is pending. "
                 "Generate a UUID for idempotency_key once per intended task and reuse it on retries; "

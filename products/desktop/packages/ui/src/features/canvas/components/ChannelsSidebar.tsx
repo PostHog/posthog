@@ -10,6 +10,8 @@ import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab"
 import { ChannelsList } from "@posthog/ui/features/canvas/components/ChannelsList";
 import { useChannelsSidebarStore } from "@posthog/ui/features/canvas/components/channelsSidebarStore";
 import { TaskFeedPane } from "@posthog/ui/features/canvas/components/TaskFeedPane";
+import { WorkActivityColumn } from "@posthog/ui/features/canvas/components/work/WorkActivityColumn";
+import { WorkColumn } from "@posthog/ui/features/canvas/components/work/WorkColumn";
 import { useChannelPaneSwipe } from "@posthog/ui/features/canvas/hooks/useChannelPaneSwipe";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useChannelsWorld } from "@posthog/ui/features/canvas/hooks/useChannelsWorld";
@@ -17,7 +19,11 @@ import { useCurrentChannel } from "@posthog/ui/features/canvas/hooks/useCurrentC
 import { useMarkChannelSeen } from "@posthog/ui/features/canvas/hooks/useMarkChannelSeen";
 import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTrackChannelsSpaceViewed } from "@posthog/ui/features/canvas/hooks/useTrackChannelsSpaceViewed";
-import type { NavRailPane } from "@posthog/ui/features/canvas/railPane";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
+import {
+  type NavRailPane,
+  railPaneFoldsIntoWork,
+} from "@posthog/ui/features/canvas/railPane";
 import {
   selectActivityItem,
   selectActivityReport,
@@ -29,6 +35,7 @@ import {
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { useWorkActivityStore } from "@posthog/ui/features/canvas/stores/workActivityStore";
 import { InboxPane } from "@posthog/ui/features/inbox/components/InboxPane";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
@@ -153,6 +160,8 @@ type ActivityFeedListProps = ComponentProps<typeof ActivityFeedList>;
  */
 function RailPaneBody({
   railPane,
+  workLayout,
+  workActivityOpen,
   showsActivityDetail,
   selectedActivityId,
   onActivityActivate,
@@ -164,6 +173,8 @@ function RailPaneBody({
   pendingTabSwitch,
 }: {
   railPane: NavRailPane;
+  workLayout: boolean;
+  workActivityOpen: boolean;
   showsActivityDetail: boolean;
   selectedActivityId: string | undefined;
   // Taken from the list rather than restated, so the row's payload can change
@@ -176,6 +187,9 @@ function RailPaneBody({
   sidebarVisible: boolean;
   pendingTabSwitch: boolean;
 }): ReactElement {
+  if (workLayout && workActivityOpen) {
+    return <WorkActivityColumn className="min-h-0 flex-1" />;
+  }
   if (showsActivityDetail) {
     return (
       <ActivityFeedList
@@ -187,6 +201,7 @@ function RailPaneBody({
     );
   }
   if (railPane === "inbox") return <InboxPane className="min-h-0 flex-1" />;
+  if (workLayout && railPaneFoldsIntoWork(railPane)) return <WorkColumn />;
   if (railPane === "canvases") {
     return <CanvasesPane className="min-h-0 flex-1" />;
   }
@@ -279,6 +294,8 @@ function ChannelsSidebarImpl() {
   // (route and main pane unchanged) while you look around. With no channel to
   // slide to there's only the list.
   const { pane: railPane, showsActivityDetail } = useRailSurface();
+  const workLayout = useWorkLayout();
+  const workActivityOpen = useWorkActivityStore((state) => state.open);
   const selectedActivityId = useActivitySelection()?.id;
   const sourceFeedId = useRouterState({
     select: (state) =>
@@ -341,6 +358,8 @@ function ChannelsSidebarImpl() {
           {channelsLayout ? (
             <RailPaneBody
               railPane={railPane}
+              workLayout={workLayout}
+              workActivityOpen={workActivityOpen}
               showsActivityDetail={showsActivityDetail}
               selectedActivityId={selectedActivityId}
               onActivityActivate={selectActivityItem}

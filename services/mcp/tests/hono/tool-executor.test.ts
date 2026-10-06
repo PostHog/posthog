@@ -384,6 +384,7 @@ describe('ToolExecutor', () => {
                             {
                                 name: 'team-retention',
                                 description: 'Project-specific retention guidance.',
+                                score: 900,
                                 matches: [
                                     {
                                         matched_field: 'body',

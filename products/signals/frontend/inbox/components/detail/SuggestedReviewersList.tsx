@@ -99,7 +99,7 @@ export function SuggestedReviewersList({
     const visibleItems = showAll ? items : items.slice(0, MAX_VISIBLE_SUGGESTIONS)
 
     return (
-        <div className="@container mr-[3.625rem] flex flex-col gap-1.5">
+        <div className="@container flex flex-col gap-1.5">
             {visibleItems.map((item) =>
                 item.kind === 'reason-group' ? (
                     <SuggestedReviewerReasonGroup

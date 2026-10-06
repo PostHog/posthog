@@ -602,9 +602,16 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # setting it here the orchestrator would see `success=True` for
             # a run that died on an unhandled exception.
             self._completion_status = "failed"
-            self._completion_error = truncate_error_message(str(e))
+            cause = e.cause if isinstance(e, temporalio.exceptions.ActivityError) else e
+            cause_message = getattr(cause, "message", None) or (str(cause) if cause is not None else str(e))
+            error_type = (
+                cause.type
+                if isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type
+                else type(e).__name__
+            )
+            error_message = truncate_error_message(cause_message)
+            self._completion_error = error_message
             current_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
-            error_message = truncate_error_message(str(e))
             if self._context:
                 if self._current_progress_step is not None:
                     failed_step, failed_label, failed_group = self._current_progress_step
@@ -627,7 +634,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                         "provider": self.context.provider,
                         "model": self.context.model,
                         "reasoning_effort": self.context.reasoning_effort,
-                        "error_type": type(e).__name__,
+                        "error_type": error_type,
                         "error_message": error_message,
                         "sandbox_id": current_sandbox_id,
                         **self._activity_error_properties(e),
@@ -635,7 +642,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     capture_analytics=False,
                 )
             await self._update_task_run_status(
-                "failed", error_message=error_message, run_id=run_id, error_type=type(e).__name__
+                "failed", error_message=error_message, run_id=run_id, error_type=error_type
             )
 
             return ExecuteSandboxOutput(
@@ -669,7 +676,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                 # Clear the persisted sandbox id only after cleanup actually
                 # ran — otherwise the next workflow start has no record of an
                 # orphan to reap.
-                await self._clear_persisted_sandbox_id(run_id)
+                await self._clear_persisted_sandbox_id(run_id, cleanup_sandbox_id)
                 self._sandbox_id_for_cleanup = None
 
             # Emit the terminal "I'm done" signal to the orchestrator before
@@ -1224,7 +1231,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
         await workflow.execute_activity(
             cleanup_sandbox,
-            CleanupSandboxInput(sandbox_id=sandbox_id),
+            CleanupSandboxInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
@@ -1270,10 +1277,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     # Stale state will be reaped (idempotent) on the next start, so a
     # failure here doesn't compromise correctness.
     @log_on_fail("execute_sandbox_clear_sandbox_id_failed", level="warning", suppress=True)
-    async def _clear_persisted_sandbox_id(self, run_id: str) -> None:
+    async def _clear_persisted_sandbox_id(self, run_id: str, sandbox_id: str) -> None:
         await workflow.execute_activity(
             clear_persisted_sandbox_id,
-            ClearPersistedSandboxIdInput(run_id=run_id),
+            ClearPersistedSandboxIdInput(run_id=run_id, sandbox_id=sandbox_id),
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )

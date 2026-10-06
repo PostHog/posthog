@@ -13,6 +13,14 @@ THUMBNAIL_WIDTH_PX = 1280
 FALLBACK_THUMBNAIL_FRACTION = 0.25
 
 
+MEDIA_WORKFLOW_NAME = "replay-vision-media"
+
+
+def build_media_workflow_id(observation_id: UUID) -> str:
+    """One id per observation, so a backfill cannot start a render a scan is already running."""
+    return f"{MEDIA_WORKFLOW_NAME}-{observation_id}"
+
+
 class ObservationMediaInputs(BaseModel, frozen=True):
     """Input to ObservationMediaWorkflow, started fail-soft once an observation has succeeded."""
 

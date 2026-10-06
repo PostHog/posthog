@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_ADS_MAX_HISTORY_DAYS,
     META_AUTH_ERROR_MESSAGE,
     META_INVALID_CURSOR_ERROR_MESSAGE,
+    META_RATE_LIMIT_ERROR_MESSAGE,
     META_TRANSIENT_ERROR_MAX_ATTEMPTS,
     PAGE_LIMIT_FALLBACK_SIZES,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
@@ -1498,6 +1499,35 @@ class TestRetryableErrors:
         with pytest.raises(Exception) as exc_info:
             _raise_meta_api_error(response)
         assert any(pattern in str(exc_info.value) for pattern in patterns)
+
+    @pytest.mark.parametrize(
+        "error_message,expected_fragment",
+        [
+            (
+                'Meta API request failed (retryable): 500 - {"error":{"message":"An unexpected error has '
+                'occurred. Please retry your request later.","type":"OAuthException","is_transient":true,'
+                '"code":2,"fbtrace_id":"AaBbCcDdEeFf00112233"}}',
+                "temporary errors",
+            ),
+            (
+                f"{META_RATE_LIMIT_ERROR_MESSAGE} (Meta API response: 400 - "
+                '{"error":{"message":"User request limit reached","type":"OAuthException","code":17,'
+                '"fbtrace_id":"AaBbCcDdEeFf00112233"}})',
+                "rate limiting",
+            ),
+        ],
+    )
+    def test_retry_exhausted_message_replaces_the_raw_meta_response(
+        self, error_message: str, expected_fragment: str
+    ) -> None:
+        # Without this the job stores Meta's raw response body as what the customer reads.
+        messages = [
+            message for key, message in MetaAdsSource().get_retry_exhausted_errors().items() if key in error_message
+        ]
+        assert messages, f"An exhausted Meta Ads retry should store a customer-facing message: {error_message}"
+        assert expected_fragment in messages[0]
+        assert "fbtrace_id" not in messages[0]
+        assert "next sync runs on schedule" in messages[0]
 
     def test_too_much_data_timeout_does_not_match_retryable_pattern(self) -> None:
         # The too-much-data timeout keeps its own non-retryable classification (adaptive chunking

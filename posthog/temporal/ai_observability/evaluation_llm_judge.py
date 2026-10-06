@@ -40,6 +40,7 @@ from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     ModelNotFoundError,
     ModelPermissionError,
+    OutputTokenLimitError,
     ProviderConnectionError,
     QuotaExceededError,
     RateLimitError,
@@ -230,6 +231,35 @@ def _build_context_window_skip_result(
         "allows_na": allows_na,
         "skipped": True,
         "skip_reason": "context_window_exceeded",
+    }
+    if allows_na:
+        result["applicable"] = False
+    return result
+
+
+def _build_output_limit_skip_result(
+    allows_na: bool, *, is_byok: bool, key_id: str | None, provider: str, model: str
+) -> EvaluationActivityResult:
+    """Per-item skip for a judge reply that hit the model's output limit.
+
+    Carries `model` and `provider` for the same reason the unparsable skip does: the model ran
+    and the call was billed. The provider reports no usage counts on this path, because the
+    failure reaches us as an exception.
+    """
+    result: EvaluationActivityResult = {
+        "result_type": "boolean",
+        "verdict": None if allows_na else False,
+        "reasoning": "Evaluation model hit its output limit before it finished; evaluation skipped.",
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "is_byok": is_byok,
+        "key_id": key_id,
+        "allows_na": allows_na,
+        "model": model,
+        "provider": provider,
+        "skipped": True,
+        "skip_reason": "output_limit_exceeded",
     }
     if allows_na:
         result["applicable"] = False
@@ -483,6 +513,21 @@ def call_llm_judge(
         # Skip rather than raise: retrying can't fix an over-window prompt and just spams error tracking.
         increment_errors("context_window_exceeded", provider=provider)
         return _build_context_window_skip_result(allows_na, is_byok=is_byok, key_id=key_id)
+
+    except OutputTokenLimitError as e:
+        # Avoid automatic retries of a billed generation; a later backfill can retry it.
+        # Providers word this failure differently, so raising creates separate error tracking issues.
+        increment_errors("output_limit_exceeded", provider=provider)
+        logger.warning(
+            "LLM judge response hit the model output limit",
+            evaluation_id=evaluation["id"],
+            provider=provider,
+            model=model,
+            error=str(e),
+        )
+        return _build_output_limit_skip_result(
+            allows_na, is_byok=is_byok, key_id=key_id, provider=provider, model=model
+        )
 
     except ProviderConnectionError as e:
         # Transient transport failure (connection reset, read timeout). Retrying usually succeeds,
