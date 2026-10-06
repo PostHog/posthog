@@ -104,17 +104,24 @@ class TestRecalculationService(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, trigger, latest_status, minutes_since_completed, expects_new_run)
-            ("manual_inside_window_reuses_latest", "manual", "completed", 2, False),
-            ("agent_mcp_inside_window_reuses_latest", "agent_mcp", "completed", 2, False),
-            ("manual_outside_window_starts_new", "manual", "completed", 6, True),
-            ("manual_after_failed_run_starts_new", "manual", "failed", 2, True),
-            ("heal_inside_window_starts_new", "heal_latest_run", "completed", 2, True),
-            ("manual_retry_inside_window_starts_new", "manual_retry", "completed", 2, True),
+            # (name, trigger, latest_status, latest_trigger, minutes_since_completed, expects_new_run)
+            ("manual_inside_window_reuses_latest", "manual", "completed", "manual", 2, False),
+            ("agent_mcp_inside_window_reuses_latest", "agent_mcp", "completed", "manual", 2, False),
+            ("manual_outside_window_starts_new", "manual", "completed", "manual", 6, True),
+            ("manual_after_failed_run_starts_new", "manual", "failed", "manual", 2, True),
+            ("manual_after_timeseries_sync_starts_new", "manual", "completed", "timeseries_sync", 2, True),
+            ("heal_inside_window_starts_new", "heal_latest_run", "completed", "manual", 2, True),
+            ("manual_retry_inside_window_starts_new", "manual_retry", "completed", "manual", 2, True),
         ]
     )
     def test_request_recalculation_user_refresh_window(
-        self, name: str, trigger: str, latest_status: str, minutes_since_completed: int, expects_new_run: bool
+        self,
+        name: str,
+        trigger: str,
+        latest_status: str,
+        latest_trigger: str,
+        minutes_since_completed: int,
+        expects_new_run: bool,
     ):
         exp = self._launched_experiment(flag_key=f"window-{name}")
         now = timezone.now()
@@ -123,6 +130,7 @@ class TestRecalculationService(BaseTest):
             team=self.team,
             experiment=exp,
             status=latest_status,
+            trigger=latest_trigger,
             query_to=now - timedelta(days=1),
             completed_at=now - timedelta(minutes=minutes_since_completed),
         )

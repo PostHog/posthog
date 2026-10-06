@@ -339,11 +339,13 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
             # The newest terminal run by created_at, as the latest read serves it. The window measures from
             # completed_at, not query_to: a stopped experiment pins query_to to end_date, and a long run
             # finishes well after its query_to. A failed run never anchors the window, so a reload after a
-            # failure starts a new run.
+            # failure starts a new run. A timeseries sync run never anchors it either: the sync covers only
+            # the metrics the daily workflow computes, and the gap heal runs on page load, not on a reload.
             latest = _terminal_recalculations(experiment).order_by("-created_at").first()
             if (
                 latest is not None
                 and latest.status == ExperimentMetricsRecalculation.Status.COMPLETED
+                and latest.trigger != ExperimentMetricsRecalculation.Trigger.TIMESERIES_SYNC
                 and latest.completed_at is not None
                 and latest.completed_at >= timezone.now() - MIN_USER_RECALCULATION_INTERVAL
             ):
