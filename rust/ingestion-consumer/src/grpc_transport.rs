@@ -849,7 +849,7 @@ enum StreamEnd {
 
 fn to_proto_message(message: &SerializedKafkaMessage) -> KafkaMessage {
     KafkaMessage {
-        topic: message.topic.clone(),
+        topic: message.topic.to_string(),
         partition: message.partition,
         offset: message.offset,
         timestamp: message.timestamp,

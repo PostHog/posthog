@@ -5,7 +5,7 @@ import { dataThemeLogic, getColorFromToken } from 'scenes/dataThemeLogic'
 
 import type {
     ChartSettings,
-    DataVisualizationNode,
+    VisualizationNode,
     ErrorTrackingQueryResponse,
     HogQLAutocompleteResponse,
     HogQLMetadataResponse,
@@ -100,7 +100,7 @@ export interface seriesBreakdownLogicValues {
     getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null // dataThemeLogic
     chartSettings: ChartSettings // dataVisualizationLogic
     columns: Column[] // dataVisualizationLogic
-    query: DataVisualizationNode // dataVisualizationLogic
+    query: VisualizationNode // dataVisualizationLogic
     response:
         | ErrorTrackingQueryResponse
         | HogQLAutocompleteResponse
@@ -130,8 +130,8 @@ export interface seriesBreakdownLogicActions {
     clearAxis: () => {
         value: true
     } // dataVisualizationLogic
-    setQuery: (setter: (node: DataVisualizationNode) => DataVisualizationNode) => {
-        setter: (node: DataVisualizationNode) => DataVisualizationNode
+    setQuery: (setter: (node: VisualizationNode) => VisualizationNode) => {
+        setter: (node: VisualizationNode) => VisualizationNode
     } // dataVisualizationLogic
     addSeriesBreakdown: (columnName: string | null) => {
         columnName: string | null
@@ -159,7 +159,7 @@ export interface seriesBreakdownLogicActions {
 export interface seriesBreakdownLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        selectedSeriesBreakdownColumn: (query: DataVisualizationNode) => string | null | undefined
+        selectedSeriesBreakdownColumn: (query: VisualizationNode) => string | null | undefined
         showSeriesBreakdown: (selectedSeriesBreakdownColumn: string | null | undefined) => boolean
         breakdownColumnValues: (
             selectedSeriesBreakdownColumn: string | null | undefined,

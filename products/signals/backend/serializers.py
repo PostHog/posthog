@@ -1700,6 +1700,15 @@ class SignalReportsForYouQuerySerializer(serializers.Serializer):
         max_value=MAX_FOR_YOU_REPORTS,
         help_text=f"How many of the top reports to return, 1 to {MAX_FOR_YOU_REPORTS}. Defaults to 5.",
     )
+    include_unowned = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether to include P0 reports that nobody owns. These belong to the project rather than to "
+            "one person, and they rank above everything else, so a surface that only shows a person's own "
+            "work passes false. Defaults to true."
+        ),
+    )
 
 
 class SignalReportsForYouResponseSerializer(serializers.Serializer):
@@ -1708,13 +1717,15 @@ class SignalReportsForYouResponseSerializer(serializers.Serializer):
         help_text=(
             "The open, actionable reports that matter most to the current user, best first: reports "
             "waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 "
-            "reports that nobody owns. The Today briefing ranks reports the same way."
+            "reports that nobody owns unless `include_unowned` is false. The Today briefing ranks "
+            "reports the same way."
         ),
     )
     count = serializers.IntegerField(
         help_text=(
             "How many open reports are for the current user: the reports in `results`, plus the other "
-            "open, actionable reports that name them as a reviewer."
+            "open, actionable reports that name them as a reviewer. Counted over the same set as "
+            "`results`, so it follows `include_unowned` too."
         ),
     )
 
