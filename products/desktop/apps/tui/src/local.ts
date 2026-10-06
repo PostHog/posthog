@@ -35,6 +35,23 @@ export class LocalSession {
     this.runtime = new PiRuntime(client, () => this.contextWindow);
     this.runtime.onExtensionEvent((event) => {
       if (event.type !== "extension_ui_request") return;
+      // Kept in the view as the cloud sandbox logs it, so one reader finds a status in either.
+      if (event.method === "setStatus") {
+        this.publish({
+          ...this.view,
+          entries: [
+            ...this.view.entries,
+            {
+              type: "pi_extension_event",
+              notification: {
+                method: "_posthog/pi_extension_event",
+                params: event,
+              },
+            } as StoredLogEntry,
+          ],
+        });
+        return;
+      }
       if (
         event.method !== "select" &&
         event.method !== "confirm" &&

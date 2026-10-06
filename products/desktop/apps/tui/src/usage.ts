@@ -49,12 +49,37 @@ export function donut(fill: ContextFill): string {
 
 // The composer's corner: the context donut, then the task's cost so far.
 // A zero cost is usually spend not attributed yet, so it stays hidden like an unknown one.
+// Background shells come first, as the agent's own status line names them, such as "2 shells · 1 monitor".
 export function usageStatus(
   fill: ContextFill | null,
   costUsd: number | null,
+  shells?: string,
 ): string {
   const cost = costUsd !== null && costUsd > 0 ? formatCostUsd(costUsd) : null;
   // The cost is faint like the rule it sits on; only the donut's colour should catch the eye.
   const faint = cost ? `\u001b[2m${fill ? " • " : ""}${cost}\u001b[22m` : "";
-  return `${fill ? donut(fill) : ""}${faint}`;
+  const usage = `${fill ? donut(fill) : ""}${faint}`;
+  if (!shells) return usage;
+  return `\u001b[2m${shells}${usage ? " • " : ""}\u001b[22m${usage}`;
+}
+
+// The status line the agent's background shells extension last set, from the run's extension events.
+export const SHELLS_STATUS_KEY = "background-shells";
+
+export function shellsStatus(entries: StoredLogEntry[]): string | undefined {
+  for (let index = entries.length - 1; index >= 0; index--) {
+    const entry = entries[index];
+    if (entry.type !== "pi_extension_event") continue;
+    const params = (entry as { notification?: { params?: unknown } })
+      .notification?.params as
+      | { method?: string; statusKey?: string; statusText?: string }
+      | undefined;
+    if (
+      params?.method !== "setStatus" ||
+      params.statusKey !== SHELLS_STATUS_KEY
+    )
+      continue;
+    return params.statusText || undefined;
+  }
+  return undefined;
 }

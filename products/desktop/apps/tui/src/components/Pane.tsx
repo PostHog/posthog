@@ -23,7 +23,7 @@ import {
   withPending,
   withPendingShells,
 } from "../transcript";
-import { contextFill, usageStatus } from "../usage";
+import { contextFill, shellsStatus, usageStatus } from "../usage";
 import { Spinner } from "./Spinner";
 
 const COST_REFRESH_MS = 60_000;
@@ -245,20 +245,25 @@ export function Pane({
   const shade = (line: string): string => (focused ? line : faint(line));
   const fill = useMemo(() => contextFill(view.entries), [view.entries]);
   const cost = useTaskCost(runs, paneTaskId, transcript.turnOpen);
-  const drawn =
-    width > 0
-      ? composer.render(width, focused, usageStatus(fill, cost))
-      : { editor: [], popup: [] };
-  const composerLines = drawn.editor.map(shade);
-  // A blank row on top separates floating suggestions from the chat they cover.
-  const popupLines =
-    drawn.popup.length > 0 ? [" ", ...drawn.popup.map(shade)] : [];
   // A local agent is live once started; a cloud run once its sandbox reports in.
   const live =
     (view.status === "queued" || view.status === "in_progress") &&
     (local
       ? view.loaded
       : view.entries.some((entry) => entry.type === "pi_run_started"));
+  // A stopped sandbox took its shells with it, whatever its last status said.
+  const shells =
+    live && view.sandboxAlive !== false
+      ? shellsStatus(view.entries)
+      : undefined;
+  const drawn =
+    width > 0
+      ? composer.render(width, focused, usageStatus(fill, cost, shells))
+      : { editor: [], popup: [] };
+  const composerLines = drawn.editor.map(shade);
+  // A blank row on top separates floating suggestions from the chat they cover.
+  const popupLines =
+    drawn.popup.length > 0 ? [" ", ...drawn.popup.map(shade)] : [];
   const runIds = task?.latest_run
     ? { taskId: task.id, runId: task.latest_run.id }
     : local && paneTaskId
