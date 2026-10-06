@@ -18,7 +18,7 @@ from bson.codec_options import CodecOptions
 from bson.max_key import MaxKey
 from bson.min_key import MinKey
 from parameterized import parameterized
-from pymongo.errors import CursorNotFound, OperationFailure, ServerSelectionTimeoutError
+from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, ServerSelectionTimeoutError
 from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
 
@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mo
     MONGO_KEYS_UNAVAILABLE_ERROR,
     MONGO_MAX_CHUNK_ROWS,
     MONGO_MIN_CHUNK_ROWS,
+    ROW_COUNT_TIMEOUT_MS,
     MongoResumeConfig,
     _adaptive_chunk_size,
     _build_query,
@@ -710,6 +711,28 @@ class TestGetRowsToSync(SimpleTestCase):
         coll = MagicMock()
         coll.count_documents.return_value = 42
         assert _get_rows_to_sync(coll, {}, MagicMock()) == 42
+        coll.count_documents.assert_called_once_with({}, maxTimeMS=ROW_COUNT_TIMEOUT_MS)
+
+    @parameterized.expand(
+        [
+            ("unfiltered_read_uses_the_collection_estimate", {}, 1_000, None, 1_000),
+            ("filtered_read_has_no_estimate", {"updated_at": {"$gt": 5}}, 1_000, None, 0),
+            (
+                "view_has_no_estimate",
+                {},
+                None,
+                OperationFailure("Namespace db.orders_view is a view, not a collection"),
+                0,
+            ),
+        ]
+    )
+    def test_count_past_the_time_limit_falls_back(self, _name, query, estimate, estimate_error, expected):
+        coll = MagicMock()
+        coll.count_documents.side_effect = ExecutionTimeout("operation exceeded time limit", code=50)
+        coll.estimated_document_count.return_value = estimate
+        coll.estimated_document_count.side_effect = estimate_error
+
+        assert _get_rows_to_sync(coll, query, MagicMock()) == expected
 
     def test_pymongo_error_returns_zero_without_capture(self):
         coll = MagicMock()
@@ -879,7 +902,7 @@ class _FakeCollection:
         self.last_cursor = cursor
         return cursor
 
-    def count_documents(self, query: dict[str, Any]) -> int:
+    def count_documents(self, query: dict[str, Any], maxTimeMS: int | None = None) -> int:
         return len(self._docs)
 
 
