@@ -402,8 +402,8 @@ def validate_credentials(
     return False, f"Jamf Pro API returned status {status_code} for {schema_name}"
 
 
-def _parent_sort_key(parent_id: str) -> tuple[int, int, str]:
-    return (0, int(parent_id), "") if parent_id.isdigit() else (1, 0, parent_id)
+def _parent_sort_key(parent_id: str) -> tuple[int, int | str]:
+    return (0, int(parent_id)) if parent_id.isdigit() else (1, parent_id)
 
 
 def _iter_endpoint_pages(
