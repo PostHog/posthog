@@ -2795,6 +2795,8 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
     def test_engine_manifest_is_single_page_resource_incremental_stripped_session_injected(self, mock_resources):
         mock_resources.return_value = [_PageResource("users", [[]])]
         manifest = _minimal_manifest()
+        # Default endpoint incrementals are invalid; their rejection is covered by
+        # test_incremental_in_resource_defaults_rejected.
         manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
         manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
         source = CustomSource()
