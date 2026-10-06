@@ -1,5 +1,5 @@
 // Captures the stills of a UI flow for reel-render.mjs.
-// Drives a Storybook story (or any page that needs no login) with real mouse input,
+// Drives a Storybook story, or a page of the local app in a new demo workspace, with real mouse input,
 // takes a screenshot before each step and one at the end, and records where each step points.
 //
 // Usage: node reel-capture.mjs <shot-list.json> <out-dir>
@@ -88,6 +88,36 @@ async function act(page, action, point) {
     }
 }
 
+// The run-posthog recipe: create a workspace with generated demo data, then log in from the page,
+// so Django's CSRF check sees the page's cookies. Works only on a local stack with DEBUG.
+async function logInToTestWorkspace(page, origin) {
+    await page.goto(`${origin}/login`, { timeout: FIRST_LOAD_TIMEOUT_MS })
+    const result = await page.evaluate(async () => {
+        const setup = await fetch('/api/setup_test/organization_with_team/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: { skip_onboarding: true } }),
+        })
+        if (!setup.ok) {
+            return { error: `setup_test returned ${setup.status}` }
+        }
+        const workspace = (await setup.json()).result
+        const login = await fetch('/api/login/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: workspace.user_email, password: '12345678' }),
+        })
+        if (!login.ok) {
+            return { error: `login returned ${login.status}` }
+        }
+        return { teamId: workspace.team_id }
+    })
+    if (result.error) {
+        throw new Error(`Could not create the test workspace: ${result.error}. Is this a local stack with DEBUG?`)
+    }
+    return result.teamId
+}
+
 async function main() {
     const [shotListPath, outDir] = process.argv.slice(2)
     if (!shotListPath || !outDir) {
@@ -106,8 +136,13 @@ async function main() {
     const browser = await chromium.launch()
     const context = await browser.newContext({ viewport, deviceScaleFactor: CAPTURE_SCALE, reducedMotion: 'reduce' })
     const page = await context.newPage()
+    let url = shotList.url
+    if (shotList.testWorkspace) {
+        const teamId = await logInToTestWorkspace(page, new URL(url).origin)
+        url = url.replace('{team_id}', String(teamId))
+    }
     // A cold Vite dev server compiles each lazy chunk on its first request, which can take minutes.
-    await page.goto(shotList.url, { timeout: FIRST_LOAD_TIMEOUT_MS })
+    await page.goto(url, { timeout: FIRST_LOAD_TIMEOUT_MS })
     await settle(page, FIRST_LOAD_TIMEOUT_MS)
 
     const frames = []
