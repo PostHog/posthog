@@ -79,6 +79,7 @@ export function briefingItemReportCard(item: BriefingItemApi): TodayReportCard {
         metrics: item.report?.metrics ?? [],
         charts: item.report?.charts ?? [],
         sourceLabel: itemSource(item).label,
+        sourceProduct: item.source_product ?? null,
     }
 }
 

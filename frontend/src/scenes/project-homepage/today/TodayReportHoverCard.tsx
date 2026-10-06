@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Suspense, useEffect } from 'react'
 
-import { IconCheckCircle, IconHide, IconPullRequest } from '@posthog/icons'
+import { IconCheckCircle, IconHide, IconPullRequest, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -16,8 +16,10 @@ import {
     cn,
 } from '@posthog/quill'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
 
@@ -32,6 +34,7 @@ import {
 } from 'products/signals/frontend/inbox/utils/reportMetrics'
 import { pullRequestStateMeta } from 'products/tasks/frontend/spaces/TaskPullRequestChip'
 
+import { todayBriefingFocusLogic } from './todayBriefingFocusLogic'
 import { itemStateLabel } from './todayBriefingItems'
 import { TodayReportVerdict, todayLogic } from './todayLogic'
 import { isSampleReportId } from './todaySampleReports'
@@ -58,6 +61,9 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
     const { card } = preview
     const { reportStateOverrides } = useValues(todayLogic)
     const { reportPreviewed, requestReportVerdict } = useActions(todayLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentFocus } = useValues(todayBriefingFocusLogic)
+    const { steerTopic } = useActions(todayBriefingFocusLogic)
     // Keyed on the report, not the card object: a poll replaces the object while the card stays open.
     useEffect(() => {
         reportPreviewed(card.key, preview.surface)
@@ -82,6 +88,7 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
         }
     }
     const isSample = !!reportId && isSampleReportId(reportId)
+    const steerableTopic = featureFlags[FEATURE_FLAGS.TODAY_BRIEFING_FOCUS] && !isSample ? card.sourceProduct : null
     const pullRequestState = pullRequestStateMeta(card.pullRequestState)
     const metric = selectReportCardImpactMetric(card.metrics)
     const aggregateQuery = metric ? asReportMetricAggregateQuery(metric.query) : null
@@ -253,6 +260,35 @@ export function TodayReportHoverCard({ preview }: { preview: TodayReportPreview 
                         >
                             <IconHide />
                             Dismiss
+                        </Button>
+                    </div>
+                </>
+            )}
+            {steerableTopic && (
+                <>
+                    <ItemSeparator className="my-0" />
+                    <div className="flex flex-wrap justify-between gap-1.5 px-3 py-2">
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            aria-pressed={currentFocus.topics[steerableTopic] === 'more'}
+                            title={`Show more ${card.sourceLabel} reports in your briefing`}
+                            onClick={() => steerTopic(steerableTopic, 'more')}
+                            data-attr="today-report-hover-card-focus-more"
+                        >
+                            <IconThumbsUp />
+                            More like this
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="xs"
+                            aria-pressed={currentFocus.topics[steerableTopic] === 'less'}
+                            title={`Show fewer ${card.sourceLabel} reports in your briefing`}
+                            onClick={() => steerTopic(steerableTopic, 'less')}
+                            data-attr="today-report-hover-card-focus-less"
+                        >
+                            <IconThumbsDown />
+                            Less like this
                         </Button>
                     </div>
                 </>
