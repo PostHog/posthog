@@ -831,34 +831,67 @@ describe('experimentMetricsLogic', () => {
             await expectLogic(logic).toDispatchActions(['setRecalculationLoading', 'setRecalculatingMetricUuids'])
             expect(logic.values.recalculatingMetricUuids).toEqual([])
         describe('manual refresh window', () => {
-            const latestWithQueryTo = (minutesAgo: number): typeof completedRecalculation => ({
-                ...completedRecalculation,
-                query_to: new Date(Date.now() - minutesAgo * 60 * 1000).toISOString(),
+            // query_to stays old, as on a stopped experiment, so the window can only come from completed_at.
+            const finishedMinutesAgo = <T extends object>(
+                latest: T,
+                minutesAgo: number
+            ): T & { completed_at: string } => ({
+                ...latest,
+                completed_at: new Date(Date.now() - minutesAgo * 60 * 1000).toISOString(),
             })
 
             it.each([
-                { name: 'blocks a manual reload inside the window', trigger: 'manual', minutesAgo: 2, posts: false },
-                { name: 'allows a manual reload after the window', trigger: 'manual', minutesAgo: 6, posts: true },
+                {
+                    name: 'blocks a manual reload inside the window',
+                    latest: completedRecalculation,
+                    trigger: 'manual',
+                    minutesAgo: 2,
+                    blocked: true,
+                },
+                {
+                    name: 'allows a manual reload after the window',
+                    latest: completedRecalculation,
+                    trigger: 'manual',
+                    minutesAgo: 6,
+                    blocked: false,
+                },
                 {
                     name: 'lets a heal through inside the window',
+                    latest: completedRecalculation,
                     trigger: 'heal_latest_run',
                     minutesAgo: 2,
-                    posts: true,
+                    blocked: true,
                 },
-            ] as const)('$name', async ({ trigger, minutesAgo, posts }) => {
+                {
+                    // The fallback is not a run: a fresh timeseries point must not block the first recalculation.
+                    name: 'never blocks on a timeseries fallback',
+                    latest: completeTimeseriesFallbackRecalculation,
+                    trigger: 'manual',
+                    minutesAgo: 2,
+                    blocked: false,
+                },
+                {
+                    name: 'never blocks after a failed run',
+                    latest: partialFailureRecalculation,
+                    trigger: 'manual',
+                    minutesAgo: 2,
+                    blocked: false,
+                },
+            ] as const)('$name', async ({ latest, trigger, minutesAgo, blocked }) => {
+                const posts = !(blocked && trigger === 'manual')
                 const createMock = jest.fn(() => [201, pendingRecalculation])
                 useMocks({
                     get: {
                         '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
                             200,
-                            latestWithQueryTo(minutesAgo),
+                            finishedMinutesAgo(latest, minutesAgo),
                         ],
                     },
                     post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
                 })
                 mountLogic()
                 await expectLogic(logic).toDispatchActions(['setCurrentRecalculation'])
-                expect(logic.values.isManualRefreshBlocked).toBe(minutesAgo < 5)
+                expect(logic.values.isManualRefreshBlocked).toBe(blocked)
 
                 await expectLogic(logic, () => {
                     logic.actions.triggerRecalculation(trigger)
@@ -873,7 +906,7 @@ describe('experimentMetricsLogic', () => {
                         get: {
                             '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
                                 200,
-                                latestWithQueryTo(4),
+                                finishedMinutesAgo(completedRecalculation, 4),
                             ],
                         },
                     })

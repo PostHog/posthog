@@ -21,6 +21,7 @@ import {
 } from 'products/experiments/frontend/generated/api'
 import type {
     ExperimentMetricsRecalculationJobApi,
+    ExperimentMetricsRecalculationLatestApi,
     ExperimentMetricsRecalculationRequestTriggerEnumApi,
     ExperimentMetricsRecalculationRunApi,
     ResultSourceEnumApi,
@@ -52,7 +53,8 @@ function reportExperimentMetricRecalculation(
 export type RecalculationPayload = Omit<ExperimentMetricsRecalculationJobApi, 'is_existing'> &
     Partial<
         Pick<ExperimentMetricsRecalculationRunApi, 'metric_retries' | 'results' | 'rows_read' | 'estimated_rows_total'>
-    >
+    > &
+    Partial<Pick<ExperimentMetricsRecalculationLatestApi, 'result_source'>>
 
 /**
  * This logic can only handle state when an experiment is present.
@@ -61,8 +63,8 @@ export interface ExperimentMetricsLogicProps {
     experiment: Experiment
 }
 
-// A manual reload inside this window of the latest run's query_to is blocked, the same five minutes a
-// dashboard waits between bulk refreshes. The backend applies the same window and returns the latest run.
+// A manual reload inside this window after the latest completed run finished is blocked, the same five
+// minutes a dashboard waits between bulk refreshes. The backend applies the same window and returns that run.
 const MIN_MANUAL_REFRESH_INTERVAL_MINUTES = 5
 const RECALCULATION_POLL_INTERVAL_MS = 2000
 const MAX_POLL_RETRIES = 5
@@ -306,7 +308,7 @@ export interface experimentMetricsLogicMeta {
         }
         totalMetricsCount: (arg: any) => number
         lastRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
-        nextAllowedManualRefresh: (lastRefresh: string | null) => string | null
+        nextAllowedManualRefresh: (currentRecalculation: RecalculationPayload | null) => string | null
         isManualRefreshBlocked: (nextAllowedManualRefresh: string | null, refreshEligibilityTick: number) => boolean
         metricRetries: (currentRecalculation: RecalculationPayload | null) => Record<string, MetricRetryInfo>
         nextRetryAt: (metricRetries: Record<string, MetricRetryInfo>) => string | null
@@ -457,10 +459,14 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
             (recalc: RecalculationPayload | null): string | null => recalc?.query_to ?? null,
         ],
         nextAllowedManualRefresh: [
-            (s) => [s.lastRefresh],
-            (lastRefresh: string | null): string | null =>
-                lastRefresh
-                    ? dayjs(lastRefresh).add(MIN_MANUAL_REFRESH_INTERVAL_MINUTES, 'minutes').toISOString()
+            (s) => [s.currentRecalculation],
+            // Only a completed run anchors the window: the timeseries fallback is not a run, and a failed
+            // run must stay reloadable. The window measures from completed_at, as the backend does.
+            (recalc: RecalculationPayload | null): string | null =>
+                recalc?.status === RECALCULATION_STATUSES.completed &&
+                recalc.result_source !== 'timeseries_fallback' &&
+                recalc.completed_at
+                    ? dayjs(recalc.completed_at).add(MIN_MANUAL_REFRESH_INTERVAL_MINUTES, 'minutes').toISOString()
                     : null,
         ],
         isManualRefreshBlocked: [
