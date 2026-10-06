@@ -420,8 +420,6 @@ describe('EmailService', () => {
                 // than the upper bound + scheduler overhead.
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + 400)
                 expect(scheduledMs).toBeLessThan(before + 2000)
-                // Without the email payload the rescheduled dequeue resumes the Hog VM instead of
-                // retrying the send, so the throttled email is dropped rather than delayed.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
                 // No business metric emitted on throttle — the eventual retry
                 // will produce email_sent.
