@@ -190,7 +190,6 @@ impl BatcherTask {
     fn handle(&mut self, state: BatcherStateMachine, event: Event) -> BatcherStateMachine {
         let now = Instant::now();
         let mut assigned = false;
-        let mut fence_guard = None;
         let (state, effects) = match event {
             Event::Input(Input::Groups {
                 assignment_epoch,
@@ -216,21 +215,22 @@ impl BatcherTask {
                 } else {
                     FailureCause::Fault
                 };
-                fence_guard = failure.fence_guard;
-                state.on_request_failed(
+                let requeued = state.on_request_failed(
                     now,
                     &self.pool_source.candidates(),
                     request,
                     cause,
                     failure.messages,
-                )
+                );
+                // The worker stream takes no new send until the failed
+                // messages are requeued. Released before this action's
+                // sends, which can go to the same stream.
+                drop(failure.fence_guard);
+                requeued
             }
             Event::Wakeup => state.on_wakeup(now, &self.pool_source.candidates()),
         };
         self.perform(&state, effects);
-        // The worker stream takes no new send until the failed messages are
-        // requeued.
-        drop(fence_guard);
         if assigned {
             histogram!("ingestion_consumer_assign_duration_seconds")
                 .record(now.elapsed().as_secs_f64());
