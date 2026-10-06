@@ -21,7 +21,12 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.tasks.backend.access import DesktopAccessDecision, DesktopAccessResolutionError
-from products.tasks.backend.logic.services.desktop_gateway_token import DESKTOP_GATEWAY_MINTS
+from products.tasks.backend.logic.services.desktop_gateway_token import (
+    DESKTOP_GATEWAY_MINTS,
+    desktop_limit_tier,
+    posthog_code_billing_synced,
+    posthog_code_trusted,
+)
 from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS
 
 from ee.billing.billing_manager import OrganizationFundingStatus, PrepaidCreditState
@@ -100,6 +105,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             "access": patch(f"{_VIEW}.get_desktop_access_decision", return_value=DesktopAccessDecision.ALLOWED),
             "credit": patch(f"{_VIEW}.team_credit_refusal", return_value=None),
             "blocked": patch(f"{_VIEW}.wizard_identity_blocked", return_value=False),
+            "tier": patch(f"{_VIEW}.desktop_limit_tier", return_value="standard"),
         }
         self.mocks = {name: patcher.start() for name, patcher in self.gates.items()}
         for patcher in self.gates.values():
@@ -219,8 +225,13 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
 
     def test_flag_is_evaluated_for_the_org_and_user(self) -> None:
         self._mint()
-        organization, team, distinct_id = self.mocks["rollout"].call_args.args
-        assert (organization.id, team.id, distinct_id) == (self.organization.id, self.team.id, self.user.distinct_id)
+        organization, team, distinct_id, email = self.mocks["rollout"].call_args.args
+        assert (organization.id, team.id, distinct_id, email) == (
+            self.organization.id,
+            self.team.id,
+            self.user.distinct_id,
+            self.user.email,
+        )
 
     def test_blocked_desktop_access_is_refused_before_billing(self) -> None:
         self.mocks["access"].return_value = DesktopAccessDecision.STARTUP_PLAN
@@ -288,6 +299,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             "obo": str(self.team.id),
             "user": self.user.distinct_id,
             "allowed_models": FREE_TIER_MODELS,
+            "limit_tier": "standard",
         }
         assert response.json() == {
             "enabled": True,
@@ -301,6 +313,18 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
             # Go's echo, not what was sent: a region without a host shrinks the pin.
             "allowed_models": FREE_TIER_MODELS[:2],
             "product_models": DESKTOP_AGENT_MODELS,
+        }
+
+    def test_the_limit_tier_is_chosen_for_this_user_and_sent(self) -> None:
+        self.mocks["tier"].return_value = "provisional"
+        response, post = self._mint()
+        assert response.status_code == status.HTTP_201_CREATED
+        assert post.call_args.kwargs["json"]["limit_tier"] == "provisional"
+        assert self.mocks["tier"].call_args.kwargs == {
+            "organization": self.organization,
+            "team": self.team,
+            "distinct_id": self.user.distinct_id,
+            "email": self.user.email,
         }
 
     def test_paid_plan_mints_the_desktop_pin(self) -> None:
@@ -600,3 +624,119 @@ class TestDesktopEndpointsRequireAuthentication(_GatewayTestBase):
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
         assert "enabled" not in response.json() and "ai_credits" not in response.json()
         post.assert_not_called()
+
+
+_FLAG = "products.tasks.backend.logic.services.desktop_gateway_token.posthoganalytics.get_feature_flag_payload"
+
+
+class TestDesktopLimitTier(APIBaseTest):
+    def _tier(
+        self,
+        *,
+        payload: object = None,
+        synced: bool = True,
+        trusted: bool = True,
+        distinct_id: str | None = "d1",
+        email: str | None = "a@b.c",
+    ):
+        self.organization.usage = (
+            {"period": ["2026-10-01", "2026-11-01"], "posthog_code_credits": {"usage": 0, "limit": 100}}
+            if synced
+            else None
+        )
+        self.organization.customer_trust_scores = {"posthog_code_credits": 10} if trusted else {}
+        with patch(_FLAG, return_value=payload) as flag:
+            tier = desktop_limit_tier(
+                organization=self.organization, team=self.team, distinct_id=distinct_id, email=email
+            )
+        return tier, flag
+
+    @parameterized.expand(
+        [
+            ("exempt", {"tier": "exempt"}, "exempt"),
+            ("power", {"tier": "power"}, "power"),
+            ("json string", '{"tier": "power"}', "power"),
+            ("unknown tier", {"tier": "unlimited"}, "standard"),
+            ("standard is not an override", {"tier": "standard"}, "standard"),
+            ("not json", "{oops", "standard"),
+            ("no payload", None, "standard"),
+        ]
+    )
+    def test_override_payload(self, _name, payload, expected) -> None:
+        assert self._tier(payload=payload)[0] == expected
+
+    def test_unsynced_billing_is_provisional(self) -> None:
+        assert self._tier(synced=False)[0] == "provisional"
+
+    def test_override_beats_unsynced_billing(self) -> None:
+        assert self._tier(payload={"tier": "exempt"}, synced=False)[0] == "exempt"
+
+    def test_a_flag_outage_keeps_the_default(self) -> None:
+        self.organization.usage = None
+        self.organization.customer_trust_scores = {"posthog_code_credits": 10}
+        with patch(_FLAG, side_effect=RuntimeError("flags down")):
+            tier = desktop_limit_tier(organization=self.organization, team=self.team, distinct_id="d1")
+        assert tier == "provisional"
+
+    def test_the_flag_targets_the_person_by_email_org_and_team(self) -> None:
+        _, flag = self._tier()
+        assert flag.call_args.args == ("posthog-desktop-gateway-limit-override", "d1")
+        assert flag.call_args.kwargs["person_properties"] == {
+            "organization_id": str(self.organization.id),
+            "team_id": str(self.team.id),
+            "email": "a@b.c",
+        }
+
+    def test_an_unknown_email_is_blanked_so_a_stored_email_never_matches(self) -> None:
+        _, flag = self._tier(email=None)
+        assert flag.call_args.kwargs["person_properties"]["email"] == ""
+
+    def test_an_untrusted_new_org_is_provisional_even_when_synced(self) -> None:
+        assert self._tier(trusted=False)[0] == "provisional"
+
+    def test_no_distinct_id_skips_the_flag(self) -> None:
+        tier, flag = self._tier(payload={"tier": "exempt"}, distinct_id=None)
+        assert tier == "standard"
+        flag.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("no usage", None, False),
+            ("no period", {"posthog_code_credits": {"limit": 100}}, False),
+            ("no posthog_code entry", {"period": ["a", "b"]}, False),
+            (
+                "empty entry billing writes for an unbilled org",
+                {"period": ["a", "b"], "posthog_code_credits": {}},
+                False,
+            ),
+            ("synced with a limit", {"period": ["a", "b"], "posthog_code_credits": {"limit": 100}}, True),
+            ("synced unlimited", {"period": ["a", "b"], "posthog_code_credits": {"limit": None}}, True),
+            ("synced usage only", {"period": ["a", "b"], "posthog_code_credits": {"usage": 3}}, True),
+        ]
+    )
+    def test_billing_synced(self, _name, usage, expected) -> None:
+        self.organization.usage = usage
+        assert posthog_code_billing_synced(self.organization) is expected
+
+
+class TestPosthogCodeTrusted(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("new org below 7", 2, {"posthog_code_credits": 6}, False),
+            ("6-day-old org needs 7", 6, {"posthog_code_credits": 6}, False),
+            ("8-day-old org needs 3", 8, {"posthog_code_credits": 3}, True),
+            ("29-day-old org needs 3", 29, {"posthog_code_credits": 2}, False),
+            ("new org at 7", 2, {"posthog_code_credits": 7}, True),
+            ("new org best score of any product", 2, {"ai_credits": 8, "posthog_code_credits": 0}, True),
+            ("new org no score", 2, {}, False),
+            ("new org malformed score", 2, {"posthog_code_credits": "9"}, False),
+            ("week-old org below 3", 10, {"posthog_code_credits": 2}, False),
+            ("week-old org at 3", 10, {"posthog_code_credits": 3}, True),
+            ("25-day-old org below 3", 25, {"posthog_code_credits": 2}, False),
+            ("month-old org no score", 31, {}, True),
+        ]
+    )
+    def test_age_and_trust(self, _name, age_days, scores, expected) -> None:
+        self.organization.created_at = timezone.now() - timedelta(days=age_days)
+        self.organization.customer_trust_scores = scores
+        assert posthog_code_trusted(self.organization) is expected
