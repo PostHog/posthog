@@ -125,7 +125,7 @@ describe('errorTrackingIssueSceneLogic', () => {
         if (spikes) {
             await expectation.toDispatchActions(['loadSpikeEvents'])
         } else {
-            await expectation.toNotHaveDispatchedActions(['loadSpikeEvents'])
+            await expectation.toFinishAllListeners().toNotHaveDispatchedActions(['loadSpikeEvents'])
         }
     })
 
