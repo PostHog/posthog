@@ -590,6 +590,7 @@ A failed lookup says nothing about any group in the request, so a condition that
 The matcher cannot tell which group type the condition's index names, so a key or override for any group type counts.
 The matcher skips that condition and evaluates the others.
 A later condition that matches still decides the flag, although the skipped condition could have picked a different variant.
+With `early_exit`, a skipped condition below 100% rollout could instead stop on its rollout with no match, so a later match then returns `failed: true` too.
 When no condition matches, the flag returns `failed: true` with the lookup's own error code, such as `timeout:persons_db_deadline` or `database_unavailable`, instead of `false`.
 Client SDKs then keep their cached value.
 

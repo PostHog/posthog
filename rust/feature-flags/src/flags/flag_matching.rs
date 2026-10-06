@@ -1787,8 +1787,11 @@ impl FeatureFlagMatcher {
         // into false.
         let mut answers_if_dependency_matched: Vec<AnswerIfDependencyMatched> = Vec::new();
         // A later condition that matches still settles the flag. The skipped condition could
-        // have picked a different variant.
+        // have picked a different variant. With early exit, a skipped condition below 100%
+        // rollout could instead stop evaluation with no match, so a later match cannot settle
+        // the flag.
         let mut group_lookup_error: Option<Arc<FlagError>> = None;
+        let mut group_lookup_skip_can_exit_early = false;
         let request_has_group_context = self.request_has_usable_group_key()
             || group_property_overrides
                 .is_some_and(|overrides| overrides.values().any(|props| !props.is_empty()));
@@ -1857,6 +1860,8 @@ impl FeatureFlagMatcher {
                     &[("reason".to_string(), "group_type_lookup_failed".to_string())],
                     1,
                 );
+                group_lookup_skip_can_exit_early |=
+                    early_exit_enabled && condition.rollout_percentage_unwrapped() < 100.0;
                 group_lookup_error = Some(error);
                 continue;
             }
@@ -2021,6 +2026,10 @@ impl FeatureFlagMatcher {
                     ) {
                         return Err(FlagError::DependencyFailed(dependency.into()));
                     }
+                }
+                if let Some(error) = group_lookup_error.filter(|_| group_lookup_skip_can_exit_early)
+                {
+                    return Err(FlagError::GroupTypeLookupFailed(error));
                 }
                 let payload = self.get_matching_payload(variant.as_deref(), flag);
 

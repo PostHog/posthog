@@ -10873,7 +10873,8 @@ mod tests {
     /// Regression test: when the group type lookup fails, a flag whose answer depends on a
     /// group condition must fail, so client SDKs keep their cached value instead of reading
     /// `false`. Early exit is on, so a person condition outside its rollout must not settle the
-    /// flag after an unknown one.
+    /// flag after an unknown one. A person match must not settle it after an unknown condition
+    /// below 100% rollout, because that condition could stop on its rollout first.
     #[rstest::rstest]
     #[case::group_aggregation_fails_the_flag(
         vec![organization_rollout_condition()],
@@ -10907,6 +10908,17 @@ mod tests {
     )]
     #[case::later_person_miss_fails_the_flag(
         vec![organization_rollout_condition(), person_rollout_condition(0.0)],
+        RequestGroupContext::GroupKey,
+        None
+    )]
+    #[case::later_person_match_after_partial_rollout_fails_the_flag(
+        vec![
+            mock!(FlagPropertyGroup,
+                properties: Some(vec![organization_tier_filter(OperatorType::Exact)]),
+                rollout_percentage: Some(0.0)
+            ),
+            person_rollout_condition(100.0),
+        ],
         RequestGroupContext::GroupKey,
         None
     )]
