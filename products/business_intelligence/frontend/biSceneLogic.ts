@@ -489,10 +489,10 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         },
         cancelQuery: () => dataNodeLogic.findMounted({ key: values.dataNodeKey })?.actions.cancelQuery(),
         setVisualization: ({ visualization }) => {
-            actions.restoreState({
-                editorView: BIEditorView.BI,
-                config: applyBIDateRange(values.config, visualization.source.filters?.dateRange),
-            })
+            const config = applyBIDateRange(values.config, visualization.source.filters?.dateRange)
+            if (config !== values.config) {
+                actions.restoreState({ editorView: BIEditorView.BI, config })
+            }
             if (visualization.display && visualization.display !== values.config.chartType) {
                 actions.setChartType(visualization.display)
             }

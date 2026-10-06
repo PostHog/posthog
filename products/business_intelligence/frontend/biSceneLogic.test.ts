@@ -185,6 +185,18 @@ describe('biSceneLogic', () => {
         expect(save).not.toHaveBeenCalled()
     })
 
+    it('preserves an unfinished calculated measure when chart settings update', () => {
+        logic.actions.restoreWorksheet(worksheet())
+        editor.actions.setCalculatedMeasureDraft({
+            index: null,
+            name: 'Revenue per user',
+            expression: 'sum(revenue) /',
+        })
+        const draft = editor.values.calculatedMeasureDraft
+        logic.actions.setVisualization({ ...logic.values.worksheet, tableSettings: { conditionalFormatting: [] } })
+        expect(editor.values.calculatedMeasureDraft).toEqual(draft)
+    })
+
     it('reruns unchanged SQL for a date change while preserving dashboard properties', async () => {
         const properties: HogQLFilters['properties'] = [
             { type: PropertyFilterType.Event, key: 'plan', value: 'pro', operator: PropertyOperator.Exact },
