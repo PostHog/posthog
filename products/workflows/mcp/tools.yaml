@@ -60,6 +60,9 @@ tools:
     hog-flow-templates-update:
         operation: hog_flow_templates_update
         enabled: false
+    hog-flows-apply-utm-defaults-create:
+        operation: hog_flows_apply_utm_defaults_create
+        enabled: false
     hog-flows-asset-content-retrieve:
         operation: hog_flows_asset_content_retrieve
         enabled: false
