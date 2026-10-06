@@ -131,6 +131,8 @@ export interface PostgresMergePolicy {
     updateAllProperties: boolean
     /** Teams on the new-world merge behavior: lifecycle-mark claims plus tombstone deletes. */
     isTombstoneTeam: ValueMatcher<number>
+    /** Teams whose merge locks the person rows and writes the survivor in its transaction; others queue it for the flush. */
+    isLockedOutcomeTeam: ValueMatcher<number>
     mergeEvents: MergeEventsConfig
     /**
      * When set, already-satisfied merges re-emit the committed mappings (debounced),
@@ -215,6 +217,10 @@ export class PostgresPersonMerge {
 
     private tombstoneEnabled(): boolean {
         return this.policy.isTombstoneTeam(this.teamId)
+    }
+
+    private lockedOutcomeEnabled(): boolean {
+        return this.policy.isLockedOutcomeTeam(this.teamId)
     }
 
     async execute(): Promise<MergePersonsResult> {
@@ -324,13 +330,7 @@ export class PostgresPersonMerge {
         }
         const targetView = withPending(byId.get(target.id)!)
         const sourceViews = sources.map((source) => withPending(byId.get(source.id)!))
-        const merged: Properties = {}
-        for (let i = sourceViews.length - 1; i >= 0; i--) {
-            Object.assign(merged, sourceViews[i].properties)
-        }
-        Object.assign(merged, targetView.properties)
-        const refined = refineEventOps(this.request.eventOps, merged, this.policy.updateAllProperties)
-        const [after] = applyEventPropertyUpdates(refined, { ...targetView, properties: merged })
+        const after = this.applyMergePrecedence(targetView, sourceViews)
         return {
             changes: propertyChanges(
                 targetView.properties,
@@ -340,6 +340,25 @@ export class PostgresPersonMerge {
             ),
             createdAt: DateTime.min(targetView.created_at, ...sourceViews.map((source) => source.created_at)),
             pending: pendingById,
+        }
+    }
+
+    private applyMergePrecedence(target: InternalPerson, sources: InternalPerson[]): InternalPerson {
+        const merged: Properties = {}
+        for (let i = sources.length - 1; i >= 0; i--) {
+            Object.assign(merged, sources[i].properties)
+        }
+        Object.assign(merged, target.properties)
+        const refined = refineEventOps(this.request.eventOps, merged, this.policy.updateAllProperties)
+        const [after] = applyEventPropertyUpdates(refined, { ...target, properties: merged })
+        return after
+    }
+
+    private deferredOutcome(target: InternalPerson, sources: InternalPerson[]): MergePersonUpdate {
+        return {
+            created_at: DateTime.min(target.created_at, ...sources.map((source) => source.created_at)),
+            properties: this.applyMergePrecedence(target, sources).properties,
+            is_identified: true,
         }
     }
 
@@ -763,6 +782,15 @@ export class PostgresPersonMerge {
                         throw new MergeFoldConflictError('Fold target was deleted concurrently')
                     }
                 }
+                if (!this.lockedOutcomeEnabled()) {
+                    return await this.deferredOutcomeFold(
+                        tx,
+                        currentTarget,
+                        mergeSources,
+                        missingSources,
+                        lifecycleOpId
+                    )
+                }
                 // Before the person rows lock, as in mergePeople.
                 if (mergeSources.length > 0) {
                     await tx.updateCohortsAndFeatureFlagsForMergeBatch(
@@ -783,33 +811,7 @@ export class PostgresPersonMerge {
                               (role) => new MergeFoldConflictError(`Fold ${role} was deleted concurrently`)
                           )
                         : undefined
-                const expectedMoveCount = await this.assertFoldSourcesWithinMoveBounds(tx, mergeSources)
-
-                const moveResult = await tx.moveDistinctIdsFromPersons(
-                    mergeSources,
-                    currentTarget,
-                    this.targetDistinctId
-                )
-                if (!moveResult.success) {
-                    throw new TargetPersonNotFoundError('Target person no longer exists')
-                }
-                // A mismatch means a concurrent merge touched the sources
-                // between the count and the move; abort so the sequential path
-                // (whose zero-moved handling retries with fresh persons) takes
-                // over rather than merging stale source properties.
-                if (moveResult.distinctIdsMoved.length !== expectedMoveCount) {
-                    throw new MergeFoldConflictError('folded merge moved an unexpected number of distinct ids')
-                }
-                this.recordOverrideCount('bothExistMove', moveResult.distinctIdsMoved.length)
-                this.movedDistinctIds.push(...moveResult.distinctIdsMoved)
-
-                const addMessages: PersonMessage[] = []
-                for (const pair of missingSources) {
-                    // See mergeSingle for the distinctIdVersion logic.
-                    const distinctIdVersion = 1
-                    this.recordOverrideCount('fold')
-                    addMessages.push(...(await tx.addDistinctId(currentTarget, pair.distinctId, distinctIdVersion)))
-                }
+                const moveMessages = await this.moveFoldDistinctIds(tx, currentTarget, mergeSources, missingSources)
 
                 let survivor = currentTarget
                 let outcome: MergePersonUpdate | null = null
@@ -840,11 +842,7 @@ export class PostgresPersonMerge {
                 if (this.tombstoneEnabled()) {
                     await tx.releaseLifecycleMarks(lifecycleOpId, teamId, this.targetDistinctId)
                 }
-                return [
-                    survivor,
-                    outcome,
-                    [...moveResult.messages, ...addMessages, ...survivorMessages, ...deleteMessages],
-                ]
+                return [survivor, outcome, [...moveMessages, ...survivorMessages, ...deleteMessages]]
             }
         )
         // After the commit, so a rollback leaves nothing of the merge in the cache: the survivor's entry takes the
@@ -1043,6 +1041,14 @@ export class PostgresPersonMerge {
                         if (!(await tx.isPersonLive(currentSourcePerson, this.targetDistinctId))) {
                             throw new SourcePersonNotFoundError('Source person was deleted concurrently')
                         }
+                    }
+                    if (!this.lockedOutcomeEnabled()) {
+                        return await this.deferredOutcomeTransaction(
+                            tx,
+                            currentTargetPerson,
+                            currentSourcePerson,
+                            lifecycleOpId
+                        )
                     }
                     // Before the person rows lock, so the locks do not span this step. It locks no person row: the
                     // override foreign key is checked at commit, and cohort rows have none.
@@ -1293,6 +1299,91 @@ export class PostgresPersonMerge {
         this.recordOverrideCount('bothExistMove', movedCount)
 
         return allDistinctIdMessages
+    }
+
+    private async moveFoldDistinctIds(
+        tx: PersonsStoreTransactionForBatch,
+        target: InternalPerson,
+        mergeSources: InternalPerson[],
+        missingSources: MergePersonsSource[]
+    ): Promise<PersonMessage[]> {
+        const expectedMoveCount = await this.assertFoldSourcesWithinMoveBounds(tx, mergeSources)
+
+        const moveResult = await tx.moveDistinctIdsFromPersons(mergeSources, target, this.targetDistinctId)
+        if (!moveResult.success) {
+            throw new TargetPersonNotFoundError('Target person no longer exists')
+        }
+        // A mismatch means a concurrent merge touched the sources
+        // between the count and the move; abort so the sequential path
+        // (whose zero-moved handling retries with fresh persons) takes
+        // over rather than merging stale source properties.
+        if (moveResult.distinctIdsMoved.length !== expectedMoveCount) {
+            throw new MergeFoldConflictError('folded merge moved an unexpected number of distinct ids')
+        }
+        this.recordOverrideCount('bothExistMove', moveResult.distinctIdsMoved.length)
+        this.movedDistinctIds.push(...moveResult.distinctIdsMoved)
+
+        const addMessages: PersonMessage[] = []
+        for (const pair of missingSources) {
+            // See mergeSingle for the distinctIdVersion logic.
+            const distinctIdVersion = 1
+            this.recordOverrideCount('fold')
+            addMessages.push(...(await tx.addDistinctId(target, pair.distinctId, distinctIdVersion)))
+        }
+        return [...moveResult.messages, ...addMessages]
+    }
+
+    /** The merge for a team off the locked-outcome allowlist: the survivor is queued for the flush and no person row is locked. */
+    private async deferredOutcomeTransaction(
+        tx: PersonsStoreTransactionForBatch,
+        target: InternalPerson,
+        source: InternalPerson,
+        lifecycleOpId: string
+    ): Promise<[InternalPerson, MergePersonUpdate | null, PersonMessage[]]> {
+        const allDistinctIdMessages = await this.moveDistinctIdsBasedOnMode(tx, source, target)
+        const survivor = this.store.deferMergeOutcome(
+            target,
+            this.deferredOutcome(target, [source]),
+            this.targetDistinctId,
+            this.batchId
+        )
+        await tx.updateCohortsAndFeatureFlagsForMerge(source.team_id, source.id, target.id, this.targetDistinctId)
+        const deletePersonMessages = await tx.deletePerson(source, this.targetDistinctId)
+        if (this.tombstoneEnabled()) {
+            await tx.releaseLifecycleMarks(lifecycleOpId, this.teamId, this.targetDistinctId)
+        }
+        return [survivor, null, [...allDistinctIdMessages, ...deletePersonMessages]]
+    }
+
+    private async deferredOutcomeFold(
+        tx: PersonsStoreTransactionForBatch,
+        target: InternalPerson,
+        mergeSources: InternalPerson[],
+        missingSources: MergePersonsSource[],
+        lifecycleOpId: string
+    ): Promise<[InternalPerson, MergePersonUpdate | null, PersonMessage[]]> {
+        const moveMessages = await this.moveFoldDistinctIds(tx, target, mergeSources, missingSources)
+        let survivor = target
+        let deleteMessages: PersonMessage[] = []
+        if (mergeSources.length > 0) {
+            survivor = this.store.deferMergeOutcome(
+                target,
+                this.deferredOutcome(target, mergeSources),
+                this.targetDistinctId,
+                this.batchId
+            )
+            await tx.updateCohortsAndFeatureFlagsForMergeBatch(
+                this.teamId,
+                mergeSources.map((source) => source.id),
+                target.id,
+                this.targetDistinctId
+            )
+            deleteMessages = await tx.deletePersons(mergeSources, this.targetDistinctId)
+        }
+        if (this.tombstoneEnabled()) {
+            await tx.releaseLifecycleMarks(lifecycleOpId, this.teamId, this.targetDistinctId)
+        }
+        return [survivor, null, [...moveMessages, ...deleteMessages]]
     }
 
     /**

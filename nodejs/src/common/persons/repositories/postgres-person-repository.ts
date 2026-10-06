@@ -102,6 +102,8 @@ export interface PostgresPersonRepositoryOptions {
      * (team_id, uuid) arbiter requires a unique index production does not have yet.
      */
     personCreateClaimTeamAllowlist: string
+    /** Teams whose batch writes merge per key with the row; other teams write the pod's whole view over it ('*' for all). */
+    personBatchWritePerKeyTeamAllowlist: string
 }
 
 const DEFAULT_OPTIONS: PostgresPersonRepositoryOptions = {
@@ -110,6 +112,7 @@ const DEFAULT_OPTIONS: PostgresPersonRepositoryOptions = {
     personPropertiesTrimTargetBytes: DEFAULT_PERSON_PROPERTIES_TRIM_TARGET_BYTES,
     personMergeTombstoneTeamAllowlist: '',
     personCreateClaimTeamAllowlist: '',
+    personBatchWritePerKeyTeamAllowlist: '*',
 }
 
 export class PostgresPersonRepository
@@ -118,6 +121,7 @@ export class PostgresPersonRepository
     private options: PostgresPersonRepositoryOptions
     private isTombstoneTeam: ValueMatcher<number>
     private isClaimTeam: ValueMatcher<number>
+    private isPerKeyWriteTeam: ValueMatcher<number>
 
     constructor(
         private postgres: PostgresRouter,
@@ -126,6 +130,7 @@ export class PostgresPersonRepository
         this.options = { ...DEFAULT_OPTIONS, ...options }
         this.isTombstoneTeam = buildIntegerMatcher(this.options.personMergeTombstoneTeamAllowlist, true)
         this.isClaimTeam = buildIntegerMatcher(this.options.personCreateClaimTeamAllowlist, true)
+        this.isPerKeyWriteTeam = buildIntegerMatcher(this.options.personBatchWritePerKeyTeamAllowlist, true)
     }
 
     async handleOversizedPersonProperties(
@@ -2116,7 +2121,8 @@ export class PostgresPersonRepository
      * Batch update multiple persons in a single query using UNNEST.
      * This uses a fixed query structure regardless of batch size, enabling prepared statement reuse.
      *
-     * No version assertion: every column merges with the row, so a stale snapshot cannot undo another writer's flush.
+     * No version assertion. A team on the per-key allowlist merges every column with the row; any other team writes
+     * its snapshot over it, in a second statement when a batch spans both.
      */
     async updatePersonsBatch(
         personUpdates: PersonUpdate[],
@@ -2144,10 +2150,34 @@ export class PostgresPersonRepository
             }
         >()
 
-        if (personUpdates.length === 0) {
-            return results
+        const perKey = personUpdates.filter((update) => this.isPerKeyWriteTeam(update.team_id))
+        const snapshot = personUpdates.filter((update) => !this.isPerKeyWriteTeam(update.team_id))
+        for (const [updates, mergePerKey] of [
+            [perKey, true],
+            [snapshot, false],
+        ] as const) {
+            if (updates.length > 0) {
+                await this.runUpdatePersonsBatch(updates, mergePerKey, tx, results)
+            }
         }
+        return results
+    }
 
+    private async runUpdatePersonsBatch(
+        personUpdates: PersonUpdate[],
+        mergePerKey: boolean,
+        tx: TransactionClient | undefined,
+        results: Map<
+            string,
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                person?: InternalPerson
+                error?: Error
+            }
+        >
+    ): Promise<void> {
         // Prepare arrays for UNNEST - one array per column we're updating/filtering on
         const uuids: string[] = []
         const teamIds: number[] = []
@@ -2162,13 +2192,26 @@ export class PostgresPersonRepository
             uuids.push(update.uuid)
             teamIds.push(update.team_id)
 
-            properties.push(sanitizeJsonbValue(update.properties_to_set))
+            properties.push(
+                sanitizeJsonbValue(mergePerKey ? update.properties_to_set : toInternalPerson(update).properties)
+            )
             propertiesToUnset.push(sanitizeJsonbValue(update.properties_to_unset))
             propertiesToSetOnce.push(sanitizeJsonbValue(update.properties_to_set_once))
             isIdentified.push(update.is_identified)
             createdAt.push(update.created_at.toISO()!)
             lastSeenAt.push(update.last_seen_at?.toISO() ?? null)
         }
+
+        const setColumns = mergePerKey
+            ? `properties = ((batch.new_set_once::jsonb || p.properties) || batch.new_properties::jsonb)
+                        - ARRAY(SELECT jsonb_array_elements_text(batch.unset_json::jsonb)),
+                    is_identified = p.is_identified OR batch.new_is_identified,
+                    created_at = LEAST(p.created_at, batch.new_created_at::timestamp with time zone),
+                    last_seen_at = GREATEST(p.last_seen_at, batch.new_last_seen_at::timestamp with time zone),`
+            : `properties = batch.new_properties::jsonb,
+                    is_identified = batch.new_is_identified,
+                    created_at = batch.new_created_at::timestamp with time zone,
+                    last_seen_at = batch.new_last_seen_at::timestamp with time zone,`
 
         try {
             // Use UNNEST to pass arrays, keeping query structure constant for prepared statement reuse
@@ -2187,11 +2230,7 @@ export class PostgresPersonRepository
                     FOR NO KEY UPDATE
                 )
                 UPDATE posthog_person AS p SET
-                    properties = ((batch.new_set_once::jsonb || p.properties) || batch.new_properties::jsonb)
-                        - ARRAY(SELECT jsonb_array_elements_text(batch.unset_json::jsonb)),
-                    is_identified = p.is_identified OR batch.new_is_identified,
-                    created_at = LEAST(p.created_at, batch.new_created_at::timestamp with time zone),
-                    last_seen_at = GREATEST(p.last_seen_at, batch.new_last_seen_at::timestamp with time zone),
+                    ${setColumns}
                     version = COALESCE(p.version, 0)::numeric + 1
                 FROM UNNEST(
                     $1::uuid[],
@@ -2273,8 +2312,6 @@ export class PostgresPersonRepository
                 }
             }
         }
-
-        return results
     }
 
     async updateCohortsAndFeatureFlagsForMerge(

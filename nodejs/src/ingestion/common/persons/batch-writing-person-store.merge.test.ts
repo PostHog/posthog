@@ -505,6 +505,31 @@ describe('BatchWritingPersonsStore merging through PostgresPersonMerge', () => {
         expect((await store.fetchForUpdate(1, 's2', 0))!.uuid).toBe('S')
     })
 
+    it('a team off the locked-outcome allowlist queues the survivor for the flush and locks no row', async () => {
+        await store.shutdown()
+        store = new BatchWritingPersonsStore(fake as unknown as PersonRepository, outputs, {
+            optimisticUpdateRetryInterval: 1,
+            mergeLockedOutcomeTeamAllowlist: '',
+        })
+        fake.addPerson('T', ['t'], { k: 'B' })
+        fake.addPerson('S', ['s'], { a: 1, k: 'A' })
+        await store.fetchForUpdate(1, 's', 0)
+        await store.fetchForUpdate(1, 't', 0)
+
+        const result = await store.mergePersons(mergeRequest('t', 's'), 0)
+
+        expect(result.results[0].outcome).toBe('merged')
+        expect(result.survivor!.properties).toEqual({ k: 'B', a: 1 })
+        expect(fake.tx.readMergeRows).not.toHaveBeenCalled()
+        expect(fake.tx.updatePersonsBatch).not.toHaveBeenCalled()
+        expect(fake.rows.get('S')).toBeUndefined()
+        expect(fake.rows.get('T')!.properties).toEqual({ k: 'B' })
+
+        await store.flush()
+
+        expect(fake.rows.get('T')).toMatchObject({ properties: { k: 'B', a: 1 }, is_identified: true })
+    })
+
     it("a re-target keeps the survivor's newer last_seen_at", async () => {
         const seen = DateTime.fromISO('2026-03-01T00:00:00Z', { zone: 'utc' })
         fake.addPerson('T', ['t'], {})

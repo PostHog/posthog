@@ -125,6 +125,8 @@ export interface BatchWritingPersonsStoreOptions {
     metricEmissionIntervalMs: number
     /** Teams on the new-world merge behavior (lifecycle-mark claims plus tombstone deletes); '*' for all. */
     mergeTombstoneTeamAllowlist: string
+    /** Teams whose merges lock the person rows and write the survivor in the transaction; others queue it for the flush. */
+    mergeLockedOutcomeTeamAllowlist: string
     /** Gate, partition count, and team allowlist ('*' for all) for the cross-partition merge-event producer. */
     mergeEventsEnabled: boolean
     mergeEventsPartitionCount: number
@@ -144,6 +146,7 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
     updateAllProperties: false,
     metricEmissionIntervalMs: 30_000,
     mergeTombstoneTeamAllowlist: '',
+    mergeLockedOutcomeTeamAllowlist: '*',
     mergeEventsEnabled: false,
     mergeEventsPartitionCount: 64,
     mergeEventsTeamAllowlist: '',
@@ -164,7 +167,7 @@ const DEFAULT_OPTIONS: BatchWritingPersonsStoreOptions = {
  * - A pending change retires only when it equals what a committed write carried; a change made since stays.
  * - An entry with unwritten changes is detached or deferred, never evicted; it goes once a flush leaves it clean.
  * - A read that began before an entry was dropped does not reinstall it.
- * - Nothing from a merge reaches the cache before the merge commits.
+ * - On a locked-outcome team, nothing from a merge reaches the cache before the merge commits.
  *
  * **Lifecycle:** construction starts a metric-emission timer. Callers MUST
  * invoke `shutdown()` on graceful exit to stop the timer and flush any
@@ -195,6 +198,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         this.mergePolicy = {
             updateAllProperties: this.options.updateAllProperties,
             isTombstoneTeam: buildIntegerMatcher(this.options.mergeTombstoneTeamAllowlist, true),
+            isLockedOutcomeTeam: buildIntegerMatcher(this.options.mergeLockedOutcomeTeamAllowlist, true),
             mergeEvents: {
                 enabled: this.options.mergeEventsEnabled,
                 partitionCount: this.options.mergeEventsPartitionCount,
@@ -1107,6 +1111,26 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             )
         }
         return [person, [], false]
+    }
+
+    /** Queues the outcome on the survivor's entry for the next flush; a rollback leaves it queued. Returns the pod's view. */
+    deferMergeOutcome(
+        person: InternalPerson,
+        update: MergePersonUpdate,
+        distinctId: string,
+        batchId: number
+    ): InternalPerson {
+        this.incrementCount('updatePersonForMerge', distinctId)
+        const cache = this.personCache.obtainForBatchId(batchId)
+        const existingUpdate = cache.getCachedPersonForUpdateByDistinctId(person.team_id, distinctId)
+        const personUpdate = this.mergeUpdateIntoPersonUpdate(
+            existingUpdate ?? fromInternalPerson(person, distinctId),
+            update,
+            true
+        )
+        personUpdate.id = person.id
+        cache.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
+        return toInternalPerson(personUpdate)
     }
 
     /**

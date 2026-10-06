@@ -365,6 +365,50 @@ describe('PostgresPersonRepository', () => {
             expect(Number(rows.rows[0].last_seen_at_epoch)).toBe(Math.floor(laterLastSeenAt.toSeconds()))
         })
 
+        it('updatePersonsBatch writes the snapshot over the row for a team off the per-key allowlist', async () => {
+            const otherTeamId = await createTeam(postgres, team.organization_id)
+            const perKeyRepository = new PostgresPersonRepository(postgres, {
+                personBatchWritePerKeyTeamAllowlist: String(team.id),
+            })
+            const onPerson = await createTestPerson(team.id, 'per-key-on-did', { own: 'v1' })
+            const offPerson = await createTestPerson(otherTeamId, 'per-key-off-did', { own: 'v1' })
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `UPDATE posthog_person
+                 SET properties = properties || '{"other": "kept?"}'::jsonb, is_identified = true, version = version + 1
+                 WHERE id = ANY($1::bigint[])`,
+                [[onPerson.id, offPerson.id]],
+                'otherWriter'
+            )
+            const staleOn = {
+                ...buildPersonUpdate(onPerson, 'per-key-on-did', onPerson.version),
+                properties: { own: 'v1' },
+                properties_to_set: { own: 'v2' },
+                is_identified: false,
+            }
+            const staleOff = {
+                ...buildPersonUpdate(offPerson, 'per-key-off-did', offPerson.version),
+                properties: { own: 'v1' },
+                properties_to_set: { own: 'v2' },
+                is_identified: false,
+            }
+
+            const results = await perKeyRepository.updatePersonsBatch([staleOn, staleOff])
+
+            expect(results.get(onPerson.uuid)).toMatchObject({ success: true })
+            expect(results.get(offPerson.uuid)).toMatchObject({ success: true })
+            const rows = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT id, properties, is_identified FROM posthog_person WHERE id = ANY($1::bigint[]) ORDER BY id',
+                [[onPerson.id, offPerson.id]],
+                'fetchAfterBatch'
+            )
+            expect(rows.rows).toEqual([
+                { id: onPerson.id, properties: { own: 'v2', other: 'kept?' }, is_identified: true },
+                { id: offPerson.id, properties: { own: 'v2' }, is_identified: false },
+            ])
+        })
+
         it('readMergeRows locks the target and the sources', async () => {
             const target = await createTestPerson(team.id, 'merge-rows-target')
             const source = await createTestPerson(team.id, 'merge-rows-source')
