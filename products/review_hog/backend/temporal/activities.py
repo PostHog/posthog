@@ -42,7 +42,6 @@ from products.review_hog.backend.reviewer.constants import (
     DEFAULT_URGENCY_THRESHOLD,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
-    REVIEWHOG_VERSION,
     VALIDATION_MAX_ATTEMPTS,
     ReviewArm,
     effective_priority,
@@ -1578,7 +1577,8 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             ),
             **_pr_size_properties(snapshot),
             "duration_seconds": duration_seconds,
-            "reviewhog_version": input.marker.version if input.marker is not None else REVIEWHOG_VERSION,
+            # No marker means a turn started before the marker shipped, or a failed marker: the version is unknown.
+            "reviewhog_version": input.marker.version if input.marker is not None else None,
             "reviewhog_fingerprint": input.marker.fingerprint if input.marker is not None else None,
         },
         groups=groups(team=report.team),

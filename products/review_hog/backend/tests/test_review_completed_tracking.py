@@ -15,7 +15,6 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     REVIEW_MODEL,
-    REVIEWHOG_VERSION,
     VALIDATION_MODEL,
     VALIDATION_REASONING_EFFORT,
 )
@@ -204,8 +203,8 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["pr_additions"] is None
         assert props["pr_reviewable_additions"] is None
         assert props["findings_total"] == 0
-        # A turn whose marker failed still carries the deploy's version, so no turn drops out of a version split.
-        assert props["reviewhog_version"] == REVIEWHOG_VERSION
+        # A turn without a marker ran on an unknown release; the current deploy's version would mislabel it.
+        assert props["reviewhog_version"] is None
         assert props["reviewhog_fingerprint"] is None
 
     @parameterized.expand([("completed",), ("failed",), ("started",)])

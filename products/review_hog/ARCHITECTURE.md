@@ -376,6 +376,7 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     The marker persists as a `turn_marker` artefact (with the hashed inputs, for comparing two fingerprints),
     goes on `reviewhog_review_completed` as `reviewhog_version` / `reviewhog_fingerprint`, and ends the final
     status comment as `ReviewHog <version> · <fingerprint>`. Best-effort like the events.
+    A turn without a marker (started before the patch, or the marker failed) sends both properties as null.
 
 ---
 
