@@ -472,6 +472,27 @@ match filter.value {
 
 Evaluated results are cached in `FlagEvaluationState.flag_evaluation_results` for subsequent dependent flags. Flags with missing or cyclic dependencies evaluate to `false` with reason `MissingDependency`.
 
+A failed flag records no result, so a dependent would otherwise read its `flag_evaluates_to` condition as a non-match.
+Instead, when a flag fails earlier in the request, for example because the persons database fetch failed, the dependent compares two answers: the answer it would give if the failed flag matched, and the answer from its other conditions.
+A filter on the failed flag passes, and the other filters and the rollout of its condition still apply, so that condition can still be a definite non-match.
+A condition is also a definite non-match when no single value of the failed flag satisfies all its filters on that flag, for example `true` together with `false`.
+If that condition matches, its variant is the first answer.
+With `early_exit`, the condition can instead stop on its rollout, and then the first answer is no match.
+The dependent returns `failed: true` with the `dependency_failed` reason when the two answers differ, and its normal value when they agree.
+An SDK can then tell the error apart from a configured `false`.
+The two answers agree, for example, when an earlier condition matches, or when a later condition matches with the same variant.
+The check is conservative.
+Two conditions on the same failed flag can fail a dependent even when every value of that flag gives the same answer.
+The failure reaches transitive dependents stage by stage.
+The check runs only after a flag has failed in the request.
+An unsupported non-v1 flag is the exception: it fails, but its dependents read it as false, as described above.
+The batch evaluation endpoint adds a person to the cohort when the target is enabled, and it never reads the variant.
+So it compares the two answers by match only for the target, and for each dependency that only `true` or `false` filters read.
+A failed flag that could change only the variant of one of these flags does not fail it.
+A dependency that an evaluated flag filters on by variant keeps the variant comparison.
+The batch evaluation endpoint retries a target that failed with `dependency_failed` only when every dependency that failed on its own reports a transient code.
+An unsupported non-v1 dependency does not count, because its dependents read it as false.
+
 ### Partial flag evaluation
 
 When `flag_keys` is provided in the request, the dependency graph is filtered to include only the requested flags and their transitive dependencies. This avoids evaluating unrelated flags.
