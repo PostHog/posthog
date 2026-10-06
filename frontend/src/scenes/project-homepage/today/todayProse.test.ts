@@ -1,4 +1,4 @@
-import { inlineSegments, shortenGitHubLinks } from './todayProse'
+import { inlineSegments, renderedText, shortenGitHubLinks } from './todayProse'
 
 describe('todayProse', () => {
     test.each([
@@ -14,6 +14,14 @@ describe('todayProse', () => {
         ],
     ])('shortens %s', (_, markdown, expected) => {
         expect(shortenGitHubLinks(markdown)).toEqual(expected)
+    })
+
+    test.each([
+        ['a valid date', 'Since 2026-08-03.', 'Since 3 Aug.'],
+        ['a day past the end of its month, rolled over', 'Since 2026-02-30.', 'Since 2 Mar.'],
+        ['a month that does not exist, left as written', 'Since 2026-13-01.', 'Since 2026-13-01.'],
+    ])('rewrites %s the way the backend does', (_, markdown, expected) => {
+        expect(renderedText(markdown)).toEqual(expected)
     })
 
     test('splits inline markdown into text, code and links, dropping bold markers', () => {
