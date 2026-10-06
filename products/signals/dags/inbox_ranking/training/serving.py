@@ -6,7 +6,8 @@ picks the set the scoring sweep runs. This module is that choice as pure functio
 
 The served entry is the champion of one family, so the served model only ever changes through a
 promotion. The other entries are there so one pass produces several scores: an online paired read
-and a later interleaving then need no rescoring of the same reports.
+and a later interleaving then need no rescoring of the same reports. A pinned entry is there so an
+owner's `served` override can name it.
 """
 
 import datetime
@@ -21,6 +22,7 @@ from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
     DAILY_CANDIDATE_ROLE,
     DEFAULT_MODEL_KIND,
+    PINNED_ROLE,
     SERVED_ROLE,
     ServingManifest,
     ServingManifestEntry,
@@ -83,7 +85,10 @@ def compose_manifest(
     served_family: str,
     prefix: str,
     now: datetime.datetime,
+    pinned: Sequence[Mapping[str, Any]] = (),
 ) -> ManifestDecision:
+    """`pinned` holds the metadata of the models the `pin` override keeps. The caller checks that
+    their files exist, because a manifest that names a missing file is never published."""
     by_name = {family.name: family for family in families}
     served_models = by_name.get(served_family)
     if served_models is None:
@@ -115,6 +120,16 @@ def compose_manifest(
         if daily is not None:
             entries.append(daily)
 
+    for metadata in pinned:
+        pin = _entry(
+            metadata,
+            roles=[PINNED_ROLE],
+            labels={"reason": "pinned by the inbox-ranking-overrides flag"},
+            prefix=prefix,
+        )
+        if pin is not None and pin.key not in {entry.key for entry in entries}:
+            entries.append(pin)
+
     for family in families:
         if family.name == served_family or family.champion is None or not readable_head_names(family.champion):
             continue
@@ -124,11 +139,12 @@ def compose_manifest(
             labels={"reason": f"champion of {family.name}"},
             prefix=prefix,
         )
-        if cross is not None:
+        if cross is not None and cross.key not in {entry.key for entry in entries}:
             entries.append(cross)
 
     # The served entry and the paired candidate are the reads the sweep exists for, so the cap
-    # falls on the cross-family entries. They are last in `entries`, in family registration order.
+    # falls on the pinned and cross-family entries, cross-family first. They are last in
+    # `entries`, the cross-family ones in family registration order.
     return ManifestDecision(
         manifest=ServingManifest(manifest_version=now.isoformat(), models=entries[:MAX_RANKING_MODEL_RESULTS]),
         reason="composed",

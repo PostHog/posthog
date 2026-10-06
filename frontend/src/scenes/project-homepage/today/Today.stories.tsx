@@ -901,7 +901,7 @@ export const LibraryAllObjects: Story = {
 }
 
 export const LibraryFeatureFlags: Story = {
-    parameters: { pageUrl: urls.library('feature_flag') },
+    parameters: { pageUrl: urls.featureFlags() },
 }
 
 export const ToolsPane: Story = {
@@ -921,13 +921,24 @@ export const NarrowWindowWithSidebar: Story = {
     },
 }
 
+export const PhoneWidth: Story = {
+    parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
+}
+
+export const PhoneWidthMorePane: Story = {
+    parameters: { testOptions: { viewport: { width: 390, height: 844 } } },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'More' }))
+    },
+}
+
 // The card opens on hover, which a static story can't hold, so these render its contents in the same frame.
 const noop = (): void => {}
 
 function HoverCardFrame({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="p-4">
-            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-md">
+            <Card size="sm" className="w-72 gap-0 border border-border py-0 shadow-[var(--shadow-md)]">
                 {children}
             </Card>
         </div>

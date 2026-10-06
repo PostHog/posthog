@@ -28,6 +28,30 @@ const collectAlwaysAvailableToolNames = (): string[] =>
         .map(([name]) => name)
 
 describe('Tool Filtering - Features', () => {
+    it.each([
+        { scopes: ['evaluation:read'], enabled: true, metadata: true, scores: false, upload: false },
+        {
+            scopes: ['evaluation:read', 'llm_analytics:read'],
+            enabled: true,
+            metadata: true,
+            scores: true,
+            upload: false,
+        },
+        { scopes: ['offline_evaluation_ingestion:write'], enabled: true, metadata: false, scores: false, upload: true },
+        { scopes: ['*'], enabled: false, metadata: false, scores: false, upload: false },
+    ])(
+        'offline tools preserve read/write scope separation and rollout: %j',
+        async ({ scopes, enabled, metadata, scores, upload }) => {
+            const tools = await getToolsFromContext(createMockContext(scopes), {
+                featureFlags: { 'ai-observability-offline-evaluations': enabled },
+            })
+            const names = tools.map((tool) => tool.name)
+            expect(names.includes('llma-offline-experiment-item-payload-get')).toBe(metadata)
+            expect(names.includes('llma-offline-experiment-scorer-summary-list')).toBe(scores)
+            expect(names.includes('llma-offline-experiment-upload')).toBe(upload)
+        }
+    )
+
     it.each([false, true])('hides run-start tools from sandbox tokens: %s', async (sandbox) => {
         const context = {
             stateManager: {
@@ -893,6 +917,13 @@ describe('Tool Filtering - Read-Only Mode', () => {
 })
 
 describe('Tool Filtering - Feature Flags', () => {
+    it.each([undefined, false, true])('gates private trial tools on scout-trials: %s', (enabled) => {
+        const tools = getToolsForFeatures({ featureFlags: { 'scout-trials': enabled } })
+        expect(tools).toContain('scout-runs-list')
+        expect(tools.includes('scout-trial-create')).toBe(enabled === true)
+        expect(tools.includes('scout-trial-get')).toBe(enabled === true)
+    })
+
     const baseAnnotations = {
         destructiveHint: false,
         idempotentHint: true,
@@ -1016,6 +1047,7 @@ describe('Tool Filtering - Feature Flags', () => {
     it('getRequiredFeatureFlags should return flags used by current definitions', () => {
         const allFlags = getRequiredFeatureFlags()
         const branchFlags = [
+            'scout-trials',
             'self-optimising-workflows',
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
@@ -1031,7 +1063,6 @@ describe('Tool Filtering - Feature Flags', () => {
                 'llm-analytics-datasets',
                 'tracing',
                 'visual-review',
-                'user-interviews',
                 'customer-analytics-csp',
                 'customer-analytics-feature-requests',
                 'customer-analytics-customer-tasks',
@@ -1069,6 +1100,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'today-rail-nav',
             ])
         )
+        expect(flags).toContain('ai-observability-offline-evaluations')
         expect(flags).toHaveLength(39)
     })
 

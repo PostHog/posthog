@@ -84,8 +84,8 @@
 1 products/apm/backend/logic/anomaly_detection/types.py
 1 products/apm/backend/logic/anomaly_detection/validation/simulation.py
 1 products/approvals/backend/decorators.py
-1 products/batch_exports/backend/api/batch_export.py
-1 products/batch_exports/backend/api/destination_tests/base.py
+1 products/batch_exports/backend/presentation/views/batch_export.py
+1 products/batch_exports/backend/presentation/views/destination_tests/base.py
 1 products/batch_exports/backend/debug/debugger.py
 1 products/batch_exports/backend/temporal/destinations/azure_blob_batch_export.py
 1 products/batch_exports/backend/temporal/destinations/bigquery_batch_export.py
@@ -136,7 +136,6 @@
 1 products/growth/backend/temporal/signup_enrichment/workflow.py
 1 products/growth/dags/product_push_campaigns.py
 1 products/growth/dags/team_production_event_activation.py
-1 products/live_debugger/backend/models.py
 1 products/logs/backend/anomaly_scan.py
 1 products/managed_warehouse/backend/cp_teams.py
 1 products/marketing_analytics/backend/demo/warehouse.py
@@ -664,8 +663,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hibob/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hightouch/hightouch.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hightouch/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/honeybadger/honeybadger.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/honeybadger/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/honeycomb/honeycomb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/honeycomb/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hookdeck/hookdeck.py
@@ -679,7 +676,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/humanitix/humanitix.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/humanitix/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/huntr/huntr.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/huntr/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hyperspell/hyperspell.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/hyperspell/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/imagga/settings.py
@@ -691,9 +687,7 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/inflowinventory/inflowinventory.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/inflowinventory/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/inngest/inngest.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/inngest/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/insightly/insightly.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/insightly/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/instagram/instagram.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/instagram/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/instana/instana.py

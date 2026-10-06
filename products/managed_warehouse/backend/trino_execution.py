@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 _Result = TypeVar("_Result")
 
-TRINO_QUERY_SECONDS = 15 * 60
+TRINO_QUERY_SECONDS = 30 * 60
 _executor = ThreadPoolExecutor(thread_name_prefix="trino-model")
 
 
@@ -54,10 +54,11 @@ async def run_trino_model(
 ) -> _Result:
     control = TrinoQueryControl(query_seconds)
     task = asyncio.create_task(database_sync_to_async_pool(execute, executor=_executor)(control))
+    timeout = asyncio.timeout(query_seconds)
     try:
-        async with asyncio.timeout(query_seconds):
+        async with timeout:
             return await asyncio.shield(task)
-    except (asyncio.CancelledError, TimeoutError):
+    except (asyncio.CancelledError, TimeoutError) as error:
         control.cancel()
         while not task.done():
             try:
@@ -66,6 +67,8 @@ async def run_trino_model(
                 continue
             except Exception:
                 break
+        if isinstance(error, TimeoutError) and timeout.expired():
+            raise TimeoutError(f"Trino model execution exceeded its {query_seconds / 60:g}-minute deadline") from error
         raise
     finally:
         control.finished.set()

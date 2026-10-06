@@ -841,6 +841,7 @@ SPECTACULAR_SETTINGS = {
             "ClaudeRuntimeAdapterEnum": ["claude"],
             "CodexRuntimeAdapterEnum": ["codex"],
             "StaffCacheKindEnum": ["evaluation", "definitions"],
+            "TrialEvidenceSourceKindEnum": ["instructions", "context", "summary", "report", "memory", "trace"],
             #
             # One single-value discriminator enum per dashboard widget.
             # bin/build-dashboard-widget-types.py checks these against WIDGET_SPECS.
