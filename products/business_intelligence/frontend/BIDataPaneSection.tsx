@@ -4,9 +4,10 @@ import { IconCalendar } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { BIField } from '~/queries/schema/schema-business-intelligence'
+
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 import {
-    BIField,
     BI_FIELD_DRAG_MIME_TYPE,
     getBIDropTarget,
     serializeBIField,

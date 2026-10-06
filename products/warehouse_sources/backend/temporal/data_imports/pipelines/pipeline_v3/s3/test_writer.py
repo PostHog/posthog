@@ -154,6 +154,15 @@ class TestBatchByteSize:
 
 
 class TestWriteBatchPermissionDenied:
+    @parameterized.expand(
+        [
+            ("access_denied", "Access Denied"),
+            # InvalidAccessKeyId: the worker's own access key no longer exists (rotated/revoked).
+            # s3fs collapses this to the same PermissionError type as AccessDenied but with AWS's
+            # own fixed message.
+            ("invalid_access_key_id", "The AWS Access Key Id you provided does not exist in our records."),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer._write_parquet_to_s3"
     )
@@ -161,15 +170,16 @@ class TestWriteBatchPermissionDenied:
     @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer.get_s3_client")
     def test_write_batch_wraps_access_denied_instead_of_raising_raw_error(
         self,
+        _name: str,
+        error_message: str,
         _mock_get_s3_client,
         _mock_ensure_bucket,
         mock_write,
     ) -> None:
-        # The data warehouse bucket is PostHog's own, so an AccessDenied writing to it used to
-        # escape write_batch as a raw PermissionError: it read to the customer as if their source
-        # credentials were bad, and error tracking grouped a fresh issue per retry instead of one
-        # stable title.
-        mock_write.side_effect = PermissionError("Access Denied")
+        # The data warehouse bucket is PostHog-owned, so a permission refusal writing to it must not
+        # read to the customer as if their source credentials were bad, and error tracking must group
+        # every occurrence under one stable title rather than the raw per-key s3fs message.
+        mock_write.side_effect = PermissionError(error_message)
 
         job = MagicMock()
         job.team_id = 1

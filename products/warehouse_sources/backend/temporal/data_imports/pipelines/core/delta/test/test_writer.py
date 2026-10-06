@@ -1214,7 +1214,7 @@ class TestDeltaliteWritePath:
             reset_governor_for_tests(None)
         assert wrote is True
         log_kwargs = logger.ainfo.call_args.kwargs
-        assert log_kwargs["governor_rewrite_files"] == 1
+        assert (log_kwargs["governor_rewrite_files"], log_kwargs["governor_columns"]) == (1, 3)
         assert log_kwargs["governor_rewrite_total_mb"] == round(partition_a_bytes / (1024 * 1024), 1)
         assert log_kwargs["governor_max_row_group_mb"] == round(partition_a_bytes / (1024 * 1024), 1)
         assert log_kwargs["governor_reader_mb"] is not None and log_kwargs["governor_writer_mb"] is not None
@@ -1225,6 +1225,7 @@ class TestDeltaliteWritePath:
         assert "governor_observed_delta_mb" not in log_kwargs
         upsert_kwargs = fake_table.upsert.call_args.kwargs
         assert (upsert_kwargs["max_parallel_partitions"], upsert_kwargs["max_parallel_files"]) == (1, 8)
+        assert upsert_kwargs["max_fetch_bytes"] == 128 * 1024 * 1024
 
     @pytest.mark.asyncio
     async def test_falls_back_when_deltalite_raises(self):
