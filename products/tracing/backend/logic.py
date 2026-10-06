@@ -243,6 +243,19 @@ def with_span_attribute_type_suffix(prop: SpanPropertyFilter) -> SpanPropertyFil
     return prop
 
 
+def _decode_span_event_attribute(value: object) -> str:
+    """capture-logs JSON-encodes each event attribute value, so a string arrives with its quotes. Unwrap JSON strings only."""
+    text = str(value)
+    if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
+        try:
+            decoded = json.loads(text)
+        except ValueError:
+            return text
+        if isinstance(decoded, str):
+            return decoded
+    return text
+
+
 def parse_span_events(raw_events: list[str]) -> list[dict]:
     """Decode the JSON span events that capture-logs writes, earliest first. Skip elements that are not JSON objects."""
     parsed: list[tuple[int, dict]] = []
@@ -270,7 +283,7 @@ def parse_span_events(raw_events: list[str]) -> list[dict]:
                 {
                     "name": str(event.get("name") or ""),
                     "timestamp": timestamp,
-                    "attributes": {str(k): str(v) for k, v in attributes.items()}
+                    "attributes": {str(k): _decode_span_event_attribute(v) for k, v in attributes.items()}
                     if isinstance(attributes, dict)
                     else {},
                 },

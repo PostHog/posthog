@@ -1,3 +1,4 @@
+import json
 import base64
 import datetime as dt
 
@@ -43,6 +44,22 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         # `attributes` is an ALIAS over attributes_map_str whose keys carry a `__str` type suffix
         # that left(k, -5) strips — so 'http.method__str' surfaces as 'http.method'.
         # `resource_attributes` is a physical column, inserted as-is.
+        # capture-logs JSON-encodes each event attribute value, then encodes the whole event.
+        events = [
+            json.dumps(
+                {
+                    "time_unix_nano": 1780387200002000000,
+                    "name": "exception",
+                    "attributes": {
+                        "exception.type": json.dumps("ValueError"),
+                        "exception.stacktrace": json.dumps('line 1\n  raise ValueError("bad")'),
+                        "exception.escaped": json.dumps(False),
+                    },
+                }
+            ),
+            json.dumps({"time_unix_nano": 1780387200001000000, "name": "cache.miss", "attributes": {}}),
+            "not json",
+        ]
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
             "timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str, "
@@ -50,9 +67,8 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
             "("
             f"'019e8754-0000-0000-0000-000000000001', {cls.team.id}, '{_b64((1).to_bytes(16, 'big'))}', "
             f"'{_b64((1).to_bytes(8, 'big'))}', '', 'GET /api', 2, '{ts_str}', '{end_str}', '{ts_str}', 0, 'web', "
-            "map('http.method__str', 'POST'), map('service.version', '1.2.3', 'host.name', 'web-1'), "
-            '[\'{"time_unix_nano":1780387200002000000,"name":"exception","attributes":{"exception.type":"ValueError"}}\', '
-            '\'{"time_unix_nano":1780387200001000000,"name":"cache.miss","attributes":{}}\', \'not json\'])'
+            "map('http.method__str', 'POST'), map('service.version', '1.2.3', 'host.name', 'web-1'), %(events)s)",
+            {"events": events},
         )
 
     @classmethod
@@ -106,7 +122,11 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
                     {
                         "name": "exception",
                         "timestamp": dt.datetime(2026, 6, 2, 8, 0, 0, 2000, tzinfo=dt.UTC),
-                        "attributes": {"exception.type": "ValueError"},
+                        "attributes": {
+                            "exception.type": "ValueError",
+                            "exception.stacktrace": 'line 1\n  raise ValueError("bad")',
+                            "exception.escaped": "false",
+                        },
                     },
                 ],
             ),
