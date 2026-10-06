@@ -161,13 +161,18 @@ export interface WebhookUrlApi {
     url: string
 }
 
-export interface AddSuppressionRequestApi {
-    /**
-     * The email address to suppress. Will not receive any messages until removed.
-     * @maxLength 512
-     */
-    identifier: string
-}
+/**
+ * * `OPTED_IN` - Opted In
+ * * `OPTED_OUT` - Opted Out
+ * * `NO_PREFERENCE` - No Preference
+ */
+export type PreferenceStatusEnumApi = (typeof PreferenceStatusEnumApi)[keyof typeof PreferenceStatusEnumApi]
+
+export const PreferenceStatusEnumApi = {
+    OptedIn: 'OPTED_IN',
+    OptedOut: 'OPTED_OUT',
+    NoPreference: 'NO_PREFERENCE',
+} as const
 
 /**
  * * `BOUNCE` - Bounce
@@ -181,6 +186,94 @@ export const SuppressionSourceEnumApi = {
     Manual: 'MANUAL',
     Complaint: 'COMPLAINT',
 } as const
+
+export interface RecipientSuppressionApi {
+    /** Why the address is suppressed: `BOUNCE` (a hard bounce or repeated soft bounces), `COMPLAINT` (marked as spam) or `MANUAL` (added by a user).
+     *
+     * * `BOUNCE` - Bounce
+     * * `MANUAL` - Manual
+     * * `COMPLAINT` - Complaint */
+    source: SuppressionSourceEnumApi
+    /**
+     * Free-text reason recorded with the suppression.
+     * @nullable
+     */
+    reason: string | null
+    /**
+     * When the address became suppressed.
+     * @nullable
+     */
+    suppressed_at: string | null
+}
+
+export interface RecipientPersonApi {
+    /** UUID of a person whose `email` property is this address. */
+    uuid: string
+    /** One of the person's distinct IDs. */
+    distinct_id: string
+    /**
+     * The person's `name` property, if set.
+     * @nullable
+     */
+    name: string | null
+}
+
+/**
+ * Explicit topic statuses keyed by topic key. A topic with no preference is left out. When preferences exist under several spellings of the address (casing or surrounding whitespace), `OPTED_OUT` wins per topic.
+ */
+export type RecipientApiTopics = { [key: string]: 'OPTED_IN' | 'OPTED_OUT' }
+
+export interface RecipientApi {
+    /** Lower-cased, trimmed email address. One row per address. */
+    email: string
+    /** Status for all marketing messages. `NO_PREFERENCE` means marketing is sent.
+     *
+     * * `OPTED_IN` - Opted In
+     * * `OPTED_OUT` - Opted Out
+     * * `NO_PREFERENCE` - No Preference */
+    all_marketing: PreferenceStatusEnumApi
+    /** Explicit topic statuses keyed by topic key. A topic with no preference is left out. When preferences exist under several spellings of the address (casing or surrounding whitespace), `OPTED_OUT` wins per topic. */
+    topics: RecipientApiTopics
+    /** Active suppression of the address, or null when sends are not blocked. */
+    suppression: RecipientSuppressionApi | null
+    /** Up to three persons whose `email` property is this address. */
+    persons: RecipientPersonApi[]
+    /** Number of persons whose `email` property is this address. */
+    person_count: number
+    /**
+     * When an email was last sent to the address, within the last 30 days.
+     * @nullable
+     */
+    last_sent_at: string | null
+    /**
+     * When the address's preferences last changed, or null when none were recorded.
+     * @nullable
+     */
+    preferences_updated_at: string | null
+}
+
+export interface RecipientPageApi {
+    /** Recipients on this page, ordered by address. */
+    results: RecipientApi[]
+    /**
+     * Pass as `cursor` to get the next page. Null on the last page.
+     * @nullable
+     */
+    next_cursor: string | null
+}
+
+export interface RecipientCoverageApi {
+    /** Number of persons whose `email` property is missing, blank or only whitespace. They can't be reached by email. */
+    persons_without_email: number
+}
+
+export interface AddSuppressionRequestApi {
+    /**
+     * The email address to suppress. Will not receive any messages until removed.
+     * @maxLength 512
+     */
+    identifier: string
+}
 
 export interface MessageSuppressionApi {
     /** Server-assigned UUID for this suppression entry. */
@@ -519,6 +612,35 @@ export type MessagingPreferencesOptOutsRetrieveParams = {
     page_size?: number
     /**
      * Case-insensitive substring match on the recipient identifier.
+     * @maxLength 512
+     */
+    search?: string
+}
+
+export type MessagingRecipientsRetrieveParams = {
+    /**
+     * `next_cursor` from the previous page. Omit for the first page.
+     * @minLength 1
+     */
+    cursor?: string
+    /**
+     * Return only this address, matched case-insensitively. The other parameters still narrow the lookup. Responds 404 when no recipient matches.
+     * @minLength 1
+     */
+    email?: string
+    /**
+     * Repeatable `facet:value` filter; prefix with `-` to negate. Values on one facet are OR, facets are AND. Facets: `subscribed`, `unsubscribed` and `no-preference` take a topic key or `all-marketing`; `suppressed` takes `BOUNCE`, `COMPLAINT` or `MANUAL`; `person` takes `linked` or `none`; `preference` takes `recorded` or `none`.
+     * @items.maxLength 200
+     */
+    filter?: string[]
+    /**
+     * Page size, 1-200. Defaults to 50.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring match on the email address.
      * @maxLength 512
      */
     search?: string
