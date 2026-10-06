@@ -14,10 +14,12 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from posthog.models import ActivityLog
+from posthog.models.scoping import team_scope
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
@@ -210,7 +212,9 @@ class TestSavedQuery(APIBaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             origin=DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
         )
-        request = Request(APIRequestFactory().patch("/", {"description": "Internal update"}, format="json"))
+        request = Request(
+            APIRequestFactory().patch("/", {"description": "Internal update"}, format="json"), parsers=[JSONParser()]
+        )
         request.user = self.user
         serializer = DataWarehouseSavedQuerySerializer(
             view,
@@ -218,9 +222,10 @@ class TestSavedQuery(APIBaseTest):
             partial=True,
             context={"request": request, "team_id": self.team.id, "get_team": lambda: self.team},
         )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        self.assertEqual(view.column_annotations.get(column_name="").description, "Internal update")
+        with team_scope(self.team.id):
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            self.assertEqual(view.column_annotations.get(column_name="").description, "Internal update")
         mock_report_user_action.assert_not_called()
 
     @parameterized.expand([DataWarehouseSavedQuery.Origin.ENDPOINT, DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET])
