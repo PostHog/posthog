@@ -1,7 +1,8 @@
 import json
 from base64 import b64encode
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -11,7 +12,7 @@ from requests import Response
 from requests.exceptions import ConnectionError, HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sodacloud import (
     SodaCloudSourceConfig,
 )
@@ -53,6 +54,10 @@ def manager() -> MagicMock:
     return manager
 
 
+def response_items(source_response: SourceResponse) -> Iterable[Any]:
+    return cast(Iterable[Any], source_response.items())
+
+
 def response(rows: list[dict[str, object]], total_pages: int = 1, status: int = 200) -> Response:
     result = Response()
     result.status_code = status
@@ -75,10 +80,10 @@ def test_paginated_requests_and_checkpoint(
 ) -> None:
     config.region = region
     inputs.schema_name = endpoint
-    rows = [{"id": "row-one"}, {"id": "row-two"}]
+    rows: list[dict[str, object]] = [{"id": "row-one"}, {"id": "row-two"}]
     with patch("requests.sessions.Session.send", side_effect=[response(rows[:1], 2), response(rows[1:], 2)]) as send:
         source_response = SodaCloudSource().source_for_pipeline(config, manager, inputs)
-        pages = iter(source_response.items())
+        pages = iter(response_items(source_response))
         assert next(pages) == rows[:1]
         assert list(pages) == [rows[1:]]
 
@@ -100,7 +105,7 @@ def test_empty_page_stops(
     config: SodaCloudSourceConfig, inputs: SourceInputs, manager: MagicMock, total_pages: int
 ) -> None:
     with patch("requests.sessions.Session.send", return_value=response([], total_pages)) as send:
-        pages = list(SodaCloudSource().source_for_pipeline(config, manager, inputs).items())
+        pages = list(response_items(SodaCloudSource().source_for_pipeline(config, manager, inputs)))
     assert not [row for page in pages for row in page]
     send.assert_called_once()
     manager.save_state.assert_not_called()
@@ -131,7 +136,7 @@ def test_incremental_filter(
     inputs.db_incremental_field_last_value = watermark
     with patch("requests.sessions.Session.send", return_value=response([{"id": "row-one"}])) as send:
         source_response = SodaCloudSource().source_for_pipeline(config, manager, inputs)
-        assert list(source_response.items()) == [[{"id": "row-one"}]]
+        assert list(response_items(source_response)) == [[{"id": "row-one"}]]
     params = parse_qs(urlsplit(send.call_args.args[0].url).query)
     assert params.get("from") == ([expected_from] if expected_from else None)
     if endpoint == "datasets" and incremental:
@@ -147,7 +152,9 @@ def test_resume_retains_original_filter(
     manager.can_resume.return_value = True
     manager.load_state.return_value = SodaCloudResumeConfig(page=4, from_datetime=original_from)
     with patch("requests.sessions.Session.send", return_value=response([{"id": "row-five"}], 5)) as send:
-        assert list(SodaCloudSource().source_for_pipeline(config, manager, inputs).items()) == [[{"id": "row-five"}]]
+        assert list(response_items(SodaCloudSource().source_for_pipeline(config, manager, inputs))) == [
+            [{"id": "row-five"}]
+        ]
     params = parse_qs(urlsplit(send.call_args.args[0].url).query)
     assert params["page"] == ["4"]
     assert params.get("from") == ([original_from] if original_from else None)
@@ -162,7 +169,7 @@ def test_sync_error_matches_non_retryable_message(
     source = SodaCloudSource()
     with patch("requests.sessions.Session.send", return_value=response([], status=status)) as send:
         with pytest.raises(HTTPError) as error:
-            list(source.source_for_pipeline(config, manager, inputs).items())
+            list(response_items(source.source_for_pipeline(config, manager, inputs)))
     send.assert_called_once()
     assert message in [value for key, value in source.get_non_retryable_errors().items() if key in str(error.value)]
 

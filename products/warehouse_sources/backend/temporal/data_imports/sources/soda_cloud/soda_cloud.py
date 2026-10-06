@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from requests.exceptions import RequestException
 
@@ -11,6 +11,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import HttpBasicAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    EndpointResource,
+    PageNumberPaginatorConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sodacloud import (
@@ -93,20 +97,23 @@ def soda_cloud_source(
     if incremental and from_datetime is not None:
         params["from"] = from_datetime
 
+    paginator = cast(
+        PageNumberPaginatorConfig,
+        {"type": "page_number", "base_page": 0, "total_path": "totalPages"},
+    )
+    resource_config: EndpointResource = {
+        "name": inputs.schema_name,
+        "endpoint": {"path": inputs.schema_name, "data_selector": "content", "params": params},
+    }
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": get_base_url(config.region, api_version),
             "auth": {"type": "http_basic", "username": config.api_key_id, "password": config.api_key_secret},
-            "paginator": {"type": "page_number", "base_page": 0, "total_path": "totalPages"},
+            "paginator": paginator,
             "allow_redirects": False,
             "request_timeout": (10, 60),
         },
-        "resources": [
-            {
-                "name": inputs.schema_name,
-                "endpoint": {"path": inputs.schema_name, "data_selector": "content", "params": params},
-            }
-        ],
+        "resources": [resource_config],
     }
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
