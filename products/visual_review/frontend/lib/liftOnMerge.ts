@@ -1,4 +1,4 @@
-import type { QuarantineLiftEntryApi, SnapshotApi } from '../generated/api.schemas'
+import type { QuarantineLiftEntryApi, QuarantinedIdentifierEntryApi, SnapshotApi } from '../generated/api.schemas'
 
 /**
  * Why a lift on merge cannot be requested for this snapshot, or null when it can.
@@ -26,4 +26,43 @@ export function liftRequestsByIdentifier(requests: QuarantineLiftEntryApi[]): Re
         }
     }
     return byIdentifier
+}
+
+export interface CleanQuarantinedStory {
+    snapshot: SnapshotApi
+    liftRequest: QuarantineLiftEntryApi | null
+    quarantineReason: string | null
+    /** The pending request waits for another picture than this run rendered, so it fails after the merge. */
+    expectsOtherPicture: boolean
+}
+
+export interface CleanQuarantinedGroups {
+    liftRequested: CleanQuarantinedStory[]
+    notRequested: CleanQuarantinedStory[]
+}
+
+/** Splits the quarantined stories that rendered clean by whether a pending lift request covers them. */
+export function groupCleanQuarantinedStories(
+    snapshots: SnapshotApi[],
+    liftRequestByIdentifier: Record<string, QuarantineLiftEntryApi>,
+    quarantinedIdentifiers: QuarantinedIdentifierEntryApi[]
+): CleanQuarantinedGroups {
+    const groups: CleanQuarantinedGroups = { liftRequested: [], notRequested: [] }
+    for (const snapshot of snapshots) {
+        const liftRequest = liftRequestByIdentifier[snapshot.identifier] ?? null
+        const pendingRequest = liftRequest?.state === 'pending' ? liftRequest : null
+        const story: CleanQuarantinedStory = {
+            snapshot,
+            liftRequest,
+            quarantineReason: quarantinedIdentifiers.find((q) => q.identifier === snapshot.identifier)?.reason ?? null,
+            expectsOtherPicture:
+                !!pendingRequest && pendingRequest.expected_hash !== snapshot.current_artifact?.content_hash,
+        }
+        if (pendingRequest) {
+            groups.liftRequested.push(story)
+        } else {
+            groups.notRequested.push(story)
+        }
+    }
+    return groups
 }

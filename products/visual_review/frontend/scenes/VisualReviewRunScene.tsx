@@ -137,6 +137,35 @@ function SnapshotThumbnail({
     )
 }
 
+function CleanQuarantinedToggle({
+    cleanCount,
+    loadFailed,
+    isExpanded,
+    onClick,
+}: {
+    cleanCount: number
+    loadFailed: boolean
+    isExpanded: boolean
+    onClick: () => void
+}): JSX.Element {
+    if (loadFailed) {
+        return <span>Couldn't load the quarantined stories. Reload the page.</span>
+    }
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            aria-expanded={isExpanded}
+            data-attr="visual-review-toggle-clean-quarantined"
+            className="shrink-0 text-xs text-muted hover:text-default hover:underline underline-offset-2 transition-colors"
+        >
+            {isExpanded
+                ? 'Hide clean quarantined stories'
+                : `${cleanCount} quarantined ${cleanCount === 1 ? 'story' : 'stories'} rendered clean`}
+        </button>
+    )
+}
+
 function QuarantinedThumbnailsToggle({
     hiddenCount,
     isExpanded,
@@ -229,8 +258,12 @@ export function VisualReviewRunScene(): JSX.Element {
         quarantinedIdentifierSet,
         showQuarantinedThumbnails,
         cleanQuarantinedSnapshots,
+        cleanQuarantinedGroups,
+        showCleanQuarantined,
         quarantinedRunSnapshotsLoading,
         quarantinedRunSnapshotsLoadFailed,
+        quarantineLiftsLoading,
+        quarantineLiftsLoadFailed,
         repoFullName,
         isFinalizing,
         isApprovingSnapshot,
@@ -258,6 +291,7 @@ export function VisualReviewRunScene(): JSX.Element {
         recomputeRun,
         markThumbnailFailed,
         toggleQuarantinedThumbnails,
+        toggleCleanQuarantined,
         setAddImagesToComment,
     } = useActions(visualReviewRunSceneLogic)
 
@@ -271,6 +305,12 @@ export function VisualReviewRunScene(): JSX.Element {
         : sortedChangedSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
     const hiddenQuarantinedCount = sortedChangedSnapshots.length - visibleNavSnapshots.length
     const showQuarantinedToggle = quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails)
+    // Stays out of view until the quarantined stories load, so the footer never offers an empty list.
+    const showCleanQuarantinedToggle =
+        !isReportingOnly &&
+        !quarantinedRunSnapshotsLoading &&
+        (quarantinedRunSnapshotsLoadFailed || cleanQuarantinedSnapshots.length > 0)
+    const showFooterToggles = showQuarantinedToggle || showCleanQuarantinedToggle
 
     // Navigate over what's actually visible — when quarantined items are hidden, next/previous
     // must skip them rather than selecting a hidden quarantined snapshot.
@@ -551,18 +591,31 @@ export function VisualReviewRunScene(): JSX.Element {
                     )}
 
                     {/* Pagination — below thumbnails, right-aligned */}
-                    {(showQuarantinedToggle || sortedChangedSnapshots.length > 1) && (
+                    {(showFooterToggles || sortedChangedSnapshots.length > 1) && (
                         <div
                             className={`flex items-center gap-2 px-3 pb-2 ${
-                                showQuarantinedToggle ? 'justify-between' : 'justify-end'
+                                showFooterToggles ? 'justify-between' : 'justify-end'
                             }`}
                         >
-                            {showQuarantinedToggle && (
-                                <QuarantinedThumbnailsToggle
-                                    hiddenCount={hiddenQuarantinedCount}
-                                    isExpanded={showQuarantinedThumbnails}
-                                    onClick={toggleQuarantinedThumbnails}
-                                />
+                            {showFooterToggles && (
+                                <div className="flex items-center gap-1.5 text-xs text-muted">
+                                    {showQuarantinedToggle && (
+                                        <QuarantinedThumbnailsToggle
+                                            hiddenCount={hiddenQuarantinedCount}
+                                            isExpanded={showQuarantinedThumbnails}
+                                            onClick={toggleQuarantinedThumbnails}
+                                        />
+                                    )}
+                                    {showQuarantinedToggle && showCleanQuarantinedToggle && <span>·</span>}
+                                    {showCleanQuarantinedToggle && (
+                                        <CleanQuarantinedToggle
+                                            cleanCount={cleanQuarantinedSnapshots.length}
+                                            loadFailed={quarantinedRunSnapshotsLoadFailed}
+                                            isExpanded={showCleanQuarantined}
+                                            onClick={toggleCleanQuarantined}
+                                        />
+                                    )}
+                                </div>
                             )}
                             {visibleNavSnapshots.length > 1 && (
                                 <div className="flex items-center gap-2">
@@ -596,11 +649,12 @@ export function VisualReviewRunScene(): JSX.Element {
                         </div>
                     )}
 
-                    {!isReportingOnly && (
+                    {showCleanQuarantinedToggle && showCleanQuarantined && run.pr_number != null && (
                         <CleanQuarantinedSnapshots
-                            snapshots={cleanQuarantinedSnapshots}
-                            loading={quarantinedRunSnapshotsLoading}
-                            loadFailed={quarantinedRunSnapshotsLoadFailed}
+                            groups={cleanQuarantinedGroups}
+                            prNumber={run.pr_number}
+                            liftsLoading={quarantineLiftsLoading}
+                            liftsLoadFailed={quarantineLiftsLoadFailed}
                             selectedSnapshotId={selectedSnapshotId}
                             onSelect={setSelectedSnapshotId}
                         />
