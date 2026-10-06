@@ -8986,6 +8986,14 @@ snapshots:
         hash: v1.k794b7964.26a93f54f5fe293e17ee0f7315163a5b14c71e1e78e1bb8adc78f09ca04412f3.4gU8PFyIaVQrS8zOPX6Al_eLweeNi9XIAQ9hfr2pzag
     scenes-app-customer-analytics-account-detail--external-id--light:
         hash: v1.k794b7964.ba37b8bdfb72378768cbb9461ca2572f535c959b4c506b23329c5b3d310c77c6.KGICYox6wm5BBVgvW2c5GXZfbOf9S5QScOhY9rSEFWI
+    scenes-app-customer-analytics-account-detail--meetings--dark:
+        hash: v1.k794b7964.e62fc1eecd1da5d38cea9fe2df12369519a953dcd2cc087f64cd83148daf1651.89zoE2mxzfl6Xz8L3IRBs9P25XlAiI2LPYbbA3Dz9uw
+    scenes-app-customer-analytics-account-detail--meetings--light:
+        hash: v1.k794b7964.07e76ca1b000e109986d83f3527e55f644a99051aedd27510ce4497413149293.eI8xnDMzYD1OojNGnUTw6xpQOGDdUEjXh4t9QskgsXQ
+    scenes-app-customer-analytics-account-detail--meetings-narrow--dark:
+        hash: v1.k794b7964.649dce4fa92355eb25e7c53fbfbef590c003a4ebb6459d52fd79637b57186785.KS9yifiPkGmJWpATN-Qz7-bUy1-jyJZLp2g-UFFutXc
+    scenes-app-customer-analytics-account-detail--meetings-narrow--light:
+        hash: v1.k794b7964.d71834e0278d00db1dd2937f1530759a11ab284affe7f1d89491e75397f6f07f.i04wuQH_Tmk5BM4wACjCoy7rlcIHPSrwE415oZV38i0
     scenes-app-customer-analytics-account-detail--narrow--dark:
         hash: v1.k794b7964.acb3423c3a688e82a8d3304f52abc9ec9fe1bb85b498b2a5014c2a2e95b9d877.O3Dc_DGbMRxU8xAvLVsLhmaDF30FZT7vFNKa5dkYlq0
     scenes-app-customer-analytics-account-detail--narrow--light:

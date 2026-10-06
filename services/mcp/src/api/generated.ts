@@ -63689,6 +63689,8 @@ export namespace Schemas {
       readonly id: string;
       /** Meeting title; may be empty. */
       readonly title: string;
+      /** Whether the meeting belongs to a recurring series. Account meeting lists include all past occurrences and only the next upcoming, non-canceled occurrence of each series. */
+      readonly is_recurring: boolean;
       /**
          * Gong call URL matched through the calendar event id; null when no Gong call is available.
          * @nullable
