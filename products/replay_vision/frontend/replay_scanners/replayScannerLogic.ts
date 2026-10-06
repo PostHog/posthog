@@ -451,7 +451,6 @@ export interface replayScannerLogicValues {
     observationBackfillFilter: string | null
     observationDateFrom: string | null
     observationDateTo: string | null
-    observationVariantFilter: string | null
     observationDetailLinkParams: Record<string, number | string>
     observationMaxScoreFilter: number | null
     observationMinScoreFilter: number | null
@@ -462,6 +461,7 @@ export interface replayScannerLogicValues {
     observationSubjectFilter: string
     observationTagFilter: string[]
     observationTriggeredByFilter: ObservationTriggeredByValue[]
+    observationVariantFilter: string | null
     observationVerdictFilter: ObservationVerdictValue[]
     observations: ReplayObservationApi[]
     observationsActive: boolean
@@ -725,9 +725,6 @@ export interface replayScannerLogicActions {
     setObservationBackfillFilter: (value: string | null) => {
         value: string | null
     }
-    setObservationVariantFilter: (value: string | null) => {
-        value: string | null
-    }
     setObservationDateRange: (
         dateFrom: string | null,
         dateTo: string | null
@@ -753,6 +750,9 @@ export interface replayScannerLogicActions {
     }
     setObservationTriggeredByFilter: (values: ObservationTriggeredByValue[]) => {
         values: ObservationTriggerEnumApi[]
+    }
+    setObservationVariantFilter: (value: string | null) => {
+        value: string | null
     }
     setObservationVerdictFilter: (values: ObservationVerdictValue[]) => {
         values: ObservationVerdictValue[]
