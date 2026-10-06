@@ -14,6 +14,8 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
 from posthog.models import ActivityLog
 
@@ -31,6 +33,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.data_warehouse.backend.presentation.views.saved_query.editing import DataWarehouseSavedQuerySerializer
 from products.data_warehouse.backend.presentation.views.saved_query.viewset import (
     SavedQueryMaterializeSerializer,
     SavedQueryResumeSchedulesRequestSerializer,
@@ -130,8 +133,13 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertIsNotNone(saved_query["latest_history_id"])
 
+    @parameterized.expand(
+        [("ui", {}), ("mcp", {"HTTP_X_POSTHOG_CLIENT": "mcp"}), ("api", {"HTTP_USER_AGENT": "test-api-client"})]
+    )
     @patch("products.data_warehouse.backend.presentation.views.saved_query.editing.report_user_action")
-    def test_create_and_update_report_user_action(self, mock_report_user_action) -> None:
+    def test_create_and_update_report_user_action(
+        self, _source: str, headers: dict[str, str], mock_report_user_action: mock.Mock
+    ) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
@@ -139,6 +147,7 @@ class TestSavedQuery(APIBaseTest):
                 "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
             },
             format="json",
+            **headers,
         )
         self.assertEqual(response.status_code, 201, response.content)
         saved_query = response.json()
@@ -146,11 +155,11 @@ class TestSavedQuery(APIBaseTest):
         mock_report_user_action.assert_called_once()
         args, kwargs = mock_report_user_action.call_args
         self.assertEqual(args[0], self.user)
-        self.assertEqual(args[1], "saved query created")
+        self.assertEqual(args[1], "view created")
         self.assertEqual(
             args[2],
             {
-                "saved_query_id": saved_query["id"],
+                "view_id": saved_query["id"],
                 "origin": "data_warehouse",
                 "is_materialized": False,
                 "has_warehouse_tables": False,
@@ -169,16 +178,17 @@ class TestSavedQuery(APIBaseTest):
                 "edited_history_id": saved_query["latest_history_id"],
             },
             format="json",
+            **headers,
         )
         self.assertEqual(response.status_code, 200, response.content)
 
         mock_report_user_action.assert_called_once()
         args, _ = mock_report_user_action.call_args
-        self.assertEqual(args[1], "saved query updated")
+        self.assertEqual(args[1], "view updated")
         self.assertEqual(
             args[2],
             {
-                "saved_query_id": saved_query["id"],
+                "view_id": saved_query["id"],
                 "origin": "data_warehouse",
                 "is_materialized": False,
                 "has_warehouse_tables": False,
@@ -189,6 +199,48 @@ class TestSavedQuery(APIBaseTest):
                 "soft_update": False,
             },
         )
+
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.editing.report_user_action")
+    def test_serializer_update_does_not_report_user_action_without_opt_in(
+        self, mock_report_user_action: mock.Mock
+    ) -> None:
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="internal_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            origin=DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE,
+        )
+        request = Request(APIRequestFactory().patch("/", {"description": "Internal update"}, format="json"))
+        request.user = self.user
+        serializer = DataWarehouseSavedQuerySerializer(
+            view,
+            data={"description": "Internal update"},
+            partial=True,
+            context={"request": request, "team_id": self.team.id, "get_team": lambda: self.team},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        self.assertEqual(view.column_annotations.get(column_name="").description, "Internal update")
+        mock_report_user_action.assert_not_called()
+
+    @parameterized.expand([DataWarehouseSavedQuery.Origin.ENDPOINT, DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET])
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.editing.report_user_action")
+    def test_update_generated_view_does_not_report_user_action(
+        self, origin: str, mock_report_user_action: mock.Mock
+    ) -> None:
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="generated_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            origin=origin,
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/{view.id}/",
+            {"description": "Updated description"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        mock_report_user_action.assert_not_called()
 
     @patch(
         "products.data_warehouse.backend.presentation.views.saved_query.editing.report_user_action",
@@ -254,7 +306,8 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(update_response.status_code, 200, update_response.content)
 
-    def test_upsert(self):
+    @patch("products.data_warehouse.backend.presentation.views.saved_query.editing.report_user_action")
+    def test_upsert(self, mock_report_user_action: mock.Mock) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
             {
@@ -266,6 +319,7 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 201)
+        mock_report_user_action.reset_mock()
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -279,6 +333,8 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 200)
+        mock_report_user_action.assert_called_once()
+        self.assertEqual(mock_report_user_action.call_args.args[1], "view updated")
 
     def test_materialize_view(self):
         response = self.client.post(

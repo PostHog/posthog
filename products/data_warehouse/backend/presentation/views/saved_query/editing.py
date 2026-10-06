@@ -55,30 +55,6 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-def _report_saved_query_action(
-    request: Any, event: str, view: DataWarehouseSavedQuery, properties: dict[str, Any], team: Team
-) -> None:
-    # Best effort: the write has already committed, so an analytics failure must not fail the request.
-    try:
-        report_user_action(
-            request.user,
-            event,
-            {
-                # Never include the query text or the view name: both are customer-authored content.
-                "saved_query_id": str(view.id),
-                "origin": view.origin,
-                "is_materialized": bool(view.is_materialized),
-                "has_warehouse_tables": bool(view.external_tables),
-                **properties,
-            },
-            team=team,
-            request=request,
-        )
-    except Exception as e:
-        capture_exception(e)
-        logger.exception("Failed to report saved query action", analytics_event=event)
-
-
 def _as_uuid(value: object) -> uuid.UUID | None:
     # Clients echo the revision back in whatever UUID form their stack produces, so parse both
     # sides before comparing. A raw string comparison rejects an uppercase or unhyphenated spelling
@@ -343,6 +319,37 @@ class DataWarehouseSavedQuerySerializer(
             for engine, entry in suspension_state_for_saved_query(view).items()
         }
 
+    def _report_view_action(
+        self, event: str, view: DataWarehouseSavedQuery, properties: dict[str, Any], team: Team
+    ) -> None:
+        if (
+            not self.context.get("report_view_actions", False)
+            or view.origin in {DataWarehouseSavedQuery.Origin.ENDPOINT, DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET}
+            or view.managed_viewset_id is not None
+        ):
+            return
+
+        request = self.context["request"]
+        # Best effort: the write has already committed, so an analytics failure must not fail the request.
+        try:
+            report_user_action(
+                request.user,
+                event,
+                {
+                    # Never include the query text or the view name: both are customer-authored content.
+                    "view_id": str(view.id),
+                    "origin": view.origin,
+                    "is_materialized": bool(view.is_materialized),
+                    "has_warehouse_tables": bool(view.external_tables),
+                    **properties,
+                },
+                team=team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to report view action", analytics_event=event)
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -434,9 +441,8 @@ class DataWarehouseSavedQuerySerializer(
                     )
                 _apply_frequency_target(view, sync_frequency, self.user_access_control)
 
-        _report_saved_query_action(
-            self.context["request"],
-            "saved query created",
+        self._report_view_action(
+            "view created",
             view,
             {"has_description": has_description, "sync_frequency": sync_frequency},
             team,
@@ -630,9 +636,8 @@ class DataWarehouseSavedQuerySerializer(
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
 
-        _report_saved_query_action(
-            self.context["request"],
-            "saved query updated",
+        self._report_view_action(
+            "view updated",
             view,
             {
                 "query_changed": query_changed,

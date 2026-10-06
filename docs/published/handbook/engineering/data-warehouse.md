@@ -12,6 +12,12 @@ The SQL editor keeps unrun edits in browser storage, scoped to the user, project
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
+## View tracking
+
+Direct view creation and edits through the UI, MCP, or API emit `view created` and `view updated`.
+An upsert of an existing view emits `view updated`. Endpoint materialization and managed viewsets do not emit these events for the saved queries they generate.
+The events include `view_id` and request source metadata, but exclude view names and query text.
+
 ## Choosing data in BI mode
 
 Clicking **BI** closes the SQL editor database sidebar; clicking **SQL** opens it again.
