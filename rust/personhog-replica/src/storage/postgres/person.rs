@@ -1269,11 +1269,8 @@ impl PersonLookup for PostgresStorage {
 
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
-        // Resolve the distinct_id's person and guardedly bump its version in one
-        // round-trip. The `target` CTE returns the person whenever the distinct_id
-        // exists, while the `UPDATE` only fires when the stored version is below
-        // min_version — so an already-higher version is left intact but the person is
-        // still returned. No matching distinct_id yields no person.
+        // The person is returned whenever the distinct_id exists, even if its version is already
+        // at or above min_version. A NULL version counts as 0, as in every other personhog write.
         let row = sqlx::query_as!(
             Person,
             r#"
@@ -1284,7 +1281,7 @@ impl PersonLookup for PostgresStorage {
             updated AS (
                 UPDATE posthog_persondistinctid
                 SET version = $3
-                WHERE team_id = $1 AND distinct_id = $2 AND version < $3
+                WHERE team_id = $1 AND distinct_id = $2 AND COALESCE(version, 0) < $3
                 RETURNING person_id
             )
             SELECT p.id, p.uuid, p.team_id::bigint as "team_id!", p.properties::text as "properties?",
@@ -1327,12 +1324,12 @@ impl PersonLookup for PostgresStorage {
 
         let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
-        // Guarded bump: never lowers an existing version.
+        // Never lowers a version. A NULL version counts as 0, as in every other personhog write.
         let result = sqlx::query!(
             r#"
             UPDATE posthog_person
             SET version = $3
-            WHERE team_id = $1 AND id = $2 AND version < $3
+            WHERE team_id = $1 AND id = $2 AND COALESCE(version, 0) < $3
             "#,
             team_id as i32,
             person_id,
