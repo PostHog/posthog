@@ -218,9 +218,8 @@ tools:
         title: Search Linear team members
         description: >
             Search the active members of a Linear team in a connected Linear integration. Pass `team_id` (from
-            integrations-linear-teams-retrieve) and an optional `search` that matches names, case-insensitively.
-            Returns up to 100 users. Pass a returned id as `config.assignee` when creating an error tracking external
-            reference.
+            integrations-linear-teams-retrieve) and an optional `search` that matches names, case-insensitively. Returns
+            up to 100 users. Pass a returned id as `config.assignee` when creating an error tracking external reference.
     integrations-linear-teams-retrieve:
         operation: integrations_linear_teams_retrieve
         enabled: true
