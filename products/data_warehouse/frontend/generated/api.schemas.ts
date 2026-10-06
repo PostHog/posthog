@@ -3403,6 +3403,7 @@ export interface CredentialApi {
  * * `WhatsappBusinessManagement` - WhatsappBusinessManagement
  * * `WhoGho` - WhoGho
  * * `Whop` - Whop
+ * * `Wistia` - Wistia
  * * `Wiz` - Wiz
  * * `Wompi` - Wompi
  * * `Workiz` - Workiz
@@ -4771,6 +4772,7 @@ export const ExternalDataSourceTypeEnumApi = {
     WhatsappBusinessManagement: 'WhatsappBusinessManagement',
     WhoGho: 'WhoGho',
     Whop: 'Whop',
+    Wistia: 'Wistia',
     Wiz: 'Wiz',
     Wompi: 'Wompi',
     Workiz: 'Workiz',

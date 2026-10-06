@@ -2924,6 +2924,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "session",
                 "hogql",
                 "cohort",
@@ -6155,6 +6156,9 @@
                     },
                     "type": "array"
                 },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter"
+                },
                 "dateField": {
                     "anyOf": [
                         {
@@ -6764,6 +6768,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "group",
                 "session",
                 "hogql",
@@ -29387,6 +29392,10 @@
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown consumed by the {filters.breakdown(...)} placeholder. Set from the dashboard-level breakdown."
                 },
+                "compareFilter": {
+                    "$ref": "#/definitions/CompareFilter",
+                    "description": "Comparison range consumed by {filters.previous} and {filters.compareDate(expr)}."
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -39610,6 +39619,7 @@
                 "person",
                 "event",
                 "event_metadata",
+                "element",
                 "group",
                 "session",
                 "hogql",
