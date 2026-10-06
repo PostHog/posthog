@@ -47,13 +47,14 @@ class TestFetchSessionPersonProperties(ClickhouseTestMixin):
         assert "$geoip_city_name" not in properties
 
     @pytest.mark.django_db
-    def test_takes_every_location_field_from_the_earliest_located_event(self, team) -> None:
+    @pytest.mark.parametrize("unlocated", [{}, {"$geoip_country_code": ""}])
+    def test_takes_every_location_field_from_the_earliest_located_event(self, team, unlocated) -> None:
         # Per-field aggregates could mix events into a location no event carried.
         session_id = str(uuid7())
         _create_person(team_id=team.pk, distinct_ids=["user-1"], properties={})
         located = [
-            (_START, {}),
-            (_START + dt.timedelta(minutes=1), {"$geoip_country_code": "US", "$geoip_city_name": "Oakland"}),
+            (_START, unlocated),
+            (_START + dt.timedelta(minutes=1), {"$geoip_city_name": "Oakland"}),
             (_START + dt.timedelta(minutes=2), {"$geoip_country_code": "US", "$geoip_city_name": "Reno"}),
         ]
         for timestamp, geoip in located:

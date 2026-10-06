@@ -77,9 +77,9 @@ def _person_identity_query() -> str:
 
 
 def _geoip_select() -> str:
-    fields = ", ".join(f"properties.{escape_hogql_identifier(key)}" for key in SESSION_GEOIP_KEYS)
-    first = f"properties.{escape_hogql_identifier(SESSION_GEOIP_KEYS[0])}"
-    return f"argMinIf(tuple({fields}), timestamp, isNotNull({first})) AS {_GEOIP_COLUMN}"
+    fields = [f"properties.{escape_hogql_identifier(key)}" for key in SESSION_GEOIP_KEYS]
+    located = " OR ".join(f"notEmpty(coalesce({field}, ''))" for field in fields)
+    return f"argMinIf(tuple({', '.join(fields)}), timestamp, {located}) AS {_GEOIP_COLUMN}"
 
 
 # Module-level so the eval collector can run the identical query through the query API.
