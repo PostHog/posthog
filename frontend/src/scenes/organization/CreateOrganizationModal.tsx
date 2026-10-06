@@ -104,7 +104,20 @@ export function CreateOrganizationModal({
                 </LemonBanner>
             )}
             {showSeparateOrganizationNote && (
-                <LemonBanner type="warning" className="mb-4">
+                <LemonBanner
+                    type="warning"
+                    className="mb-4"
+                    action={
+                        isAtProjectLimit
+                            ? {
+                                  children: 'Upgrade current organization',
+                                  to: urls.organizationBilling(),
+                                  onClick: closeModal,
+                                  'data-attr': 'create-organization-upgrade-current-organization',
+                              }
+                            : undefined
+                    }
+                >
                     <p className="mb-2">
                         PostHog switches you to the new organization, which starts with one empty project. Your existing
                         projects stay in <strong>{currentOrganization?.name}</strong>. To go back, switch organizations
@@ -115,21 +128,10 @@ export function CreateOrganizationModal({
                         not apply to <strong>{currentOrganization?.name}</strong>.
                     </p>
                     {isAtProjectLimit && (
-                        <div className="mt-2">
-                            <p className="mb-2">
-                                <strong>{currentOrganization?.name}</strong> is at its project limit. To add more
-                                projects there, upgrade it instead.
-                            </p>
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                to={urls.organizationBilling()}
-                                onClick={closeModal}
-                                data-attr="create-organization-upgrade-current-organization"
-                            >
-                                Upgrade current organization
-                            </LemonButton>
-                        </div>
+                        <p className="mt-2 mb-0">
+                            <strong>{currentOrganization?.name}</strong> is at its project limit. To add more projects
+                            there, upgrade it instead.
+                        </p>
                     )}
                 </LemonBanner>
             )}
