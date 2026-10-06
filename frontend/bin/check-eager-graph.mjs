@@ -130,7 +130,11 @@ const ROOTS = [
         label: 'dashboard scene',
         // 2026-10-01: 12.25 MiB (4720 files), linked stylesheet included. ~10% headroom.
         budgetBytes: 14_130_000,
-        forbidden: [],
+        forbidden: [
+            // Only web analytics insights render this tile. A hit means a static import put the web
+            // analytics stack on every page that shows an insight.
+            'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+        ],
     },
     {
         root: [
@@ -151,7 +155,11 @@ const ROOTS = [
         label: 'events scene',
         // 2026-10-01: 11.48 MiB (4382 files), linked stylesheet included. ~10% headroom.
         budgetBytes: 13_250_000,
-        forbidden: [],
+        forbidden: [
+            // Only web analytics insights render this tile. A hit means a static import put the web
+            // analytics stack on every page that shows an insight.
+            'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+        ],
     },
     {
         root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
