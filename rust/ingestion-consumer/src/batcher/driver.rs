@@ -178,10 +178,11 @@ impl StateMachineDriver {
     pub(super) fn submit(&self, accumulator: Accumulator) -> u64 {
         let assignment_epoch = self.assignment_epoch.current();
         let runs = KeyRun::from_groups(accumulator.into_groups());
-        let unkeyed = runs
+        let unkeyed: usize = runs
             .iter()
             .filter(|run| run.messages.first().is_some_and(|m| m.key.is_none()))
-            .count();
+            .map(|run| run.messages.len())
+            .sum();
         if unkeyed > 0 {
             counter!("ingestion_consumer_dispatcher_unkeyed_messages_total")
                 .increment(unkeyed as u64);
