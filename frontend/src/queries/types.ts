@@ -6,7 +6,7 @@ import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
     CurrencyCode,
     DataTableNode,
-    DataVisualizationNode,
+    VisualizationNode,
     InsightActorsQuery,
     QuerySchema,
     RefreshType,
@@ -109,12 +109,12 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
 
 export type QueryContextColumnTitleComponent = ComponentType<{
     columnName: string
-    query: DataTableNode | DataVisualizationNode
+    query: DataTableNode | VisualizationNode
 }>
 
 export type QueryContextColumnComponent = ComponentType<{
     columnName: string
-    query: DataTableNode | DataVisualizationNode
+    query: DataTableNode | VisualizationNode
     record: unknown
     recordIndex: number
     rowCount: number

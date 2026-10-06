@@ -145,7 +145,7 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
 
 _ANNOUNCEMENT_SQL = f"""
 SELECT grouping_key, kind, episode_started_at, value, labels, condition_snapshot,
-       source_config_snapshot, error_message, alert_name, consecutive_failures
+       source_config_snapshot, error_message, occurred_at, alert_name, consecutive_failures
 FROM {PLATFORM_ALERT_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND configuration_id = %(configuration_id)s
@@ -191,13 +191,17 @@ def announcement(team_id: int, configuration_id: str, evaluation_key: str) -> Ev
             condition=_snapshot(condition_snapshot),
             source_config=_snapshot(source_config_snapshot),
             error_message=error_message or None,
+            occurred_at=occurred_at,
         )
-        for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, _, _ in rows
+        for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, _, _ in rows
     )
     # Evaluation-level, and the same on every row of one evaluation, so the first row carries it.
-    alert_name, consecutive_failures = rows[0][8], rows[0][9]
+    *_, alert_name, consecutive_failures = rows[0]
     return EvaluationAnnouncement(
-        alert_name=alert_name, consecutive_failures=consecutive_failures, transitions=transitions
+        configuration_id=configuration_id,
+        alert_name=alert_name,
+        consecutive_failures=consecutive_failures,
+        transitions=transitions,
     )
 
 

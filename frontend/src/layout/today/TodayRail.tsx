@@ -14,7 +14,7 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { TODAY_RAIL_ITEMS } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
-import { TODAY_RAIL_WIDTH, todayShellLogic } from './todayShellLogic'
+import { TODAY_RAIL_WIDTH, railPaneHref, todayShellLogic } from './todayShellLogic'
 
 function RailUtility({
     label,
@@ -61,7 +61,7 @@ export function TodayRail(): JSX.Element {
                 <div className="flex flex-1 items-center">
                     <Logomark className="h-auto w-6" />
                 </div>
-                <Separator className="w-11" />
+                <Separator />
             </div>
             {TODAY_RAIL_ITEMS.map(({ pane, label, icon }) => (
                 <TodayRailTile
@@ -69,6 +69,7 @@ export function TodayRail(): JSX.Element {
                     label={label}
                     icon={icon}
                     active={activePane === pane}
+                    to={railPaneHref(pane)}
                     onClick={() => pickPane(pane)}
                     dataAttr={`today-rail-${pane}`}
                 />
