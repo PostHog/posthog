@@ -272,8 +272,11 @@ the status comment lists them. An optional `suggestion_code` posts as a GitHub s
 comment covers exactly the finding's range.
 
 A Flash PR over 2,500 changed lines or 40 files (reviewable files only) falls back to the **pipeline design**
-(`reviewhog-flash-1-1`), the steps below. `FLASH_DESIGN_DEFAULT` is the rollback switch: set to
-`REVIEW_DESIGN_PIPELINE`, every Flash turn runs the pipeline. Full turns always run the pipeline.
+(`reviewhog-flash-1-1`), the steps below. The `reviewhog-flash-pipeline-kill-switch` feature flag (organization-keyed,
+read in the fetch activity by `reviewer/feature_flags.py`) moves Flash turns back to the pipeline without a deploy; a
+flag evaluation error reads as off. `FLASH_DESIGN_DEFAULT` is the code default. Full turns always run the pipeline.
+`reviewhog_review_started` reports the choice as `review_design` and its cause as `review_design_reason`
+(`full_mode`, `default`, `kill_switch`, `size_fallback`).
 
 ### Step-by-step (as orchestrated by `ReviewPRWorkflow`)
 

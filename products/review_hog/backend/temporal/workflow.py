@@ -546,6 +546,7 @@ class ReviewPRWorkflow:
                         review_mode=inputs.review_mode,
                         flash_reasoning_effort=acting.flash_reasoning_effort,
                         review_design=review_design,
+                        review_design_reason=meta.review_design_reason,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

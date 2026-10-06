@@ -55,6 +55,7 @@ from products.review_hog.backend.reviewer.constants import (
     select_review_design,
     validation_arm_for_mode,
 )
+from products.review_hog.backend.reviewer.feature_flags import flash_pipeline_kill_switch_on
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_authoring,
@@ -228,6 +229,8 @@ class ReviewMeta:
     pr_open: bool = True
     # Decided here so the workflow branches on a recorded result; older histories decode as the pipeline.
     review_design: str = REVIEW_DESIGN_PIPELINE
+    # Why the design was chosen, for the started event. Empty on histories from before it existed.
+    review_design_reason: str = ""
 
 
 @dataclass
@@ -495,6 +498,7 @@ class TrackReviewStartedInput:
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
     review_design: str = REVIEW_DESIGN_PIPELINE
+    review_design_reason: str = ""
 
 
 @frozen
@@ -686,11 +690,14 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         pr_comments=pr_comments,
         pr_files=pr_files,
     )
-    review_design = select_review_design(
+    # The flag is read here, never in the workflow, so a replay reads the recorded choice.
+    design_choice = select_review_design(
         input.review_mode,
         changed_lines=sum(f.additions + f.deletions for f in pr_files),
         changed_files=len(pr_files),
+        kill_switch_on=input.review_mode == REVIEW_MODE_FLASH and flash_pipeline_kill_switch_on(input.team_id),
     )
+    logger.info("Turn runs on the %s design (%s)", design_choice.design, design_choice.reason)
     if already_published or (
         input.trigger_source == TRIGGER_AUTOMATIC and (already_completed or pr_metadata.state != "open")
     ):
@@ -715,7 +722,8 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         empty_diff=pr_number is None and not pr_files,
         already_completed=already_completed,
         pr_open=pr_metadata.state == "open",
-        review_design=review_design,
+        review_design=design_choice.design,
+        review_design_reason=design_choice.reason,
     )
 
 
@@ -1636,6 +1644,7 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
                 flash_reasoning_effort=input.flash_reasoning_effort,
                 review_design=input.review_design,
             ),
+            "review_design_reason": input.review_design_reason or None,
             **_pr_size_properties(snapshot),
         },
         groups=groups(team=report.team),

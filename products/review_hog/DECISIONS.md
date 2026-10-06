@@ -221,9 +221,10 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
 - **Fallback.** A Flash PR over `FLASH_SINGLE_AGENT_MAX_CHANGED_LINES` (2,500 changed lines) or
   `FLASH_SINGLE_AGENT_MAX_FILES` (40 files), counted over the reviewable files, runs the Flash pipeline (`reviewhog-flash-1-1`).
   The single-chunk gate (400 added lines) was too small for a one-session review.
-- **Rollback.** No per-user or per-team switch. `FLASH_DESIGN_DEFAULT` is the kill switch: set it to
-  `REVIEW_DESIGN_PIPELINE` and deploy to move every Flash turn back. A PostHog feature flag was not used because the
-  review pipeline evaluates no flags today (only the API viewsets gate on `review-hog`).
+- **Rollback.** The `reviewhog-flash-pipeline-kill-switch` PostHog feature flag, evaluated per organization in the
+  fetch activity (never in workflow code, so a replay reads the recorded choice), moves Flash turns back to the pipeline
+  without a deploy. A flag evaluation error reads as off and keeps the single agent. `FLASH_DESIGN_DEFAULT` stays as the
+  code default. `reviewhog_review_started` carries `review_design_reason`.
 - **Decision point.** The fetch activity picks the design, so the workflow branches on a recorded activity result,
   behind the `flash-single-agent-2026-10` patch.
 - **Version and telemetry.** `REVIEWHOG_VERSIONS` is keyed by mode and design. The single-agent fingerprint hashes its
@@ -231,7 +232,8 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   and report no validator pins for a single-agent turn; cost lands on `$ai_generation` under `ai_stage=single-agent-review`.
 - **Known gaps.** The reviews API progress for a single-agent turn reads "Splitting into chunks" until dedup lands (the
   stage derivation knows only pipeline artefacts). The Code review drawer shows an empty "Suggested fix" panel and the
-  accept-as-found note as the validator note. The standalone `publish_review` command republishes with pipeline routing.
+  accept-as-found note as the validator note. The standalone `publish_review` command reads the turn's design from its
+  findings, and outcome classification counts single-agent P3 findings as not posted.
 
 ### ✅ BUILT 2026-09-11 — resolution replies: one verdict sentence, a divider, a few lines (feedback-driven)
 

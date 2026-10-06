@@ -2,6 +2,8 @@ import logging
 from dataclasses import dataclass, replace
 from enum import StrEnum
 
+from posthog.dataclasses import frozen
+
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.signals.backend.enums import ReportPriority
 from products.tasks.backend.facade.run_config import (
@@ -70,9 +72,9 @@ REVIEW_MODE_FLASH = "flash"
 REVIEW_DESIGN_PIPELINE = "pipeline"
 REVIEW_DESIGN_SINGLE_AGENT = "single_agent"
 
-# The design every Flash turn runs on. This is the rollback switch for the single-agent Flash
-# review: set it to REVIEW_DESIGN_PIPELINE and deploy to move every Flash turn back to the pipeline.
-# Full turns always run on the pipeline.
+# The design a Flash turn runs on by default. Full turns always run on the pipeline. The
+# `reviewhog-flash-pipeline-kill-switch` feature flag overrides it without a deploy
+# (`reviewer/feature_flags.py`); this constant is the code default the flag falls back to.
 FLASH_DESIGN_DEFAULT = REVIEW_DESIGN_SINGLE_AGENT
 
 # A Flash PR above either limit falls back to the pipeline, because the single agent receives the
@@ -80,14 +82,32 @@ FLASH_DESIGN_DEFAULT = REVIEW_DESIGN_SINGLE_AGENT
 FLASH_SINGLE_AGENT_MAX_CHANGED_LINES = 2500
 FLASH_SINGLE_AGENT_MAX_FILES = 40
 
+# Why a turn runs on its design. The review-started event reports it next to the design.
+REVIEW_DESIGN_REASON_FULL_MODE = "full_mode"
+REVIEW_DESIGN_REASON_DEFAULT = "default"
+REVIEW_DESIGN_REASON_KILL_SWITCH = "kill_switch"
+REVIEW_DESIGN_REASON_SIZE_FALLBACK = "size_fallback"
 
-def select_review_design(review_mode: str, *, changed_lines: int, changed_files: int) -> str:
+
+@frozen
+class ReviewDesignChoice:
+    design: str
+    reason: str
+
+
+def select_review_design(
+    review_mode: str, *, changed_lines: int, changed_files: int, kill_switch_on: bool
+) -> ReviewDesignChoice:
     """The design one turn runs on: the single agent for a Flash turn that fits in one prompt."""
-    if review_mode != REVIEW_MODE_FLASH or FLASH_DESIGN_DEFAULT != REVIEW_DESIGN_SINGLE_AGENT:
-        return REVIEW_DESIGN_PIPELINE
+    if review_mode != REVIEW_MODE_FLASH:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_FULL_MODE)
+    if kill_switch_on:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_KILL_SWITCH)
+    if FLASH_DESIGN_DEFAULT != REVIEW_DESIGN_SINGLE_AGENT:
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_DEFAULT)
     if changed_lines > FLASH_SINGLE_AGENT_MAX_CHANGED_LINES or changed_files > FLASH_SINGLE_AGENT_MAX_FILES:
-        return REVIEW_DESIGN_PIPELINE
-    return REVIEW_DESIGN_SINGLE_AGENT
+        return ReviewDesignChoice(design=REVIEW_DESIGN_PIPELINE, reason=REVIEW_DESIGN_REASON_SIZE_FALLBACK)
+    return ReviewDesignChoice(design=REVIEW_DESIGN_SINGLE_AGENT, reason=REVIEW_DESIGN_REASON_DEFAULT)
 
 
 # RELEASE VERSION, one per review mode and design, because each evolves on its own.

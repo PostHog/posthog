@@ -8,6 +8,7 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_SINGLE_AGENT_MAX_CHANGED_LINES,
     FLASH_SINGLE_AGENT_MAX_FILES,
     REVIEW_DESIGN_PIPELINE,
+    REVIEW_DESIGN_REASON_KILL_SWITCH,
     REVIEW_DESIGN_SINGLE_AGENT,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
@@ -73,11 +74,19 @@ class TestSelectReviewDesign:
     def test_single_agent_runs_only_flash_turns_that_fit_one_prompt(
         self, _name: str, review_mode: str, changed_lines: int, changed_files: int, expected: str
     ) -> None:
-        assert select_review_design(review_mode, changed_lines=changed_lines, changed_files=changed_files) == expected
+        choice = select_review_design(
+            review_mode, changed_lines=changed_lines, changed_files=changed_files, kill_switch_on=False
+        )
+        assert choice.design == expected
 
-    def test_the_kill_switch_moves_every_flash_turn_back_to_the_pipeline(self) -> None:
+    def test_the_kill_switch_flag_moves_a_fitting_flash_turn_back_to_the_pipeline(self) -> None:
+        choice = select_review_design(REVIEW_MODE_FLASH, changed_lines=1, changed_files=1, kill_switch_on=True)
+        assert (choice.design, choice.reason) == (REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_REASON_KILL_SWITCH)
+
+    def test_the_code_default_moves_every_flash_turn_back_to_the_pipeline(self) -> None:
         with patch("products.review_hog.backend.reviewer.constants.FLASH_DESIGN_DEFAULT", REVIEW_DESIGN_PIPELINE):
-            assert select_review_design(REVIEW_MODE_FLASH, changed_lines=1, changed_files=1) == REVIEW_DESIGN_PIPELINE
+            choice = select_review_design(REVIEW_MODE_FLASH, changed_lines=1, changed_files=1, kill_switch_on=False)
+            assert choice.design == REVIEW_DESIGN_PIPELINE
 
     @parameterized.expand(
         [
