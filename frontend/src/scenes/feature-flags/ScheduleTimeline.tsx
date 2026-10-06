@@ -23,7 +23,7 @@ const TOP_LABEL_LANE_OFFSET = 10
  */
 const STEP_LABEL_EDGE_PAD = 65
 
-function coveringLevel(projected: ScheduleProjectedState): string {
+function describeCoveringLevel(projected: ScheduleProjectedState): string {
     return projected.active
         ? `${projected.rolloutPercentage}% the flag already serves`
         : `${projected.rolloutPercentage}% set on this disabled flag`
@@ -41,7 +41,7 @@ function describeOccurrence(occurrence: ScheduleOccurrence): string {
         // Describe the condition this change adds, not the flag's projected max rollout: the change
         // appends a condition set, so an existing higher one would otherwise be misreported here.
         const added = `add a condition at ${addedRolloutPercentage}% rollout`
-        return occurrence.rolloutUnchanged ? `${added}, no change from the ${coveringLevel(projected)}` : added
+        return occurrence.rolloutUnchanged ? `${added}, no change from the ${describeCoveringLevel(projected)}` : added
     }
     return `switch to ${pluralize(occurrence.projected.variantCount ?? 0, 'variant')}`
 }
@@ -87,7 +87,7 @@ function markTitle(occurrence: ScheduleOccurrence): string {
     return [
         occurrence.needsApproval ? 'Needs approval' : '',
         occurrence.rolloutUnchanged
-            ? `This condition sits at ${occurrence.addedRolloutPercentage}%, at or below the ${coveringLevel(occurrence.projected)}`
+            ? `This condition sits at ${occurrence.addedRolloutPercentage}%, at or below the ${describeCoveringLevel(occurrence.projected)}`
             : '',
     ]
         .filter(Boolean)
@@ -332,7 +332,7 @@ export function ScheduleTimeline({
                                         <text
                                             x={x}
                                             y={topLabelY}
-                                            textAnchor="middle"
+                                            textAnchor={stepLabelAnchor(x)}
                                             fontSize={9}
                                             fill="var(--color-text-secondary)"
                                         >

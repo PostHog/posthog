@@ -158,6 +158,9 @@ describe('ScheduleTimeline', () => {
                 occurrences={[
                     step('2099-08-25T11:22:00Z', 25),
                     step('2099-08-27T12:22:00Z', 50),
+                    // 90 of the plan's 100 hours, so x is 530.8. That sits inside the end band at the
+                    // current pad and outside it at the old 30, which is what pins the constant.
+                    step('2099-08-29T04:22:00Z', 75),
                     step('2099-08-29T14:22:00Z', 100),
                 ]}
                 currentRolloutPercentage={10}
@@ -168,7 +171,7 @@ describe('ScheduleTimeline', () => {
         const anchors = Array.from(container.querySelectorAll('text'))
             .filter((node) => node.textContent?.includes('needs approval'))
             .map((node) => node.getAttribute('text-anchor'))
-        expect(anchors).toEqual(['start', 'middle', 'end'])
+        expect(anchors).toEqual(['start', 'middle', 'end', 'end'])
     })
 
     it('renders the step chart for two or more occurrences', () => {
