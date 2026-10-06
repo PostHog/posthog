@@ -14,6 +14,7 @@ interface PartnerBillingInvoiceTableProps extends PartnerBillingLogicProps {
     emptyState: string
     pagination?: PaginationManual
     showCharged?: boolean
+    chargedColumnTitle?: string
 }
 
 const CHARGED_COLUMN: LemonTableColumn<
@@ -34,6 +35,7 @@ export function PartnerBillingInvoiceTable({
     emptyState,
     pagination,
     showCharged = false,
+    chargedColumnTitle = 'Charged',
 }: PartnerBillingInvoiceTableProps): JSX.Element {
     const { organizationNames } = useValues(partnerBillingOrganizationsLogic({ applicationId }))
 
@@ -64,7 +66,7 @@ export function PartnerBillingInvoiceTable({
                     formatAmountCents(invoice.amount_cents, invoice.currency)
                 ) : null,
         },
-        ...(showCharged ? [CHARGED_COLUMN] : []),
+        ...(showCharged ? [{ ...CHARGED_COLUMN, title: chargedColumnTitle }] : []),
         {
             title: 'Status',
             key: 'status',

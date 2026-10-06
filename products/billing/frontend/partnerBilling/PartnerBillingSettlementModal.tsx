@@ -15,6 +15,7 @@ export function PartnerBillingSettlementModal({ applicationId }: PartnerBillingL
     const { openedSettlementId, openedSettlement, openedSettlementLoading, openedSettlementError } = useValues(logic)
     const { closeSettlement, openSettlement } = useActions(logic)
     const charge = openedSettlement ? formatSettlementCharge(openedSettlement) : null
+    const creditAmount = openedSettlement?.credit_amount_cents ?? 0
 
     return (
         <LemonModal
@@ -47,8 +48,18 @@ export function PartnerBillingSettlementModal({ applicationId }: PartnerBillingL
                         <PartnerBillingDetail label="Period">
                             {formatBillingPeriod(openedSettlement.period_start, openedSettlement.period_end)}
                         </PartnerBillingDetail>
+                        {creditAmount > 0 && openedSettlement.gross_amount_cents !== undefined && (
+                            <PartnerBillingDetail label="Invoice total">
+                                {formatAmountCents(openedSettlement.gross_amount_cents, openedSettlement.currency)}
+                            </PartnerBillingDetail>
+                        )}
+                        {creditAmount > 0 && (
+                            <PartnerBillingDetail label="Credits applied">
+                                {formatAmountCents(creditAmount, openedSettlement.currency)}
+                            </PartnerBillingDetail>
+                        )}
                         {openedSettlement.amount_cents !== undefined && (
-                            <PartnerBillingDetail label="Amount">
+                            <PartnerBillingDetail label={creditAmount > 0 ? 'Net charge' : 'Amount'}>
                                 {formatAmountCents(openedSettlement.amount_cents, openedSettlement.currency)}
                             </PartnerBillingDetail>
                         )}
@@ -73,6 +84,7 @@ export function PartnerBillingSettlementModal({ applicationId }: PartnerBillingL
                             loading={openedSettlementLoading}
                             emptyState="This settlement doesn't pay any invoices."
                             showCharged
+                            chargedColumnTitle={creditAmount > 0 ? 'Amount settled' : undefined}
                         />
                     </div>
                 </div>
