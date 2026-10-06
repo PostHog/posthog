@@ -115,7 +115,6 @@ export const manifest: ProductManifest = {
                     href: urls.errorTracking({ activeTab: 'recommendations' }),
                     flag: FEATURE_FLAGS.ERROR_TRACKING_RECOMMENDATIONS,
                 },
-                { name: 'Configuration', href: urls.errorTrackingConfiguration() },
             ],
             sceneKey: 'ErrorTracking',
         },

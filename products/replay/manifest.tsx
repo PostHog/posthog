@@ -54,10 +54,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.PRODUCT_ENGINEERING,
             href: urls.replay(ReplayTabs.Home),
             searchKeywords: ['recordings', 'session recording', 'playlists'],
-            searchTabs: [
-                { name: 'Collections', href: urls.replay(ReplayTabs.Playlists) },
-                { name: 'Settings', href: urls.replaySettings() },
-            ],
+            searchTabs: [{ name: 'Collections', href: urls.replay(ReplayTabs.Playlists) }],
             type: 'session_recording_playlist',
             iconType: 'session_replay',
             iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],

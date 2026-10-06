@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
 import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import type { LogsSceneActiveTab } from './frontend/logsSceneLogic'
 
 export const manifest: ProductManifest = {
     name: 'Logs',
@@ -79,7 +80,7 @@ export const manifest: ProductManifest = {
             combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
     },
     urls: {
-        logs: (): string => '/logs',
+        logs: (activeTab?: LogsSceneActiveTab): string => (activeTab ? `/logs?activeTab=${activeTab}` : '/logs'),
         logsAlertDetail: (id: string, tab?: string): string =>
             tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
         logsAlertNotificationDetail: (alertId: string, hogFunctionId: string): string =>
@@ -99,19 +100,17 @@ export const manifest: ProductManifest = {
             iconType: 'logs' as FileSystemIconType,
             iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
             href: urls.logs(),
-            searchKeywords: ['drop rules', 'sampling'],
             searchTabs: [
-                { name: 'Alerts', href: `${urls.logs()}?activeTab=alerts` },
-                { name: 'SQL', href: `${urls.logs()}?activeTab=sql` },
-                { name: 'Configuration', href: `${urls.logs()}?activeTab=configuration` },
+                { name: 'Alerts', href: urls.logs('alerts') },
+                { name: 'SQL', href: urls.logs('sql') },
                 {
                     name: 'Services',
-                    href: `${urls.logs()}?activeTab=services`,
+                    href: urls.logs('services'),
                     flag: FEATURE_FLAGS.LOGS_SERVICES_VIEW,
                 },
                 {
                     name: 'Anomalies',
-                    href: `${urls.logs()}?activeTab=anomalies`,
+                    href: urls.logs('anomalies'),
                     flag: FEATURE_FLAGS.LOGS_ANOMALIES,
                 },
             ],

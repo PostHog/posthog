@@ -188,7 +188,18 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.ANALYTICS,
             type: 'insight',
             href: urls.insights(),
-            searchKeywords: ['insights', 'trends', 'funnels', 'retention', 'charts'],
+            searchKeywords: [
+                'insights',
+                'trends',
+                'funnels',
+                'retention',
+                'paths',
+                'journeys',
+                'stickiness',
+                'lifecycle',
+                'calendar heatmap',
+                'charts',
+            ],
             searchTabs: [
                 { name: 'My insights', href: urls.savedInsights('yours') },
                 { name: 'Alerts', href: urls.alerts() },
@@ -210,7 +221,7 @@ export const manifest: ProductManifest = {
             searchTabs: [
                 {
                     name: 'Reusable widgets',
-                    href: `${urls.notebooks()}?tab=widgets`,
+                    href: urls.notebooks('widgets'),
                     flag: FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS,
                 },
             ],

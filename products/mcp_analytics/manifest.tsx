@@ -79,7 +79,7 @@ export const manifest: ProductManifest = {
             iconType: 'mcp_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-mcp-analytics-light)', 'var(--color-product-mcp-analytics-dark)'],
             href: urls.mcpAnalytics(),
-            searchKeywords: ['tool calls', 'model context protocol'],
+            searchKeywords: ['tool calls', 'model context protocol', 'plugins', 'connectors'],
             searchTabs: [
                 { name: 'Activity', href: urls.mcpAnalyticsActivity() },
                 { name: 'Sessions', href: urls.mcpAnalyticsSessions() },

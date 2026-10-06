@@ -457,11 +457,6 @@ export const manifest: ProductManifest = {
                 { name: 'Tools', href: urls.aiObservabilityTools() },
                 { name: 'Sentiment', href: urls.aiObservabilitySentiment() },
                 { name: 'Reviews', href: urls.aiObservabilityReviews() },
-                {
-                    name: 'Self-driving',
-                    href: urls.aiObservabilitySelfDriving(),
-                    flag: FEATURE_FLAGS.AI_OBSERVABILITY_SELF_DRIVING,
-                },
             ],
             sceneKey: 'AIObservability',
         },
@@ -484,7 +479,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_clusters' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-clusters-light)', 'var(--color-product-llm-clusters-dark)'],
             href: urls.aiObservabilityClusters(),
-            searchKeywords: ['topics', 'themes'],
+            searchKeywords: ['topics'],
             sceneKey: 'AIObservabilityClusters',
         },
         {

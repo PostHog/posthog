@@ -103,6 +103,7 @@ export const getCategoryDisplayName = (category: string): string => {
         'create-new': 'Create new',
         tools: 'Products',
         'data-management': 'Data management',
+        tabs: 'Tabs',
         settings: 'Settings',
         early_access_feature: 'Early access features',
         suggested: 'Suggested',

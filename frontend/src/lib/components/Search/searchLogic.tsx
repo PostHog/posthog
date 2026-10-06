@@ -139,7 +139,7 @@ const toSearchTabItems = (
                 id: `${parent.id}-tab-${tab.name}`,
                 name: `${displayNameOf(parent)} ${tab.name}`,
                 displayName: tab.name,
-                category: parent.category,
+                category: SEARCH_TAB_CATEGORY,
                 parentName: displayNameOf(parent),
                 href: tab.href,
                 itemType: parent.itemType,
@@ -187,6 +187,7 @@ export interface SearchLogicProps {
 }
 
 export const RECENTS_LIMIT = 5
+export const SEARCH_TAB_CATEGORY = 'tabs'
 /** Max starred shortcuts shown in quick search (folders excluded). */
 export const STARRED_LIMIT = 20
 const SEARCH_LIMIT = 5
@@ -1703,10 +1704,11 @@ export const searchLogic = kea<searchLogicType>([
                 })
 
                 // Filter products and data management by search
-                const filterCatalogBySearch = (items: SearchItem[]): SearchItem[] =>
-                    hasSearch ? filterSearchItems(items, search) : items.filter((item) => !item.parentName)
-                const filteredProducts = filterCatalogBySearch(productsItems)
-                const filteredDataManagement = filterCatalogBySearch(dataManagementItems)
+                const isSearchTab = (item: SearchItem): boolean => !!item.parentName
+                const withoutSearchTabs = (items: SearchItem[]): SearchItem[] =>
+                    items.filter((item) => !isSearchTab(item))
+                const filteredProducts = filterBySearch(withoutSearchTabs(productsItems))
+                const filteredDataManagement = filterBySearch(withoutSearchTabs(dataManagementItems))
 
                 // Show products if not searching or has matching results
                 if (!hasSearch || filteredProducts.length > 0) {
@@ -1732,6 +1734,17 @@ export const searchLogic = kea<searchLogicType>([
                     categories.push({
                         key: 'people',
                         items: filteredPeople,
+                        isLoading: false,
+                    })
+                }
+
+                const filteredSearchTabs = filterBySearch(
+                    [...productsItems, ...dataManagementItems].filter(isSearchTab)
+                )
+                if (hasSearch && filteredSearchTabs.length > 0) {
+                    categories.push({
+                        key: SEARCH_TAB_CATEGORY,
+                        items: filteredSearchTabs,
                         isLoading: false,
                     })
                 }

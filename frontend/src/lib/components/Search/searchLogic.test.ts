@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { searchLogic } from './searchLogic'
+import { SEARCH_TAB_CATEGORY, searchLogic } from './searchLogic'
 import { filterSearchItems } from './utils'
 
 /** Poll until a condition holds. The searches settle in no fixed order, so an ordered
@@ -198,12 +198,36 @@ describe('searchLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: flagEnabled })
         logic.actions.setSearch(search)
 
-        const dataManagement = logic.values.allCategories.find((category) => category.key === 'data-management')
-        const tabRow = dataManagement?.items.find((item) => item.href === urls.models('data-quality'))
+        const tabs = logic.values.allCategories.find((category) => category.key === SEARCH_TAB_CATEGORY)
+        const tabRow = tabs?.items.find((item) => item.href === urls.models('data-quality'))
         expect(tabRow ? { displayName: tabRow.displayName, parentName: tabRow.parentName } : undefined).toEqual(
             listed ? { displayName: 'Data quality', parentName: 'Models' } : undefined
         )
     })
+
+    it.each([
+        ['batch exports', '/data-management/destinations?tab=batch'],
+        ['metrics sql', '/metrics?activeTab=sql'],
+        ['dashboards cross-project', '/dashboard?tab=cross-project'],
+    ])('links the tab row found by %j to %s', (search, href) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS]: true })
+        logic.actions.setSearch(search)
+
+        const tabs = logic.values.allCategories.find((category) => category.key === SEARCH_TAB_CATEGORY)
+        expect(tabs?.items.map((item) => item.href)).toContain(href)
+    })
+
+    it.each([['errors', 'tools', 'Error tracking']])(
+        'ranks %j tab rows below the %s match %s',
+        (search, categoryKey, topItemName) => {
+            logic.actions.setSearch(search)
+
+            const keys = logic.values.allCategories.map((category) => category.key)
+            const topItem = logic.values.allCategories.find((category) => category.key === categoryKey)?.items[0]
+            expect(topItem?.name).toBe(topItemName)
+            expect(keys.indexOf(SEARCH_TAB_CATEGORY)).toBeGreaterThan(keys.indexOf(categoryKey))
+        }
+    )
 
     it.each([
         ['newflag', 'New Feature flag'],

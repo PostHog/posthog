@@ -28,7 +28,7 @@ import {
     TileFilters,
 } from '~/queries/schema/schema-general'
 import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
-import { ActivityScope } from '~/types'
+import { ActivityScope, ExperimentsTabs } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 
@@ -43,9 +43,13 @@ import type {
 } from '../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'
 import type { SourceSceneTab } from '../../products/data_warehouse/frontend/scenes/SourceScene/SourceScene'
 import { configurationRedirect, resolveSettingSlug } from '../../products/error_tracking/frontend/settingsRedirects'
+import type { LogsSceneActiveTab } from '../../products/logs/frontend/logsSceneLogic'
+import type { MetricsSceneActiveTab } from '../../products/metrics/frontend/metricsSceneLogic'
 import type { InboxTabKey } from '../../products/signals/frontend/inbox/types'
+import type { TracingSceneTab } from '../../products/tracing/frontend/tracingSceneLogic'
 import type { MessagingNavTabKey } from '../../products/workflows/frontend/messagingTabs'
 import type { WorkflowsSceneTab } from '../../products/workflows/frontend/WorkflowsScene'
+import type { DashboardsTab } from './scenes/dashboard/dashboards/dashboardsLogic'
 import {
     ActionType,
     AnnotationType,
@@ -1389,7 +1393,7 @@ export const productUrls = {
     customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,
     warehouseProperties: (tab?: WarehousePropertiesSceneTab): string =>
         `/data-management/warehouse-properties${tab ? `/${tab}` : ''}`,
-    dashboards: (): string => '/dashboard',
+    dashboards: (tab?: `${DashboardsTab}`): string => (tab ? `/dashboard?tab=${tab}` : '/dashboard'),
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
     dashboardTile: (id: string | number, tileId: string | number): string => `${urls.dashboard(id)}/tiles/${tileId}`,
@@ -1552,7 +1556,7 @@ export const productUrls = {
         const params = options ? toParams(options) : ''
         return params ? `${baseUrl}?${params}` : baseUrl
     },
-    experiments: (): string => '/experiments',
+    experiments: (tab?: ExperimentsTabs): string => (tab ? `/experiments?tab=${tab}` : '/experiments'),
     experimentsStaffTools: (): string => '/experiments/staff',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',
     experimentsSharedMetric: (id: string | number, action?: string): string =>
@@ -1598,7 +1602,7 @@ export const productUrls = {
     aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${encodeURIComponent(label)}` : ''}`,
     legalDocuments: (): string => '/legal',
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
-    logs: (): string => '/logs',
+    logs: (activeTab?: LogsSceneActiveTab): string => (activeTab ? `/logs?activeTab=${activeTab}` : '/logs'),
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
     logsAlertNotificationDetail: (alertId: string, hogFunctionId: string): string =>
@@ -1626,9 +1630,10 @@ export const productUrls = {
         `/mcp-servers/server/${id}${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`,
     mcpGatewayAgent: (id: string): string => `/mcp-servers/agent/${id}`,
     mcpGatewayMember: (id: string | number): string => `/mcp-servers/member/${id}`,
-    metrics: (): string => '/metrics',
+    metrics: (activeTab?: MetricsSceneActiveTab): string =>
+        activeTab ? `/metrics?activeTab=${activeTab}` : '/metrics',
     decisionPlayground: (): string => '/ml-inference/playground',
-    notebooks: (): string => '/notebooks',
+    notebooks: (tab?: 'widgets'): string => (tab ? `/notebooks?tab=${tab}` : '/notebooks'),
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
     reusableWidget: (widgetId: string): string => `/notebooks/widgets/${widgetId}`,
@@ -1736,6 +1741,7 @@ export const productUrls = {
     replayKiosk: (): string => '/replay/kiosk',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
+    replayVisionTab: (tab: 'search' | 'usage'): string => `/replay-vision?tab=${tab}`,
     replayVisionTemplates: (): string => '/replay-vision/new/template',
     replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
     replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
@@ -1779,7 +1785,7 @@ export const productUrls = {
     subscription: (id: string | number): string => `/subscriptions/${id}`,
     subscriptionNew: (): string => '/subscriptions/new',
     subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
-    surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
+    surveys: (tab?: `${SurveysTabs}`): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
     surveyWizard: (id: string = 'new', template?: string): string =>
@@ -1792,7 +1798,7 @@ export const productUrls = {
     taskSpaceNewSession: (id: string): string => `/spaces/${id}/new`,
     taskSpaceSettings: (id: string): string => `/spaces/${id}/settings`,
     toolbarLaunch: (): string => '/toolbar',
-    tracing: (): string => '/tracing',
+    tracing: (tab?: TracingSceneTab): string => (tab ? `/tracing?tab=${tab}` : '/tracing'),
     tracingOperation: (
         serviceName: string,
         spanName: string,
@@ -2226,7 +2232,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.TOOLS,
         type: 'autoresearch',
         href: urls.autoresearch(),
-        searchKeywords: ['predictions', 'churn prediction', 'propensity'],
+        searchKeywords: ['predictions', 'churn prediction'],
         flag: FEATURE_FLAGS.AUTORESEARCH,
         iconType: 'experiment',
         tags: ['alpha'],
@@ -2265,10 +2271,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.DATA,
         href: urls.businessKnowledge(),
         searchKeywords: ['knowledge base', 'company context'],
-        searchTabs: [
-            { name: 'Playground', href: urls.businessKnowledgePlayground() },
-            { name: 'Settings', href: urls.businessKnowledgeSettings() },
-        ],
+        searchTabs: [{ name: 'Playground', href: urls.businessKnowledgePlayground() }],
         tags: ['beta'],
         iconType: 'business_knowledge',
         iconColor: ['var(--color-product-business-knowledge-light)', 'var(--color-product-business-knowledge-dark)'],
@@ -2289,7 +2292,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_clusters' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-clusters-light)', 'var(--color-product-llm-clusters-dark)'],
         href: urls.aiObservabilityClusters(),
-        searchKeywords: ['topics', 'themes'],
+        searchKeywords: ['topics'],
         sceneKey: 'AIObservabilityClusters',
         sceneKeys: [
             'AIObservability',
@@ -2381,12 +2384,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'dashboard',
         iconColor: ['var(--color-product-dashboards-light)'],
         href: urls.dashboards(),
-        searchKeywords: ['boards'],
+        searchKeywords: ['boards', 'charts'],
         searchTabs: [
-            { name: 'My dashboards', href: `${urls.dashboards()}?tab=yours` },
+            { name: 'My dashboards', href: urls.dashboards('yours') },
             {
                 name: 'Cross-project dashboards',
-                href: `${urls.dashboards()}?tab=cross-project`,
+                href: urls.dashboards('cross-project'),
                 flag: FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS,
             },
         ],
@@ -2416,10 +2419,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.UNRELEASED,
         href: urls.dataOps(),
         searchKeywords: ['managed warehouse', 'data lake', 'lakehouse'],
-        searchTabs: [
-            { name: 'Monitoring', href: urls.dataOps('monitoring') },
-            { name: 'Settings', href: urls.dataOps('settings') },
-        ],
+        searchTabs: [{ name: 'Monitoring', href: urls.dataOps('monitoring') }],
         flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
         iconType: 'data_warehouse',
         iconColor: ['var(--color-product-data-warehouse-light)'],
@@ -2568,7 +2568,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
                 href: urls.errorTracking({ activeTab: 'recommendations' }),
                 flag: FEATURE_FLAGS.ERROR_TRACKING_RECOMMENDATIONS,
             },
-            { name: 'Configuration', href: urls.errorTrackingConfiguration() },
         ],
         sceneKey: 'ErrorTracking',
         sceneKeys: ['ErrorTracking', 'ErrorTrackingIssue', 'ErrorTrackingFingerprint'],
@@ -2623,9 +2622,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.experiments(),
         searchKeywords: ['a/b testing', 'ab test', 'split test'],
         searchTabs: [
-            { name: 'Shared metrics', href: `${urls.experiments()}?tab=shared-metrics` },
-            { name: 'Holdout groups', href: `${urls.experiments()}?tab=holdouts` },
-            { name: 'Settings', href: `${urls.experiments()}?tab=settings` },
+            { name: 'Shared metrics', href: urls.experiments(ExperimentsTabs.SharedMetrics) },
+            { name: 'Holdout groups', href: urls.experiments(ExperimentsTabs.Holdouts) },
         ],
         iconType: 'experiment',
         iconColor: ['var(--color-product-experiments-light)'] as FileSystemIconColor,
@@ -2686,7 +2684,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchTabs: [
             { name: 'Reports', href: urls.inbox('reports') },
             { name: 'Scouts', href: urls.inbox('scouts') },
-            { name: 'Settings', href: urls.inbox('settings') },
         ],
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
         tags: ['beta'],
@@ -2719,11 +2716,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Tools', href: urls.aiObservabilityTools() },
             { name: 'Sentiment', href: urls.aiObservabilitySentiment() },
             { name: 'Reviews', href: urls.aiObservabilityReviews() },
-            {
-                name: 'Self-driving',
-                href: urls.aiObservabilitySelfDriving(),
-                flag: FEATURE_FLAGS.AI_OBSERVABILITY_SELF_DRIVING,
-            },
         ],
         sceneKey: 'AIObservability',
         sceneKeys: [
@@ -2757,13 +2749,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)', 'var(--color-product-logs-dark)'] as FileSystemIconColor,
         href: urls.logs(),
-        searchKeywords: ['drop rules', 'sampling'],
         searchTabs: [
-            { name: 'Alerts', href: `${urls.logs()}?activeTab=alerts` },
-            { name: 'SQL', href: `${urls.logs()}?activeTab=sql` },
-            { name: 'Configuration', href: `${urls.logs()}?activeTab=configuration` },
-            { name: 'Services', href: `${urls.logs()}?activeTab=services`, flag: FEATURE_FLAGS.LOGS_SERVICES_VIEW },
-            { name: 'Anomalies', href: `${urls.logs()}?activeTab=anomalies`, flag: FEATURE_FLAGS.LOGS_ANOMALIES },
+            { name: 'Alerts', href: urls.logs('alerts') },
+            { name: 'SQL', href: urls.logs('sql') },
+            { name: 'Services', href: urls.logs('services'), flag: FEATURE_FLAGS.LOGS_SERVICES_VIEW },
+            { name: 'Anomalies', href: urls.logs('anomalies'), flag: FEATURE_FLAGS.LOGS_ANOMALIES },
         ],
         sceneKey: 'Logs',
         sceneKeys: [
@@ -2785,7 +2775,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'mcp_analytics' as FileSystemIconType,
         iconColor: ['var(--color-product-mcp-analytics-light)', 'var(--color-product-mcp-analytics-dark)'],
         href: urls.mcpAnalytics(),
-        searchKeywords: ['tool calls', 'model context protocol'],
+        searchKeywords: ['tool calls', 'model context protocol', 'plugins', 'connectors'],
         searchTabs: [
             { name: 'Activity', href: urls.mcpAnalyticsActivity() },
             { name: 'Sessions', href: urls.mcpAnalyticsSessions() },
@@ -2838,8 +2828,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.metrics(),
         searchKeywords: ['time series', 'counters', 'gauges'],
         searchTabs: [
-            { name: 'Explore', href: `${urls.metrics()}?activeTab=explore` },
-            { name: 'SQL', href: `${urls.metrics()}?activeTab=sql` },
+            { name: 'Explore', href: urls.metrics('explore') },
+            { name: 'SQL', href: urls.metrics('sql') },
         ],
         tags: ['alpha'],
         sceneKey: 'Metrics',
@@ -2856,7 +2846,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchTabs: [
             {
                 name: 'Reusable widgets',
-                href: `${urls.notebooks()}?tab=widgets`,
+                href: urls.notebooks('widgets'),
                 flag: FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS,
             },
         ],
@@ -2903,7 +2893,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.ANALYTICS,
         type: 'insight',
         href: urls.insights(),
-        searchKeywords: ['insights', 'trends', 'funnels', 'retention', 'charts'],
+        searchKeywords: [
+            'insights',
+            'trends',
+            'funnels',
+            'retention',
+            'paths',
+            'journeys',
+            'stickiness',
+            'lifecycle',
+            'calendar heatmap',
+            'charts',
+        ],
         searchTabs: [
             { name: 'My insights', href: urls.savedInsights('yours') },
             { name: 'Alerts', href: urls.alerts() },
@@ -2990,8 +2991,8 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.replayVision(),
         searchKeywords: ['scanners', 'observations'],
         searchTabs: [
-            { name: 'Search', href: `${urls.replayVision()}?tab=search` },
-            { name: 'Usage', href: `${urls.replayVision()}?tab=usage` },
+            { name: 'Search', href: urls.replayVisionTab('search') },
+            { name: 'Usage', href: urls.replayVisionTab('usage') },
         ],
         sceneKey: 'ReplayVision',
         sceneKeys: ['ReplayVision', 'ReplayVisionScanner'],
@@ -3004,7 +3005,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'sql_editor',
         iconColor: ['var(--color-product-data-warehouse-light)'],
         href: urls.sqlEditor(),
-        searchKeywords: ['hogql', 'query editor'],
+        searchKeywords: ['hogql', 'hogsql', 'query editor'],
         sceneKey: 'SQLEditor',
         sceneKeys: ['SQLEditor'],
     },
@@ -3014,10 +3015,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.PRODUCT_ENGINEERING,
         href: urls.replay(ReplayTabs.Home),
         searchKeywords: ['recordings', 'session recording', 'playlists'],
-        searchTabs: [
-            { name: 'Collections', href: urls.replay(ReplayTabs.Playlists) },
-            { name: 'Settings', href: urls.replaySettings() },
-        ],
+        searchTabs: [{ name: 'Collections', href: urls.replay(ReplayTabs.Playlists) }],
         type: 'session_recording_playlist',
         iconType: 'session_replay',
         iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
@@ -3046,7 +3044,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.MONITORING,
         href: urls.supportTickets(),
         searchKeywords: ['tickets', 'conversations', 'helpdesk', 'chat widget'],
-        searchTabs: [{ name: 'Settings', href: urls.supportSettings() }],
         type: 'conversations',
         iconType: 'conversations',
         iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'] as FileSystemIconColor,
@@ -3060,10 +3057,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         type: 'survey',
         href: urls.surveys(),
         searchKeywords: ['feedback', 'nps', 'csat', 'polls'],
-        searchTabs: [
-            { name: 'Notifications', href: `${urls.surveys()}?tab=notifications` },
-            { name: 'Settings', href: `${urls.surveys()}?tab=settings` },
-        ],
+        searchTabs: [{ name: 'Notifications', href: urls.surveys('notifications') }],
         iconType: 'survey',
         iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
         sceneKey: 'Surveys',
@@ -3138,7 +3132,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-tracing-light)', 'var(--color-product-tracing-dark)'] as FileSystemIconColor,
         href: urls.tracing(),
         searchKeywords: ['apm', 'spans', 'latency'],
-        searchTabs: [{ name: 'SQL', href: `${urls.tracing()}?tab=sql`, flag: FEATURE_FLAGS.TRACING_SCENE_TABS }],
+        searchTabs: [{ name: 'SQL', href: urls.tracing('sql'), flag: FEATURE_FLAGS.TRACING_SCENE_TABS }],
         flag: FEATURE_FLAGS.TRACING,
         sceneKey: 'Tracing',
         sceneKeys: ['Tracing', 'TracingOperation', 'TracingRetentionNew', 'TracingRetentionDetail'],
