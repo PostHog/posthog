@@ -96,7 +96,8 @@ async function logInToTestWorkspace(page, origin) {
         const setup = await fetch('/api/setup_test/organization_with_team/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ data: { skip_onboarding: true } }),
+            // Current time keeps the demo data inside the default date ranges of scenes such as replay.
+            body: JSON.stringify({ skip_onboarding: true, use_current_time: true }),
         })
         if (!setup.ok) {
             return { error: `setup_test returned ${setup.status}` }

@@ -2,7 +2,8 @@
 
 A feature reel is a short animated WebP of one UI flow, for a PR description.
 It is for a new action and its effect, when a screenshot of the end state hides the action, for example a menu that opens on right-click.
-`references/screenshots-and-reels.md` in `/writing-pr-descriptions` has the test and worked examples. Read it first, unless the user asked for this reel.
+When the user asked for this reel, make it.
+Otherwise, read `references/screenshots-and-reels.md` in `/writing-pr-descriptions` first. It has the test and worked examples.
 When a screenshot can show the change, take the screenshot and stop here.
 
 The reel is made from stills, not from a screen recording.
