@@ -122,7 +122,7 @@ export function CoveredRolloutRamp(): JSX.Element {
     return (
         <div className="max-w-3xl">
             <ScheduleTimeline
-                occurrences={[coveredRolloutStep(1, 25), coveredRolloutStep(3, 50), coveredRolloutStep(5, 100)]}
+                occurrences={[coveredRolloutStep(1, 25), coveredRolloutStep(2, 50), coveredRolloutStep(30, 100)]}
                 currentRolloutPercentage={100}
                 timezone="UTC"
             />

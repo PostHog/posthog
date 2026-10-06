@@ -144,6 +144,22 @@ describe('ScheduleTimeline', () => {
         }
     )
 
+    it('drops a step label that would overlap an earlier one on the same level', () => {
+        render(
+            <ScheduleTimeline
+                occurrences={[
+                    coveredStep(true, 25),
+                    coveredStep(true, 50, { timestamp: '2099-08-27T10:22:00Z' }),
+                    coveredStep(true, 75, { timestamp: '2099-09-24T10:22:00Z' }),
+                ]}
+                currentRolloutPercentage={100}
+                timezone="UTC"
+            />
+        )
+
+        expect(screen.getAllByText('still 100%')).toHaveLength(2)
+    })
+
     it('anchors a step label at its mark near either edge, so the text stays in the plot', () => {
         const step = (timestamp: string, rollout: number): ScheduleOccurrence =>
             occurrence({

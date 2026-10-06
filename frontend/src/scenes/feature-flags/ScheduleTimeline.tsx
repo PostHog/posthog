@@ -23,6 +23,12 @@ const TOP_LABEL_LANE_OFFSET = 10
  * from an edge, a centered label leaves the plot.
  */
 const STEP_LABEL_EDGE_PAD = 65
+/** Average width of one label character at the 9px size, taken from the 120-unit measure above. */
+const LABEL_CHAR_WIDTH = 4.5
+/** Two step labels whose baselines sit closer than the 9px label size share a row. */
+const STEP_LABEL_ROW_HEIGHT = 9
+
+type LabelAnchor = 'start' | 'middle' | 'end'
 
 function describeCoveringLevel(projected: ScheduleProjectedState): string {
     return projected.active
@@ -101,7 +107,7 @@ function stepLabel(occurrence: ScheduleOccurrence, rollout: number): string {
 }
 
 /** Near an edge a label ends or starts at its mark, because the SVG clips what leaves the viewBox. */
-function stepLabelAnchor(x: number): 'start' | 'middle' | 'end' {
+function stepLabelAnchor(x: number): LabelAnchor {
     if (x > MARGIN.left + PLOT_WIDTH - STEP_LABEL_EDGE_PAD) {
         return 'end'
     }
@@ -111,6 +117,18 @@ function stepLabelAnchor(x: number): 'start' | 'middle' | 'end' {
     return 'middle'
 }
 
+function labelExtent(x: number, anchor: LabelAnchor, text: string): { left: number; right: number } {
+    const width = text.length * LABEL_CHAR_WIDTH
+    const left = anchor === 'start' ? x : anchor === 'end' ? x - width : x - width / 2
+    return { left, right: left + width }
+}
+
+interface PlacedLabel {
+    text: string
+    y: number
+    anchor: LabelAnchor
+}
+
 /** Where each occurrence's marks and labels land, resolved before render so the JSX map stays pure. */
 interface OccurrenceLayout {
     x: number
@@ -118,6 +136,11 @@ interface OccurrenceLayout {
     timeLabel: string | null
     /** Alternates between two heights when top-lane markers land near the same x. */
     topLabelY: number
+    /**
+     * Null for a marker, and for a step label that would overlap an earlier one in its row. Steps on
+     * one level share a row. Nearby dates on a flat plan would otherwise stack their text.
+     */
+    placedStepLabel: PlacedLabel | null
 }
 
 /**
@@ -163,6 +186,7 @@ export function ScheduleTimeline({
     let lastTimeLabelX = -Infinity
     let lastTopLabelX = -Infinity
     let topLabelLane = 0
+    const shownStepLabels: { y: number; left: number; right: number }[] = []
     occurrences.forEach((occurrence, index) => {
         const x = xFor(times[index])
         const timeLabel = x - lastTimeLabelX >= TIME_LABEL_MIN_GAP ? relativeLabel(times[index], now) : null
@@ -170,10 +194,21 @@ export function ScheduleTimeline({
             lastTimeLabelX = x
         }
         let topLabelY = MARGIN.top - 8
-        const onStepLine =
-            occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition &&
-            occurrence.projected.rolloutPercentage !== null
-        if (!onStepLine) {
+        let placedStepLabel: PlacedLabel | null = null
+        const rollout = occurrence.projected.rolloutPercentage
+        if (occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition && rollout !== null) {
+            const text = stepLabel(occurrence, rollout)
+            const y = yForRollout(rollout) - 7
+            const anchor = stepLabelAnchor(x)
+            const { left, right } = labelExtent(x, anchor, text)
+            const collides = shownStepLabels.some(
+                (shown) => Math.abs(shown.y - y) < STEP_LABEL_ROW_HEIGHT && left < shown.right && right > shown.left
+            )
+            if (!collides) {
+                shownStepLabels.push({ y, left, right })
+                placedStepLabel = { text, y, anchor }
+            }
+        } else {
             // Two lanes clear the common case of a pair landing together. Three or more markers
             // inside one gap still overlap, because the lane alternates rather than tracks every
             // occupied slot. The occurrence cap keeps that rare.
@@ -181,7 +216,7 @@ export function ScheduleTimeline({
             lastTopLabelX = x
             topLabelY -= topLabelLane * TOP_LABEL_LANE_OFFSET
         }
-        layouts.push({ x, timeLabel, topLabelY })
+        layouts.push({ x, timeLabel, topLabelY, placedStepLabel })
     })
 
     // Step-line segments, split so an approval-blocked step dashes its jump and not its run.
@@ -283,7 +318,7 @@ export function ScheduleTimeline({
                     ))}
 
                     {occurrences.map((occurrence, index) => {
-                        const { x, timeLabel, topLabelY } = layouts[index]
+                        const { x, timeLabel, topLabelY, placedStepLabel } = layouts[index]
                         const blocked = occurrence.needsApproval
                         const isRolloutStep = occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition
                         const rollout = occurrence.projected.rolloutPercentage
@@ -310,15 +345,17 @@ export function ScheduleTimeline({
                                             strokeWidth={1.5}
                                             strokeDasharray={blocked ? '2 2' : undefined}
                                         />
-                                        <text
-                                            x={x}
-                                            y={yForRollout(rollout) - 7}
-                                            textAnchor={stepLabelAnchor(x)}
-                                            fontSize={9}
-                                            fill="var(--color-text-secondary)"
-                                        >
-                                            {stepLabel(occurrence, rollout)}
-                                        </text>
+                                        {placedStepLabel && (
+                                            <text
+                                                x={x}
+                                                y={placedStepLabel.y}
+                                                textAnchor={placedStepLabel.anchor}
+                                                fontSize={9}
+                                                fill="var(--color-text-secondary)"
+                                            >
+                                                {placedStepLabel.text}
+                                            </text>
+                                        )}
                                     </>
                                 ) : (
                                     <>
