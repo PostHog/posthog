@@ -29,6 +29,10 @@ const FIRST_LOAD_TIMEOUT_MS = 300_000
 const STEP_TIMEOUT_MS = 20_000
 const QUIET_MS = 1500
 const SETTLE_MS = 600
+// Workspace setup generates demo data, which takes seconds on a healthy stack.
+const SETUP_TIMEOUT_MS = 120_000
+// setup_test creates users and a full-scope API key, so it must never reach another instance.
+const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]']
 
 function locate(page, target) {
     let scope = page.locator('body')
@@ -92,27 +96,39 @@ async function act(page, action, point) {
 // so Django's CSRF check sees the page's cookies. Works only on a local stack with DEBUG.
 async function logInToTestWorkspace(page, origin) {
     await page.goto(`${origin}/login`, { timeout: FIRST_LOAD_TIMEOUT_MS })
-    const result = await page.evaluate(async () => {
-        const setup = await fetch('/api/setup_test/organization_with_team/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+    const result = await page.evaluate(async (timeoutMs) => {
+        const post = (path, body) =>
+            fetch(path, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+                signal: AbortSignal.timeout(timeoutMs),
+            })
+        let setup
+        try {
             // Current time keeps the demo data inside the default date ranges of scenes such as replay.
-            body: JSON.stringify({ skip_onboarding: true, use_current_time: true }),
-        })
+            setup = await post('/api/setup_test/organization_with_team/', {
+                skip_onboarding: true,
+                use_current_time: true,
+            })
+        } catch (error) {
+            return { error: `setup_test failed: ${error.name}` }
+        }
         if (!setup.ok) {
             return { error: `setup_test returned ${setup.status}` }
         }
         const workspace = (await setup.json()).result
-        const login = await fetch('/api/login/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: workspace.user_email, password: '12345678' }),
-        })
+        let login
+        try {
+            login = await post('/api/login/', { email: workspace.user_email, password: '12345678' })
+        } catch (error) {
+            return { error: `login failed: ${error.name}` }
+        }
         if (!login.ok) {
             return { error: `login returned ${login.status}` }
         }
         return { teamId: workspace.team_id }
-    })
+    }, SETUP_TIMEOUT_MS)
     if (result.error) {
         throw new Error(`Could not create the test workspace: ${result.error}. Is this a local stack with DEBUG?`)
     }
@@ -130,6 +146,14 @@ async function main() {
     for (const step of shotList.steps) {
         if (!ACTIONS.includes(step.action)) {
             throw new Error(`Unknown action "${step.action}". Use ${ACTIONS.join(', ')}.`)
+        }
+    }
+    if (shotList.testWorkspace) {
+        if (!LOOPBACK_HOSTS.includes(new URL(shotList.url).hostname)) {
+            throw new Error('testWorkspace needs a url on localhost, so setup never reaches another instance.')
+        }
+        if (!shotList.url.includes('{team_id}')) {
+            throw new Error('testWorkspace needs {team_id} in the url, so the reel opens the demo workspace.')
         }
     }
     mkdirSync(outDir, { recursive: true })

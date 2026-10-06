@@ -82,7 +82,7 @@ Prose is the slowest form on the page. Before writing a sentence, ask what carri
 | The fact you have                                                                    | The form that carries it                                  |
 | ------------------------------------------------------------------------------------ | --------------------------------------------------------- |
 | A visual change (any UI a person sees)                                               | Screenshot, before and after. Mandatory, not optional     |
-| A new action and its effect, which one screenshot cannot show                        | A feature reel, under the bar in "Screenshots and reels"  |
+| A new action and its effect, which one screenshot cannot show                        | A feature reel in place of the "after" screenshot         |
 | A change to a flow or topology (CI wiring, pipelines, state machines, request paths) | Two branded `flowchart` blocks, before first              |
 | Several values compared across the same dimensions                                   | A markdown table                                          |
 | A config or setting change                                                           | A fenced `diff` block                                     |
