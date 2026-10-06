@@ -166,9 +166,11 @@ function CommandKSearchRowInner({ row, highlighted }: CommandKSearchRowProps): J
                 disabledReason && 'opacity-50 cursor-not-allowed'
             )}
             // Keep focus in the input so typing continues after a click.
-            onMouseDown={(event) => event.preventDefault()}
+            onMouseDown={(event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault()}
             onMouseMove={() => !highlighted && setHighlightedKey(row.key)}
-            onClick={(event) => activateRow(row, event.metaKey || event.ctrlKey, 'click')}
+            onClick={(event: React.MouseEvent<HTMLButtonElement>) =>
+                activateRow(row, event.metaKey || event.ctrlKey, 'click')
+            }
         >
             <span className="flex w-full min-w-0 items-center gap-1.5">
                 <RowContent row={row} />

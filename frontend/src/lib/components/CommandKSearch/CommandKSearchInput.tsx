@@ -78,7 +78,7 @@ export function CommandKSearchInput(): JSX.Element {
                                 'flex max-w-60 shrink-0 items-center rounded-xs text-sm leading-none text-foreground',
                                 selectedChipIndex === index && 'ring-2 ring-ring'
                             )}
-                            onMouseDown={(event) => event.preventDefault()}
+                            onMouseDown={(event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault()}
                             onClick={() => selectChip(index)}
                         >
                             <span className="shrink-0">
@@ -109,7 +109,7 @@ export function CommandKSearchInput(): JSX.Element {
                     onPaste={() => {
                         pastingRef.current = true
                     }}
-                    onChange={(event) => {
+                    onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
                         const pasted = pastingRef.current
                         pastingRef.current = false
                         inputChanged(
@@ -118,7 +118,7 @@ export function CommandKSearchInput(): JSX.Element {
                             pasted
                         )
                     }}
-                    onSelect={(event) => {
+                    onSelect={(event: React.SyntheticEvent<HTMLInputElement>) => {
                         const nextCursor = event.currentTarget.selectionStart ?? 0
                         if (nextCursor !== cursor) {
                             setCursor(nextCursor)
@@ -133,7 +133,7 @@ export function CommandKSearchInput(): JSX.Element {
                             variant="secondary"
                             tabIndex={-1}
                             data-attr="command-k-ask-ai"
-                            onMouseDown={(event) => event.preventDefault()}
+                            onMouseDown={(event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault()}
                             onClick={() => askAi()}
                         >
                             <IconSparkles />
@@ -147,7 +147,7 @@ export function CommandKSearchInput(): JSX.Element {
                             aria-label="Clear search"
                             data-attr="command-k-clear"
                             className="mr-1"
-                            onMouseDown={(event) => event.preventDefault()}
+                            onMouseDown={(event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault()}
                             onClick={() => clearQuery()}
                         >
                             <IconX />

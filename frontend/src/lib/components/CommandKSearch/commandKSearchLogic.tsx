@@ -275,7 +275,7 @@ export interface commandKSearchLogicMeta {
         suggestionsSection: (
             cursorContext: CursorContext,
             filterOptions: FilterOptions,
-            members: any,
+            members: OrganizationMemberType[] | null,
             folders: FileSystemEntry[] | null
         ) => CommandKSection | null
         recentItems: (recents: FileSystemEntry[]) => SearchItem[]

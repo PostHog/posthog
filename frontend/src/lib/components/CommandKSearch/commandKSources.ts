@@ -13,10 +13,11 @@ import { uuid } from 'lib/utils/dom'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
 
 import type { Noun } from '~/models/groupsModel'
-import { GroupType, GroupTypeIndex, PersonType } from '~/types'
+import { GroupType, GroupTypeIndex } from '~/types'
 
 import { conversationsTicketsList } from 'products/conversations/frontend/generated/api'
 import { accountsList } from 'products/customer_analytics/frontend/generated/api'
+import { personsList } from 'products/persons/frontend/generated/api'
 
 export const RESULTS_LIMIT = 20
 export const SECONDARY_LIMIT = 5
@@ -56,7 +57,7 @@ export interface RemoteRequest {
     fetch: (query: string, signal: AbortSignal, context: RemoteContext) => Promise<RemoteResults>
 }
 
-const fetchPersons = async (term: string, signal: AbortSignal): Promise<RemoteResults> => {
+const fetchPersons = async (term: string, signal: AbortSignal, context: RemoteContext): Promise<RemoteResults> => {
     const clientQueryId = uuid()
     let finished = false
     // Aborting the request does not stop the ClickHouse query, so cancel it by id.
@@ -67,15 +68,12 @@ const fetchPersons = async (term: string, signal: AbortSignal): Promise<RemoteRe
     }
     signal.addEventListener('abort', cancel, { once: true })
     try {
-        const response = await api.persons.list(
+        const response = await personsList(
+            String(context.currentTeamId),
             { search: term, limit: SECONDARY_LIMIT, client_query_id: clientQueryId },
             { signal }
         )
-        return {
-            persons: response.results
-                .filter((person): person is PersonType & { uuid: string } => !!person.uuid)
-                .map(personToSearchItem),
-        }
+        return { persons: (response.results ?? []).filter((person) => !!person.uuid).map(personToSearchItem) }
     } finally {
         finished = true
         signal.removeEventListener('abort', cancel)
@@ -85,6 +83,9 @@ const fetchPersons = async (term: string, signal: AbortSignal): Promise<RemoteRe
 const fetchGroups = async (term: string, signal: AbortSignal, context: RemoteContext): Promise<RemoteResults> => {
     const settled = await Promise.allSettled(
         context.groupTypes.map((groupType) =>
+            // The generated groupsList is a different endpoint (Postgres REST). This ClickHouse
+            // GroupsQuery matches what the current palette searches, so results stay the same.
+            // nosemgrep: prefer-codegen-api-namespaced-groups
             api.groups.listClickhouse(
                 { group_type_index: groupType.group_type_index, search: term, limit: SECONDARY_LIMIT },
                 { signal }

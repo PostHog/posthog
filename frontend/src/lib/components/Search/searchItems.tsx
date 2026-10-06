@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { getTreeItemsProducts } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
-import { FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
+import { FileSystemIconColor, GroupTypeIndex, SearchResponse } from '~/types'
 
 import type { TicketApi } from 'products/conversations/frontend/generated/api.schemas'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -226,9 +226,17 @@ const LEADING_CREATE_WORD = /^\s*create\b/i
 export const filterNewItems = (newItems: SearchItem[], search: string): SearchItem[] =>
     filterSearchItems(newItems, search.replace(LEADING_CREATE_WORD, 'new'))
 
-export const personToSearchItem = (person: PersonType & { uuid: string }): SearchItem => {
+/** Structural, so a person from the legacy API and one from the generated client both fit. */
+interface SearchablePerson {
+    uuid: string
+    distinct_ids?: readonly string[]
+    properties?: unknown
+}
+
+export const personToSearchItem = (person: SearchablePerson): SearchItem => {
     const personId = person.distinct_ids?.[0] || person.uuid
-    const displayName = safeString(person.properties?.email) || safeString(person.properties?.name) || String(personId)
+    const properties = (person.properties ?? {}) as Record<string, unknown>
+    const displayName = safeString(properties.email) || safeString(properties.name) || String(personId)
     return {
         id: `person-${person.uuid}`,
         name: displayName,
