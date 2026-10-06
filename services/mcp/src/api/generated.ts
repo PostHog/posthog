@@ -91185,6 +91185,13 @@ export namespace Schemas {
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
     export interface SignalNode {
+      /**
+         * Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked signals.
+         * @nullable
+         */
+      readonly total_spend: number | null;
+      /** Pipeline stages with generations whose spend could not be accounted for. Cleared when accounting recovers. */
+      readonly spend_accounting_failed_stages: readonly string[];
       /** ClickHouse document id of the signal. */
       signal_id: string;
       /** The signal's human-readable description. */
@@ -96568,6 +96575,11 @@ export namespace Schemas {
      * LLMA token-cost join) can land here without bloating the list response.
      */
     export interface SignalScoutRunDetail {
+      /**
+         * Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked runs.
+         * @nullable
+         */
+      readonly total_spend: number | null;
       /** UUID of the bridge row. */
       run_id: string;
       /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
@@ -96667,6 +96679,11 @@ export namespace Schemas {
      * Status and timestamps flow from the linked `tasks.TaskRun`.
      */
     export interface SignalScoutRunSummary {
+      /**
+         * Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked runs.
+         * @nullable
+         */
+      readonly total_spend: number | null;
       /** UUID of the bridge row. */
       run_id: string;
       /** Canonical skill name the run executed (e.g. `signals-scout-general`). */

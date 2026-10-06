@@ -16,6 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.embedding_worker import DocumentKey, async_get_recently_seen_documents, emit_embedding_request
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -29,6 +30,7 @@ from products.signals.backend.signal_metadata import (
     _report_placeholders,
     _signals_for_report_query,
 )
+from products.signals.backend.spend import signal_spend_summaries
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.types import SignalCandidate, SignalData, SignalTypeExample
@@ -573,6 +575,13 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
         )
 
         signals = [_parse_signal_row(row) for row in (result.results or [])]
+        summaries = await database_sync_to_async(signal_spend_summaries)(
+            team_id=input.team_id, signal_ids=[s.signal_id for s in signals]
+        )
+        for signal in signals:
+            if summary := summaries.get(signal.signal_id):
+                signal.metadata["total_spend"] = summary.total_spend
+                signal.metadata["spend_accounting_failed_stages"] = summary.failed_stages
 
         logger.debug(
             f"Fetched {len(signals)} signals for report {input.report_id}",

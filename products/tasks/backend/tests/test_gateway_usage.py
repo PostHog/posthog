@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+from uuid import UUID
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
@@ -10,7 +11,13 @@ from django.utils import timezone
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
-from products.tasks.backend.facade.billing import TaskRunCost, get_task_cost, get_task_run_cost
+from products.tasks.backend.facade.billing import (
+    TaskRunCost,
+    get_task_cost,
+    get_task_run_cost,
+    get_task_run_token_cost_microusd,
+)
+from products.tasks.backend.facade.task_run_signals import task_run_cost_updated
 from products.tasks.backend.logic.services.gateway_usage import (
     process_pending_gateway_usage,
     record_gateway_routing,
@@ -55,6 +62,14 @@ class TestGatewayUsage(BaseTest):
     @patch("aiohttp.ClientSession._request")
     def test_records_cost_by_model_and_provider_and_removes_processed_ids(self, get: Mock) -> None:
         run = self._run()
+        observed_costs: dict[UUID, int | None] = {}
+
+        def cost_updated(*, run_id: UUID, team_id: int, **kwargs: object) -> None:
+            assert team_id == self.team.id
+            observed_costs[run_id] = get_task_run_token_cost_microusd(team_id=team_id, run_id=run_id)
+
+        task_run_cost_updated.connect(cost_updated, sender=TaskRun)
+        self.addCleanup(task_run_cost_updated.disconnect, cost_updated, sender=TaskRun)
         self._report(run, ["parent", "subagent", "other-model", "second-turn", "parent"])
         get.side_effect = [
             self._response("parent", "0.005"),
@@ -63,6 +78,7 @@ class TestGatewayUsage(BaseTest):
             self._response("second-turn", "0.005"),
         ]
         assert self._process(run).token_cost == 2
+        assert observed_costs == {run.id: 20_010}
         assert get.call_count == 4
         assert get.call_args.kwargs["timeout"].total == 15
         run.refresh_from_db()

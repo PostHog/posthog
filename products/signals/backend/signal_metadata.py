@@ -23,6 +23,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.signals.backend.spend import signal_spend_summaries
+
 # Cap on the signal rows one merge re-points from a source onto its survivor. The move neither
 # pages nor retries, so `report_merge` refuses a source above the cap rather than leaving the
 # remainder pointing at an archived report while the survivor's counters already include them.
@@ -490,10 +492,14 @@ def fetch_signals_for_report_sync(team: Team, report_id: str, newest: int | None
         context=_signals_query_context(team),
     )
 
+    summaries = signal_spend_summaries(team_id=team.id, signal_ids=[row[0] for row in result.results or []])
     signals_list = []
     for row in result.results or []:
         document_id, content, metadata_str, timestamp, _inserted_at = row
         metadata = json.loads(metadata_str)
+        if summary := summaries.get(document_id):
+            metadata["total_spend"] = summary.total_spend
+            metadata["spend_accounting_failed_stages"] = summary.failed_stages
         signals_list.append(
             {
                 "signal_id": document_id,
@@ -505,6 +511,8 @@ def fetch_signals_for_report_sync(team: Team, report_id: str, newest: int | None
                 "timestamp": timestamp,
                 "extra": metadata.get("extra", {}),
                 "match_metadata": metadata.get("match_metadata"),
+                "total_spend": metadata.get("total_spend"),
+                "spend_accounting_failed_stages": metadata.get("spend_accounting_failed_stages", []),
             }
         )
 

@@ -84,6 +84,7 @@ from products.signals.backend.scout_harness.workflow_runs import (
     start_workflow_scout_run as start_workflow_scout_run,
 )
 from products.signals.backend.signal_metadata import SourceSliceSignalStats, fetch_signal_stats_for_source_slice
+from products.signals.backend.spend import signal_id_for
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
@@ -743,6 +744,7 @@ async def emit_signal(
     extra: dict | None = None,
     remediation: SignalRemediation | None = None,
     idempotency_key: str | None = None,
+    signal_id: str | None = None,
 ) -> None:
     """
     Emit a signal for grouping and potential report generation, fire-and-forget.
@@ -857,6 +859,10 @@ async def emit_signal(
             source_id=source_id,
         )
 
+    signal_id = signal_id or signal_id_for(
+        team_id=team.id, source_product=source_product, source_type=source_type, idempotency_key=idempotency_key
+    )
+
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
     # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
     if (source_product, source_type) in DIRECT_STEERABLE_SOURCES:
@@ -865,6 +871,7 @@ async def emit_signal(
         from products.signals.backend.emission.direct_gate import steering_filters_signal  # noqa: PLC0415
 
         if await steering_filters_signal(
+            signal_id=signal_id,
             team=team,
             organization=organization,
             source_product=source_product,
@@ -879,6 +886,7 @@ async def emit_signal(
     client = await async_connect()
 
     signal_input = EmitSignalInputs(
+        signal_id=signal_id,
         team_id=team.id,
         source_product=source_product,
         source_type=source_type,

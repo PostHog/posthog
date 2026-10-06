@@ -5,12 +5,13 @@ import asyncio
 import dataclasses
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from anthropic import AsyncAnthropic
+from anthropic import APIResponseValidationError, AsyncAnthropic
 from anthropic.types import MessageParam
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -30,6 +31,7 @@ from products.signals.backend.emission.registry import (
 from products.signals.backend.emission.steering import SourceSteering, apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.models import SignalEmissionRecord
+from products.signals.backend.spend import record_llm_request, signal_id_for
 from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
@@ -186,7 +188,7 @@ def build_emitter_outputs(
                     output,
                     extra={k: v.isoformat() if isinstance(v, datetime) else v for k, v in output.extra.items()},
                 )
-            outputs.append(output)
+            outputs.append(dataclasses.replace(output, signal_id=output.signal_id or str(uuid4())))
     return outputs, error_count
 
 
@@ -198,8 +200,12 @@ async def _summarize_description(
     threshold: int,
     gateway_mode: bool | None = None,
 ) -> SignalEmitterOutput:
+    on_go_gateway = gateway_mode if gateway_mode is not None else resolve_ai_gateway_config() is not None
     messages: list[MessageParam] = [
-        {"role": "user", "content": summarization_prompt.format(description=output.description, max_length=threshold)}
+        {
+            "role": "user",
+            "content": summarization_prompt.format(description=output.description, max_length=threshold),
+        }
     ]
     extra_headers = _signals_extra_headers(output, stage="summarization", gateway_mode=gateway_mode, team_id=team_id)
     for attempt in range(LLM_MAX_ATTEMPTS):
@@ -218,6 +224,12 @@ async def _summarize_description(
                 ),
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
+            await database_sync_to_async(record_llm_request)(
+                getattr(response, "_request_id", None) if on_go_gateway else None,
+                team_id=team_id,
+                signal_id=output.signal_id,
+                stage="summarization",
+            )
             summary = _extract_text(response).strip()
             if response.stop_reason == "max_tokens":
                 raise ValueError("LLM summary response was truncated due to token limit")
@@ -227,6 +239,15 @@ async def _summarize_description(
                 raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
             return dataclasses.replace(output, description=summary)
         except Exception as e:
+            if isinstance(e, (APIResponseValidationError, json.JSONDecodeError)):
+                await database_sync_to_async(record_llm_request)(
+                    e.response.headers.get("x-request-id")
+                    if on_go_gateway and isinstance(e, APIResponseValidationError)
+                    else None,
+                    team_id=team_id,
+                    signal_id=output.signal_id,
+                    stage="summarization",
+                )
             posthoganalytics.capture_exception(
                 e,
                 properties={
@@ -337,6 +358,7 @@ async def check_actionability(
     Shared with the direct-source gate in `direct_gate.py`, which judges a single signal that never
     entered this batch pipeline.
     """
+    on_go_gateway = gateway_mode if gateway_mode is not None else resolve_ai_gateway_config() is not None
     description = output.description
     # Steering rules often reference metadata (labels, state, priority) that emitters keep in `extra`
     # rather than in the description, so the steered gate sees all of it. An unsteered gate sees only
@@ -383,9 +405,24 @@ async def check_actionability(
                     ),
                     timeout=LLM_CALL_TIMEOUT_SECONDS,
                 )
+                await database_sync_to_async(record_llm_request)(
+                    getattr(response, "_request_id", None) if on_go_gateway else None,
+                    team_id=team_id,
+                    signal_id=output.signal_id,
+                    stage="actionability",
+                )
                 response_text = _extract_text(response).strip().upper()
                 return "NOT_ACTION" not in response_text
             except Exception as e:
+                if isinstance(e, (APIResponseValidationError, json.JSONDecodeError)):
+                    await database_sync_to_async(record_llm_request)(
+                        e.response.headers.get("x-request-id")
+                        if on_go_gateway and isinstance(e, APIResponseValidationError)
+                        else None,
+                        team_id=team_id,
+                        signal_id=output.signal_id,
+                        stage="actionability",
+                    )
                 posthoganalytics.capture_exception(
                     e,
                     properties={
@@ -556,6 +593,7 @@ async def _emit_signals(
                     )
                     output = without_extra
                 await emit_signal(
+                    signal_id=output.signal_id,
                     team=team,
                     source_product=output.source_product,
                     source_type=output.source_type,
@@ -624,6 +662,19 @@ async def run_signal_pipeline(
         emitter=config.emitter,
         unloggable_fields=config.unloggable_fields,
     )
+    if config.record_processed_outputs:
+        outputs = [
+            dataclasses.replace(
+                output,
+                signal_id=signal_id_for(
+                    team_id=team.id,
+                    source_product=output.source_product,
+                    source_type=output.source_type,
+                    idempotency_key=output.source_id,
+                ),
+            )
+            for output in outputs
+        ]
     # Only fail if every record raised — emitters may return None as a benign skip,
     # so a mix of skips and errors should fall through to the no_actionable_records path.
     if error_count == len(records):
