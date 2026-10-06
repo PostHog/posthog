@@ -242,6 +242,10 @@ class RecordingTargetSerializer(DataclassSerializer):
         allow_null=True, help_text="Where the player starts, a few seconds before the finding."
     )
     offset = serializers.CharField(allow_null=True, help_text="The finding's time in the recording, as MM:SS.")
+    seek_seconds = serializers.IntegerField(
+        allow_null=True,
+        help_text="Where the player starts, in seconds from the recording start. Null without an offset.",
+    )
 
     class Meta:
         dataclass = RecordingTarget
@@ -287,9 +291,10 @@ class ImpactNumberSerializer(DataclassSerializer):
     )
     value = serializers.CharField(help_text="The number as shown, such as '2' or '1 hour'.")
     sentence = serializers.CharField(help_text="The sentence that follows the number.")
-    signal_id = serializers.CharField(allow_null=True, help_text="The signal the number comes from, if one does.")
-    excerpt = serializers.CharField(help_text="That signal as one short line.")
-    values = serializers.ListField(child=serializers.CharField(), help_text="The figures in the excerpt to mark.")
+    signal = SignalViewSerializer(allow_null=True, help_text="The signal the number comes from, if one does.")
+    values = serializers.ListField(
+        child=serializers.CharField(), help_text="The figures in the signal's headline to mark."
+    )
     working = ImpactWorkingSerializer(allow_null=True, help_text="How the number is worked out, if it is.")
 
     class Meta:
@@ -309,14 +314,12 @@ class ReportPageSerializer(DataclassSerializer):
         help_text="The pull request the proposal names, or else the summary, when it names exactly one.",
     )
     solution_names_pull_request = serializers.BooleanField(help_text="Whether the proposal names any pull request.")
-    signals = SignalViewSerializer(
-        many=True,
-        help_text="The report's newest 100 signals, newest first, ready to show. The counts below use these signals.",
+    evidence = SignalViewSerializer(
+        many=True, help_text="The signals to show as evidence, at most 3, newest first, one per source first."
     )
-    evidence_signal_ids = serializers.ListField(
-        child=serializers.CharField(), help_text="The ids of the signals to show as evidence, at most 3."
+    source_count = serializers.IntegerField(
+        help_text="How many distinct source objects the report's newest 100 signals come from. The impact numbers and last seen use the same signals."
     )
-    source_count = serializers.IntegerField(help_text="How many distinct source objects the signals come from.")
     impact_numbers = ImpactNumberSerializer(
         many=True, help_text="Numbers the signals size the problem with, such as distinct support tickets."
     )

@@ -390,6 +390,11 @@ export interface RecordingTargetApi {
      * @nullable
      */
     offset: string | null
+    /**
+     * Where the player starts, in seconds from the recording start. Null without an offset.
+     * @nullable
+     */
+    seek_seconds: number | null
 }
 
 export interface PageLinkApi {
@@ -500,14 +505,9 @@ export interface ImpactNumberApi {
     value: string
     /** The sentence that follows the number. */
     sentence: string
-    /**
-     * The signal the number comes from, if one does.
-     * @nullable
-     */
-    signal_id: string | null
-    /** That signal as one short line. */
-    excerpt: string
-    /** The figures in the excerpt to mark. */
+    /** The signal the number comes from, if one does. */
+    signal: SignalViewApi | null
+    /** The figures in the signal's headline to mark. */
     values: string[]
     /** How the number is worked out, if it is. */
     working: ImpactWorkingApi | null
@@ -524,11 +524,9 @@ export interface ReportPageApi {
     named_pull_request: PullRequestLinkApi | null
     /** Whether the proposal names any pull request. */
     solution_names_pull_request: boolean
-    /** The report's newest 100 signals, newest first, ready to show. The counts below use these signals. */
-    signals: SignalViewApi[]
-    /** The ids of the signals to show as evidence, at most 3. */
-    evidence_signal_ids: string[]
-    /** How many distinct source objects the signals come from. */
+    /** The signals to show as evidence, at most 3, newest first, one per source first. */
+    evidence: SignalViewApi[]
+    /** How many distinct source objects the report's newest 100 signals come from. The impact numbers and last seen use the same signals. */
     source_count: number
     /** Numbers the signals size the problem with, such as distinct support tickets. */
     impact_numbers: ImpactNumberApi[]

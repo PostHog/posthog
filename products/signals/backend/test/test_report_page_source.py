@@ -5,9 +5,12 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.models import Team
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalReport
+from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_page_source import report_page_source
 
 
@@ -58,3 +61,19 @@ class TestReportPageSource(BaseTest):
         foreign = self._report(team=Team.objects.create(organization=self.organization))
         assert self._source(str(deleted.id)) is None
         assert self._source(str(foreign.id)) is None
+
+
+class TestReportAccess(BaseTest):
+    def test_checks_the_environment_it_is_given(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team)
+        AccessControl.objects.create(team=environment, resource="task", resource_id=None, access_level="none")
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+
+        assert (may_read_reports(user=member, team=self.team), may_read_reports(user=member, team=environment)) == (
+            True,
+            False,
+        )

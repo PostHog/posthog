@@ -78,11 +78,12 @@ def _recording(signal: SignalInput) -> contracts.RecordingTarget | None:
         return None
     offset = _offset_seconds(signal.extra.get("start_time"))
     start = _recording_start(signal.extra)
-    start_at = (
-        start + timedelta(seconds=max(offset - _PLAYER_LEAD_IN_SECONDS, 0)) if start and offset is not None else None
-    )
+    seek = max(offset - _PLAYER_LEAD_IN_SECONDS, 0) if offset is not None else None
     return contracts.RecordingTarget(
-        session_id=session_id, start_at=start_at, offset=_offset_label(offset) if offset is not None else None
+        session_id=session_id,
+        start_at=start + timedelta(seconds=seek) if start and seek is not None else None,
+        offset=_offset_label(offset) if offset is not None else None,
+        seek_seconds=int(seek) if seek is not None else None,
     )
 
 

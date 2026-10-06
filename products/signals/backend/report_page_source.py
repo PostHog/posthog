@@ -1,4 +1,3 @@
-import json
 from datetime import datetime
 from typing import Any
 
@@ -7,7 +6,7 @@ from posthog.models import Team
 
 from products.signals.backend.artefact_schemas import ActionabilityChoice
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalReport
 from products.signals.backend.report_sections import ReportSections, report_sections
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 
@@ -30,17 +29,6 @@ class ReportPageSource:
     action_prompts: list[str]
     repo_slug: str | None
     signals: list[ReportSignal]
-
-
-def _latest_content(report: SignalReport, artefact_type: str) -> dict[str, object]:
-    content = (
-        report.artefacts.filter(type=artefact_type).order_by("-created_at").values_list("content", flat=True).first()
-    )
-    try:
-        data = json.loads(content or "")
-    except (TypeError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
 
 
 _STARTABLE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT})
@@ -86,11 +74,10 @@ def report_page_source(*, team: Team, report_id: str) -> ReportPageSource | None
     pull_requests = fetch_implementation_prs_for_reports([report_id], team_id=team_id, using="default")
     has_pull_requests = bool(pull_requests.get(report_id))
     prompts = [prompt for prompt in report.suggested_prompts or [] if isinstance(prompt, str)]
-    repository = _latest_content(report, SignalReportArtefact.ArtefactType.REPO_SELECTION).get("repository")
     return ReportPageSource(
         summary=report.summary or "",
         sections=report_sections(report.summary),
         action_prompts=prompts if _can_start_work(report, has_pull_requests) else [],
-        repo_slug=repository if isinstance(repository, str) and repository else None,
+        repo_slug=report.selected_repository(),
         signals=_report_signals(team, report_id),
     )
