@@ -2,7 +2,7 @@
 // queued Node and Rust PRs behind it run the slow suites. Files whose own rule
 // spans both sides (protos, universal tripwires) are ignored.
 
-const { computeTargets } = require('./trunk-impacted-targets')
+const { allKnownTargets, computeTargets, isTripwire } = require('./trunk-impacted-targets')
 
 const HEAVY_PREFIXES = ['py:', 'fe:']
 const LIGHT_PREFIXES = ['node:', 'rust:']
@@ -21,6 +21,13 @@ function crossLaneFiles(changedFiles, context) {
     if (changedFiles.length === 0 || changedFiles.length > MAX_FILES) {
         return null
     }
+    let universe
+    try {
+        universe = allKnownTargets(context)
+    } catch (error) {
+        console.error(`Could not enumerate the lanes (${error.message}); cross_lane reports unknown`)
+        return null
+    }
     const heavyFiles = []
     const lightFiles = []
     for (const file of changedFiles) {
@@ -31,9 +38,15 @@ function crossLaneFiles(changedFiles, context) {
             console.error(`Could not classify ${file} by lane side (${error.message}); cross_lane reports unknown`)
             return null
         }
-        // ALL means unknown, not both sides.
+        // ALL means the rules could not enumerate lanes, so no verdict holds.
         if (!Array.isArray(targets)) {
-            continue
+            console.error(`Could not enumerate the lanes of ${file}; cross_lane reports unknown`)
+            return null
+        }
+        // Every lane without a tripwire is the rules' fallback for an unknown path.
+        if (universe && targets.length >= universe.length && !isTripwire(file)) {
+            console.error(`No lane rule claims ${file}; cross_lane reports unknown`)
+            return null
         }
         const side = sideOf(targets)
         if (side === 'heavy') {

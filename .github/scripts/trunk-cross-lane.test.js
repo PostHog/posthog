@@ -65,7 +65,18 @@ test('gives no verdict for an empty or oversized change set', () => {
 
 test('logs the file that could not be classified rather than failing silently', (t) => {
     const errors = t.mock.method(console, 'error', () => {})
-    const broken = { ...CONTEXT, products: null }
+    const broken = { ...CONTEXT, isolatedProducts: undefined }
     assert.equal(crossLaneFiles(['products/alpha/backend/models.py'], broken), null)
     assert.match(errors.mock.calls[0].arguments[0], /products\/alpha\/backend\/models\.py/)
+})
+
+test('gives no verdict when any file cannot be enumerated', (t) => {
+    t.mock.method(console, 'error', () => {})
+    const noCrates = { ...CONTEXT, rustInventory: null }
+    assert.equal(crossLaneFiles(['posthog/api/event_tracker.py', 'rust/capture/src/router.rs'], noCrates), null)
+})
+
+test('gives no verdict when a file falls through every lane rule', (t) => {
+    t.mock.method(console, 'error', () => {})
+    assert.equal(crossLaneFiles(['posthog/api/event_tracker.py', 'some-new-toplevel/thing.go'], CONTEXT), null)
 })
