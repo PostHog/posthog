@@ -42,6 +42,7 @@ from products.replay_vision.backend.temporal.activities import (
     reap_orphaned_observations_activity,
     refresh_scanner_estimate_activity,
     resolve_experiment_variant_activity,
+    start_launched_scanners_activity,
     upload_video_to_gemini_activity,
     upsert_scanner_schedule_activity,
 )
@@ -148,6 +149,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     meter_scanner_read_bytes_activity,
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
+    start_launched_scanners_activity,
     sweep_gemini_files_activity,
     judge_watch_ranks_activity,
     list_stale_search_suggestions_activity,
@@ -203,6 +205,7 @@ __all__ = [
     "reap_childless_inline_scanners_activity",
     "reap_orphaned_observations_activity",
     "refresh_scanner_estimate_activity",
+    "start_launched_scanners_activity",
     "sweep_gemini_files_activity",
     "upload_video_to_gemini_activity",
     "upsert_scanner_schedule_activity",

@@ -484,8 +484,8 @@ export interface accountsLogicActions {
         options: ApplyAccountsViewStateOptions
         viewState: AccountsViewState
     }
-    clearCustomPropertyOverrides: () => {
-        value: true
+    clearCustomPropertyOverrides: (keys: string[]) => {
+        keys: string[]
     }
     customPropertyUpdateFinished: (
         accountId: string,
@@ -577,11 +577,11 @@ export interface accountsLogicActions {
     setCustomPropertyOverride: (
         accountId: string,
         definitionId: string,
-        value: CustomPropertyValueWriteApi['value'] | null
+        value: CustomPropertyValueWriteApi['value'] | undefined
     ) => {
         accountId: string
         definitionId: string
-        value: boolean | number | string | null
+        value: boolean | number | string | null | undefined
     }
     setDraftRestored: (restored: boolean) => {
         restored: boolean
@@ -888,11 +888,11 @@ export const accountsLogic = kea<accountsLogicType>([
         ) => ({ accountId, definition, value }),
         customPropertyUpdateStarted: (accountId: string, definitionId: string) => ({ accountId, definitionId }),
         customPropertyUpdateFinished: (accountId: string, definitionId: string) => ({ accountId, definitionId }),
-        clearCustomPropertyOverrides: true,
+        clearCustomPropertyOverrides: (keys: string[]) => ({ keys }),
         setCustomPropertyOverride: (
             accountId: string,
             definitionId: string,
-            value: CustomPropertyValueWriteApi['value'] | null
+            value: CustomPropertyValueWriteApi['value'] | undefined
         ) => ({ accountId, definitionId, value }),
         updateAccountRole: (accountId: string, column: string, user: UserBasicType | null) => ({
             accountId,
@@ -1039,14 +1039,20 @@ export const accountsLogic = kea<accountsLogicType>([
                 setCustomPropertyOverride: (state, { accountId, definitionId, value }) => {
                     const next = { ...state }
                     const key = customPropertySavingKey(accountId, definitionId)
-                    if (value === null) {
+                    if (value === undefined) {
                         delete next[key]
                     } else {
                         next[key] = value
                     }
                     return next
                 },
-                clearCustomPropertyOverrides: () => ({}),
+                clearCustomPropertyOverrides: (state, { keys }) => {
+                    const next = { ...state }
+                    for (const key of keys) {
+                        delete next[key]
+                    }
+                    return next
+                },
             },
         ],
         savingRoles: [
@@ -1565,7 +1571,12 @@ export const accountsLogic = kea<accountsLogicType>([
             }
             if (queryId === cache.customPropertyRefreshQueryId) {
                 cache.customPropertyRefreshQueryId = undefined
-                actions.clearCustomPropertyOverrides()
+                // The override of a write that is still pending is newer than this response.
+                // It stays until the refresh that follows that write.
+                const writtenKeys: string[] = cache.writtenCustomPropertyKeys ?? []
+                const isPending = (key: string): boolean => !!values.savingCustomProperties[key]
+                cache.writtenCustomPropertyKeys = writtenKeys.filter(isPending)
+                actions.clearCustomPropertyOverrides(writtenKeys.filter((key) => !isPending(key)))
             }
         },
         loadAccountPresence: async ({ accountIds }) => {
@@ -1982,7 +1993,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 return
             }
             const key = customPropertySavingKey(accountId, definition.id)
-            const previous = values.customPropertyOverrides[key] ?? null
+            const previous = values.customPropertyOverrides[key]
             actions.customPropertyUpdateStarted(accountId, definition.id)
             actions.setCustomPropertyOverride(accountId, definition.id, value)
             try {
@@ -1994,6 +2005,7 @@ export const accountsLogic = kea<accountsLogicType>([
                     display_type: definition.display_type,
                     workflow_reference: definition.has_workflow_reference,
                 })
+                cache.writtenCustomPropertyKeys = [...(cache.writtenCustomPropertyKeys ?? []), key]
                 cache.awaitingCustomPropertyRefresh = true
                 dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
                 dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')

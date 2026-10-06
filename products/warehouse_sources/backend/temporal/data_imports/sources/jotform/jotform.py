@@ -136,7 +136,7 @@ def _list_params(
     last_value: Optional[Any],
     incremental_field: Optional[str],
 ) -> dict[str, Any]:
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = dict(config.params)
     if not config.incremental_fields:
         # Full-refresh endpoints (reports): no orderby/filter.
         return params
@@ -165,6 +165,36 @@ def _question_row(row: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _flatten_label_tree(label: dict[str, Any]) -> list[dict[str, Any]]:
+    # `/user/labels` returns one root label with labels nested under `sublabels`; emit one row per
+    # label (pre-order), each linked to its parent through `parent_label_id`. An id-less node can't
+    # be keyed or fanned out over, so it is dropped (its children are still walked).
+    rows: list[dict[str, Any]] = []
+    stack = [label]
+    while stack:
+        node = stack.pop()
+        children = node.get("sublabels") or []
+        if node.get("id") is not None:
+            rows.append({key: value for key, value in node.items() if key != "sublabels"})
+        stack.extend(child for child in reversed(children) if isinstance(child, dict))
+    return rows
+
+
+def _label_resource_row(row: dict[str, Any]) -> dict[str, Any]:
+    row["label_id"] = str(row.pop("_labels_id"))
+    return row
+
+
+def _load_fanout_state(
+    resumable_source_manager: ResumableSourceManager[JotformResumeConfig],
+) -> Optional[dict[str, Any]]:
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None:
+            return resume.fanout_state
+    return None
+
+
 def _list_source(
     api_key: str,
     base_url: str,
@@ -180,7 +210,9 @@ def _list_source(
         "client": {
             **_client_config(api_key, base_url),
             # Jotform reports no reliable top-level total; termination is the short/empty page.
-            "paginator": OffsetPaginator(limit=config.page_size, total_path=None),
+            "paginator": SinglePagePaginator()
+            if config.single_page
+            else OffsetPaginator(limit=config.page_size, total_path=None),
         },
         "resources": [
             {
@@ -206,7 +238,7 @@ def _list_source(
         if state and state.get("offset") is not None:
             resumable_source_manager.save_state(JotformResumeConfig(offset=int(state["offset"])))
 
-    return rest_api_resource(
+    resource = rest_api_resource(
         rest_config,
         team_id,
         job_id,
@@ -214,6 +246,9 @@ def _list_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    if endpoint == "labels":
+        resource.add_map(_flatten_label_tree)
+    return resource
 
 
 def _questions_source(
@@ -254,11 +289,61 @@ def _questions_source(
         ],
     }
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
-            initial_paginator_state = resume.fanout_state
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        resumable_source_manager.save_state(JotformResumeConfig(fanout_state=state))
+
+    resources = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=_load_fanout_state(resumable_source_manager),
+    )
+    forms_resource = next(r for r in resources if r.name == "forms")
+    # Skip forms without an id so the fan-out never tries to resolve a form-less path (the
+    # hand-rolled source skipped id-less form rows too).
+    forms_resource.add_filter(lambda form: form.get("id") is not None)
+    return next(r for r in resources if r.name == "questions")
+
+
+def _label_resources_source(
+    api_key: str,
+    base_url: str,
+    config: JotformEndpointConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[JotformResumeConfig],
+) -> Resource:
+    labels_config = JOTFORM_ENDPOINTS["labels"]
+
+    rest_config: RESTAPIConfig = {
+        "client": _client_config(api_key, base_url),
+        "resources": [
+            {
+                "name": "labels",
+                "endpoint": {
+                    "path": labels_config.path,
+                    "data_selector": "content",
+                    "paginator": SinglePagePaginator(),
+                },
+            },
+            {
+                "name": "label_resources",
+                "include_from_parent": ["id"],
+                "endpoint": {
+                    "path": config.path,
+                    "params": {
+                        "label_id": {"type": "resolve", "resource": "labels", "field": "id"},
+                        "orderby": "created_at",
+                    },
+                    "data_selector": "content",
+                    "paginator": OffsetPaginator(limit=config.page_size, total_path=None),
+                },
+                "data_map": _label_resource_row,
+            },
+        ],
+    }
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         resumable_source_manager.save_state(JotformResumeConfig(fanout_state=state))
@@ -269,13 +354,11 @@ def _questions_source(
         job_id,
         None,
         resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
+        initial_paginator_state=_load_fanout_state(resumable_source_manager),
     )
-    forms_resource = next(r for r in resources if r.name == "forms")
-    # Skip forms without an id so the fan-out never tries to resolve a form-less path (the
-    # hand-rolled source skipped id-less form rows too).
-    forms_resource.add_filter(lambda form: form.get("id") is not None)
-    return next(r for r in resources if r.name == "questions")
+    labels_resource = next(r for r in resources if r.name == "labels")
+    labels_resource.add_map(_flatten_label_tree)
+    return next(r for r in resources if r.name == "label_resources")
 
 
 def validate_credentials(api_key: str, region: Optional[str], enterprise_domain: Optional[str] = None) -> bool:
@@ -307,6 +390,8 @@ def jotform_source(
 
     if config.fan_out_over_forms:
         resource = _questions_source(api_key, base_url, config, team_id, job_id, resumable_source_manager)
+    elif config.fan_out_over_labels:
+        resource = _label_resources_source(api_key, base_url, config, team_id, job_id, resumable_source_manager)
     else:
         resource = _list_source(
             api_key,
@@ -323,7 +408,7 @@ def jotform_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=list(config.primary_keys),
+        primary_keys=list(config.primary_keys) if config.primary_keys else None,
         sort_mode="asc",
         partition_count=1,
         partition_size=1,

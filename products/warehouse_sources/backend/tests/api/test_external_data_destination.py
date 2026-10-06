@@ -22,6 +22,11 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.presentation.destination_connection_check import (
+    FAILURE_MESSAGES,
+    CheckFailure,
+    DestinationConnectionCheckError,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_destination import (
     ExternalDataDestinationViewSet,
 )
@@ -31,6 +36,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class DestinationAPITestBase(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        check_patcher = patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_destination.check_postgres_destination"
+        )
+        self.check_connection = check_patcher.start()
+        self.addCleanup(check_patcher.stop)
         self.base = f"/api/projects/{self.team.pk}/external_data_destinations"
         self.source = ExternalDataSource.objects.create(
             team=self.team,
@@ -89,6 +99,58 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "integration" in response.json()["attr"]
+
+    @parameterized.expand(
+        [
+            (CheckFailure.UNREACHABLE, "integration"),
+            (CheckFailure.AUTHENTICATION, "integration"),
+            (CheckFailure.UNKNOWN_DATABASE, "config"),
+            (CheckFailure.MISSING_PRIVILEGE, "config"),
+        ]
+    )
+    def test_a_postgres_destination_that_fails_the_connection_test_is_not_created(
+        self, failure: CheckFailure, expected_field: str
+    ) -> None:
+        self.check_connection.side_effect = DestinationConnectionCheckError(failure)
+
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.POSTGRES,
+                "name": "unusable",
+                "integration": self._integration().pk,
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == expected_field
+        assert response.json()["detail"] == FAILURE_MESSAGES[failure]
+        assert not ExternalDataDestination.objects.for_team(self.team.pk).filter(name="unusable").exists()
+
+    def test_the_connection_test_gets_the_requested_config(self) -> None:
+        integration = self._integration()
+
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.POSTGRES,
+                "name": "with config",
+                "integration": integration.pk,
+                "config": {"database": "analytics", "schema": "posthog"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        self.check_connection.assert_called_once_with(integration, {"database": "analytics", "schema": "posthog"})
+
+    def test_updating_a_destination_does_not_run_the_connection_test(self) -> None:
+        destination = self._create_destination()
+        self.check_connection.reset_mock()
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"name": "renamed"})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.check_connection.assert_not_called()
 
     def test_the_posthog_warehouse_is_not_user_managed(self) -> None:
         response = self.client.post(self.base, {"type": ExternalDataDestination.Type.POSTHOG_WAREHOUSE, "name": "mine"})

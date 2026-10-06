@@ -2441,11 +2441,20 @@ describe('generateCategoryFile with a missing operation', () => {
 describe('derived scopes and annotations', () => {
     const readAndWrite = [{ PersonalAPIKeyAuth: ['thing:read', 'thing:write'] }]
 
-    function specWith(method: string, security?: Array<Record<string, string[]>>): OpenApiSpec {
+    function specWith(
+        method: string,
+        security?: Array<Record<string, string[]>>,
+        requestDependentScopes?: boolean
+    ): OpenApiSpec {
         return makeSpec({
             paths: {
                 '/api/projects/{project_id}/things/': {
-                    [method.toLowerCase()]: { operationId: 'things_op', parameters: [], security },
+                    [method.toLowerCase()]: {
+                        operationId: 'things_op',
+                        parameters: [],
+                        security,
+                        'x-request-dependent-scopes': requestDependentScopes,
+                    },
                 },
             },
         })
@@ -2494,8 +2503,8 @@ describe('derived scopes and annotations', () => {
         {
             name: 'prefers explicit YAML scopes over the spec',
             security: readAndWrite,
-            yamlScopes: ['thing:read'],
-            expected: ['thing:read'],
+            yamlScopes: ['thing:write'],
+            expected: ['thing:write'],
         },
     ])('scopes: $name', ({ security, yamlScopes, expected }) => {
         const { enabledTools } = generate(specWith('GET', security), { scopes: yamlScopes })
@@ -2504,10 +2513,26 @@ describe('derived scopes and annotations', () => {
     })
 
     it.each([
-        { name: 'no security block', security: undefined },
-        { name: 'an empty security requirement', security: [{}] },
-    ])('scopes: fails when the YAML has none and the spec has $name', ({ security }) => {
-        expect(generateAndCaptureExit(specWith('GET', security), {})).toMatch(/Add "scopes" to the tool's YAML/)
+        {
+            name: 'no security block',
+            security: undefined,
+            requestDependent: false,
+            error: /Add "scopes" to the tool's YAML/,
+        },
+        {
+            name: 'an empty security requirement',
+            security: [{}],
+            requestDependent: false,
+            error: /Add "scopes" to the tool's YAML/,
+        },
+        {
+            name: 'request-dependent scopes',
+            security: readAndWrite,
+            requestDependent: true,
+            error: /picks the scopes for "things_op" per request/,
+        },
+    ])('scopes: fails when the YAML has none and the spec has $name', ({ security, requestDependent, error }) => {
+        expect(generateAndCaptureExit(specWith('GET', security, requestDependent), {})).toMatch(error)
     })
 
     it.each([
@@ -2533,51 +2558,70 @@ describe('derived scopes and annotations', () => {
         expect(enabledTools[0]?.[1].annotations).toEqual(explicit)
     })
 
-    describe('scope coverage warning', () => {
-        function captureStdout(): string[] {
+    describe('scope coverage check', () => {
+        function runCoverage(spec: OpenApiSpec, tool: Partial<ToolConfig>): { exited: boolean; output: string } {
             const lines: string[] = []
+            vi.spyOn(console, 'error').mockImplementation((message: string) => {
+                lines.push(message)
+            })
             vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
                 lines.push(String(chunk))
                 return true
             })
-            return lines
+            vi.spyOn(process, 'exit').mockImplementation((() => {
+                throw new Error('exit')
+            }) as never)
+            let exited = false
+            try {
+                generate(spec, tool)
+            } catch {
+                exited = true
+            }
+            return { exited, output: lines.join('') }
         }
 
         it.each([
-            { name: 'YAML misses a spec scope', yamlScopes: ['thing:read'], warns: true },
+            { name: 'YAML misses a spec scope', yamlScopes: ['thing:read'], requestDependent: false, fails: true },
             {
                 name: 'YAML is broader than the spec',
                 yamlScopes: ['thing:read', 'thing:write', 'thing:admin'],
-                warns: false,
+                requestDependent: false,
+                fails: false,
             },
-            { name: 'YAML has no scopes', yamlScopes: undefined, warns: false },
-        ])('$name -> warns: $warns', ({ yamlScopes, warns }) => {
-            const lines = captureStdout()
+            { name: 'YAML has no scopes', yamlScopes: undefined, requestDependent: false, fails: false },
+            {
+                name: 'the API picks the scopes per request',
+                yamlScopes: ['task:read'],
+                requestDependent: true,
+                fails: false,
+            },
+        ])('$name -> fails: $fails', ({ yamlScopes, requestDependent, fails }) => {
+            const { exited, output } = runCoverage(specWith('GET', readAndWrite, requestDependent), {
+                scopes: yamlScopes,
+            })
 
-            generate(specWith('GET', readAndWrite), { scopes: yamlScopes })
-
-            const output = lines.join('')
-            expect(output.includes('thing:write')).toBe(warns)
-            if (warns) {
+            expect(exited).toBe(fails)
+            expect(output.includes('thing:write')).toBe(fails)
+            if (fails) {
                 expect(output).toContain('Tool "thing-op"')
                 expect(output).toContain('products/things/mcp/tools.yaml')
             }
         })
 
         it('treats a write scope as covering a spec read scope', () => {
-            const lines = captureStdout()
+            const { exited, output } = runCoverage(specWith('GET', [{ PersonalAPIKeyAuth: ['thing:read'] }]), {
+                scopes: ['thing:write'],
+            })
 
-            generate(specWith('GET', [{ PersonalAPIKeyAuth: ['thing:read'] }]), { scopes: ['thing:write'] })
-
-            expect(lines.join('')).toBe('')
+            expect(exited).toBe(false)
+            expect(output).toBe('')
         })
 
         it('skips tools whose spec declares no scopes', () => {
-            const lines = captureStdout()
+            const { exited, output } = runCoverage(specWith('GET', undefined), { scopes: ['thing:read'] })
 
-            generate(specWith('GET', undefined), { scopes: ['thing:read'] })
-
-            expect(lines.join('')).toBe('')
+            expect(exited).toBe(false)
+            expect(output).toBe('')
         })
 
         it.each([
@@ -2585,11 +2629,10 @@ describe('derived scopes and annotations', () => {
             { githubActions: 'false', annotated: false },
         ])('emits a GitHub annotation only on CI (GITHUB_ACTIONS=$githubActions)', ({ githubActions, annotated }) => {
             vi.stubEnv('GITHUB_ACTIONS', githubActions)
-            const lines = captureStdout()
 
-            generate(specWith('GET', readAndWrite), { scopes: ['thing:read'] })
+            const { output } = runCoverage(specWith('GET', readAndWrite), { scopes: ['thing:read'] })
 
-            expect(lines.join('').includes('::warning file=products/things/mcp/tools.yaml::')).toBe(annotated)
+            expect(output.includes('::error file=products/things/mcp/tools.yaml::')).toBe(annotated)
         })
     })
 })

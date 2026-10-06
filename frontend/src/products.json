@@ -64,6 +64,13 @@
             "intents": ["autoresearch"]
         },
         {
+            "path": "Business intelligence",
+            "category": "Data",
+            "iconType": "business_intelligence",
+            "type": null,
+            "intents": []
+        },
+        {
             "path": "Business knowledge",
             "category": "Data",
             "iconType": "business_knowledge",

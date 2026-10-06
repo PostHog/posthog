@@ -8,7 +8,7 @@ import { Text } from '@posthog/quill'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { LibraryCreateButton } from 'scenes/library/LibraryCreateButton'
 import { libraryLogic } from 'scenes/library/libraryLogic'
-import { libraryTypeForPath } from 'scenes/library/libraryUtils'
+import { libraryListHref, libraryTypeForPath } from 'scenes/library/libraryUtils'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -60,7 +60,7 @@ export function TodayLibrarySidebar(): JSX.Element {
                                 value={`type:${type.value}`}
                                 label={type.pluralLabel}
                                 icon={iconForType(type.value as FileSystemIconType)}
-                                to={urls.library(type.value)}
+                                to={libraryListHref(type.value) ?? urls.library(type.value)}
                                 active={path === urls.library(type.value) || objectPageType === type.value}
                                 action={<LibraryCreateButton objectType={type.value} />}
                                 dataAttr="today-library-type"

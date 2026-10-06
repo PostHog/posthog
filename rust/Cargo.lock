@@ -6347,6 +6347,7 @@ dependencies = [
 name = "ingestion-consumer"
 version = "0.1.0"
 dependencies = [
+ "ahash 0.8.12",
  "anyhow",
  "axum 0.7.9",
  "chrono",

@@ -1318,6 +1318,655 @@ export interface ConversionGoalWriteApi {
     goal: ConversionGoalApi
 }
 
+export interface CompareFilterApi {
+    /** Whether to compare the current date range to a previous date range. */
+    compare?: boolean | null
+    /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+    compare_to?: string | null
+}
+
+export interface ActionConversionGoalApi {
+    actionId: number
+    properties?:
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
+        | null
+}
+
+export interface CustomEventConversionGoalApi {
+    customEventName: string
+    properties?:
+        | (EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi | CohortPropertyFilterApi)[]
+        | null
+}
+
+export type DaysOfWeekEnumApi = (typeof DaysOfWeekEnumApi)[keyof typeof DaysOfWeekEnumApi]
+
+export const DaysOfWeekEnumApi = {
+    Number1: 1,
+    Number2: 2,
+    Number3: 3,
+    Number4: 4,
+    Number5: 5,
+    Number6: 6,
+    Number7: 7,
+} as const
+
+export interface DateRangeApi {
+    /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),
+     * -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+    date_from?: string | null
+    /** End of the date range. Same format as date_from. Omit or null for "now". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set. */
+    date_to?: string | null
+    /** Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries. */
+    daysOfWeek?: DaysOfWeekEnumApi[] | null
+    /** Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries. */
+    excludeIncompletePeriods?: boolean | null
+    /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+    explicitDate?: boolean | null
+}
+
+export type MarketingAnalyticsDrillDownLevelApi =
+    (typeof MarketingAnalyticsDrillDownLevelApi)[keyof typeof MarketingAnalyticsDrillDownLevelApi]
+
+export const MarketingAnalyticsDrillDownLevelApi = {
+    Channel: 'channel',
+    ChannelSource: 'channel_source',
+    Source: 'source',
+    Campaign: 'campaign',
+    AdGroup: 'ad_group',
+    Ad: 'ad',
+    Medium: 'medium',
+    Content: 'content',
+    Term: 'term',
+} as const
+
+export interface IntegrationFilterApi {
+    /** Keep rows that no integration reports cost for, such as organic, email or an unmapped source. Defaults to true. */
+    includeNonIntegrated?: boolean | null
+    /** Selected integration source IDs to filter by (e.g., table IDs or source map IDs) */
+    integrationSourceIds?: string[] | null
+}
+
+export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
+
+export const IntervalTypeApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
+
+export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
+
+export const BounceRatePageViewModeApi = {
+    CountPageviews: 'count_pageviews',
+    UniqUrls: 'uniq_urls',
+    UniqPageScreenAutocaptures: 'uniq_page_screen_autocaptures',
+} as const
+
+export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
+
+export const FilterLogicalOperatorApi = {
+    And: 'AND',
+    Or: 'OR',
+} as const
+
+export type CustomBotFieldApi = (typeof CustomBotFieldApi)[keyof typeof CustomBotFieldApi]
+
+export const CustomBotFieldApi = {
+    RawUserAgent: '$raw_user_agent',
+    Ip: '$ip',
+    Lib: '$lib',
+    Host: '$host',
+    Pathname: '$pathname',
+    CurrentUrl: '$current_url',
+    Browser: '$browser',
+    Os: '$os',
+    BrowserLanguage: '$browser_language',
+    ScreenWidth: '$screen_width',
+    ScreenHeight: '$screen_height',
+    GeoipCountryCode: '$geoip_country_code',
+    Referrer: '$referrer',
+    ReferringDomain: '$referring_domain',
+} as const
+
+export type CustomBotMatcherApi = (typeof CustomBotMatcherApi)[keyof typeof CustomBotMatcherApi]
+
+export const CustomBotMatcherApi = {
+    Contains: 'contains',
+    Regex: 'regex',
+    Exact: 'exact',
+    Cidr: 'cidr',
+} as const
+
+export interface CustomBotConditionApi {
+    id: string
+    /** The event property this condition reads. */
+    key: CustomBotFieldApi
+    matcher: CustomBotMatcherApi
+    /** Matched against the property named by `key`. */
+    pattern: string
+}
+
+export interface CustomBotRuleApi {
+    /** Reported by `$virt_traffic_category`. Defaults to `custom`. */
+    category?: string | null
+    /** Whether every condition must match (AND) or any one of them (OR). */
+    combiner: FilterLogicalOperatorApi
+    id: string
+    items: CustomBotConditionApi[]
+    /** Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches. */
+    name: string
+}
+
+export type CustomChannelFieldApi = (typeof CustomChannelFieldApi)[keyof typeof CustomChannelFieldApi]
+
+export const CustomChannelFieldApi = {
+    UtmSource: 'utm_source',
+    UtmMedium: 'utm_medium',
+    UtmCampaign: 'utm_campaign',
+    ReferringDomain: 'referring_domain',
+    Url: 'url',
+    Pathname: 'pathname',
+    Hostname: 'hostname',
+} as const
+
+export type CustomChannelOperatorApi = (typeof CustomChannelOperatorApi)[keyof typeof CustomChannelOperatorApi]
+
+export const CustomChannelOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+} as const
+
+export interface CustomChannelConditionApi {
+    id: string
+    key: CustomChannelFieldApi
+    op: CustomChannelOperatorApi
+    value?: string | string[] | null
+}
+
+export interface CustomChannelRuleApi {
+    channel_type: string
+    combiner: FilterLogicalOperatorApi
+    id: string
+    items: CustomChannelConditionApi[]
+}
+
+export interface DataWarehouseEventsModifierApi {
+    distinct_id_field: string
+    id_field: string
+    table_name: string
+    timestamp_field: string
+}
+
+export type InCohortViaApi = (typeof InCohortViaApi)[keyof typeof InCohortViaApi]
+
+export const InCohortViaApi = {
+    Auto: 'auto',
+    Leftjoin: 'leftjoin',
+    Subquery: 'subquery',
+    LeftjoinConjoined: 'leftjoin_conjoined',
+} as const
+
+export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
+
+export const InlineCohortCalculationApi = {
+    Off: 'off',
+    Auto: 'auto',
+    Always: 'always',
+} as const
+
+export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
+
+export const MaterializationModeApi = {
+    Auto: 'auto',
+    LegacyNullAsString: 'legacy_null_as_string',
+    LegacyNullAsNull: 'legacy_null_as_null',
+    Disabled: 'disabled',
+} as const
+
+export type MaterializedColumnsOptimizationModeApi =
+    (typeof MaterializedColumnsOptimizationModeApi)[keyof typeof MaterializedColumnsOptimizationModeApi]
+
+export const MaterializedColumnsOptimizationModeApi = {
+    Disabled: 'disabled',
+    Optimized: 'optimized',
+} as const
+
+export type ParserModeApi = (typeof ParserModeApi)[keyof typeof ParserModeApi]
+
+export const ParserModeApi = {
+    CppOnly: 'cpp_only',
+    CppWithRustShadow: 'cpp_with_rust_shadow',
+    CppWithRustPyShadow: 'cpp_with_rust_py_shadow',
+    RustWithCppShadow: 'rust_with_cpp_shadow',
+    RustOnly: 'rust_only',
+    RustPyOnly: 'rust_py_only',
+    RustPyWithCppShadow: 'rust_py_with_cpp_shadow',
+} as const
+
+export type PersonsArgMaxVersionApi = (typeof PersonsArgMaxVersionApi)[keyof typeof PersonsArgMaxVersionApi]
+
+export const PersonsArgMaxVersionApi = {
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+} as const
+
+export type PersonsJoinModeApi = (typeof PersonsJoinModeApi)[keyof typeof PersonsJoinModeApi]
+
+export const PersonsJoinModeApi = {
+    Inner: 'inner',
+    Left: 'left',
+} as const
+
+export type PersonsOnEventsModeApi = (typeof PersonsOnEventsModeApi)[keyof typeof PersonsOnEventsModeApi]
+
+export const PersonsOnEventsModeApi = {
+    Disabled: 'disabled',
+    PersonIdNoOverridePropertiesOnEvents: 'person_id_no_override_properties_on_events',
+    PersonIdOverridePropertiesOnEvents: 'person_id_override_properties_on_events',
+    PersonIdOverridePropertiesJoined: 'person_id_override_properties_joined',
+} as const
+
+export type PropertyGroupsModeApi = (typeof PropertyGroupsModeApi)[keyof typeof PropertyGroupsModeApi]
+
+export const PropertyGroupsModeApi = {
+    Enabled: 'enabled',
+    Disabled: 'disabled',
+    Optimized: 'optimized',
+} as const
+
+export type SessionTableVersionApi = (typeof SessionTableVersionApi)[keyof typeof SessionTableVersionApi]
+
+export const SessionTableVersionApi = {
+    Auto: 'auto',
+    V1: 'v1',
+    V2: 'v2',
+    V3: 'v3',
+} as const
+
+export type SessionsV2JoinModeApi = (typeof SessionsV2JoinModeApi)[keyof typeof SessionsV2JoinModeApi]
+
+export const SessionsV2JoinModeApi = {
+    String: 'string',
+    Uuid: 'uuid',
+} as const
+
+export interface HogQLQueryModifiersApi {
+    bounceRateDurationSeconds?: number | null
+    bounceRatePageViewMode?: BounceRatePageViewModeApi | null
+    convertToProjectTimezone?: boolean | null
+    /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
+    cookielessTrafficIsRegular?: boolean | null
+    customBotDefinitions?: CustomBotRuleApi[] | null
+    customChannelTypeRules?: CustomChannelRuleApi[] | null
+    dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
+    debug?: boolean | null
+    /** If these are provided, the query will fail if these skip indexes are not used */
+    forceClickhouseDataSkippingIndexes?: string[] | null
+    formatCsvAllowDoubleQuotes?: boolean | null
+    inCohortVia?: InCohortViaApi | null
+    inlineCohortCalculation?: InlineCohortCalculationApi | null
+    materializationMode?: MaterializationModeApi | null
+    materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
+    /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
+    mergeFederatedAggregateJoins?: boolean | null
+    optimizeJoinedFilters?: boolean | null
+    optimizeProjections?: boolean | null
+    /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
+    parserMode?: ParserModeApi | null
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    personIdPushdown?: boolean | null
+    personsArgMaxVersion?: PersonsArgMaxVersionApi | null
+    personsJoinMode?: PersonsJoinModeApi | null
+    personsOnEventsMode?: PersonsOnEventsModeApi | null
+    propertyGroupsMode?: PropertyGroupsModeApi | null
+    pushDownPredicates?: boolean | null
+    s3TableUseInvalidColumns?: boolean | null
+    /** Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter. */
+    sessionIdPushdown?: boolean | null
+    /** Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`). */
+    sessionPropertyPreAggregation?: boolean | null
+    sessionTableVersion?: SessionTableVersionApi | null
+    sessionsV2JoinMode?: SessionsV2JoinModeApi | null
+    timings?: boolean | null
+    /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
+    typeAwareCastSimplification?: boolean | null
+    useMaterializedViews?: boolean | null
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    useNewEventsSchema?: boolean | null
+    usePreaggregatedIntermediateResults?: boolean | null
+    /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
+    usePreaggregatedTableTransforms?: boolean | null
+    useWebAnalyticsPreAggregatedTables?: boolean | null
+    /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
+    webAnalyticsFirstPageviewFilters?: boolean | null
+}
+
+export type MarketingAnalyticsOrderByEnumApi =
+    (typeof MarketingAnalyticsOrderByEnumApi)[keyof typeof MarketingAnalyticsOrderByEnumApi]
+
+export const MarketingAnalyticsOrderByEnumApi = {
+    Asc: 'ASC',
+    Desc: 'DESC',
+} as const
+
+export interface ClickhouseQueryProgressApi {
+    active_cpu_time: number
+    bytes_read: number
+    estimated_rows_total: number
+    rows_read: number
+    time_elapsed: number
+}
+
+export type QueryScanFixLocationApi = (typeof QueryScanFixLocationApi)[keyof typeof QueryScanFixLocationApi]
+
+export const QueryScanFixLocationApi = {
+    Query: 'query',
+    Subquery: 'subquery',
+    View: 'view',
+    InsightDateRange: 'insight_date_range',
+    DashboardDateFilter: 'dashboard_date_filter',
+} as const
+
+export type QueryScanFindingKindApi = (typeof QueryScanFindingKindApi)[keyof typeof QueryScanFindingKindApi]
+
+export const QueryScanFindingKindApi = {
+    NoEventFilter: 'no_event_filter',
+    NoStartDate: 'no_start_date',
+    PersonsJoin: 'persons_join',
+} as const
+
+export interface QueryScanWarningApi {
+    /** Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable. */
+    actionable: boolean
+    /** True when the query reads this much on purpose, so reading less would change the answer. Absent means no. */
+    by_design?: boolean | null
+    /** A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change. */
+    cause?: string | null
+    /** The one fact the finding rests on. */
+    evidence?: string | null
+    /** What "Fix with AI" and the assistant are told to do. */
+    fix: string
+    /** Where the change goes. Absent means the query itself. */
+    fix_location?: QueryScanFixLocationApi | null
+    kind: QueryScanFindingKindApi
+    /** Shown to the person: what happened and what to do. */
+    message: string
+}
+
+export interface QueryScanAnalysisApi {
+    /** The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query. */
+    assistant_prompt?: string | null
+    /** Every finding, fixable or not. Empty when the analysis found none. */
+    findings: QueryScanWarningApi[]
+    /** How much of all the project's events the query read, 0 to 1. */
+    project_share?: number | null
+    /** How much of the project's events in the query's date range the query read, 0 to 1. */
+    range_share?: number | null
+}
+
+export interface QueryScanSummaryApi {
+    /** The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested. */
+    analysis?: QueryScanAnalysisApi | null
+    /** True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it. */
+    analysis_requested?: boolean | null
+    /** ClickHouse time for the last fresh run, summed over its ClickHouse queries. */
+    duration_ms: number
+    /** True when ClickHouse stopped the run instead of finishing it. */
+    killed?: boolean | null
+    /** Rows ClickHouse read for the last fresh run, all tables included. */
+    rows_read: number
+}
+
+export interface QueryStatusApi {
+    budget_remaining_bytes?: number | null
+    bytes_read?: number | null
+    /** Cache key of the run that failed, so clients can ask for its query scan. */
+    cache_key?: string | null
+    /** Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set. */
+    complete?: boolean | null
+    dashboard_id?: number | null
+    /** When did the query execution task finish (whether successfully or not). */
+    end_time?: string | null
+    /** If the query failed, this will be set to true. More information can be found in the error_message field. */
+    error?: boolean | null
+    /** Stable machine-readable code for the error (the DRF exception code), when known. */
+    error_code?: string | null
+    error_message?: string | null
+    expiration_time?: string | null
+    id: string
+    insight_id?: number | null
+    labels?: string[] | null
+    /** When was the query execution task picked up by a worker. */
+    pickup_time?: string | null
+    /** ONLY async queries use QueryStatus. */
+    query_async?: true
+    query_progress?: ClickhouseQueryProgressApi | null
+    query_scan?: QueryScanSummaryApi | null
+    results?: unknown
+    /** When was query execution task enqueued. */
+    start_time?: string | null
+    task_id?: string | null
+    team_id: number
+}
+
+export interface ResolvedDateRangeResponseApi {
+    date_from: string
+    date_to: string
+}
+
+export type WebAnalyticsItemKindApi = (typeof WebAnalyticsItemKindApi)[keyof typeof WebAnalyticsItemKindApi]
+
+export const WebAnalyticsItemKindApi = {
+    Unit: 'unit',
+    DurationS: 'duration_s',
+    Percentage: 'percentage',
+    Currency: 'currency',
+} as const
+
+export interface MarketingAnalyticsItemApi {
+    changeFromPreviousPct?: number | null
+    hasComparison?: boolean | null
+    isIncreaseBad?: boolean | null
+    key: string
+    kind: WebAnalyticsItemKindApi
+    previous?: number | string | null
+    value?: number | string | null
+}
+
+export interface SamplingRateApi {
+    denominator?: number | null
+    numerator: number
+}
+
+export interface QueryTimingApi {
+    /** Key. Shortened to 'k' to save on data. */
+    k: string
+    /** Time in seconds. Shortened to 't' to save on data. */
+    t: number
+}
+
+export interface DataWarehouseSourceUsageApi {
+    /** ExternalDataSource id */
+    id: string
+    /** Connector type of the source (e.g. Stripe, Postgres), if known */
+    source_type?: string | null
+    /** Warehouse table name that was referenced */
+    table_name: string
+}
+
+export interface DataWarehouseSyncWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Name of the ExternalDataSchema responsible for syncing the table */
+    schema_name: string
+    /** ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables. */
+    source_id?: string | null
+    /** Source type, e.g. "Stripe", "Hubspot" */
+    source_type: string
+    /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
+    status: string
+    /** Name of the warehouse table the warning refers to */
+    table_name: string
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'warehouse_sync'
+}
+
+export interface AccessControlFilterWarningApi {
+    /** Human-readable warning shown to the user */
+    message: string
+    /** Resource types the user has access restrictions on, referenced by the query, e.g. ["insight", "dashboard"] */
+    resources: string[]
+    /** Tells warning kinds apart in the shared `warnings` list */
+    type?: 'access_control'
+}
+
+export interface MarketingAnalyticsTableQueryResponseApi {
+    columns?: unknown[] | null
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
+    /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
+    error?: string | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql?: string | null
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    offset?: number | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
+    /** Query status indicates whether next to the provided data, a query is still running. */
+    query_status?: QueryStatusApi | null
+    /** The resolved previous/comparison period date range, when comparing against another period */
+    resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
+    /** The date range used for the query */
+    resolved_date_range?: ResolvedDateRangeResponseApi | null
+    results: MarketingAnalyticsItemApi[][]
+    samplingRate?: SamplingRateApi | null
+    /** Measured timings for different parts of the query generation process */
+    timings?: QueryTimingApi[] | null
+    types?: unknown[] | null
+    /** Connector-synced data warehouse sources referenced by this query, if any. */
+    used_data_warehouse_sources?: DataWarehouseSourceUsageApi[] | null
+    /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
+    warnings?: (DataWarehouseSyncWarningApi | AccessControlFilterWarningApi)[] | null
+}
+
+export interface WebAnalyticsSamplingApi {
+    enabled?: boolean | null
+    forceSamplingRate?: SamplingRateApi | null
+}
+
+export interface QueryLogTagsApi {
+    /** Name of the query, preferably unique. For example web_analytics_vitals */
+    name?: string | null
+    /** Short id of the saved Web analytics filter preset this query was run under, if any. */
+    presetId?: string | null
+    /** Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product * */
+    productKey?: string | null
+    /** Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene * */
+    scene?: string | null
+}
+
+export interface MarketingAnalyticsTableQueryApi {
+    /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+    aggregation_group_type_index?: number | null
+    /** Compare to date range */
+    compareFilter?: CompareFilterApi | null
+    conversionGoal?: ActionConversionGoalApi | CustomEventConversionGoalApi | null
+    /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+    dataColorTheme?: number | null
+    dateRange?: DateRangeApi | null
+    doPathCleaning?: boolean | null
+    /** Draft conversion goal that can be set in the UI without saving */
+    draftConversionGoal?: ConversionGoalFilter1Api | ConversionGoalFilter2Api | ConversionGoalFilter3Api | null
+    /** Drill-down hierarchy level: channel, source, or campaign (default) */
+    drillDownLevel?: MarketingAnalyticsDrillDownLevelApi | null
+    /** Filter test accounts */
+    filterTestAccounts?: boolean | null
+    includeRevenue?: boolean | null
+    /** Filter by integration type */
+    integrationFilter?: IntegrationFilterApi | null
+    /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
+    interval?: IntervalTypeApi | null
+    kind?: 'MarketingAnalyticsTableQuery'
+    /** Number of rows to return */
+    limit?: number | null
+    /** Modifiers used when performing the query */
+    modifiers?: HogQLQueryModifiersApi | null
+    /** Number of rows to skip before returning rows */
+    offset?: number | null
+    /** Columns to order by - similar to EventsQuery format */
+    orderBy?: (string | MarketingAnalyticsOrderByEnumApi)[][] | null
+    properties: (
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+    )[]
+    response?: MarketingAnalyticsTableQueryResponseApi | null
+    sampling?: WebAnalyticsSamplingApi | null
+    /** Sampling rate */
+    samplingFactor?: number | null
+    /** Return a limited set of data. Will use default columns if empty. */
+    select?: string[] | null
+    tags?: QueryLogTagsApi | null
+    useSessionsTable?: boolean | null
+    /** version of the node, used for schema migrations */
+    version?: number | null
+}
+
+export interface ConversionRecordingsRequestApi {
+    /** A unique query ID for tracing this request in query logs. */
+    client_query_id?: string
+    /** The table query whose conversion cell was selected. */
+    source: MarketingAnalyticsTableQueryApi
+    /** The selected conversion goal ID. */
+    goal_id: string
+    /** The displayed row grouping value. */
+    group: string
+    /** The displayed row source. */
+    source_name?: string
+    /**
+     * The displayed campaign ID, omitted for comparison rows.
+     * @nullable
+     */
+    campaign_id?: string | null
+    /**
+     * The last session ID returned by the previous page. Omit for the first page.
+     * @maxLength 200
+     */
+    after?: string
+    /**
+     * The maximum number of conversion session IDs to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export interface ConversionRecordingsResponseApi {
+    /** Sessions in which the attributed conversions occurred. A session might not have a recording. */
+    session_ids: string[]
+    /** Whether another page of conversion sessions is available. */
+    has_more: boolean
+    /** Whether the conversion data is still being prepared. */
+    preparing: boolean
+}
+
 export interface RequiredTableStatusApi {
     /** Name of the required source table (e.g. 'campaign', 'campaign_stats') */
     table_name: string

@@ -9,6 +9,7 @@ import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -851,6 +852,31 @@ describe('taskTrackerSceneLogic', () => {
         expect(onTaskCreated).toHaveBeenCalledWith('new-task')
         expect(logic.values.newTaskData.repositoryConfig.repository).toBe('acme/space-repo')
         expect(logic.values.persistedRepositoryConfig).toEqual({ integrationId: 7, repository: 'acme/remembered' })
+    })
+
+    it('refreshes the rail’s Recent list when a composer creates a session', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team/task_channels/': [],
+                '/api/projects/:team/task_activity/': { results: [] },
+            },
+        })
+        const rail = todaySpacesLogic()
+        rail.mount()
+        // Step past the load the rail does on mount, so the assertion below can only match a later one.
+        await expectLogic(rail).toDispatchActions(['loadRecentTasksSuccess']).toFinishAllListeners()
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setNewTaskData({ description: 'ship it' })
+
+        await expectLogic(rail, () => {
+            logic.actions.submitNewTask()
+        })
+            .toFinishAllListeners()
+            .toDispatchActions(['loadRecentTasks'])
+
+        rail.unmount()
     })
 
     // The side panel shares this logic, so a hidden picker can still hold a remembered repo. It must not reach the requests.

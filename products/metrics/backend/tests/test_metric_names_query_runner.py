@@ -290,8 +290,12 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"results": []})
 
-    def test_values_returns_metric_names(self):
+    @parameterized.expand([("finite", 1.0), ("overflowing_average", 1e308)])
+    def test_values_returns_metric_names(self, _name: str, value: float):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        earlier = anchor - dt.timedelta(minutes=20)
+        _seed_point(team_id=self.team.id, metric_name="m1", value=value, timestamp=earlier)
+        seed_metric(team_id=self.team.id, metric_name="m1", points=[(earlier, value)], labels={"shard": "other"})
         _seed_point(team_id=self.team.id, metric_name="m1", value=1.0, timestamp=anchor)
         _seed_point(team_id=self.team.id, metric_name="m2", value=2.0, timestamp=anchor, metric_type="gauge")
 
@@ -301,6 +305,8 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         names = {row["name"] for row in body["results"]}
         self.assertEqual(names, {"m1", "m2"})
         self.assertIn("sparkline", body["results"][0])
+        sparkline = next(row["sparkline"] for row in body["results"] if row["name"] == "m1")
+        self.assertEqual(sparkline, [1.0, 1.0] if value == 1.0 else [1.0])
 
     def test_names_returns_picker_fields_only(self):
         anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)

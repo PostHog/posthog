@@ -68,10 +68,12 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
         result = self._announcement()
 
         assert result is not None
+        assert result.configuration_id == str(self.configuration.id)
         assert result.alert_name == "API errors"
         assert [t.kind for t in result.transitions] == [AlertEventKind.FIRING]
         transition = result.transitions[0]
         assert transition.episode_started_at == FIRING
+        assert transition.occurred_at == OCCURRED
         assert transition.value == 300.0
         # The snapshots are what let a message state what its own check measured, however long
         # after the check it is rendered.

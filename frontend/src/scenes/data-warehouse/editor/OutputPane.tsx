@@ -867,6 +867,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         setProgress,
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
+        showQueryScan: !biMode,
         isEmbeddedMode,
     }
     const sharedActionsProps = {
@@ -1219,7 +1220,13 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
     )
 }
 
-const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
+const ErrorState = ({
+    responseError,
+    sourceQuery,
+    queryCancelled,
+    response,
+    showQueryScan,
+}: any): JSX.Element | null => {
     const error = queryCancelled
         ? 'The query was cancelled'
         : response && 'error' in response && !!response.error
@@ -1242,7 +1249,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                         <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
                     }
                 />
-                <EditorQueryScanBanner />
+                {showQueryScan && <EditorQueryScanBanner />}
             </div>
         </div>
     )
@@ -1279,6 +1286,7 @@ const Content = ({
     progress,
     insightLoading,
     showVisualizationSettings,
+    showQueryScan,
     isEmbeddedMode,
 }: any): JSX.Element | null => {
     const { selectedDirectSource } = useValues(sqlEditorLogic)
@@ -1340,6 +1348,7 @@ const Content = ({
                 sourceQuery={sourceQuery}
                 queryCancelled={queryCancelled}
                 response={response}
+                showQueryScan={showQueryScan}
             />
         )
     }
@@ -1372,7 +1381,7 @@ const Content = ({
         return (
             <div className="absolute inset-0 flex flex-col border-t overflow-hidden">
                 <QueryWarningsBanner warnings={response?.warnings} />
-                <EditorQueryScanBanner />
+                {showQueryScan && <EditorQueryScanBanner />}
                 <div className="flex flex-col flex-1 min-h-0 hide-scrollbar overflow-auto">
                     <InternalDataTableVisualization
                         uniqueKey={vizKey}
@@ -1444,7 +1453,7 @@ const Content = ({
         return (
             <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
                 <QueryWarningsBanner warnings={response?.warnings} />
-                <EditorQueryScanBanner />
+                {showQueryScan && <EditorQueryScanBanner />}
                 {rows.length === 0 ? (
                     <EmptyResultsState />
                 ) : (

@@ -83,6 +83,12 @@ SETTLEMENT: dict[str, Any] = {
     "next_attempt_at": None,
     "paid_at": "2026-10-02T00:00:00Z",
 }
+SETTLEMENT_WITH_CREDIT: dict[str, Any] = {
+    **SETTLEMENT,
+    "gross_amount_cents": 125000,
+    "credit_amount_cents": 25000,
+    "amount_cents": 100000,
+}
 
 
 def billing_response(payload: Any, status_code: int = 200) -> MagicMock:
@@ -382,9 +388,9 @@ class TestPartnerBillingAPI(APILicensedTest):
                 "get",
                 "settlements/stl_example1/",
                 None,
-                {**SETTLEMENT, "invoices": SETTLEMENT_INVOICES},
+                {**SETTLEMENT_WITH_CREDIT, "invoices": SETTLEMENT_INVOICES},
                 ("GET", "/api/payer/settlements/stl_example1", None, None),
-                {**SETTLEMENT, "invoices": SETTLEMENT_INVOICES},
+                {**SETTLEMENT_WITH_CREDIT, "invoices": SETTLEMENT_INVOICES},
             ),
             (
                 "settlement retry",

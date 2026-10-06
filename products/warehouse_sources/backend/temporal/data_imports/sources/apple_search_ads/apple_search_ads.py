@@ -135,6 +135,13 @@ def build_client_secret(credentials: AppleSearchAdsCredentials, *, issued_at: Op
     and presents that as `client_secret`. Unchanged between v5 and the Platform API.
     """
     now = int(issued_at if issued_at is not None else time.time())
+    private_key = _normalize_private_key(credentials.private_key)
+    # PyJWT loads a public key without complaint and only fails once it tries to sign with it.
+    if "PUBLIC KEY-----" in private_key:
+        raise AppleSearchAdsAuthError(
+            "You entered the public key. Paste the private key you generated for your Apple Ads API "
+            "client, not the public key you uploaded to Apple."
+        )
     try:
         return jwt.encode(
             {
@@ -144,11 +151,11 @@ def build_client_secret(credentials: AppleSearchAdsCredentials, *, issued_at: Op
                 "exp": now + CLIENT_SECRET_TTL_SECONDS,
                 "iss": credentials.team_id,
             },
-            _normalize_private_key(credentials.private_key),
+            private_key,
             algorithm="ES256",
             headers={"alg": "ES256", "kid": credentials.key_id},
         )
-    except (jwt.PyJWTError, ValueError, TypeError) as e:
+    except (jwt.PyJWTError, ValueError, TypeError, AttributeError) as e:
         # The cryptography backend's own text names its PEM framing internals and links its FAQ,
         # neither of which helps someone in the setup form — keep it on the chained cause only.
         raise AppleSearchAdsAuthError(

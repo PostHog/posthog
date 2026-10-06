@@ -24,6 +24,7 @@ with workflow.unsafe.imports_passed_through():
         SourceEvaluationInputs,
         SourceOutcomeInputs,
     )
+    from products.alerts_platform.backend.facade.temporal import DELIVERY_EXECUTION_TIMEOUT
 
 WORKFLOW_NAME = "logs-alert-evaluate"
 
@@ -107,7 +108,7 @@ class LogsAlertEvaluateWorkflow(PostHogWorkflow):
                     id=f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}",
                     task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                     parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                    execution_timeout=dt.timedelta(minutes=1),
+                    execution_timeout=DELIVERY_EXECUTION_TIMEOUT,
                 )
                 for delivery in evaluation.deliveries
             ),

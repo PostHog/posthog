@@ -16,6 +16,7 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
+import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
@@ -2006,12 +2007,16 @@ export function createExecTool(
                             describeValidationError(validation.error, toolSchema)
                         )
                     }
+                    const ignoredKeys = findIgnoredInputKeys(input, validation.data, toolSchema)
                     input = validation.data as Record<string, unknown>
 
                     const startedAt = Date.now()
                     let result: unknown
                     try {
-                        result = markNoncanonicalMetricRun(tool.name, await tool.handler(context, input))
+                        result = withIgnoredInputKeys(
+                            markNoncanonicalMetricRun(tool.name, await tool.handler(context, input)),
+                            ignoredKeys
+                        )
                     } catch (err) {
                         // PostHogValidationError is the API's 400 validation_error body.
                         const apiError = findRecoverableApiError(err)
