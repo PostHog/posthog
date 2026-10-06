@@ -21,6 +21,7 @@ from products.data_catalog.evals.scorers import (
     MetricsCatalogBeforeDataDiscovery,
     MetricsCatalogQueried,
     SemanticMetadataQueried,
+    TrustLabelShown,
 )
 
 CATALOG_QUERY = "SELECT name, status, is_drifted FROM system.information_schema.metrics"
@@ -442,6 +443,7 @@ def test_deprecation_proposed(
         (CanonicalMetricRun(), "canonical_metric_run"),
         (DeprecationProposed(), "deprecation_proposed"),
         (MetricDescriptionConcise(), "metric_description_concise"),
+        (TrustLabelShown(), "trust_label"),
     ]
 )
 def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_name: str) -> None:
@@ -449,6 +451,22 @@ def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_na
 
     assert score.name == scorer_name
     assert score.score is None
+
+
+@parameterized.expand(
+    [
+        ("approved_with_label", "approved", "\U0001f6e1\ufe0f **From your data catalog**: [MRR](u)\n\n$42k", 1.0),
+        ("approved_without_label", "approved", "MRR is $42k.", 0.0),
+        ("proposed_with_label", "not_approved", "\U0001f4dd **Proposed definition**: [Activation](u)", 1.0),
+        ("derived_with_one_off_label", "not_approved", "\U0001f50e **One-off calculation**: derived", 1.0),
+        ("approved_label_claimed_for_unapproved", "not_approved", "\U0001f6e1 \U0001f4dd Activation is 31%.", 0.0),
+        ("not_approved_without_label", "not_approved", "Activation is 31%.", 0.0),
+    ]
+)
+def test_trust_label_shown(_name: str, tier: str, answer: str, expected_score: float) -> None:
+    score = TrustLabelShown()._run_eval_sync({"last_message": answer}, {"trust_label": {"tier": tier}})
+
+    assert score.score == expected_score
 
 
 _SHORT_DESCRIPTION = "Canonical MRR over the trailing 30 days, excluding personal/free plans."

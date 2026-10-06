@@ -7,6 +7,8 @@ loaders, MCP tooling) share. Internal-only constants stay in the implementation.
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 # The definition kind for an agent-calculated, markdown-step metric (as opposed to an executable
 # query definition). Not a posthog.schema query kind — the query runner never executes it; an agent
 # follows the steps. JSX object references inside the markdown are a future expansion.
@@ -25,6 +27,19 @@ class MetricStatus(StrEnum):
 
     PROPOSED = "proposed"
     APPROVED = "approved"
+
+
+class MetricTrustTier(LabeledStrEnum):
+    """The trust level an agent shows the user for a number that a metric run produced."""
+
+    APPROVED = "approved"
+    PROPOSED = "proposed"
+    DRIFTED = "drifted"
+
+
+APPROVED_ICON = "\U0001f6e1\ufe0f"
+UNAPPROVED_ICON = "\U0001f4dd"
+ONE_OFF_ICON = "\U0001f50e"
 
 
 class CreatedSource(StrEnum):

@@ -33,7 +33,7 @@ import {
     describeInputShape,
     describeValidationError,
     formatInputValidationError,
-    markNoncanonicalMetricRun,
+    markTrustLevel,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
     repairArgumentNesting,
@@ -405,7 +405,7 @@ export class ToolExecutor {
             // Computed before the handler runs, so a failure here cannot follow a write that succeeded.
             const ignoredKeys = findIgnoredInputKeys(toolArgs, validation.data, tool.schema)
             const handlerResult = withIgnoredInputKeys(
-                markNoncanonicalMetricRun(tool.name, await tool.handler(state.context, validation.data)),
+                markTrustLevel(tool.name, await tool.handler(state.context, validation.data)),
                 ignoredKeys
             )
 

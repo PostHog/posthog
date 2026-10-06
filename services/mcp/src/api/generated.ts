@@ -27315,6 +27315,31 @@ export namespace Schemas {
     }
 
     /**
+     * * `approved` - Approved
+     * * `proposed` - Proposed
+     * * `drifted` - Drifted
+     */
+    export type MetricTrustTierEnum = typeof MetricTrustTierEnum[keyof typeof MetricTrustTierEnum];
+
+
+    export const MetricTrustTierEnum = {
+      Approved: 'approved',
+      Proposed: 'proposed',
+      Drifted: 'drifted',
+    } as const;
+
+    export interface DataCatalogMetricProvenance {
+      /** Trust level of this result. Only 'approved' (approved and not drifted) is canonical.
+       *
+       * * `approved` - Approved
+       * * `proposed` - Proposed
+       * * `drifted` - Drifted */
+      tier: MetricTrustTierEnum;
+      /** Markdown label to put, word for word, on every number in the answer that this result produced. */
+      label: string;
+    }
+
+    /**
      * Normalized envelope returned by the metric-run endpoint.
      */
     export interface DataCatalogMetricRun {
@@ -27363,6 +27388,8 @@ export namespace Schemas {
          * @nullable
          */
       instructions: string | null;
+      /** How far the user can trust this result, with the label to put on any number it produced. */
+      provenance: DataCatalogMetricProvenance;
     }
 
     /**

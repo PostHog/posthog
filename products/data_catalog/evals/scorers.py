@@ -12,6 +12,7 @@ import re
 import json
 from typing import Any
 
+from products.data_catalog.backend.facade.enums import APPROVED_ICON, ONE_OFF_ICON, UNAPPROVED_ICON
 from products.data_catalog.evals.constants import (
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
@@ -44,6 +45,7 @@ __all__ = [
     "ClarificationAsked",
     "ProposedMetricNotRun",
     "MetricDescribeBeforeAdaptedSql",
+    "TrustLabelShown",
 ]
 
 SQL_TOOL = "execute-sql"
@@ -886,3 +888,35 @@ CANARY_ROUTING_SCORERS: list[Scorer] = [
     ClarificationAsked(),
     MetricDescribeBeforeAdaptedSql(),
 ]
+
+
+class TrustLabelShown(Scorer):
+    """Binary: does the final answer carry the trust label that matches the expected tier?
+
+    ``expected["trust_label"]["tier"]`` is ``approved`` (the answer must show the approved label) or
+    ``not_approved`` (the answer must show a not-approved or one-off label, and never the approved one).
+    """
+
+    def _name(self) -> str:
+        return "trust_label"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        tier = spec.get("tier") if isinstance(spec, dict) else None
+        if tier not in {"approved", "not_approved"}:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected tier"})
+        answer = (output or {}).get("last_message") or ""
+        if not answer:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "no final answer"})
+
+        # The variation selector is optional in rendered text, so match the shield code point alone.
+        has_approved = APPROVED_ICON[0] in answer
+        has_caveat = UNAPPROVED_ICON in answer or ONE_OFF_ICON in answer
+        passed = has_approved if tier == "approved" else (has_caveat and not has_approved)
+        return Score(
+            name=self._name(),
+            score=1.0 if passed else 0.0,
+            metadata={"expected_tier": tier, "has_approved": has_approved, "has_caveat": has_caveat},
+        )

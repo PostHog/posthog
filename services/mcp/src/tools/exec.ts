@@ -80,20 +80,47 @@ const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-
 const METRIC_RUN_TOOL_NAME = 'data-catalog-metric-run'
 const APPROVED_METRIC_STATUS = 'approved'
 
-export function markNoncanonicalMetricRun(toolName: string, result: unknown): unknown {
+const EXECUTE_SQL_TOOL_NAME = 'execute-sql'
+const ONE_OFF_TRUST_LABEL = '🔎 **One-off calculation**: derived for this question, not a saved definition'
+
+export function markTrustLevel(toolName: string, result: unknown): unknown {
+    if (toolName === EXECUTE_SQL_TOOL_NAME) {
+        return labelOneOffResult(result)
+    }
     if (toolName !== METRIC_RUN_TOOL_NAME || result === null || typeof result !== 'object') {
         return result
     }
     const envelope = result as Record<string, unknown>
     const status = envelope.status
     const isDrifted = envelope.is_drifted === true
+    const label = (envelope.provenance as { label?: unknown } | null | undefined)?.label
+    const lead = typeof label === 'string' ? { trust_label: label } : {}
     if (status === APPROVED_METRIC_STATUS && !isDrifted) {
-        return result
+        return { ...lead, ...envelope }
     }
     return {
         NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric, label the result noncanonical in \`context\`, and tell the reader plainly that the number is a one-off calculation rather than a saved definition.`,
+        ...lead,
         ...envelope,
     }
+}
+
+function labelOneOffResult(result: unknown): unknown {
+    const line = `trust_label: ${ONE_OFF_TRUST_LABEL}`
+    if (typeof result === 'string') {
+        return `${line}\n${result}`
+    }
+    if (result === null || typeof result !== 'object' || Array.isArray(result)) {
+        return result
+    }
+    // Text mode returns only the formatted table, so the label has to sit inside it.
+    const record = result as Record<string, unknown>
+    const override = record[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
+    if (typeof override === 'string') {
+        record[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY] = `${line}\n${override}`
+    }
+    record.trust_label = ONE_OFF_TRUST_LABEL
+    return record
 }
 
 function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {
@@ -2014,7 +2041,7 @@ export function createExecTool(
                     let result: unknown
                     try {
                         result = withIgnoredInputKeys(
-                            markNoncanonicalMetricRun(tool.name, await tool.handler(context, input)),
+                            markTrustLevel(tool.name, await tool.handler(context, input)),
                             ignoredKeys
                         )
                     } catch (err) {

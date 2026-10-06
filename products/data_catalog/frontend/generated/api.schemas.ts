@@ -386,6 +386,30 @@ export interface DataCatalogMetricRunRequestApi {
 }
 
 /**
+ * * `approved` - Approved
+ * * `proposed` - Proposed
+ * * `drifted` - Drifted
+ */
+export type MetricTrustTierEnumApi = (typeof MetricTrustTierEnumApi)[keyof typeof MetricTrustTierEnumApi]
+
+export const MetricTrustTierEnumApi = {
+    Approved: 'approved',
+    Proposed: 'proposed',
+    Drifted: 'drifted',
+} as const
+
+export interface DataCatalogMetricProvenanceApi {
+    /** Trust level of this result. Only 'approved' (approved and not drifted) is canonical.
+     *
+     * * `approved` - Approved
+     * * `proposed` - Proposed
+     * * `drifted` - Drifted */
+    tier: MetricTrustTierEnumApi
+    /** Markdown label to put, word for word, on every number in the answer that this result produced. */
+    label: string
+}
+
+/**
  * Normalized envelope returned by the metric-run endpoint.
  */
 export interface DataCatalogMetricRunApi {
@@ -434,6 +458,8 @@ export interface DataCatalogMetricRunApi {
      * @nullable
      */
     instructions: string | null
+    /** How far the user can trust this result, with the label to put on any number it produced. */
+    provenance: DataCatalogMetricProvenanceApi
 }
 
 /**

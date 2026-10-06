@@ -1137,10 +1137,24 @@ describe('exec tool', () => {
             expect(result).toContain('Do not present this as the answer')
         })
 
-        it('leaves an approved, non-drifted result unmarked', async () => {
-            const exec = metricRunExec({ status: 'approved', is_drifted: false, results: [[42]] })
+        it.each([
+            ['approved', { status: 'approved', is_drifted: false }, false],
+            ['proposed', { status: 'proposed', is_drifted: false }, true],
+        ])('leads a %s result with its trust label', async (_label, envelope, noncanonical) => {
+            const exec = metricRunExec({ ...envelope, results: [[42]], provenance: { label: 'RUN LABEL' } })
             const result = await exec.handler(mockContext, { command: 'call data-catalog-metric-run' })
-            expect(result).not.toContain('NONCANONICAL')
+            expect(result.includes('NONCANONICAL')).toBe(noncanonical)
+            expect(result.indexOf('RUN LABEL')).toBeLessThan(result.indexOf('results'))
+        })
+
+        it.each([
+            ['a string result', '| c |\n| 1 |'],
+            ['a formatted table', { results: [[1]], [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: '| c |\n| 1 |' }],
+        ])('labels %s from execute-sql as a one-off', async (_label, sqlResult) => {
+            const exec = createExec([makeMockTool({ name: 'execute-sql', handler: async () => sqlResult })])
+            const result = await exec.handler(mockContext, { command: 'call execute-sql {"query":"select 1"}' })
+            expect(result.startsWith('trust_label: 🔎 **One-off calculation**')).toBe(true)
+            expect(result).toContain('| c |')
         })
 
         it('leaves other tools alone', async () => {

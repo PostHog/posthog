@@ -14,7 +14,7 @@ from posthog.schema_enums import IntervalType
 
 from ..facade import api
 from ..facade.api import MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
-from ..facade.enums import CreatedSource
+from ..facade.enums import CreatedSource, MetricTrustTier
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 
 
@@ -26,6 +26,17 @@ class MetricDefinitionField(serializers.JSONField):
 @extend_schema_field(OpenApiTypes.ANY)
 class _FreeJSONField(serializers.JSONField):
     """A free-form JSON value (query results / query status shapes)."""
+
+
+@extend_schema_serializer(component_name="DataCatalogMetricProvenance")
+class MetricProvenanceSerializer(serializers.Serializer):
+    tier = serializers.ChoiceField(
+        choices=MetricTrustTier.choices,
+        help_text="Trust level of this result. Only 'approved' (approved and not drifted) is canonical.",
+    )
+    label = serializers.CharField(
+        help_text="Markdown label to put, word for word, on every number in the answer that this result produced."
+    )
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricRun")
@@ -69,6 +80,9 @@ class MetricRunResponseSerializer(serializers.Serializer):
     instructions = serializers.CharField(
         allow_null=True,
         help_text="For a markdown (agent-calculated) metric, the steps to follow to compute it. Null for an executable metric.",
+    )
+    provenance = MetricProvenanceSerializer(
+        help_text="How far the user can trust this result, with the label to put on any number it produced."
     )
 
 
