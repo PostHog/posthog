@@ -93,6 +93,17 @@ const RUN_SCOUT_ACTION_NODE: CreateActionType = {
     output_variable: { key: 'scout_run', result_path: null, label: 'Scout run' },
 }
 
+const JEV_CLASSIFICATION_ACTION_NODE: CreateActionType = {
+    type: 'function',
+    name: 'JEV classification',
+    description: 'Classify text into a label for later workflow steps.',
+    config: { template_id: 'template-posthog-classify', inputs: {} },
+    output_variable: [
+        { key: 'classification', result_path: 'label', label: 'Classification' },
+        { key: 'classification_result', result_path: null, label: 'Classification result' },
+    ],
+}
+
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     {
         type: 'delay',
@@ -437,6 +448,9 @@ export function HogFlowEditorPanelBuild({
             )}
 
             <HogFlowEditorToolbarSection title="PostHog actions">
+                {featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS] && (
+                    <HogFlowEditorToolbarNode action={JEV_CLASSIFICATION_ACTION_NODE} onActionSelect={onActionSelect} />
+                )}
                 {POSTHOG_NODES_TO_SHOW.map((action, index) => (
                     <HogFlowEditorToolbarNode
                         key={`${action.type}-${index}`}

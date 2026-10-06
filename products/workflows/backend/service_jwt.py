@@ -16,3 +16,8 @@ WORKFLOW_SCOUT_RUN_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.WORKFLOW_SCOUT_RUN,
     settings_name="WORKFLOW_SCOUT_RUN_JWT_SECRETS",
 )
+
+WORKFLOW_CLASSIFICATION_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOW_CLASSIFICATION,
+    settings_name="WORKFLOW_CLASSIFICATION_JWT_SECRETS",
+)

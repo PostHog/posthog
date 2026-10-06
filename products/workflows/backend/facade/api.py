@@ -16,11 +16,13 @@ from products.workflows.backend.facade.contracts import (
     TwilioAccount,
     TwilioPhoneNumber,
     WorkflowActivitySummary,
+    WorkflowClassification,
     WorkflowSummary,
     WorkflowTaskDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.services.batch_jobs import create_batch_job
+from products.workflows.backend.services.classification import WorkflowClassifier
 from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
     get_email_sending_state,
@@ -306,6 +308,14 @@ def get_maildev_mock_dns_records() -> list[EmailDomainDnsRecord]:
     from products.workflows.backend import providers  # noqa: PLC0415
 
     return providers.MAILDEV_MOCK_DNS_RECORDS
+
+
+def classify_workflow_text(
+    *, team_id: int, workflow_id: str, text: str, instructions: str, labels: dict[str, str]
+) -> WorkflowClassification:
+    return WorkflowClassifier.classify(
+        team_id=team_id, workflow_id=workflow_id, text=text, instructions=instructions, labels=labels
+    )
 
 
 def get_twilio_phone_numbers(*, account_sid: str, auth_token: str) -> list[TwilioPhoneNumber]:

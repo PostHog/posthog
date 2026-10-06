@@ -19,6 +19,13 @@ if TYPE_CHECKING:
 
 
 @frozen
+class WorkflowClassification:
+    label: str
+    confidence: float
+    probabilities: dict[str, float]
+
+
+@frozen
 class WorkflowSummary:
     id: str
     name: str

@@ -16,6 +16,46 @@ import { HogFlowEditorPanel } from './HogFlowEditorPanel'
 
 const LOGIC_PROPS: WorkflowLogicProps = { id: 'storybook-configuration-panel' }
 
+const CLASSIFICATION_TEMPLATE: HogFunctionTemplateType = {
+    id: 'template-posthog-classify',
+    type: 'destination',
+    name: 'JEV classification',
+    description: 'Classify text into one of your labels and save the result in a workflow variable.',
+    status: 'hidden',
+    free: true,
+    code: '',
+    code_language: 'hog',
+    icon_url: '/static/posthog-icon.svg',
+    inputs_schema: [
+        {
+            key: 'text',
+            type: 'string',
+            label: 'Text to classify',
+            required: true,
+            secret: false,
+            description: 'Text from an event property or workflow variable. Maximum 8 KiB.',
+        },
+        {
+            key: 'instructions',
+            type: 'string',
+            label: 'Classification instructions',
+            required: true,
+            secret: false,
+            templating: false,
+            description: 'Describe how JEV should choose a label. The text is sent separately from these instructions.',
+        },
+        {
+            key: 'labels',
+            type: 'dictionary',
+            label: 'Labels',
+            required: true,
+            secret: false,
+            templating: false,
+            description: 'Add 2 to 16 labels. Each key is a label and each value describes when to use it.',
+        },
+    ],
+}
+
 // The email template is hidden, so it is not in the shared destinations fixture. Mirrors
 // nodejs/src/cdp/templates/_destinations/email/email.template.ts.
 const EMAIL_TEMPLATE: HogFunctionTemplateType = {
@@ -51,6 +91,8 @@ const PANEL_WORKFLOW: HogFlow = {
     variables: [
         { type: 'string', key: 'account_owner', label: 'Account owner', default: '' },
         { type: 'number', key: 'trial_days', label: 'Trial days', default: 14 },
+        { type: 'string', key: 'classification', label: 'Classification', default: '' },
+        { type: 'string', key: 'classification_result', label: 'Classification result', default: '' },
         ...Array.from({ length: 22 }, (_, index) => ({
             type: 'string' as const,
             key: `workflow_value_${index + 1}`,
@@ -59,6 +101,30 @@ const PANEL_WORKFLOW: HogFlow = {
         })),
     ],
     actions: [
+        {
+            id: 'classification',
+            type: 'function',
+            name: 'JEV classification',
+            description: 'Classify the sentiment of a message.',
+            config: {
+                template_id: 'template-posthog-classify',
+                inputs: {
+                    text: { value: '{event.properties.message}', templating: 'hog' },
+                    instructions: { value: 'Choose the sentiment of the text.' },
+                    labels: {
+                        value: {
+                            positive: 'Positive sentiment',
+                            negative: 'Negative sentiment',
+                            neutral: 'Neutral sentiment',
+                        },
+                    },
+                },
+            },
+            output_variable: [
+                { key: 'classification', result_path: 'label', label: 'Classification' },
+                { key: 'classification_result', result_path: null, label: 'Classification result' },
+            ],
+        },
         {
             id: 'trigger',
             type: 'trigger',
@@ -182,8 +248,12 @@ const meta: Meta<typeof HogFlowEditorPanel> = {
                 '/api/environments/:team_id/hog_flows/:id/': PANEL_WORKFLOW,
                 '/api/environments/:team_id/messaging_categories': { count: 0, results: [] },
                 '/api/projects/:team_id/hog_function_templates': {
-                    count: _hogFunctionTemplatesDestinations.results.length + 1,
-                    results: [...(_hogFunctionTemplatesDestinations.results as unknown[]), EMAIL_TEMPLATE],
+                    count: _hogFunctionTemplatesDestinations.results.length + 2,
+                    results: [
+                        ...(_hogFunctionTemplatesDestinations.results as unknown[]),
+                        EMAIL_TEMPLATE,
+                        CLASSIFICATION_TEMPLATE,
+                    ],
                 },
             },
             patch: {
@@ -293,3 +363,13 @@ Metrics.args = { mode: 'metrics', selectedNodeId: 'delay' }
 
 export const Logs: StoryFn<PanelStoryProps> = Template.bind({})
 Logs.args = { mode: 'logs', selectedNodeId: 'delay' }
+
+export const JevClassification: StoryFn<PanelStoryProps> = Template.bind({})
+JevClassification.args = { mode: 'build', selectedNodeId: 'classification' }
+JevClassification.parameters = {
+    featureFlags: [FEATURE_FLAGS.ML_INFERENCE_DECISIONS, FEATURE_FLAGS.WORKFLOWS_TRIGGER_VOLUME_ESTIMATE],
+}
+
+export const JevClassificationPalette: StoryFn<PanelStoryProps> = Template.bind({})
+JevClassificationPalette.args = { mode: 'build', selectedNodeId: null }
+JevClassificationPalette.parameters = JevClassification.parameters
