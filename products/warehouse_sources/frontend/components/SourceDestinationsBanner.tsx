@@ -25,13 +25,15 @@ export function SourceDestinationsBanner(): JSX.Element | null {
             type="info"
             dismissKey="warehouse-source-destinations-cross-sell"
             action={{
-                children: 'Set up a destination',
-                to: urls.warehouseDestinations(),
+                children: 'Get started',
+                // Sources, not destinations: a destination is turned on from the source that
+                // feeds it, so the destinations page would only tell a reader to go here.
+                to: urls.sources(),
                 'data-attr': 'warehouse-destinations-cross-sell',
             }}
         >
-            PostHog also runs ELT pipelines. A pipeline imports tables from a source like Stripe or HubSpot, and can write
-            them to the same warehouse you export to, over the same connection.
+            PostHog also runs ELT pipelines. A pipeline imports tables from a source like Stripe or HubSpot, and can
+            write them to the same warehouse you export to, over the same connection.
         </LemonBanner>
     )
 }
