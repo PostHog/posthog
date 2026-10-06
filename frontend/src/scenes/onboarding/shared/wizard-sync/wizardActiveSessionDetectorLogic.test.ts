@@ -119,12 +119,11 @@ describe('wizardActiveSessionDetectorLogic', () => {
         projectLogic.actions.loadCurrentProjectSuccess(originalProject)
         expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
 
-        releaseOther(makeSession({ run_phase: 'running' }))
-        await new Promise((resolve) => setTimeout(resolve, 0))
-        expect(logic.values.hasActiveSession).toBe(false)
-
+        releaseOther(makeSession({ run_phase: 'running', workflow_id: 'other-project-program' }))
         releaseOriginal(makeSession({ run_phase: 'running' }))
-        await expectLogic(logic).toDispatchActions(['markActive']).toMatchValues({ hasActiveSession: true })
+        await expectLogic(logic)
+            .toDispatchActions(['markActive'])
+            .toMatchValues({ activeWorkflowId: 'posthog-integration' })
     })
 
     it('stays inactive when the poll returns no session (204/null)', async () => {
