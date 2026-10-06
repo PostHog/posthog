@@ -70,7 +70,7 @@ export function PartnerBillingSettlementModal({ applicationId }: PartnerBillingL
                         <PartnerBillingInvoiceTable
                             applicationId={applicationId}
                             invoices={openedSettlement.invoices ?? []}
-                            loading={false}
+                            loading={openedSettlementLoading}
                             emptyState="This settlement doesn't pay any invoices."
                             showCharged
                         />
