@@ -131,7 +131,7 @@ describe('computeSankeyLayout', () => {
             nodeAlign: 'left',
         })
         expect(pinned.columnCount).toBe(100)
-        expect(pinned.nodeWidth).toBeCloseTo(600 / 99)
+        expect(pinned.nodeWidth).toBeCloseTo(600 / 100)
     })
 
     it('returns an empty layout without links and throws on a link to a missing node', () => {

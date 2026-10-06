@@ -24,6 +24,10 @@ const MAX_EDGES = 60
 
 const MAX_STEPS_IN_FRAME = 5
 
+// Bounds the scroll width, so a result with a very high step index cannot size the canvas
+// to thousands of percent of the frame.
+const MAX_SCROLL_COLUMNS = 25
+
 const CHART_CONFIG: SankeyChartConfig = {
     nodePadding: 6,
     linkOpacity: 0.35,
@@ -70,8 +74,9 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
     const pathStarts = pathStartCount(allEdges)
     // Past five steps the chart grows a fifth of the frame per step and scrolls, as the paths
     // insight does, so long paths keep readable columns.
-    const chartWidth =
-        graph.stepCount > MAX_STEPS_IN_FRAME ? `${(graph.stepCount / MAX_STEPS_IN_FRAME) * 100}%` : '100%'
+    // Unpinned, the chart lays out its longest path, which the edges bound.
+    const columnCount = Math.min(graph.stepsPinned ? graph.stepCount : edges.length + 1, MAX_SCROLL_COLUMNS)
+    const chartWidth = columnCount > MAX_STEPS_IN_FRAME ? `${(columnCount / MAX_STEPS_IN_FRAME) * 100}%` : '100%'
     const truncated = edges.length < allEdges.length
 
     return (

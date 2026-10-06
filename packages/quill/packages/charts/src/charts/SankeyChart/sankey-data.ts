@@ -228,7 +228,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     if (!Number.isFinite(nodePadding) || nodePadding < 0) {
         throw new Error(`Sankey nodePadding must be a finite number of 0 or more: ${nodePadding}`)
     }
-    const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, columnCountOf(nodes, links) - 1))
+    const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, columnCountOf(nodes, links)))
 
     // The engine mutates its inputs, so hand it fresh objects.
     const engineNodes: LayoutNodeProps[] = nodes.map((node) => {
