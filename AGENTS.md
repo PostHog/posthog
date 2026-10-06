@@ -294,7 +294,6 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
-- `/reviewing-with-coderabbit` — before `gh pr create`, or when a branch review is requested, check `test -n "${POSTHOG_TASK_RUN_ID:-}" || test -n "${CI:-}"` first. If true, skip the local review without probing `cr`, loading the skill, or announcing the skip. Otherwise invoke the skill and, if a person can answer, offer setup or a skip when `cr` is missing or signed out. Never substitute `/code-review` or review subagents.
 
 **Invoke when in the area:**
 

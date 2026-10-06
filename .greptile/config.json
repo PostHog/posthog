@@ -1,4 +1,5 @@
 {
+    "autoReview": [],
     "strictness": 2,
     "triggerOnUpdates": false,
     "triggerOnDrafts": true,
