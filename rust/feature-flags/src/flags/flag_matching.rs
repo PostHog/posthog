@@ -2812,10 +2812,9 @@ impl FeatureFlagMatcher {
 
         // Single DB operation for properties and cohorts
         let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
-        let operation = "fetch_properties";
         match before_persons_db_deadline(
             self.persons_db_deadline,
-            operation,
+            "fetch_properties",
             fetch_and_locally_cache_all_relevant_properties(
                 &mut self.flag_evaluation_state,
                 self.router.get_persons_reader().clone(),
@@ -2836,10 +2835,6 @@ impl FeatureFlagMatcher {
                     "Error fetching properties for team {} distinct_id {}: {:?}",
                     self.team_id, self.distinct_id, e
                 );
-                // before_persons_db_deadline already counts a deadline error.
-                if !e.is_persons_db_deadline() {
-                    track_unretried_db_error(&e, operation);
-                }
                 db_fetch_timer.label("outcome", "error").fin();
                 return Err(e);
             }

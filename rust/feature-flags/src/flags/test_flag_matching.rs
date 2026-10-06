@@ -2,7 +2,6 @@
 mod tests {
     use async_trait::async_trait;
     use chrono::Utc;
-    use common_database::Client;
     use common_types::TeamId;
     use serde_json::json;
     use std::collections::{HashMap, HashSet};
@@ -8178,12 +8177,11 @@ mod tests {
         #[case] first_stopped_call: &str,
     ) {
         let stalled_db = Arc::new(StalledPgClient::default());
-        let stalled: Arc<dyn Client + Send + Sync> = stalled_db.clone();
         let router = PostgresRouter::new(
-            stalled.clone(),
-            stalled.clone(),
-            stalled.clone(),
-            stalled.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
         );
         let deadline = Duration::from_millis(500);
         let mut matcher = FeatureFlagMatcher::new(
@@ -8191,7 +8189,7 @@ mod tests {
             None,
             1,
             router,
-            Arc::new(CohortCacheManager::new(stalled, None, None)),
+            Arc::new(CohortCacheManager::new(stalled_db.clone(), None, None)),
             Arc::new(GroupTypeCacheManager::new(stalled_db.clone(), None, None)),
             None,
         )

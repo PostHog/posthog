@@ -696,14 +696,13 @@ pub async fn setup_invalid_pg_client() -> Arc<dyn Client + Send + Sync> {
 /// A database that never answers: every connection request waits forever.
 #[derive(Default)]
 pub struct StalledPgClient {
-    pub connection_requests: std::sync::atomic::AtomicUsize,
+    pub connection_requests: AtomicUsize,
 }
 
 #[async_trait]
 impl Client for StalledPgClient {
     async fn get_connection(&self) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
-        self.connection_requests
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.connection_requests.fetch_add(1, Ordering::SeqCst);
         std::future::pending().await
     }
 

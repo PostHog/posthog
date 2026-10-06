@@ -602,7 +602,8 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         let (person_cohort, group) = tokio::try_join!(
             fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids),
             fetch_group_properties(&reader, team_id, group_type_to_key),
-        )?;
+        )
+        .inspect_err(|e| track_unretried_db_error(e, "fetch_properties"))?;
 
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
         // Mark every requested index as fetched, not just the ones the query returned a
@@ -618,7 +619,9 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         }
     } else {
         let person_cohort =
-            fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids).await?;
+            fetch_person_and_cohorts(&reader, team_id, &distinct_id, &static_cohort_ids)
+                .await
+                .inspect_err(|e| track_unretried_db_error(e, "fetch_properties"))?;
         apply_person_cohort_to_state(flag_evaluation_state, person_cohort);
     }
 
