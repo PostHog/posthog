@@ -1047,6 +1047,7 @@ export interface featureFlagLogicValues {
     relatedInsightsLoading: boolean
     repeatsValue: RecurrenceInterval | 'cron' | 'none'
     roleBasedAccessEnabled: boolean
+    runningExperimentId: number | null
     scheduleDateMarker: any
     scheduleDefaultsAppliedFromFlag: boolean
     scheduleFormCollapsible: boolean
@@ -2097,6 +2098,7 @@ export interface featureFlagLogicMeta {
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
         showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
         isDraftExperiment: (experiment: any) => boolean
+        runningExperimentId: (featureFlag: FeatureFlagType) => number | null
         properties: (featureFlag: FeatureFlagType) => AnyPropertyFilter[]
         variantErrors: (variants: MultivariateFlagVariant[]) => VariantError[]
         repeatsValue: (
@@ -4792,6 +4794,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return false
                 }
                 return !experiment?.start_date
+            },
+        ],
+        runningExperimentId: [
+            (s) => [s.featureFlag],
+            (featureFlag: FeatureFlagType): number | null => {
+                return featureFlag?.experiment_set_metadata?.find((experiment) => experiment.is_running)?.id ?? null
             },
         ],
         properties: [

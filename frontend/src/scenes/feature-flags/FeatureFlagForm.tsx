@@ -171,7 +171,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         advancedPanelOpen,
         hasEncryptedPayloadBeenSaved,
         hasEarlyAccessFeatures,
-        hasExperiment,
+        runningExperimentId,
         alsoCreateInProjects,
         alsoCreateInProjectOptions,
     } = useValues(featureFlagLogic)
@@ -1117,11 +1117,11 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                             {/* Release conditions card - skip for remote config */}
                             {!featureFlag.is_remote_configuration && (
                                 <div className="rounded border p-3 bg-bg-light flex flex-col gap-2">
-                                    {hasExperiment && (
+                                    {runningExperimentId !== null && (
                                         <LemonBanner type="info">
-                                            Release conditions are managed by the linked experiment.{' '}
+                                            Release conditions are managed by the running experiment.{' '}
                                             <Link
-                                                to={urls.experiment(featureFlag.experiment_set![0])}
+                                                to={urls.experiment(runningExperimentId)}
                                                 data-attr="feature-flag-form-experiment-release-conditions-link"
                                             >
                                                 Edit them in the experiment
@@ -1133,7 +1133,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                         flagId={props.id}
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
-                                        readOnly={!!hasExperiment}
+                                        readOnly={runningExperimentId !== null}
                                         variants={nonEmptyVariants}
                                         isDisabled={!featureFlag.active}
                                         bucketingIdentifier={featureFlag.bucketing_identifier}
