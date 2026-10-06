@@ -209,7 +209,7 @@ class Table:
         raise NotImplementedError()
 
 
-@dataclass
+@dataclass(frozen=False)
 class PendingDeletesTable(Table):
     """
     Represents a table storing pending deletions.
