@@ -277,13 +277,11 @@ event_definitions.PropertyDefinition access_control.PropertyAccessControl.proper
 event_definitions.PropertyDefinition ee.EnterprisePropertyDefinition.propertydefinition_ptr reverse-accessor(enterprisepropertydefinition) 1
 event_definitions.PropertyDefinition posthog.MaterializedColumnSlot.property_definition reverse-accessor(materialized_column_slots) 1
 experiments.Experiment products.experiments.backend.facade.replay.resolve_in_session_exposure_semantics facade-accepts(experiment) 1
-experiments:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(ExperimentTrendsQuery) 2
 experiments:backend/hogql_queries/ posthog.session_recordings.queries.test.listing_recordings.test_session_recordings_list_by_experiment_exposure drives(ExposureQueryBuilder) 1
 experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunner) 2
 experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(ExperimentQueryRunnerBaseTest) 1
 experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(compute_metric_fingerprint) 2
 experiments:backend/hogql_queries/ posthog.temporal.experiments.test_cache_warming drives(get_experiment_stats_method) 2
-experiments:backend/hogql_queries/ products.actions.backend.api.test.test_action drives(ExperimentTrendsQuery) 3
 exports.ExportedAsset posthog.ObjectMediaPreview.exported_asset reverse-accessor(object_previews) 1
 exports.ExportedAsset products.exports.backend.facade.api.create_export_asset_async facade-returns 1
 exports.ExportedAsset products.exports.backend.facade.api.get_export_asset facade-returns 1

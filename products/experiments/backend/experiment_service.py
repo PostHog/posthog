@@ -72,6 +72,7 @@ from products.experiments.backend.models.experiment import (
     EXPOSURE_FROZEN_COHORT_KEY,
     EXPOSURE_FROZEN_GROUP_KEY,
     EXPOSURE_FROZEN_GROUP_MARKER,
+    LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
@@ -1004,6 +1005,14 @@ class ExperimentService:
         )
         if saved_metrics.count() != len(saved_metrics_ids):
             raise ValidationError("Saved metric does not exist or does not belong to this project")
+
+        # A linked legacy shared metric turns the whole experiment legacy, which hides all of its results.
+        legacy_names = sorted(saved_metrics.filter(query__kind__in=LEGACY_METRIC_KINDS).values_list("name", flat=True))
+        if legacy_names:
+            raise ValidationError(
+                f"Legacy shared metrics can't be added to an experiment: {', '.join(legacy_names)}. "
+                "Use a shared metric of kind 'ExperimentMetric' instead."
+            )
 
     def validate_metric_event_names(
         self, metrics: list[dict] | None, *, known_event_names: set[str] | None = None
@@ -3877,7 +3886,7 @@ class ExperimentService:
                     f"Cannot update: {', '.join(sorted(disallowed_fields))}. "
                     f"To change these, migrate the experiment to the new experiments engine first: "
                     f"POST /api/projects/{experiment.team_id}/experiments/{experiment.id}/migrate "
-                    f"(the experiment-migrate tool). It keeps this experiment and its results, and returns a new one."
+                    f"(the experiment-migrate tool). It keeps this experiment and returns a new one."
                 )
 
             # Validate end_date if present

@@ -2821,7 +2821,7 @@ class QueryResponseAlternative7(BaseModel):
     stdout: str | None = None
 
 
-class QueryResponseAlternative81(BaseModel):
+class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6983,7 +6983,7 @@ class QueryResponseAlternative10(BaseModel):
     )
 
 
-class QueryResponseAlternative21(BaseModel):
+class QueryResponseAlternative19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -6999,7 +6999,7 @@ class QueryResponseAlternative21(BaseModel):
     )
 
 
-class QueryResponseAlternative31(BaseModel):
+class QueryResponseAlternative29(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -7008,7 +7008,7 @@ class QueryResponseAlternative31(BaseModel):
     status: ExternalQueryStatus
 
 
-class QueryResponseAlternative88(BaseModel):
+class QueryResponseAlternative84(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17172,7 +17172,7 @@ class Response13(BaseModel):
     )
 
 
-class Response18(BaseModel):
+class Response16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17223,7 +17223,7 @@ class Response18(BaseModel):
     )
 
 
-class Response20(BaseModel):
+class Response18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17275,7 +17275,7 @@ class Response20(BaseModel):
     )
 
 
-class Response21(BaseModel):
+class Response19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17332,7 +17332,7 @@ class Response21(BaseModel):
     )
 
 
-class Response22(BaseModel):
+class Response20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -20992,7 +20992,7 @@ class QueryResponseAlternative16(BaseModel):
     )
 
 
-class QueryResponseAlternative22(BaseModel):
+class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21042,7 +21042,7 @@ class QueryResponseAlternative22(BaseModel):
     )
 
 
-class QueryResponseAlternative23(BaseModel):
+class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21100,7 +21100,7 @@ class QueryResponseAlternative23(BaseModel):
     )
 
 
-class QueryResponseAlternative24(BaseModel):
+class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21168,7 +21168,7 @@ class QueryResponseAlternative24(BaseModel):
     )
 
 
-class QueryResponseAlternative25(BaseModel):
+class QueryResponseAlternative23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21221,7 +21221,7 @@ class QueryResponseAlternative25(BaseModel):
     )
 
 
-class QueryResponseAlternative26(BaseModel):
+class QueryResponseAlternative24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21273,7 +21273,7 @@ class QueryResponseAlternative26(BaseModel):
     )
 
 
-class QueryResponseAlternative28(BaseModel):
+class QueryResponseAlternative26(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21334,7 +21334,7 @@ class QueryResponseAlternative28(BaseModel):
     )
 
 
-class QueryResponseAlternative29(BaseModel):
+class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21389,7 +21389,7 @@ class QueryResponseAlternative29(BaseModel):
     )
 
 
-class QueryResponseAlternative30(BaseModel):
+class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21439,7 +21439,7 @@ class QueryResponseAlternative30(BaseModel):
     )
 
 
-class QueryResponseAlternative32(BaseModel):
+class QueryResponseAlternative30(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21488,7 +21488,7 @@ class QueryResponseAlternative32(BaseModel):
     )
 
 
-class QueryResponseAlternative33(BaseModel):
+class QueryResponseAlternative31(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21553,7 +21553,7 @@ class QueryResponseAlternative33(BaseModel):
     )
 
 
-class QueryResponseAlternative34(BaseModel):
+class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21613,7 +21613,7 @@ class QueryResponseAlternative34(BaseModel):
     )
 
 
-class QueryResponseAlternative35(BaseModel):
+class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21683,7 +21683,7 @@ class QueryResponseAlternative35(BaseModel):
     )
 
 
-class QueryResponseAlternative36(BaseModel):
+class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21747,7 +21747,7 @@ class QueryResponseAlternative36(BaseModel):
     )
 
 
-class QueryResponseAlternative37(BaseModel):
+class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21817,7 +21817,7 @@ class QueryResponseAlternative37(BaseModel):
     )
 
 
-class QueryResponseAlternative38(BaseModel):
+class QueryResponseAlternative36(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21864,7 +21864,7 @@ class QueryResponseAlternative38(BaseModel):
     )
 
 
-class QueryResponseAlternative39(BaseModel):
+class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21917,7 +21917,7 @@ class QueryResponseAlternative39(BaseModel):
     )
 
 
-class QueryResponseAlternative40(BaseModel):
+class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -21970,7 +21970,7 @@ class QueryResponseAlternative40(BaseModel):
     )
 
 
-class QueryResponseAlternative41(BaseModel):
+class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22023,7 +22023,7 @@ class QueryResponseAlternative41(BaseModel):
     )
 
 
-class QueryResponseAlternative43(BaseModel):
+class QueryResponseAlternative41(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22081,7 +22081,7 @@ class QueryResponseAlternative43(BaseModel):
     )
 
 
-class QueryResponseAlternative44(BaseModel):
+class QueryResponseAlternative42(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22149,7 +22149,7 @@ class QueryResponseAlternative44(BaseModel):
     )
 
 
-class QueryResponseAlternative45(BaseModel):
+class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22202,7 +22202,7 @@ class QueryResponseAlternative45(BaseModel):
     )
 
 
-class QueryResponseAlternative46(BaseModel):
+class QueryResponseAlternative44(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22254,7 +22254,7 @@ class QueryResponseAlternative46(BaseModel):
     )
 
 
-class QueryResponseAlternative47(BaseModel):
+class QueryResponseAlternative45(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22315,7 +22315,7 @@ class QueryResponseAlternative47(BaseModel):
     )
 
 
-class QueryResponseAlternative48(BaseModel):
+class QueryResponseAlternative46(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22370,7 +22370,7 @@ class QueryResponseAlternative48(BaseModel):
     )
 
 
-class QueryResponseAlternative49(BaseModel):
+class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22422,7 +22422,7 @@ class QueryResponseAlternative49(BaseModel):
     )
 
 
-class QueryResponseAlternative50(BaseModel):
+class QueryResponseAlternative48(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22474,7 +22474,7 @@ class QueryResponseAlternative50(BaseModel):
     )
 
 
-class QueryResponseAlternative51(BaseModel):
+class QueryResponseAlternative49(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22539,7 +22539,7 @@ class QueryResponseAlternative51(BaseModel):
     )
 
 
-class QueryResponseAlternative52(BaseModel):
+class QueryResponseAlternative50(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22599,7 +22599,7 @@ class QueryResponseAlternative52(BaseModel):
     )
 
 
-class QueryResponseAlternative53(BaseModel):
+class QueryResponseAlternative51(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22650,7 +22650,7 @@ class QueryResponseAlternative53(BaseModel):
     )
 
 
-class QueryResponseAlternative57(BaseModel):
+class QueryResponseAlternative53(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22701,7 +22701,7 @@ class QueryResponseAlternative57(BaseModel):
     )
 
 
-class QueryResponseAlternative59(BaseModel):
+class QueryResponseAlternative55(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22753,7 +22753,7 @@ class QueryResponseAlternative59(BaseModel):
     )
 
 
-class QueryResponseAlternative60(BaseModel):
+class QueryResponseAlternative56(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22810,7 +22810,7 @@ class QueryResponseAlternative60(BaseModel):
     )
 
 
-class QueryResponseAlternative61(BaseModel):
+class QueryResponseAlternative57(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22865,7 +22865,7 @@ class QueryResponseAlternative61(BaseModel):
     )
 
 
-class QueryResponseAlternative62(BaseModel):
+class QueryResponseAlternative58(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22914,7 +22914,7 @@ class QueryResponseAlternative62(BaseModel):
     )
 
 
-class QueryResponseAlternative63(BaseModel):
+class QueryResponseAlternative59(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -22968,7 +22968,7 @@ class QueryResponseAlternative63(BaseModel):
     )
 
 
-class QueryResponseAlternative64(BaseModel):
+class QueryResponseAlternative60(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23015,7 +23015,7 @@ class QueryResponseAlternative64(BaseModel):
     )
 
 
-class QueryResponseAlternative65(BaseModel):
+class QueryResponseAlternative61(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23062,7 +23062,7 @@ class QueryResponseAlternative65(BaseModel):
     )
 
 
-class QueryResponseAlternative66(BaseModel):
+class QueryResponseAlternative62(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23109,7 +23109,7 @@ class QueryResponseAlternative66(BaseModel):
     )
 
 
-class QueryResponseAlternative67(BaseModel):
+class QueryResponseAlternative63(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23156,7 +23156,7 @@ class QueryResponseAlternative67(BaseModel):
     )
 
 
-class QueryResponseAlternative69(BaseModel):
+class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23208,7 +23208,7 @@ class QueryResponseAlternative69(BaseModel):
     )
 
 
-class QueryResponseAlternative71(BaseModel):
+class QueryResponseAlternative67(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23260,7 +23260,7 @@ class QueryResponseAlternative71(BaseModel):
     )
 
 
-class QueryResponseAlternative72(BaseModel):
+class QueryResponseAlternative68(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23312,7 +23312,7 @@ class QueryResponseAlternative72(BaseModel):
     )
 
 
-class QueryResponseAlternative73(BaseModel):
+class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23360,7 +23360,7 @@ class QueryResponseAlternative73(BaseModel):
     )
 
 
-class QueryResponseAlternative74(BaseModel):
+class QueryResponseAlternative70(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23407,7 +23407,7 @@ class QueryResponseAlternative74(BaseModel):
     )
 
 
-class QueryResponseAlternative75(BaseModel):
+class QueryResponseAlternative71(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23454,7 +23454,7 @@ class QueryResponseAlternative75(BaseModel):
     )
 
 
-class QueryResponseAlternative76(BaseModel):
+class QueryResponseAlternative72(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23507,7 +23507,7 @@ class QueryResponseAlternative76(BaseModel):
     )
 
 
-class QueryResponseAlternative77(BaseModel):
+class QueryResponseAlternative73(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23558,7 +23558,7 @@ class QueryResponseAlternative77(BaseModel):
     )
 
 
-class QueryResponseAlternative78(BaseModel):
+class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23609,7 +23609,7 @@ class QueryResponseAlternative78(BaseModel):
     )
 
 
-class QueryResponseAlternative79(BaseModel):
+class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23660,7 +23660,7 @@ class QueryResponseAlternative79(BaseModel):
     )
 
 
-class QueryResponseAlternative80(BaseModel):
+class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23711,7 +23711,7 @@ class QueryResponseAlternative80(BaseModel):
     )
 
 
-class QueryResponseAlternative82(BaseModel):
+class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23761,7 +23761,7 @@ class QueryResponseAlternative82(BaseModel):
     )
 
 
-class QueryResponseAlternative83(BaseModel):
+class QueryResponseAlternative79(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23811,7 +23811,7 @@ class QueryResponseAlternative83(BaseModel):
     )
 
 
-class QueryResponseAlternative84(BaseModel):
+class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23858,7 +23858,7 @@ class QueryResponseAlternative84(BaseModel):
     )
 
 
-class QueryResponseAlternative85(BaseModel):
+class QueryResponseAlternative81(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23909,7 +23909,7 @@ class QueryResponseAlternative85(BaseModel):
     )
 
 
-class QueryResponseAlternative89(BaseModel):
+class QueryResponseAlternative85(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -23956,7 +23956,7 @@ class QueryResponseAlternative89(BaseModel):
     )
 
 
-class QueryResponseAlternative90(BaseModel):
+class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24003,7 +24003,7 @@ class QueryResponseAlternative90(BaseModel):
     )
 
 
-class QueryResponseAlternative91(BaseModel):
+class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24060,7 +24060,7 @@ class QueryResponseAlternative91(BaseModel):
     )
 
 
-class QueryResponseAlternative92(BaseModel):
+class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24115,7 +24115,7 @@ class QueryResponseAlternative92(BaseModel):
     )
 
 
-class QueryResponseAlternative93(BaseModel):
+class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24162,7 +24162,7 @@ class QueryResponseAlternative93(BaseModel):
     )
 
 
-class QueryResponseAlternative94(BaseModel):
+class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24214,7 +24214,7 @@ class QueryResponseAlternative94(BaseModel):
     )
 
 
-class QueryResponseAlternative95(BaseModel):
+class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24261,7 +24261,7 @@ class QueryResponseAlternative95(BaseModel):
     )
 
 
-class QueryResponseAlternative96(BaseModel):
+class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24308,7 +24308,7 @@ class QueryResponseAlternative96(BaseModel):
     )
 
 
-class QueryResponseAlternative97(BaseModel):
+class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24355,7 +24355,7 @@ class QueryResponseAlternative97(BaseModel):
     )
 
 
-class QueryResponseAlternative98(BaseModel):
+class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24402,7 +24402,7 @@ class QueryResponseAlternative98(BaseModel):
     )
 
 
-class QueryResponseAlternative99(BaseModel):
+class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24453,7 +24453,7 @@ class QueryResponseAlternative99(BaseModel):
     )
 
 
-class QueryResponseAlternative100(BaseModel):
+class QueryResponseAlternative96(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24500,7 +24500,7 @@ class QueryResponseAlternative100(BaseModel):
     )
 
 
-class QueryResponseAlternative101(BaseModel):
+class QueryResponseAlternative97(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24547,7 +24547,7 @@ class QueryResponseAlternative101(BaseModel):
     )
 
 
-class QueryResponseAlternative102(BaseModel):
+class QueryResponseAlternative98(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24594,7 +24594,7 @@ class QueryResponseAlternative102(BaseModel):
     )
 
 
-class QueryResponseAlternative103(BaseModel):
+class QueryResponseAlternative99(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24641,7 +24641,7 @@ class QueryResponseAlternative103(BaseModel):
     )
 
 
-class QueryResponseAlternative104(BaseModel):
+class QueryResponseAlternative100(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24691,7 +24691,7 @@ class QueryResponseAlternative104(BaseModel):
     )
 
 
-class QueryResponseAlternative105(BaseModel):
+class QueryResponseAlternative101(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24738,7 +24738,7 @@ class QueryResponseAlternative105(BaseModel):
     )
 
 
-class QueryResponseAlternative106(BaseModel):
+class QueryResponseAlternative102(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24800,7 +24800,7 @@ class QueryResponseAlternative106(BaseModel):
     )
 
 
-class QueryResponseAlternative107(BaseModel):
+class QueryResponseAlternative103(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24847,7 +24847,7 @@ class QueryResponseAlternative107(BaseModel):
     )
 
 
-class QueryResponseAlternative108(BaseModel):
+class QueryResponseAlternative104(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24894,7 +24894,7 @@ class QueryResponseAlternative108(BaseModel):
     )
 
 
-class QueryResponseAlternative109(BaseModel):
+class QueryResponseAlternative105(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24941,7 +24941,7 @@ class QueryResponseAlternative109(BaseModel):
     )
 
 
-class QueryResponseAlternative110(BaseModel):
+class QueryResponseAlternative106(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24988,7 +24988,7 @@ class QueryResponseAlternative110(BaseModel):
     )
 
 
-class QueryResponseAlternative111(BaseModel):
+class QueryResponseAlternative107(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25035,7 +25035,7 @@ class QueryResponseAlternative111(BaseModel):
     )
 
 
-class QueryResponseAlternative112(BaseModel):
+class QueryResponseAlternative108(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25082,7 +25082,7 @@ class QueryResponseAlternative112(BaseModel):
     )
 
 
-class QueryResponseAlternative113(BaseModel):
+class QueryResponseAlternative109(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25129,7 +25129,7 @@ class QueryResponseAlternative113(BaseModel):
     )
 
 
-class QueryResponseAlternative114(BaseModel):
+class QueryResponseAlternative110(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -25177,7 +25177,7 @@ class QueryResponseAlternative114(BaseModel):
     )
 
 
-class QueryResponseAlternative115(BaseModel):
+class QueryResponseAlternative111(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -29080,7 +29080,7 @@ class QueryResponseAlternative17(BaseModel):
     )
 
 
-class QueryResponseAlternative42(BaseModel):
+class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -29133,7 +29133,7 @@ class QueryResponseAlternative42(BaseModel):
     )
 
 
-class QueryResponseAlternative54(BaseModel):
+class QueryResponseAlternative52(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -31311,7 +31311,7 @@ class PathsV2ActorsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative70(BaseModel):
+class QueryResponseAlternative66(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -31460,67 +31460,6 @@ class TrendsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class CachedExperimentTrendsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    count_query: TrendsQuery | None = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: TrendsQuery | None = None
-    insight: list[dict[str, Any]]
-    is_cached: bool
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
-    p_value: float
-    probability: dict[str, float]
-    query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = Field(
-        default=None,
-        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
-    )
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    timezone: str
-    variants: list[ExperimentVariantTrendsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
-class Response17(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count_query: TrendsQuery | None = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: TrendsQuery | None = None
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantTrendsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class DatabaseSchemaQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -31639,25 +31578,17 @@ class ExperimentQueryResponse(BaseModel):
     )
 
 
-class ExperimentTrendsQueryResponse(BaseModel):
+class ExperimentTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count_query: TrendsQuery | None = None
-    credible_intervals: dict[str, list[float]]
+    count_query: TrendsQuery
+    experiment_id: int | None = None
     exposure_query: TrendsQuery | None = None
-    insight: list[dict[str, Any]]
+    fingerprint: str | None = None
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantTrendsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
+    name: str | None = None
+    uuid: str | None = None
 
 
 class FunnelsQuery(BaseModel):
@@ -31692,70 +31623,7 @@ class FunnelsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class LegacyExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class QueryResponseAlternative18(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    funnels_query: FunnelsQuery | None = None
-    insight: list[list[dict[str, Any]]]
-    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantFunnelsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
-class QueryResponseAlternative19(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count_query: TrendsQuery | None = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: TrendsQuery | None = None
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantTrendsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
-class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -31791,47 +31659,6 @@ class QueryResponseAlternative20(BaseModel):
     )
 
 
-class QueryResponseAlternative55(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    funnels_query: FunnelsQuery | None = None
-    insight: list[list[dict[str, Any]]]
-    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantFunnelsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
-class QueryResponseAlternative56(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count_query: TrendsQuery | None = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: TrendsQuery | None = None
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantTrendsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
 class QueryResponseAlternative(
     RootModel[
         dict[str, Any]
@@ -31859,8 +31686,8 @@ class QueryResponseAlternative(
         | QueryResponseAlternative22
         | QueryResponseAlternative23
         | QueryResponseAlternative24
-        | QueryResponseAlternative25
         | QueryResponseAlternative26
+        | QueryResponseAlternative27
         | QueryResponseAlternative28
         | QueryResponseAlternative29
         | QueryResponseAlternative30
@@ -31870,9 +31697,9 @@ class QueryResponseAlternative(
         | QueryResponseAlternative34
         | QueryResponseAlternative35
         | QueryResponseAlternative36
+        | Any
         | QueryResponseAlternative37
         | QueryResponseAlternative38
-        | Any
         | QueryResponseAlternative39
         | QueryResponseAlternative40
         | QueryResponseAlternative41
@@ -31888,19 +31715,19 @@ class QueryResponseAlternative(
         | QueryResponseAlternative51
         | QueryResponseAlternative52
         | QueryResponseAlternative53
-        | QueryResponseAlternative54
         | QueryResponseAlternative55
         | QueryResponseAlternative56
         | QueryResponseAlternative57
+        | QueryResponseAlternative58
         | QueryResponseAlternative59
         | QueryResponseAlternative60
         | QueryResponseAlternative61
         | QueryResponseAlternative62
         | QueryResponseAlternative63
-        | QueryResponseAlternative64
         | QueryResponseAlternative65
         | QueryResponseAlternative66
         | QueryResponseAlternative67
+        | QueryResponseAlternative68
         | QueryResponseAlternative69
         | QueryResponseAlternative70
         | QueryResponseAlternative71
@@ -31914,10 +31741,10 @@ class QueryResponseAlternative(
         | QueryResponseAlternative79
         | QueryResponseAlternative80
         | QueryResponseAlternative81
-        | QueryResponseAlternative82
-        | QueryResponseAlternative83
         | QueryResponseAlternative84
         | QueryResponseAlternative85
+        | QueryResponseAlternative86
+        | QueryResponseAlternative87
         | QueryResponseAlternative88
         | QueryResponseAlternative89
         | QueryResponseAlternative90
@@ -31942,10 +31769,6 @@ class QueryResponseAlternative(
         | QueryResponseAlternative109
         | QueryResponseAlternative110
         | QueryResponseAlternative111
-        | QueryResponseAlternative112
-        | QueryResponseAlternative113
-        | QueryResponseAlternative114
-        | QueryResponseAlternative115
     ]
 ):
     root: (
@@ -31974,8 +31797,8 @@ class QueryResponseAlternative(
         | QueryResponseAlternative22
         | QueryResponseAlternative23
         | QueryResponseAlternative24
-        | QueryResponseAlternative25
         | QueryResponseAlternative26
+        | QueryResponseAlternative27
         | QueryResponseAlternative28
         | QueryResponseAlternative29
         | QueryResponseAlternative30
@@ -31985,9 +31808,9 @@ class QueryResponseAlternative(
         | QueryResponseAlternative34
         | QueryResponseAlternative35
         | QueryResponseAlternative36
+        | Any
         | QueryResponseAlternative37
         | QueryResponseAlternative38
-        | Any
         | QueryResponseAlternative39
         | QueryResponseAlternative40
         | QueryResponseAlternative41
@@ -32003,19 +31826,19 @@ class QueryResponseAlternative(
         | QueryResponseAlternative51
         | QueryResponseAlternative52
         | QueryResponseAlternative53
-        | QueryResponseAlternative54
         | QueryResponseAlternative55
         | QueryResponseAlternative56
         | QueryResponseAlternative57
+        | QueryResponseAlternative58
         | QueryResponseAlternative59
         | QueryResponseAlternative60
         | QueryResponseAlternative61
         | QueryResponseAlternative62
         | QueryResponseAlternative63
-        | QueryResponseAlternative64
         | QueryResponseAlternative65
         | QueryResponseAlternative66
         | QueryResponseAlternative67
+        | QueryResponseAlternative68
         | QueryResponseAlternative69
         | QueryResponseAlternative70
         | QueryResponseAlternative71
@@ -32029,10 +31852,10 @@ class QueryResponseAlternative(
         | QueryResponseAlternative79
         | QueryResponseAlternative80
         | QueryResponseAlternative81
-        | QueryResponseAlternative82
-        | QueryResponseAlternative83
         | QueryResponseAlternative84
         | QueryResponseAlternative85
+        | QueryResponseAlternative86
+        | QueryResponseAlternative87
         | QueryResponseAlternative88
         | QueryResponseAlternative89
         | QueryResponseAlternative90
@@ -32057,10 +31880,6 @@ class QueryResponseAlternative(
         | QueryResponseAlternative109
         | QueryResponseAlternative110
         | QueryResponseAlternative111
-        | QueryResponseAlternative112
-        | QueryResponseAlternative113
-        | QueryResponseAlternative114
-        | QueryResponseAlternative115
     )
 
 
@@ -32087,45 +31906,6 @@ class IsExperimentRatioMetric(BaseModel):
 
 class IsExperimentRetentionMetric(BaseModel):
     namedArgs: NamedArgs2 | None = None
-
-
-class CachedExperimentFunnelsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    funnels_query: FunnelsQuery | None = None
-    insight: list[list[dict[str, Any]]]
-    is_cached: bool
-    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
-    probability: dict[str, float]
-    query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = Field(
-        default=None,
-        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
-    )
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    timezone: str
-    variants: list[ExperimentVariantFunnelsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
 
 
 class CachedExperimentQueryResponse(BaseModel):
@@ -32183,85 +31963,16 @@ class CachedExperimentQueryResponse(BaseModel):
     )
 
 
-class CachedLegacyExperimentQueryResponse(BaseModel):
+class ExperimentFunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    credible_intervals: dict[str, list[float]]
-    insight: list[dict[str, Any]]
-    is_cached: bool
-    kind: Literal["ExperimentQuery"] = "ExperimentQuery"
-    last_refresh: AwareDatetime
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric = Field(
-        ..., discriminator="metric_type"
-    )
-    next_allowed_client_refresh: AwareDatetime
-    p_value: float
-    probability: dict[str, float]
-    query_metadata: dict[str, Any] | None = None
-    query_scan: QueryScanSummary | None = Field(
-        default=None,
-        description=("The rows and time of the run that produced these results, with its analysis once it is stored."),
-    )
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    timezone: str
-    variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
-class Response16(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    funnels_query: FunnelsQuery | None = None
-    insight: list[list[dict[str, Any]]]
+    experiment_id: int | None = None
+    fingerprint: str | None = None
+    funnels_query: FunnelsQuery
     kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantFunnelsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
-
-
-class ExperimentFunnelsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    funnels_query: FunnelsQuery | None = None
-    insight: list[list[dict[str, Any]]]
-    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantFunnelsBaseStats]
-    warnings: list[DataWarehouseSyncWarning] | None = Field(
-        default=None,
-        description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
-    )
+    name: str | None = None
+    uuid: str | None = None
 
 
 class ExperimentMetricTimeseries(BaseModel):
@@ -32294,23 +32005,6 @@ class ExperimentQuery(BaseModel):
     precomputation_mode: PrecomputationMode | None = None
     response: ExperimentQueryResponse | None = None
     tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class ExperimentTrendsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count_query: TrendsQuery
-    experiment_id: int | None = None
-    exposure_query: TrendsQuery | None = None
-    fingerprint: str | None = None
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    name: str | None = None
-    response: ExperimentTrendsQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    uuid: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -32523,22 +32217,6 @@ class ExperimentActorsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentFunnelsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    experiment_id: int | None = None
-    fingerprint: str | None = None
-    funnels_query: FunnelsQuery
-    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    name: str | None = None
-    response: ExperimentFunnelsQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    uuid: str | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class FunnelCorrelationQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -32661,21 +32339,6 @@ class WebVitalsQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class NamedArgs3(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    query: ExperimentTrendsQuery | ExperimentFunnelsQuery
-
-
-class IsExperimentFunnelsQuery(BaseModel):
-    namedArgs: NamedArgs3 | None = None
-
-
-class IsExperimentTrendsQuery(BaseModel):
-    namedArgs: NamedArgs3 | None = None
 
 
 class DocumentArtifactContent(BaseModel):
@@ -32981,11 +32644,9 @@ class DataTableNode(BaseModel):
         | Response14
         | Response15
         | Response16
-        | Response17
         | Response18
+        | Response19
         | Response20
-        | Response21
-        | Response22
         | None
     ) = None
     showAbsoluteTime: bool | None = Field(
@@ -33067,8 +32728,6 @@ class DataTableNode(BaseModel):
         | MarketingAnalyticsAggregatedQuery
         | ErrorTrackingQuery
         | ErrorTrackingIssueCorrelationQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
         | TracesQuery
         | TraceQuery
         | SessionQuery
@@ -33163,8 +32822,6 @@ class HogQLAutocomplete(BaseModel):
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
         | TraceSpansAttributeBreakdownQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
         | CalendarHeatmapQuery
         | RecordingsQuery
         | TracesQuery
@@ -33299,8 +32956,6 @@ class HogQLMetadata(BaseModel):
         | TraceSpansAggregationQuery
         | TraceSpansTreeQuery
         | TraceSpansAttributeBreakdownQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
         | CalendarHeatmapQuery
         | RecordingsQuery
         | TracesQuery
@@ -33403,8 +33058,6 @@ class MaxInsightContext(BaseModel):
         | ErrorTrackingBreakdownsQuery
         | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
         | ExperimentQuery
         | ExperimentExposureQuery
         | DocumentSimilarityQuery
@@ -33548,8 +33201,6 @@ class QueryRequest(BaseModel):
         | ErrorTrackingBreakdownsQuery
         | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
         | ExperimentQuery
         | ExperimentExposureQuery
         | DocumentSimilarityQuery
@@ -33685,8 +33336,6 @@ class QuerySchemaRoot(
         | ErrorTrackingBreakdownsQuery
         | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
         | ExperimentQuery
         | ExperimentExposureQuery
         | DocumentSimilarityQuery
@@ -33792,8 +33441,6 @@ class QuerySchemaRoot(
         | ErrorTrackingBreakdownsQuery
         | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
         | ExperimentQuery
         | ExperimentExposureQuery
         | DocumentSimilarityQuery
@@ -33904,8 +33551,6 @@ class QueryUpgradeRequest(BaseModel):
         | ErrorTrackingBreakdownsQuery
         | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
         | ExperimentQuery
         | ExperimentExposureQuery
         | DocumentSimilarityQuery
@@ -34016,8 +33661,6 @@ class QueryUpgradeResponse(BaseModel):
         | ErrorTrackingBreakdownsQuery
         | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
         | ExperimentQuery
         | ExperimentExposureQuery
         | DocumentSimilarityQuery
@@ -34173,8 +33816,6 @@ class VisualizationArtifactContent(BaseModel):
         | ErrorTrackingBreakdownsQuery
         | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
-        | ExperimentFunnelsQuery
-        | ExperimentTrendsQuery
         | ExperimentQuery
         | ExperimentExposureQuery
         | DocumentSimilarityQuery

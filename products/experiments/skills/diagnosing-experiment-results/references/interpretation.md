@@ -128,6 +128,7 @@ PostHog defaults to Bayesian. Common misreads:
   user is reading results from an experiment in that window and the numbers look different than
   expected, see PostHog's
   [legacy-methodology docs page](https://posthog.com/docs/experiments/legacy-methodology).
+  Experiments with `is_legacy: true` no longer show results at all; migrate them with `experiment-migrate`.
 
 ## C6 — Frequentist interpretation traps [HIGH]
 

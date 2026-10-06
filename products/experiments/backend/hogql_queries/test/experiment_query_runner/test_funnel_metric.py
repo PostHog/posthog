@@ -1,4 +1,3 @@
-import json
 from datetime import datetime
 from typing import cast
 
@@ -14,7 +13,6 @@ from posthog.test.base import (
 from django.test import override_settings
 
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -30,7 +28,6 @@ from posthog.schema import (
     StepOrderValue,
 )
 
-from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -628,47 +625,25 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self.team.save()
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        if expected_results is None:
-            with self.assertRaises(ValidationError) as context:
-                query_runner.calculate()
+        result = query_runner.calculate()
 
-            if "person_id_override_properties_joined_filter_laterevent" in name:
-                expected_errors = json.dumps(
-                    {
-                        ExperimentNoResultsErrorKeys.NO_EXPOSURES: False,
-                        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: False,
-                        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-                    }
-                )
-            else:
-                expected_errors = json.dumps(
-                    {
-                        ExperimentNoResultsErrorKeys.NO_EXPOSURES: True,
-                        ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
-                        ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: True,
-                    }
-                )
-            self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
-        else:
-            result = query_runner.calculate()
+        assert result.variant_results is not None
+        self.assertEqual(len(result.variant_results), 1)
 
-            assert result.variant_results is not None
-            self.assertEqual(len(result.variant_results), 1)
+        control_variant = result.baseline
+        assert control_variant is not None
+        test_variant = result.variant_results[0]
+        assert test_variant is not None
 
-            control_variant = result.baseline
-            assert control_variant is not None
-            test_variant = result.variant_results[0]
-            assert test_variant is not None
-
-            self.assertEqual(
-                {
-                    "control_success": int(control_variant.sum),
-                    "control_failure": int(control_variant.number_of_samples - control_variant.sum),
-                    "test_success": int(test_variant.sum),
-                    "test_failure": int(test_variant.number_of_samples - test_variant.sum),
-                },
-                expected_results,
-            )
+        self.assertEqual(
+            {
+                "control_success": int(control_variant.sum),
+                "control_failure": int(control_variant.number_of_samples - control_variant.sum),
+                "test_success": int(test_variant.sum),
+                "test_failure": int(test_variant.number_of_samples - test_variant.sum),
+            },
+            expected_results,
+        )
 
     @parameterized.expand(
         [
