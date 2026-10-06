@@ -48,8 +48,8 @@ class TestRollbarSource:
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
-            (True, True, None),
-            (False, False, "Invalid Rollbar project access token"),
+            ((True, None), True, None),
+            ((False, "Rollbar rejected your access token."), False, "Rollbar rejected your access token."),
         ],
     )
     @mock.patch(
