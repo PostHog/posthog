@@ -19,6 +19,7 @@ pub mod in_flight;
 pub mod key_queues;
 pub mod packer;
 pub mod request_class;
+pub mod retry_policy;
 pub mod state_machine;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -38,7 +39,7 @@ use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 use self::driver::StateMachineDriver;
-use self::state_machine::StateMachineConfig;
+use self::state_machine::BatcherStateMachine;
 use self::worker_pool::WorkerPoolSource;
 use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch, Submission};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
@@ -167,17 +168,17 @@ impl Batcher {
 
     /// Drive the batcher state machine, the `key_table` scheduler.
     pub fn with_state_machine(
-        config: StateMachineConfig,
+        state_machine: BatcherStateMachine,
         pool_source: WorkerPoolSource,
         transport: Arc<GrpcTransport>,
-    ) -> Result<(Self, BatcherOutputs), String> {
-        let (driver, outputs) = StateMachineDriver::new(config, pool_source, transport)?;
-        Ok((
+    ) -> (Self, BatcherOutputs) {
+        let (driver, outputs) = StateMachineDriver::new(state_machine, pool_source, transport);
+        (
             Self {
                 backend: Backend::StateMachine(driver),
             },
             outputs,
-        ))
+        )
     }
 
     /// The per-key order sentinel, so the consumer can enable it.

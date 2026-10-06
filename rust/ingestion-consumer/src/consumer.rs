@@ -14,8 +14,10 @@ use rdkafka::TopicPartitionList;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::batcher::packer::PackTargets;
-use crate::batcher::state_machine::{RetryPolicy, StateMachineConfig};
+use crate::batcher::packer::{PackTargets, Packer};
+use crate::batcher::retry_policy::RetryPolicy;
+use crate::batcher::state_machine::BatcherStateMachine;
+use crate::batcher::worker_assigner::WorkerAssigner;
 use crate::batcher::{make_batch_id, Batcher, BatcherObserver, BatcherOutputs, Revoker};
 use crate::commit_monitor::spawn_commit_monitor;
 use crate::commit_pacer::ImmediateCommitPacer;
@@ -27,6 +29,7 @@ use crate::dispatcher::Dispatcher;
 use crate::grpc_transport::GrpcTransport;
 use crate::ledger_rejection::{warn_rejection, RejectedSlice};
 use crate::order_sentinel::{OffsetSpan, RevokeHook, SentinelContext};
+use crate::routing::Router;
 use crate::scheduler::SchedulerKind;
 use crate::types::{Accumulator, SerializedKafkaMessage};
 
@@ -369,23 +372,21 @@ impl IngestionConsumer {
         let topic_offset_ledger = consumer.context().topic_offset_ledger();
         let commit_sentinel = consumer.context().commit_sentinel();
         let (batcher, outputs) = if dispatcher.scheduler_kind() == SchedulerKind::KeyTable {
-            let config = StateMachineConfig {
-                pack_targets: options.pack_targets,
-                max_requests_per_worker: transport.max_unacked(),
-                retry: RetryPolicy {
-                    fault: options.parked_retry_interval,
-                    busy: options.parked_retry_interval,
-                    timeout: options.parked_retry_interval,
-                },
-                unplaced_retry_interval: options.parked_retry_interval,
-                stall_timeout: options.deferred_flush_timeout,
-            };
-            Batcher::with_state_machine(
-                config,
-                dispatcher.worker_pool_source(),
-                Arc::clone(&transport),
+            let pool_source = dispatcher.worker_pool_source();
+            let assigner =
+                WorkerAssigner::new(Router::new(pool_source.strategy()), transport.max_unacked())
+                    .expect("valid request cap");
+            let retry =
+                RetryPolicy::uniform(options.parked_retry_interval).expect("valid retry delay");
+            let state_machine = BatcherStateMachine::new(
+                Packer::new(options.pack_targets),
+                assigner,
+                retry,
+                options.deferred_flush_timeout,
+                Instant::now(),
             )
-            .expect("valid state machine config")
+            .expect("valid stall timeout");
+            Batcher::with_state_machine(state_machine, pool_source, Arc::clone(&transport))
         } else {
             Batcher::new(
                 dispatcher,

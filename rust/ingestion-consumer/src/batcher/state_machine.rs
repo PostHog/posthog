@@ -12,53 +12,13 @@ use metrics::{gauge, histogram};
 
 use super::in_flight::{InFlightRequest, InFlightRequests, KeyOutcome, RequestId};
 use super::key_queues::{KeyQueues, KeyRun, Settled};
-use super::packer::{purge_request, PackTargets, PackedRequest, Packer};
+use super::packer::{purge_request, PackedRequest, Packer};
 use super::request_class::RequestClass;
+use super::retry_policy::{RetryPolicy, RetryReason};
 use super::worker_assigner::WorkerAssigner;
 use super::worker_pool::WorkerPool;
-use crate::routing::Router;
 use crate::types::SerializedKafkaMessage;
 use crate::worker_registry::WorkerId;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RetryPolicy {
-    /// The worker or its stream failed. The pause gives a failing pool time
-    /// to recover before the redelivery.
-    pub fault: Duration,
-    pub busy: Duration,
-    /// The worker returned messages it did not process within the request's
-    /// budget.
-    pub timeout: Duration,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct StateMachineConfig {
-    pub pack_targets: PackTargets,
-    pub max_requests_per_worker: usize,
-    pub retry: RetryPolicy,
-    pub unplaced_retry_interval: Duration,
-    /// Stuck work with nothing in flight and no accepted message for this
-    /// long fails the state machine, so a wedged batcher restarts loudly instead of
-    /// growing lag.
-    pub stall_timeout: Duration,
-}
-
-impl StateMachineConfig {
-    /// A zero cap would never send, and a zero stall timeout or poll interval
-    /// would fire on every action.
-    pub fn validate(&self) -> Result<(), String> {
-        if self.max_requests_per_worker == 0 {
-            return Err("max_requests_per_worker must be > 0".to_string());
-        }
-        if self.stall_timeout.is_zero() {
-            return Err("stall_timeout must be > 0".to_string());
-        }
-        if self.unplaced_retry_interval.is_zero() {
-            return Err("unplaced_retry_interval must be > 0".to_string());
-        }
-        Ok(())
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FailureCause {
@@ -121,9 +81,30 @@ pub enum BatcherStateMachine {
 }
 
 impl BatcherStateMachine {
-    pub fn new(config: StateMachineConfig, router: Router, now: Instant) -> Result<Self, String> {
-        config.validate()?;
-        Ok(BatcherStateMachine::Running(Work::new(config, router, now)))
+    /// Stuck work with nothing in flight and no accepted message for
+    /// `stall_timeout` fails the state machine, so a wedged batcher restarts
+    /// loudly instead of growing lag. A zero timeout would fire on every
+    /// action.
+    pub fn new(
+        packer: Packer,
+        assigner: WorkerAssigner,
+        retry: RetryPolicy,
+        stall_timeout: Duration,
+        now: Instant,
+    ) -> Result<Self, String> {
+        if stall_timeout.is_zero() {
+            return Err("stall_timeout must be > 0".to_string());
+        }
+        Ok(BatcherStateMachine::Running(Work {
+            keys: KeyQueues::new(),
+            packer,
+            assigner,
+            in_flight: InFlightRequests::new(),
+            unplaced: VecDeque::new(),
+            retry,
+            stall_timeout,
+            last_progress: now,
+        }))
     }
 
     /// One poll's key runs, in poll order, collected under `assignment_epoch`.
@@ -268,7 +249,6 @@ impl BatcherStateMachine {
 }
 
 pub struct Work {
-    config: StateMachineConfig,
     keys: KeyQueues,
     packer: Packer,
     assigner: WorkerAssigner,
@@ -276,22 +256,12 @@ pub struct Work {
     /// Packed requests that found no worker, oldest first. Their keys stay
     /// claimed.
     unplaced: VecDeque<PackedRequest>,
+    retry: RetryPolicy,
+    stall_timeout: Duration,
     last_progress: Instant,
 }
 
 impl Work {
-    fn new(config: StateMachineConfig, router: Router, now: Instant) -> Self {
-        Self {
-            keys: KeyQueues::new(),
-            packer: Packer::new(config.pack_targets),
-            assigner: WorkerAssigner::new(router, config.max_requests_per_worker),
-            in_flight: InFlightRequests::new(),
-            unplaced: VecDeque::new(),
-            last_progress: now,
-            config,
-        }
-    }
-
     fn pending_messages(&self) -> usize {
         self.keys.queued_messages()
             + self.packer.held_messages()
@@ -367,7 +337,7 @@ impl Work {
         }
         effects.completions = completions(sent.class.assignment_epoch, &outcomes);
         effects.key_acks = key_acks(&outcomes);
-        let retry_at = now + self.config.retry.timeout;
+        let retry_at = self.retry.retry_at(now, RetryReason::Returned);
         for outcome in outcomes {
             let retry_at = (!outcome.returned.is_empty()).then_some(retry_at);
             self.settle_key(
@@ -407,15 +377,18 @@ impl Work {
             worker: sent.worker.clone(),
             fault: cause == FailureCause::Fault,
         });
-        let delay = match cause {
-            FailureCause::Fault => self.config.retry.fault,
-            FailureCause::Busy => self.config.retry.busy,
-        };
+        let retry_at = self.retry.retry_at(
+            now,
+            match cause {
+                FailureCause::Fault => RetryReason::Fault,
+                FailureCause::Busy => RetryReason::Busy,
+            },
+        );
         for outcome in outcomes {
             self.settle_key(
                 &outcome.routing_key,
                 outcome.returned,
-                Some(now + delay),
+                Some(retry_at),
                 now,
                 &mut effects,
             );
@@ -502,8 +475,7 @@ impl Work {
         // Past the stall deadline, no new request starts, so overlapping
         // failures drain to nothing in flight and the watchdog can fire. A
         // request still in flight may yet be accepted, which resets it.
-        let stalled =
-            self.stuck_messages() > 0 && now >= self.last_progress + self.config.stall_timeout;
+        let stalled = self.stuck_messages() > 0 && now >= self.last_progress + self.stall_timeout;
         if !stalled {
             self.place(now, pool, effects);
         }
@@ -591,17 +563,15 @@ impl Work {
             self.last_progress = now;
         }
         self.record_gauges();
-        let stall_deadline = self.last_progress + self.config.stall_timeout;
+        let stall_deadline = self.last_progress + self.stall_timeout;
         if stuck > 0 && in_flight == 0 && now >= stall_deadline {
             return Err("pending work made no progress within the stall timeout".to_string());
         }
         effects.next_wakeup = [
             self.keys.next_retry_at(),
             self.packer.next_deadline(),
-            // Nothing signals a worker joining the pool, so requests waiting
-            // for a worker poll for one.
             (!self.unplaced.is_empty() || self.packer.sealed_requests() > 0)
-                .then(|| now + self.config.unplaced_retry_interval),
+                .then(|| self.retry.retry_at(now, RetryReason::NoWorker)),
             // The watchdog fires only with nothing in flight. While a request
             // is out, its response re-checks the stall.
             (stuck > 0 && in_flight == 0).then_some(stall_deadline),
@@ -681,38 +651,40 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::batcher::packer::PackTargets;
     use crate::batcher::test_support::{message, offsets};
-    use crate::routing::RoutingStrategy;
+    use crate::routing::{Router, RoutingStrategy};
 
     const FAULT_DELAY: Duration = Duration::from_millis(200);
-    const TIMEOUT_DELAY: Duration = Duration::from_millis(50);
+    const BUSY_DELAY: Duration = Duration::from_millis(20);
+    const RETURNED_DELAY: Duration = Duration::from_millis(50);
+    const NO_WORKER_DELAY: Duration = Duration::from_millis(100);
     const STALL: Duration = Duration::from_secs(60);
 
-    fn config(
+    /// Distinct delays, so a wakeup time shows which retry reason applied.
+    fn retry_policy() -> RetryPolicy {
+        RetryPolicy::new(FAULT_DELAY, BUSY_DELAY, RETURNED_DELAY, NO_WORKER_DELAY)
+            .expect("valid retry policy")
+    }
+
+    fn batcher(
         events: usize,
         budget: Duration,
         max_requests_per_worker: usize,
-    ) -> StateMachineConfig {
-        StateMachineConfig {
-            pack_targets: PackTargets {
-                events,
-                bytes: 0,
-                latency_budget: budget,
-            },
+        now: Instant,
+    ) -> BatcherStateMachine {
+        let packer = Packer::new(PackTargets {
+            events,
+            bytes: 0,
+            latency_budget: budget,
+        });
+        let assigner = WorkerAssigner::new(
+            Router::new(RoutingStrategy::BinPack),
             max_requests_per_worker,
-            retry: RetryPolicy {
-                fault: FAULT_DELAY,
-                busy: Duration::from_millis(20),
-                timeout: TIMEOUT_DELAY,
-            },
-            unplaced_retry_interval: Duration::from_millis(100),
-            stall_timeout: STALL,
-        }
-    }
-
-    fn batcher(config: StateMachineConfig, now: Instant) -> BatcherStateMachine {
-        BatcherStateMachine::new(config, Router::new(RoutingStrategy::BinPack), now)
-            .expect("valid config")
+        )
+        .expect("valid request cap");
+        BatcherStateMachine::new(packer, assigner, retry_policy(), STALL, now)
+            .expect("valid stall timeout")
     }
 
     fn pool(workers: &[&str]) -> WorkerPool {
@@ -744,7 +716,7 @@ mod tests {
     fn keys_pack_into_one_request_and_their_next_runs_wait_for_the_response() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let batcher = batcher(config(100, Duration::ZERO, 4), now);
+        let batcher = batcher(100, Duration::ZERO, 4, now);
 
         let (batcher, effects) =
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
@@ -783,7 +755,7 @@ mod tests {
         let now = Instant::now();
         let budget = Duration::from_millis(30);
         let workers = pool(&["w"]);
-        let batcher = batcher(config(100, budget, 4), now);
+        let batcher = batcher(100, budget, 4, now);
 
         let (batcher, _) = batcher.on_groups(now, &workers, 1, vec![run("k", &[1])]);
         let (batcher, effects) = batcher.on_groups(now, &workers, 2, vec![run("k", &[2])]);
@@ -810,7 +782,7 @@ mod tests {
     fn a_partial_response_replays_the_returned_suffix_after_the_timeout_delay() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let batcher = batcher(config(100, Duration::ZERO, 4), now);
+        let batcher = batcher(100, Duration::ZERO, 4, now);
         let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1, 2, 3])]);
         let request = effects.sends[0].request;
         let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("a", &[4])]);
@@ -819,9 +791,9 @@ mod tests {
         let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 1, returned);
         assert!(effects.sends.is_empty());
         assert_eq!(effects.completions[0].offsets, vec![Offset(1)]);
-        assert_eq!(effects.next_wakeup, Some(now + TIMEOUT_DELAY));
+        assert_eq!(effects.next_wakeup, Some(now + RETURNED_DELAY));
 
-        let retry = now + TIMEOUT_DELAY;
+        let retry = now + RETURNED_DELAY;
         let (batcher, effects) = batcher.on_wakeup(retry, &workers);
         assert!(effects.sends[0].class.replay);
         assert_eq!(shape(&effects.sends[0]), vec![("a", vec![2, 3])]);
@@ -838,7 +810,7 @@ mod tests {
         let now = Instant::now();
         let budget = Duration::from_millis(10);
         let workers = pool(&["w"]);
-        let batcher = batcher(config(2, budget, 4), now);
+        let batcher = batcher(2, budget, 4, now);
         let (batcher, effects) =
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
         let request = effects.sends[0].request;
@@ -870,7 +842,7 @@ mod tests {
     #[test]
     fn a_replay_is_sent_past_a_fresh_request_that_no_candidate_can_take() {
         let now = Instant::now();
-        let batcher = batcher(config(100, Duration::ZERO, 4), now);
+        let batcher = batcher(100, Duration::ZERO, 4, now);
         let (batcher, effects) = batcher.on_groups(now, &pool(&["w"]), 0, vec![run("b", &[2])]);
         let request = effects.sends[0].request;
         let (batcher, _) = batcher.on_request_failed(
@@ -892,7 +864,7 @@ mod tests {
             "a fresh request routes only within the slice"
         );
 
-        let retry = now + Duration::from_millis(20);
+        let retry = now + BUSY_DELAY;
         let (_, effects) = batcher.on_wakeup(retry, &outside_the_slice);
         assert_eq!(effects.sends.len(), 1);
         assert!(effects.sends[0].class.replay);
@@ -903,7 +875,7 @@ mod tests {
     fn bin_packing_places_the_largest_request_first() {
         let now = Instant::now();
         let workers = pool(&["w1", "w2"]);
-        let batcher = batcher(config(1, Duration::ZERO, 4), now);
+        let batcher = batcher(1, Duration::ZERO, 4, now);
 
         let (_, effects) = batcher.on_groups(
             now,
@@ -924,7 +896,7 @@ mod tests {
         let now = Instant::now();
         let budget = Duration::from_millis(30);
         let workers = pool(&["w"]);
-        let batcher = batcher(config(100, budget, 4), now);
+        let batcher = batcher(100, budget, 4, now);
 
         let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
         assert!(effects.sends.is_empty());
@@ -937,7 +909,7 @@ mod tests {
     #[test]
     fn a_request_without_a_worker_waits_and_is_sent_when_one_appears() {
         let now = Instant::now();
-        let batcher = batcher(config(100, Duration::ZERO, 4), now);
+        let batcher = batcher(100, Duration::ZERO, 4, now);
 
         let (batcher, effects) = batcher.on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
         assert!(effects.sends.is_empty());
@@ -953,7 +925,7 @@ mod tests {
     fn the_request_cap_holds_sends_until_a_slot_frees() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let batcher = batcher(config(1, Duration::ZERO, 1), now);
+        let batcher = batcher(1, Duration::ZERO, 1, now);
 
         let (batcher, effects) =
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
@@ -972,7 +944,7 @@ mod tests {
     fn a_worker_is_busy_from_its_first_request_until_its_last_settles() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let batcher = batcher(config(1, Duration::ZERO, 2), now);
+        let batcher = batcher(1, Duration::ZERO, 2, now);
 
         let (batcher, effects) =
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
@@ -999,7 +971,7 @@ mod tests {
         #[case] candidates: &[&str],
     ) {
         let now = Instant::now();
-        let batcher = batcher(config(100, budget, 4), now);
+        let batcher = batcher(100, budget, 4, now);
         let at_arrival = WorkerPool {
             healthy: pool(healthy).healthy,
             candidates: pool(candidates).candidates,
@@ -1020,7 +992,7 @@ mod tests {
     fn shutdown_seals_held_batches_and_stops_once_drained() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let batcher = batcher(config(100, Duration::from_secs(10), 4), now);
+        let batcher = batcher(100, Duration::from_secs(10), 4, now);
         let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1])]);
 
         let (batcher, effects) = batcher.on_shutdown(now, &workers);
@@ -1033,21 +1005,25 @@ mod tests {
         assert_eq!(effects.next_wakeup, None);
     }
 
-    #[rstest]
-    #[case::no_send_slots(StateMachineConfig { max_requests_per_worker: 0, ..config(100, Duration::ZERO, 4) })]
-    #[case::zero_stall_timeout(StateMachineConfig { stall_timeout: Duration::ZERO, ..config(100, Duration::ZERO, 4) })]
-    #[case::zero_poll_interval(StateMachineConfig { unplaced_retry_interval: Duration::ZERO, ..config(100, Duration::ZERO, 4) })]
-    fn a_config_that_would_never_send_or_always_fire_is_rejected(
-        #[case] config: StateMachineConfig,
-    ) {
-        let router = Router::new(RoutingStrategy::BinPack);
-        assert!(BatcherStateMachine::new(config, router, Instant::now()).is_err());
+    #[test]
+    fn a_zero_stall_timeout_is_rejected() {
+        let packer = Packer::new(PackTargets::default());
+        let assigner =
+            WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).expect("valid cap");
+        let created = BatcherStateMachine::new(
+            packer,
+            assigner,
+            retry_policy(),
+            Duration::ZERO,
+            Instant::now(),
+        );
+        assert!(created.is_err());
     }
 
     #[test]
     fn work_stuck_without_progress_fails_the_state_machine() {
         let now = Instant::now();
-        let batcher = batcher(config(100, Duration::ZERO, 4), now);
+        let batcher = batcher(100, Duration::ZERO, 4, now);
         let (batcher, _) = batcher.on_groups(now, &pool(&[]), 0, vec![run("a", &[1])]);
 
         let (batcher, effects) = batcher.on_wakeup(now + STALL, &pool(&[]));
@@ -1060,7 +1036,7 @@ mod tests {
     fn a_passed_stall_deadline_with_a_request_in_flight_never_asks_for_a_past_wakeup() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let batcher = batcher(config(1, Duration::ZERO, 1), now);
+        let batcher = batcher(1, Duration::ZERO, 1, now);
         let (batcher, _) =
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
 
@@ -1074,7 +1050,7 @@ mod tests {
     fn past_the_stall_deadline_no_new_request_starts_until_the_in_flight_one_settles() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let batcher = batcher(config(1, Duration::ZERO, 1), now);
+        let batcher = batcher(1, Duration::ZERO, 1, now);
         let (batcher, effects) =
             batcher.on_groups(now, &workers, 0, vec![run("a", &[1]), run("b", &[2])]);
         let request = effects.sends[0].request;
@@ -1096,7 +1072,7 @@ mod tests {
         let start = Instant::now();
         let budget = STALL * 2;
         let workers = pool(&["w"]);
-        let batcher = batcher(config(100, budget, 4), start);
+        let batcher = batcher(100, budget, 4, start);
 
         let arrival = start + STALL * 3;
         let (batcher, effects) = batcher.on_groups(arrival, &workers, 0, vec![run("a", &[1])]);
@@ -1112,7 +1088,7 @@ mod tests {
     fn a_response_that_breaks_the_suffix_contract_fails_the_state_machine() {
         let now = Instant::now();
         let workers = pool(&["w"]);
-        let batcher = batcher(config(100, Duration::ZERO, 4), now);
+        let batcher = batcher(100, Duration::ZERO, 4, now);
         let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("a", &[1, 2])]);
         let request = effects.sends[0].request;
 

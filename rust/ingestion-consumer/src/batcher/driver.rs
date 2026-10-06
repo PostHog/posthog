@@ -14,12 +14,11 @@ use tracing::error;
 
 use super::in_flight::RequestId;
 use super::key_queues::KeyRun;
-use super::state_machine::{BatcherStateMachine, Effects, FailureCause, Send, StateMachineConfig};
+use super::state_machine::{BatcherStateMachine, Effects, FailureCause, Send};
 use super::worker_pool::WorkerPoolSource;
 use super::{make_batch_id, BatcherOutputs};
 use crate::grpc_transport::GrpcTransport;
 use crate::order_sentinel::{KeyOrderSentinel, SendKind};
-use crate::routing::Router;
 use crate::transport::SendError;
 use crate::types::Accumulator;
 use crate::worker_registry::WorkerId;
@@ -78,12 +77,10 @@ enum Event {
 
 impl StateMachineDriver {
     pub(super) fn new(
-        config: StateMachineConfig,
+        state: BatcherStateMachine,
         pool_source: WorkerPoolSource,
         transport: Arc<GrpcTransport>,
-    ) -> Result<(Self, BatcherOutputs), String> {
-        let router = Router::new(pool_source.strategy());
-        let state = BatcherStateMachine::new(config, router, Instant::now())?;
+    ) -> (Self, BatcherOutputs) {
         let (inputs_tx, inputs_rx) = mpsc::unbounded_channel();
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
         let (errors_tx, errors_rx) = mpsc::unbounded_channel();
@@ -102,7 +99,7 @@ impl StateMachineDriver {
             load: Arc::clone(&load),
         };
         let task = tokio::spawn(task.run(state));
-        Ok((
+        (
             Self {
                 inputs: inputs_tx,
                 assignment_epoch,
@@ -114,7 +111,7 @@ impl StateMachineDriver {
                 completions: completions_rx,
                 errors: errors_rx,
             },
-        ))
+        )
     }
 
     pub(super) fn key_order_sentinel(&self) -> Arc<KeyOrderSentinel> {

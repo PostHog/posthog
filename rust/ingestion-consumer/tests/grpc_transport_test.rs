@@ -9,15 +9,17 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common_kafka_consumer::Partition;
-use ingestion_consumer::batcher::packer::PackTargets;
-use ingestion_consumer::batcher::state_machine::{RetryPolicy, StateMachineConfig};
+use ingestion_consumer::batcher::packer::{PackTargets, Packer};
+use ingestion_consumer::batcher::retry_policy::RetryPolicy;
+use ingestion_consumer::batcher::state_machine::BatcherStateMachine;
+use ingestion_consumer::batcher::worker_assigner::WorkerAssigner;
 use ingestion_consumer::batcher::{Batcher, BatcherOutputs};
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
-use ingestion_consumer::routing::RoutingStrategy;
+use ingestion_consumer::routing::{Router, RoutingStrategy};
 use ingestion_consumer::scheduler::SchedulerKind;
 use ingestion_consumer::transport::TransportError;
 use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
@@ -1054,20 +1056,17 @@ fn key_table_batcher(
     stall_timeout: Duration,
     retry_delay: Duration,
 ) -> (Batcher, BatcherOutputs) {
-    let config = StateMachineConfig {
-        pack_targets: PackTargets {
-            events: 1,
-            ..PackTargets::default()
-        },
-        max_requests_per_worker: transport.max_unacked(),
-        retry: RetryPolicy {
-            fault: retry_delay,
-            busy: retry_delay,
-            timeout: retry_delay,
-        },
-        unplaced_retry_interval: retry_delay,
-        stall_timeout,
-    };
-    Batcher::with_state_machine(config, dispatcher.worker_pool_source(), transport)
-        .expect("valid state machine config")
+    let packer = Packer::new(PackTargets {
+        events: 1,
+        ..PackTargets::default()
+    });
+    let pool_source = dispatcher.worker_pool_source();
+    let assigner =
+        WorkerAssigner::new(Router::new(pool_source.strategy()), transport.max_unacked())
+            .expect("valid request cap");
+    let retry = RetryPolicy::uniform(retry_delay).expect("valid retry delay");
+    let state_machine =
+        BatcherStateMachine::new(packer, assigner, retry, stall_timeout, Instant::now())
+            .expect("valid stall timeout");
+    Batcher::with_state_machine(state_machine, pool_source, transport)
 }

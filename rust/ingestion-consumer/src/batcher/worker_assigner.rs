@@ -11,17 +11,17 @@ pub struct WorkerAssigner {
 }
 
 impl WorkerAssigner {
-    pub fn new(router: Router, max_requests_per_worker: usize) -> Self {
-        assert!(
-            max_requests_per_worker > 0,
-            "max_requests_per_worker must be > 0"
-        );
-        Self {
+    /// A zero cap would never send.
+    pub fn new(router: Router, max_requests_per_worker: usize) -> Result<Self, String> {
+        if max_requests_per_worker == 0 {
+            return Err("max_requests_per_worker must be > 0".to_string());
+        }
+        Ok(Self {
             router,
             max_requests_per_worker,
             message_load: WorkerLoad::new(),
             request_load: HashMap::new(),
-        }
+        })
     }
 
     pub fn in_flight_messages(&self) -> usize {
@@ -86,9 +86,14 @@ mod tests {
     }
 
     #[test]
+    fn a_zero_request_cap_is_rejected() {
+        assert!(WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 0).is_err());
+    }
+
+    #[test]
     fn a_worker_at_the_request_cap_is_skipped_until_a_request_settles() {
         let pool = vec![wid("a"), wid("b")];
-        let mut assigner = WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1);
+        let mut assigner = WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 1).unwrap();
 
         assert_eq!(assigner.assign(&pool, 10), Some(wid("a")));
         assert_eq!(assigner.assign(&pool, 10), Some(wid("b")));
@@ -102,7 +107,7 @@ mod tests {
     #[test]
     fn placement_follows_the_in_flight_message_load() {
         let pool = vec![wid("a"), wid("b")];
-        let mut assigner = WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 10);
+        let mut assigner = WorkerAssigner::new(Router::new(RoutingStrategy::BinPack), 10).unwrap();
 
         assert_eq!(assigner.assign(&pool, 100), Some(wid("a")));
         assert_eq!(assigner.assign(&pool, 1), Some(wid("b")));

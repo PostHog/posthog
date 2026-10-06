@@ -1,14 +1,16 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
-use crate::batcher::packer::PackTargets;
-use crate::batcher::state_machine::{RetryPolicy, StateMachineConfig};
+use crate::batcher::packer::{PackTargets, Packer};
+use crate::batcher::retry_policy::RetryPolicy;
+use crate::batcher::state_machine::BatcherStateMachine;
+use crate::batcher::worker_assigner::WorkerAssigner;
 use crate::discovery::DiscoveryMode;
-use crate::routing::RoutingStrategy;
+use crate::routing::{Router, RoutingStrategy};
 use crate::scheduler::SchedulerKind;
 use common_kafka_consumer::config::ConsumerConfigBuilder;
 
@@ -428,26 +430,27 @@ impl Config {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
 
-    /// The key-table scheduler's settings. It reuses the stream's un-acked
-    /// cap as its per-worker request cap, and the deferred-flush timeout as
-    /// its stall timeout.
-    pub fn state_machine_config(&self) -> StateMachineConfig {
-        let retry_delay = Duration::from_millis(self.parked_retry_interval_ms);
-        StateMachineConfig {
-            pack_targets: PackTargets {
-                events: self.pack_target_events,
-                bytes: self.pack_target_bytes,
-                latency_budget: Duration::from_millis(self.pack_latency_budget_ms),
-            },
-            max_requests_per_worker: self.ingestion_worker_concurrent_batches,
-            retry: RetryPolicy {
-                fault: retry_delay,
-                busy: retry_delay,
-                timeout: retry_delay,
-            },
-            unplaced_retry_interval: retry_delay,
-            stall_timeout: Duration::from_millis(self.consumer_deferred_flush_timeout_ms),
-        }
+    /// The key-table scheduler's state machine. It reuses the stream's
+    /// un-acked cap as its per-worker request cap, the parked-retry interval
+    /// for every retry, and the deferred-flush timeout as its stall timeout.
+    pub fn batcher_state_machine(&self) -> Result<BatcherStateMachine, String> {
+        let packer = Packer::new(PackTargets {
+            events: self.pack_target_events,
+            bytes: self.pack_target_bytes,
+            latency_budget: Duration::from_millis(self.pack_latency_budget_ms),
+        });
+        let assigner = WorkerAssigner::new(
+            Router::new(self.routing_strategy),
+            self.ingestion_worker_concurrent_batches,
+        )?;
+        let retry = RetryPolicy::uniform(Duration::from_millis(self.parked_retry_interval_ms))?;
+        BatcherStateMachine::new(
+            packer,
+            assigner,
+            retry,
+            Duration::from_millis(self.consumer_deferred_flush_timeout_ms),
+            Instant::now(),
+        )
     }
 
     pub fn worker_urls(&self) -> Vec<String> {

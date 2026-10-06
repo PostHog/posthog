@@ -500,12 +500,16 @@ async fn async_main(config: Config) -> Result<()> {
             consumer_handle.clone(),
             Duration::from_millis(config.consumer_deferred_flush_timeout_ms),
         ),
-        SchedulerKind::KeyTable => Batcher::with_state_machine(
-            config.state_machine_config(),
-            dispatcher.worker_pool_source(),
-            Arc::clone(&transport),
-        )
-        .map_err(|err| anyhow::anyhow!("invalid key-table configuration: {err}"))?,
+        SchedulerKind::KeyTable => {
+            let state_machine = config
+                .batcher_state_machine()
+                .map_err(|err| anyhow::anyhow!("invalid key-table configuration: {err}"))?;
+            Batcher::with_state_machine(
+                state_machine,
+                dispatcher.worker_pool_source(),
+                Arc::clone(&transport),
+            )
+        }
     };
 
     // Reap drained workers: once a departed worker has finished its in-flight
