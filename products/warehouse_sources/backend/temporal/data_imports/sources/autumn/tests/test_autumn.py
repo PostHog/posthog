@@ -33,13 +33,15 @@ def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Respons
 
 class TestBuildRequestBody:
     @pytest.mark.parametrize(
-        ("endpoint", "should_use_incremental_field", "incremental_field", "last_value", "expected"),
+        ("api_version", "endpoint", "should_use_incremental_field", "incremental_field", "last_value", "expected"),
         [
-            ("Customers", False, None, None, {"limit": 100}),
-            ("Events", False, None, None, {"limit": 1000}),
+            ("2.3.0", "Customers", False, None, None, {"limit": 100}),
+            ("2.3.0", "Events", False, None, None, {"limit": 1000}),
+            ("2.3.0", "Invoices", False, None, None, {"limit": 500}),
             # First incremental sync has no watermark yet — no custom_range.
-            ("Events", True, "timestamp", None, {"limit": 1000}),
+            ("2.3.0", "Events", True, "timestamp", None, {"limit": 1000}),
             (
+                "2.3.0",
                 "Events",
                 True,
                 "timestamp",
@@ -48,14 +50,28 @@ class TestBuildRequestBody:
             ),
             # The user's chosen incremental field is honored — an unknown field is not
             # silently mapped onto the timestamp filter.
-            ("Events", True, "created_at", WATERMARK_MS, {"limit": 1000}),
+            ("2.3.0", "Events", True, "created_at", WATERMARK_MS, {"limit": 1000}),
             # Only events.list supports the server-side time filter.
-            ("Customers", True, "created_at", WATERMARK_MS, {"limit": 100}),
-            ("Coupons", False, None, None, {}),
+            ("2.3.0", "Customers", True, "created_at", WATERMARK_MS, {"limit": 100}),
+            ("2.3.0", "Coupons", False, None, None, {}),
+            # 2.4.0 rejects list limits above 200; smaller page sizes pass through unchanged.
+            ("2.4.0", "Customers", False, None, None, {"limit": 100}),
+            ("2.4.0", "Events", False, None, None, {"limit": 200}),
+            ("2.4.0", "Invoices", False, None, None, {"limit": 200}),
+            (
+                "2.4.0",
+                "Events",
+                True,
+                "timestamp",
+                WATERMARK_MS,
+                {"limit": 200, "custom_range": {"start": WATERMARK_MS}},
+            ),
+            ("2.4.0", "Coupons", False, None, None, {}),
         ],
     )
     def test_body_shape(
         self,
+        api_version: str,
         endpoint: str,
         should_use_incremental_field: bool,
         incremental_field: Optional[str],
@@ -64,6 +80,7 @@ class TestBuildRequestBody:
     ) -> None:
         body = _build_request_body(
             AUTUMN_ENDPOINTS[endpoint],
+            api_version,
             should_use_incremental_field,
             incremental_field,
             last_value,
@@ -73,6 +90,7 @@ class TestBuildRequestBody:
     def test_datetime_watermark_is_coerced_to_epoch_ms(self) -> None:
         body = _build_request_body(
             AUTUMN_ENDPOINTS["Events"],
+            "2.3.0",
             True,
             "timestamp",
             datetime(2024, 1, 1, tzinfo=UTC),
@@ -91,6 +109,7 @@ class TestAutumnSourceBehavior:
         should_use_incremental_field: bool = False,
         db_incremental_field_last_value: Optional[Any] = None,
         incremental_field: Optional[str] = None,
+        api_version: str = "2.3.0",
     ) -> tuple[MagicMock, list[dict[str, Any]], list[dict[str, Any]]]:
         """Returns ``(mock_session, sent_bodies, rows)``. ``sent_bodies`` are shallow copies of
         ``request.json`` captured at send-time — the Request object is mutated in place by the
@@ -115,7 +134,7 @@ class TestAutumnSourceBehavior:
                 endpoint=endpoint,
                 team_id=123,
                 job_id="test_job",
-                api_version="2.3.0",
+                api_version=api_version,
                 resumable_source_manager=manager,
                 should_use_incremental_field=should_use_incremental_field,
                 db_incremental_field_last_value=db_incremental_field_last_value,
@@ -211,16 +230,24 @@ class TestAutumnSourceBehavior:
         manager.save_state.assert_not_called()
         manager.load_state.assert_not_called()
 
-    def test_required_api_version_header_is_set_on_the_session(self) -> None:
+    @pytest.mark.parametrize(
+        ("api_version", "expected_limit"),
+        [
+            ("2.3.0", 1000),
+            ("2.4.0", 200),
+        ],
+    )
+    def test_pinned_version_reaches_the_request(self, api_version: str, expected_limit: int) -> None:
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = False
 
         responses = [
             _make_http_response({"list": [], "next_cursor": None}),
         ]
-        mock_session, _, _ = self._drive("Customers", manager, responses)
+        mock_session, sent_bodies, _ = self._drive("Events", manager, responses, api_version=api_version)
 
-        assert mock_session.headers.get("x-api-version") == "2.3.0"
+        assert mock_session.headers.get("x-api-version") == api_version
+        assert [body["limit"] for body in sent_bodies] == [expected_limit]
 
     @pytest.mark.parametrize(
         ("endpoint", "expected_primary_keys", "expected_sort_mode"),
@@ -273,26 +300,27 @@ class TestAutumnSourceBehavior:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        ("status_code", "expected_valid"),
+        ("status_code", "expected_valid", "api_version"),
         [
-            (200, True),
-            (401, False),
-            (403, False),
-            (500, False),
+            (200, True, "2.3.0"),
+            (200, True, "2.4.0"),
+            (401, False, "2.3.0"),
+            (403, False, "2.3.0"),
+            (500, False, "2.3.0"),
         ],
     )
-    def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
+    def test_status_code_mapping(self, status_code: int, expected_valid: bool, api_version: str) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.autumn.autumn.make_tracked_session"
         ) as MockSession:
             mock_session = MockSession.return_value
             mock_session.post.return_value = _make_http_response({}, status_code=status_code)
 
-            valid, error = validate_credentials("am_sk_test", "2.3.0")
+            valid, error = validate_credentials("am_sk_test", api_version)
 
         assert valid is expected_valid
         assert (error is None) is expected_valid
 
         _, kwargs = mock_session.post.call_args
         assert kwargs["headers"]["Authorization"] == "Bearer am_sk_test"
-        assert kwargs["headers"]["x-api-version"] == "2.3.0"
+        assert kwargs["headers"]["x-api-version"] == api_version

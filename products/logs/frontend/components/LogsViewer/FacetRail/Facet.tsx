@@ -1,8 +1,8 @@
 import { CSSProperties, useMemo } from 'react'
 import { List } from 'react-window'
 
-import { IconChevronDown, IconChevronRight, IconMinusSmall, IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconMinusSmall, IconWarning, IconX } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
@@ -41,6 +41,8 @@ interface FacetProps {
     onRemove?: () => void
     /** Disables the remove control (with this explanation) while a custom-facet update is in flight. */
     removeDisabledReason?: string
+    /** The facet's latest fetch failed — show an error icon and line instead of pretending the list is fresh (suppresses emptyLabel). */
+    error?: boolean
 }
 
 /** A single rail facet: a collapsible field title and its selectable values (multi-select = OR), each with a count. */
@@ -59,6 +61,7 @@ export function Facet({
     onToggleCollapsed,
     maxHeight,
     dimZeroCounts = false,
+    error = false,
     onRemove,
     removeDisabledReason,
 }: FacetProps): JSX.Element {
@@ -82,6 +85,11 @@ export function Facet({
                     {collapsed ? <IconChevronRight /> : <IconChevronDown />}
                     <span className="truncate">{title}</span>
                 </button>
+                {error && !loading && (
+                    <Tooltip title="Couldn't load values. Change the filters or expand the facet to retry.">
+                        <IconWarning className="text-danger shrink-0" />
+                    </Tooltip>
+                )}
                 {onRemove && (
                     <LemonButton
                         size="small"
@@ -105,11 +113,18 @@ export function Facet({
                     />
                 </div>
             )}
+            {/* A failed fetch shows inline (options may be stale-but-usable below) rather than blanking the facet. */}
+            {!collapsed && error && !loading && (
+                <div className="px-1 pb-1 text-xs text-danger" data-attr={`logs-facet-${slug}-error`}>
+                    Couldn't load values
+                </div>
+            )}
             {!collapsed &&
                 (loading && options.length === 0 ? (
                     <div className="px-1 text-xs text-muted">Loading…</div>
                 ) : options.length === 0 ? (
-                    <div className="px-1 text-xs text-muted">{emptyLabel}</div>
+                    // The error line above already explains the missing values — don't add "No values".
+                    !error && <div className="px-1 text-xs text-muted">{emptyLabel}</div>
                 ) : (
                     // Dim the list while a refetch is in flight (e.g. typing in search) so there's
                     // feedback that results are updating, rather than the list silently changing.

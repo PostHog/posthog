@@ -15,7 +15,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { METRICS_PANELS } from '../panels/registry'
 import { MetricsChartSettings } from './MetricsChartSettings'
 import { MetricsClauseRow } from './MetricsClauseRow'
-import { MetricsIntervalPicker, MetricsMinIntervalPicker } from './MetricsIntervalPicker'
+import { MetricsIntervalPicker } from './MetricsIntervalPicker'
 import { METRICS_DATE_OPTIONS, MetricsFormulaInput } from './MetricsViewer'
 import { MAX_CLAUSES, metricsViewerLogic } from './metricsViewerLogic'
 
@@ -50,11 +50,10 @@ function MetricsQueryEditorControls({
     query: MetricsQuery
     setQuery: (query: MetricsQuery) => void
 }): JSX.Element {
-    const { viewerClauses, activeClauseIndex, formula, namedClauses, dateFrom, dateTo, interval, minInterval } =
+    const { viewerClauses, activeClauseIndex, formula, namedClauses, dateFrom, dateTo, interval } =
         useValues(metricsViewerLogic)
     const { displayType, metricsQueryNode } = useValues(metricsViewerLogic)
-    const { addClause, setDateFrom, setDateTo, setInterval, setMinInterval, setDisplayType } =
-        useActions(metricsViewerLogic)
+    const { addClause, setDateFrom, setDateTo, setInterval, setDisplayType } = useActions(metricsViewerLogic)
     const dashboardPanelsEnabled = useFeatureFlag('METRICS_DASHBOARD_PANELS')
     const disabledReason = getAccessControlDisabledReason(AccessControlResourceType.Metrics, AccessControlLevel.Viewer)
 
@@ -68,7 +67,7 @@ function MetricsQueryEditorControls({
         }
         edited.current = true
         // Keep node fields the builder does not own; drop the optional ones it does, so clearing them sticks.
-        const { formula: _formula, interval: _interval, minInterval: _minInterval, display: _display, ...rest } = query
+        const { formula: _formula, interval: _interval, display: _display, ...rest } = query
         setQuery({ ...rest, ...metricsQueryNode })
     }, [metricsQueryNode]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -139,11 +138,6 @@ function MetricsQueryEditorControls({
                         disabledReason={disabledReason}
                     />
                     <MetricsIntervalPicker value={interval} onChange={setInterval} disabledReason={disabledReason} />
-                    <MetricsMinIntervalPicker
-                        value={minInterval}
-                        onChange={setMinInterval}
-                        disabledReason={disabledReason}
-                    />
                 </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">

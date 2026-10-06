@@ -28,6 +28,7 @@ import {
 } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { getBIComparisonDisabledReason, getBIComparisonDateExpression } from './biComparison'
 import { getBIFiltersPlaceholder, getBIQueryFilters, normalizeBIDates } from './biQueryFilters'
 
 export enum BIEditorView {
@@ -125,6 +126,9 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
 
 export function normalizeBIConfig(config: BIConfig): BIConfig {
     let normalized = normalizeBIDates(config)
+    if (normalized.compareFilter?.compare && getBIComparisonDisabledReason(normalized)) {
+        normalized = { ...normalized, compareFilter: { compare: false } }
+    }
     const sort = normalized.sort
     if (sort && !getBISortOptions(normalized).some((option) => option.key === sort.key)) {
         normalized = { ...normalized, sort: null }
@@ -428,6 +432,15 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const candidate = decodedConfig as Partial<BIConfig>
     if (
+        candidate.compareFilter !== undefined &&
+        (!candidate.compareFilter ||
+            typeof candidate.compareFilter !== 'object' ||
+            (candidate.compareFilter.compare !== undefined && typeof candidate.compareFilter.compare !== 'boolean') ||
+            (candidate.compareFilter.compare_to != null && typeof candidate.compareFilter.compare_to !== 'string'))
+    ) {
+        return null
+    }
+    if (
         candidate.dateRange !== undefined &&
         (!candidate.dateRange ||
             typeof candidate.dateRange !== 'object' ||
@@ -536,6 +549,7 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
 
     const config: BIConfig = {
         source,
+        ...(candidate.compareFilter !== undefined ? { compareFilter: candidate.compareFilter } : {}),
         ...(candidate.dateField !== undefined
             ? { dateField: candidate.dateField === null ? null : parseBIFieldValue(candidate.dateField) }
             : {}),
@@ -825,7 +839,7 @@ function computeBIQueryParts(config: BIConfig): BIQueryParts {
         ...configuredValues.map(({ expression }) => expression),
         ...config.filters.map((filter) => filter.customExpression || fieldExpression(filter.field)),
     ]
-    const usedAliases = new Set(['bi_rows', 'bi_columns'])
+    const usedAliases = new Set(['bi_rows', 'bi_columns', 'bi_comparison'])
     for (const dimension of [...rowDimensions, ...columnDimensions]) {
         const preferred = dimension.alias
         let suffix = 2
@@ -994,6 +1008,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
 
     const { rowDimensions, columnDimensions, configuredValues } = computeBIQueryParts(config)
     const dimensions = [...rowDimensions, ...columnDimensions]
+    const comparing = !!config.compareFilter?.compare
     const dimensionExpressions = dimensions.map(({ field }) => fieldExpression(field))
     const isPivotTable = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
     const hasSeriesBreakdown =
@@ -1012,7 +1027,7 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
               .filter((axis): axis is BIPivotAxis => axis !== null)
               .map(({ alias, expression }) => `${expression} AS ${alias}`)
         : dimensions.map(({ field, alias }) =>
-              hasSeriesBreakdown ? `${fieldExpression(field)} AS ${alias}` : fieldExpression(field)
+              hasSeriesBreakdown || comparing ? `${fieldExpression(field)} AS ${alias}` : fieldExpression(field)
           )
     const valueExpressions =
         configuredValues.length > 0
@@ -1049,12 +1064,12 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
 
     queryParts.push(`LIMIT ${normalizeBIConfig(config).limit}`)
 
-    const query = queryParts.join('\n')
+    let query = queryParts.join('\n')
 
     const chartDimensions = [...columnDimensions, ...rowDimensions]
     const xDimension = chartDimensions.find(({ field }) => isDateTimeBIField(field)) ?? chartDimensions[0]
     const breakdownDimension = chartDimensions.find((dimension) => dimension !== xDimension)
-    const seriesSettings =
+    let seriesSettings: ChartSettings | undefined =
         hasSeriesBreakdown && xDimension && breakdownDimension
             ? {
                   xAxis: { column: xDimension.alias },
@@ -1067,6 +1082,53 @@ export function buildBIQuery(config: BIConfig): BIQueryBuildResult | null {
                   showLegend: true,
               }
             : undefined
+
+    if (comparing) {
+        const orderDimension = dimensions.find(({ field }) =>
+            ['ASC', 'DESC'].some((direction) => orderByExpression === `${fieldExpression(field)} ${direction}`)
+        )
+        const comparisonOrder = orderDimension
+            ? `${orderDimension.alias} ${orderByExpression?.endsWith(' ASC') ? 'ASC' : 'DESC'}`
+            : orderByExpression
+        const periodLabel = config.compareFilter?.compare_to ? 'Comparison period' : 'Previous period'
+        const periodExpression = (label: string): string =>
+            breakdownDimension
+                ? `concat(${escapeHogQLString(label + ' · ')}, toString(${fieldExpression(breakdownDimension.field)}))`
+                : escapeHogQLString(label)
+        const buildPeriod = (previous: boolean): string => {
+            const expressions = dimensions.map(({ field }) =>
+                fieldExpression(
+                    previous && isDateTimeBIField(field)
+                        ? { ...field, expression: getBIComparisonDateExpression(field) }
+                        : field
+                )
+            )
+            const select = [
+                ...dimensions.map(({ alias }, index) => `${expressions[index]} AS ${alias}`),
+                ...valueExpressions,
+                `${periodExpression(previous ? periodLabel : 'Current period')} AS bi_comparison`,
+            ]
+            const placeholder = getBIFiltersPlaceholder(config)
+            return [
+                `SELECT\n    ${select.join(',\n    ')}`,
+                `FROM ${escapePropertyAsHogQLIdentifier(config.source!.table)}`,
+                `WHERE\n    ${[previous ? placeholder.replace('{filters', '{filters.previous') : placeholder, ...filters.map((filter) => `(${filter})`)].join('\n    AND ')}`,
+                ...(expressions.length ? [`GROUP BY ${[...expressions, 'bi_comparison'].join(', ')}`] : []),
+                ...(comparisonOrder ? [`ORDER BY ${comparisonOrder}`] : []),
+                `LIMIT ${config.limit}`,
+            ].join('\n')
+        }
+        query = `(${buildPeriod(false)})\nUNION ALL\n(${buildPeriod(true)})`
+        seriesSettings = {
+            xAxis: { column: xDimension?.alias ?? 'bi_comparison' },
+            xAxisLabel: xDimension ? getBIFieldPillLabel(xDimension.field) : 'Period',
+            yAxis: configuredValues.length
+                ? configuredValues.map(({ alias }) => ({ column: alias }))
+                : [{ column: 'count' }],
+            seriesBreakdownColumn: xDimension ? 'bi_comparison' : undefined,
+            showLegend: true,
+        }
+    }
 
     const pivotTableSettings = isPivotTable
         ? {

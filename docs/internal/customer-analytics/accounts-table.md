@@ -105,8 +105,22 @@ Automatic sizing uses the existing resized-table layout and does not change scro
 
 The `ManyColumns` story in `AccountsTab.stories.tsx` covers six added custom properties alongside native and relationship columns.
 Its browser assertions check content-dependent widths, the 200px cap, horizontal scrolling, and the row expansion control.
-At narrow widths, it also covers custom-property inline editing: the input fits the available column width, and Save and Cancel stay together below it when needed, aligned to the right.
+At narrow widths, it also covers custom-property inline editing: the input and Clear value action fit the available column width, and Save and Cancel stay together below it when needed, aligned to the right.
+Wrapped editor controls have an 8px gap between rows.
 The row grows without widening the column.
+
+## Clearing custom properties
+
+Every editable custom-property cell offers Clear value, including select, boolean, numeric, date, and datetime properties.
+The action asks for confirmation before saving `null` through the existing custom-property-values endpoint.
+Canceling the confirmation keeps the value unchanged.
+A cleared cell shows an unset value while the table refreshes, rather than falling back to its stale value.
+A failed write restores the previous value and lets the user try again.
+Canonical and warehouse-backed properties remain read-only.
+Workflow-backed properties remain editable, with the existing warning that a future workflow run can overwrite a manual change.
+
+The `ClearCustomProperties` story checks clearing every display type and canceling the confirmation.
+It includes zero and false values, which must stay distinct from an unset value.
 
 ## Relationship member pickers
 
