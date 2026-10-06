@@ -11,7 +11,7 @@
 //!
 //! - Per-key order: a key has at most one run out at a time, and its later
 //!   messages queue behind that run.
-//! - A response may be partial. The returned messages must be a suffix of
+//! - A response may be partial. The unprocessed messages must be a suffix of
 //!   each key's run, or the state machine fails. They go back to the front of
 //!   the key's queue and are sent again as replay after the retry delay, as
 //!   are all messages of a request that failed on the transport.
@@ -22,7 +22,7 @@
 //!   and the watchdog can fire. The clock starts when work becomes pending.
 //! - A revoke drops the revoked partitions' pending messages, because the
 //!   new owner replays them. Runs already in flight finish, but their
-//!   returned messages for revoked partitions drop.
+//!   unprocessed messages for revoked partitions drop.
 //! - Shutdown takes no new groups; the state machine stops once nothing is
 //!   pending or in flight. A draining worker listed in `idle_workers` has
 //!   finished its work.
@@ -136,9 +136,9 @@ impl BatcherStateMachine {
         pool: &WorkerPool,
         request: RequestId,
         accepted: u32,
-        returned: Vec<SerializedKafkaMessage>,
+        unprocessed: Vec<SerializedKafkaMessage>,
     ) -> (Self, Effects) {
-        self.act(|active| active.on_request_succeeded(now, pool, request, accepted, returned))
+        self.act(|active| active.on_request_succeeded(now, pool, request, accepted, unprocessed))
     }
 
     pub fn on_request_failed(
@@ -296,11 +296,11 @@ impl ActiveState {
         pool: &WorkerPool,
         request: RequestId,
         accepted: u32,
-        returned: Vec<SerializedKafkaMessage>,
+        unprocessed: Vec<SerializedKafkaMessage>,
     ) -> Result<Effects, String> {
         let mut effects = Effects::default();
         let sent = self.take_request(request, &mut effects)?;
-        let returned_count = returned.len();
+        let unprocessed_count = unprocessed.len();
         let message_count = sent.message_count;
         let assignment_epoch = sent.class.assignment_epoch;
         effects.worker_outcomes.push(WorkerOutcome {
@@ -308,11 +308,11 @@ impl ActiveState {
             fault: false,
         });
         let outcomes = sent
-            .resolve(returned)
+            .resolve(unprocessed)
             .map_err(|err| format!("invalid response: {err}"))?;
-        if accepted as usize != message_count - returned_count {
+        if accepted as usize != message_count - unprocessed_count {
             return Err(format!(
-                "worker accepted {accepted} of {message_count} messages but returned {returned_count}"
+                "worker accepted {accepted} of {message_count} messages, with {unprocessed_count} unprocessed"
             ));
         }
         if accepted > 0 {
@@ -320,12 +320,12 @@ impl ActiveState {
         }
         effects.completions = completions(assignment_epoch, &outcomes);
         effects.key_acks = key_acks(&outcomes);
-        let retry_at = self.retry.retry_at(now, RetryReason::Returned);
+        let retry_at = self.retry.retry_at(now, RetryReason::Unprocessed);
         for outcome in outcomes {
-            let retry_at = (!outcome.returned.is_empty()).then_some(retry_at);
+            let retry_at = (!outcome.unprocessed.is_empty()).then_some(retry_at);
             self.settle_key(
                 &outcome.routing_key,
-                outcome.returned,
+                outcome.unprocessed,
                 retry_at,
                 now,
                 &mut effects,
@@ -369,7 +369,7 @@ impl ActiveState {
         for outcome in outcomes {
             self.settle_key(
                 &outcome.routing_key,
-                outcome.returned,
+                outcome.unprocessed,
                 Some(retry_at),
                 now,
                 &mut effects,
@@ -427,14 +427,14 @@ impl ActiveState {
     fn settle_key(
         &mut self,
         routing_key: &Arc<str>,
-        returned: Vec<SerializedKafkaMessage>,
+        unprocessed: Vec<SerializedKafkaMessage>,
         retry_at: Option<Instant>,
         now: Instant,
         effects: &mut Effects,
     ) -> Result<(), String> {
         let evicted = self
             .keys
-            .settle(routing_key, returned, retry_at, now)
+            .settle(routing_key, unprocessed, retry_at, now)
             .map_err(|err| err.to_string())?;
         if evicted {
             effects.evicted_keys.push(Arc::clone(routing_key));
@@ -602,13 +602,13 @@ mod tests {
 
     const FAULT_DELAY: Duration = Duration::from_millis(200);
     const BUSY_DELAY: Duration = Duration::from_millis(20);
-    const RETURNED_DELAY: Duration = Duration::from_millis(50);
+    const UNPROCESSED_DELAY: Duration = Duration::from_millis(50);
     const NO_WORKER_DELAY: Duration = Duration::from_millis(100);
     const STALL: Duration = Duration::from_secs(60);
 
     /// Distinct delays, so a wakeup time shows which retry reason applied.
     fn retry_policy() -> RetryPolicy {
-        RetryPolicy::new(FAULT_DELAY, BUSY_DELAY, RETURNED_DELAY, NO_WORKER_DELAY)
+        RetryPolicy::new(FAULT_DELAY, BUSY_DELAY, UNPROCESSED_DELAY, NO_WORKER_DELAY)
             .expect("valid retry policy")
     }
 
@@ -697,7 +697,7 @@ mod tests {
     }
 
     #[test]
-    fn a_partial_response_replays_the_returned_suffix_after_the_timeout_delay() {
+    fn a_partial_response_replays_the_unprocessed_suffix_after_the_timeout_delay() {
         let now = Instant::now();
         let workers = pool(&["w"]);
         let batcher = batcher(4, now);
@@ -705,13 +705,14 @@ mod tests {
         let request = effects.sends[0].request;
         let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("a", &[4])]);
 
-        let returned = vec![message("a", 0, 2), message("a", 0, 3)];
-        let (batcher, effects) = batcher.on_request_succeeded(now, &workers, request, 1, returned);
+        let unprocessed = vec![message("a", 0, 2), message("a", 0, 3)];
+        let (batcher, effects) =
+            batcher.on_request_succeeded(now, &workers, request, 1, unprocessed);
         assert!(effects.sends.is_empty());
         assert_eq!(effects.completions[0].offsets, vec![Offset(1)]);
-        assert_eq!(effects.next_wakeup, Some(now + RETURNED_DELAY));
+        assert_eq!(effects.next_wakeup, Some(now + UNPROCESSED_DELAY));
 
-        let retry = now + RETURNED_DELAY;
+        let retry = now + UNPROCESSED_DELAY;
         let (batcher, effects) = batcher.on_wakeup(retry, &workers);
         assert!(effects.sends[0].class.replay);
         assert_eq!(shape(&effects.sends[0]), vec![("a", vec![2, 3])]);

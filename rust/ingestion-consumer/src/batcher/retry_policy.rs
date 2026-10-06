@@ -5,10 +5,9 @@ pub enum RetryReason {
     /// The worker or its stream failed.
     Fault,
     Busy,
-    /// The worker returned messages it did not process within the request's
-    /// budget.
-    Returned,
-    /// No candidate worker could take a packed request. Nothing signals a
+    /// The worker did not process some messages within the request's budget.
+    Unprocessed,
+    /// No candidate worker could take a request. Nothing signals a
     /// worker joining the pool, so placement polls for one.
     NoWorker,
 }
@@ -17,7 +16,7 @@ pub enum RetryReason {
 pub struct RetryPolicy {
     fault: Duration,
     busy: Duration,
-    returned: Duration,
+    unprocessed: Duration,
     no_worker: Duration,
 }
 
@@ -27,7 +26,7 @@ impl RetryPolicy {
     pub fn new(
         fault: Duration,
         busy: Duration,
-        returned: Duration,
+        unprocessed: Duration,
         no_worker: Duration,
     ) -> Result<Self, String> {
         if no_worker.is_zero() {
@@ -36,7 +35,7 @@ impl RetryPolicy {
         Ok(Self {
             fault,
             busy,
-            returned,
+            unprocessed,
             no_worker,
         })
     }
@@ -50,7 +49,7 @@ impl RetryPolicy {
         let delay = match reason {
             RetryReason::Fault => self.fault,
             RetryReason::Busy => self.busy,
-            RetryReason::Returned => self.returned,
+            RetryReason::Unprocessed => self.unprocessed,
             RetryReason::NoWorker => self.no_worker,
         };
         now + delay

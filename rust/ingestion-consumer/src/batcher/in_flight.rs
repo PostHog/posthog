@@ -43,24 +43,24 @@ pub struct InFlightRequest {
 pub struct KeyOutcome {
     pub routing_key: Arc<str>,
     pub accepted: Vec<SentMessage>,
-    pub returned: Vec<SerializedKafkaMessage>,
+    pub unprocessed: Vec<SerializedKafkaMessage>,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ResolveError {
-    #[error("returned message {topic}/{partition}@{offset} was not in the request")]
+    #[error("unprocessed message {topic}/{partition}@{offset} was not in the request")]
     Unknown {
         topic: String,
         partition: i32,
         offset: i64,
     },
-    #[error("returned message {topic}/{partition}@{offset} appears more than once")]
+    #[error("unprocessed message {topic}/{partition}@{offset} appears more than once")]
     Duplicate {
         topic: String,
         partition: i32,
         offset: i64,
     },
-    #[error("returned messages of key {routing_key} are not a suffix of its run")]
+    #[error("unprocessed messages of key {routing_key} are not a suffix of its run")]
     NotASuffix { routing_key: String },
 }
 
@@ -120,21 +120,21 @@ impl InFlightRequests {
 
 impl InFlightRequest {
     /// Every key of the request gets an outcome, in send order. A key's
-    /// returned messages must be a suffix of the run it sent, because the
+    /// unprocessed messages must be a suffix of the run it sent, because the
     /// worker processes a key's messages in order. A response that breaks
     /// this is a protocol error.
     pub fn resolve(
         self,
-        returned: Vec<SerializedKafkaMessage>,
+        unprocessed: Vec<SerializedKafkaMessage>,
     ) -> Result<Vec<KeyOutcome>, ResolveError> {
-        if returned.is_empty() {
+        if unprocessed.is_empty() {
             return Ok(self
                 .runs
                 .into_iter()
                 .map(|run| KeyOutcome {
                     routing_key: run.routing_key,
                     accepted: run.messages,
-                    returned: Vec::new(),
+                    unprocessed: Vec::new(),
                 })
                 .collect());
         }
@@ -148,10 +148,10 @@ impl InFlightRequest {
             }
         }
 
-        let mut returned_by_run: Vec<Vec<(usize, SerializedKafkaMessage)>> =
+        let mut unprocessed_by_run: Vec<Vec<(usize, SerializedKafkaMessage)>> =
             self.runs.iter().map(|_| Vec::new()).collect();
         let mut seen: HashSet<(usize, usize)> = HashSet::new();
-        for message in returned {
+        for message in unprocessed {
             let Some(&(run_index, message_index)) =
                 position.get(&(&*message.topic, message.partition, message.offset))
             else {
@@ -168,31 +168,34 @@ impl InFlightRequest {
                     offset: message.offset,
                 });
             }
-            returned_by_run[run_index].push((message_index, message));
+            unprocessed_by_run[run_index].push((message_index, message));
         }
 
         drop(position);
         self.runs
             .into_iter()
-            .zip(returned_by_run)
-            .map(|(run, mut returned)| {
-                returned.sort_by_key(|(message_index, _)| *message_index);
-                let first_returned = run.messages.len() - returned.len();
-                let is_suffix = returned
+            .zip(unprocessed_by_run)
+            .map(|(run, mut unprocessed)| {
+                unprocessed.sort_by_key(|(message_index, _)| *message_index);
+                let first_unprocessed = run.messages.len() - unprocessed.len();
+                let is_suffix = unprocessed
                     .iter()
                     .enumerate()
-                    .all(|(rank, (message_index, _))| *message_index == first_returned + rank);
+                    .all(|(rank, (message_index, _))| *message_index == first_unprocessed + rank);
                 if !is_suffix {
                     return Err(ResolveError::NotASuffix {
                         routing_key: run.routing_key.to_string(),
                     });
                 }
                 let mut accepted = run.messages;
-                accepted.truncate(first_returned);
+                accepted.truncate(first_unprocessed);
                 Ok(KeyOutcome {
                     routing_key: run.routing_key,
                     accepted,
-                    returned: returned.into_iter().map(|(_, message)| message).collect(),
+                    unprocessed: unprocessed
+                        .into_iter()
+                        .map(|(_, message)| message)
+                        .collect(),
                 })
             })
             .collect()
@@ -232,7 +235,7 @@ mod tests {
     }
 
     #[test]
-    fn a_partial_response_splits_each_key_into_accepted_prefix_and_returned_suffix() {
+    fn a_partial_response_splits_each_key_into_accepted_prefix_and_unprocessed_suffix() {
         let (mut requests, id) = request();
         let request = requests.take(id).expect("registered");
         assert_eq!(request.message_count, 4);
@@ -250,7 +253,7 @@ mod tests {
                         .iter()
                         .map(|m| m.offset)
                         .collect::<Vec<_>>(),
-                    offsets(&outcome.returned),
+                    offsets(&outcome.unprocessed),
                 )
             })
             .collect();
@@ -274,11 +277,11 @@ mod tests {
         ResolveError::Duplicate { topic: "events".into(), partition: 0, offset: 10 },
     )]
     fn a_response_outside_the_contract_is_a_protocol_error(
-        #[case] returned: Vec<SerializedKafkaMessage>,
+        #[case] unprocessed: Vec<SerializedKafkaMessage>,
         #[case] expected: ResolveError,
     ) {
         let (mut requests, id) = request();
         let request = requests.take(id).expect("registered");
-        assert_eq!(request.resolve(returned).err(), Some(expected));
+        assert_eq!(request.resolve(unprocessed).err(), Some(expected));
     }
 }

@@ -69,7 +69,7 @@ pub struct UnclaimedSettle {
     pub routing_key: String,
 }
 
-/// One push's messages, or one settle's returned messages. Kept whole, so
+/// One push's messages, or one settle's unprocessed messages. Kept whole, so
 /// a claim of one segment hands its messages on without copying them.
 struct Segment {
     class: RequestClass,
@@ -80,7 +80,7 @@ struct Segment {
 
 struct Claim {
     assignment_epoch: u64,
-    /// Partitions revoked while the run was out. Their returned messages
+    /// Partitions revoked while the run was out. Their unprocessed messages
     /// drop, because the new partition owner replays them.
     revoked: Vec<(String, i32)>,
 }
@@ -88,7 +88,7 @@ struct Claim {
 /// A key is in one of four states. An idle key is absent from the table. A
 /// ready key has queued messages and no claim. A claimed key has one run
 /// out: waiting for a worker or on the wire. A waiting key
-/// holds returned messages until `retry_at`. Arrivals for a claimed or
+/// holds unprocessed messages until `retry_at`. Arrivals for a claimed or
 /// waiting key queue behind it.
 #[derive(Default)]
 struct KeyState {
@@ -249,14 +249,14 @@ impl KeyQueues {
         runs
     }
 
-    /// Release the key's claim. `returned` goes back to the front of the
+    /// Release the key's claim. `unprocessed` goes back to the front of the
     /// queue as replay messages under the claimed run's epoch, ahead of
     /// anything that arrived while the run was out, so the redelivery keeps
     /// offset order. Returns whether the key left the table.
     pub fn settle(
         &mut self,
         routing_key: &Arc<str>,
-        mut returned: Vec<SerializedKafkaMessage>,
+        mut unprocessed: Vec<SerializedKafkaMessage>,
         retry_at: Option<Instant>,
         now: Instant,
     ) -> Result<bool, UnclaimedSettle> {
@@ -272,15 +272,15 @@ impl KeyQueues {
         self.claimed_keys = self.claimed_keys.saturating_sub(1);
 
         if !claim.revoked.is_empty() {
-            returned.retain(|message| {
+            unprocessed.retain(|message| {
                 !claim.revoked.iter().any(|(topic, partition)| {
                     topic.as_str() == &*message.topic && *partition == message.partition
                 })
             });
         }
-        if !returned.is_empty() {
-            let bytes = payload_bytes(&returned);
-            self.queued_messages += returned.len();
+        if !unprocessed.is_empty() {
+            let bytes = payload_bytes(&unprocessed);
+            self.queued_messages += unprocessed.len();
             self.queued_bytes += bytes;
             state.queue.push_front(Segment {
                 class: RequestClass {
@@ -289,7 +289,7 @@ impl KeyQueues {
                 },
                 queued_at: now,
                 bytes,
-                messages: returned,
+                messages: unprocessed,
             });
             if let Some(at) = retry_at.filter(|at| *at > now) {
                 state.retry_at = Some(at);
@@ -336,7 +336,7 @@ impl KeyQueues {
                 purged += before - segment.messages.len();
             }
             state.queue.retain(|segment| !segment.messages.is_empty());
-            // The wait belongs to the returned messages. Once the revoke drops
+            // The wait belongs to the unprocessed messages. Once the revoke drops
             // them, newer messages behind them must not wait for their retry.
             if !state.queue.iter().any(|segment| segment.class.replay) {
                 if let Some(at) = state.retry_at.take() {
@@ -417,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn returned_messages_go_first_as_replay_after_their_retry_time() {
+    fn unprocessed_messages_go_first_as_replay_after_their_retry_time() {
         let now = Instant::now();
         let retry_at = now + Duration::from_millis(100);
         let mut queues = KeyQueues::new();
@@ -430,9 +430,9 @@ mod tests {
         queues.take_ready(now);
         queues.push(key("a"), 0, vec![message("a", 0, 3)], now);
 
-        let returned = vec![message("a", 0, 2)];
+        let unprocessed = vec![message("a", 0, 2)];
         assert_eq!(
-            queues.settle(&key("a"), returned, Some(retry_at), now),
+            queues.settle(&key("a"), unprocessed, Some(retry_at), now),
             Ok(false)
         );
         assert!(
@@ -468,7 +468,7 @@ mod tests {
     }
 
     #[test]
-    fn a_revoke_drops_queued_messages_and_returned_messages_of_the_partition() {
+    fn a_revoke_drops_queued_messages_and_unprocessed_messages_of_the_partition() {
         let now = Instant::now();
         let mut queues = KeyQueues::new();
         queues.push(
@@ -485,9 +485,9 @@ mod tests {
         assert_eq!(evicted, vec![Arc::<str>::from("b")]);
         assert_eq!(queues.queued_messages(), 0);
 
-        let returned = vec![message("a", 0, 1), message("a", 1, 7)];
+        let unprocessed = vec![message("a", 0, 1), message("a", 1, 7)];
         queues
-            .settle(&key("a"), returned, None, now)
+            .settle(&key("a"), unprocessed, None, now)
             .expect("claimed");
         assert_eq!(
             claimed(&queues.take_ready(now)),
@@ -497,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn a_revoke_that_drops_the_returned_messages_ends_their_wait() {
+    fn a_revoke_that_drops_the_unprocessed_messages_ends_their_wait() {
         let now = Instant::now();
         let mut queues = KeyQueues::new();
         queues.push(key("a"), 0, vec![message("a", 0, 1)], now);
