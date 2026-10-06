@@ -748,6 +748,52 @@ describe('experimentMetricsLogic', () => {
             expect(lemonToast.error).toHaveBeenCalledWith('Metrics were recalculated less than 5 minutes ago.')
         })
 
+        it('keeps the marks of a run already being polled when a retry request is rejected', async () => {
+            // The latest read found an active run and marked the shown metrics; the first poll has not landed
+            // yet, so the retry button is enabled. A rejected retry must not strip the polled run's marks.
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        { ...completedRecalculation, active_run: { id: 'recalc-2', status: 'in_progress' } },
+                    ],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        { ...pendingRecalculation, id: 'recalc-2', status: 'in_progress' },
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [
+                        429,
+                        {
+                            code: 'recalculation_rate_limited',
+                            detail: 'Metrics were recalculated less than 5 minutes ago.',
+                        },
+                    ],
+                },
+            })
+            // Real timers: the poll's first tick is two seconds out, and the by-id mock stays in progress with
+            // no results, so a tick that lands keeps the marks either way.
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'pollRecalculation'])
+            expect(logic.values.recalculatingMetricUuids).toContain(PRIMARY_METRIC_UUID)
+
+            // Wait for the catch block's dispatches rather than all listeners: the active run's poll loop
+            // keeps a listener in flight for as long as the run stays in progress.
+            await expectLogic(logic, () => {
+                logic.actions.triggerRecalculation('manual_retry')
+            }).toDispatchActions([
+                'triggerRecalculation',
+                'setRecalculatingMetricUuids',
+                'setRecalculationLoading',
+                'setRecalculationLoading',
+                'setRecalculatingMetricUuids',
+            ])
+
+            expect(logic.values.recalculatingMetricUuids).toContain(PRIMARY_METRIC_UUID)
+            expect(lemonToast.error).toHaveBeenCalledWith('Metrics were recalculated less than 5 minutes ago.')
+        })
+
         describe('queuing', () => {
             it('queues instead of posting when a run is active', async () => {
                 const createMock = jest.fn(() => [201, pendingRecalculation])
