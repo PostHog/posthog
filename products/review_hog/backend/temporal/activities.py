@@ -226,8 +226,7 @@ class ReviewMeta:
     empty_diff: bool = False
     already_completed: bool = False
     pr_open: bool = True
-    # The design this turn runs on (`select_review_design`). Decided here so the workflow branches on
-    # a recorded activity result: histories from before the field decode as the pipeline.
+    # Decided here so the workflow branches on a recorded result; older histories decode as the pipeline.
     review_design: str = REVIEW_DESIGN_PIPELINE
 
 
@@ -1240,8 +1239,7 @@ async def single_agent_review_activity(input: SandboxStageInput) -> None:
 
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
 
-# The argumentation of a single-agent finding's verdict. The reviews API returns it as the finding's
-# validator note, so it says plainly that no validator judged the finding.
+# The reviews API shows this as the finding's validator note, so it says that no validator ran.
 SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. The single-agent Flash review publishes its findings directly."
 
 
@@ -1319,8 +1317,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
         review_design=input.review_design,
     )
     if single_agent:
-        # No validator runs after the single agent, so every surviving finding is accepted as found.
-        # The verdict rows keep body, publish, the status comment, and telemetry on one read path.
+        # No validator runs, so accept every survivor; body, publish, and telemetry all read verdict rows.
         await database_sync_to_async(persist_verdicts, thread_sensitive=False)(
             team_id=input.team_id,
             report_id=input.report_id,

@@ -165,7 +165,6 @@ async def _run_full_review_pr_workflow(
     def _saw_mode(stage: str, mode: str) -> None:
         mode_calls.setdefault(stage, set()).add(mode)
 
-    # The design every consumer received, keyed by stage, like the mode above.
     design_calls: dict[str, set[str]] = {}
     single_agent_calls: list[str] = []
 
@@ -631,9 +630,6 @@ async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_r
 
 @pytest.mark.asyncio
 async def test_review_pr_workflow_single_agent_design_replaces_chunking_review_and_validation():
-    # The design comes from the fetch result. A single-agent turn must run one session instead of the
-    # chunked wave, skip the validator, and tell every downstream stage its design: publish and the
-    # status comment route P3 findings by it, and the events and marker report the v2 arm by it.
     recorded = await _run_full_review_pr_workflow(publish=True, review_mode="flash", review_design="single_agent")
 
     assert recorded["single_agent"] == ["single_agent"]

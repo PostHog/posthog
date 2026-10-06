@@ -650,7 +650,6 @@ class ReviewPRWorkflow:
             )
             workflow.logger.info(f"Persisted {len(dedup.issue_ids)} finding(s) to the review report")
 
-            # The single agent runs no validator: dedup already accepted its findings.
             if review_design != REVIEW_DESIGN_SINGLE_AGENT:
                 workflow.logger.info("STAGE 5/7 · Validate issues")
                 await workflow.execute_child_workflow(

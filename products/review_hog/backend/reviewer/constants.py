@@ -66,10 +66,7 @@ REVIEW_MODE_FULL = "full"
 REVIEW_MODE_FLASH = "flash"
 
 # REVIEW DESIGN
-# How a turn finds its issues. The pipeline chunks the PR, fans out perspective reviews, sweeps for
-# blind spots, deduplicates, and validates. The single agent is one Codex session that reviews the
-# whole PR and publishes without a validator. Decided per turn at fetch and carried in the workflow
-# like the review mode. Plain strings for the same payload-compatibility reason.
+# How a turn finds its issues, decided per turn at fetch. Plain strings, like the review mode.
 REVIEW_DESIGN_PIPELINE = "pipeline"
 REVIEW_DESIGN_SINGLE_AGENT = "single_agent"
 
@@ -79,8 +76,7 @@ REVIEW_DESIGN_SINGLE_AGENT = "single_agent"
 FLASH_DESIGN_DEFAULT = REVIEW_DESIGN_SINGLE_AGENT
 
 # A Flash PR above either limit falls back to the pipeline, because the single agent receives the
-# whole diff in one prompt. Both count only the reviewable files (lock, generated, and test files
-# are filtered out at fetch), with additions and deletions as changed lines.
+# whole diff in one prompt. Both count only the reviewable files that fetch keeps.
 FLASH_SINGLE_AGENT_MAX_CHANGED_LINES = 2500
 FLASH_SINGLE_AGENT_MAX_FILES = 40
 
@@ -123,15 +119,12 @@ FLASH_ARM = ReviewArm(
 LEGACY_FLASH_MODE_MESSAGE_PREFIX = "FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review\n"
 
 
-# The single-agent Flash session. One session reviews the whole PR with no validator after it, so it
-# runs at xhigh whatever the user's Flash effort setting says.
+# Fixed at xhigh, whatever the user's Flash effort setting, because no validator runs after it.
 SINGLE_AGENT_FLASH_ARM = replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH)
 
-# The (pass, chunk) key the single agent's result persists under. The reserved pass number keeps it
-# apart from the pipeline's perspective passes and from BLIND_SPOT_PASS_NUMBER.
+# Reserved so the single agent's persisted result never collides with a pipeline pass.
 SINGLE_AGENT_PASS_NUMBER = 2000
 SINGLE_AGENT_CHUNK_ID = 1
-# Stamped as each single-agent finding's `source_perspective`, where the pipeline stamps a skill name.
 SINGLE_AGENT_SOURCE = "flash-single-agent"
 
 
