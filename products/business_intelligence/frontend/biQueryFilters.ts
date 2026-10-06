@@ -76,7 +76,7 @@ export function getBIFiltersPlaceholder(config: BIConfig): string {
 }
 
 export function getBIQueryFilters(config: BIConfig, filters?: HogQLFilters): HogQLFilters {
-    return { ...filters, dateRange: config.dateRange ?? { date_from: 'all' } }
+    return { ...filters, dateRange: config.dateRange ?? { date_from: 'all' }, compareFilter: config.compareFilter }
 }
 
 export function mergeBIQuerySource(current: HogQLQuery, generated: HogQLQuery): HogQLQuery {

@@ -2,6 +2,7 @@ import { ChartDisplayType } from '~/types'
 
 import {
     ChartSettings,
+    CompareFilter,
     DatabaseSerializedFieldType,
     DateRange,
     HogQLQuery,
@@ -82,6 +83,7 @@ export interface BIConfig {
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIField | null
     dateRange?: DateRange
+    compareFilter?: CompareFilter
     chartType: ChartDisplayType
     rows: BIField[]
     columns: BIField[]

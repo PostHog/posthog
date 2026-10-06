@@ -429,11 +429,12 @@ export const BIEmptyWorksheet: Story = {
     ...BIModeWorksheet,
     parameters: {
         ...BIModeWorksheet.parameters,
+        // An explicit empty query prevents restoring another story's persisted worksheet.
         pageUrl: `${urls.businessIntelligence()}#q=`,
         testOptions: { waitForSelector: '[data-attr="bi-editor-data-source"]' },
     },
     play: async ({ canvasElement }) => {
-        await within(canvasElement).findByText('Select a table to list its fields.')
+        await expect(within(canvasElement).findByText('Select a table to list its fields.')).resolves.toBeVisible()
     },
 }
 
