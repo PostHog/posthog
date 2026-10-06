@@ -589,6 +589,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         # the filter. The outer fetch is deliberately left unfiltered — it still prefetches every
         # span of the selected traces so the waterfall gets its children.
         root_only = self.query.rootSpans is True
+        root_top_n = root_only and not by_duration
 
         subquery_where_exprs: list[ast.Expr] = [self.where()]
         if root_only:
@@ -611,32 +612,62 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                         placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
                     )
                 )
-                having_expr = parse_expr(
-                    f"(min(timestamp), trace_id) {op} ({{cursor_ts}}, {{cursor_trace_id}})",
-                    placeholders={
-                        "cursor_ts": ast.Constant(value=cursor_ts),
-                        "cursor_trace_id": ast.Constant(value=cursor_trace_id),
-                    },
-                )
+                keyset_placeholders: dict[str, ast.Expr] = {
+                    "cursor_ts": ast.Constant(value=cursor_ts),
+                    "cursor_trace_id": ast.Constant(value=cursor_trace_id),
+                }
+                if root_top_n:
+                    subquery_where_exprs.append(
+                        parse_expr(
+                            f"(timestamp, trace_id) {op} ({{cursor_ts}}, {{cursor_trace_id}})",
+                            placeholders=keyset_placeholders,
+                        )
+                    )
+                else:
+                    having_expr = parse_expr(
+                        f"(min(timestamp), trace_id) {op} ({{cursor_ts}}, {{cursor_trace_id}})",
+                        placeholders=keyset_placeholders,
+                    )
 
         subquery_where = (
             subquery_where_exprs[0] if len(subquery_where_exprs) == 1 else ast.And(exprs=subquery_where_exprs)
         )
 
-        trace_id_query = parse_select(
-            """
-            SELECT
-                trace_id
-            FROM posthog.trace_spans
-            WHERE {where}
-            GROUP BY trace_id
-            LIMIT {limit}
-        """,
-            placeholders={
-                "where": subquery_where,
-                "limit": ast.Constant(value=self.query.limit),
-            },
-        )
+        if root_top_n:
+            trace_id_query = parse_select(
+                f"""
+                SELECT
+                    trace_id
+                FROM (
+                    SELECT trace_id, timestamp
+                    FROM posthog.trace_spans
+                    WHERE {{where}}
+                    ORDER BY timestamp {order_dir}, trace_id {order_dir}
+                    LIMIT {{limit}}
+                )
+                GROUP BY trace_id
+                LIMIT {{limit}}
+            """,
+                placeholders={
+                    "where": subquery_where,
+                    "limit": ast.Constant(value=self.query.limit),
+                },
+            )
+        else:
+            trace_id_query = parse_select(
+                """
+                SELECT
+                    trace_id
+                FROM posthog.trace_spans
+                WHERE {where}
+                GROUP BY trace_id
+                LIMIT {limit}
+            """,
+                placeholders={
+                    "where": subquery_where,
+                    "limit": ast.Constant(value=self.query.limit),
+                },
+            )
 
         assert isinstance(trace_id_query, ast.SelectQuery)
         trace_id_query.order_by = [
