@@ -4,6 +4,7 @@ import {
     MakeLogicType,
     actions,
     afterMount,
+    beforeUnmount,
     connect,
     kea,
     key,
@@ -31,6 +32,7 @@ import { isBIVisualizationNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, InsightShortId } from '~/types'
 
 import { warehouseSavedQueriesCreate } from 'products/data_warehouse/frontend/generated/api'
+import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
 import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { insightsCreate, insightsList, insightsPartialUpdate } from 'products/product_analytics/frontend/generated/api'
 import { BIVisualizationNodeApi, InsightApi } from 'products/product_analytics/frontend/generated/api.schemas'
@@ -397,6 +399,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         },
         restoreWorksheet: ({ worksheet }) => {
             const connectionId = worksheet.source.connectionId ?? null
+            claimConnectionScope(`bi:${props.tabId}`, connectionId)
             const connectionChanged = connectionId !== values.connectionId
             if (connectionChanged) {
                 databaseTableListLogic.actions.setConnection(connectionId)
@@ -557,6 +560,11 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         },
     })),
     urlToAction(({ actions }) => ({ '/bi': () => actions.openWorksheet() })),
+    beforeUnmount(({ props }) => {
+        if (releaseConnectionScope(`bi:${props.tabId}`, databaseTableListLogic.values.connectionId)) {
+            databaseTableListLogic.actions.resetConnectionScope()
+        }
+    }),
     afterMount(({ actions }) => {
         connectionSelectorLogic.actions.maybeLoadConnectionOptions()
         actions.openWorksheet()

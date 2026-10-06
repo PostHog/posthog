@@ -122,8 +122,10 @@ const isMatchingSqlQuery = (
 ): query is VisualizationNode =>
     !!query &&
     isDataVisualizationNodeWithHogQLQuery(query) &&
+    query.kind === NodeKind.DataVisualizationNode &&
     !!reference &&
     isDataVisualizationNodeWithHogQLQuery(reference) &&
+    reference.kind === NodeKind.DataVisualizationNode &&
     query.source.query === reference.source.query &&
     objectsEqual(query.source.variables ?? {}, reference.source.variables ?? {})
 

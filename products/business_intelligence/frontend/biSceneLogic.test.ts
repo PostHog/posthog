@@ -11,6 +11,8 @@ import { DatabaseSchemaQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
+import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
+
 import { biEditorLogic } from './biEditorLogic'
 import { BIEditorView, buildBIQuery } from './biEditorTypes'
 import { biSceneLogic } from './biSceneLogic'
@@ -113,6 +115,27 @@ describe('biSceneLogic', () => {
         editor.actions.setAutoUpdate(false)
     })
     afterEach(() => logic.unmount())
+
+    it.each([false, true])('releases its connection scope without disrupting another owner: %s', async (shared) => {
+        const database = databaseTableListLogic()
+        database.mount()
+        const node = worksheet()
+        node.source.connectionId = 'example-connection'
+        node.config = { ...node.config, source: { table: 'orders', connectionId: 'example-connection' } }
+        if (shared) {
+            claimConnectionScope('sql-tab', 'example-connection')
+        }
+        try {
+            logic.actions.restoreWorksheet(node)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(database.values.connectionId).toBe('example-connection')
+            logic.unmount()
+            expect(database.values.connectionId).toBe(shared ? 'example-connection' : null)
+        } finally {
+            releaseConnectionScope('sql-tab', 'example-connection')
+            database.unmount()
+        }
+    })
 
     it('saves the wrapper and reopens the insight without a draft or SQL editor', async () => {
         const node = worksheet()

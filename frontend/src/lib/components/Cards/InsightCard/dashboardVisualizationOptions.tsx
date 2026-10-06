@@ -9,7 +9,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { isDisplayTabSupported } from '~/queries/nodes/DataVisualization/Components/SideBar'
-import { VisualizationNode, HogQLVariable, Node } from '~/queries/schema/schema-general'
+import { VisualizationNode, HogQLVariable, Node, NodeKind } from '~/queries/schema/schema-general'
 import {
     isDataVisualizationNodeWithHogQLQuery,
     isInsightVizNode,
@@ -67,7 +67,9 @@ function DashboardRetentionChartPicker({ disabledReason }: { disabledReason?: st
 }
 
 export function sqlQueryForVisualizationPicker(query: Node | null, canPersist: boolean): VisualizationNode | null {
-    return canPersist && query && isDataVisualizationNodeWithHogQLQuery(query) ? query : null
+    return canPersist && query?.kind === NodeKind.DataVisualizationNode && isDataVisualizationNodeWithHogQLQuery(query)
+        ? query
+        : null
 }
 
 export function useDashboardVisualizationOptions({

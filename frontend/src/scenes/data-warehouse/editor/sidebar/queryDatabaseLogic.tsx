@@ -1,10 +1,3 @@
-import { groupDirectConnectionTableNodesBySchema } from 'products/data_warehouse/frontend/shared/connectionTableTree'
-export { groupDirectConnectionTableNodesBySchema } from 'products/data_warehouse/frontend/shared/connectionTableTree'
-import {
-    createVirtualTableField,
-    resolveFieldTraverserTarget,
-} from 'products/data_warehouse/frontend/shared/fieldTraversal'
-export { resolveFieldTraverserTarget } from 'products/data_warehouse/frontend/shared/fieldTraversal'
 import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
@@ -34,13 +27,12 @@ import { uuid } from 'lib/utils/dom'
 import { createFuse, IFuseOptions } from 'lib/utils/fuseSearch'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { TableFieldsStatus, databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
-import { connectionSelectorLogic, POSTHOG_WAREHOUSE } from 'scenes/data-warehouse/editor/connectionSelectorLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { propertyDefinitionsList } from '~/generated/core/api'
-import type { EnterprisePropertyDefinitionApi, PropertyDefinitionsListType } from '~/generated/core/api.schemas'
+import type { EnterprisePropertyDefinitionApi } from '~/generated/core/api.schemas'
 import {
     DatabaseSchemaDataWarehouseTable,
     DatabaseSchemaEndpointTable,
@@ -60,8 +52,21 @@ import { HOGQL_METRIC_DEFINITION_KIND } from 'products/data_catalog/frontend/com
 import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
+import { groupDirectConnectionTableNodesBySchema } from 'products/data_warehouse/frontend/shared/connectionTableTree'
+import {
+    createVirtualTableField,
+    resolveFieldTraverserTarget,
+} from 'products/data_warehouse/frontend/shared/fieldTraversal'
+import {
+    connectionSelectorLogic,
+    POSTHOG_WAREHOUSE,
+} from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { joinsDataLogic } from 'products/data_warehouse/frontend/shared/logics/joinsDataLogic'
 import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/viewLinkLogic'
+import {
+    getSidebarPropertyDefinitionTarget,
+    SidebarPropertyDefinitionTarget,
+} from 'products/data_warehouse/frontend/shared/propertyDefinitionTarget'
 import type { ExternalDataSourceConnectionOptionApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { DatabaseSchemaViewTable } from '../../../../queries/schema/schema-general'
@@ -203,11 +208,6 @@ const getTableFieldsState = (
     return 'pending'
 }
 
-export type SidebarPropertyDefinitionTarget = {
-    type: PropertyDefinitionsListType
-    groupTypeIndex?: number
-}
-
 export type SidebarPropertyDefinitionList = {
     activeRequestId: string | null
     count: number
@@ -218,45 +218,6 @@ export type SidebarPropertyDefinitionList = {
 }
 
 const PROPERTY_DEFINITIONS_PAGE_SIZE = 25
-
-export const getSidebarPropertyDefinitionTarget = (
-    tableName: string,
-    columnPath: string,
-    field: DatabaseSchemaField
-): SidebarPropertyDefinitionTarget | null => {
-    if (field.type !== 'json') {
-        return null
-    }
-
-    tableName = tableName.replace(/^posthog\./, '')
-    const pathSegments = columnPath.split('.')
-    const fieldName = pathSegments.at(-1)
-    if (fieldName !== 'properties' && fieldName !== 'person_properties') {
-        return null
-    }
-
-    if (fieldName === 'person_properties') {
-        return { type: 'person' }
-    }
-
-    const groupPathSegment = pathSegments.find((segment) => /^(?:group|goe)_[0-4]$/.test(segment))
-    if (groupPathSegment) {
-        return { type: 'group', groupTypeIndex: Number(groupPathSegment.at(-1)) }
-    }
-
-    if (
-        ['persons', 'raw_persons'].includes(tableName) ||
-        pathSegments.some((segment) => ['person', 'pdi', 'poe'].includes(segment))
-    ) {
-        return { type: 'person' }
-    }
-
-    if (['ai_events', 'events'].includes(tableName) && columnPath === 'properties') {
-        return { type: 'event' }
-    }
-
-    return null
-}
 
 export type SearchTreeSourceContext = {
     allPosthogTables: DatabaseSchemaTable[]
