@@ -72,7 +72,7 @@ class Auth0PaginationStalledError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Auth0ResumeConfig:
     # Zero-based page index within the current window. Query params are rebuilt
     # deterministically from the schema inputs, so page + window start is all we need.

@@ -15,7 +15,7 @@ DEFAULT_PAGE_SIZE = 100
 MAX_PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class Auth0EndpointConfig:
     name: str
     # Formatted with the resolved vendor API version, so the version pin lives on the source
