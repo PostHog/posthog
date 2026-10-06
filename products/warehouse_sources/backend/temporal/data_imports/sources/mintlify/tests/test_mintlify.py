@@ -9,7 +9,6 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import PreparedRequest, Response, Session
-from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient,
@@ -25,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mintlify.m
     mintlify_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.mintlify.settings import PROJECT_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.sources.mintlify.source import MintlifySource
 
 
@@ -199,15 +199,15 @@ def test_resume_preserves_window(
 def test_credentials_and_terminal_errors(config: MintlifySourceConfig, transport: MagicMock, status: int) -> None:
     body: dict[str, Any] = {"feedback": []} if status == 200 else {"error": "Unauthorized"}
     transport.return_value = response(body, status)
+    valid, message = validate_credentials(config)
+    assert valid is (status == 200)
+    non_retryable_errors = MintlifySource().get_non_retryable_errors()
     if status == 400:
-        with pytest.raises(HTTPError):
-            validate_credentials(config)
-    else:
-        valid, message = validate_credentials(config)
-        assert valid is (status == 200)
-        if status != 200:
-            assert message
-            assert message == MintlifySource().get_non_retryable_errors()[f"{status} Client Error"]
+        assert message == PROJECT_ERROR
+        assert "400 Client Error" not in non_retryable_errors
+    elif status != 200:
+        assert message
+        assert message == non_retryable_errors[f"{status} Client Error"]
     transport.assert_called_once()
     request = cast(PreparedRequest, transport.call_args.args[0])
     assert request.headers["Authorization"] == "Bearer mint_example_fake_key"

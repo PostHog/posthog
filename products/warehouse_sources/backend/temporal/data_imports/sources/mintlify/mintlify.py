@@ -29,8 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mintlify.s
     API_VERSION,
     BASE_URL,
     ENDPOINTS,
-    HTTP_ERRORS,
     INCREMENTAL_FIELDS,
+    VALIDATION_ERRORS,
 )
 
 
@@ -67,8 +67,8 @@ def validate_credentials(config: MintlifySourceConfig, schema_name: str | None =
         )
     except HTTPError as error:
         status = error.response.status_code if error.response is not None else None
-        if status is not None and status in HTTP_ERRORS:
-            return False, HTTP_ERRORS[status]
+        if status is not None and status in VALIDATION_ERRORS:
+            return False, VALIDATION_ERRORS[status]
         raise
     return True, None
 

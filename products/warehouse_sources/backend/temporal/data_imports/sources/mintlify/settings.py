@@ -37,3 +37,5 @@ AUTH_ERROR = "Your Mintlify API key is invalid or expired. Create an admin API k
 ACCESS_ERROR = "Mintlify denied access. Check your admin API key, project ID, and Pro or Enterprise plan."
 PROJECT_ERROR = "Mintlify could not find this project. Copy the project ID from the API keys page."
 HTTP_ERRORS = {401: AUTH_ERROR, 403: ACCESS_ERROR, 404: PROJECT_ERROR}
+# Mintlify returns 400 for an unknown project ID. Syncs also send dates and cursors, so a 400 there stays retryable.
+VALIDATION_ERRORS = {**HTTP_ERRORS, 400: PROJECT_ERROR}
