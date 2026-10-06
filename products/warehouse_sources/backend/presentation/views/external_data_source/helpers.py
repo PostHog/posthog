@@ -194,6 +194,8 @@ def get_credential_account_field_names(fields: list[FieldType]) -> set[str]:
     for field in fields:
         if isinstance(field, SourceFieldCredentialAccountSelectConfig):
             names.update(field.credentialFields)
+            if field.integrationField:
+                names.add(field.integrationField)
         elif isinstance(field, SourceFieldSwitchGroupConfig):
             names.update(get_credential_account_field_names(field.fields))
         elif isinstance(field, SourceFieldSelectConfig):
