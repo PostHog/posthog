@@ -1122,8 +1122,8 @@ INTERNAL_CH_ERROR_USER_MESSAGES: dict[str, str] = {
     "SOCKET_TIMEOUT": _TEMPORARY_FAILURE_MESSAGE,
     "ALL_CONNECTION_TRIES_FAILED": _TEMPORARY_FAILURE_MESSAGE,
     "S3_ERROR": (
-        "PostHog can't read the files behind a data warehouse table. "
-        "Check that the files still exist and that the source credentials are valid. Then run the query again."
+        "PostHog couldn't read from storage while running this query. "
+        "Wait a few minutes, then run the query again. If the problem continues, contact support."
     ),
     "UNKNOWN_IDENTIFIER": (
         "A column in this query doesn't exist in the data. "

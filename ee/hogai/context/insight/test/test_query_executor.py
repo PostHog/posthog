@@ -434,6 +434,13 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "The database had a temporary problem while it ran this query. "
                 "Wait a few minutes, then run the query again. If the problem continues, contact support.",
             ),
+            (
+                "storage_failure",
+                None,
+                "s3_error",
+                "PostHog couldn't read from storage while running this query. Wait a few minutes, "
+                "then run the query again. If the problem continues, contact support.",
+            ),
         ]
     )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
