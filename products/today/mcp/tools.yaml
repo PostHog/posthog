@@ -56,8 +56,8 @@ tools:
     today-reports-figure-marks-retrieve:
         operation: today_reports_figure_marks_retrieve
         enabled: false
-    today-reports-key-clauses-create:
-        operation: today_reports_key_clauses_create
+    today-reports-key-clauses-retrieve:
+        operation: today_reports_key_clauses_retrieve
         enabled: false
     today-reports-page-retrieve:
         operation: today_reports_page_retrieve
