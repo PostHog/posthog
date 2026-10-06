@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from posthog.api.capture import CaptureInternalResult
+from posthog.dataclasses import frozen
 from posthog.exceptions import (
     ClickHouseClusterMemoryLimitExceeded,
     ClickHouseQueryMemoryLimitExceeded,
@@ -1003,6 +1004,13 @@ _SHADOW_ROWS = [
 _OTHER_FEATURE_SQL = "SELECT a.person_id AS distinct_id, count() AS n FROM {anchors} a GROUP BY a.person_id"
 
 
+@frozen
+class _Cadence:
+    run: AutoresearchRun
+    capture: MagicMock
+    materialize: MagicMock
+
+
 @time_machine.travel("2026-09-11T12:00:00Z", tick=False)
 class TestShadowScoring(TeamScopedTestMixin, BaseTest):
     def setUp(self) -> None:
@@ -1031,9 +1039,7 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
             metrics={"model_fitted": True},
         )
 
-    def _run(
-        self, *, failing: dict[str, Exception] | None = None, shadow_rows=_SHADOW_ROWS
-    ) -> tuple[AutoresearchRun, MagicMock, MagicMock]:
+    def _run(self, *, failing: dict[str, Exception] | None = None, shadow_rows=_SHADOW_ROWS) -> _Cadence:
         failing = failing or {}
         materialize = MagicMock(return_value=InferenceRows(rows=shadow_rows, eligible=len(shadow_rows)))
 
@@ -1067,7 +1073,7 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
             patch.object(scoring, "capture_batch_internal", capture),
         ):
             run = run_inference_for_pipeline(pipeline=self.pipeline, model=self.champion)
-        return run, capture, materialize
+        return _Cadence(run=run, capture=capture, materialize=materialize)
 
     def _shadow_runs(self, model: AutoresearchModel) -> list[AutoresearchRun]:
         return list(AutoresearchRun.objects.filter(model=model, run_type=AutoresearchRun.RunType.INFERENCE))
@@ -1077,7 +1083,8 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
         other_a = self._model("other_a", _OTHER_FEATURE_SQL)
         other_b = self._model("other_b", _OTHER_FEATURE_SQL)
 
-        run, capture, materialize = self._run()
+        cadence = self._run()
+        run, capture, materialize = cadence.run, cadence.capture, cadence.materialize
 
         assert run.status == AutoresearchRun.Status.COMPLETED
         # The champion's rows serve the model with its SQL; the two models with the other SQL share one query.
@@ -1119,7 +1126,7 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
 
         for day in ("2026-09-11T12:00:00Z", "2026-09-12T12:00:00Z"):
             with time_machine.travel(day, tick=False):
-                run, _capture, _materialize = self._run(failing=failing, shadow_rows=shadow_rows)
+                run = self._run(failing=failing, shadow_rows=shadow_rows).run
             assert run.status == AutoresearchRun.Status.COMPLETED
             assert run.metrics["shadow_models"]["failed"] == [str(challenger.pk)]
 
@@ -1138,7 +1145,8 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
         challenger = self._model("challenger", _OTHER_FEATURE_SQL)
 
         with patch.object(scoring, "SHADOW_TIME_BUDGET_S", 0):
-            run, capture, _materialize = self._run()
+            cadence = self._run()
+        run, capture = cadence.run, cadence.capture
 
         assert run.status == AutoresearchRun.Status.COMPLETED
         assert run.metrics["shadow_models"] == {"completed": [], "failed": [], "skipped": [str(challenger.pk)]}
