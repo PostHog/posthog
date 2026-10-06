@@ -22,6 +22,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -318,6 +319,36 @@ class DataWarehouseSavedQuerySerializer(
             for engine, entry in suspension_state_for_saved_query(view).items()
         }
 
+    def _report_view_action(
+        self, event: str, view: DataWarehouseSavedQuery, properties: dict[str, Any], team: Team
+    ) -> None:
+        if (
+            not self.context.get("report_view_actions", False)
+            or view.origin in {DataWarehouseSavedQuery.Origin.ENDPOINT, DataWarehouseSavedQuery.Origin.MANAGED_VIEWSET}
+            or view.managed_viewset_id is not None
+        ):
+            return
+
+        request = self.context["request"]
+        try:
+            report_user_action(
+                request.user,
+                event,
+                {
+                    # Never include the query text or the view name: both are customer-authored content.
+                    "saved_query_id": str(view.id),
+                    "origin": view.origin,
+                    "is_materialized": bool(view.is_materialized),
+                    "has_warehouse_tables": bool(view.external_tables),
+                    **properties,
+                },
+                team=team,
+                request=request,
+            )
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to report view action", analytics_event=event)
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -408,6 +439,13 @@ class DataWarehouseSavedQuerySerializer(
                         database=self.context.get("database"),
                     )
                 _apply_frequency_target(view, sync_frequency, self.user_access_control)
+
+        self._report_view_action(
+            "view created",
+            view,
+            {"has_description": has_description, "sync_frequency": sync_frequency},
+            team,
+        )
         return view
 
     def update(self, instance: Any, validated_data: Any) -> Any:
@@ -596,6 +634,19 @@ class DataWarehouseSavedQuerySerializer(
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+
+        self._report_view_action(
+            "view updated",
+            view,
+            {
+                "query_changed": query_changed,
+                "name_changed": before_update.name != view.name,
+                "description_changed": has_description,
+                "sync_frequency": sync_frequency if frequency_changed else None,
+                "soft_update": soft_update,
+            },
+            team,
+        )
         return view
 
     def validate_query(self, query):

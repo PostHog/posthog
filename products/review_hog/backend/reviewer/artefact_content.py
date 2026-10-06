@@ -13,7 +13,7 @@ that fit unchanged (`Commit`, `CodeReference`, `TaskRunArtefact`, `NoteArtefact`
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -280,6 +280,24 @@ class PRSnapshotArtefact(BaseModel):
     pr_files: list[PRFile] = Field(default_factory=list, description="The PR's reviewable files with code context.")
 
 
+class TurnMarkerArtefact(BaseModel):
+    """Content for a `turn_marker` artefact: the ReviewHog version and input fingerprint of one turn.
+
+    Written once when the turn starts, so stored turns can be split by version like the analytics
+    events. `fingerprint_inputs` is the hashed payload: two turns with different fingerprints can be
+    compared key by key to see which prompt, skill, or model pin changed.
+    """
+
+    head_sha: str = Field(description="PR head commit this turn reviews (the turn key).")
+    run_index: int = Field(description="The review turn (1-based) this marker belongs to.")
+    review_mode: str = Field(description="What the turn ran on (full or flash).")
+    reviewhog_version: str = Field(description="The version id of the turn's review mode, e.g. reviewhog-flash-1-0.")
+    reviewhog_fingerprint: str = Field(description="Short hash of the turn's mode, model pins, prompts, and skills.")
+    fingerprint_inputs: dict[str, Any] = Field(
+        default_factory=dict, description="The payload the fingerprint hashes (prompt and skill texts as hashes)."
+    )
+
+
 # Reused leaf models back the work-log entry types; ReviewHog adds findings + verdicts. The
 # working-state types (chunk_set / perspective_result) are per-turn pipeline scaffolding the
 # DB-driven resume reads back — head_sha-scoped, latest-wins within a turn.
@@ -293,6 +311,7 @@ ReviewArtefactContent = (
     | FindingOutcomeArtefact
     | ThreadVerdictArtefact
     | ResolutionRunArtefact
+    | TurnMarkerArtefact
     | ReviewLogArtefactContent
     | ReviewWorkingStateContent
 )
@@ -312,6 +331,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "perspective_selection": PerspectiveSelectionArtefact,
     "perspective_result": PerspectiveResultArtefact,
     "pr_snapshot": PRSnapshotArtefact,
+    "turn_marker": TurnMarkerArtefact,
 }
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
 

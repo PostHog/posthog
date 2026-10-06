@@ -8,15 +8,15 @@ It is a property of every table that stores rows attributable to a person.
 
 ## The sweeps
 
-| Sweep                    | Entry point                      | Predicate columns                                  |
-| ------------------------ | -------------------------------- | -------------------------------------------------- |
-| Person deletion (async)  | `deletes_job` → `delete_events`  | `team_id`, `person_id`, `timestamp`, `inserted_at` |
-| Team deletion            | `deletes_job` → `delete_events`  | `team_id`                                          |
-| Event deletion (async)   | `deletes_job` → `delete_events`  | `team_id`, `uuid`                                  |
-| Queued uuid drain        | `deletes_job` → `delete_events`  | `team_id`, `uuid`, `inserted_at`                   |
-| Person removal request   | `delete_person_events_op`        | `team_id`, `person_id`, `timestamp`                |
-| Event removal request    | `delete_event_removal_shard`     | `team_id`, `timestamp`, `event`, + HogQL           |
-| Property removal request | `process_property_removal_shard` | `properties`, `person_properties`, + HogQL         |
+| Sweep                    | Entry point                     | Predicate columns                                  |
+| ------------------------ | ------------------------------- | -------------------------------------------------- |
+| Person deletion (async)  | `deletes_job` → `delete_events` | `team_id`, `person_id`, `timestamp`, `inserted_at` |
+| Team deletion            | `deletes_job` → `delete_events` | `team_id`                                          |
+| Event deletion (async)   | `deletes_job` → `delete_events` | `team_id`, `uuid`                                  |
+| Queued uuid drain        | `deletes_job` → `delete_events` | `team_id`, `uuid`, `inserted_at`                   |
+| Person removal request   | `delete_person_events_op`       | `team_id`, `person_id`, `timestamp`                |
+| Event removal request    | `delete_event_removal_shard`    | `team_id`, `timestamp`, `event`, + HogQL           |
+| Property removal request | `delete_property_removal_shard` | `properties`, `person_properties`, + HogQL         |
 
 The first five use only columns every target declares, so they apply unchanged to any registered table.
 The last two need more, which is what the capability fields on `DeletionTarget` express.
@@ -64,7 +64,9 @@ Sweeps that iterate placements dispatch each target over `placement.cluster.shar
 
 The rest are bound to a single handle and refuse rather than skip when a target has moved off it (`dispatchable_here`, `UnreachableTargetError`):
 
-- Property removal. Its staging table is host-local and its fan-out is one op per shard of one cluster.
+- Property removal. It fans out one chain of copy, delete, reingest and verify ops per table and shard of one cluster.
+  Each op runs its SQL on a host of its own shard.
+  Each copy records the maximum `inserted_at` it observed for that target. The copy, pre-delete count, mutation and verification reuse that bound, so a later row stays outside the destructive set.
 - The deferred queue fill. Both halves of its `INSERT` are host-local: the source table it reads and the `adhoc_events_deletion` queue it writes.
 
 ### Getting the dictionaries onto the second cluster
@@ -176,10 +178,11 @@ Neither restores what earlier runs left behind. That needs a backfill sweep over
 `person_properties` and `group0..group4_properties` no longer exist on the table: no Insight or Hog function used either as a breakdown or a filter, so the ClickHouse team dropped them directly on both prod clusters, and `posthog/models/flag_evaluations/sql.py` no longer declares them, so any environment built from the migrations matches. Event `properties` and `person_id` are still sent.
 Because the table can no longer hold person properties, only the event-`properties` half of a request can match rows here.
 
-The events property-removal path rewrites rows in a staging table and resets each affected materialized column with `ALTER TABLE … UPDATE <col> = ''`.
-That works because `materialize()` creates columns as `DEFAULT <expr>`, which is assignable.
+The events property-removal path copies each shard's matching rows to S3 with the keys dropped and each affected materialized column reset (`NULL` when nullable, `''` otherwise), then deletes the originals and inserts the cleaned copy back.
+The staged files retain every physical row, while copy, reingest and verification progress counts each event UUID once so unmerged `ReplacingMergeTree` duplicates do not block the request.
+That works because `materialize()` creates columns as `DEFAULT <expr>`, so an insert can set the column directly.
 
-All of that machinery (column discovery, staging rewrite, shard walk) is scoped to `events`; none of it reaches `flag_evaluations`.
+All of that machinery (column discovery, staged rewrite, shard walk) is scoped to `events`; none of it reaches `flag_evaluations`.
 Until it does, `get_property_removal_shards` refuses to start when the table holds rows matching a request's event `properties`, so such a request cannot complete while data it named survives.
 The check costs nothing while the table is empty.
 

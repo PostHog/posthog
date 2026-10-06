@@ -1,5 +1,3 @@
-import { LemonTag } from '@posthog/lemon-ui'
-
 import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 
 import { MessageChannels } from './Channels/MessageChannels'
@@ -41,14 +39,7 @@ export function messagingNavTabs(linkFor: (tab: MessagingNavTabKey) => string): 
             content: MESSAGING_TAB_CONTENT.suppression,
         },
         {
-            label: (
-                <>
-                    Reputation{' '}
-                    <LemonTag className="ml-1" type="completion">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
+            label: 'Reputation',
             key: 'reputation',
             link: linkFor('reputation'),
             content: MESSAGING_TAB_CONTENT.reputation,

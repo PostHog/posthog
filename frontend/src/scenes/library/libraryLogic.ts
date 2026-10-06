@@ -10,7 +10,14 @@ import { urls } from 'scenes/urls'
 import { fileSystemTypes, getTreeItemsNew } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
-import { LibraryObjectType, baseObjectType, isLibraryEntry, isLibraryType, sortLibraryTypes } from './libraryUtils'
+import {
+    LibraryObjectType,
+    baseObjectType,
+    isLibraryEntry,
+    isLibraryType,
+    libraryListHref,
+    sortLibraryTypes,
+} from './libraryUtils'
 
 export const LIBRARY_PAGE_SIZE = 50
 // "All objects" drops tool and view entries after each page loads, so it reads ahead until a page has
@@ -19,7 +26,6 @@ const MAX_PAGES_PER_LOAD = 5
 
 const PLURAL_LABELS: Record<string, string> = {
     session_recording_playlist: 'Replay playlists',
-    user_interview: 'User research',
 }
 
 export interface LibraryObjects {
@@ -232,6 +238,11 @@ export const libraryLogic = kea<libraryLogicType>([
             }
             if (objectType && !isLibraryType(objectType)) {
                 router.actions.replace(urls.views())
+                return
+            }
+            const listHref = objectType ? libraryListHref(objectType) : null
+            if (listHref) {
+                router.actions.replace(listHref)
                 return
             }
             if (objectType !== values.objectType || !cache.loaded) {

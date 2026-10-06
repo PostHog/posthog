@@ -5,19 +5,29 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { METRIC_CONTEXTS } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import {
+    METRIC_CONTEXTS,
+    type MetricContext,
+} from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 import { metricSourceModalLogic } from 'products/experiments/frontend/modals/MetricSourceModal/metricSourceModalLogic'
 
 export const EmptyMetricsPanel = ({
     helpText,
     isLaunched,
     showHelpText = true,
+    onAddMetric,
 }: {
     helpText?: string
     isLaunched?: boolean
     showHelpText?: boolean
+    onAddMetric?: (metricType: MetricContext['type']) => void
 } = {}): JSX.Element => {
     const { openMetricSourceModal } = useActions(metricSourceModalLogic)
+
+    const addMetric = (context: MetricContext): void => {
+        onAddMetric?.(context.type)
+        openMetricSourceModal(context)
+    }
 
     return (
         <div className="flex flex-col gap-4">
@@ -38,7 +48,7 @@ export const EmptyMetricsPanel = ({
                     <LemonButton
                         type="secondary"
                         icon={<IconPlus />}
-                        onClick={() => openMetricSourceModal(METRIC_CONTEXTS.primary)}
+                        onClick={() => addMetric(METRIC_CONTEXTS.primary)}
                         className="!h-[80px] flex-1 @xl:w-[280px] @xl:flex-none"
                     >
                         <div className="flex flex-col gap-0.5 text-left">
@@ -49,7 +59,7 @@ export const EmptyMetricsPanel = ({
                     <LemonButton
                         type="secondary"
                         icon={<IconPlus />}
-                        onClick={() => openMetricSourceModal(METRIC_CONTEXTS.secondary)}
+                        onClick={() => addMetric(METRIC_CONTEXTS.secondary)}
                         className="!h-[80px] flex-1 @xl:w-[280px] @xl:flex-none"
                     >
                         <div className="flex flex-col gap-0.5 text-left">

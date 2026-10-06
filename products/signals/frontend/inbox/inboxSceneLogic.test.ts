@@ -238,11 +238,20 @@ describe('inboxSceneLogic routing', () => {
     // The scout page's tabs live in the URL, so a link to a scout's runs has to survive a reload.
     // Selecting a scout resets the tab, so the URL's tab had to be applied after that reset.
     describe('the scout page tab in the URL', () => {
-        it('opens the tab a reloaded URL names', () => {
+        it('keeps the trials page separate from a scout named comparisons', () => {
             mountWithRedesign(true)
-            router.actions.push(urls.inboxScout('signals-scout-web-vitals'), { tab: 'runs' })
+            router.actions.push(urls.inboxScoutTrials())
+            expect(logic.values.selectedScoutSkillName).toBeNull()
+            expect(router.values.location.pathname.endsWith('/scout-trials')).toBe(true)
+            router.actions.push(urls.inboxScout('comparisons'))
+            expect(logic.values.selectedScoutSkillName).toBe('comparisons')
+        })
+
+        it.each(['runs', 'trials'] as const)('opens the %s tab a reloaded URL names', (tab) => {
+            mountWithRedesign(true)
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'), { tab })
             expect(logic.values.selectedScoutSkillName).toBe('signals-scout-web-vitals')
-            expect(logic.values.scoutDetailTab).toBe('runs')
+            expect(logic.values.scoutDetailTab).toBe(tab)
         })
 
         it('leaves the tab on its default for a bare scout URL', () => {
@@ -257,19 +266,23 @@ describe('inboxSceneLogic routing', () => {
             expect(logic.values.scoutDetailTab).toBeNull()
         })
 
-        it('writes the chosen tab back to the URL, and drops it again on the default', () => {
-            mountWithRedesign(true)
-            router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
-            logic.actions.setScoutDetailTab('learned')
-            expect(router.values.searchParams.tab).toBe('learned')
-            logic.actions.setScoutDetailTab(null)
-            expect(router.values.searchParams.tab).toBeUndefined()
-        })
+        it.each(['learned', 'trials'] as const)(
+            'writes the chosen %s tab to the URL and drops it on the default',
+            (tab) => {
+                mountWithRedesign(true)
+                router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
+                logic.actions.setScoutDetailTab(tab)
+                expect(router.values.searchParams.tab).toBe(tab)
+                logic.actions.setScoutDetailTab(null)
+                expect(router.values.searchParams.tab).toBeUndefined()
+            }
+        )
 
         // Hydrating a deep link must not add a history entry, or the first Back press lands on the
         // same page with the same tab and reads as a dead control.
         it.each<[string, string, Record<string, string> | undefined]>([
             ['a tab deep link', urls.inboxScout('signals-scout-web-vitals'), { tab: 'runs' }],
+            ['a trials deep link', urls.inboxScout('signals-scout-web-vitals'), { tab: 'trials' }],
             ['a finding deep link', urls.inboxScout('signals-scout-web-vitals', 'finding-1'), undefined],
             [
                 'a finding link on another pane',

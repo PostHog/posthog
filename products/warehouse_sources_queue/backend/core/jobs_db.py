@@ -18,8 +18,8 @@ from __future__ import annotations
 import json
 import time
 import threading
-from collections.abc import Iterator
-from contextlib import contextmanager, suppress
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -44,7 +44,7 @@ LEASE_TABLE = "sourcegrouplease"
 # for while it waits. `renew_lease` can therefore be a link in a cycle it did not cause.
 #
 # Single-row statements (`renew_lease`, `delete_expired_lease`,
-# `try_acquire_reconcile_sweep_slot`) satisfy the order for free. Multi-row statements
+# `try_acquire_reconcile_sweep_slot`, `try_acquire_queue_gauges_slot`) satisfy the order for free. Multi-row statements
 # have to force it, either with `ORDER BY team_id, schema_id` on the rows an upsert
 # reads, or with an ordered `FOR UPDATE` sub-select that takes every lock before the
 # delete runs.
@@ -65,6 +65,20 @@ LEASE_TTL_SECONDS = 300
 RECONCILE_SWEEP_LEASE_TEAM_ID = 0
 RECONCILE_SWEEP_LEASE_SCHEMA_ID = "__reconcile-sweep__"
 RECONCILE_SWEEP_SLOT_TTL_SECONDS = 240
+
+# Sentinel lease row that elects the one pod that samples the queue-wide gauges
+# (freshness and depth). Every pod reads the same queue, so when each pod runs the
+# probes the queue DB does N times the work for the same numbers, in competition
+# with the claim path. Same TTL as the sweep slot: it sits under the 300s reconcile
+# interval, so the slot is free again when a pod's next timer fires. The key has a
+# per-fleet suffix (see ``queue_gauges_slot_key``), because each fleet exports the
+# gauges from its own pods.
+QUEUE_GAUGES_LEASE_SCHEMA_ID_PREFIX = "__queue-gauges__"
+QUEUE_GAUGES_SLOT_TTL_SECONDS = 240
+
+# Server-side ceiling for one gauge statement. On a struggling queue DB a gauge must
+# give up quickly and skip its sample, not compete with the claim path for seconds.
+GAUGE_STATEMENT_TIMEOUT_MS = 5_000
 
 # Partition pruning hint: only scan partitions within this window.
 # Set to 2x the retention period so the planner can skip dropped
@@ -179,6 +193,24 @@ def sync_type_scope_sql(
             {"claim_exclude_sync_types": list(exclude_sync_types)},
         )
     return "", {}
+
+
+def queue_gauges_slot_key(
+    *,
+    sync_types: list[str] | None = None,
+    exclude_sync_types: list[str] | None = None,
+) -> str:
+    """Lease key of the gauge-sampling slot for one fleet partition.
+
+    The gauges are queue-wide, but each fleet exports them from its own pods. One
+    slot shared by all fleets would let a pod of one fleet win every round, and
+    the other fleet's dashboards would go empty.
+    """
+    if sync_types:
+        return f"{QUEUE_GAUGES_LEASE_SCHEMA_ID_PREFIX}:only:{','.join(sorted(sync_types))}"
+    if exclude_sync_types:
+        return f"{QUEUE_GAUGES_LEASE_SCHEMA_ID_PREFIX}:except:{','.join(sorted(exclude_sync_types))}"
+    return QUEUE_GAUGES_LEASE_SCHEMA_ID_PREFIX
 
 
 def build_status_dual_write_sql(*, with_batch_created_at: bool) -> str:
@@ -500,6 +532,60 @@ def _orphaned_candidate_runs_sql() -> str:
     """
 
 
+def _queue_freshness_sql() -> str:
+    """Age, blocked count, and backlogged groups of the pending set, in one scan.
+
+    The scan is ``latest_state = 'pending'`` inside ``FRESHNESS_WINDOW``, which
+    ``sb_claimable_idx`` serves (its predicate covers 'pending'). The scan is
+    aggregated into runs before the failed-run probe, so the probe costs one
+    ``sb_run_gate_idx`` descent per run, not one per batch. The result is the
+    same, because a run is blocked or not as a whole.
+
+    ``gated_runs`` is MATERIALIZED on purpose. The final SELECT reads ``blocked``
+    in three FILTER clauses. An inlined CTE copies the EXISTS sub-plan into each
+    of them, which runs the probe up to three times per row.
+
+    Split out from its caller so the plan-shape test can EXPLAIN exactly what runs.
+    """
+    return f"""
+        WITH pending_runs AS (
+            SELECT
+                b.team_id,
+                b.schema_id,
+                b.run_uuid,
+                min(b.created_at) AS oldest_created_at,
+                count(*) AS batches
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
+              AND b.latest_state = 'pending'
+            GROUP BY b.team_id, b.schema_id, b.run_uuid
+        ),
+        gated_runs AS MATERIALIZED (
+            SELECT
+                r.team_id,
+                r.schema_id,
+                r.oldest_created_at,
+                r.batches,
+                EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b_failed
+                    WHERE b_failed.run_uuid = r.run_uuid
+                      AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND b_failed.latest_state = 'failed'
+                ) AS blocked
+            FROM pending_runs r
+        )
+        SELECT
+            EXTRACT(EPOCH FROM (now() - min(oldest_created_at) FILTER (WHERE NOT blocked))),
+            coalesce(sum(batches) FILTER (WHERE blocked), 0),
+            count(DISTINCT (team_id, schema_id)) FILTER (
+                WHERE NOT blocked
+                  AND oldest_created_at <= now() - make_interval(secs => %(backlog_threshold)s)
+            )
+        FROM gated_runs
+    """
+
+
 def _queue_depth_sql() -> str:
     """Queue depth and how it is spread over (team_id, schema_id) groups, in one scan.
 
@@ -750,6 +836,7 @@ class PendingBatch:
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
             "destination_ids": self.destination_ids or [],
+            "external_destination_ids": self.metadata.get("external_destination_ids"),
         }
 
 
@@ -975,6 +1062,54 @@ def _lease_is_held(conn: psycopg.Connection[Any], *, team_id: int, schema_id: st
         )
         row = cur.fetchone()
         return bool(row and row[0])
+
+
+@asynccontextmanager
+async def _gauge_cursor(
+    conn: psycopg.AsyncConnection[Any], *, statement_timeout_ms: int
+) -> AsyncIterator[psycopg.AsyncCursor[Any]]:
+    """Cursor whose statements stop at ``statement_timeout_ms``; raises ``QueryCanceled`` past it.
+
+    The timeout is transaction-local, so it never leaks into the session the
+    caller shares with the sweeps (or into a pooled server connection).
+    """
+    async with conn.transaction():
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT set_config('statement_timeout', %s, true)", (str(statement_timeout_ms),))
+            yield cur
+
+
+async def _try_acquire_fleet_slot(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    schema_id: str,
+    owner_token: str,
+    ttl_seconds: int,
+    reentrant: bool,
+) -> bool:
+    """CAS-acquire a sentinel lease row; True means this caller holds it until ``ttl_seconds`` pass."""
+    reentry_clause = f" OR {LEASE_TABLE}.owner_token = excluded.owner_token" if reentrant else ""
+    async with conn.cursor() as cur:
+        await cur.execute(
+            f"""
+            INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at)
+            VALUES (%(team_id)s, %(schema_id)s, %(owner)s, now() + make_interval(secs => %(ttl)s), now(), now())
+            ON CONFLICT (team_id, schema_id) DO UPDATE
+                SET owner_token = excluded.owner_token,
+                    expires_at = excluded.expires_at,
+                    acquired_at = now(),
+                    updated_at = now()
+                WHERE {LEASE_TABLE}.expires_at <= now(){reentry_clause}
+            RETURNING id
+            """,
+            {
+                "team_id": RECONCILE_SWEEP_LEASE_TEAM_ID,
+                "schema_id": schema_id,
+                "owner": owner_token,
+                "ttl": ttl_seconds,
+            },
+        )
+        return await cur.fetchone() is not None
 
 
 class BatchQueue:
@@ -1274,27 +1409,37 @@ class BatchQueue:
         session must not be able to hold the slot forever — a crashed winner's
         slot frees itself at expiry.
         """
-        async with conn.cursor() as cur:
-            await cur.execute(
-                f"""
-                INSERT INTO {LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at)
-                VALUES (%(team_id)s, %(schema_id)s, %(owner)s, now() + make_interval(secs => %(ttl)s), now(), now())
-                ON CONFLICT (team_id, schema_id) DO UPDATE
-                    SET owner_token = excluded.owner_token,
-                        expires_at = excluded.expires_at,
-                        acquired_at = now(),
-                        updated_at = now()
-                    WHERE {LEASE_TABLE}.expires_at <= now()
-                RETURNING id
-                """,
-                {
-                    "team_id": RECONCILE_SWEEP_LEASE_TEAM_ID,
-                    "schema_id": RECONCILE_SWEEP_LEASE_SCHEMA_ID,
-                    "owner": owner_token,
-                    "ttl": ttl_seconds,
-                },
-            )
-            return await cur.fetchone() is not None
+        return await _try_acquire_fleet_slot(
+            conn,
+            schema_id=RECONCILE_SWEEP_LEASE_SCHEMA_ID,
+            owner_token=owner_token,
+            ttl_seconds=ttl_seconds,
+            reentrant=False,
+        )
+
+    @staticmethod
+    async def try_acquire_queue_gauges_slot(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+        slot_key: str = QUEUE_GAUGES_LEASE_SCHEMA_ID_PREFIX,
+        ttl_seconds: int = QUEUE_GAUGES_SLOT_TTL_SECONDS,
+    ) -> bool:
+        """Claim the gauge-sampling slot of one fleet; True means this pod samples the queue gauges.
+
+        Unlike the sweep slot, the holder can renew its own live slot. The owner
+        token is stable for the life of a consumer, and it asks once per reconcile
+        interval. So when the interval is shorter than the TTL, the holder keeps
+        the slot and samples on its own cadence. Without renewal it would lose its
+        own slot to itself, and for the rest of the TTL no pod would sample.
+        """
+        return await _try_acquire_fleet_slot(
+            conn,
+            schema_id=slot_key,
+            owner_token=owner_token,
+            ttl_seconds=ttl_seconds,
+            reentrant=True,
+        )
 
     @staticmethod
     async def renew_lease(
@@ -1772,6 +1917,7 @@ class BatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         backlog_threshold_seconds: int,
+        statement_timeout_ms: int = GAUGE_STATEMENT_TIMEOUT_MS,
     ) -> QueueFreshness:
         """Three readings off one scan of the pending set, bounded to ``FRESHNESS_WINDOW``.
 
@@ -1791,37 +1937,11 @@ class BatchQueue:
         fleet-wide max, so one wedged (team, schema) pins it and a fleet-wide
         alert cannot tell one stuck tenant from a real stall. Counting the
         groups past the threshold separates those.
+
+        Raises ``psycopg.errors.QueryCanceled`` past ``statement_timeout_ms``.
         """
-        async with conn.cursor() as cur:
-            await cur.execute(
-                f"""
-                WITH pending AS (
-                    SELECT
-                        b.team_id,
-                        b.schema_id,
-                        b.created_at,
-                        EXISTS (
-                            SELECT 1
-                            FROM {BATCH_TABLE} b_failed
-                            WHERE b_failed.run_uuid = b.run_uuid
-                                AND b_failed.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                                AND b_failed.latest_state = 'failed'
-                        ) AS blocked
-                    FROM {BATCH_TABLE} b
-                    WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
-                      AND b.latest_state = 'pending'
-                )
-                SELECT
-                    EXTRACT(EPOCH FROM (now() - min(created_at) FILTER (WHERE NOT blocked))),
-                    count(*) FILTER (WHERE blocked),
-                    count(DISTINCT (team_id, schema_id)) FILTER (
-                        WHERE NOT blocked
-                          AND created_at <= now() - make_interval(secs => %(backlog_threshold)s)
-                    )
-                FROM pending
-                """,
-                {"backlog_threshold": backlog_threshold_seconds},
-            )
+        async with _gauge_cursor(conn, statement_timeout_ms=statement_timeout_ms) as cur:
+            await cur.execute(_queue_freshness_sql(), {"backlog_threshold": backlog_threshold_seconds})
             row = await cur.fetchone()
         if row is None:
             return QueueFreshness(oldest_age_seconds=None, blocked_batches=0, backlogged_groups=0)
@@ -1832,7 +1952,11 @@ class BatchQueue:
         )
 
     @staticmethod
-    async def get_queue_depth(conn: psycopg.AsyncConnection[Any]) -> QueueDepth:
+    async def get_queue_depth(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        statement_timeout_ms: int = GAUGE_STATEMENT_TIMEOUT_MS,
+    ) -> QueueDepth:
         """How many batches are state-eligible for claiming right now, and where they sit.
 
         The depth companion to :meth:`get_queue_freshness`. ``claimable_batches``
@@ -1846,8 +1970,10 @@ class BatchQueue:
         same population :meth:`get_queue_freshness` reports as ``blocked_batches``,
         so ``slot_waiting_batches + serialized_batches`` is the depth minus those.
         See :func:`_queue_depth_sql` for why.
+
+        Raises ``psycopg.errors.QueryCanceled`` past ``statement_timeout_ms``.
         """
-        async with conn.cursor() as cur:
+        async with _gauge_cursor(conn, statement_timeout_ms=statement_timeout_ms) as cur:
             await cur.execute(_queue_depth_sql(), {"top_groups": DEPTH_TOP_GROUPS})
             row = await cur.fetchone()
         if row is None:
