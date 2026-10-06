@@ -1113,7 +1113,10 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
                 assert event["properties"]["$autoresearch_model_role"] == "shadow"
                 assert "$set" not in event["properties"]
                 assert event["options"] == {"process_person_profile": False}
-                assert event["distinct_id"] == event["properties"]["$autoresearch_person_id"]
+        # Ingestion deduplicates on (timestamp, distinct_id, event), so no two predictions may share that key.
+        all_events = [event for call in capture.call_args_list for event in call.kwargs["events"]]
+        dedup_keys = {(e["timestamp"], e["distinct_id"], e["event"]) for e in all_events}
+        assert len(dedup_keys) == len(all_events)
 
     @parameterized.expand(
         [

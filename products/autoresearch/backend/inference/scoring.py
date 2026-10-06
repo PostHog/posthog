@@ -600,7 +600,9 @@ def _emit_predictions(
         events.append(
             {
                 "event": PREDICTION_EVENT_NAME,
-                "distinct_id": real_distinct_id or person_id,
+                "distinct_id": _shadow_distinct_id(model_id=str(model.pk), person_id=person_id)
+                if shadow
+                else real_distinct_id or person_id,
                 "timestamp": emit_timestamp,
                 "properties": props,
                 "options": {"process_person_profile": attach_to_person},
@@ -654,6 +656,15 @@ def _emit_predictions(
     return _EmitResult(
         rows_emitted=len(events), score_distribution=_summarize_scores([row["p_y"] for row in scored.rows])
     )
+
+
+def _shadow_distinct_id(*, model_id: str, person_id: str) -> str:
+    """
+    Ingestion deduplicates events on timestamp, distinct_id, token, and event name, not on the UUID.
+    Every shadow event of a run shares one timestamp, so each model needs its own distinct_id per
+    person, or one model's prediction would drop another's, or the champion's for an unresolved person.
+    """
+    return f"autoresearch-shadow:{model_id}:{person_id}"
 
 
 def _require_still_champion(model: AutoresearchModel) -> None:
