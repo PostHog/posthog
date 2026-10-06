@@ -85,7 +85,7 @@ class TestDesktopFeedback(APIBaseTest):
         if not assign_role:
             self.internal_team.conversations_settings = {"email_enabled": True}
             self.internal_team.save()
-        content = "The search results are empty\n\nSteps to reproduce:\nSearch for a saved task"
+        content = "The search results are empty\n\n  Steps to reproduce:  \n    Search for a saved task"
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/desktop_feedback/",
@@ -138,8 +138,8 @@ class TestDesktopFeedback(APIBaseTest):
         assert isinstance(message.rich_content, dict)
         assert message.rich_content["content"][:3] == [
             {"type": "paragraph", "content": [{"type": "text", "text": "The search results are empty"}]},
-            {"type": "paragraph", "content": [{"type": "text", "text": "Steps to reproduce:"}]},
-            {"type": "paragraph", "content": [{"type": "text", "text": "Search for a saved task"}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "  Steps to reproduce:  "}]},
+            {"type": "paragraph", "content": [{"type": "text", "text": "    Search for a saved task"}]},
         ]
         image_url = message.rich_content["content"][3]["attrs"]["src"]
         assert (

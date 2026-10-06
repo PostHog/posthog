@@ -103,8 +103,8 @@ def create_desktop_feedback_ticket(
                 "content": [
                     *[
                         {"type": "paragraph", "content": [{"type": "text", "text": line}]}
-                        for raw_line in content.split("\n")
-                        if (line := raw_line.strip())
+                        for line in content.split("\n")
+                        if line.strip()
                     ],
                     *[{"type": "image", "attrs": {"src": url}} for url in image_urls],
                 ],

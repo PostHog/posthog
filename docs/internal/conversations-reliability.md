@@ -151,6 +151,7 @@ Assignment events run after the transaction commits.
 Desktop feedback tickets show the Exceptions panel only when they have a session ID.
 Tickets and customer comments use the same analytics identity as Desktop: the user's distinct ID, with their email as the fallback.
 Feedback text renders as separate paragraphs for each non-empty line, followed by any attached images.
+Each paragraph preserves the line's leading and trailing whitespace.
 
 ## What must not happen
 
