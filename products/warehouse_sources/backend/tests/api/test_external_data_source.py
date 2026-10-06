@@ -216,15 +216,29 @@ class TestExternalDataSource(APIBaseTest):
         # The sources list embeds every schema of every source, so it serializes a trimmed per-schema
         # shape (the fields the list UI reads); the single-source view keeps the full schema.
         source = self._make_source("trim")
-        self._make_schema_with_table(source, "Customers", row_count=42)
+        schema = self._make_schema_with_table(source, "Customers", row_count=42)
+        schema.sync_frequency_interval = timedelta(hours=6)
+        schema.save(update_fields=["sync_frequency_interval"])
 
         list_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         self.assertEqual(list_response.status_code, 200)
         listed_schema = list_response.json()["results"][0]["schemas"][0]
         self.assertEqual(
             set(listed_schema.keys()),
-            {"id", "name", "label", "should_sync", "status", "sync_type", "last_synced_at", "latest_error", "table"},
+            {
+                "id",
+                "name",
+                "label",
+                "should_sync",
+                "status",
+                "sync_type",
+                "last_synced_at",
+                "sync_frequency",
+                "latest_error",
+                "table",
+            },
         )
+        self.assertEqual(listed_schema["sync_frequency"], "6hour")
         self.assertEqual(listed_schema["table"]["row_count"], 42)
         self.assertEqual(listed_schema["table"]["name"], "Customers")
         # sync_type is kept for the PostHog Desktop app, which reads it from the list; without it the
