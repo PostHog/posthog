@@ -1650,9 +1650,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(ReportSourceSuggestionSerializer(allow_null=True))
     def get_source_suggestion(self, obj: SignalReport) -> dict | None:
-        suggestions_map: dict[str, SourceSuggestion] | None = self.context.get("source_suggestions_map")
-        suggestion = suggestions_map.get(str(obj.id)) if suggestions_map is not None else None
-        return suggestion.model_dump(mode="json") if suggestion is not None else None
+        suggestions_map: dict[str, SourceSuggestion | None] = self.context.get("source_suggestions_map", {})
+        suggestion = suggestions_map.get(str(obj.id))
+        return suggestion.model_dump(mode="json") if suggestion else None
 
     def get_collapsed_note_count(self, obj: SignalReport) -> int:
         return max(0, (obj.corroboration_count or 0) - MAX_SCOUT_REPORT_NOTES)

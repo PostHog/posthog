@@ -1,28 +1,18 @@
 """Which products a report may suggest the team turn on, and the suggestion a report shows.
 
-A report suggests a product only while the team does not use it. The checks here decide that, and
-each one stays cheap enough to run on a report read: team opt-in fields first, then event
-definitions seen in the stale window, and for logs a one-row ClickHouse probe behind a cache.
+A report suggests a product only while the team does not use it. A product is in use when the team
+opted in to it, or when the shared data freshness registry saw its data recently. That registry is
+where each product declares what counts as its data, and it caches its answer per project.
 """
 
 from __future__ import annotations
 
-import datetime as dt
-from collections.abc import Callable
-
-from django.core.cache import cache
-from django.utils import timezone
-
 import structlog
 from pydantic import ValidationError
 
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.clickhouse.client.connection import Workload
-from posthog.models import EventDefinition, Team
-from posthog.taxonomy.taxonomy import STALE_EVENT_DAYS
+from posthog.data_freshness import get_organization_data_freshness
+from posthog.models import Team
+from posthog.schema_enums import ProductKey
 
 from products.signals.backend.artefact_schemas import SourceSuggestion
 from products.signals.backend.enums import SuggestedSourceProduct
@@ -30,61 +20,33 @@ from products.signals.backend.models import SignalReportArtefact
 
 logger = structlog.get_logger(__name__)
 
-ERROR_TRACKING_EVENTS = ("$exception",)
-LLM_ANALYTICS_EVENTS = ("$ai_generation", "$ai_trace")
 
-# A team that starts sending logs keeps them, so a positive answer is cached for a long time. A
-# negative answer expires sooner, so a suggestion to turn logs on stops showing soon after the
-# first logs arrive.
-HAS_LOGS_TRUE_TTL = int(dt.timedelta(days=1).total_seconds())
-HAS_LOGS_FALSE_TTL = int(dt.timedelta(minutes=10).total_seconds())
-
-
-def _has_recent_event(team: Team, event_names: tuple[str, ...]) -> bool:
-    return EventDefinition.objects.filter(
-        team_id=team.id,
-        name__in=event_names,
-        last_seen_at__gte=timezone.now() - dt.timedelta(days=STALE_EVENT_DAYS),
-    ).exists()
+def _opted_in(team: Team, product: SuggestedSourceProduct) -> bool:
+    # An opt-in counts before any data arrives, so a suggestion stops showing as soon as the team
+    # turns the product on.
+    if product == SuggestedSourceProduct.SESSION_REPLAY:
+        return bool(team.session_recording_opt_in)
+    if product == SuggestedSourceProduct.ERROR_TRACKING:
+        return bool(team.autocapture_exceptions_opt_in)
+    return False
 
 
-def _has_logs(team: Team) -> bool:
-    # products.logs depends on products.signals, so signals runs its own probe instead of
-    # importing the logs product's helper.
-    cache_key = f"signals:source_suggestions:team:{team.id}:has_logs"
-    cached = cache.get(cache_key)
-    if cached is not None:
-        return bool(cached)
-    query = parse_select("SELECT 1 FROM logs LIMIT 1")
-    assert isinstance(query, ast.SelectQuery)
-    response = execute_hogql_query(
-        query_type="SignalsSourceSuggestionHasLogsQuery", query=query, team=team, workload=Workload.LOGS
-    )
-    has_logs = bool(response.results)
-    cache.set(cache_key, has_logs, HAS_LOGS_TRUE_TTL if has_logs else HAS_LOGS_FALSE_TTL)
-    return has_logs
-
-
-def _uses_error_tracking(team: Team) -> bool:
-    # Server SDKs capture exceptions without the autocapture opt-in, so recent exception events
-    # also count as in use.
-    return bool(team.autocapture_exceptions_opt_in) or _has_recent_event(team, ERROR_TRACKING_EVENTS)
-
-
-_IN_USE_CHECKS: dict[SuggestedSourceProduct, Callable[[Team], bool]] = {
-    SuggestedSourceProduct.SESSION_REPLAY: lambda team: bool(team.session_recording_opt_in),
-    SuggestedSourceProduct.ERROR_TRACKING: _uses_error_tracking,
-    SuggestedSourceProduct.LLM_ANALYTICS: lambda team: _has_recent_event(team, LLM_ANALYTICS_EVENTS),
-    SuggestedSourceProduct.LOGS: _has_logs,
-}
-
-
-def is_product_in_use(team: Team, product: SuggestedSourceProduct) -> bool:
-    return _IN_USE_CHECKS[product](team)
+def _products_with_recent_data(team: Team) -> set[str] | None:
+    """Products the team received data for recently, or None when a failed probe left it unknown."""
+    results = get_organization_data_freshness(str(team.organization_id), [team])
+    if not results:
+        return None
+    return {source.data_source for source in results[0].sources}
 
 
 def unused_suggestable_products(team: Team) -> list[SuggestedSourceProduct]:
-    return [product for product in SuggestedSourceProduct if not is_product_in_use(team, product)]
+    candidates = [product for product in SuggestedSourceProduct if not _opted_in(team, product)]
+    if not candidates:
+        return []
+    with_data = _products_with_recent_data(team)
+    if with_data is None:
+        return []
+    return [product for product in candidates if ProductKey(product.value) not in with_data]
 
 
 def current_source_suggestion(team: Team, report_id: str) -> SourceSuggestion | None:
@@ -104,6 +66,6 @@ def current_source_suggestion(team: Team, report_id: str) -> SourceSuggestion | 
     except ValidationError:
         logger.warning("signals.source_suggestion.invalid_content", report_id=report_id, artefact_id=str(artefact.id))
         return None
-    if is_product_in_use(team, suggestion.product):
+    if suggestion.product not in unused_suggestable_products(team):
         return None
     return suggestion

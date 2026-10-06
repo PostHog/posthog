@@ -1994,7 +1994,7 @@ class SignalReportViewSet(
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
-            "source_suggestions_map": {str(report.id): source_suggestion} if source_suggestion else {},
+            "source_suggestions_map": {str(report.id): source_suggestion},
         }
 
     def retrieve(self, request, *args, **kwargs):

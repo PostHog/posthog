@@ -34,8 +34,8 @@ class ReportLinkKind(LabeledStrEnum):
 
 class SuggestedSourceProduct(LabeledStrEnum):
     # Products a report can suggest the team turn on because the report would have had better
-    # evidence with them. Each value names a product with a cheap "is it in use" check in
-    # `source_suggestions.py`, so add a member only together with its check.
+    # evidence with them. Each value must equal a `ProductKey` whose data freshness spec says
+    # whether the team already uses the product (see `source_suggestions.py`).
     LOGS = "logs", "Logs"
     SESSION_REPLAY = "session_replay", "Session replay"
     ERROR_TRACKING = "error_tracking", "Error tracking"

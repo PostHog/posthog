@@ -121,6 +121,15 @@ def _set_team(team: Team, **fields: object) -> None:
     team.save(update_fields=list(fields))
 
 
+def _suggest_source(report: SignalReport, product: str) -> None:
+    SignalReportArtefact.objects.create(
+        team=report.team,
+        report=report,
+        type=SignalReportArtefact.ArtefactType.SOURCE_SUGGESTION,
+        content=json.dumps({"product": product, "reason": "It would show what happened."}),
+    )
+
+
 def _seen_event(team: Team, name: str, *, days_ago: int) -> None:
     EventDefinition.objects.create(
         team=team, project_id=team.project_id, name=name, last_seen_at=timezone.now() - timedelta(days=days_ago)
@@ -721,39 +730,18 @@ class TestSignalReportListAPI(APIBaseTest):
         self, _name, product, start_using, still_suggested
     ):
         report = self._create_report()
-        SignalReportArtefact.objects.create(
-            team=self.team,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.SOURCE_SUGGESTION,
-            content=json.dumps({"product": product, "reason": "It would show what happened."}),
-        )
+        _suggest_source(report, product)
         url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
         expected = {"product": product, "reason": "It would show what happened."}
 
         assert self.client.get(url).json()["source_suggestion"] == expected
         start_using(self.team)
+        # The freshness registry caches its answer, so drop it as its TTL would.
+        cache.clear()
         assert self.client.get(url).json()["source_suggestion"] == (expected if still_suggested else None)
 
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
         assert row["source_suggestion"] is None
-
-    def test_logs_source_suggestion_hides_once_logs_arrive(self):
-        report = self._create_report()
-        SignalReportArtefact.objects.create(
-            team=self.team,
-            report=report,
-            type=SignalReportArtefact.ArtefactType.SOURCE_SUGGESTION,
-            content=json.dumps({"product": "logs", "reason": "Logs would show the timeout."}),
-        )
-        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
-        probe = "products.signals.backend.source_suggestions.execute_hogql_query"
-
-        with patch(probe, return_value=SimpleNamespace(results=[])):
-            assert self.client.get(url).json()["source_suggestion"]["product"] == "logs"
-        # Stands in for the cached "no logs" answer expiring.
-        cache.clear()
-        with patch(probe, return_value=SimpleNamespace(results=[[1]])):
-            assert self.client.get(url).json()["source_suggestion"] is None
 
     @parameterized.expand([("unassigned", False), ("assigned", True)])
     def test_channel_id_is_the_same_in_the_list_and_the_detail(self, _name, assign):
