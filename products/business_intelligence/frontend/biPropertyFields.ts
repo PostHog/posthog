@@ -1,11 +1,11 @@
-import {
-    getSidebarPropertyDefinitionTarget,
-    SidebarPropertyDefinitionTarget,
-} from 'scenes/data-warehouse/editor/sidebar/queryDatabaseLogic'
-
 import { EnterprisePropertyDefinitionApi } from '~/generated/core/api.schemas'
 import { BIField } from '~/queries/schema/schema-business-intelligence'
 import { escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
+
+import {
+    getSidebarPropertyDefinitionTarget,
+    SidebarPropertyDefinitionTarget,
+} from 'products/data_warehouse/frontend/shared/propertyDefinitionTarget'
 
 export function getBIPropertyTarget(field: BIField): SidebarPropertyDefinitionTarget | null {
     if (field.source.connectionId || !['events', 'ai_events', 'persons', 'raw_persons'].includes(field.source.table)) {

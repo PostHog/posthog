@@ -32,6 +32,7 @@ export function BIPropertyFieldGroup({
                     icon={<IconChevronRight className={cn(expanded && 'rotate-90')} />}
                     aria-label={`Browse ${field.name}`}
                     aria-expanded={expanded}
+                    loading={pageLoading}
                     onClick={toggleExpanded}
                 />
                 <BIDataPaneField field={{ ...field, type: 'json' }} measure={false} path={path} />
@@ -76,7 +77,7 @@ export function BIPropertyFieldGroup({
                             {search ? 'No matching properties' : 'No properties found'}
                         </span>
                     ) : null}
-                    {page && page.results.length < page.count ? (
+                    {page && !error && page.results.length < page.count ? (
                         <LemonButton
                             size="xsmall"
                             loading={pageLoading}
