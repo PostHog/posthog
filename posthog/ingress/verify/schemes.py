@@ -134,7 +134,7 @@ class HmacSignature:
     timestamp_header: str | None = None
     timestamp_max_age_seconds: int = 300
     timestamp_max_future_seconds: int = 300
-    # Cheap shape gate run before the HMAC, so a probe cannot drive digest CPU (Vapi).
+    # Cheap shape gate run before the HMAC, so a probe cannot drive digest CPU.
     signature_pattern: re.Pattern[str] | None = None
 
     def _timestamp_is_fresh(self, timestamp: str) -> bool:

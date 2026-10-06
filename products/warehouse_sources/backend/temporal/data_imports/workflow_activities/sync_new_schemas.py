@@ -189,9 +189,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         source_id=inputs.source_id,
         team_id=inputs.team_id,
         strict_name_match=is_github,
-        schema_metadata_by_name={s.name: s.schema_metadata for s in schemas if s.schema_metadata}
-        if is_github
-        else None,
+        schema_metadata_by_name={s.name: s.schema_metadata for s in schemas if s.schema_metadata},
     )
 
     if len(sync_result.created) > 0:

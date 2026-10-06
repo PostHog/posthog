@@ -31,7 +31,7 @@ from django.utils import timezone
 import structlog
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from posthog.api.embedding_worker import async_generate_embedding, generate_embedding
+from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding, generate_embedding
 from posthog.dataclasses import frozen
 from posthog.helpers.full_text_search import process_query
 from posthog.models.organization import OrganizationMembership
@@ -45,7 +45,7 @@ from posthog.sync import database_sync_to_async
 
 from ee.hogai.llm import MaxChatAnthropic
 
-from . import crawl, discover, file_parse, html_parse, url_fetch
+from . import crawl, discover, file_parse, html_parse, llm_telemetry, url_fetch
 from .constants import (
     BK_DRILLDOWN_DEFAULT_RADIUS,
     BK_DRILLDOWN_MAX_RADIUS,
@@ -83,6 +83,7 @@ from .constants import (
     TRIAL_MAX_CHUNKS,
     TRIAL_QUIET_PERIOD,
 )
+from .llm_telemetry import RetrievalTrace
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
     AddedBy,
@@ -2579,10 +2580,22 @@ def search_knowledge(
     return [_result_from_chunk(c) for c in ordered]
 
 
+def _capture_query_embedding(team_id: int, response: EmbeddingResponse, trace: RetrievalTrace) -> None:
+    llm_telemetry.capture_embedding(
+        team_id=team_id,
+        input_tokens=response.tokens_used,
+        trace_id=trace.trace_id,
+        properties=llm_telemetry.retrieval_properties(
+            team_id=team_id, trace=trace, feature=llm_telemetry.RETRIEVAL_EMBEDDING_FEATURE
+        ),
+    )
+
+
 def search_knowledge_for_team(
     team: Team,
     query: str,
     *,
+    trace: RetrievalTrace,
     limit: int = 10,
 ) -> list[KnowledgeSearchResult]:
     """
@@ -2594,9 +2607,9 @@ def search_knowledge_for_team(
     """
     embedding: list[float] | None = None
     try:
-        embedding = generate_embedding(
-            team, query, model=BK_EMBEDDING_MODEL, timeout=BK_QUERY_EMBEDDING_TIMEOUT
-        ).embedding
+        response = generate_embedding(team, query, model=BK_EMBEDDING_MODEL, timeout=BK_QUERY_EMBEDDING_TIMEOUT)
+        embedding = response.embedding
+        _capture_query_embedding(team.id, response, trace)
     except Exception:
         logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
     return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)
@@ -2606,6 +2619,7 @@ async def async_search_knowledge_for_team(
     team: Team,
     query: str,
     *,
+    trace: RetrievalTrace,
     limit: int = 10,
 ) -> list[KnowledgeSearchResult]:
     """Async hybrid search. Embedding failure or timeout falls back to full-text search."""
@@ -2616,6 +2630,7 @@ async def async_search_knowledge_for_team(
             timeout=BK_QUERY_EMBEDDING_TIMEOUT,
         )
         embedding = response.embedding
+        _capture_query_embedding(team.id, response, trace)
     except Exception:
         logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
     return await database_sync_to_async(search_knowledge, thread_sensitive=False)(
@@ -2680,6 +2695,7 @@ def rerank_chunks(
     results: list[KnowledgeSearchResult],
     *,
     top_k: int,
+    trace: RetrievalTrace,
 ) -> list[KnowledgeSearchResult]:
     """
     Listwise LLM rerank over BK search candidates. On any model/parse failure,
@@ -2700,6 +2716,9 @@ def rerank_chunks(
     valid_ids = {result.chunk_id for result in results}
     id_to_result = {result.chunk_id: result for result in results}
 
+    properties = llm_telemetry.retrieval_properties(
+        team_id=team.id, trace=trace, feature=llm_telemetry.RETRIEVAL_RERANK_FEATURE
+    )
     try:
         user = _resolve_active_org_user(team)
         llm = MaxChatAnthropic(
@@ -2710,12 +2729,16 @@ def rerank_chunks(
             max_tokens=1024,
             billable=False,
             inject_context=False,
+            posthog_properties=properties,
         )
+        # MaxChatAnthropic captures no $ai_generation by itself. The cost reaches analytics only through this callback.
+        callback = llm_telemetry.trace_callback(team.id, trace_id=trace.trace_id, properties=properties)
         response = llm.invoke(
             [
                 SystemMessage(content=_RERANK_SYSTEM_PROMPT),
                 HumanMessage(content=_build_rerank_user_prompt(query, results)),
-            ]
+            ],
+            config={"callbacks": [callback]} if callback is not None else None,
         )
         content = response.content
         if isinstance(content, list):
@@ -2844,6 +2867,8 @@ class PendingDocument:
 
     team_id: int
     document_id: UUID
+    source_id: UUID
+    source_type: str
     content: str
     # Version token of `content` at the moment it was read for classification.
     # The verdict write is gated on this still matching, so a concurrent refresh
@@ -2920,11 +2945,18 @@ def list_documents_pending_classification(
             team__organization__is_ai_data_processing_approved=True,
         )
         .annotate(content_capped=Substr("content", 1, CLASSIFY_MAX_TOTAL_CHARS + 1))
-        .values_list("team_id", "id", "content_capped", "content_hash")[:limit]
+        .values_list("team_id", "id", "source_id", "source__source_type", "content_capped", "content_hash")[:limit]
     )
     return [
-        PendingDocument(team_id=team_id, document_id=doc_id, content=content, content_hash=content_hash)
-        for team_id, doc_id, content, content_hash in rows
+        PendingDocument(
+            team_id=team_id,
+            document_id=doc_id,
+            source_id=source_id,
+            source_type=source_type,
+            content=content,
+            content_hash=content_hash,
+        )
+        for team_id, doc_id, source_id, source_type, content, content_hash in rows
     ]
 
 
@@ -3006,6 +3038,8 @@ class DocumentToEmbed:
 
     team_id: int
     document_id: UUID
+    source_id: UUID
+    source_type: str
     # The embedding row `timestamp`. Young docs use the stable `created_at` so
     # a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
     # partition instead of duplicating under a later `toDate(timestamp)`.
@@ -3100,17 +3134,19 @@ def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP)
     rows = list(
         _embeddable_documents_qs()
         .filter(embeddings_emitted_at__isnull=True)
-        .values_list("team_id", "id", "created_at")[:limit]
+        .values_list("team_id", "id", "source_id", "source__source_type", "created_at")[:limit]
     )
-    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, _created_at in rows])
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, *_rest in rows])
     return [
         DocumentToEmbed(
             team_id=team_id,
             document_id=document_id,
+            source_id=source_id,
+            source_type=source_type,
             timestamp=now if created_at < ttl_cutoff else created_at,
             chunks=chunks_by_doc.get(document_id, []),
         )
-        for team_id, document_id, created_at in rows
+        for team_id, document_id, source_id, source_type, created_at in rows
     ]
 
 
@@ -3174,17 +3210,19 @@ def list_documents_for_embedding_refresh(
         _embeddable_documents_qs()
         .filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
         .order_by("embeddings_emitted_at")
-        .values_list("team_id", "id")[:limit]
+        .values_list("team_id", "id", "source_id", "source__source_type")[:limit]
     )
-    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id in rows])
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, *_rest in rows])
     return [
         DocumentToEmbed(
             team_id=team_id,
             document_id=document_id,
+            source_id=source_id,
+            source_type=source_type,
             timestamp=now,
             chunks=chunks_by_doc.get(document_id, []),
         )
-        for team_id, document_id in rows
+        for team_id, document_id, source_id, source_type in rows
     ]
 
 

@@ -2,7 +2,7 @@ import os
 import re
 import json
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, NoReturn, Protocol, cast
 from urllib.parse import urlencode
 from uuid import uuid4
@@ -70,6 +70,8 @@ from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
+    Assignee,
+    AssigneeLookupFailed,
     AWSRedshiftIntegration,
     AWSRedshiftRoleBasedIntegration,
     AWSS3Integration,
@@ -94,6 +96,7 @@ from posthog.models.integration import (
     LinkedInAdsIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
+    ReconnectRequired,
     RedshiftIntegration,
     S3CompatibleIntegration,
     SlackIntegration,
@@ -105,6 +108,7 @@ from posthog.models.integration import (
     resolve_aliased_oauth_kind,
 )
 from posthog.models.integration.github_audit import GitHubAudit
+from posthog.models.integration.twitter_ads import TwitterAdsIntegration
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
@@ -184,6 +188,22 @@ def _reraise_slack_api_error(error: SlackApiError) -> NoReturn:
     if error_code in SLACK_AUTH_FAILURE_CODES:
         raise SlackIntegrationInactiveError() from error
     raise error
+
+
+def _take_slack_lookup_budget(budget_key: str, limit: int, detail: str) -> None:
+    """Spend one unit of a per-integration, per-minute budget for uncached Slack lookups, or raise.
+
+    A by-id lookup that misses every cache reaches Slack, and the caller chooses the id, so without
+    a budget a loop over fabricated ids drains the workspace's Slack API quota one call at a time.
+    Misses count as well as hits, because a miss caches nothing and can be repeated for free.
+    """
+    try:
+        lookups = 1 if cache.add(budget_key, 1, 60) else cache.incr(budget_key)
+    except ValueError:
+        # The counter expired between the add and the incr, so this request opens the next minute.
+        lookups = 1
+    if lookups > limit:
+        raise Throttled(detail=detail)
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -407,6 +427,61 @@ class LinearTeamsResponseSerializer(serializers.Serializer):
     teams = LinearTeamSerializer(many=True, help_text="Linear teams available to this integration.")
 
 
+class IntegrationAssigneeSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        help_text=(
+            "Provider user identifier to pass as error tracking config.assignee: a Linear user ID, "
+            "a GitHub login, a GitLab user ID, or a Jira account ID."
+        )
+    )
+    name = serializers.CharField(help_text="User display name.")
+
+
+class IntegrationAssigneesResponseSerializer(serializers.Serializer):
+    users = IntegrationAssigneeSerializer(many=True, help_text="Users who can be assigned an issue, up to 100.")
+    reconnect_required = serializers.BooleanField(
+        help_text=(
+            "True when the connection lacks the permission to list users. Reconnecting the integration grants it."
+        ),
+    )
+
+
+class IntegrationAssigneesQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional case-insensitive name search. Leave blank to list the first users.",
+    )
+
+
+class LinearTeamMembersQuerySerializer(IntegrationAssigneesQuerySerializer):
+    team_id = serializers.CharField(help_text="Linear team ID whose members to list.")
+
+
+class GitHubAssigneesQuerySerializer(IntegrationAssigneesQuerySerializer):
+    repository = serializers.CharField(
+        help_text="Repository name, or owner/name, whose assignable users to list.",
+    )
+
+
+class JiraAssignableUsersQuerySerializer(IntegrationAssigneesQuerySerializer):
+    project_key = serializers.CharField(help_text="Jira project key whose assignable users to list.")
+
+
+def assignees_response(lookup: Callable[[], list[Assignee]]) -> Response:
+    """Shape an assignee lookup as an `IntegrationAssigneesResponseSerializer` body."""
+    try:
+        assignees = lookup()
+    except ReconnectRequired:
+        return Response({"users": [], "reconnect_required": True})
+    except AssigneeLookupFailed as error:
+        raise ValidationError(str(error))
+    return Response(
+        {"users": [{"id": assignee.id, "name": assignee.name} for assignee in assignees], "reconnect_required": False}
+    )
+
+
 class GitHubTeamSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="GitHub team numeric identifier.")
     slug = serializers.CharField(help_text="GitHub team slug.")
@@ -497,6 +572,26 @@ class SlackChannelsQuerySerializer(serializers.Serializer):
         min_value=0,
         help_text="Number of channels to skip before returning results.",
     )
+    # Deliberately not nullable: generated clients serialize an explicit null as the literal
+    # query string "channel_id=null", which would then be looked up as a channel id. Omit to skip.
+    channel_id = serializers.CharField(
+        required=False,
+        default="",
+        allow_blank=True,
+        help_text=(
+            "Look up one channel directly by Slack channel ID (e.g. C0123ABC). When set, `search`, `limit`, and "
+            "`offset` are ignored and the response holds at most that channel."
+        ),
+    )
+    force_refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Bypass the 1 hour channel cache, including for a `channel_id` lookup, which is how a caller reads "
+            "the channel's current membership after inviting the app to it. Honored only for browser session "
+            "callers; API key, OAuth, and MCP callers always read through the cache."
+        ),
+    )
 
 
 class SlackChannelsResponseSerializer(serializers.Serializer):
@@ -519,6 +614,14 @@ class SlackUserSerializer(serializers.Serializer):
         help_text="Name to show in pickers: the member's display name, falling back to their real name or handle."
     )
 
+
+# How long a fetched Slack channel list stays cached.
+SLACK_CHANNELS_CACHE_SECONDS = 60 * 60
+
+# Cap on uncached per-id channel lookups per integration per minute; each one reaches Slack's
+# conversations.info endpoint, so distinct fabricated ids must not be able to drain the workspace
+# quota. A re-check spends one per channel it warned about, well inside the cap.
+SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE = 30
 
 # Server-side floor between forced member-list refreshes, matching the picker's visible cooldown.
 SLACK_USERS_MIN_REFRESH_SECONDS = 30
@@ -1099,6 +1202,11 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 raise ValidationError(str(e))
             return instance
 
+        elif validated_data["kind"] == "twitter-ads":
+            return TwitterAdsIntegration.integration_from_callback(
+                team_id, request.user, validated_data.get("config") or {}
+            )
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             # Stripe marketplace installs redirect to /integrations/stripe/callback without
             # a PostHog-minted CSRF state token — Stripe drives the OAuth flow itself.
@@ -1360,7 +1468,11 @@ class IntegrationViewSet(
         "github_teams",
         "github_available_installations",
         "jira_projects",
+        "jira_assignable_users",
         "linear_teams",
+        "linear_team_members",
+        "github_assignees",
+        "gitlab_members",
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
@@ -1533,6 +1645,18 @@ class IntegrationViewSet(
         next = request.GET.get("next", "")
         token = os.urandom(33).hex()
 
+        if kind == "twitter-ads":
+            response = redirect(TwitterAdsIntegration.authorize_url(self.team_id, cast(User, request.user).id, next))
+            response.set_cookie(
+                "ph_twitter_ads_team_id",
+                str(self.team_id),
+                max_age=600,
+                samesite="Lax",
+                secure=request.is_secure(),
+                httponly=False,
+            )
+            return response
+
         if kind in OauthIntegration.supported_kinds:
             region: str | None = None
             scopes: list[str] | None = None
@@ -1600,7 +1724,11 @@ class IntegrationViewSet(
         }
 
     @staticmethod
-    def _cache_slack_channel(key: str, channel: dict) -> None:
+    def _mutate_cached_slack_channels(key: str, mutate: Callable[[dict[str, dict]], bool]) -> None:
+        """Apply `mutate` to the cached list's channels, keyed by id, and write the result back.
+
+        `mutate` returns False when it changed nothing, which skips the write.
+        """
         backend = caches["default"]
         if not isinstance(backend, RedisCache):
             return
@@ -1614,7 +1742,8 @@ class IntegrationViewSet(
                     return
                 data = client.decode(previous)
                 channels_by_id = {item["id"]: item for item in data["channels"]}
-                channels_by_id[channel["id"]] = channel
+                if not mutate(channels_by_id):
+                    return
                 updated = client.encode({**data, "channels": list(channels_by_id.values())})
                 # Compare the encoded value so concurrent lookups and list refreshes cannot lose writes.
                 if redis_client.eval(
@@ -1634,6 +1763,27 @@ class IntegrationViewSet(
             # The caller already resolved the channel, so a Redis failure here must not turn a
             # successful lookup into a 500. The next list refresh rebuilds the cache.
             logger.warning("slack_channel_cache_update_failed", cache_key=key, exc_info=True)
+
+    @classmethod
+    def _cache_slack_channel(cls, key: str, channel: dict) -> None:
+        def merge(channels_by_id: dict[str, dict]) -> bool:
+            channels_by_id[channel["id"]] = channel
+            return True
+
+        cls._mutate_cached_slack_channels(key, merge)
+
+    @classmethod
+    def _drop_cached_slack_channel(cls, key: str, channel_id: str) -> None:
+        """Remove a channel Slack no longer returns from the cached list.
+
+        It is gone, or no longer visible to the app, so the list has to stop offering it for the
+        same reason a rejoined one has to replace its stale copy.
+        """
+
+        def drop(channels_by_id: dict[str, dict]) -> bool:
+            return channels_by_id.pop(channel_id, None) is not None
+
+        cls._mutate_cached_slack_channels(key, drop)
 
     @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
@@ -1660,10 +1810,12 @@ class IntegrationViewSet(
             raise ValidationError("channels endpoint is only supported for Slack integrations")
         slack = SlackIntegration(instance)
         should_include_private_channels: bool = instance.created_by_id == request.user.id
+        query_serializer = SlackChannelsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
         # force_refresh is only honored for cookie-session callers — MCP / API-key / OAuth
         # callers always read through the 1h cache so an agent loop can't bypass it.
         is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
-        force_refresh: bool = is_session_auth and request.query_params.get("force_refresh", "false").lower() == "true"
+        force_refresh: bool = is_session_auth and query_serializer.validated_data["force_refresh"]
         authed_user = cast(str | None, instance.config.get("authed_user", {}).get("id")) if instance.config else None
         if not authed_user:
             raise ValidationError("SlackIntegration: Missing authed_user_id in integration config")
@@ -1673,13 +1825,21 @@ class IntegrationViewSet(
         # install the same workspace must not share cached private-channel lists.
         key = f"slack/{instance.id}/{should_include_private_channels}/channels"
 
-        channel_id = request.query_params.get("channel_id")
+        channel_id = query_serializer.validated_data["channel_id"]
         if channel_id:
-            data = cache.get(key)
-            if data is not None:
-                for channel in data["channels"]:
-                    if channel["id"] == channel_id:
-                        return Response({"channels": [channel]})
+            if not force_refresh:
+                data = cache.get(key)
+                if data is not None:
+                    for channel in data["channels"]:
+                        if channel["id"] == channel_id:
+                            return Response({"channels": [channel]})
+            # Past the cached list every lookup reaches Slack, and a forced one skips the list
+            # altogether, so the same per-minute budget the member lookup uses applies here.
+            _take_slack_lookup_budget(
+                f"slack/{instance.id}/channels_info_budget",
+                SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE,
+                "Too many Slack channel lookups. Try again in a minute.",
+            )
             try:
                 channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
             except SlackApiError as e:
@@ -1688,10 +1848,11 @@ class IntegrationViewSet(
                 serialized_channel = self._serialize_slack_channel(channel)
                 self._cache_slack_channel(key, serialized_channel)
                 return Response({"channels": [serialized_channel]})
+            # Only a forced lookup reaches Slack for a channel the cached list still holds, so this
+            # drops a channel the workspace no longer offers rather than leaving it pickable.
+            self._drop_cached_slack_channel(key, channel_id)
             return Response({"channels": []})
 
-        query_serializer = SlackChannelsQuerySerializer(data=request.query_params)
-        query_serializer.is_valid(raise_exception=True)
         search = query_serializer.validated_data["search"]
         limit = query_serializer.validated_data["limit"]
         offset = query_serializer.validated_data["offset"]
@@ -1707,7 +1868,7 @@ class IntegrationViewSet(
                 "channels": [self._serialize_slack_channel(channel) for channel in channels],
                 "lastRefreshedAt": timezone.now().isoformat(),
             }
-            cache.set(key, data, 60 * 60)  # one hour
+            cache.set(key, data, SLACK_CHANNELS_CACHE_SECONDS)
 
         filtered_channels = self._filter_slack_channels_for_search(data["channels"], search)
         page = filtered_channels[offset : offset + limit]
@@ -1780,13 +1941,11 @@ class IntegrationViewSet(
                 return Response({"users": cached_lookup})
             # The per-id cache doesn't bound a caller cycling through distinct fabricated ids, so
             # also cap how many uncached lookups an integration can send to Slack per minute.
-            budget_key = f"slack/{instance.id}/users_info_budget"
-            try:
-                lookups = 1 if cache.add(budget_key, 1, 60) else cache.incr(budget_key)
-            except ValueError:
-                lookups = 1
-            if lookups > SLACK_USERS_INFO_LOOKUPS_PER_MINUTE:
-                raise Throttled(detail="Too many Slack member lookups. Try again in a minute.")
+            _take_slack_lookup_budget(
+                f"slack/{instance.id}/users_info_budget",
+                SLACK_USERS_INFO_LOOKUPS_PER_MINUTE,
+                "Too many Slack member lookups. Try again in a minute.",
+            )
             try:
                 member = slack.get_user_by_id(user_id)
             except SlackApiError as e:
@@ -2036,6 +2195,21 @@ class IntegrationViewSet(
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
 
+    @extend_schema(
+        parameters=[LinearTeamMembersQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer}
+    )
+    @action(methods=["GET"], detail=True, url_path="linear_team_members")
+    def linear_team_members(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = LinearTeamMembersQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        instance = self.get_object()
+        if instance.kind != "linear":
+            raise ValidationError("linear_team_members endpoint is only supported for Linear integrations")
+        _ensure_oauth_token_valid(instance)
+        query = query_serializer.validated_data
+        return assignees_response(lambda: LinearIntegration(instance).list_assignees(query["team_id"], query["search"]))
+
     @extend_schema(operation_id="integrations_anthropic_managed_agents_retrieve")
     @action(methods=["GET"], detail=True, url_path="anthropic_managed_agents")
     def anthropic_managed_agents(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -2161,6 +2335,20 @@ class IntegrationViewSet(
         if instance.kind != "github":
             raise ValidationError("github_repos endpoint is only supported for GitHub integrations")
         return Response(github_repos_page(GitHubIntegration(instance), query_serializer.validated_data))
+
+    @extend_schema(parameters=[GitHubAssigneesQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="github_assignees")
+    def github_assignees(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitHubAssigneesQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("github_assignees endpoint is only supported for GitHub integrations")
+        query = query_serializer.validated_data
+        return assignees_response(
+            lambda: GitHubIntegration(instance).list_assignees(query["repository"], query["search"])
+        )
 
     @extend_schema(request=GitHubPrepareCallbackRequestSerializer, responses={204: None})
     @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
@@ -2412,6 +2600,37 @@ class IntegrationViewSet(
         jira = JiraIntegration(instance)
         return Response({"projects": jira.list_projects()})
 
+    @extend_schema(
+        parameters=[JiraAssignableUsersQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer}
+    )
+    @action(methods=["GET"], detail=True, url_path="jira_assignable_users")
+    def jira_assignable_users(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = JiraAssignableUsersQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        instance = self.get_object()
+        if instance.kind != "jira":
+            raise ValidationError("jira_assignable_users endpoint is only supported for Jira integrations")
+        _ensure_oauth_token_valid(instance)
+        query = query_serializer.validated_data
+        return assignees_response(
+            lambda: JiraIntegration(instance).list_assignees(query["project_key"], query["search"])
+        )
+
+    @extend_schema(
+        parameters=[IntegrationAssigneesQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer}
+    )
+    @action(methods=["GET"], detail=True, url_path="gitlab_members")
+    def gitlab_members(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = IntegrationAssigneesQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        instance = self.get_object()
+        if instance.kind != "gitlab":
+            raise ValidationError("gitlab_members endpoint is only supported for GitLab integrations")
+        search = query_serializer.validated_data["search"]
+        return assignees_response(lambda: GitLabIntegration(instance).list_assignees(search))
+
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
         email = EmailIntegration(self.get_object())
@@ -2511,6 +2730,7 @@ class IntegrationViewSet(
                 host=resolved.host,
                 provider_endpoint=provider_endpoint,
                 redirect_uri=redirect_uri,
+                group_ids=resolved.group_ids,
             )
         except DomainConnectSigningKeyMissing as e:
             capture_exception(

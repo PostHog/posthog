@@ -2,6 +2,8 @@ from typing import Any
 
 from posthog.test.base import TestMigrations
 
+import structlog.testing
+
 from posthog.models.project_secret_api_key import find_project_secret_api_key
 from posthog.models.utils import hash_key_value
 
@@ -12,8 +14,8 @@ DOUBLE_COLLIDING = "phs_backfill_test_double_collision_token"
 
 
 class TestBackfillSecretTokensToPsak(TestMigrations):
-    migrate_from = "1391_organization_provisioning"
-    migrate_to = "1392_backfill_secret_tokens_to_psak"
+    migrate_from = "1392_organization_member_notice"
+    migrate_to = "1393_backfill_secret_tokens_to_psak"
 
     def setUpBeforeMigration(self, apps: Any) -> None:
         Team = apps.get_model("posthog", "Team")
@@ -66,6 +68,20 @@ class TestBackfillSecretTokensToPsak(TestMigrations):
             secret_api_token="",
         ).id
 
+        # Fresh teams start with NULL, and exclude(field="") keeps NULL rows: only the
+        # isnull exclude stops hash_key_value(None) from aborting the deploy.
+        self.null_team_id = Team.objects.create(
+            organization_id=self.organization.id,
+            project_id=self.team.project_id,
+            name="null legacy token",
+            secret_api_token=None,
+        ).id
+
+    def setUp(self) -> None:
+        with structlog.testing.capture_logs() as logs:
+            super().setUp()
+        self.logs = logs
+
     def test_backfill_covers_backup_dedup_label_collision_and_empty(self) -> None:
         assert self.apps is not None
         ProjectSecretAPIKey = self.apps.get_model("posthog", "ProjectSecretAPIKey")
@@ -87,9 +103,13 @@ class TestBackfillSecretTokensToPsak(TestMigrations):
         assert collision_row is not None
         assert collision_row.label == f"Migrated legacy secret API key {hash_key_value(COLLIDING)[-8:]}"
 
-        # Base and fallback labels both taken: the row is skipped, not an IntegrityError.
+        # Base and fallback labels both taken: the row is skipped, not an IntegrityError,
+        # and the warning operators grep for before the column drop names the team.
         assert find_project_secret_api_key(DOUBLE_COLLIDING) is None
         assert ProjectSecretAPIKey.objects.filter(team_id=self.double_collision_team_id).count() == 2
+        skip_logs = [log for log in self.logs if log.get("event") == "backfill_label_collision_skipped"]
+        assert [log["team_id"] for log in skip_logs] == [self.double_collision_team_id]
 
-        # A team with an empty legacy token gets nothing.
+        # A team with an empty or NULL legacy token gets nothing.
         assert not ProjectSecretAPIKey.objects.filter(team_id=self.empty_team_id).exists()
+        assert not ProjectSecretAPIKey.objects.filter(team_id=self.null_team_id).exists()
