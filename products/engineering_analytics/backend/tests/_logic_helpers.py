@@ -7,12 +7,18 @@ from types import SimpleNamespace
 from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.utils import timezone
 
 import pandas as pd
 
+from posthog.hogql.query import execute_hogql_query
+
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import TtlSchedule
+from products.engineering_analytics.backend.logic import ci_precompute
+from products.engineering_analytics.backend.logic.queries._curated import STORED_QUERY_TYPE_SUFFIX
 from products.engineering_analytics.backend.logic.sources import DEPOT_JOB_ATTEMPTS_SCHEMA
 from products.engineering_analytics.backend.logic.views.source_schema import (
     DEPOT_JOB_ATTEMPTS_COLUMNS,
@@ -290,3 +296,59 @@ class _EndpointsWarehouseMixin(_WarehouseMixin):
                 ),
             ],
         )
+
+
+_CURATED = "products.engineering_analytics.backend.logic.queries._curated"
+_CI_PRECOMPUTE = "products.engineering_analytics.backend.logic.ci_precompute"
+
+
+class _StoredCiRowsMixin(_WarehouseMixin):
+    # Runs only the STORED_READ_TESTS of a warehouse test class, with their floored CI sources read
+    # from the stored rows through the real inserts and tables. A listed test fails when it runs no
+    # stored read, or when a stored read fails and the raw tables answer in its place.
+    STORED_READ_TESTS: tuple[str, ...] = ()
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        missing = [name for name in cls.STORED_READ_TESTS if not callable(getattr(cls, name, None))]
+        assert cls.STORED_READ_TESTS and not missing, f"{cls.__name__} lists tests that do not exist: {missing}"
+        for name in dir(cls):
+            if name.startswith("test") and name not in cls.STORED_READ_TESTS:
+                setattr(cls, name, None)
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._stored_reads = 0
+        self._failed_stored_reads = 0
+        ensure_stored = ci_precompute.ensure_stored
+
+        # A test seeds its tables and reads at once, with no load to start a refresh.
+        def store_then_check(stored: Any, team: Any, source: Any, *, since: datetime, **kwargs: Any) -> Any:
+            ensure_stored(stored, team, source, since=since, run_inserts=True)
+            return ensure_stored(stored, team, source, since=since, **kwargs)
+
+        for patcher in (
+            patch(f"{_CURATED}.team_flag", return_value=True),
+            patch(f"{_CI_PRECOMPUTE}.ensure_stored", side_effect=store_then_check),
+            # One insert for the whole span of a read, in place of one insert for each day.
+            patch(f"{_CI_PRECOMPUTE}._max_age_schedule", return_value=TtlSchedule.from_seconds(3600)),
+            patch(f"{_CURATED}.execute_hogql_query", side_effect=self._execute),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.addCleanup(self._assert_stored_reads_answered)
+
+    def _execute(self, **kwargs: Any) -> Any:
+        if not kwargs["query_type"].endswith(STORED_QUERY_TYPE_SUFFIX):
+            return execute_hogql_query(**kwargs)
+        try:
+            response = execute_hogql_query(**kwargs)
+        except Exception:
+            self._failed_stored_reads += 1
+            raise
+        self._stored_reads += 1
+        return response
+
+    def _assert_stored_reads_answered(self) -> None:
+        assert not self._failed_stored_reads, "a stored read failed, and the raw tables answered in its place"
+        assert self._stored_reads, "this test ran no stored read, so its second run proves nothing"

@@ -24,6 +24,7 @@ all expire in one refresh.
 """
 
 import time
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -292,3 +293,98 @@ def _refresh(team: Team) -> bool:
                 )
                 failed = failed or any(error != WAIT_TIMEOUT_ERROR for error in result.errors)
     return failed
+
+
+# A read takes a stored day up to this long after a refresh would compute it again. A refresh runs
+# after each data load, so a day older than this missed several loads.
+_READ_GRACE_SECONDS = 40 * 60
+
+
+class StoredCiReader:
+    """The stored rows of one repository of one source, as subqueries for the reads of one request.
+
+    Each method gives a subquery with the columns of the builder it stands for, or None when a day
+    the read needs is not stored. ``floor`` is the date-only scan floor of the read. The subquery
+    still applies the floor placeholder of the builder, so it returns the rows the builder returns.
+
+    A run is stored under the day it was created, and a re-run starts it again up to ``RUN_LIFETIME``
+    later. So a read of runs, or of the runs that jobs belong to, needs the stored days from that
+    long before its floor.
+    """
+
+    def __init__(self, team: Team, source: JobSourceTables) -> None:
+        self._team = team
+        self._source = source
+        self._identity = (
+            f"source_id = {source_literal(source.source_id)} AND repository = {repository_literal(source.repository)}"
+        )
+        self._days: dict[tuple[LazyComputationTable, datetime], str | None] = {}
+        self._lock = threading.Lock()
+
+    def runs(self, floor: str) -> str | None:
+        rows = self._run_rows(floor)
+        return rows and f"({rows} AND run_started_at_raw >= {{run_started_floor}})"
+
+    def jobs(self, floor: str) -> str | None:
+        rows = self._job_rows(floor, workflow_jobs.COLUMNS)
+        return rows and f"({rows})"
+
+    def job_costs(self, floor: str) -> str | None:
+        jobs = self._job_rows(floor, JOB_COLUMNS)
+        runs = self._run_rows(floor)
+        if jobs is None or runs is None:
+            return None
+        return f"({job_costs.build_attributed_query(costed_jobs=jobs, runs=runs)})"
+
+    def _run_rows(self, floor: str) -> str | None:
+        stored = self._stored(STORED_RUNS, floor, reach=RUN_LIFETIME)
+        if stored is None:
+            return None
+        columns = [column for column in RUN_COLUMNS if column not in depot_ci.WINDOWED_RUN_COLUMNS]
+        return f"""
+            SELECT {", ".join(columns)}, {workflow_runs.STOPPED_REPORTING_SQL} AS stopped_reporting
+            FROM {STORED_RUNS.table}
+            WHERE {stored} AND NOT is_handoff_shell
+        """
+
+    def _job_rows(self, floor: str, columns: tuple[str, ...]) -> str | None:
+        stored = self._stored(STORED_JOBS, floor)
+        stored_runs = self._stored(STORED_RUNS, floor, reach=RUN_LIFETIME)
+        if stored is None or stored_runs is None:
+            return None
+        return f"""
+            SELECT {", ".join(columns)}
+            FROM {STORED_JOBS.table}
+            WHERE {stored} AND created_at_raw >= {{job_created_floor}}
+                AND (ci_engine, run_id) NOT IN (
+                    SELECT ci_engine, id FROM {STORED_RUNS.table} WHERE {stored_runs} AND is_handoff_shell
+                )
+        """
+
+    def _stored(self, stored: StoredRows, floor: str, *, reach: timedelta = timedelta(0)) -> str | None:
+        """A predicate for the stored rows of this repository from ``reach`` before the floor, or None
+        when a day in that span is not stored or the floor is not a date."""
+        try:
+            since = datetime.strptime(floor, "%Y-%m-%d").replace(tzinfo=UTC) - reach
+        except (ValueError, OverflowError):
+            return None
+        # A floor below the stored days can never be served, and a lookup from a far-off floor
+        # walks every day up to now.
+        if since.date() < (datetime.now(UTC) - stored.days).date():
+            return None
+        key = (stored.table, since)
+        with self._lock:
+            if key not in self._days:
+                result = ensure_stored(
+                    stored,
+                    self._team,
+                    self._source,
+                    since=since,
+                    run_inserts=False,
+                    stale_while_revalidate_seconds=_READ_GRACE_SECONDS,
+                )
+                job_ids = ", ".join(f"'{UUID(str(job_id))}'" for job_id in result.job_ids)
+                # A floor after today spans no day, so the check is ready with no job.
+                servable = result.ready and bool(job_ids)
+                self._days[key] = f"job_id IN ({job_ids}) AND {self._identity}" if servable else None
+            return self._days[key]
