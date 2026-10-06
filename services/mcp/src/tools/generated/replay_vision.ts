@@ -1748,13 +1748,13 @@ const VisionScannersVariantsListSchema = () => {
 
 const visionScannersVariantsList = (): ToolBase<
     ReturnType<typeof VisionScannersVariantsListSchema>,
-    WithAgentNote<Schemas.ExperimentVariantsReadout[]>
+    WithAgentNote<Schemas.ExperimentVariantsReadout>
 > => ({
     name: 'vision-scanners-variants-list',
     schema: VisionScannersVariantsListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersVariantsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ExperimentVariantsReadout[]>({
+        const result = await context.api.request<Schemas.ExperimentVariantsReadout>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.scanner_id))}/variants/`,
         })

@@ -12,7 +12,8 @@ import { searchPerformanceLogic } from './searchPerformanceLogic'
 import { SearchPerformanceTable } from './SearchPerformanceTable'
 
 export function SearchPerformanceDetail(): JSX.Element {
-    const { selectedRow, detailQuery, compareFilter, hasSearchConsole } = useValues(searchPerformanceLogic)
+    const { selectedRow, detailQuery, detailSourceNotices, compareFilter, hasSearchConsole } =
+        useValues(searchPerformanceLogic)
     const { selectRow } = useActions(searchPerformanceLogic)
     const organic = selectedRow?.platform === 'GoogleSearchConsole'
     const metricKeys: ('clicks' | 'impressions' | 'ctr' | 'position' | 'conversions')[] = [
@@ -81,19 +82,26 @@ export function SearchPerformanceDetail(): JSX.Element {
                                 ' Ad keywords can match different searches; these organic results are for the same text.'}
                         </p>
                     </div>
+                    {detailSourceNotices.map(({ sourceId, message }) => (
+                        <LemonBanner
+                            key={sourceId}
+                            type="info"
+                            action={{ children: 'Manage source', to: urls.dataWarehouseSource(sourceId) }}
+                        >
+                            {message}
+                        </LemonBanner>
+                    ))}
                     {detailQuery?.sources.length ? (
                         <SearchPerformanceTable
                             query={detailQuery}
                             metrics="traffic"
                             queryKey="marketing-search-detail"
                         />
-                    ) : (
+                    ) : !hasSearchConsole ? (
                         <LemonBanner type="info">
-                            {hasSearchConsole
-                                ? 'Enable search_analytics_by_query_page in Google Search Console to see this breakdown.'
-                                : 'Connect Google Search Console to see organic queries and landing pages.'}
+                            Connect Google Search Console to see organic queries and landing pages.
                         </LemonBanner>
-                    )}
+                    ) : null}
                     {!hasSearchConsole && (
                         <LemonButton
                             type="primary"

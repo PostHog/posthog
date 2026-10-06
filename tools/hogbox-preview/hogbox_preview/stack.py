@@ -180,6 +180,10 @@ class PostHogPreviewStack:
         self.migrate()
         self.start_cdp_service()
         self.sync_hog_function_templates()
+        try:
+            self.sync_feature_flags()
+        except Exception as e:  # noqa: BLE001
+            sys.stderr.write(f"[hogbox-preview] feature flag sync skipped (preview still usable): {e}\n")
         if self.seed_demo_data:
             # Best-effort: a transient build/model issue shouldn't sink an
             # otherwise-good preview — it just opens empty.
@@ -361,9 +365,12 @@ class PostHogPreviewStack:
             # a public preview URL can't be used to forge sessions on another.
             f"      - SECRET_KEY={self.secret_key}",
             f"      - OIDC_RSA_PRIVATE_KEY={self.oidc_private_key}",
-            # A preview serves one user, and each worker costs a full Django import
-            # at boot, so one worker reaches a serving /_health much sooner.
+            # Each worker costs a full Django import at boot, so a preview runs one.
+            # Under ASGI one worker serves one sync request at a time, and a page
+            # load fires dozens in parallel. WSGI serves them from a thread pool.
             "      - GRANIAN_WORKERS=1",
+            "      - GRANIAN_INTERFACE=wsgi",
+            "      - GRANIAN_BLOCKING_THREADS=16",
             # master's Django hard-requires the personhog service for group-type
             # lookups (require_personhog_client() raises "personhog client not
             # configured" without it — #65968). Same addr the dev/hobby composes
@@ -657,6 +664,14 @@ class PostHogPreviewStack:
             self._compose("run --rm -T web python manage.py sync_hog_function_templates"),
             name="sync-templates",
             timeout=900,
+        )
+
+    def sync_feature_flags(self) -> None:
+        timing.stage("sync feature flags")
+        self.backend.run_long(
+            self._compose("run --rm -T web python manage.py sync_feature_flags"),
+            name="sync-flags",
+            timeout=600,
         )
 
     def generate_demo_data(self) -> None:
