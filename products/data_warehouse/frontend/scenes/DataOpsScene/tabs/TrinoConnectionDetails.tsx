@@ -16,7 +16,6 @@ export function TrinoConnectionDetails({
     const cliCommand =
         `trino --server https://${host}:${port} --user ${username} --password --catalog ${catalog}` +
         (schemaName ? ` --schema ${schemaName}` : '')
-    const jdbcUrl = `jdbc:trino://${host}:${port}/${catalog}${schemaName ? `/${schemaName}` : ''}?SSL=true`
 
     return (
         <div className="border rounded p-4 space-y-3">
@@ -68,19 +67,6 @@ export function TrinoConnectionDetails({
                     }
                 >
                     {cliCommand}
-                </CodeSnippet>
-            </div>
-            <div>
-                <LemonLabel>JDBC URL</LemonLabel>
-                <CodeSnippet
-                    compact
-                    wrap
-                    thing="JDBC URL"
-                    onCopy={() =>
-                        posthog.capture('managed warehouse connection details copied', { connection_type: 'jdbc' })
-                    }
-                >
-                    {jdbcUrl}
                 </CodeSnippet>
             </div>
             <p className="text-muted text-xs mb-0">

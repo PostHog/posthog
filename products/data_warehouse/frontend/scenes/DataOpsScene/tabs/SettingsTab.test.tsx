@@ -65,7 +65,6 @@ describe('SettingsTab', () => {
         expect(await screen.findByText('Catalog')).toBeInTheDocument()
         // CodeSnippet can split its text across elements, so these read the page text.
         const pageText = document.body.textContent ?? ''
-        expect(pageText).toContain('jdbc:trino://my-warehouse.dw.example.com:443/org_my_warehouse/analytics?SSL=true')
         expect(pageText).toContain('--catalog org_my_warehouse --schema analytics')
         expect(pageText).not.toMatch(/psql|ducklake/i)
     })
