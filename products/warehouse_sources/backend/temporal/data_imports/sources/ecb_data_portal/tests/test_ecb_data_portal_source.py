@@ -118,6 +118,16 @@ class TestEcbDataPortalSource:
                 True,
             ),
             (
+                "502 Server Error: Bad Gateway for url: "
+                "https://data-api.ecb.europa.eu/service/data/FM/B.U2.EUR.4F.KR.MRR_FR.LEV?format=csvdata",
+                True,
+            ),
+            (
+                "504 Server Error: Gateway Timeout for url: "
+                "https://data-api.ecb.europa.eu/service/data/EXR/D.GBP.EUR.SP00.A?format=csvdata",
+                True,
+            ),
+            (
                 "500 Server Error: Internal Server Error for url: https://example.com/service/data/EXR",
                 False,
             ),
