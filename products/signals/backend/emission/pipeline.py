@@ -11,7 +11,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from anthropic import AsyncAnthropic
+from anthropic import APIResponseValidationError, AsyncAnthropic
 from anthropic.types import MessageParam
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -213,8 +213,8 @@ async def _summarize_description(
             await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
         summary = ""
         try:
-            raw_response = await asyncio.wait_for(
-                client.messages.with_raw_response.create(
+            response = await asyncio.wait_for(
+                client.messages.create(
                     model=LLM_MODEL,
                     messages=messages,
                     max_tokens=LLM_MAX_OUTPUT_TOKENS,
@@ -225,12 +225,11 @@ async def _summarize_description(
                 timeout=LLM_CALL_TIMEOUT_SECONDS,
             )
             await database_sync_to_async(record_llm_request)(
-                raw_response.headers.get("x-request-id") if on_go_gateway else None,
+                getattr(response, "_request_id", None) if on_go_gateway else None,
                 team_id=team_id,
                 signal_id=output.signal_id,
                 stage="summarization",
             )
-            response = raw_response.parse()
             summary = _extract_text(response).strip()
             if response.stop_reason == "max_tokens":
                 raise ValueError("LLM summary response was truncated due to token limit")
@@ -240,6 +239,15 @@ async def _summarize_description(
                 raise ValueError(f"Summary is {len(summary)} characters, must be at most {threshold}")
             return dataclasses.replace(output, description=summary)
         except Exception as e:
+            if isinstance(e, (APIResponseValidationError, json.JSONDecodeError)):
+                await database_sync_to_async(record_llm_request)(
+                    e.response.headers.get("x-request-id")
+                    if on_go_gateway and isinstance(e, APIResponseValidationError)
+                    else None,
+                    team_id=team_id,
+                    signal_id=output.signal_id,
+                    stage="summarization",
+                )
             posthoganalytics.capture_exception(
                 e,
                 properties={
@@ -386,8 +394,8 @@ async def check_actionability(
             if attempt > 0:
                 await asyncio.sleep(LLM_RETRY_INITIAL_DELAY_SECONDS * (LLM_RETRY_BACKOFF_COEFFICIENT ** (attempt - 1)))
             try:
-                raw_response = await asyncio.wait_for(
-                    client.messages.with_raw_response.create(
+                response = await asyncio.wait_for(
+                    client.messages.create(
                         model=LLM_MODEL,
                         messages=[{"role": "user", "content": prompt}],
                         max_tokens=LLM_MAX_OUTPUT_TOKENS,
@@ -398,15 +406,23 @@ async def check_actionability(
                     timeout=LLM_CALL_TIMEOUT_SECONDS,
                 )
                 await database_sync_to_async(record_llm_request)(
-                    raw_response.headers.get("x-request-id") if on_go_gateway else None,
+                    getattr(response, "_request_id", None) if on_go_gateway else None,
                     team_id=team_id,
                     signal_id=output.signal_id,
                     stage="actionability",
                 )
-                response = raw_response.parse()
                 response_text = _extract_text(response).strip().upper()
                 return "NOT_ACTION" not in response_text
             except Exception as e:
+                if isinstance(e, (APIResponseValidationError, json.JSONDecodeError)):
+                    await database_sync_to_async(record_llm_request)(
+                        e.response.headers.get("x-request-id")
+                        if on_go_gateway and isinstance(e, APIResponseValidationError)
+                        else None,
+                        team_id=team_id,
+                        signal_id=output.signal_id,
+                        stage="actionability",
+                    )
                 posthoganalytics.capture_exception(
                     e,
                     properties={

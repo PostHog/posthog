@@ -73,9 +73,8 @@ def _make_llm_response(content: str | None, stop_reason: str = "end_turn") -> Ma
         block.text = content
         response.content = [block]
     response.stop_reason = stop_reason
-    raw_response = MagicMock(headers={})
-    raw_response.parse.return_value = response
-    return raw_response
+    response._request_id = None
+    return response
 
 
 def _make_output(
@@ -381,7 +380,7 @@ class TestCheckActionability:
     )
     async def test_classifies_based_on_llm_response(self, llm_response, expected):
         mock_client = MagicMock()
-        mock_client.messages.with_raw_response.create = AsyncMock(return_value=_make_llm_response(llm_response))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response(llm_response))
 
         output = _make_output(description="test ticket")
         is_actionable = await check_actionability(mock_client, 1, output, "Is this actionable? {description}")
@@ -394,12 +393,12 @@ class TestCheckActionability:
         # be threaded from the source config. Without this the GitHub gate can't see who filed an
         # issue, and a bot's dependency bump is indistinguishable from a maintainer's bug report.
         mock_client = MagicMock()
-        mock_client.messages.with_raw_response.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
         output = _make_output(extra={"author_login": "dependabot[bot]", "state": "open"})
 
         await check_actionability(mock_client, 1, output, "prompt {description}", context_fields=("author_login",))
 
-        prompt = mock_client.messages.with_raw_response.create.call_args.kwargs["messages"][0]["content"]
+        prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
         assert '"author_login": "dependabot[bot]"' in prompt
         # Undeclared keys stay out, so a source widens its prompt only where it asked to.
         assert "state" not in prompt
@@ -409,14 +408,14 @@ class TestCheckActionability:
         # A rendered `"author_login": null` reads to the model as a fact about the author rather than
         # as an absent field, so an unknown author must leave the block out entirely.
         mock_client = MagicMock()
-        mock_client.messages.with_raw_response.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
         output = _make_output(extra={"author_login": None, "author_association": None})
 
         await check_actionability(
             mock_client, 1, output, "prompt {description}", context_fields=("author_login", "author_association")
         )
 
-        prompt = mock_client.messages.with_raw_response.create.call_args.kwargs["messages"][0]["content"]
+        prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
         assert "<record_metadata>" not in prompt
 
     @pytest.mark.asyncio
@@ -424,7 +423,7 @@ class TestCheckActionability:
         # A steered gate serializes all of `extra` and truncates it, so declared keys have to lead
         # the block. Ordered behind a record's labels they fall off the end and the gate goes blind.
         mock_client = MagicMock()
-        mock_client.messages.with_raw_response.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
         output = _make_output(extra={"labels": ["x" * 100] * 40, "author_login": "octocat"})
 
         await check_actionability(
@@ -436,24 +435,24 @@ class TestCheckActionability:
             context_fields=("author_login",),
         )
 
-        prompt = mock_client.messages.with_raw_response.create.call_args.kwargs["messages"][0]["content"]
+        prompt = mock_client.messages.create.call_args.kwargs["messages"][0]["content"]
         assert '"author_login": "octocat"' in prompt
 
     @pytest.mark.asyncio
     async def test_assumes_actionable_after_retries_exhausted(self):
         mock_client = MagicMock()
-        mock_client.messages.with_raw_response.create = AsyncMock(side_effect=Exception("API error"))
+        mock_client.messages.create = AsyncMock(side_effect=Exception("API error"))
 
         with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics"):
             is_actionable = await check_actionability(mock_client, 1, _make_output(), "prompt {description}")
 
         assert is_actionable is True
-        assert mock_client.messages.with_raw_response.create.call_count == LLM_MAX_ATTEMPTS
+        assert mock_client.messages.create.call_count == LLM_MAX_ATTEMPTS
 
     @pytest.mark.asyncio
     async def test_returns_true_on_none_response_content(self):
         mock_client = MagicMock()
-        mock_client.messages.with_raw_response.create = AsyncMock(return_value=_make_llm_response(None))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response(None))
 
         is_actionable = await check_actionability(mock_client, 1, _make_output(), "prompt {description}")
 
@@ -462,12 +461,12 @@ class TestCheckActionability:
     @pytest.mark.asyncio
     async def test_passes_team_attribution_headers(self):
         mock_client = MagicMock()
-        mock_client.messages.with_raw_response.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
         output = _make_output(source_id="42")
         await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
 
-        call_kwargs = mock_client.messages.with_raw_response.create.call_args.kwargs
+        call_kwargs = mock_client.messages.create.call_args.kwargs
         assert call_kwargs["metadata"]["user_id"] == "team-7"
         headers = call_kwargs["extra_headers"]
         assert headers["x-posthog-property-ai_stage"] == "actionability"
@@ -488,19 +487,19 @@ class TestCheckActionability:
     )
     async def test_pins_effort_only_on_adaptive_models(self, model, expected_output_config):
         mock_client = MagicMock()
-        mock_client.messages.with_raw_response.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
         with patch(f"{PIPELINE_MODULE_PATH}.LLM_MODEL", model):
             await check_actionability(mock_client, 7, _make_output(), "Is this actionable? {description}")
 
-        call_kwargs = mock_client.messages.with_raw_response.create.call_args.kwargs
+        call_kwargs = mock_client.messages.create.call_args.kwargs
         assert call_kwargs.get("output_config") == expected_output_config
 
     @pytest.mark.asyncio
     @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
     async def test_gateway_mode_labels_ride_on_properties_blob(self):
         mock_client = MagicMock()
-        mock_client.messages.with_raw_response.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
 
         output = _make_output(source_id="42")
         with (
@@ -520,7 +519,7 @@ class TestCheckActionability:
         ):
             await check_actionability(mock_client, 7, output, "Is this actionable? {description}")
 
-        headers = mock_client.messages.with_raw_response.create.call_args.kwargs["extra_headers"]
+        headers = mock_client.messages.create.call_args.kwargs["extra_headers"]
         decision_request = decide.call_args.args[0]
         assert headers["X-PostHog-Trace-Id"] == decision_request.trace_id
         # The Go gateway reads labels only from X-PostHog-Properties; the per-key headers are gone.
@@ -556,7 +555,7 @@ class TestFilterActionable:
             prompt = kwargs["messages"][0]["content"]
             return _make_llm_response("NOT_ACTIONABLE" if "non-actionable two" in prompt else "ACTIONABLE")
 
-        mock_client.messages.with_raw_response.create = mock_create
+        mock_client.messages.create = mock_create
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_client),
@@ -573,7 +572,7 @@ class TestSummarizeDescription:
 
     def _mock_client(self, responses: Sequence[str | None]) -> MagicMock:
         client = MagicMock()
-        client.messages.with_raw_response.create = AsyncMock(side_effect=[_make_llm_response(r) for r in responses])
+        client.messages.create = AsyncMock(side_effect=[_make_llm_response(r) for r in responses])
         return client
 
     @pytest.mark.asyncio
@@ -633,7 +632,7 @@ class TestSummarizeDescription:
 
         await _summarize_description(client, 42, output, self.PROMPT, self.THRESHOLD)
 
-        call_kwargs = client.messages.with_raw_response.create.call_args.kwargs
+        call_kwargs = client.messages.create.call_args.kwargs
         assert call_kwargs["metadata"]["user_id"] == "team-42"
         headers = call_kwargs["extra_headers"]
         assert headers["x-posthog-property-ai_stage"] == "summarization"
@@ -653,7 +652,7 @@ class TestSummarizeLongDescriptions:
         team = MagicMock(id=1)
 
         mock_client = MagicMock()
-        mock_client.messages.with_raw_response.create = AsyncMock(return_value=_make_llm_response("Summarized."))
+        mock_client.messages.create = AsyncMock(return_value=_make_llm_response("Summarized."))
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_client),
@@ -819,7 +818,7 @@ class TestPipelineStageTelemetry:
                 return _make_llm_response("NOT_ACTIONABLE")
             return _make_llm_response("ACTIONABLE")
 
-        mock_llm_client.messages.with_raw_response.create = create
+        mock_llm_client.messages.create = create
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_llm_client),
@@ -862,7 +861,7 @@ class TestRunSignalPipelineSteering:
             return _make_llm_response("NOT_ACTIONABLE")
 
         mock_llm_client = MagicMock()
-        mock_llm_client.messages.with_raw_response.create = create
+        mock_llm_client.messages.create = create
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_llm_client),
@@ -907,7 +906,7 @@ class TestRunSignalPipelineSteering:
             return _make_llm_response("ACTIONABLE")
 
         mock_llm_client = MagicMock()
-        mock_llm_client.messages.with_raw_response.create = create
+        mock_llm_client.messages.create = create
 
         with (
             patch(f"{PIPELINE_MODULE_PATH}.build_async_anthropic_client", return_value=mock_llm_client),

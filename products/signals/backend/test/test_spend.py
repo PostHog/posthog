@@ -12,6 +12,7 @@ from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import httpx
+from anthropic import APIResponseValidationError, AsyncAnthropic
 from fakeredis import FakeRedis
 from parameterized import parameterized
 from structlog.testing import capture_logs
@@ -41,6 +42,47 @@ class TestSpendPricing(SimpleTestCase):
 
 
 class TestSignalSpend(BaseTest):
+    @parameterized.expand([("invalid_json",), ("invalid_message",)])
+    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test")
+    async def test_unreadable_generation_preserves_request_id_or_records_failed_stage(self, failure: str) -> None:
+        driver = str(uuid4())
+        transport = httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={
+                    "x-request-id": "generation-1",
+                    "request-id": "generation-1",
+                    "content-type": "application/json",
+                },
+                content=b"not-json" if failure == "invalid_json" else b"{}",
+            )
+        )
+        async with AsyncAnthropic(
+            api_key="test-key",
+            http_client=httpx.AsyncClient(transport=transport),
+            _strict_response_validation=True,
+        ) as client:
+            with (
+                patch("products.signals.backend.temporal.llm.build_async_anthropic_client", return_value=client),
+                self.assertRaises(json.JSONDecodeError if failure == "invalid_json" else APIResponseValidationError),
+            ):
+                await call_llm(
+                    team_id=self.team.id,
+                    signal_id=driver,
+                    system_prompt="Example prompt",
+                    user_prompt="Example finding",
+                    validate=lambda text: text,
+                    stage="safety",
+                    ai_product="signals",
+                )
+        spend = await database_sync_to_async(lambda: SignalSpend.objects.for_team(self.team.id).get(signal_id=driver))()
+        assert spend.stage == "safety"
+        assert spend.accounting_failed is (failure == "invalid_json")
+        if failure == "invalid_json":
+            assert spend.source_id.startswith("unknown-")
+        else:
+            assert spend.source_id == "generation-1"
+
     @parameterized.expand([("gateway",), ("missing_request_id",), ("legacy",)])
     async def test_parallel_generations_record_every_attempt_for_the_explicit_owner(self, mode: str) -> None:
         drivers = [str(uuid4()), str(uuid4())]
@@ -51,7 +93,9 @@ class TestSignalSpend(BaseTest):
             attempts[key] = attempts.get(key, 0) + 1
             return httpx.Response(
                 200,
-                headers={"x-request-id": f"{key}-{attempts[key]}"} if mode != "missing_request_id" else {},
+                headers={"x-request-id": f"{key}-{attempts[key]}", "request-id": f"{key}-{attempts[key]}"}
+                if mode != "missing_request_id"
+                else {},
                 json={
                     "id": "msg_example",
                     "type": "message",

@@ -21,9 +21,8 @@ def _make_llm_response(verdict: str) -> MagicMock:
     response = MagicMock()
     response.content = [block]
     response.stop_reason = "end_turn"
-    raw_response = MagicMock(headers={})
-    raw_response.parse.return_value = response
-    return raw_response
+    response._request_id = None
+    return response
 
 
 def _make_team() -> MagicMock:
@@ -33,7 +32,7 @@ def _make_team() -> MagicMock:
 async def _run_gate(source_config: dict, *, verdict: str = "NOT_ACTIONABLE", extra: dict | None = None):
     """Run the gate against a stubbed source config and LLM, returning (dropped, anthropic client)."""
     client = MagicMock()
-    client.messages.with_raw_response.create = AsyncMock(return_value=_make_llm_response(verdict))
+    client.messages.create = AsyncMock(return_value=_make_llm_response(verdict))
     client.__aenter__.return_value = client
     with (
         patch(f"{GATE_MODULE_PATH}.afetch_source_config", AsyncMock(return_value=source_config)),
@@ -75,14 +74,14 @@ class TestSteeringFiltersSignal:
         dropped, client, _ = await _run_gate(source_config)
 
         assert dropped is False
-        client.messages.with_raw_response.create.assert_not_called()
+        client.messages.create.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_steering_drops_the_signal_and_reports_it_as_filtered(self):
         dropped, client, capture = await _run_gate({"steering": "Ignore errors from localhost."})
 
         assert dropped is True
-        prompt = client.messages.with_raw_response.create.call_args.kwargs["messages"][0]["content"]
+        prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
         assert "Ignore errors from localhost." in prompt
         # `extra` reaches the gate too, so a rule can name a fact the description does not carry.
         assert '"fingerprint": "abc123"' in prompt
@@ -99,7 +98,7 @@ class TestSteeringFiltersSignal:
             {"steering": "Ignore errors from localhost.", "default_not_actionable": True}
         )
 
-        prompt = client.messages.with_raw_response.create.call_args.kwargs["messages"][0]["content"]
+        prompt = client.messages.create.call_args.kwargs["messages"][0]["content"]
         assert "When in doubt, classify as ACTIONABLE." in prompt
         assert "err on the side of filtering" not in prompt
 
@@ -118,7 +117,7 @@ class TestSteeringFiltersSignal:
             await asyncio.sleep(60)
 
         client = MagicMock()
-        client.messages.with_raw_response.create = AsyncMock(side_effect=never_answers)
+        client.messages.create = AsyncMock(side_effect=never_answers)
         client.__aenter__.return_value = client
         with (
             patch(f"{GATE_MODULE_PATH}.afetch_source_config", AsyncMock(return_value={"steering": "Skip noise."})),
